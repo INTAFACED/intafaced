@@ -142,6 +142,31 @@ test(`${J} #1 Complete and continue records the completion once, pressed twice, 
   const recorded = (await completions(who)).filter((row) => row.itemSlug === items[0]);
   expect(recorded).toHaveLength(1);
   run.write({ firstCompletedAt: recorded[0].completedAt });
+
+  // The course rule is shown when it is not met: an item with a quiz must score, an item with a video must watch. Each
+  // reads its rule unmet from Academy, says the rule beside the button, and the button stays off until it is met.
+  const ruleShown = async (slug, rule, words) => {
+    expect((await outlineRows(who, slug)).find((row) => row.slug === slug)).toMatchObject({ rule, ruleMet: false, completedAt: null });
+    await page.goto(`/academy/${slug}`);
+    const guarded = completion(page, slug);
+    await expect(guarded.getByText(words, { exact: true })).toBeVisible();
+    const off = guarded.getByRole('button', { name: 'Complete and continue', exact: true });
+    await expect(off).toBeDisabled();
+    await expect(off).toHaveAccessibleDescription(words);
+  };
+  await setQuiz(items[1], testQuiz('answers'));
+  try {
+    await ruleShown(items[1], 'score', 'Pass this item’s quiz to complete it.');
+  } finally {
+    await setQuiz(items[1], null);
+  }
+  await videoOn(items[3], []);
+  try {
+    await ruleShown(items[3], 'watch', 'Watch this item’s video past the course threshold to complete it.');
+  } finally {
+    await videoOff(items[3]);
+  }
+  expect((await completions(who)).filter((row) => row.itemSlug === items[1] || row.itemSlug === items[3])).toHaveLength(0);
 });
 
 test(`${J} #2 Undo drops the progress, and completing again records a new completion`, async ({ page }) => {

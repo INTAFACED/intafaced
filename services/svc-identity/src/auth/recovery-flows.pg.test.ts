@@ -165,20 +165,53 @@ if (!available) {
       expect(jobs).toEqual([{ code: null, status: 'sent' }]);
     });
 
-    it('counts the request cap per address for a known and an unknown address alike, and answers the same past it', async () => {
+    // J-identity-03 #2: "A code page with resend limits". Past the cap the request refuses with the cap named, for a known
+    // and an unknown address alike, so the refusal says nothing about whether an account exists.
+    it('counts the request cap per address for a known and an unknown address alike, and refuses the same past it', async () => {
       const user = await register();
       const emails = [user.email, 'missing@example.com'];
+      const past: Array<{ code?: string; message?: string }> = [];
       for (const email of emails) {
-        for (const variant of [email, email.toUpperCase(), ` ${email} `, email]) {
-          await expect(anon().auth.requestPasswordReset({ email: variant })).resolves.toEqual({ accepted: true });
+        const variants = [email, email.toUpperCase(), ` ${email} `, email];
+        for (const [index, variant] of variants.entries()) {
+          if (index < 2) await expect(anon().auth.requestPasswordReset({ email: variant })).resolves.toEqual({ accepted: true });
+          else past.push(await refusal(anon().auth.requestPasswordReset({ email: variant })));
         }
       }
-      // Two per address got through; the other two each were answered and wrote nothing.
+      // Two per address got through; the other two each were refused, with the cap named, and wrote nothing.
+      expect(past.map((answer) => answer.code)).toEqual(['auth.reset_limit', 'auth.reset_limit', 'auth.reset_limit', 'auth.reset_limit']);
+      expect(new Set(past.map((answer) => answer.message)).size).toBe(1);
+      expect(past[0]!.message).toMatch(/\b2 codes per address in an hour\b/);
       expect(await counts()).toEqual({ flows: 4, jobs: 4 });
       expect(sent).toHaveLength(2);
       nowMs += 3601 * 1000;
       await anon().auth.requestPasswordReset({ email: user.email });
       expect(await counts()).toEqual({ flows: 5, jobs: 5 });
+    });
+
+    it('names the request cap and its window for every visitor, and nothing while a number is unset', async () => {
+      await expect(anon().auth.passwordResetLimits()).resolves.toEqual({ requestMax: 2, windowSeconds: 3600 });
+      auth.usePasswordResetPolicy({ ...POLICY, requestMax: undefined });
+      await expect(anon().auth.passwordResetLimits()).resolves.toBeNull();
+      auth.usePasswordResetPolicy(POLICY);
+    });
+
+    // J-identity-03 #2: "or opens the link". The mailed link carries the code alone; it finishes the reset as the typed
+    // code does: the password changes, every session ends, and the code is spent.
+    it('completes a reset from the code alone, as the mailed link does, and spends it', async () => {
+      const user = await register();
+      await anon().auth.requestPasswordReset({ email: user.email });
+      const code = sent.at(-1)!.code;
+      // A wrong or made-up code alone is the same refusal as a wrong typed code.
+      expect((await refusal(anon().auth.completePasswordReset({ code: 'not-a-real-code', newPassword: NEW }))).code).toBe(
+        'auth.reset_proof_invalid',
+      );
+      await expect(anon().auth.completePasswordReset({ code, newPassword: NEW })).resolves.toEqual({ ok: true });
+      await expect(anon().auth.login({ identifier: user.email, password: NEW })).resolves.toMatchObject({ userId: user.userId });
+      expect((await refusal(anon().auth.login({ identifier: user.email, password: OLD }))).code).toBe('auth.invalid_credentials');
+      // Spent: the same link again changes nothing.
+      expect((await refusal(anon().auth.completePasswordReset({ code, newPassword: NEWER }))).code).toBe('auth.reset_proof_invalid');
+      await expect(anon().auth.login({ identifier: user.email, password: NEW })).resolves.toMatchObject({ userId: user.userId });
     });
 
     it('locks a flow at the wrong-code cap with the same answers for a known and an unknown address', async () => {
