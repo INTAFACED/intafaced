@@ -1,6 +1,7 @@
 import { test, expect } from './journey.mjs';
 import { EDGE, api, bestPrices, fund, journeyState, toUnits } from './stack.mjs';
 import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn } from './desk.mjs';
+import { cancelMaintenance, draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-14, in the running app (docs/roadmap/journeys.json): a pro trader knows whether a market is open, limited,
 // closing, new or risky before trading it, and never sends an order into a state that refuses it without being told
@@ -11,6 +12,8 @@ import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn 
 // World: book, gates
 // (book: limit orders rest and cancel on BTC/USDC; gates: a market's trading mode is set and put back to Open.)
 const J = 'J-cex-spot-14';
+/** The status component a maintenance notice names one market by (`market-btc-usdc`), as svc-notify reads it. */
+const marketComponent = (symbol) => `market-${symbol.toLowerCase().replace('/', '-')}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** #3 holds this book limit-only for the step, #4 holds it cancel-only. */
 const LIMITED = 'BTC/USDC';
@@ -85,17 +88,39 @@ const orderSends = (sent) => sent.filter((body) => body?.symbol === LIMITED || b
 test(`${J} #1 the markets list shows open, upcoming and delisting markets with listing status and dated delisting; only open real markets are tradeable`, async ({
   page,
 }) => {
+  // The service's own listing read: each market carries its listing status, and a delisting carries its date. Upcoming and
+  // delisting markets are TEST listings the stack seeds (`seed-spot-test-listing.mjs`), as operators would set them.
+  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  const spot = markets.filter((m) => m.spot && !m.paper);
+  const upcoming = spot.find((m) => m.listing === 'upcoming');
+  const delisting = spot.find((m) => m.listing === 'delisting');
+  expect(upcoming, 'an upcoming spot listing on the read').toBeTruthy();
+  expect(delisting, 'a delisting spot listing on the read').toBeTruthy();
+  expect(Date.parse(delisting.delistsAt)).toBeGreaterThan(Date.now());
+  // Only an open market is orderable.
+  for (const m of [upcoming, delisting]) expect(m.orderable, `${m.symbol} is not orderable`).toBe(false);
+  expect(spot.filter((m) => m.orderable).every((m) => m.listing === 'open')).toBe(true);
+
   await page.goto('/trade');
-  const list = page.getByRole('table').first();
+  const list = page.getByRole('grid', { name: 'Markets' });
   await expect(list).toBeVisible();
-  // Every row says its listing status in words.
-  const rows = list.getByRole('row');
-  await expect(rows.first()).toBeVisible();
-  await expect(list.getByText(/^Upcoming$/).first()).toBeVisible({ timeout: UNBUILT_MS });
-  const delisting = list.getByRole('row').filter({ hasText: /Delisting/ });
-  await expect(delisting.first()).toBeVisible({ timeout: UNBUILT_MS });
-  // The delisting is dated.
-  await expect(delisting.first()).toContainText(/\d{1,2} [A-Z][a-z]{2}|[A-Z][a-z]{2} \d{1,2}/, { timeout: UNBUILT_MS });
+  const pair = (m) => new RegExp(`^${m.base}/${m.quote}$`);
+  const rowOf = (m) => list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(m) }) });
+  // An open market's row trades.
+  const btc = rowOf(spot.find((m) => m.symbol === 'BTC/USDT'));
+  await expect(btc.getByRole('button', { name: /^(Trade|Buy) / })).toBeEnabled();
+  // The upcoming listing: named Upcoming, and not a tradeable row.
+  const upRow = rowOf(upcoming);
+  await expect(upRow.getByTestId('mkt-listing')).toHaveText('Upcoming', { timeout: UNBUILT_MS });
+  await expect(upRow.getByRole('button', { name: /^(Trade|Buy) / })).toBeDisabled();
+  // The delisting: named Delisting, with the date it leaves the board, and not a tradeable row.
+  const downRow = rowOf(delisting);
+  await expect(downRow.getByTestId('mkt-listing')).toContainText('Delisting', { timeout: UNBUILT_MS });
+  await expect(downRow.getByTestId('mkt-listing')).toContainText(/Leaves the board on \d{1,2} [A-Z][a-z]{2} \d{4}/);
+  await expect(downRow.getByRole('button', { name: /^(Trade|Buy) / })).toBeDisabled();
+  // Activating a row that does not trade opens no desk.
+  await upRow.click();
+  await expect(page).toHaveURL(/\/trade(\?.*)?$/);
 });
 
 test(`${J} #2 /status shows each market's trading mode and the platform status, with the time they are as of`, async ({ page }) => {
@@ -219,22 +244,58 @@ test(`${J} #4 a new order on a cancel-only market is refused, and cancel works`,
 test(`${J} #5 a market with scheduled maintenance an hour away says "Maintenance in 1 hour" on the ticket and flags it on the list; no end time reads "End time not set"`, async ({
   page,
 }) => {
-  const who = await account(page);
-  await openDesk(page, who, LIMITED);
-  // The maintenance flag on the ticket comes from the lifecycle read's `upcomingMaintenance` (SP-developer-status-01).
-  const res = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(LIMITED)}`);
-  expect(Object.keys(await res.json())).toContain('upcomingMaintenance');
-  await expect(page.getByTestId('dk-ticker')).toContainText('Maintenance in 1 hour', { timeout: UNBUILT_MS });
-  await page.goto('/trade');
-  await expect(
-    page
-      .getByRole('table')
-      .first()
-      .getByText(/Maintenance/)
-      .first(),
-  ).toBeVisible({ timeout: UNBUILT_MS });
-  await page.goto('/status');
-  await expect(page.getByText('End time not set').first()).toBeVisible({ timeout: UNBUILT_MS });
+  test.setTimeout(4 * 60_000);
+  // Two TEST operators publish a maintenance window on the limited market, starting an hour from now, with no end time
+  // (svc-notify's four-eyes publish). The window is cancelled at the end of the step, so it never opens on the stack.
+  const key = `${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}:${Date.now()}:maintenance`;
+  const startsAt = new Date(Date.now() + 61 * 60_000).toISOString();
+  const draft = await draftNotice({
+    kind: 'maintenance',
+    title: `TEST ${LIMITED} maintenance`,
+    body: 'TEST: a journey maintenance window on the local stack.',
+    startsAt,
+    noEnd: true,
+    components: [marketComponent(LIMITED)],
+    key,
+  });
+  const published = await publishNotice(draft, key);
+  try {
+    // The lifecycle read carries it, from the notice's own start time, with no end.
+    await expect
+      .poll(
+        async () => (await (await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(LIMITED)}`)).json()).upcomingMaintenance,
+        {
+          timeout: 30_000,
+        },
+      )
+      .toMatchObject({ status: 'scheduled', noticeId: published.id, startsAt, endsAt: null });
+    // The ticket says it.
+    const who = await account(page);
+    await openDesk(page, who, LIMITED);
+    const ticket = page.getByTestId('dk-maintenance');
+    await expect(ticket).toContainText('Maintenance in 1 hour');
+    await expect(page.getByTestId('dk-ticker')).toContainText('Maintenance in 1 hour');
+    await expect(ticket).toContainText('End time not set');
+    // The markets list flags it on that market's row.
+    await page.goto('/trade');
+    const row = page.getByRole('grid', { name: 'Markets' }).getByRole('row').filter({ hasText: LIMITED });
+    await expect(row.getByTestId('mkt-maintenance')).toHaveText('Maintenance in 1 hour');
+    // /status lists it on the market's row, and its blank end reads "End time not set".
+    await page.goto('/status');
+    await expect(page.getByTestId(`status-maintenance-${LIMITED}`)).toContainText('End time not set');
+  } finally {
+    await cancelMaintenance(published, `${J}: TEST window cancelled at the end of the step`);
+  }
+  // Cancelled, it is gone from the market's read.
+  await expect
+    .poll(
+      async () =>
+        (await (await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(LIMITED)}`)).json()).upcomingMaintenance?.status,
+      {
+        timeout: 30_000,
+      },
+    )
+    .toBe('none');
 });
 
 test(`${J} #6 an order while the market session is closed: the closed-market rule is applied and explained`, async ({ page }) => {
@@ -246,7 +307,7 @@ test(`${J} #6 an order while the market session is closed: the closed-market rul
   const shut = markets.find((m) => m.sessionOpen === false && m.lifecycle && m.lifecycle.state !== 'REFUSED');
   expect(shut, 'a session market with a published lifecycle whose session is shut now').toBeTruthy();
   await page.goto('/trade');
-  await expect(page.getByRole('table').first().getByRole('row').filter({ hasText: shut.base })).toContainText(/Closed.*Opens/, {
+  await expect(page.getByRole('grid', { name: 'Markets' }).getByRole('row').filter({ hasText: shut.base })).toContainText(/Closed.*Opens/, {
     timeout: UNBUILT_MS,
   });
   const before = await client.balances();
@@ -273,41 +334,77 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
 });
 
 test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordered updates, and a reconnect resumes from the last sequence`, async () => {
-  const tickers = await (await fetch(`${EDGE}/api/v1/tickers`)).json();
+  const tickers = await (await fetch(`${EDGE}/api/v1/tickers?limit=500`)).json();
   const btc = Object.values(tickers).find((t) => t?.symbol === 'BTC/USDT');
   expect(btc?.spread, 'the ticker carries a spread field').toBeTruthy();
-  const spreads = await fetch(`${EDGE}/api/v1/spreads`);
+  const spreads = await fetch(`${EDGE}/api/v1/spreads?limit=500`);
   expect(spreads.status).toBe(200);
   const candles = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=5`);
   expect(candles.status).toBe(200);
+  // The step's stream half is not checked yet: a socket snapshot, then updates in sequence order, and a reconnect that
+  // resumes from the last sequence (svc-ws has no resume today). Until a check reads them, the step stays red.
+  throw new Error(`${J} #8: the stream half (snapshot, ordered updates, resume from the last sequence) is not built or checked yet`);
 });
 
 test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window stats with the window named; a blank window refuses`, async ({
   page,
 }) => {
+  const who = await account(page);
+  await signIn(page, who);
   await page.goto('/trade/analytics/BTC-USDT');
-  await expect(page.getByText(/Aggressor differential/)).toBeVisible({ timeout: UNBUILT_MS });
-  await expect(page.getByText(/Window/)).toBeVisible({ timeout: UNBUILT_MS });
+  // The figures are the service's own read of the public tape for the named window.
+  const read = await (await fetch(`${EDGE}/api/v1/analytics/${encodeURIComponent('BTC/USDT')}?window=1h`)).json();
+  expect(read).toMatchObject({ symbol: 'BTC/USDT', window: '1h' });
+  expect(toUnits(read.aggressorDifferential)).toBe(toUnits(read.buyVolume) - toUnits(read.sellVolume));
+  await expect(page.getByTestId('analytics-differential')).toContainText('Aggressor differential');
+  await expect(page.getByTestId('analytics-trades')).toContainText('Trades');
+  await expect(page.getByTestId('analytics-window')).toContainText(
+    /^Window: Last 1 hour, \d{4}-\d{2}-\d{2} \d{2}:\d{2} to \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/,
+  );
+  // Another named window is read again and named.
+  await page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 24 hours' }).click();
+  await expect(page.getByTestId('analytics-window')).toContainText('Window: Last 24 hours');
+  // A blank window refuses with its typed code; it never falls back to a window of its own.
   const blank = await fetch(`${EDGE}/api/v1/analytics/${encodeURIComponent('BTC/USDT')}`);
-  expect(blank.status).toBeGreaterThanOrEqual(400);
+  expect(blank.status).toBe(400);
+  expect(JSON.stringify(await blank.json())).toContain('trade.analytics_window_unset');
 });
 
 test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label reads USD`, async ({ page }) => {
+  const who = await account(page);
+  // A USD-quoted pair the service lists: its desk names the quote USD, from the listing, not from a stand-in.
+  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  const usd = markets.find((m) => m.quote === 'USD' && m.spot && !m.paper);
+  expect(usd, 'a USD-quoted spot pair on the list').toBeTruthy();
+  await signIn(page, who);
+  await page.goto(deskPath(usd.symbol));
+  await expect(page.getByTestId('dk-pair')).toHaveText(`${usd.base}/USD`);
+  // The equity class is not listed without a licence: the markets page names it, with its blocker, and lists no row.
+  expect(markets.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
   await page.goto('/trade');
-  const list = page.getByRole('table').first();
-  const usd = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
-  await expect(usd.first()).toBeVisible();
-  // The equity class is not offered without a licence: its row says so, not a price.
-  await expect(list.getByText('Not available: licence not named')).toBeVisible({ timeout: UNBUILT_MS });
+  // The markets list labels that pair's quote USD too. A USD pair whose session or settlement is not open is a paused
+  // row, so the list is asked to include paused markets first.
+  await page.getByRole('button', { name: 'Include paused' }).click();
+  const list = page.getByRole('grid', { name: 'Markets' });
+  const usdRows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
+  await expect(usdRows.first()).toBeVisible();
+  await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Tokenized equities');
+  await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Not available: licence not named');
 });
 
 test(`${J} #11 the retail price improvement layer reads "Not available: priority class not specified", and no order accepts that flag`, async ({
   page,
 }) => {
   const who = await account(page);
-  await openDesk(page, who, 'BTC/USDT');
-  await expect(page.getByText('Not available: priority class not specified')).toBeVisible({ timeout: UNBUILT_MS });
   const client = await api(who);
+  await page.goto('/trade');
+  await expect(page.getByTestId('mkt-not-offered-rpi')).toContainText('Not available: priority class not specified');
+  await openDesk(page, who, 'BTC/USDT');
+  await expect(page.getByTestId('dk-ticker')).toContainText('Retail price improvement');
+  await expect(page.getByTestId('dk-ticker')).toContainText('Not available: priority class not specified');
+  // An order that asks for the layer is refused with its typed code, before any hold, and is not stored.
+  const before = await client.balances();
+  const clientOrderId = `${J}-11-${who.handle}`;
   const res = await client.post('/api/v1/orders', {
     symbol: 'BTC/USDT',
     side: 'buy',
@@ -315,8 +412,10 @@ test(`${J} #11 the retail price improvement layer reads "Not available: priority
     amount: '0.0001',
     price: '1',
     rpi: true,
-    clientOrderId: `${J}-11-${who.handle}`,
+    clientOrderId,
   });
-  expect(res.status).toBeGreaterThanOrEqual(400);
-  expect((await openOrders(who)).filter((o) => o.clientOrderId === `${J}-11-${who.handle}`)).toHaveLength(0);
+  expect(res.status).toBe(400);
+  expect(JSON.stringify(res.body)).toContain('trade.rpi_unavailable');
+  expect(await client.balances()).toEqual(before);
+  expect((await openOrders(who)).filter((o) => o.clientOrderId === clientOrderId)).toHaveLength(0);
 });

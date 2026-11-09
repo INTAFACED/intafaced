@@ -27,12 +27,14 @@ import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './ca
 import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
+import { parseDisputeCap } from './cards/card-disputes.js';
 import { cardSimPartnerFor, parseSpendAssets } from './cards/partner-terms.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { testPartnerFor } from './partner/test-partner.js';
+import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
@@ -228,6 +230,8 @@ const bank = createBankServices(sql, ledger, history, {
     affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
     affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
   },
+  /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
+  cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
   /**
    * THE OTHER HALF THAT WAS MISSING, and it was missing in the same shape.
    *
@@ -355,6 +359,8 @@ const bank = createBankServices(sql, ledger, history, {
   accountDetails: {
     currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
     eligibilityJson: env.BANK_ELIGIBILITY_JSON,
+    // The TEST partner issues TEST details to a person who switched it on (J-bank-01 #6); otherwise none (`rail.bank`).
+    ...(testPartner ? { partnerFor: testPartnerAccountDetails(testPartner) } : {}),
   },
   /**
    * RAMPS — same missing-wiring shape as cards.
@@ -552,6 +558,16 @@ app.post('/internal/restore/watermark', async (req, reply) => {
   if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
   if (callerService(req) !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'bank.caller_forbidden' });
   return readBankWatermark(sql);
+});
+
+/**
+ * Any reserve a partner holds of ours (J-ops-console-24 #1): a read for svc-ops' capital monitor alone, signed like the
+ * job doors. No credentials is 401; a valid service that is not svc-ops is 403.
+ */
+app.post('/internal/capital/partner-reserves', async (req, reply) => {
+  if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  if (callerService(req) !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'bank.caller_forbidden' });
+  return partnerReservesRead({ testPartner, cardTerms: cardTermsOrNone(() => bank.cards.partnerTerms()), now: new Date() });
 });
 
 app.post('/internal/jobs/run-due-transfers', async (req, reply) => {

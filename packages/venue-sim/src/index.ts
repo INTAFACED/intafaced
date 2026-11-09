@@ -4,3 +4,5 @@
  */
 export * from './signing.js';
 export * from './simulator.js';
+export * from './http-server.js';
+export * from './conformance.js';

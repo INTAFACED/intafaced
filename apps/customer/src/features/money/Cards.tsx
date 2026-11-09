@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { DecisionMerchant, DeclineReason } from './CardBlocks';
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
@@ -260,6 +261,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           {row.authorizationRef === '' ? <Copy k="emptyReference" /> : row.authorizationRef}
         </dd>
       </dl>
+      <DecisionMerchant merchant={row.merchant ?? null} country={row.merchantCountry ?? null} />
       {row.declineCode !== null && (
         <dl className="money-card-decline">
           <dt>
@@ -270,6 +272,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           </dd>
         </dl>
       )}
+      {row.declineCode ? <DeclineReason code={row.declineCode} /> : null}
       {row.conversion && (
         <div className="money-card-conversion">
           <h5>

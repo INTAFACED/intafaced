@@ -25,8 +25,8 @@ describe('marketModesFetcher', () => {
     const result = await marketModesFetcher(api)(new AbortController().signal);
     if (!result.ok) throw new Error('expected ok');
     expect(result.data).toEqual([
-      { symbol: 'BTC/USDT', state: 'HALTED', reasonCode: 'trade.halted', observedAt: '2026-11-06T07:30:00.000Z' },
-      { symbol: 'ETH/USDT', state: null, reasonCode: null, observedAt: null },
+      { symbol: 'BTC/USDT', state: 'HALTED', reasonCode: 'trade.halted', observedAt: '2026-11-06T07:30:00.000Z', maintenance: null },
+      { symbol: 'ETH/USDT', state: null, reasonCode: null, observedAt: null, maintenance: null },
     ]);
   });
 });

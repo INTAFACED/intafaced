@@ -1,5 +1,7 @@
 # ADR: A liquidation shortfall is serialised first, then booked to the insurance fund
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** accepted (phased). **Phase 1** (serialisation, divergence guard, reconciliation) ships in the PR that adds this file. **Phase 2** (partial-rung insurance booking with the `g + c_est` bound and same-tick takeover) is accepted as the next step and is not built yet.
 **Date:** 2026-10-14
 **Deciders:** agents (Opus), reviewed by chat 2 2; a fresh Opus refuter verified the evidence and changed the plan (see "What the refutation changed")

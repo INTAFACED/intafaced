@@ -28,6 +28,7 @@ describe('Web3 routes (IA-SPEC 2.8)', () => {
       '/wallet/session-keys',
       '/wallet/accounts',
       '/wallet/safety',
+      '/wallet/venue',
       '/wallet/groups/:groupId',
       '/wallet/claim/:linkId',
       '/chain',

@@ -74,6 +74,7 @@ import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedS
 import { reduceMaps } from './journey-reach.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
+import { serveTestVenue, testVenueChainId, userVenueSwitchOn } from './local-test-venue.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -200,6 +201,9 @@ const PORTS = {
   // LOCAL TEST statements of each rail stand-in's own records, read by svc-ledger's per-rail outside controls
   // (local-test-rail-statements.mjs).
   'rail-statements': 14525,
+  // The LOCAL TEST venue simulator behind svc-trade's user-venue door (local-test-venue.mjs). Started only with
+  // LOCAL_STACK_USER_VENUE=on (userVenueOn).
+  'test-venue': 14560,
   // The FIX adapter (svc-fix, Java): its HTTP listener (health, drop-copy ingest, the adapter status). Its two FIX
   // sockets are FIX_SOCKET_PORTS, kept out of this table: one key here is one service (the marker's inventory).
   fix: 14526,
@@ -1240,6 +1244,12 @@ GRANT USAGE ON SCHEMA public TO svc_support;`,
 const supportCatalogueFile = () => path.join(STATE, 'support-catalogue');
 const supportCatalogueWas = () => (fs.existsSync(supportCatalogueFile()) ? fs.readFileSync(supportCatalogueFile(), 'utf8').trim() : 'on');
 const supportCatalogueWanted = () => (supportCatalogueOff() ? 'off' : 'on');
+/**
+ * LOCAL_STACK_SUPPORT_CATALOGUE_KEEP=on with LOCAL_STACK_SUPPORT_CATALOGUE=off: a restart of support that is already on
+ * the empty-catalogue database keeps that database as it is, so a journey can restart svc-support mid-way and read what
+ * it wrote before (J-support-public-12 #1, #6). Without it every such start makes the database new.
+ */
+const keepSupportEmptyCatalogue = () => process.env.LOCAL_STACK_SUPPORT_CATALOGUE_KEEP === 'on' && supportCatalogueWas() === 'off';
 
 // ── Service definitions ─────────────────────────────────────────────────────
 
@@ -1839,6 +1849,30 @@ async function startRailStatements() {
   await waitHealthy('rail-statements', url, pid, 20_000);
 }
 
+/**
+ * svc-trade's user-venue door and the TEST venue behind it are off unless the stack is started (or trade restarted)
+ * with LOCAL_STACK_USER_VENUE=on. Off, nothing changes: the venue does not start and trade gets no TRADE_USER_VENUE_URL.
+ */
+export function userVenueOn(env = process.env) {
+  try {
+    return userVenueSwitchOn(env.LOCAL_STACK_USER_VENUE);
+  } catch (err) {
+    fail(err.message, 2);
+  }
+}
+
+/** The LOCAL TEST venue simulator (local-test-venue.mjs), for svc-trade's user-venue door. TEST figures only. */
+async function startTestVenue() {
+  const procs = readProcs();
+  const url = `${urlOf('test-venue')}/health`;
+  if (ownedAlive(procs['test-venue']) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS['test-venue']))
+    fail(`port ${PORTS['test-venue']} (test-venue) is in use by a process this script did not start`);
+  const env = { ...baseEnv(), APP_ENV: 'dev', TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)) };
+  const pid = startProc('test-venue', [process.execPath, SCRIPT, '__serve-test-venue'], env, REPO);
+  await waitHealthy('test-venue', url, pid, 20_000);
+}
+
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
 async function startInvitation() {
   const build = currentBuild('invitationBuild');
@@ -2200,7 +2234,8 @@ async function cmdStart(flags) {
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
-  if (supportCatalogueOff() && toStart.some((d) => d.name === 'support')) await resetSupportEmptyCatalogue(secrets);
+  if (supportCatalogueOff() && !keepSupportEmptyCatalogue() && toStart.some((d) => d.name === 'support'))
+    await resetSupportEmptyCatalogue(secrets);
   if (toStart.some((d) => d.name === 'support')) writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
   await startNats();
   ensureStreams();
@@ -2213,7 +2248,7 @@ async function cmdStart(flags) {
       SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
     );
   if (extra.includes('support')) {
-    if (supportCatalogueOff()) await resetSupportEmptyCatalogue(secrets);
+    if (supportCatalogueOff() && !keepSupportEmptyCatalogue()) await resetSupportEmptyCatalogue(secrets);
     writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
   }
   // Vault before identity starts, so the first boot already has the invite hashes.
@@ -2227,6 +2262,8 @@ async function cmdStart(flags) {
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
   if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
+  // Trade's env points at the TEST venue only while the setting is on, so `--only trade` starts it too.
+  if (userVenueOn() && (!only || only.includes('trade'))) await startTestVenue();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
   await startServices([
     ...wanted,
@@ -2307,6 +2344,7 @@ async function cmdStop(names = []) {
     'chain',
     'video-store',
     'rail-statements',
+    'test-venue',
     'nats',
   ];
   // The console's HTTPS front starts with it (`--only admin`), so it stops with it too.
@@ -4004,6 +4042,13 @@ async function runCli() {
       uploadsDir: path.join(STATE, 'video-store-uploads'),
     });
   else if (cmd === '__serve-rail-statements') serveRailStatements({ host: HOST, port: PORTS['rail-statements'], stateDir: STATE });
+  else if (cmd === '__serve-test-venue')
+    await serveTestVenue({
+      host: HOST,
+      port: PORTS['test-venue'],
+      appEnv: process.env.APP_ENV,
+      chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+    });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);

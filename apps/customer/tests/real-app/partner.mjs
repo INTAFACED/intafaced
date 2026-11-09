@@ -11,6 +11,7 @@ export const PARTNER_OFF = Object.freeze({
   down: false,
   rampQuote: 'live',
   rampFee: 'known',
+  accountDetails: 'none',
 });
 
 /** Sets some of `who`'s switches through their own bank API and returns them all, as the partner now behaves. */

@@ -86,7 +86,7 @@ export async function makerSettled({ since, ms = MAKER_SETTLE_MS, pause = 500, r
 
 /**
  * A `move` percent ("+2%", "-0.30%", "0%") in basis points, or null when it isn't one; the same rule as the maker's
- * own `parseShift` (local-test-market.mjs), which market.test.mjs holds it to.
+ * own `parseShift` (local-test-market.mjs), which tooling/scripts/local-test-market.test.mjs holds it to.
  */
 export function parseShift(text) {
   const m = /^([+-]?)(\d{1,3})(?:\.(\d{1,2}))?%$/.exec(String(text ?? '').trim());
@@ -96,19 +96,23 @@ export function parseShift(text) {
   return signed < -5000n || signed > 10000n ? null : signed;
 }
 
-/** Whether the running maker's newest cycle, started at or after `since` (a Date or ms), quoted `symbol` at `bps`. */
+/** Whether the running maker's newest cycle, started at or after `since` (a Date or ms), rests quotes for `symbol` at `bps`. */
 export function shiftQuotedIn(cycle, { symbol, bps, since, pid }) {
   // `since` may be a Date or ms.
   const m = cycle?.pid === pid && cycle.startedAt >= Number(since) ? cycle.markets?.[symbol] : null;
-  return Boolean(m && !m.held && m.shiftBps === String(BigInt(bps)));
+  return Boolean(m && !m.held && m.resting > 0 && m.shiftBps === String(BigInt(bps)));
 }
 
-/** Returns once the maker has quoted `symbol` at `bps` in a cycle started at or after `since` (a Date or ms); throws
- * after `ms`. */
-export async function shiftQuoted(symbol, bps, since, { ms = 120_000, pause = 250, read = readCycle, pid = makerPid } = {}) {
+/**
+ * Returns once the maker rests quotes for `symbol` at `bps` in a cycle started at or after `since` (a Date or ms). Throws
+ * after `ms`, saying `what` (the move, as the caller asked for it); a `bps` that is not a shift throws at once.
+ */
+export async function shiftQuoted(symbol, bps, since, { ms = 120_000, pause = 250, read = readCycle, pid = makerPid, what } = {}) {
+  if (typeof bps !== 'bigint') throw new TypeError(`${symbol}: ${what ?? bps} is not a TEST price shift`);
   const until = Date.now() + ms;
   while (!shiftQuotedIn(read(), { symbol, bps, since, pid: pid() })) {
-    if (Date.now() > until) throw new Error(`the TEST market maker never quoted ${symbol} at ${bps} bps within ${ms / 1000} s`);
+    if (Date.now() > until)
+      throw new Error(`the TEST market maker never quoted ${symbol} ${what ?? `${bps} bps`} within ${ms / 1000} s of the move`);
     await new Promise((resolve) => setTimeout(resolve, pause));
   }
 }

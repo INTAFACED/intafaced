@@ -1576,6 +1576,7 @@ test('recheckTargets: after CI every open pull request on the head is re-sealed;
     head: { sha },
     base: { repo: { full_name: 'o/r' } },
     body: '',
+    auto_merge: { merge_method: 'squash' },
     ...over,
   });
   const pulls = [
@@ -1595,6 +1596,57 @@ test('recheckTargets: after CI every open pull request on the head is re-sealed;
     journeys.map((p) => p.number),
     [2],
     'a journeys run re-seals only what names or touches journeys',
+  );
+});
+
+test('recheckTargets: only pull requests with auto-merge armed are re-sealed, and arming re-seals that one whatever it names (#1574 item 4)', async () => {
+  const { recheckTargets, ARMED, armed } = await import('./journey-seal.mjs');
+  const sha = 'c'.repeat(40);
+  const pr = (number, title, auto_merge) => ({
+    number,
+    title,
+    state: 'open',
+    head: { sha },
+    base: { repo: { full_name: 'o/r' } },
+    body: '',
+    auto_merge,
+  });
+  const on = { merge_method: 'squash' };
+  const pulls = [pr(1, 'fix the copy', on), pr(2, 'J-bank-13 #1 pays', null), pr(3, 'J-bank-13 #2 pays', on), pr(4, 'no field')];
+  delete pulls[3].auto_merge;
+  const filesOf = async () => ['services/svc-pay/src/a.test.ts'];
+  assert.deepEqual(
+    [on, null, undefined].map((a) => armed({ auto_merge: a })),
+    [true, false, false],
+  );
+  const numbers = async (finished, list = pulls) =>
+    (await recheckTargets({ finished, pulls: list, sha, repo: 'o/r', filesOf })).map((p) => p.number);
+  assert.deepEqual(await numbers('CI'), [1, 3], 'after CI: every armed pull request on the head, none that is not armed');
+  assert.deepEqual(await numbers('Real-app journeys'), [3], 'after a journeys run: armed and naming steps');
+  assert.deepEqual(await numbers(''), [3], 'after an edit: armed and naming steps');
+  assert.deepEqual(await numbers(ARMED, [pulls[0]]), [1], 'on arming: the armed pull request, whatever its title names');
+  assert.deepEqual(await numbers(ARMED, [pr(5, 'J-x #1', null)]), [], 'disarmed again before the re-check read it: left alone');
+  // Planted: without the filter, an unarmed pull request named by its title would be re-sealed after a journeys run.
+  const unfiltered = await recheckTargets({
+    finished: 'Real-app journeys',
+    pulls: pulls.map((p) => ({ ...p, auto_merge: on })),
+    sha,
+    repo: 'o/r',
+    filesOf,
+  });
+  assert.deepEqual(
+    unfiltered.map((p) => p.number),
+    [2, 3],
+  );
+});
+
+test('journey-seal-recheck.yml: arming auto-merge starts a re-check, and an edit of a pull request not armed takes no runner', () => {
+  const text = readFileSync('.github/workflows/journey-seal-recheck.yml', 'utf8');
+  assert.match(text, /pull_request_target:\n\s+types: \[edited, auto_merge_enabled\]/);
+  assert.match(text, /github\.event_name == 'pull_request_target' && github\.event\.pull_request\.auto_merge &&/);
+  assert.match(
+    text,
+    /FINISHED: \$\{\{ github\.event\.workflow_run\.name \|\| \(github\.event\.action == 'auto_merge_enabled' && 'armed'\) \|\| '' \}\}/,
   );
 });
 

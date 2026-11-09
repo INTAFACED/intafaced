@@ -38,6 +38,8 @@ import { createAgentsRouter, type AgentsRouter } from './router.js';
 import { parseTierLaws } from './tier-laws.js';
 import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
 import { advanceBackgroundRuns } from './own/background.js';
+import { createIdentityLinkedWallets, paymentMethodFunds } from './own/payment-method.js';
+import { createChainBalance } from './chain-balance.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -143,12 +145,33 @@ const meter = new UsageMeter(sql, ledger, {
 });
 
 const spend = new UserSpendStore(sql);
+// Identity's list of a person's linked wallets, for an own agent's payment method; unset IDENTITY_URL reads unread.
+const linkedWallets = env.IDENTITY_URL ? createIdentityLinkedWallets(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
+// The payment token's chain reader: all four owner values, or none (a wallet method then refuses payment_token_unset).
+const paymentChain =
+  env.AGENTS_PAYMENT_RPC_URL &&
+  env.AGENTS_PAYMENT_CHAIN_ID !== undefined &&
+  env.AGENTS_PAYMENT_TOKEN_ADDRESS &&
+  env.AGENTS_PAYMENT_TOKEN_DECIMALS !== undefined
+    ? createChainBalance({
+        rpcUrl: env.AGENTS_PAYMENT_RPC_URL,
+        chainId: env.AGENTS_PAYMENT_CHAIN_ID,
+        tokenAddress: env.AGENTS_PAYMENT_TOKEN_ADDRESS as `0x${string}`,
+        tokenDecimals: env.AGENTS_PAYMENT_TOKEN_DECIMALS,
+      })
+    : null;
 const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
   spend,
-  // The person's available balance, read from the ledger before each metered run (OWNER 107).
-  funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
+  // The person's available balance, read from the ledger before each metered run (OWNER 107), or, for an own agent whose
+  // payment method is a linked wallet, that wallet's balance of the payment token as the chain reports it (J-agents-02 #4).
+  funds: paymentMethodFunds({
+    sql,
+    ledger: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount,
+    wallets: linkedWallets,
+    chain: paymentChain,
+  }),
   transcriptRetentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
   overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),
 });
@@ -214,6 +237,7 @@ const appRouter = createAgentsRouter({
   ownTemplates: parseOwnTemplates(env.AGENTS_OWN_TEMPLATES),
   policyBaseline: parsePolicyBaseline(env.AGENTS_POLICY_BASELINE),
   ownTokenLifetimeMinutes: env.AGENTS_OWN_TOKEN_LIFETIME_MINUTES ?? null,
+  ownLinkedWallets: linkedWallets,
   ownAssistantModel: env.AGENTS_OWN_ASSISTANT_MODEL ?? null,
   ownApprovalTtlSeconds: env.AGENTS_APPROVAL_TTL_SECONDS ?? null,
   ownReviewerModel: env.AGENTS_REVIEWER_MODEL ?? null,
