@@ -106,20 +106,18 @@ test(`${J} #1 the markets list shows open, upcoming and delisting markets with l
   await expect(list).toBeVisible();
   const pair = (m) => new RegExp(`^${m.base}/${m.quote}$`);
   const rowOf = (m) => list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(m) }) });
-  // Open markets: an open row trades.
-  const open = list.getByRole('row').filter({ has: page.getByRole('link', { name: /^(Trade|Buy) / }) });
-  await expect(open.first()).toBeVisible();
+  // An open market's row trades.
+  const btc = rowOf(spot.find((m) => m.symbol === 'BTC/USDT'));
+  await expect(btc.getByRole('button', { name: /^(Trade|Buy) / })).toBeEnabled();
   // The upcoming listing: named Upcoming, and not a tradeable row.
   const upRow = rowOf(upcoming);
   await expect(upRow.getByTestId('mkt-listing')).toHaveText('Upcoming', { timeout: UNBUILT_MS });
   await expect(upRow.getByRole('button', { name: /^(Trade|Buy) / })).toBeDisabled();
-  await expect(upRow.getByRole('link', { name: /^(Trade|Buy) / })).toHaveCount(0);
   // The delisting: named Delisting, with the date it leaves the board, and not a tradeable row.
   const downRow = rowOf(delisting);
   await expect(downRow.getByTestId('mkt-listing')).toContainText('Delisting', { timeout: UNBUILT_MS });
   await expect(downRow.getByTestId('mkt-listing')).toContainText(/Leaves the board on \d{1,2} [A-Z][a-z]{2} \d{4}/);
   await expect(downRow.getByRole('button', { name: /^(Trade|Buy) / })).toBeDisabled();
-  await expect(downRow.getByRole('link', { name: /^(Trade|Buy) / })).toHaveCount(0);
   // Activating a row that does not trade opens no desk.
   await upRow.click();
   await expect(page).toHaveURL(/\/trade(\?.*)?$/);
@@ -343,6 +341,9 @@ test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordere
   expect(spreads.status).toBe(200);
   const candles = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=5`);
   expect(candles.status).toBe(200);
+  // The step's stream half is not checked yet: a socket snapshot, then updates in sequence order, and a reconnect that
+  // resumes from the last sequence (svc-ws has no resume today). Until a check reads them, the step stays red.
+  throw new Error(`${J} #8: the stream half (snapshot, ordered updates, resume from the last sequence) is not built or checked yet`);
 });
 
 test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window stats with the window named; a blank window refuses`, async ({
@@ -381,7 +382,9 @@ test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label rea
   // The equity class is not listed without a licence: the markets page names it, with its blocker, and lists no row.
   expect(markets.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
   await page.goto('/trade');
-  // The markets list labels that pair's quote USD too.
+  // The markets list labels that pair's quote USD too. A USD pair whose session or settlement is not open is a paused
+  // row, so the list is asked to include paused markets first.
+  await page.getByRole('button', { name: 'Include paused' }).click();
   const list = page.getByRole('table').first();
   const usdRows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
   await expect(usdRows.first()).toBeVisible();

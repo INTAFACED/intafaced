@@ -248,6 +248,8 @@ export function MarketsList({
               ) : null}
             </span>
             <ListingState market={market} dense={dense} />
+            {/* The simple list has no status column, so a maintenance window is flagged by the name (J-cex-spot-14 #5). */}
+            {!pro && statuses?.[market.symbol]?.maintenance ? <MaintenanceFlag window={statuses[market.symbol]!.maintenance!} /> : null}
           </span>
         );
       },
