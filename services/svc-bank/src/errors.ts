@@ -354,6 +354,10 @@ export type BankErrorCode =
   | 'bank.card_pin_issuer_unset'
   /** A PIN was not 4 to 12 digits. The refusal never echoes the PIN. */
   | 'bank.card_pin_invalid'
+  /** The card has no PIN at the issuer yet, so there is none to show. */
+  | 'bank.card_pin_not_set'
+  /** The owner has not set how many wrong PIN tries block a card (`BANK_CARD_PIN_TRY_LIMIT`), so no PIN is checked. */
+  | 'bank.card_pin_try_limit_unset'
   /**
    * No live issuer can push a card into Apple Pay or Google Pay.
    * The missing piece is `socket.live-issuer`.
