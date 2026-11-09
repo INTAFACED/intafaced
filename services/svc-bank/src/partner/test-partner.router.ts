@@ -18,6 +18,7 @@ const switches = z
     rampQuote: z.enum(['live', 'expired']),
     rampFee: z.enum(['known', 'unknown']),
     custody: z.enum(['on', 'off']),
+    nextReply: z.enum(['answered', 'lost']),
     cardHold: z.enum(['live', 'expired']),
     accountDetails: z.enum(['none', 'issued']),
   })
@@ -65,6 +66,24 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' |
         guard(async () => {
           const partner = on(bank.testPartner);
           return out(partner, ctx.principal.userId, partner.set(ctx.principal.userId, input));
+        }),
+      ),
+    /**
+     * TEST money paid into the person's main balance at the TEST partner bank, once per `fundId` (the journey's "a
+     * partner account funded with TEST money"). It is the partner's figure, not a ledger post: nothing is posted.
+     */
+    fund: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ fundId: z.string().min(8).max(64), assetId: z.string().regex(/^[A-Z0-9]{2,16}$/), amount: amountString }).strict())
+      .output(z.object({ label: z.string(), assetId: z.string(), balance: z.string(), asOf: z.string().datetime() }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const partner = on(bank.testPartner);
+          const now = partner.fund(ctx.principal.userId, {
+            fundId: input.fundId,
+            assetId: input.assetId,
+            amount: parseAmount(input.amount),
+          });
+          return { label: now.label, assetId: input.assetId, balance: formatAmount(now.amount!), asOf: now.asOf.toISOString() };
         }),
       ),
     /**
