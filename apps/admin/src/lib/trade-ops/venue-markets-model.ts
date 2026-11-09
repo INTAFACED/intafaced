@@ -265,6 +265,7 @@ export function checkLimits(
 export const VENUE_CODE_WORDS: Readonly<Record<string, string>> = {
   'trade.user_venue_off': 'The user-venue door is off on this deployment, so no venue market can be read or changed.',
   'trade.venue_market_unknown': 'The venue does not list this market.',
+  'trade.venue_symbol_invalid': 'That is not a venue market symbol.',
   'trade.venue_listing_opening_window_blank': 'A listing needs its opening time. Nothing was written.',
   'trade.venue_listing_opening_window_invalid': 'The opening time is not a time, or falls after the delisting date.',
   'trade.venue_listing_stale': 'The market changed since this was proposed. Read the desk again and propose again.',

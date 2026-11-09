@@ -190,6 +190,8 @@ function ChangeForm({
 
   const check = (): Refusal | null => {
     if (!row) return { code: 'trade.venue_market_unknown', message: 'Choose a venue market.' };
+    if ((change === 'listing' || change === 'limits') && !row.venue.listed)
+      return { code: 'trade.venue_market_unknown', message: VENUE_CODE_WORDS['trade.venue_market_unknown']! };
     if (change !== 'listing' && !row.listing)
       return { code: 'trade.venue_listing_missing', message: VENUE_CODE_WORDS['trade.venue_listing_missing']! };
     if (change === 'listing') {

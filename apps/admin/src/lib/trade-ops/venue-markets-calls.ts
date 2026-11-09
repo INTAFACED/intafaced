@@ -60,7 +60,8 @@ export interface VenueChangeRequest {
 }
 
 /**
- * Reads the desk and checks one change before anything is filed or written: the market is the venue's, the reason is
+ * Reads the desk and checks one change before anything is filed or written: the market is on the desk (a listing or a
+ * limit needs the venue to list it now; routing and a delisting need only our listing), the reason is
  * written, and a blank or malformed value refuses with svc-trade's own code (a limit above the venue's own refuses
  * `trade.venue_limit_above_venue`).
  */
@@ -68,7 +69,7 @@ export async function venueChangeRequest(ctx: TradeCtx, body: Record<string, unk
   const change = text(body.change) as VenueChange;
   if (!(VENUE_CHANGES as readonly string[]).includes(change)) return bad('trade_ops.bad_change', 'Choose what to change.');
   const symbol = text(body.symbol).trim();
-  if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(symbol)) return bad('trade.venue_market_unknown', 'Choose a venue market.');
+  if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(symbol)) return bad('trade.venue_symbol_invalid', 'Choose a venue market.');
   const reason = text(body.reason).trim();
   if (!reasonReady(reason))
     return bad('trade_ops.reason_required', 'Write the reason for this change (12 to 500 characters). It is kept in the audit.');
@@ -76,7 +77,11 @@ export async function venueChangeRequest(ctx: TradeCtx, body: Record<string, unk
   if (read.kind !== 'ok') return read;
   const { venueId } = read.data;
   const row: VenueMarketRow | undefined = read.data.markets.find((m) => m.symbol === symbol);
-  if (!row || !row.venue.listed) return refused('trade.venue_market_unknown', `${symbol} is not a market the venue lists.`, 404);
+  if (!row) return refused('trade.venue_market_unknown', `${symbol} is not a market the venue lists.`, 404);
+  // As svc-trade: only a listing or a limit needs the venue to list the market now. A stop or a delisting stays proposable
+  // for a market the venue no longer lists.
+  if ((change === 'listing' || change === 'limits') && !row.venue.listed)
+    return refused('trade.venue_market_unknown', `${symbol} is not a market the venue lists.`, 404);
   const listingVersion = String(row.listing?.version ?? 0);
   const base = { venueId, symbol, reason };
 

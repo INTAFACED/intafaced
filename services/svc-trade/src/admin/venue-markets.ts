@@ -254,7 +254,7 @@ export class VenueMarketsAdmin {
 
   private symbolOf(input: WriteBase): { venueSymbol: string } {
     const s = (input.symbol ?? '').trim();
-    if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(s)) throw new TradeOpsError('trade.venue_market_unknown', 'symbol is a venue symbol');
+    if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(s)) throw new TradeOpsError('trade.venue_symbol_invalid', 'symbol is not a venue symbol');
     return { venueSymbol: s };
   }
 

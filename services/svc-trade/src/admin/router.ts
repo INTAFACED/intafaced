@@ -125,6 +125,7 @@ function fail(error: unknown): never {
       error.code === 'vip_application_not_found' ||
       error.code === 'trade.venue_market_unknown'
         ? 'NOT_FOUND'
+        // A malformed symbol (trade.venue_symbol_invalid) is a bad request; only a well-formed unknown one is not found.
         : error.code === 'trade.user_venue_off'
           ? 'SERVICE_UNAVAILABLE'
           : 'BAD_REQUEST';
