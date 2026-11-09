@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { hashTypedData, recoverTypedDataAddress } from 'viem';
 import { decimalAtLeast } from './TradingSession';
 import { testProviderClient } from './provider-client';
+import { forgetDeviceSessionKeys } from '../../../shared/device-session-key';
 import { dropKey, freshKey, heldKey, keepKey, keyFor, orderKey, signWithSessionKey, type SessionView } from './trading-session';
 
 // J-wallet-22 #8 on the page: the session key is made here and kept in this tab; it is used only for this sign-in's live
@@ -131,5 +132,28 @@ describe('the trading session key, on this device only', () => {
       assert: async () => ({ ok: false, failure: 'passkey' }),
     });
     expect(await noPasskey.signTypedData('w1', typedData)).toEqual({ ok: false, failure: 'passkey' });
+  });
+});
+
+describe('signing out ends the session key on this device', () => {
+  it('drops every trading-session key the tab holds, and nothing else', () => {
+    const m = new Map<string, string>();
+    const store = {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+      get length() {
+        return m.size;
+      },
+      key: (i: number) => [...m.keys()][i] ?? null,
+    };
+    freshKey('user-1', store);
+    freshKey('user-2', store);
+    store.setItem('intafaced.other', 'kept');
+    expect(heldKey('user-1', store)).not.toBeNull();
+    forgetDeviceSessionKeys(store);
+    expect(heldKey('user-1', store)).toBeNull();
+    expect(heldKey('user-2', store)).toBeNull();
+    expect(store.getItem('intafaced.other')).toBe('kept');
   });
 });

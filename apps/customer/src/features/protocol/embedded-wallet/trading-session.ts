@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { ApiClient } from '../../../shared/api';
+import { DEVICE_SESSION_KEY_PREFIX } from '../../../shared/device-session-key';
 
 /**
  * The trading session (J-wallet-22 #8, slice D-venue-09): one approval per session, signed by the person's wallet after
@@ -9,9 +10,9 @@ import type { ApiClient } from '../../../shared/api';
  *
  * The key never leaves this tab in a form that can sign: svc-trade is told its address only
  * (`POST /api/v1/venue/session/start`), and the key itself is kept in this tab's sessionStorage, which the browser
- * clears when the tab closes. It is used only while svc-trade's record for THIS sign-in names the same address and the
- * venue lists it live; after a sign-out the next sign-in has no session, so the old key is dropped here, and the next
- * session approves a new key. A key once used is never approved again (svc-trade refuses it).
+ * clears when the tab closes, and which a sign-out empties at once (shared/device-session-key.ts). It is used only
+ * while svc-trade's record for THIS sign-in names the same address and the venue lists it live; after a sign-out the
+ * next sign-in has no session, and the next session approves a new key. A key once used is never approved again (svc-trade refuses it).
  */
 
 // ── svc-trade's user-venue door, as this room reads it (services/svc-trade/src/venue/user-venue-rest.ts) ──────────────
@@ -120,7 +121,7 @@ export interface HeldKey {
 }
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
-const storeKey = (userId: string) => `intafaced.venue-session-key:${userId}`;
+const storeKey = (userId: string) => `${DEVICE_SESSION_KEY_PREFIX}${userId}`;
 const heldSchema = z.object({
   address: z.string().regex(/^0x[0-9a-f]{40}$/),
   privateKey: z.string().regex(/^0x[0-9a-f]{64}$/),
