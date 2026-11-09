@@ -85,7 +85,9 @@ jobs:
       # tests observe; project-state research/system-design-2026-11-07/E1-RESULT.md.) The step words are private: read
       # from project-state with PROJECT_STATE_READ_TOKEN (read-only, that repository only, and only when a step needs
       # judging), written only to the prompt file, and never printed. The pull request's code is read as text (the
-      # compare API and two shallow fetches of its base and head), never checked out or run.
+      # compare API and two shallow fetches of its base and head), never checked out or run. A changed look baseline's
+      # PNGs, which the text diff shows only as "Binary files differ", are read as blobs at the same base and head and
+      # given as images (ci-review.mjs collectBaselineImages; project-state #1819); past any of its caps, none are.
       - name: Read the diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,8 +103,9 @@ jobs:
           npm ci --prefix "$RUNNER_TEMP/reviewer" --no-audit --no-fund
 
       # No tools, no settings, no MCP servers and no session kept: the reviewer reads the prompt (the brief, with the test
-      # part's after it when it applies, then the diff and files fenced as untrusted data) and answers in the schema:
-      # one call per head answers both parts. Run in an empty folder, so no CLAUDE.md is loaded. The key is in this
+      # part's after it when it applies, then the diff and files fenced as untrusted data, and a changed look baseline's
+      # old and new images when the diff step attached them) and answers in the schema: one call per head answers both
+      # parts. Run in an empty folder, so no CLAUDE.md is loaded. The key is in this
       # step's environment only. The model and effort are pinned (every INTAFACED thread runs Opus,
       # OWNER 56; a review is judgment, so high), so the judge can't change with the account's default.
       - name: Review
@@ -120,12 +123,24 @@ jobs:
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/empty" && cd "$RUNNER_TEMP/empty"
-          "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
-            --model claude-opus-5-5 --effort high \
-            --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
-            --no-session-persistence --output-format json --json-schema "$(cat "$dir/schema.json")" \
-            "Review the pull request in the input against the brief at its top. Answer with the structured verdict only." \
-            < "$dir/prompt.txt" > "$dir/answer.json"
+          schema="$(cat "$dir/schema.json")"
+          if [ -f "$dir/input.jsonl" ]; then
+            # Look-baseline images go with the prompt (ci-review.mjs streamInput): the same call, its input one stream
+            # message, its answer a stream whose one `result` line the read step takes (readStreamOutput).
+            "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
+              --model claude-opus-5-5 --effort high \
+              --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
+              --no-session-persistence --input-format stream-json --output-format stream-json --verbose \
+              --json-schema "$schema" \
+              < "$dir/input.jsonl" > "$dir/answer.jsonl"
+          else
+            "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
+              --model claude-opus-5-5 --effort high \
+              --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
+              --no-session-persistence --output-format json --json-schema "$schema" \
+              "Review the pull request in the input against the brief at its top. Answer with the structured verdict only." \
+              < "$dir/prompt.txt" > "$dir/answer.json"
+          fi
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
 
       # The step the seal reads for gate files and look baselines: it fails only on a well-formed FAIL of the review
