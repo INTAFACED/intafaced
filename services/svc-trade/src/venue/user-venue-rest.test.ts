@@ -89,6 +89,17 @@ describe('/api/v1/venue/*', () => {
     expect(lev.json().value).toEqual({ symbol: 'BTC-PERP', leverageBps: 50_000, marginMode: 'isolated' });
   });
 
+  it("best-prices answers the venue's best bid and ask as decimal strings, and refuses without a symbol", async () => {
+    await mount(door());
+    const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.value.symbol).toBe('BTC-USDC');
+    for (const side of [body.value.bid, body.value.ask]) expect(side === null || typeof side === 'string').toBe(true);
+    expect(typeof body.asOf).toBe('string');
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices' })).statusCode).toBe(400);
+  });
+
   it('orders refuse builder_fee_not_published (422); a withdrawal without its step-up refuses 403; a money number refuses 400', async () => {
     await mount(door('required'));
     // A spot sell: a spot buy carries no builder fee, so a blank one never refuses it (project-state #1888).

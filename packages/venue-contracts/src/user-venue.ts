@@ -517,6 +517,16 @@ export interface UserVenueMarket {
   readonly takerFeeBps: MaybeKnown<Amount>;
 }
 
+/**
+ * The best resting prices on one market, as the venue's own public book shows them now: the highest bid and the lowest
+ * ask, or `null` for an empty side. What a market order's worst price (its slippage limit) is set from.
+ */
+export interface VenueBestPrices {
+  readonly symbol: string;
+  readonly bid: Amount | null;
+  readonly ask: Amount | null;
+}
+
 /** One figure of a preview: an amount in a named asset. */
 export interface VenueAssetAmount {
   readonly asset: string;
@@ -591,6 +601,12 @@ export interface UserVenue {
    * before the order lands.
    */
   preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>>;
+
+  /**
+   * The best bid and ask on `symbol` from the venue's public book, no account. Refuses `unknown_market` for a symbol it
+   * does not list. Optional: a venue that publishes no book leaves it out, and a market order then has no worst price.
+   */
+  bestPrices?(symbol: string): Promise<AsOf<VenueBestPrices>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**

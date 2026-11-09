@@ -3,6 +3,7 @@
  *
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
  *   GET  /api/v1/venue/markets
+ *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
@@ -115,6 +116,17 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
   app.get('/api/v1/venue/markets', privateRead, async (req, reply) => {
     if (!admit(req, reply, 'trade:read')) return;
     return answer(reply, async (d) => (await d.venue()).markets(null));
+  });
+
+  app.get<{ Querystring: Query }>('/api/v1/venue/best-prices', privateRead, async (req, reply) => {
+    if (!admit(req, reply, 'trade:read')) return;
+    return answer(reply, async (d) => {
+      if (!req.query.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.bestPrices)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
+      return venue.bestPrices(req.query.symbol);
+    });
   });
 
   type Account = Awaited<ReturnType<UserVenueDoor['account']>>;

@@ -55,7 +55,7 @@ export const venueCopy = defineCopy('trade.venue', {
   Status: 'Status',
   Time: 'Time',
   Role: 'Role',
-  'Venue fee': 'Venue fee',
+  'Venue fee': 'Venue’s fee',
   'Our builder fee': 'Our builder fee',
   'Fee asset': 'Fee asset',
   'Realised result': 'Realised result',

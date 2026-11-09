@@ -1,0 +1,195 @@
+import { describe, expect, it } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { AsOf, OrderIntent, VenueMarket, VenuePreview } from '../../../features/trade/venue-api';
+import { VenueReviewRows, WithdrawalLine } from './VenueSpotDesk';
+import {
+  HeldDraft,
+  depositTransfer,
+  intentOf,
+  shortAddress,
+  slippageLimit,
+  ticketProblem,
+  withdrawStep,
+  type TicketFields,
+} from './venue-desk';
+
+// J-cex-spot-01 on the venue spot desk: the preview asked as the order is typed, the review's lines, the client id held
+// for retry, no builder-fee approval on a known zero, the deposit's own transfer, and the step-up before the wallet.
+
+const OWNER = '0x1234567890abcdef1234567890abcdef1234abcd';
+const MARKET: VenueMarket = {
+  symbol: 'BTC-USDC',
+  kind: 'spot',
+  baseAsset: 'BTC',
+  quoteAsset: 'USDC',
+  orderTypes: ['limit', 'market'],
+  timeInForce: ['GTC', 'IOC', 'ALO'],
+  marginModes: [],
+  maxLeverageBps: null,
+  tickSize: '0.1',
+  lotSize: '0.00001',
+  makerFeeBps: { known: true, value: '1' },
+  takerFeeBps: { known: true, value: '3.5' },
+};
+const limitBuy: TicketFields = { side: 'buy', type: 'limit', price: '60000.1', amount: '0.1' };
+
+describe('the ticket asks the venue as the order is typed', () => {
+  it('a typed limit is the preview body the door takes: place_order, GTC, its price, amount and the held key', () => {
+    const key = new HeldDraft(OWNER, MARKET.symbol, () => 1).keyFor(limitBuy);
+    expect(intentOf(limitBuy, MARKET, null, key)).toEqual({
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.1',
+      price: '60000.1',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: key,
+      builderFee: null,
+    });
+  });
+
+  it('asks nothing until the order is whole and on the market’s steps', () => {
+    expect(ticketProblem({ ...limitBuy, amount: '' }, MARKET, null)).toBe('amount');
+    expect(ticketProblem({ ...limitBuy, price: '' }, MARKET, null)).toBe('price');
+    expect(ticketProblem({ ...limitBuy, amount: '0.000001' }, MARKET, null)).toBe('amount_step');
+    expect(ticketProblem({ ...limitBuy, price: '60000.15' }, MARKET, null)).toBe('price_step');
+    expect(intentOf({ ...limitBuy, amount: '' }, MARKET, null, 'order:x:y:z')).toBeNull();
+    expect(ticketProblem(limitBuy, MARKET, null)).toBeNull();
+  });
+
+  it('a market order is IOC at its worst price, and with no book on its side there is no order', () => {
+    const market: TicketFields = { side: 'buy', type: 'market', price: '', amount: '0.001' };
+    expect(ticketProblem(market, MARKET, null)).toBe('no_book');
+    expect(intentOf(market, MARKET, '60600.2', 'order:x:y:z')).toMatchObject({ type: 'market', timeInForce: 'IOC', price: '60600.2' });
+  });
+});
+
+describe('the slippage limit, from the venue’s own best prices', () => {
+  const best = { symbol: 'BTC-USDC', bid: '59999.9', ask: '60000.1' };
+  it('a buy pays at most the ask plus the bound, rounded up to the tick; a sell at least the bid less it, rounded down', () => {
+    expect(slippageLimit('buy', best, '100', '0.1')).toBe('60600.2'); // 60600.101 → up to the tick
+    expect(slippageLimit('sell', best, '100', '0.1')).toBe('59399.9'); // 59399.901 → down to the tick
+    expect(slippageLimit('buy', best, '50', '0.1')).toBe('60300.2');
+  });
+  it('no price on the side the order meets is no limit', () => {
+    expect(slippageLimit('buy', { ...best, ask: null }, '100', '0.1')).toBeNull();
+    expect(slippageLimit('sell', null, '100', '0.1')).toBeNull();
+  });
+});
+
+describe('the client id held for retry', () => {
+  it('the same order reviewed again keeps its key; a changed order or a definite answer gets a new one', () => {
+    let now = 1_000;
+    const draft = new HeldDraft(OWNER, MARKET.symbol, () => now++);
+    const first = draft.keyFor(limitBuy);
+    expect(first).toMatch(/^order:0x1234567890abcdef1234567890abcdef1234abcd:btc-usdc:\S+$/);
+    expect(draft.keyFor({ ...limitBuy })).toBe(first);
+    // "0.10" is the same order as "0.1".
+    expect(draft.keyFor({ ...limitBuy, amount: '0.10' })).toBe(first);
+    const changed = draft.keyFor({ ...limitBuy, price: '60000.2' });
+    expect(changed).not.toBe(first);
+    draft.settle(changed);
+    expect(draft.keyFor({ ...limitBuy, price: '60000.2' })).not.toBe(changed);
+  });
+});
+
+const preview = (over: Partial<VenuePreview> = {}): AsOf<VenuePreview> => ({
+  venueId: 'test-venue',
+  asOf: '2026-11-09T10:00:00.000Z',
+  value: {
+    symbol: 'BTC-USDC',
+    kind: 'spot',
+    lock: { asset: 'USDC', amount: '6000.01' },
+    role: 'maker',
+    venueFee: { known: true, value: { asset: 'BTC', amount: '0.00001' } },
+    builderFee: { known: true, value: { asset: 'USDC', amount: '0' } },
+    perpetual: null,
+    ...over,
+  },
+});
+const intent: OrderIntent = intentOf(limitBuy, MARKET, null, 'order:0xowner:btc-usdc:abc1')!;
+const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+describe('the review’s lines are the venue’s', () => {
+  it('lock, venue’s fee, our builder fee reading none, maker, good till cancelled, the client id, the as-of time', () => {
+    const html = renderToStaticMarkup(
+      <VenueReviewRows intent={intent} preview={preview()} status={{ builder: null, test: true }} approved={null} />,
+    );
+    const shown = text(html);
+    expect(shown).toContain('The venue locks 6,000.01 USDC');
+    expect(shown).toContain('Venue’s fee 0.00001 BTC');
+    expect(shown).toMatch(/Our builder fee None: the venue charges no builder fee on a spot buy/);
+    expect(shown).toContain('Fee role Maker');
+    expect(shown).toContain('Time in force Good till cancelled');
+    expect(html).toContain('data-testid="client-order-id">order:0xowner:btc-usdc:abc1<');
+    expect(shown).toMatch(/As of \S+ \S+ 2026, \d{1,2}:\d{2}/);
+    expect(shown).toContain('TEST');
+  });
+
+  it('asks no builder-fee approval on a known zero, even with the fee published and nothing approved', () => {
+    const html = renderToStaticMarkup(
+      <VenueReviewRows
+        intent={intent}
+        preview={preview()}
+        status={{ builder: { address: '0x00000000000000000000000000000000000000bb', feeBps: '2' }, test: true }}
+        approved={false}
+      />,
+    );
+    expect(text(html)).not.toMatch(/approv/i);
+  });
+
+  it('a sell that carries our fee shows it, and says the approval is not signed', () => {
+    const html = renderToStaticMarkup(
+      <VenueReviewRows
+        intent={{ ...intent, side: 'sell' }}
+        preview={preview({ builderFee: { known: true, value: { asset: 'USDC', amount: '1.2' } } })}
+        status={{ builder: { address: '0x00000000000000000000000000000000000000bb', feeBps: '2' }, test: true }}
+        approved={false}
+      />,
+    );
+    expect(text(html)).toMatch(/Our builder fee 1\.2 USDC · Not signed/);
+  });
+});
+
+describe('the deposit is the person’s own transfer', () => {
+  const route = {
+    chainId: 84532,
+    token: '0x00000000000000000000000000000000000000c0',
+    tokenDecimals: 6,
+    address: '0x00000000000000000000000000000000000000d0',
+    asset: 'USDC',
+  };
+  it('an ERC-20 transfer of the amount in token units, to the venue’s deposit address, on the route’s token', () => {
+    const sent = depositTransfer(route, '1000');
+    expect(sent?.to).toBe(route.token);
+    expect(sent?.units).toBe(1_000_000_000n);
+    expect(sent?.data).toBe(`0xa9059cbb${'0'.repeat(24)}${route.address.slice(2)}${(1_000_000_000).toString(16).padStart(64, '0')}`);
+  });
+  it('refuses an amount past the token’s decimals, or none', () => {
+    expect(depositTransfer(route, '1.0000001')).toBeNull();
+    expect(depositTransfer(route, '0')).toBeNull();
+    expect(depositTransfer(route, 'ten')).toBeNull();
+  });
+});
+
+describe('a withdrawal confirms it’s you before the wallet is asked', () => {
+  it('the press asks for the step-up first; only an approval reaches the signing step', () => {
+    expect(withdrawStep('10', null)).toEqual({ step: 'step_up' });
+    expect(withdrawStep('10', { id: 'approval-1' })).toEqual({ step: 'sign', stepUpApprovalId: 'approval-1' });
+    expect(withdrawStep('', null)).toEqual({ step: 'refuse', why: 'amount' });
+  });
+  it('names the destination by its short address, and tracks the venue’s withdrawal by its nonce with its fee or not known', () => {
+    expect(shortAddress(OWNER)).toBe('0x1234…abcd');
+    const pending = renderToStaticMarkup(
+      <WithdrawalLine
+        withdrawal={{ nonce: '1731', asset: 'USDC', amount: '10', destination: OWNER, status: 'pending', fee: { known: false } }}
+        asOf="2026-11-09T10:00:00.000Z"
+      />,
+    );
+    expect(pending).toContain('data-nonce="1731"');
+    expect(text(pending)).toContain('Pending on the venue');
+    expect(text(pending)).toContain('Venue withdrawal fee not known');
+  });
+});

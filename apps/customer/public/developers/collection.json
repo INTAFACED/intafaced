@@ -1220,6 +1220,14 @@
           }
         },
         {
+          "name": "venueBestPrices",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/best-prices", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "best-prices"] }
+          }
+        },
+        {
           "name": "venueBalances",
           "request": {
             "method": "GET",

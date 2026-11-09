@@ -215,6 +215,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.markets(body.account ? account(body) : null);
     case '/preview':
       return sim.preview(account(body), body.intent as PlaceUserOrderIntent);
+    case '/best-prices':
+      return sim.bestPrices(str(body, 'symbol'));
     case '/prepare':
       return sim.prepare(account(body), body.signer as VenueSigner, body.intent as VenueIntent);
     case '/submit':
