@@ -10,7 +10,7 @@ import { encodeMsgpack, type MsgpackValue } from './msgpack.js';
  *    EIP-712 `Agent { source, connectionId }` in the `Exchange` domain
  *    (chain id 1337). `source` is "b" on testnet ("a" is mainnet and is refused
  *    here).
- * 2. User-signed actions (withdraw3, usdSend, approveAgent, approveBuilderFee): EIP-712
+ * 2. User-signed actions (withdraw3, usdSend, usdClassTransfer, approveAgent, approveBuilderFee): EIP-712
  *    `HyperliquidTransaction:<Name>` in the `HyperliquidSignTransaction`
  *    domain, whose chain id is `signatureChainId`; the message carries
  *    `hyperliquidChain: "Testnet"` ("Mainnet" is refused here).
@@ -102,6 +102,16 @@ export const USER_SIGNED_TYPES = {
     { name: 'amount', type: 'string' },
     { name: 'time', type: 'uint64' },
   ],
+  /**
+   * The SDK's `USD_CLASS_TRANSFER_SIGN_TYPES` (`hyperliquid/utils/signing.py`). The SDK's tests at the pinned commit
+   * hold no vector for it, so `signing.test.ts` proves its digest against an independent EIP-712 encoding instead.
+   */
+  'HyperliquidTransaction:UsdClassTransfer': [
+    { name: 'hyperliquidChain', type: 'string' },
+    { name: 'amount', type: 'string' },
+    { name: 'toPerp', type: 'bool' },
+    { name: 'nonce', type: 'uint64' },
+  ],
   'HyperliquidTransaction:ApproveAgent': [
     { name: 'hyperliquidChain', type: 'string' },
     { name: 'agentAddress', type: 'address' },
@@ -127,19 +137,19 @@ export interface UserSignedTypedData {
   };
   readonly types: { readonly [primaryType: string]: readonly Eip712Field[] };
   readonly primaryType: string;
-  /** Typed fields only; `uint64` fields as bigint. */
-  readonly message: Readonly<Record<string, string | bigint>>;
+  /** Typed fields only; `uint64` fields as bigint, `bool` fields as boolean. */
+  readonly message: Readonly<Record<string, string | bigint | boolean>>;
 }
 
 /** The SDK's `user_signed_payload`. `message` must carry `hyperliquidChain`, which must be "Testnet". */
 export function userSignedTypedData(
   primaryType: string,
   types: readonly Eip712Field[],
-  message: Readonly<Record<string, string | bigint>>,
+  message: Readonly<Record<string, string | bigint | boolean>>,
   signatureChainId: string = HL_SIGNATURE_CHAIN_ID,
 ): UserSignedTypedData {
   assertTestnetChain(String(message.hyperliquidChain));
-  const typed: Record<string, string | bigint> = {};
+  const typed: Record<string, string | bigint | boolean> = {};
   for (const field of types) {
     const value = message[field.name];
     if (value === undefined) throw new Error(`${primaryType}: missing field ${field.name}`);
@@ -188,10 +198,41 @@ export function usdSendAction(
   return { action, typedData };
 }
 
+/**
+ * The SDK's `usd_class_transfer`: move USDC between this account's spot and perpetual balances on the TESTNET
+ * (`toPerp: true` is spot to perp). `amount` is the venue's decimal string; `nonce` is the action's nonce. Returns the
+ * wire action and what the wallet signs. The SDK appends " subaccount:<address>" to the amount for a vault; that form
+ * is not offered here.
+ */
+export function usdClassTransferAction(
+  amount: string,
+  toPerp: boolean,
+  nonce: bigint,
+): { readonly action: Record<string, MsgpackValue>; readonly typedData: UserSignedTypedData } {
+  if (!/^\d+(\.\d+)?$/.test(amount) || /^0+(\.0+)?$/.test(amount)) throw new Error(`usdClassTransfer: ${amount} is not a positive decimal`);
+  const typedData = userSignedTypedData(
+    'HyperliquidTransaction:UsdClassTransfer',
+    USER_SIGNED_TYPES['HyperliquidTransaction:UsdClassTransfer'],
+    { hyperliquidChain: HL_TESTNET_CHAIN, amount, toPerp, nonce },
+  );
+  const action: Record<string, MsgpackValue> = {
+    type: 'usdClassTransfer',
+    signatureChainId: HL_SIGNATURE_CHAIN_ID,
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    amount,
+    toPerp,
+    nonce: Number(nonce),
+  };
+  return { action, typedData };
+}
+
 const EIP712_DOMAIN_TYPE = 'EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)';
 
-function encodeField(type: string, value: string | bigint | number): { type: string; value: unknown } {
+function encodeField(type: string, value: string | bigint | number | boolean): { type: string; value: unknown } {
   switch (type) {
+    case 'bool':
+      if (typeof value !== 'boolean') throw new Error(`EIP-712 bool field holds ${typeof value}, not a boolean`);
+      return { type: 'bool', value };
     case 'string':
       return { type: 'bytes32', value: keccak256(toHex(String(value))) };
     case 'uint64':
@@ -215,7 +256,7 @@ export function flatTypedDataDigest(
   domain: { name: string; version: string; chainId: number; verifyingContract: string },
   primaryType: string,
   fields: readonly Eip712Field[],
-  message: Readonly<Record<string, string | bigint | number>>,
+  message: Readonly<Record<string, string | bigint | number | boolean>>,
 ): Hex {
   const domainSeparator = keccak256(
     encodeAbiParameters(

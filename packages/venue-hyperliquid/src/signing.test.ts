@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { hashTypedData, toHex, type Hex } from 'viem';
+import { concat, encodeAbiParameters, hashTypedData, keccak256, toHex, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { encodeMsgpack, MsgpackEncodeError, type MsgpackValue } from './msgpack.js';
 import {
   actionHash,
@@ -15,6 +16,8 @@ import {
   flatTypedDataDigest,
   userSignedTypedData,
   usdSendAction,
+  usdClassTransferAction,
+  typedDataDigest,
   USER_SIGNED_TYPES,
   type Eip712Field,
   type HlTypedData,
@@ -127,6 +130,70 @@ describe('Hyperliquid signing vectors (official Python SDK)', () => {
     expect(() => usdSendAction('0x5e9ee1089755c3435139848e47e6635505d5a13a', '0', 1n)).toThrow(/positive/);
     expect(() => usdSendAction('0x5e9ee1089755c3435139848e47e6635505d5a13a', '1e3', 1n)).toThrow(/positive/);
     expect(() => usdSendAction('0x5e9e', '1', 1n)).toThrow(/not an address/);
+  });
+
+  // usdClassTransfer: the SDK's signing_test.py at the pinned commit has no vector for it, so its digest is checked
+  // against EIP-712 written out by hand here (type string, domain and struct, with `bool` as a 32-byte word), and a
+  // signature from a TEST key round-trips. The SDK's own code (exchange.py `usd_class_transfer`,
+  // signing.py `USD_CLASS_TRANSFER_SIGN_TYPES`) is what the types and the action's fields follow.
+  it('usdClassTransferAction: the SDK fields and types, and a digest equal to EIP-712 encoded by hand', async () => {
+    const { action, typedData } = usdClassTransferAction('12.5', true, 1_700_000_000_123n);
+    expect(action).toEqual({
+      type: 'usdClassTransfer',
+      signatureChainId: '0x66eee',
+      hyperliquidChain: 'Testnet',
+      amount: '12.5',
+      toPerp: true,
+      nonce: 1_700_000_000_123,
+    });
+    expect(typedData.primaryType).toBe('HyperliquidTransaction:UsdClassTransfer');
+    expect(typedData.types[typedData.primaryType]).toEqual([
+      { name: 'hyperliquidChain', type: 'string' },
+      { name: 'amount', type: 'string' },
+      { name: 'toPerp', type: 'bool' },
+      { name: 'nonce', type: 'uint64' },
+    ]);
+    const word = (types: string[], values: unknown[]) =>
+      keccak256(
+        encodeAbiParameters(
+          types.map((type) => ({ type })),
+          values as never,
+        ),
+      );
+    const domain = word(
+      ['bytes32', 'bytes32', 'bytes32', 'uint256', 'address'],
+      [
+        keccak256(toHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')),
+        keccak256(toHex('HyperliquidSignTransaction')),
+        keccak256(toHex('1')),
+        421614n,
+        '0x0000000000000000000000000000000000000000',
+      ],
+    );
+    const struct = word(
+      ['bytes32', 'bytes32', 'bytes32', 'bool', 'uint256'],
+      [
+        keccak256(toHex('HyperliquidTransaction:UsdClassTransfer(string hyperliquidChain,string amount,bool toPerp,uint64 nonce)')),
+        keccak256(toHex('Testnet')),
+        keccak256(toHex('12.5')),
+        true,
+        1_700_000_000_123n,
+      ],
+    );
+    expect(typedDataDigest(typedData)).toBe(keccak256(concat(['0x1901', domain, struct])));
+    // toPerp is in the signed bytes: flipping it is a different digest.
+    expect(typedDataDigest(usdClassTransferAction('12.5', false, 1_700_000_000_123n).typedData)).not.toBe(typedDataDigest(typedData));
+    // A TEST key (derived from a label, never a real key) signs the digest and is recovered from it.
+    const key = keccak256(toHex('intafaced TEST usdClassTransfer'));
+    const signer = privateKeyToAccount(key);
+    const signature = await signer.sign({ hash: typedDataDigest(typedData) });
+    expect(await recoverTypedDataSigner(typedData, signature)).toBe(signer.address.toLowerCase());
+  });
+
+  it('usdClassTransferAction refuses a zero or malformed amount', () => {
+    expect(() => usdClassTransferAction('0', true, 1n)).toThrow(/positive/);
+    expect(() => usdClassTransferAction('-1', false, 1n)).toThrow(/positive/);
+    expect(() => usdClassTransferAction('1e3', false, 1n)).toThrow(/positive/);
   });
 
   it('a vector checked against the wrong digest does not recover the SDK key (the check can fail)', async () => {

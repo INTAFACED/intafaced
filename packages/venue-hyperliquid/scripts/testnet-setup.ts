@@ -291,7 +291,7 @@ export async function runSetup(deps: SetupDeps): Promise<SetupExit> {
 }
 
 /** Post a signed action. `ok` only on the venue's own `status: "ok"`; every other answer is shown in the venue's words. */
-async function postExchange(fetchImpl: FetchLike, baseUrl: string, body: string): Promise<{ ok: boolean; text: string }> {
+export async function postExchange(fetchImpl: FetchLike, baseUrl: string, body: string): Promise<{ ok: boolean; text: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
   try {

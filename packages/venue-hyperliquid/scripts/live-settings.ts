@@ -1,5 +1,5 @@
 /**
- * What the hand-run TESTNET tools (`live-conformance.ts`, `testnet-setup.ts`) need, and how they work it out
+ * What the hand-run TESTNET tools (`live-conformance.ts`, `testnet-setup.ts`, `live-steps.ts`) need, and how they work it out
  * from the live testnet when the owner has not set it. Read-only: nothing here signs or sends.
  *
  * Every derived value is printed with where it came from. An explicit setting always wins and is used as given.
@@ -84,7 +84,7 @@ export class SettingError extends Error {
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-interface MarketShape {
+export interface MarketShape {
   readonly symbol: string;
   readonly kind: 'spot' | 'perpetual';
   readonly szDecimals: number;
@@ -92,7 +92,7 @@ interface MarketShape {
   readonly quote: string;
 }
 
-async function marketShape(venue: HyperliquidTestnetUserVenue, symbol: string): Promise<MarketShape> {
+export async function marketShape(venue: HyperliquidTestnetUserVenue, symbol: string): Promise<MarketShape> {
   const m = (await venue.markets(null)).value.find((x) => x.symbol === symbol);
   if (!m) throw new SettingError(`${symbol} is not listed on the testnet`);
   return {
@@ -109,7 +109,7 @@ function maxPriceDecimals(m: MarketShape): number {
 }
 
 /** The largest valid price at or below `target` that `accept` takes, trying finer decimals first. */
-function validPriceAtOrBelow(target: Amount, m: MarketShape, accept: (p: Amount) => boolean): Amount | null {
+export function validPriceAtOrBelow(target: Amount, m: MarketShape, accept: (p: Amount) => boolean): Amount | null {
   for (let dp = maxPriceDecimals(m); dp >= 0; dp -= 1) {
     const p = floorTo(target, dp);
     if (compare(p, ZERO) <= 0) continue;
