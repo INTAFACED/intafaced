@@ -5,6 +5,7 @@ import {
   OPS_CAPITAL_BUILDER_ACCOUNT_UNSET,
   OPS_CAPITAL_TEST_VENUE_OUTSIDE_DEV_TEST,
   TestVenueRefusedError,
+  opsTestVenueSettingSchema,
   testVenuesFor,
 } from './test-venue.js';
 
@@ -66,7 +67,7 @@ describe('the TEST venues (OPS_TEST_VENUE)', () => {
       venues: [
         {
           venueId: 'test-perp',
-          displayName: 'TEST perpetuals venue',
+          displayName: 'Perpetuals venue',
           test: true,
           builderAccount: 'TEST-builder',
           balance: { status: 'read', assetId: 'USDC', amount: '125.5', asOf: AT.toISOString() },
@@ -74,7 +75,7 @@ describe('the TEST venues (OPS_TEST_VENUE)', () => {
         },
         {
           venueId: 'test-spot',
-          displayName: 'TEST spot venue',
+          displayName: 'Spot venue',
           test: true,
           builderAccount: 'TEST-builder',
           balance: { status: 'read', assetId: 'USDC', amount: '0.25', asOf: AT.toISOString() },
@@ -111,6 +112,9 @@ describe('the venue reader', () => {
       { ...good, balance: { ...good.balance, amount: '-1' } },
       { ...good, balance: { ...good.balance, amount: '1e3' } },
       { ...good, balance: { ...good.balance, asOf: 'yesterday' } },
+      { ...good, balance: { ...good.balance, asOf: '2026-11-09 08:00' } },
+      { ...good, balance: { ...good.balance, asOf: '11/09/2026' } },
+      { ...good, balance: { ...good.balance, assetId: 'usdc' } },
       { ...good, minimum: { status: 'published', assetId: 'USDC', amount: 'lots' } },
       { ...good, minimum: {} },
       null,
@@ -124,6 +128,31 @@ describe('the venue reader', () => {
     expect(ok.status === 'read' && ok.venues[0]!.balance).toEqual({ status: 'read', assetId: 'USDC', amount: '1', asOf: AT.toISOString() });
   });
 
+  it('a timeout aborts the venue call, so a hung call is cancelled, not left pending', async () => {
+    let seen: AbortSignal | undefined;
+    await createVenueReader(
+      [
+        venue(((signal: AbortSignal) => {
+          seen = signal;
+          return new Promise(() => undefined);
+        }) as never),
+      ],
+      10,
+    )!();
+    expect(seen?.aborted).toBe(true);
+  });
+
+  it('a refusal names the adapter’s typed code, never its raw message', async () => {
+    const out = await createVenueReader([
+      venue(async () => {
+        throw Object.assign(new Error('secret-ish detail'), { code: 'venue.rate_limited' });
+      }),
+    ])!();
+    const balance = out.status === 'read' ? out.venues[0]!.balance : null;
+    expect(balance?.status === 'unknown' && balance.message).toContain('(venue.rate_limited)');
+    expect(balance?.status === 'unknown' && balance.message).not.toContain('secret-ish');
+  });
+
   it('one venue failing leaves the other read', async () => {
     const good = { balance: { assetId: 'USDC', amount: '2.5', asOf: AT.toISOString() }, minimum: { status: 'not_published' } };
     const out = await createVenueReader([
@@ -133,5 +162,16 @@ describe('the venue reader', () => {
       { ...venue(async () => good), venueId: 'w' },
     ])!();
     expect(out.status === 'read' && out.venues.map((v) => v.balance.status)).toEqual(['unknown', 'read']);
+  });
+});
+
+describe('OPS_TEST_VENUE in the env schema', () => {
+  it('absent or blank is off; anything outside the closed setting is refused', () => {
+    const venueOf = (v: unknown) => opsTestVenueSettingSchema.safeParse(v);
+    expect(venueOf(undefined)).toMatchObject({ success: true, data: 'off' });
+    expect(venueOf('')).toMatchObject({ success: true, data: 'off' });
+    expect(venueOf('  ')).toMatchObject({ success: true, data: 'off' });
+    expect(venueOf('down')).toMatchObject({ success: true, data: 'down' });
+    expect(venueOf('on').success).toBe(false);
   });
 });

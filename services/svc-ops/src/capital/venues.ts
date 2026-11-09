@@ -1,4 +1,4 @@
-import { OPS_CAPITAL_SOURCE_UNAVAILABLE, type OpsCapitalVenue, type OpsCapitalVenues } from '@intafaced/contracts';
+import { OPS_CAPITAL_SOURCE_UNAVAILABLE, opsCapitalVenueSchema, type OpsCapitalVenue, type OpsCapitalVenues } from '@intafaced/contracts';
 
 /**
  * THE VENUE PORT for the capital monitor: INTAFACED's own builder account at one venue, as that venue reports it.
@@ -21,23 +21,17 @@ export interface BuilderAccountVenue {
   readonly test: boolean;
   /** INTAFACED's builder account at the venue. Public, never a key. */
   readonly builderAccount: string;
-  builderAccountReport(): Promise<BuilderAccountReport>;
+  /** The venue's record now. `signal` aborts when the monitor stops waiting, so a hung call is cancelled, not left pending. */
+  builderAccountReport(signal: AbortSignal): Promise<BuilderAccountReport>;
 }
 
-const DECIMAL = /^\d+(\.\d{1,18})?$/;
-const ASSET = /^[A-Z0-9]{2,16}$/;
 const VENUE_TIMEOUT_MS = 5000;
+const ERROR_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/;
 
-/** A string matching `pattern`. `RegExp.test` alone would pass a number (it coerces), and money is never a number. */
-const matches = (value: unknown, pattern: RegExp): value is string => typeof value === 'string' && pattern.test(value);
-
-function validReport(r: BuilderAccountReport): boolean {
-  const b = r?.balance;
-  if (!b || !matches(b.assetId, ASSET) || !matches(b.amount, DECIMAL) || typeof b.asOf !== 'string' || Number.isNaN(Date.parse(b.asOf)))
-    return false;
-  const m = r.minimum;
-  if (m?.status === 'not_published') return true;
-  return m?.status === 'published' && matches(m.assetId, ASSET) && matches(m.amount, DECIMAL);
+/** The adapter's typed refusal code, when it gives one, so a refusal and an outage read apart. Never the raw message. */
+function causeOf(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && ERROR_CODE.test(code) ? ` (${code})` : '';
 }
 
 /**
@@ -57,26 +51,31 @@ export function createVenueReader(
       const part = { status: 'unknown' as const, code: OPS_CAPITAL_SOURCE_UNAVAILABLE, message: `${venue.displayName}: ${message}` };
       return { ...base, balance: part, minimum: part };
     };
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const report = await Promise.race([
-        venue.builderAccountReport(),
+        venue.builderAccountReport(controller.signal),
         new Promise<'timeout'>((resolve) => {
           timer = setTimeout(() => resolve('timeout'), timeoutMs);
         }),
       ]);
-      if (report === 'timeout') return unknown('did not answer in time, so its builder account is unknown.');
-      if (!validReport(report)) return unknown('answered in a shape this service does not read, so its builder account is unknown.');
-      return {
+      if (report === 'timeout') {
+        controller.abort();
+        return unknown('did not answer in time, so its builder account is unknown.');
+      }
+      // Checked against the contract itself: a decimal string (never a number), an asset code, an as-of time with its offset.
+      const read = opsCapitalVenueSchema.safeParse({
         ...base,
-        balance: { status: 'read', assetId: report.balance.assetId, amount: report.balance.amount, asOf: report.balance.asOf },
-        minimum:
-          report.minimum.status === 'published'
-            ? { status: 'published', assetId: report.minimum.assetId, amount: report.minimum.amount }
-            : { status: 'not_published' },
-      };
-    } catch {
-      return unknown('refused or did not answer the read, so its builder account is unknown.');
+        balance: { status: 'read', ...report?.balance },
+        minimum: report?.minimum?.status === 'published' || report?.minimum?.status === 'not_published' ? report.minimum : { status: '' },
+      });
+      if (!read.success || read.data.balance.status !== 'read' || read.data.minimum.status === 'unknown') {
+        return unknown('answered in a shape this service does not read, so its builder account is unknown.');
+      }
+      return read.data;
+    } catch (error) {
+      return unknown(`refused or did not answer the read${causeOf(error)}, so its builder account is unknown.`);
     } finally {
       if (timer) clearTimeout(timer);
     }

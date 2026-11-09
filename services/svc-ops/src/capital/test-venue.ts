@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import type { BuilderAccountReport, BuilderAccountVenue } from './venues.js';
 
@@ -21,6 +22,12 @@ import type { BuilderAccountReport, BuilderAccountVenue } from './venues.js';
 export const OPS_TEST_VENUE_SETTINGS = ['off', 'test', 'down'] as const;
 export type OpsTestVenueSetting = (typeof OPS_TEST_VENUE_SETTINGS)[number];
 
+/** `OPS_TEST_VENUE` as svc-ops' env reads it: absent or blank is `off`; anything outside the closed setting refuses to boot. */
+export const opsTestVenueSettingSchema = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+  z.enum(OPS_TEST_VENUE_SETTINGS).default('off'),
+);
+
 export const OPS_CAPITAL_BUILDER_ACCOUNT_UNSET = 'ops.capital.builder_account_unset' as const;
 export const OPS_CAPITAL_TEST_VENUE_OUTSIDE_DEV_TEST = 'ops.capital.test_venue_outside_dev_test' as const;
 
@@ -35,13 +42,13 @@ interface TestVenueRecord {
 export const TEST_VENUE_RECORDS: readonly TestVenueRecord[] = Object.freeze([
   {
     venueId: 'test-perp',
-    displayName: 'TEST perpetuals venue',
+    displayName: 'Perpetuals venue',
     balance: { assetId: 'USDC', amount: '125.5' },
     minimum: { status: 'published', assetId: 'USDC', amount: '100' },
   },
   {
     venueId: 'test-spot',
-    displayName: 'TEST spot venue',
+    displayName: 'Spot venue',
     balance: { assetId: 'USDC', amount: '0.25' },
     minimum: { status: 'not_published' },
   },

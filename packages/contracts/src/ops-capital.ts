@@ -88,12 +88,18 @@ export const opsCapitalVenueSchema = z.object({
   /** The builder account's address at the venue. Public on-chain, never a key. */
   builderAccount: z.string().min(1),
   balance: z.discriminatedUnion('status', [
-    z.object({ status: z.literal('read'), assetId: z.string(), amount: z.string().regex(decimal), asOf: z.string() }),
+    z.object({
+      status: z.literal('read'),
+      assetId: z.string().regex(OPS_CAPITAL_ASSET),
+      amount: z.string().regex(decimal),
+      /** The venue's own as-of time, with its offset: never a local time read in some zone. */
+      asOf: z.string().datetime({ offset: true }),
+    }),
     unknownPart,
   ]),
   /** The venue's published minimum, that it publishes none, or "unknown" when the venue could not be read. */
   minimum: z.discriminatedUnion('status', [
-    z.object({ status: z.literal('published'), assetId: z.string(), amount: z.string().regex(decimal) }),
+    z.object({ status: z.literal('published'), assetId: z.string().regex(OPS_CAPITAL_ASSET), amount: z.string().regex(decimal) }),
     z.object({ status: z.literal('not_published') }),
     unknownPart,
   ]),

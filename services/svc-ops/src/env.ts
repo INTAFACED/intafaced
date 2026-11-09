@@ -9,7 +9,7 @@ import {
   otelEnvSchema,
   s2sEnvSchema,
 } from '@intafaced/config';
-import { OPS_TEST_VENUE_SETTINGS } from './capital/test-venue.js';
+import { opsTestVenueSettingSchema } from './capital/test-venue.js';
 
 /**
  * svc-ops — durable outreach CRM / team / revenue / projects. No payroll, no
@@ -95,7 +95,7 @@ export const opsEnvSchema = baseEnvSchema
        * The capital monitor's TEST venues (J-ops-console-24 #1): `off` (default) none, `test` they answer, `down` they refuse
        * every read. `test` and `down` refuse to boot outside APP_ENV dev or test (`capital/test-venue.ts`).
        */
-      OPS_TEST_VENUE: z.enum(OPS_TEST_VENUE_SETTINGS).default('off'),
+      OPS_TEST_VENUE: opsTestVenueSettingSchema,
       /**
        * INTAFACED's builder account the TEST venues report. Owner value, never invented: blank with a TEST venue chosen,
        * svc-ops refuses to start with ops.capital.builder_account_unset.
