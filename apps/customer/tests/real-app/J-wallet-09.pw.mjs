@@ -4,7 +4,7 @@ import { encodeFunctionData, keccak256, parseAbi, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { api, journeyState, restartWith, ROOT, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
@@ -261,9 +261,16 @@ test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the use
 }) => {
   // One restart of trade (and the TEST venue's start), and the venue's credit.
   test.setTimeout(300_000);
-  const { who, walletKey } = state();
+  const { who, walletKey, verified } = state();
   const address = privateKeyToAccount(walletKey).address;
   expect(testChain().chain, 'the stack runs its TEST chain').toBe('running');
+  // The venue door's account reads and withdrawals are trade, which needs a verified person (svc-trade
+  // requireTradeJurisdiction: trade's minimum tier is basic); the person verifies once, as every trading journey does.
+  if (!verified) {
+    await signIn(page, who);
+    await verify(page, who);
+    run.write({ verified: true });
+  }
   if (!(await venueDoor(who)).deposit) userVenue(true);
   const door = await venueDoor(who);
   expect(door).toMatchObject({
