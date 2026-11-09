@@ -218,13 +218,12 @@ export const JURISDICTION_MATRIX: readonly JurisdictionEntry[] = [
       },
     },
   },
+  // The US is not served at launch, on every module and plane, the same per-country switch a sanctioned region uses
+  // (OWNER 237, 8 Nov 2026). A business block, not a sanctions one: it never satisfies the screening guard.
   {
     region: 'US',
-    modules: {
-      trade: { status: 'restricted', minTier: 'full', notes: 'State-by-state licensing analysis required before enabling.' },
-      launch: BLOCKED,
-      bank: BLOCKED,
-    },
+    blocked: true,
+    reason: 'The United States is not served at launch.',
   },
 ];
 
@@ -274,9 +273,9 @@ export interface BusinessBlock {
  * The business blocks in a set of matrix entries.
  *
  * Takes the entries rather than reading the module constant so the rule can be
- * tested against a matrix that actually contains a `blocked: true` entry. The
- * shipped matrix contains none, and a rule about the blocked case that can only
- * be exercised when somebody adds one is a rule with no test.
+ * tested against any staged matrix, not only whatever the shipped one happens to
+ * hold (today the US alone, OWNER 237). A rule about the blocked case that can
+ * only be exercised through the shipped entries is a rule with no test of its own.
  */
 export function businessBlocksFrom(entries: readonly JurisdictionEntry[]): readonly BusinessBlock[] {
   return entries
@@ -285,12 +284,13 @@ export function businessBlocksFrom(entries: readonly JurisdictionEntry[]): reado
 }
 
 /**
- * The business blocks the shipped matrix actually declares. Currently none.
+ * The business blocks the shipped matrix actually declares. Currently one: the US (OWNER 237).
  *
  * EXPORTED, AND THAT IS THE SEAM. Every function below that consults business
  * blocks takes them as a defaulted parameter defaulting to this — because the
- * shipped matrix has ZERO `blocked: true` entries, and a rule that can only be
- * exercised once somebody adds one is a rule no test can hold to account.
+ * shipped matrix had ZERO `blocked: true` entries until the US (OWNER 237), and a
+ * rule that can only be exercised through whatever ships is a rule no test can
+ * hold to account.
  *
  * The specific failure this prevents: a test named "a business block leaves the
  * boot guard refusing" that stages no business block. It passes. It passed
@@ -552,8 +552,8 @@ export interface AccessQuery {
    * The counterpart seam to `screening`, and it exists for the same reason that
    * one does — with one difference that matters. `screening` could always be
    * pointed at a populated list, so the screened-region branches of this
-   * function were genuinely exercised. The business branches were not: the
-   * shipped matrix declares ZERO `blocked: true` entries, so
+   * function were genuinely exercised. The business branches were not: until
+   * the US (OWNER 237) the shipped matrix declared ZERO `blocked: true` entries, so
    * `businessBlockFor` returned `undefined` in every test that has ever run,
    * and `blockedBy: 'business'`, the business half of the region check, and the
    * §24 Lane A ordering for a commercially-blocked region were all unreachable.
@@ -668,9 +668,9 @@ export function ruleFor(module: ModuleId, region: RegionCode): JurisdictionRule 
  * Note what a `false` here does NOT mean: it does not mean screened-and-clear.
  * Use `screeningStatus()` if you need to know whether anything was screened.
  *
- * `business` is the seam, for the same reason `screening` is one: the shipped
- * matrix has no `blocked: true` entry, so the business half of this OR has
- * never once returned `true` under test.
+ * `business` is the seam, for the same reason `screening` is one: until the US
+ * (OWNER 237) the shipped matrix had no `blocked: true` entry, so the business
+ * half of this OR could never return `true` under test without it.
  */
 export function isRegionBlocked(
   region: RegionCode,
