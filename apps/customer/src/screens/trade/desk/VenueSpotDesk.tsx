@@ -35,6 +35,7 @@ import {
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { spotVenueCopy } from './venue-copy';
+import { useTradeAccess } from '../markets/TradeAccess';
 
 /** The desk's own symbol form ("BTC-USDC"), whichever way the address writes it. */
 export const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
@@ -116,6 +117,9 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const v = venueCopy.useCopy().t;
   const owner = useOwner();
   const venue = useVenueApi();
+  // The venue takes orders only from an account verified for trading, as the door refuses (J-cex-spot-01 #3).
+  const access = useTradeAccess();
+  const verified = access?.kind === 'verified';
   const account = useVenueAccount(owner);
   const { run } = useVenueActions(owner);
   const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
@@ -254,9 +258,33 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
             </select>
           </label>
         ) : null}
-        <Button disabled={!owner} onClick={() => void openReview()}>
-          {side === 'buy' ? t('Review buy') : t('Review sell')}
-        </Button>
+        {verified ? (
+          <Button disabled={!owner} onClick={() => void openReview()}>
+            {side === 'buy' ? t('Review buy') : t('Review sell')}
+          </Button>
+        ) : (
+          <>
+            <Button disabled aria-disabled="true" aria-describedby={`dk-reason-${side}`}>
+              {t(side === 'buy' ? 'Buy asset' : 'Sell asset', { asset: market.baseAsset })}
+            </Button>
+            <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite" data-access={access?.kind ?? 'reading'}>
+              {access === null ? null : access.kind === 'pending' ? (
+                <>
+                  <strong>{t('Under review')}</strong> <span>{t('Under review body')}</span>
+                </>
+              ) : access.kind === 'unread' ? (
+                <span>{t('Access unread')}</span>
+              ) : (
+                <>
+                  <strong>{t('Verify first')}</strong> <span>{t('Verify first body')}</span>{' '}
+                  <a className="text-link" href="/verification">
+                    {t('Verify now')}
+                  </a>
+                </>
+              )}
+            </div>
+          </>
+        )}
         {problem ? (
           <p className="failure" role="alert">
             {problem}

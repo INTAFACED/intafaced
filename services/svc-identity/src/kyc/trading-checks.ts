@@ -198,7 +198,9 @@ export class TradingChecksDesk {
           throw new TradingCheckError('The trading checks are paused: no list is set.', 'kyc.screening_list_unset');
         throw new TradingCheckError('Trading is not offered for this country right now.', 'kyc.region_blocked');
       }
-      const [birth] = await tx<Array<{ ciphertext: Buffer; nonce: Buffer }>>`SELECT ciphertext, nonce FROM birth_dates WHERE user_id = ${userId}`;
+      const [birth] = await tx<
+        Array<{ ciphertext: Buffer; nonce: Buffer }>
+      >`SELECT ciphertext, nonce FROM birth_dates WHERE user_id = ${userId}`;
       if (!birth) throw new TradingCheckError('We do not have your date of birth. Ask Support to add it.', 'kyc.date_of_birth_unknown');
       const dateOfBirth = openBirthDate(key, birth);
 

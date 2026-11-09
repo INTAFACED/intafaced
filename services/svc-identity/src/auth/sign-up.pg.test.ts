@@ -205,7 +205,9 @@ if (!available) {
       // Sealed in the draft, never in plaintext.
       expect(JSON.stringify(await db.sql`SELECT * FROM signup_drafts`)).not.toContain('1970-01-01');
       const session = await anon().auth.signUpConfirm({ flowId: answer.flowId, code: sent[0]!.code });
-      const rows = await db.sql<Array<{ ciphertext: Buffer; nonce: Buffer }>>`SELECT ciphertext, nonce FROM birth_dates WHERE user_id = ${session.userId}`;
+      const rows = await db.sql<
+        Array<{ ciphertext: Buffer; nonce: Buffer }>
+      >`SELECT ciphertext, nonce FROM birth_dates WHERE user_id = ${session.userId}`;
       expect(rows).toHaveLength(1);
       expect(rows[0]!.ciphertext.toString('utf8')).not.toContain('1970');
       expect(openBirthDate(key, rows[0]!)).toBe('1970-01-01');

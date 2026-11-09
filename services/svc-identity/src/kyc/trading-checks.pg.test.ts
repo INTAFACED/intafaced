@@ -124,8 +124,9 @@ if (!available) {
       SELECT tier, status, reviewed_by, jurisdiction FROM kyc_records WHERE user_id = ${userId}`;
   const checks = (userId: string) => db.sql`SELECT outcome, business_key FROM trading_checks WHERE user_id = ${userId}`;
   const capability = async (userId: string) =>
-    kycCapabilitiesOutputSchema.parse(await auth.listKycCapabilities(userId, REASONS)).capabilities.find((c) => c.capability === 'trade_crypto')!
-      .state;
+    kycCapabilitiesOutputSchema
+      .parse(await auth.listKycCapabilities(userId, REASONS))
+      .capabilities.find((c) => c.capability === 'trade_crypto')!.state;
   const refusal = async (promise: Promise<unknown>) =>
     (await promise.then(
       () => ({ code: 'resolved' }),
@@ -145,7 +146,9 @@ if (!available) {
       expect(result).toMatchObject({ outcome: 'cleared', fresh: true });
       expect(await auth.kycTier(userId)).toBe('basic');
       expect(await auth.kycTradingOnly(userId)).toBe(true);
-      expect(await records(userId)).toEqual([{ tier: 'basic', status: 'approved', reviewed_by: TRADING_CHECKS_REVIEWER, jurisdiction: 'DE' }]);
+      expect(await records(userId)).toEqual([
+        { tier: 'basic', status: 'approved', reviewed_by: TRADING_CHECKS_REVIEWER, jurisdiction: 'DE' },
+      ]);
       expect(await capability(userId)).toBe('active');
       expect(await db.sql`SELECT state FROM kyc_cases WHERE user_id = ${userId}`).toEqual([{ state: 'approved' }]);
       expect(bus.published.some((e) => e.subject.endsWith('identity.kyc.approved'))).toBe(true);
@@ -201,7 +204,9 @@ if (!available) {
       expect((await refusal(desk().run(userId, { legalName: 'TEST Trader', country: 'DE', confirmed: false }))).code).toBe(
         'kyc.country_unconfirmed',
       );
-      expect((await refusal(desk().run(userId, { legalName: 'TEST Trader', country: 'ZZ', confirmed: true }))).code).toBe('kyc.country_invalid');
+      expect((await refusal(desk().run(userId, { legalName: 'TEST Trader', country: 'ZZ', confirmed: true }))).code).toBe(
+        'kyc.country_invalid',
+      );
       expect((await refusal(desk(LIST, null).run(userId, { legalName: 'TEST Trader', country: 'DE', confirmed: true }))).code).toBe(
         'kyc.trading_checks_unconfigured',
       );
@@ -213,7 +218,9 @@ if (!available) {
       const verified = await person();
       const record = await auth.submitKyc({ userId: verified, tier: 'basic', jurisdiction: 'DE' });
       await auth.approveKycRecord({ recordId: record.id, reviewerId: '00000000-0000-4000-8000-0000000000aa', approvalParties: [] });
-      expect((await refusal(desk().run(verified, { legalName: 'TEST Trader', country: 'DE', confirmed: true }))).code).toBe('kyc.level_held');
+      expect((await refusal(desk().run(verified, { legalName: 'TEST Trader', country: 'DE', confirmed: true }))).code).toBe(
+        'kyc.level_held',
+      );
       expect(await auth.kycTradingOnly(verified)).toBe(false);
     });
   });
