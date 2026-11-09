@@ -216,7 +216,13 @@ jobs:
             ln -s "$GITHUB_WORKSPACE/node_modules" "$RUNNER_TEMP/list-base/node_modules"
             guard="$RUNNER_TEMP/list-base/$guard"
           fi
-          node "$guard" --base-ref origin/main
+          # The list is judged against the base this checkout's merge commit was built on (its first parent), not a newer
+          # origin/main: a job that waits for a runner while main adds journeys would otherwise read them as removed by
+          # this pull request (#7680 and #7613 on 9 Nov 2026, 7 journeys main added after their merge refs were built). The
+          # rules still come from origin/main, above. A checkout that is not a merge keeps origin/main.
+          base=origin/main
+          if git rev-parse --verify -q 'HEAD^2' >/dev/null; then base='HEAD^1'; fi
+          node "$guard" --base-ref "$base"
 
       # The redesign's drift lint, from main like the guard above: changed lines in apps/customer and packages/ui/src/lit take
       # their look from role tokens (no raw colours, pixel sizes or left/right sides). It ratchets: lines already on

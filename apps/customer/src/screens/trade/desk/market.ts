@@ -4,10 +4,13 @@
  */
 import { z } from 'zod';
 import { listingSchema } from '../../../features/trade/trade-api';
+import { maintenanceOf, upcomingMaintenanceSchema, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
 
 /** `/markets` row as the desk reads it: the existing trade schema plus the market state the data layer also reads. */
 export const deskListingSchema = listingSchema.extend({
   lifecycle: z.object({ state: z.string() }).passthrough().nullish(),
+  /** The nearest maintenance window svc-notify publishes for this market (J-cex-spot-14 #5). */
+  upcomingMaintenance: upcomingMaintenanceSchema,
   // The operator limits as published for the pair; "not set" where the owner published none.
   pairRules: z
     .object({ protection: z.object({ collar: z.string(), openOrdersPerMarket: z.string() }).passthrough() })
@@ -34,6 +37,8 @@ export interface DeskMarket {
   open: boolean;
   /** The listed lifecycle state (OPEN, POST_ONLY, HALTED ...), or null when the listing names none. */
   state: string | null;
+  /** A maintenance window scheduled or under way for this market, or null when none is published (or none could be read). */
+  maintenance?: MaintenanceWindowSoon | null;
   /** Price band as a fraction around the middle of the book ("0.1" is 10%); null when none is published. */
   band?: string | null;
   /** How many orders one account may have open here; null when none is published. */
@@ -55,6 +60,7 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     minCost: listing.limits.cost.min,
     open: listing.orderable && listing.active && listing.sessionOpen && stateOpen,
     state: listing.lifecycle?.state?.trim() || null,
+    maintenance: maintenanceOf(listing.upcomingMaintenance),
     band: published(listing.pairRules?.protection.collar),
     openOrderCap: published(listing.pairRules?.protection.openOrdersPerMarket),
   };
