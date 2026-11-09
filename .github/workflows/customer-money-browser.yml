@@ -1,7 +1,7 @@
 # Money screen browser checks (Playwright, mocked API, no services). Runs after merge (push to main) when the customer app,
 # or what it is built from, changes, and on workflow_dispatch, not on pull requests: runner capacity was the merge bottleneck
 # and this is not a required check (owner decision 2026-10-20). The ceiling then was the free plan's 20 concurrent jobs;
-# on 9 Nov 2026 it measured about 110-230 running jobs and moves (project-state#1906). A screen and its browser check
+# on 9 Nov 2026 it measured about 180 concurrent jobs, peaks to 230 (project-state#1906). A screen and its browser check
 # drifted apart once and nothing noticed because no job ran this suite.
 name: Customer Money browser checks
 
