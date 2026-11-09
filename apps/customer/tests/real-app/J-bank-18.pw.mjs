@@ -88,7 +88,7 @@ test(`${J} #1 opens a transfer from a blocked region: a notice naming the restri
   await signIn(page, who);
   await page.goto('/bank/transfers');
   const send = page.getByTestId('rail-send');
-  await expect(send.getByLabel('Send to')).toBeVisible({ timeout: 30_000 });
+  await expect(send.getByLabel('Send to', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(send.getByTestId('rail-send-region')).toHaveCount(0);
   expect((await requirements()).status).toBe(200);
 
@@ -105,7 +105,7 @@ test(`${J} #1 opens a transfer from a blocked region: a notice naming the restri
     const unpublished = notice.getByTestId('rail-send-region-wording');
     await expect(unpublished).toHaveAttribute('data-published', 'false');
     await expect(unpublished).toHaveText('The wording for this restriction is not published.');
-    await expect(send.getByLabel('Send to')).toHaveCount(0);
+    await expect(send.getByLabel('Send to', { exact: true })).toHaveCount(0);
     // The bank's door refuses the same request by its code, whatever the page shows.
     const refused = await requirements();
     expect(refused.status).toBe(403);
@@ -130,7 +130,7 @@ test(`${J} #1 opens a transfer from a blocked region: a notice naming the restri
     }
   }
   await page.goto('/bank/transfers');
-  await expect(send.getByLabel('Send to')).toBeVisible({ timeout: 30_000 });
+  await expect(send.getByLabel('Send to', { exact: true })).toBeVisible({ timeout: 30_000 });
   expect((await requirements()).status).toBe(200);
   await page.context().close();
 });
@@ -187,7 +187,7 @@ test(`${J} #2 reviews a first-time payee: the warning once per payee with a link
   // Reviewing a send to Bea, a first-time payee: the warning, with the scam guide.
   await page.goto('/bank/transfers');
   const send = page.getByTestId('rail-send');
-  const to = send.getByLabel('Send to');
+  const to = send.getByLabel('Send to', { exact: true });
   const warning = send.getByTestId('rail-send-scam-warning');
   await to.selectOption({ label: 'Bea · Bea TEST · …3000' }, { timeout: 30_000 });
   await expect(warning).toBeVisible();
@@ -249,7 +249,8 @@ test(`${J} #3 reports a scam with an amount and a transfer id: a ticket in the s
   });
   expect(paid.status, JSON.stringify(paid.body).slice(0, 300)).toBe(200);
 
-  // The bank's services open the scam report.
+  // The bank's services open the scam report. `verify` signed the browser out, so the person signs in again first.
+  await signIn(page, who);
   await page.goto('/bank');
   await page
     .locator('main')
