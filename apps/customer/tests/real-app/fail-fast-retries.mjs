@@ -30,7 +30,8 @@ export default class FailFastRetries {
       return serial.get(file);
     };
     const n = noRetryForFailFast(suite.allTests(), plan, isSerialFile);
-    process.stdout.write(`fail fast: ${n} test(s) of steps the plan expects to fail run once, with no retry\n`);
+    // Off main no test has a retry (JOURNEY_RETRIES), so there is nothing to take off and nothing to say.
+    if (n > 0) process.stdout.write(`fail fast: ${n} test(s) of steps the plan expects to fail run once, with no retry\n`);
   }
 
   printsToStdio() {
