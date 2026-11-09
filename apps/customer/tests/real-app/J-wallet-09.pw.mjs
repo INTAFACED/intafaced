@@ -1,0 +1,242 @@
+// World: restart
+import { keccak256, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { test, expect } from './journey.mjs';
+import { CHAIN_ID, UNBUILT } from './dex.mjs';
+import { signIn, signUp } from './desk.mjs';
+import { api, journeyState, restartWith } from './stack.mjs';
+import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+
+// J-wallet-09, in the running app (docs/roadmap/journeys.json): I connect my own wallet and fund my venue account from
+// it. One test per step, titled "J-wallet-09 #<n>", run in order by one signed-in TEST person with one TEST browser wallet
+// (test-wallet.mjs, a fresh key kept in this run's state). The connection is svc-protocol's record (`venueWallet.*`):
+// an address and its expiry, never a key. The stack's labelled TEST owner values (tooling/profiles/test-owner-values/
+// protocol.json) give a one-minute connection, so #4 waits about a minute, and a wallet sanctions list of one TEST
+// address, the wallet #1 derives from the TEST seed below. #1 also restarts svc-protocol once with that list blank
+// (`LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS=off`, tooling/scripts/local-stack-services/protocol.mjs) and puts it back.
+// Region refusal: #1 restarts svc-protocol and Edge once with `LOCAL_STACK_TEST_REGION_SERVED=off`
+// (tooling/scripts/local-stack-services/protocol.mjs and edge.mjs): svc-protocol then holds a labelled TEST business
+// block for the TEST region AA (a user-assigned ISO code, no country; INTAFACED_TEST_BUSINESS_BLOCKS), Edge stamps every
+// request from AA, and the person, signed in again, is refused denied.region_blocked with that region's reason in the
+// room. Both are put back after. The stack's screened regions are a repository secret, so the test plays the TEST
+// region, never one of them, and the sanctions list is never touched. #3 and #5 need the TEST venue simulator.
+// Money: INTAFACED moves nothing and the ledger posts nothing in this journey; #3 reads the ledger before and after.
+const J = 'J-wallet-09';
+// #3 (deposit) and #5 (withdraw) need the TEST venue in the stack; their tests land with the venue PR, under the
+// passing/unbuilt rule (a step's test joins this file in the PR that makes it pass).
+const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+/** The TEST wallet on the stack's TEST wallet sanctions list (PROTOCOL_WALLET_SANCTIONS in the TEST profile). */
+const LISTED_KEY = keccak256(toHex('INTAFACED LOCAL TEST sanctioned wallet (J-wallet-09)'));
+const LISTED = '0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83';
+/** The TEST USDC #3 deposits; the venue's figure for this new account must read exactly this after. */
+const DEPOSIT = '25';
+/** The TEST region AA's reason while it is not served (TEST_BUSINESS_BLOCK_REASON in packages/config jurisdiction.ts). */
+const REGION_REASON = 'TEST region, not served at launch';
+const NO_KEY = 'INTAFACED holds no key that can move this wallet’s funds. You sign every venue action in your own wallet.';
+
+test.describe.configure({ mode: 'default' });
+
+function state() {
+  const s = run.read();
+  if (!s.who || !s.walletKey) throw new Error(`${J} #1 made no account and wallet, so this step has no one to act as`);
+  return s;
+}
+
+/** Signed in, with the TEST wallet in this page, on the wallet room's Venue account tab, the browser wallet connected. */
+async function openVenue(page, who, privateKey) {
+  const wallet = await installTestWallet(page, { chainId: CHAIN_ID, privateKey });
+  await signIn(page, who);
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
+  await expect(page).toHaveURL(/\/wallet\/venue$/);
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  return wallet;
+}
+
+const venueAction = (page, name) => page.getByRole('region', { name: 'Venue actions' }).getByRole('button', { name });
+const sheet = (page) => page.locator('[data-sheet="sign"]');
+
+/** The person's own `venueWallet.status` through Edge: what svc-protocol records for their wallets. */
+async function recorded(who) {
+  const client = await api(who);
+  const { status, body } = await client.get('/api/protocol/trpc/venueWallet.status');
+  if (status !== 200) throw new Error(`venueWallet.status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
+  return body.result.data;
+}
+
+/** Presses Connect, continues the plain-words sheet, and the TEST wallet signs. */
+async function connectAndSign(page, button = 'Connect to my account') {
+  await page.getByRole('button', { name: button }).click();
+  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
+  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
+}
+
+test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on the blank or set sanctions list, or from a blocked region, is refused with its reason`, async ({
+  page,
+}) => {
+  // Two restarts of svc-protocol for the blank list, and two of svc-protocol and Edge for the blocked region.
+  test.setTimeout(480_000);
+  const who = await signUp(page, 'jwallet09');
+  const walletKey = testWalletKey();
+  run.reset({ who, walletKey });
+
+  // A wallet on the set sanctions list is refused with its reason, and no message is written for it.
+  expect(privateKeyToAccount(LISTED_KEY).address).toBe(LISTED);
+  const listedPage = await page.context().newPage();
+  try {
+    await openVenue(listedPage, who, LISTED_KEY);
+    await listedPage.getByRole('button', { name: 'Connect to my account' }).click();
+    await expect(listedPage.getByText('This wallet can’t be connected')).toBeVisible();
+    await expect(
+      listedPage.getByText('This wallet is on the sanctions list, so it cannot be connected or used. Nothing was connected.'),
+    ).toBeVisible();
+    await expect(listedPage.getByText('protocol.wallet_sanctioned')).toBeVisible();
+    await expect(listedPage.locator('[data-venue-message]')).toHaveCount(0);
+    await expect(sheet(listedPage)).toHaveCount(0);
+  } finally {
+    await listedPage.close();
+  }
+
+  // A blank wallet sanctions list refuses every wallet, the person's own included, with its reason (OWNER 88).
+  const blankPage = await page.context().newPage();
+  try {
+    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', false);
+    await openVenue(blankPage, who, walletKey);
+    await blankPage.getByRole('button', { name: 'Connect to my account' }).click();
+    await expect(blankPage.getByText('No wallet can be screened', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(
+      blankPage.getByText('The wallet sanctions list is not set, so no wallet can be screened or connected. Nothing was connected.'),
+    ).toBeVisible();
+    await expect(blankPage.getByText('protocol.wallet_sanctions_unset')).toBeVisible();
+    await expect(blankPage.locator('[data-venue-message]')).toHaveCount(0);
+    await expect(sheet(blankPage)).toHaveCount(0);
+  } finally {
+    await blankPage.close();
+    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', true);
+  }
+
+  // A visitor from a blocked region is refused with its reason before any message, the person's own wallet included
+  // (OWNER 88, OWNER 237): the TEST region AA blocked in svc-protocol, and Edge stamping every request from it.
+  const regionPage = await page.context().newPage();
+  try {
+    restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    await openVenue(regionPage, who, walletKey);
+    // The room's read of the person's connections is refused by the same guard, so the refusal is there before Connect
+    // too; pressing Connect is refused the same way, and no message is written.
+    await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await regionPage.getByRole('button', { name: 'Connect to my account' }).click();
+    await expect(regionPage.getByRole('button', { name: 'Connect to my account' })).toBeEnabled();
+    await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible();
+    await expect(
+      regionPage.getByText(`Connecting a wallet is not available where you are: ${REGION_REASON}. Nothing was connected.`),
+    ).toBeVisible();
+    await expect(regionPage.getByText('denied.region_blocked')).toBeVisible();
+    await expect(regionPage.locator('[data-venue-message]')).toHaveCount(0);
+    await expect(sheet(regionPage)).toHaveCount(0);
+  } finally {
+    await regionPage.close();
+    // Edge first, so no request is stamped from the TEST region once it is served again.
+    try {
+      restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+    } finally {
+      restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+    }
+  }
+
+  // The person's own wallet: Connect shows the exact message to sign, naming INTAFACED, the address, the chain, a nonce
+  // and the expiry.
+  const address = privateKeyToAccount(walletKey).address;
+  await openVenue(page, who, walletKey);
+  await page.getByRole('button', { name: 'Connect to my account' }).click();
+  const message = page.locator('[data-venue-message]');
+  await expect(message).toContainText('wants you to sign in with your Ethereum account:');
+  await expect(message).toContainText(address);
+  await expect(message).toContainText('INTAFACED');
+  await expect(message).toContainText(`Chain ID: ${CHAIN_ID}`);
+  await expect(message).toContainText(/Nonce: [A-Za-z0-9]{8,}/);
+  await expect(message).toContainText(/Expiration Time: \d{4}-\d{2}-\d{2}T/);
+  // The wallet's own sheet shows the same message before it signs anything.
+  await expect(sheet(page).locator('[data-sheet-payload]')).toContainText(address);
+  await sheet(page).getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('You cancelled the signature')).toBeVisible();
+  expect((await recorded(who)).connections).toEqual([]);
+});
+
+test(`${J} #2 signs with the wallet: it shows connected with its expiry; INTAFACED holds no key that can move its funds`, async ({
+  page,
+}) => {
+  const { who, walletKey } = state();
+  const address = privateKeyToAccount(walletKey).address;
+  const wallet = await openVenue(page, who, walletKey);
+  await connectAndSign(page);
+  expect(wallet.requests.map((r) => r.method)).toEqual(['personal_sign']);
+  const panel = page.locator('[data-panel="venue-connection"]');
+  await expect(panel.locator('[data-venue-address]')).toHaveText(address);
+  const expires = panel.getByTestId('venue-connection-expires');
+  await expect(expires).toBeVisible();
+  const expiresAt = await expires.getAttribute('datetime');
+  expect(Date.parse(expiresAt)).toBeGreaterThan(Date.now());
+  await expect(panel.getByText(NO_KEY)).toBeVisible();
+
+  // What INTAFACED records is the address and its times: no key, no agent, nothing that can sign for the wallet.
+  const { connections } = await recorded(who);
+  expect(connections).toEqual([
+    { address, chainId: CHAIN_ID, connectedAt: expect.any(String), expiresAt, status: 'live', holdsKey: false },
+  ]);
+  expect(JSON.stringify(connections)).not.toMatch(/0x[0-9a-fA-F]{64}/);
+  run.write({ expiresAt });
+
+  // The connection is the service's: a reload reads it back with the same expiry.
+  await page.reload();
+  // The browser wallet may come back by itself (it is still authorised); otherwise the person connects it again.
+  const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  await expect(page.getByRole('heading', { name: 'Connected' }).or(again)).toBeVisible();
+  if (await again.isVisible()) await again.click();
+  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
+  await expect(page.getByTestId('venue-connection-expires')).toHaveAttribute('datetime', expiresAt);
+});
+
+/** The room has read the connection back: it shows Connected, Connection expired, or Connect. Branch only after this. */
+async function roomSettled(page) {
+  await expect(
+    page
+      .getByRole('heading', { name: 'Connected' })
+      .or(page.getByRole('heading', { name: 'Connection expired' }))
+      .or(page.getByRole('button', { name: 'Connect to my account' })),
+  ).toBeVisible();
+}
+
+test(`${J} #4 lets the connection expire: every signed action refuses until the wallet signs again`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const { who, walletKey } = state();
+  await openVenue(page, who, walletKey);
+  // A connection that is live now, so this step watches it expire.
+  await roomSettled(page);
+  if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
+  if (await page.getByRole('button', { name: 'Connect to my account' }).isVisible()) await connectAndSign(page);
+  const expiresAt = await page.getByTestId('venue-connection-expires').getAttribute('datetime');
+  const left = Date.parse(expiresAt) - Date.now();
+  expect(left).toBeGreaterThan(0);
+
+  // The expiry passes: the room says so.
+  await expect(page.getByRole('heading', { name: 'Connection expired' })).toBeVisible({ timeout: left + 15_000 });
+  await expect(page.getByRole('button', { name: 'Sign again' })).toBeVisible();
+  expect((await recorded(who)).connections.map((c) => c.status)).toEqual(['expired']);
+
+  // Every signed action is refused by the service, by name, and nothing is asked of the wallet.
+  for (const action of ['Deposit TEST USDC', 'Withdraw TEST USDC']) {
+    await venueAction(page, action).click();
+    await expect(page.getByText('Your wallet must sign again')).toBeVisible();
+    await expect(page.getByText('protocol.venue_connection_expired')).toBeVisible();
+    await expect(sheet(page)).toHaveCount(0);
+  }
+
+  // Until the wallet signs again: then the connection is live with a new expiry, and the expiry refusal is gone.
+  await connectAndSign(page, 'Sign again');
+  const renewed = await page.getByTestId('venue-connection-expires').getAttribute('datetime');
+  expect(Date.parse(renewed)).toBeGreaterThan(Date.parse(expiresAt));
+  await venueAction(page, 'Deposit TEST USDC').click();
+  await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
+  expect((await recorded(who)).connections.map((c) => c.status)).toEqual(['live']);
+});
