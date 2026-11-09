@@ -19,7 +19,17 @@ import {
   REVIEW_WORKFLOW,
   STATUS_CONTEXT,
 } from './review-marker.mjs';
-import { buildPrompt, readAnswer, eventPull, indexHead, VERDICT_SCHEMA, MAX_DIFF_BYTES } from './ci-review.mjs';
+import {
+  buildPrompt,
+  readAnswer,
+  eventPull,
+  indexHead,
+  elideGenerated,
+  elideGeneratedWith,
+  GENERATED,
+  VERDICT_SCHEMA,
+  MAX_DIFF_BYTES,
+} from './ci-review.mjs';
 
 const HEAD = 'a'.repeat(40);
 const OLDER = 'b'.repeat(40);
@@ -1090,4 +1100,40 @@ test('a fork pull request is no in-repo review', () => {
   assert.equal(eventPull(pr('INTAFACED/intafaced'), 'INTAFACED/intafaced').inRepo, true);
   assert.equal(eventPull(pr('someone/intafaced'), 'INTAFACED/intafaced').inRepo, false);
   assert.equal(eventPull({ pull_request: { head: { sha: 'x' } } }, 'INTAFACED/intafaced'), null);
+});
+
+test('the generated map reaches the reviewer as a note naming its proof; everything else stays whole (#7624: 648976 bytes)', () => {
+  const MAP = 'tooling/ci/journey-reach-map.json';
+  const line = `{"v":1,"customer":"${'x'.repeat(330_000)}"}`;
+  const mapPart = `diff --git a/${MAP} b/${MAP}\nindex 1..2 100644\n--- a/${MAP}\n+++ b/${MAP}\n@@ -1 +1 @@\n-${line}\n+${line.replace('x', 'y')}\n`;
+  const code = 'diff --git a/tooling/ci/journey-touch.mjs b/tooling/ci/journey-touch.mjs\n@@ -1 +1 @@\n-a\n+b\n';
+  const diff = code + mapPart + code;
+  assert.ok(Buffer.byteLength(diff) > MAX_DIFF_BYTES, 'whole, the map alone is over the limit');
+  const out = elideGenerated(diff);
+  assert.ok(Buffer.byteLength(out) < 2_000);
+  assert.ok(out.startsWith(code) && out.endsWith(code), 'the code around it is kept byte for byte');
+  assert.match(
+    out,
+    new RegExp(`diff --git a/${MAP} b/${MAP}\\n\\[generated file, \\d+ bytes of diff not shown: ${GENERATED[MAP].slice(0, 30)}`),
+  );
+  assert.equal(out.includes('xxxx'), false);
+  // Planted: the same text under any other path, or renamed into or out of the map's path, is never elided.
+  for (const [a, b] of [
+    ['tooling/ci/journey-reach-map.mjs', 'tooling/ci/journey-reach-map.mjs'],
+    ['tooling/ci/other.json', MAP],
+    [MAP, 'tooling/ci/other.json'],
+    [`x/${MAP}`, `x/${MAP}`],
+  ]) {
+    const d = mapPart.replace(`diff --git a/${MAP} b/${MAP}`, `diff --git a/${a} b/${b}`);
+    assert.equal(elideGenerated(d), d, `${a} -> ${b} stays whole`);
+  }
+  // The job says so outside the untrusted diff, and only for what it elided.
+  const { elided } = elideGeneratedWith(diff);
+  assert.deepEqual(elided, [MAP]);
+  const prompt = buildPrompt({ brief: 'B', diff: out, pr: 1, head: 'h', elided });
+  assert.ok(prompt.indexOf(`generated file ${MAP}`) < prompt.indexOf('BEGIN UNTRUSTED DIFF'));
+  assert.equal(buildPrompt({ brief: 'B', diff: code, pr: 1, head: 'h' }).includes('generated file'), false);
+  // A diff with no generated file is returned unchanged, and an empty one stays empty.
+  assert.equal(elideGenerated(code), code);
+  assert.equal(elideGenerated(''), '');
 });
