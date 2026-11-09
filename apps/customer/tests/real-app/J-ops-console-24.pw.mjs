@@ -206,16 +206,11 @@ test(`${J} #1 the builder account's balance at each venue as the venue reports i
   await founderSignIn(page, 'a');
   await openMonitor(page);
   const venues = page.getByRole('table', { name: 'Builder account at each venue' });
-  // No venue adapter reports a builder account to svc-ops yet: this fails fast here until one does.
-  await expect(
-    venues,
-    await page
-      .getByTestId('venues-not-connected')
-      .innerText()
-      .catch(() => 'no venue table'),
-  ).toBeVisible({
-    timeout: 10_000,
-  });
+  // Without a venue adapter the room says ops.capital.venue_not_connected instead: this fails fast with those words. The
+  // reason is read only once one of the two is on the page, so reading it never waits out the test's own timeout.
+  const notConnected = page.getByTestId('venues-not-connected');
+  await expect(venues.or(notConnected)).toBeVisible({ timeout: 10_000 });
+  await expect(venues, (await notConnected.count()) > 0 ? await notConnected.innerText() : 'no venue table').toBeVisible();
   const rows = venues.getByRole('row').filter({ has: page.getByRole('rowheader') });
   expect(await rows.count()).toBeGreaterThan(0);
   for (const row of await rows.all()) {
