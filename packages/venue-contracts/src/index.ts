@@ -45,4 +45,5 @@ export * from './account.js';
 export * from './latency.js';
 export * from './adapter.js';
 export * from './user-venue.js';
+export * from './user-venue-wire.js';
 export * from './agent-cap.js';

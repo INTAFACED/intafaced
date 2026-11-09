@@ -86,6 +86,7 @@ import { orderIdFor } from './spot/ids.js';
 import type { OrderHold } from './spot/order-holds.js';
 import type { EdgeTrust } from './edge-trust.js';
 import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
+import { refuseRetailPriceImprovement } from './spot/rpi.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
 import type { OrderLink } from './spot/order-links.js';
 import { readOcoFromBody } from './spot/oco-place.js';
@@ -93,6 +94,8 @@ import { createBodyRefusal } from './create-body-refusal.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
 import { attachGridRestRoutes } from './grid/grid-rest.js';
+import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
+import type { UserVenueDoor } from './venue/user-venue-door.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -197,6 +200,8 @@ export interface PrivateRestDeps {
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
+  /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
+  userVenue?: UserVenueDoor | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -1341,6 +1346,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
+  attachUserVenueRoutes(app, deps.userVenue ?? null, { requirePrincipal, requireTradeJurisdiction });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {
@@ -2555,6 +2561,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       try {
         refuseExitLegs(rawItem);
         const now = (deps.now ?? (() => new Date()))();
+        refuseRetailPriceImprovement(rawItem);
         const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
         refuseUnsupportedPlacementOptions(parsed.data, now, replay);
         input = withFeeCurrency(mapCreateOrderBody(parsed.data), await feeCurrencyFor(deps, parsed.data, rawItem));
@@ -2885,6 +2892,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let stopTrigger: string | null = null;
     try {
       const now = (deps.now ?? (() => new Date()))();
+      refuseRetailPriceImprovement(rawBody);
       const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
       refuseUnsupportedPlacementOptions(parsed.data, now, replay);
       const feeCurrency = await feeCurrencyFor(deps, parsed.data, rawBody);
@@ -3208,6 +3216,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let input: PlaceOrderInput;
     try {
       refuseOptionsOnReplacement(parsed.data);
+      refuseRetailPriceImprovement(rawBody);
       if (hasSpentExpiry(parsed.data, (deps.now ?? (() => new Date()))())) {
         throw new TradeError('the order expiry is not in the future; nothing was replaced', 'trade.invalid_expiry');
       }

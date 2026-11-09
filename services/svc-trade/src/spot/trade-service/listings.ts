@@ -151,7 +151,12 @@ export async function setMarketStatus(svc: TradeServiceInternal, marketId: strin
     throw new TradeError(insuranceGate.reason, insuranceGate.code);
   }
   const rows = await svc.sql<MarketRow[]>`
-    UPDATE trade.markets SET status = ${status}, updated_at = now() WHERE id = ${marketId}
+    UPDATE trade.markets
+       SET status = ${status},
+           -- A delisting date belongs only to a delisted listing (markets_delists_at_ck).
+           delists_at = CASE WHEN ${status} = 'delisted' THEN delists_at ELSE NULL END,
+           updated_at = now()
+     WHERE id = ${marketId}
     RETURNING id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
               min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
               asset_class, schedule, paper,
