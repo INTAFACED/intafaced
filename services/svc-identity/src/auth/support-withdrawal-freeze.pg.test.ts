@@ -122,14 +122,14 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(await db.sql`SELECT 1 FROM support_withdrawal_freezes WHERE user_id = ${ghost}`).toHaveLength(0);
     });
 
-    it('the audit row refuses update and delete; erasing the account removes it with the lock', async () => {
+    it('the audit row refuses update and delete; only removing its lock row takes it with it', async () => {
       const userId = await person();
       await freezeWithdrawalsForSupport(lock, ask(userId));
       await expect(db.sql`UPDATE support_withdrawal_freezes SET reason = 'edited' WHERE user_id = ${userId}`).rejects.toThrow(
         /append-only/,
       );
       await expect(db.sql`DELETE FROM support_withdrawal_freezes WHERE user_id = ${userId}`).rejects.toThrow(/append-only/);
-      await db.sql`DELETE FROM users WHERE id = ${userId}`;
+      await db.sql`DELETE FROM account_security_locks WHERE user_id = ${userId}`;
       expect(await audit(userId)).toHaveLength(0);
     });
 

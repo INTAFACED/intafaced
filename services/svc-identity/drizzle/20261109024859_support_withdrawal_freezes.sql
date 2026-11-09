@@ -21,7 +21,7 @@ CREATE INDEX IF NOT EXISTS "support_withdrawal_freezes_user_idx" ON "identity"."
 
 CREATE OR REPLACE FUNCTION "identity"."support_withdrawal_freezes_append_only"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  -- A cascade from deleting the user or the lock row is the account's erasure, not an edit of the record.
+  -- A cascade from removing the user or the lock row is the account's erasure, not an edit of the record.
   IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
     RETURN OLD;
   END IF;
