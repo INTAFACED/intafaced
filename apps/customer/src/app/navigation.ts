@@ -52,6 +52,12 @@ export const rooms: readonly Room[] = [
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
   {
+    path: '/help/official-channels',
+    title: 'Official channels',
+    description: 'Our real web addresses, email senders and support channels, and scam guides',
+    area: 'public',
+  },
+  {
     path: '/help/category/:id',
     title: 'Help topic',
     description: 'Sections of one help topic',
@@ -240,6 +246,20 @@ export const rooms: readonly Room[] = [
     area: 'money',
   },
   {
+    path: '/bank/safety/complaint',
+    title: 'Make a complaint',
+    description: 'Acknowledged once, with a reference and a response date',
+    door: 'Money',
+    area: 'money',
+  },
+  {
+    path: '/bank/safety/bereavement',
+    title: 'Report a death',
+    description: 'Tell us that a customer has died',
+    door: 'Money',
+    area: 'money',
+  },
+  {
     path: '/bank/recovery',
     title: 'Recovery claim',
     description: 'Claim the balances of someone who named you',
@@ -396,6 +416,14 @@ export const rooms: readonly Room[] = [
   },
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/copy/:ref', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade', hidden: true },
+  {
+    path: '/trade/analytics/:pair',
+    title: 'Market analytics',
+    description: 'Who took liquidity in a named window, from the public trades',
+    door: 'Trade',
+    area: 'trade',
+    hidden: true,
+  },
   { path: '/copy/lead/apply', title: 'Apply to lead', description: 'Become a leader others can copy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
   { path: '/trade/bots/:kind', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade', hidden: true },
@@ -1013,7 +1041,15 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
-  // The support desk's own addresses (SP-tickets-01): a new request, "My requests" and one request.
+  // The support desk's own addresses (SP-tickets-01): a new request, "My requests" and one request; and live chat (SP-chat-01).
+  {
+    path: '/support/chat',
+    title: 'Chat with support',
+    description: 'Tickets and published answers',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
   {
     path: '/support/new',
     title: 'New support request',
@@ -1096,6 +1132,14 @@ export const rooms: readonly Room[] = [
   },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
   { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
+  {
+    path: '/uc/safe/compromised',
+    title: 'My account is compromised',
+    description: 'End every sign-in and key, freeze the account and work through a checklist',
+    area: 'person',
+    hidden: true,
+    screen: 'account',
+  },
   {
     path: '/uc/safe/api-keys',
     title: 'API keys',

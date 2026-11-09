@@ -55,6 +55,7 @@ import {
   localStackState,
   assertActiveLocalStack,
   processRecordMatches,
+  readKernelStart,
   readProcessIdentity,
   readLatestEmailConfirmToken,
 } from './local-test-state.mjs';
@@ -968,6 +969,8 @@ async function runLoop(opts, home) {
     cycle += 1;
     /** This cycle's mid per market, so a follower whose leader's book cannot be read uses the leader's walk. */
     const mids = new Map();
+    // Taken before the shift and hold files are read, so the record's `startedAt` never postdates what this cycle read.
+    const readAt = Date.now();
     const shifts = readShifts(p);
     // Only holds still in force; one past HOLD_MAX_MS is quoted again from this cycle.
     const asked = readHolds(p);
@@ -1144,7 +1147,7 @@ async function runLoop(opts, home) {
       }
       inactiveSince = null;
       try {
-        writeCycleRecord(p, { pid: process.pid, runId, cycle, startedAt: cycleAt, endedAt: Date.now(), markets: done });
+        writeCycleRecord(p, { pid: process.pid, runId, cycle, startedAt: readAt, endedAt: Date.now(), markets: done });
       } catch (err) {
         log(`cycle record not written (${err.message}); quoting goes on`);
       }
@@ -1733,7 +1736,8 @@ async function startBackground(p, args, { wait }) {
     });
     child.unref();
     fs.closeSync(fd);
-    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), args, argv }), { mode: 0o600 });
+    const kernelStart = readKernelStart(child.pid) ?? undefined; // held to it exactly on Linux (#7488)
+    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), kernelStart, args, argv }), { mode: 0o600 });
     console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
   } finally {
     release();

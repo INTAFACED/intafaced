@@ -70,6 +70,7 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
   const problemText = problem ? (problem === 'currentMissing' ? t('currentMissing') : pw(problem)) : null;
   return (
     <section
+      id="password"
       data-testid="security__password"
       className="security__password security__card"
       aria-label={t('title')}

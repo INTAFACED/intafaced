@@ -41,14 +41,16 @@ describe('what each tab reads', () => {
     const docs = tabPlan('documents', USER);
     expect(docs.reads.map((r) => [r.module, r.procedure, r.input])).toEqual([
       ['identity', 'kyc.listDocuments', { userId: USER, limit: 50 }],
+      ['identity', 'kyc.historyFor', { userId: USER, limit: 200 }],
       ['identity', 'kyc.selfie.listFor', { userId: USER, limit: 50 }],
     ]);
     expect(docs.unwired.map((u) => u.id)).toEqual(['documents.decisions']);
     expect(docs.reads[0]!.rowAction).toBe('identity.kyc_document.open');
     expect(docs.reads[0]!.refusals?.['kyc_doc.unwired']).toContain('IDENTITY_KYC_DOC_KEY');
-    expect(docs.reads[1]!.rowAction).toBe('identity.kyc_selfie.decide');
-    expect(docs.reads[1]!.rowsKey).toBe('selfies');
-    const words = Object.fromEntries(docs.reads[1]!.columns.map((c) => [c.key, c.words]));
+    expect(docs.reads[1]!.rowsKey).toBe('cases');
+    expect(docs.reads[2]!.rowAction).toBe('identity.kyc_selfie.decide');
+    expect(docs.reads[2]!.rowsKey).toBe('selfies');
+    const words = Object.fromEntries(docs.reads[2]!.columns.map((c) => [c.key, c.words]));
     expect(words.status).toEqual({ provided: 'Waiting for a person to compare it', accepted: 'Accepted', rejected: 'Rejected' });
     expect(Object.keys(words.via ?? {})).toEqual(['this_device', 'handoff']);
     expect(words.captureCheck?.not_checked).toContain('no automatic liveness or face-match check');
@@ -203,5 +205,32 @@ describe('documents tab', () => {
     const parked = tabPlan('documents', USER).unwired.map((u) => u.id);
     expect(parked).toEqual(['documents.decisions']);
     expect(tabPlan('documents', USER).unwired[0]!.reason).toContain('verification it is attached to');
+  });
+});
+
+describe('a tab whose staff area the person may not read is denied (J-ops-console-02 #3)', () => {
+  it('a founder reads every tab; TEST support staff are denied the cards tab only', async () => {
+    const { CUSTOMER_TABS, mayReadTab } = await import('./tabs');
+    for (const tab of CUSTOMER_TABS) expect(mayReadTab({ kind: 'founder' }, tab)).toBe(true);
+    const support = { kind: 'staff', readAreas: ['accounts', 'payments', 'trading', 'documents'] } as const;
+    expect(CUSTOMER_TABS.filter((tab) => !mayReadTab(support, tab))).toEqual(['cards']);
+    expect(CUSTOMER_TABS.filter((tab) => mayReadTab({ kind: 'staff', readAreas: [] }, tab))).toEqual([]);
+  });
+});
+
+describe('the KYC case detail reads its own case and only its verification’s documents (J-ops-console-02 #5)', () => {
+  it('filters the same reads by case id and by verification id, with the same document action', async () => {
+    const { identityDocumentsRead, kycCasesRead } = await import('./record');
+    const one = kycCasesRead(USER, 'c-1');
+    expect(one).toMatchObject({ id: 'identity.kyc-case', procedure: 'kyc.historyFor', rowsWhere: { key: 'id', equals: 'c-1' } });
+    expect(kycCasesRead(USER).rowsWhere).toBeUndefined();
+    const docs = identityDocumentsRead(USER, 'r-1');
+    expect(docs).toMatchObject({
+      id: 'identity.documents',
+      procedure: 'kyc.listDocuments',
+      rowAction: 'identity.kyc_document.open',
+      rowsWhere: { key: 'reviewRecordId', equals: 'r-1' },
+    });
+    expect(identityDocumentsRead(USER).rowsWhere).toBeUndefined();
   });
 });

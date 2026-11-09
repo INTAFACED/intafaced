@@ -629,6 +629,17 @@ export function memoryChainPaceFromEnv(env: Record<string, string | undefined>):
 }
 
 /**
+ * Whether the TEST acquirer's partner switches (its per-business terms: reserve rule, shortfall cover, currencies,
+ * instant payout) may be read or set. Dev and test only, and no override: in `staging`/`prod` a TEST partner's terms
+ * are never shown to a business or taken as an answer, even where an operator has let the sandbox rail itself boot
+ * (`PAY_ALLOW_SANDBOX_RAILS`). The read then refuses `pay.partner_terms_unavailable`, and a terms report is refused.
+ */
+export function testAcquirerSwitchesAllowed(env: Record<string, string | undefined> = process.env): boolean {
+  const appEnv = env.APP_ENV ?? 'dev';
+  return !(RAIL_POSTURE_ENFORCED_ENVS as readonly string[]).includes(appEnv);
+}
+
+/**
  * Whether `card-sandbox` may be registered alongside crypto-native.
  *
  * In `staging`/`prod`, a registered sandbox rail fails boot unless

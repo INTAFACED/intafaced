@@ -287,6 +287,12 @@ The flag defaults to `true`. If a restart honoured it, every deploy, OOM kill an
 
 Applied once at boot (`LedgerService.applyStartupPolicy`), never per request.
 
+### `LEDGER_CUSTODY_LAYER`: the custody switch
+
+INTAFACED launches holding no customer money (OWNER 226). The custodial layer stays built and is switched off: with `LEDGER_CUSTODY_LAYER` `off` (the default; unset or blank means off), `post()` refuses any post with a leg on a customer account (`user` or `subaccount`, or a merchant's `pay:clearing:` / `pay:proceeds:` pot; `isCustomerBalanceAccount` in ledger-client) with `ledger.custody_layer_off`, HTTP 412, before anything is written. Posts between INTAFACED's own pots (fees, rewards engine, treasury and rail boundaries, reserves) still book. A key already booked while the layer was on still replays, so a retry of a committed post is never told it was refused. Any value other than `on` or `off` refuses boot.
+
+The TEST stacks (`docker-compose.apps.yml`, `pnpm local:stack`, the CX-8 boot) set it `on`, to run the journeys marked Later. `pnpm scan:custody` check 4 is the static half: it fails if the default stops being off, and fails any file in services/ or packages/ that posts a customer-balance recipe and is not in `tooling/ci/custody-layer-inventory.json`.
+
 ---
 
 ## Running it

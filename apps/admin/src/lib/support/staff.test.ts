@@ -25,10 +25,18 @@ const member = (over: Partial<StaffMemberView> = {}): StaffMemberView => ({
 
 describe('readers', () => {
   it('reads a roster only when every row reads', () => {
-    expect(readStaffRoster([member(), member({ userId: B, role: 'lead' })])).toHaveLength(2);
-    expect(readStaffRoster([member(), { ...member(), availability: 'away' }])).toBeNull();
+    const row = (over: Partial<StaffMemberView> = {}) => ({ ...member(over), groups: [] });
+    expect(readStaffRoster([row(), row({ userId: B, role: 'lead' })])).toHaveLength(2);
+    expect(readStaffRoster([row(), { ...row(), availability: 'away' }])).toBeNull();
     expect(readStaffRoster({})).toBeNull();
     expect(readStaffRoster([])).toEqual([]);
+  });
+  it('reads each person’s groups (teams), and a row without them is not guessed at', () => {
+    expect(readStaffRoster([{ ...member(), groups: [{ id: 'g1', name: 'Payments' }] }])?.[0]?.groups).toEqual([
+      { id: 'g1', name: 'Payments' },
+    ]);
+    expect(readStaffRoster([member()])).toBeNull();
+    expect(readStaffRoster([{ ...member(), groups: [{ id: 'g1' }] }])).toBeNull();
   });
   it('reads the policy and refuses one that contradicts itself', () => {
     expect(readStaffPolicy({ automaticOffline: 'not_set', heartbeatWindowSeconds: null })).toMatchObject({ automaticOffline: 'not_set' });

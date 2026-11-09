@@ -75,6 +75,7 @@ const JIT_CONVERSION = readFileSync(join(here, '..', '..', 'drizzle', '0007_card
 const CARD_CONTROLS = readFileSync(join(here, '..', '..', 'drizzle', '0035_card_controls.sql'), 'utf8');
 const OPS_READS = readFileSync(join(here, '..', '..', 'drizzle', '0040_bank_ops_reads.sql'), 'utf8');
 const CARD_ORDERS = readFileSync(join(here, '..', '..', 'drizzle', '20261106013335_card_orders.sql'), 'utf8');
+const CARD_BLOCKS = readFileSync(join(here, '..', '..', 'drizzle', '20261108230236_card_blocks.sql'), 'utf8');
 
 const HOLDER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -409,7 +410,17 @@ describe('svc-bank cards PG-hard', () => {
     db = await createTestDatabase({
       service: 'bank',
       url: admin.url,
-      migrations: [BANK_INIT, POSITION_PENDING, LOANS_MIGRATION, CARDS_MIGRATION, JIT_CONVERSION, CARD_CONTROLS, OPS_READS, CARD_ORDERS],
+      migrations: [
+        BANK_INIT,
+        POSITION_PENDING,
+        LOANS_MIGRATION,
+        CARDS_MIGRATION,
+        JIT_CONVERSION,
+        CARD_CONTROLS,
+        OPS_READS,
+        CARD_ORDERS,
+        CARD_BLOCKS,
+      ],
     });
     sql = db.sql;
   }, 120_000);

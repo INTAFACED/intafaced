@@ -72,6 +72,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // test accounts; "LOCAL TEST — not a real approval".
     IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
     IDENTITY_ACTION_APPROVAL_POLICIES: testValue('IDENTITY_ACTION_APPROVAL_POLICIES'),
+    // LOCAL TEST life of a staff invite's first-connection link (J-ops-console-09 #2), labelled TEST in the same profile,
+    // never an owner decision. Blank refuses every invite (identity.staff_invite_ttl_unset).
+    IDENTITY_STAFF_INVITE_TTL_SECONDS: testValue('IDENTITY_STAFF_INVITE_TTL_SECONDS'),
     // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
     // transport, a lifetime, and a rate budget are published. local-outbox is refused
     // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
@@ -219,6 +222,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_SANDBOXES_MAX_BY_TIER: testValue('IDENTITY_SANDBOXES_MAX_BY_TIER') }),
     IDENTITY_SANDBOX_BASE_URL: testValue('IDENTITY_SANDBOX_BASE_URL'),
+    // LOCAL TEST API rate tiers and grant ceiling (J-developer-06), labelled in the same profile, never an owner decision.
+    // Blank refuses every key call at the edge (edge.limits_unset) and every limit request (identity.rate_limits_unset);
+    // `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a start or restart leaves it blank so those can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_RATE_LIMITS === 'off' ? {} : { IDENTITY_API_RATE_LIMITS: testValue('IDENTITY_API_RATE_LIMITS') }),
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
+import { TEST_CHAIN_ID } from '../local-test-chain.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
@@ -58,7 +59,24 @@ function approvalTtl() {
   };
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
+/**
+ * The payment token a wallet payment method is checked against (J-agents-02 #4): with the stack's LOCAL TEST chain
+ * (tooling/scripts/local-test-chain.mjs, chain id 84532) its gate, and the seeded TEST USD token at its fixed address
+ * with its 6 decimals (services/svc-protocol/scripts/seed-test-chain.ts). TEST only, never a real chain or token. With no
+ * chain the four stay blank, as in production until the owner sets them, so a run of an agent whose payment method is a
+ * wallet refuses agents.funds_unread (payment_token_unset).
+ */
+function paymentToken(chain) {
+  if (!chain?.usdToken) return {};
+  return {
+    AGENTS_PAYMENT_RPC_URL: chain.rpcUrl,
+    AGENTS_PAYMENT_CHAIN_ID: String(TEST_CHAIN_ID),
+    AGENTS_PAYMENT_TOKEN_ADDRESS: chain.usdToken,
+    AGENTS_PAYMENT_TOKEN_DECIMALS: '6',
+  };
+}
+
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
   name: 'agents',
   env: () => ({
     ...c('svc-agents', PORTS.agents),
@@ -115,6 +133,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // can watch a request expire.
     ...approvalTtl(),
     ...engine(STATE),
+    ...paymentToken(testChain?.() ?? null),
     // `LOCAL_STACK_AGENTS_IDENTITY=off` on a restart points this service's identity reads at a TEST address nothing
     // answers at, so identity is unavailable to it and a decision that needs the owner's account fails closed
     // (J-agents-05 #6). Sign-in and every other service keep the real identity service.

@@ -465,6 +465,8 @@ export const apiKeys = identity.table(
     revokedCause: text('revoked_cause'),
     /** The person's own words when they revoked it; never an operator's note. */
     revokeReason: text('revoke_reason'),
+    /** The key's own refill per minute once a reviewer granted a higher limit (J-developer-06 #6); null: on its tier. */
+    rateRefillPerMinuteGranted: integer('rate_refill_per_minute_granted'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('api_keys_hash_idx').on(t.keyHash), index('api_keys_user_idx').on(t.userId, t.revoked)],

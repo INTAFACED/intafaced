@@ -287,7 +287,10 @@ describe('Export CSV on every list read', () => {
                       ? ['a']
                       : c.kind === 'assetAmounts'
                         ? [{ assetId: 'USDC', amount: '1' }]
-                        : 'x';
+                        : // A text column with plain words takes one of its own values (any other value is invalid by design).
+                          c.words
+                          ? Object.keys(c.words)[0]
+                          : 'x';
         }
         const raw = spec.rowsKey ? { [spec.rowsKey]: [sample], ...(spec.cursorKey ? { [spec.cursorKey]: null } : {}) } : [sample];
         const html = render(props(id, view(id, [okOutcome(id, spec.id, raw)])));

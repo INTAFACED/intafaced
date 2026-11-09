@@ -309,6 +309,21 @@ const schema = serviceEnvSchema
        * transcript read refuses agents.transcript_retention_unset.
        */
       AGENTS_TRANSCRIPT_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(0).max(3650).optional()),
+      // ── Payment token of a wallet payment method (J-agents-02 #4) ─────────
+      // Owner values: the chain node a wallet's balance is read from, the chain it must be, and the token a run's worst
+      // case is checked against there (the fee asset's form on that chain), with its decimals. All four or none: with any
+      // one blank, a run of an agent whose payment method is a wallet refuses agents.funds_unread (payment_token_unset),
+      // never a made-up figure. Runs with no wallet method read the platform balance and need none of them.
+      AGENTS_PAYMENT_RPC_URL: blankAsAbsent(z.string().url().optional()),
+      AGENTS_PAYMENT_CHAIN_ID: blankAsAbsent(z.coerce.number().int().min(1).max(2_147_483_647).optional()),
+      AGENTS_PAYMENT_TOKEN_ADDRESS: blankAsAbsent(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x token address')
+          .optional(),
+      ),
+      AGENTS_PAYMENT_TOKEN_DECIMALS: blankAsAbsent(z.coerce.number().int().min(0).max(36).optional()),
     }),
   );
 

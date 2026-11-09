@@ -930,6 +930,9 @@ export async function subscribeNotificationEvents(
           sourceSubject: agentUsageAlertCrossed.subject,
           sourceIdempotencyKey: payload.alertKey,
           outOfApp: payload.email,
+          // The person ticked email for this alert: its row is recorded even when email can't go, so Delivery history
+          // shows what happened to it (J-agents-02 #6).
+          ...(payload.email ? { askedChannels: ['email' as const] } : {}),
         }),
       );
     }),

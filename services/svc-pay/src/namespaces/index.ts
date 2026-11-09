@@ -1,4 +1,4 @@
-import { mergeRouters } from '@intafaced/contracts';
+import { mergeRouters, type MerchantPartnerTerms } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';
@@ -66,6 +66,8 @@ export const FOUNDER_ONLY_PREFIXES = [
 export function createPayNamespaces(deps: {
   founderAuthority: FounderAuthority;
   metrics?: MetricsRuntime;
+  /** The acquiring partner's terms for one business (`partner-terms.ts`). Absent: `merchantMetrics.partnerTerms` refuses. */
+  partnerTerms?: (merchantId: string) => MerchantPartnerTerms;
   registries?: RegistriesMountDeps;
   categoryPolicy?: CategoryPolicyMountDeps;
   /** The product catalogue (M-catalogue-01). Absent: every merchantCatalog procedure refuses. */
@@ -126,7 +128,7 @@ export function createPayNamespaces(deps: {
   };
   return mergeRouters(
     createMerchantControlRouter(deps.control),
-    createMerchantMetricsRouter(deps.metrics),
+    createMerchantMetricsRouter(deps.metrics, deps.partnerTerms),
     createFounderAdminRouter(deps.founderAuthority, {
       metrics: deps.metrics,
       registries: deps.registries,

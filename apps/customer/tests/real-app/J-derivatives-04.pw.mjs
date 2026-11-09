@@ -3,6 +3,7 @@ import { test, expect } from './journey.mjs';
 import { api, bestPrices, journeyState, tool, toUnits, fromUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { parseShift, shiftQuoted as makerShiftQuoted } from './market.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-04, in the running app (docs/roadmap/journeys.json): manage futures orders in the orders room. One test
 // per step, titled "J-derivatives-04 #<n>", run in order on one TEST account. The contract is the TEST perpetual
@@ -53,25 +54,68 @@ async function markOf(me) {
 /** `bps` basis points from the mark, in whole units of price. */
 const away = (mark, bps) => fromUnits(((mark + (mark * BigInt(bps)) / 10_000n) / 10n ** 18n) * 10n ** 18n);
 
-/** A TEST long through the book at market, as the ticket sends it; waits for the position. */
+/** The TEST maker's perp quotes held where they rest, or quoted again (local-test-market.mjs hold, release). */
+const hold = () => tool('local-test-market.mjs', 'hold', SYMBOL);
+const release = () => tool('local-test-market.mjs', 'release', SYMBOL);
+/**
+ * The BTC/USDT spot book marks the perpetual, and a futures order's margin tier is rated against that book's depth
+ * (svc-trade futures-jobs.ts `ladderGate`, the mark's own book). The TEST maker re-quotes it every cycle, so the tier a
+ * review showed could be a tier lower than the order's own rating a moment later (run 42537547693, attempt 1, shard 30:
+ * the ticket's limit buy refused `trade.risk_limit_confirm_required`, "from tier 2 into tier 3", #7610). Held, its
+ * ladder rests as it is and its taker sends nothing, so the review, the confirm's re-check and the order read one book.
+ */
+const INDEX = 'BTC/USDT';
+const holdIndex = () => tool('local-test-market.mjs', 'hold', INDEX);
+const releaseIndex = () => tool('local-test-market.mjs', 'release', INDEX);
+
+/**
+ * A TEST long through the book at market, as the ticket sends it; waits for the position. A market open is an IOC at
+ * the mark plus the slippage cap (matched-order-plan.ts `marketOpenLimit`): when no ask rests inside that, it fills
+ * nothing and is taken off the book, and the service still answers 200 with the order `cancelled`
+ * (matched-orders.ts `markLeftBook`). The TEST maker re-places its perp ladder every cycle and its spot walk moves the
+ * mark, so a buy sent between the two found no long to open (main run 42463787741: accepted, then no position in
+ * 20 s). Held, the ladder rests as it is while the order meets it; it is released before the step goes on.
+ */
 async function openLong(me, tag) {
-  const { tier } = await markOf(me);
-  const placed = await me.post('/api/v1/futures/orders', {
-    symbol: SYMBOL,
-    side: 'buy',
-    type: 'market',
-    amount: SIZE,
-    leverage: LEVERAGE,
-    marginMode: 'isolated',
-    confirmTier: tier,
-    clientOrderId: `${J}-${tag}-${Date.now()}`,
-  });
-  expect(placed.status, JSON.stringify(placed.body)).toBeLessThan(300);
-  return until(
-    async () => (await me.get('/api/v1/positions')).body.find((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open'),
-    (p) => p !== undefined,
-    'the TEST long',
-  );
+  // A hold keeps the ladder the maker's last cycle left resting, so it is asked for only once that ladder has both
+  // sides: held before then, an empty book stays empty (main run 42468772049, a full run: "the BTC/USDT:USDT book has
+  // no bid or no ask" on both tries, after an earlier file in the shard left the perp unquoted).
+  await bestPrices(SYMBOL, 50, 60_000);
+  // Timed from before the ask, as the hold's own lapse is (it is asked, then waits for a cycle to pass).
+  const heldAt = Date.now();
+  hold();
+  try {
+    await bestPrices(SYMBOL);
+    const { tier } = await markOf(me);
+    const placed = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'market',
+      amount: SIZE,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      confirmTier: tier,
+      clientOrderId: `${J}-${tag}-${Date.now()}`,
+    });
+    expect(placed.status, JSON.stringify(placed.body)).toBeLessThan(300);
+    expect(
+      ['cancelled', 'rejected', 'refused'],
+      `the TEST market buy left the book unfilled: ${JSON.stringify(placed.body)}`,
+    ).not.toContain(placed.body.status);
+    const position = await until(
+      async () => (await me.get('/api/v1/positions')).body.find((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open'),
+      (p) => p !== undefined,
+      'the TEST long',
+    ).catch(async (err) => {
+      const order = await me.get(`/api/v1/futures/orders/${encodeURIComponent(placed.body.orderId)}`);
+      throw new Error(`${err.message}; its order is now ${JSON.stringify(order.body)}`);
+    });
+    // The hold lapses HOLD_MAX_MS after it was asked for; the order had to meet the held ladder inside it.
+    expect(Date.now() - heldAt, `the ${SYMBOL} hold lapsed before the long opened`).toBeLessThan(HOLD_MAX_MS);
+    return position;
+  } finally {
+    release();
+  }
 }
 
 async function orders(me, query) {
@@ -102,9 +146,7 @@ async function moveQuoted(symbol, percent) {
 
 /** Returns once the maker has quoted `symbol`'s shift `percent` at or after `since`. */
 async function shiftQuoted(symbol, percent, since) {
-  await makerShiftQuoted(symbol, parseShift(percent), since).catch(() => {
-    throw new Error(`the TEST market maker never quoted ${symbol} ${percent} within 120 s of the move`);
-  });
+  await makerShiftQuoted(symbol, parseShift(percent), since, { what: percent });
 }
 
 function shiftPercent(from, to) {
@@ -126,7 +168,12 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
   const position = await openLong(me, 'open');
   await page.reload();
 
-  // A limit buy 3% under the mark rests; the ticket sends it with the trader's own label.
+  // A limit buy 3% under the mark rests; the ticket sends it with the trader's own label. The index book is held from
+  // before the mark is read until the ticket's order is answered, once that book has both sides (an empty book held
+  // stays empty), timed from before the ask as the hold's own lapse is.
+  await bestPrices(INDEX, 50, 60_000);
+  const indexHeldAt = Date.now();
+  holdIndex();
   const { mark } = await markOf(me);
   const ticket = page.getByRole('region', { name: 'Order ticket' });
   await ticket.getByRole('group', { name: 'Order type' }).getByRole('button', { name: 'Limit' }).click();
@@ -144,15 +191,22 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
     if (r.url().endsWith('/api/v1/futures/orders') && r.request().method() === 'POST') answer = r;
   });
   const moved = confirm.getByText('The numbers moved since you reviewed');
+  const tier = confirm.getByRole('region', { name: 'New margin tier' }).getByRole('checkbox');
+  // The re-check is done when the confirm can be pressed again, or when it is held back only by a tier box the re-check
+  // cleared, which the next attempt ticks (run 42446058427, shard 14: the box was cleared and the old wait never ended).
+  const tierCleared = async () => (await tier.count()) > 0 && !(await tier.isChecked());
   for (let attempt = 0; attempt < 6 && !answer; attempt += 1) {
-    const tier = confirm.getByRole('region', { name: 'New margin tier' }).getByRole('checkbox');
-    if ((await tier.count()) > 0 && !(await tier.isChecked())) await tier.check();
+    if (await tierCleared()) await tier.check();
     await go.click();
     // The re-check takes a moment; the notice from an earlier attempt may still be up while it runs.
     await page.waitForTimeout(1_000);
-    await expect.poll(async () => answer !== null || ((await moved.isVisible()) && (await go.isEnabled())), { timeout: 20_000 }).toBe(true);
+    const reCheckDone = async () => answer !== null || ((await moved.isVisible()) && ((await go.isEnabled()) || (await tierCleared())));
+    await expect.poll(reCheckDone, { timeout: 20_000 }).toBe(true);
   }
   expect(answer, 'the ticket sent the order').not.toBeNull();
+  // The hold lapses HOLD_MAX_MS after it was asked for; the review and the order had to read the held book inside it.
+  expect(Date.now() - indexHeldAt, `the ${INDEX} hold lapsed before the ticket's order was answered`).toBeLessThan(HOLD_MAX_MS);
+  releaseIndex();
   expect(answer.status(), await answer.text()).toBe(200);
   expect(answer.request().postDataJSON()).toMatchObject({ type: 'limit', orderLabel: LABEL });
   const resting = await until(
@@ -207,6 +261,14 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
   expect(opened.reduce((sum, e) => sum + toUnits(e.qty), 0n)).toBe(toUnits(SIZE));
   expect(opened.every((e) => e.feeRole === 'taker' && e.realizedPnl === null && toUnits(e.fee) >= 0n)).toBe(true);
   run.write({ positionId: position.id, cancelledId: rest.orderId });
+});
+
+// Released after the steps that open a long, passed or not: a step stopped by its timeout runs no `finally`. #1's
+// index hold too, so a step that failed while it held leaves the next step's BTC/USDT book quoted.
+test.afterEach(() => {
+  const title = test.info().title;
+  if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `) || title.startsWith(`${J} #6 `)) release();
+  if (title.startsWith(`${J} #1 `)) releaseIndex();
 });
 
 test(`${J} #2 opens an order a stop placed and one a liquidation placed: the origin named, the label shown and filtered`, async ({
@@ -339,4 +401,71 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   await expect(page.getByRole('definition').filter({ hasText: /^Liquidation$/ })).toBeVisible();
   await expect(page.getByText(`Liquidation step ${fromLiq.originRef}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+});
+
+test(`${J} #6 tries a second closing order on a closing position: refused, one closing order per position`, async ({ page }) => {
+  test.setTimeout(240_000);
+  // Its own TEST account, so the position and orders it reads are only its own.
+  const who = await fundedTrader(page, 'jd4f', '1000');
+  const me = await api(who);
+  await signIn(page, who);
+  const opened = await openLong(me, 'closing');
+  // The whole TEST long, once every print of its market buy has landed.
+  const position = await until(
+    async () => (await me.get('/api/v1/positions')).body.find((p) => p.id === opened.id),
+    (p) => p !== undefined && typeof p.contracts === 'string' && toUnits(p.contracts) === toUnits(SIZE),
+    'the TEST long at its whole size',
+  );
+
+  // A closing order for the whole position rests: a reduce-only limit sell 3% over the mark.
+  const { mark } = await markOf(me);
+  const first = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'sell',
+    type: 'limit',
+    price: away(mark, 300),
+    amount: position.contracts,
+    reduceOnly: true,
+    marginMode: 'isolated',
+    clientOrderId: `${J}-close-1-${Date.now()}`,
+  });
+  expect(first.status, JSON.stringify(first.body)).toBe(200);
+  expect(first.body).toMatchObject({ status: 'open', reduceOnly: true, positionId: position.id });
+
+  // A second one from the desk's own Close: refused by name, nothing sent to the book.
+  await page.goto(DESK);
+  const row = page.getByRole('row').filter({ hasText: SYMBOL }).first();
+  await row.getByRole('button', { name: `Close, ${SYMBOL}` }).click();
+  const dialog = page.getByRole('alertdialog').or(page.getByRole('dialog')).first();
+  const answered = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'POST' &&
+      (r.url().endsWith('/api/v1/futures/orders') || r.url().includes(`/positions/${position.id}/close`)),
+  );
+  await dialog.getByRole('button', { name: 'Close position' }).click();
+  const answer = await answered;
+  expect(answer.status(), await answer.text()).toBe(409);
+  expect((await answer.json()).error).toBe('trade.futures_one_closing_order');
+  await expect(page.getByText('This position already has a closing order').first()).toBeVisible();
+
+  // And a smaller one through the API, as a bot sends it: the same refusal, naming the order that rests.
+  const second = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'sell',
+    type: 'limit',
+    price: away(mark, 400),
+    amount: '0.001',
+    reduceOnly: true,
+    marginMode: 'isolated',
+    clientOrderId: `${J}-close-2-${Date.now()}`,
+  });
+  expect(second.status, JSON.stringify(second.body)).toBe(409);
+  expect(second.body.error).toBe('trade.futures_one_closing_order');
+  expect(second.body.message).toContain(first.body.orderId);
+
+  // The position as it was, and the first closing order the only one.
+  const after = (await me.get('/api/v1/positions')).body.find((p) => p.id === position.id);
+  expect(after).toMatchObject({ status: 'open', contracts: position.contracts });
+  const reduces = (await orders(me, 'scope=all&limit=50')).filter((o) => o.reduceOnly);
+  expect(reduces.map((o) => o.orderId)).toEqual([first.body.orderId]);
 });

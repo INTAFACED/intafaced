@@ -14,6 +14,9 @@
  *   - names, in a step of journeys.json, a slice id that isn't in docs/roadmap/slices.json, the slice records journeys.json
  *     is built from (roadmap.mjs `--index` keeps only ids that are slice headings, so an unknown one was typed by hand);
  *   - has a journeys.json that isn't the shape `--index` writes (a journey id used twice, a step number used twice, ...);
+ *   - puts a journey marked later (`"later": "custody"`, OWNER 226) at Order 1, the launch wedge, or marks one later for
+ *     any reason but custody (roadmap.mjs finishLineProblems, which `--index` also enforces): the customer-first order
+ *     (OWNER 223 (3)) can't be undone by hand-editing journeys.json;
  *   - has a docs/ROADMAP.md other than the one the base's roadmap.mjs builds from the pull request's slices.json and
  *     journeys.json (what `roadmap.mjs --check` checks, with the base's code, so a pull request can't change both the
  *     page and the code that writes it).
@@ -37,7 +40,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compose, liveJourneys } from '../scripts/roadmap.mjs';
+import { compose, finishLineProblems, liveJourneys } from '../scripts/roadmap.mjs';
 import { linesOutsideCode } from './journey-seal.mjs';
 
 export const JOURNEYS_PATH = 'docs/roadmap/journeys.json';
@@ -106,6 +109,7 @@ export function shapeProblems(journeys) {
         out.push(`${id} #${st?.n}: its slices are not a list of slice ids`);
     }
   }
+  if (!out.length) out.push(...finishLineProblems(journeys));
   return out;
 }
 

@@ -405,11 +405,13 @@ test(`${J} #3 reads eligibility and fees: each condition the bank checks, the TE
     );
     await expect(page.getByRole('button', { name: 'Review and open', exact: true })).toBeDisabled();
     const quote = await blankApi.query('loans.quote', { productId, principal: '1000' });
+    // open checks the opening LTV before the fee, and the quote is exact at the cap while the TEST market keeps moving:
+    // the pledge carries #4's 1% margin, so a tick down cannot answer bank.ltv_exceeded first (PR #7513 run 42447010035).
     const refused = await blankApi.mutate('loans.open', {
       loanId: randomUUID(),
       productId,
       principal: '1000',
-      collateralAmount: quote.data.requiredCollateral,
+      collateralAmount: withMargin(quote.data.requiredCollateral),
     });
     expect(refused).toMatchObject({ ok: false, code: 'bank.loan_fee_unset' });
     expect(await loansOf(blankApi)).toEqual(loansBefore);
@@ -438,11 +440,12 @@ test(`${J} #3 reads eligibility and fees: each condition the bank checks, the TE
     );
     await expect(page.getByRole('button', { name: 'Review and open', exact: true })).toBeDisabled();
     const quote = await feeApi.query('loans.quote', { productId, principal: '1000' });
+    // The same 1% margin over the quote, so the fee, not a tick of the TEST market, is what refuses.
     const refused = await feeApi.mutate('loans.open', {
       loanId: randomUUID(),
       productId,
       principal: '1000',
-      collateralAmount: quote.data.requiredCollateral,
+      collateralAmount: withMargin(quote.data.requiredCollateral),
     });
     expect(refused).toMatchObject({ ok: false, code: 'bank.loan_fee_unwired' });
     expect(await loansOf(feeApi)).toEqual(loansBefore);

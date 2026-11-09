@@ -1,8 +1,9 @@
-// World: book
+// World: book, market
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, journeyState, toUnits } from './stack.mjs';
+import { api, bestPrices, journeyState, toUnits, tool } from './stack.mjs';
 import { awayBid, fundedTrader, openOrders, signIn } from './desk.mjs';
 import { followOnScreen, leadFill, listLeader, takeBest } from './copy.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-copy-bots-otc-30, in the running app (docs/roadmap/journeys.json): see my orders, positions, history and depth in one
 // MetaTrader-style view at /trade/terminal. One test per step, titled "J-copy-bots-otc-30 #<n>", run in order. #1 makes the
@@ -15,6 +16,16 @@ const J = 'J-copy-bots-otc-30';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
 const ONE = toUnits('1');
+/**
+ * The TEST maker's BTC/USDT quotes held where they rest, or quoted again (local-test-market.mjs hold, release). The copy
+ * of the leader's buy is a resting limit at the leader's fill price, and the maker quotes post-only, so the copy fills
+ * only while the ask the leader took from still rests. Its walk moves up to 12 bps every 8 s cycle; when it moved up
+ * between the lead fill and the copy, that ask was gone and the copy rested unfilled, so #2 never saw an open copied
+ * position (PR #7517's journeys run 42455921357, attempt 2: "the leader buy was never copied into an open position";
+ * the same race J-copy-bots-otc-12 #1 holds the maker for). Held, the leader and the copy meet the same ask.
+ */
+const hold = () => tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+const release = () => tool('local-test-market.mjs', 'release', 'BTC/USDT');
 const trpc = (proc, input) => `/api/trade/trpc/${proc}?input=${encodeURIComponent(JSON.stringify(input ?? {}))}`;
 
 test.describe.configure({ mode: 'default' });
@@ -66,7 +77,29 @@ test(`${J} #1 opens positions and history: orders and fills listed with statuses
   const filled = await takeBest(trader, 'buy', '0.001', `${J}-fill-${tag}`);
   await signIn(page, trader);
   const followId = await followOnScreen(page, trader, leaderRef, { perOrder: '50', total: '200', fixed: '20' });
+  // Timed from before the ask, as the hold's own lapse is (it is asked, then waits for a cycle to pass).
+  const heldAt = Date.now();
+  hold();
   await leadFill(leader, 'buy', '0.001', `${J}-lead-${tag}`);
+  // The copy fills while the maker is held: its position is open on the trader's book before the hold ends.
+  let copied = [];
+  await expect
+    .poll(
+      async () => {
+        copied = (await read(trader, 'copy.copiedPositions', { followId })).positions;
+        return copied.some((p) => p.status === 'open');
+      },
+      { timeout: 60_000, message: 'the leader buy was never copied into an open position while the maker was held' },
+    )
+    .toBe(true)
+    .catch((err) => {
+      err.message += `\ncopied positions last read: ${JSON.stringify(copied.map((p) => p.status))}`;
+      throw err;
+    });
+  // The hold lapses HOLD_MAX_MS after it was asked for; the lead fill and its copy must both fall inside it, or the
+  // maker's walk was back on and this proved nothing about the race it guards.
+  expect(Date.now() - heldAt, 'the BTC/USDT hold lapsed before the copy was open').toBeLessThan(HOLD_MAX_MS);
+  release();
   const { ask } = await bestPrices();
   const algo = await me.post('/api/trade/trpc/algo.createTwap', {
     symbol: 'BTC/USDT',
@@ -115,21 +148,32 @@ test(`${J} #1 opens positions and history: orders and fills listed with statuses
   await expect(page.getByRole('table', { name: 'Order history' }).locator('tbody tr').filter({ hasText: resting.body.id })).toHaveCount(0);
 });
 
+// Held for #1's lead fill and its copy only, passed or not: the next step's book is quoted again.
+test.afterEach(() => {
+  if (test.info().title.startsWith(`${J} #1 `)) release();
+});
+
 test(`${J} #2 opens a copied position: the follower position and its close action`, async ({ page }) => {
   test.setTimeout(180_000);
   const trader = state('trader');
   const followId = state('followId');
   // The copy of the leader's buy is open on the trader's own book before the view is opened.
   let position;
+  let seen = [];
   await expect
     .poll(
       async () => {
-        position = (await read(trader, 'copy.copiedPositions', { followId })).positions.find((p) => p.status === 'open');
+        seen = (await read(trader, 'copy.copiedPositions', { followId })).positions;
+        position = seen.find((p) => p.status === 'open');
         return Boolean(position);
       },
       { timeout: 60_000, message: 'the leader buy was never copied into an open position' },
     )
-    .toBe(true);
+    .toBe(true)
+    .catch((err) => {
+      err.message += `\ncopied positions last read: ${JSON.stringify(seen.map((p) => p.status))}`;
+      throw err;
+    });
   await terminal(page, 'Positions');
   const section = page.getByRole('region', { name: `Copied from ${state('leaderRef')}` });
   const row = section.getByRole('table', { name: 'Copied positions' }).locator('tbody tr').filter({ hasText: position.market }).first();

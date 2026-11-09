@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation';
 const DESKS = [
   { href: '/identity-ops/keys', label: 'Signing keys' },
   { href: '/identity-ops/oauth', label: 'OAuth apps' },
+  { href: '/identity-ops/limits', label: 'API limits' },
+  { href: '/identity-ops/staff', label: 'Staff' },
   { href: '/changes/policy', label: 'Approval policy' },
 ] as const;
 

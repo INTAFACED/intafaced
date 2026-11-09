@@ -63,6 +63,7 @@ import type {
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
 import {
+  type AvailabilityLogEntry,
   MemoryStaffBook,
   STAFF_AVAILABILITIES,
   type StaffAvailability,
@@ -150,7 +151,7 @@ import {
 import { MemoryLifecycleBook, type LifecycleBook } from './ticket-lifecycle.js';
 import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.js';
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
-import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
+import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook, type GroupLogEntry } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
 import { findCommentSecret, SUPPORT_COMMENT_SECRET_REFUSED } from './comment-secrets.js';
 
@@ -176,7 +177,7 @@ export const SUPPORT_COMMENT_CAP_KEY = 'support.comment_cap';
  * Text a person writes onto a request (its subject and body, a reply, a staff note, a status note, an escalation summary)
  * that holds a card number or a recovery phrase is refused before anything is stored.
  */
-function refuseCommentSecret(body: string): void {
+export function refuseCommentSecret(body: string): void {
   const found = findCommentSecret(body);
   if (found) throw new SupportError(`the comment holds a ${found.replace('_', ' ')}`, SUPPORT_COMMENT_SECRET_REFUSED);
 }
@@ -1817,6 +1818,42 @@ export class SupportService implements SupportContract {
     });
     if (!stored) throw new SupportError('that person is not on the desk staff', 'support.not_staff');
     return this.withEffectiveAvailability(stored);
+  }
+
+  /** The availability log, oldest first: who changed whose availability, when and why. Staff only. */
+  async staffAvailabilityHistory(input: { actorId: string; userId?: string }): Promise<AvailabilityLogEntry[]> {
+    if (!(await this.staff.get(input.actorId))) throw new SupportError('only staff can read the availability log', 'support.not_staff');
+    return this.staff.availabilityHistory(input.userId);
+  }
+
+  /**
+   * One group's log, oldest first: every change to it, its members and its requests, with who made it. Staff only. A row
+   * that names a request (grouped or ungrouped) is left out unless the caller can see that request on the desk, so the log
+   * never names a request outside the caller's groups (the same scope as `get`).
+   */
+  async groupHistory(input: { actorId: string; groupId: string }): Promise<GroupLogEntry[]> {
+    if (!(await this.staff.get(input.actorId))) throw new SupportError('only staff can read a group log', 'support.not_staff');
+    if (!(await this.groups.get(input.groupId))) throw new SupportError('that group does not exist', 'support.group_unknown');
+    const out: GroupLogEntry[] = [];
+    for (const row of await this.groups.history(input.groupId)) {
+      if ((row.action === 'ticket_grouped' || row.action === 'ticket_ungrouped') && row.subject !== null) {
+        if (!(await this.deskSees(input.actorId, row.subject))) continue;
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  /** Whether a desk member can see one request (the desk's group scope). Any other failure is thrown, never read as hidden. */
+  async deskSees(viewerId: string, ticketId: string): Promise<boolean> {
+    const hidden = new Error('hidden');
+    try {
+      await this.assertDeskVisible(viewerId, ticketId, () => hidden);
+      return true;
+    } catch (err) {
+      if (err === hidden) return false;
+      throw err;
+    }
   }
 
   /** Own heartbeat. Refuses while the owner has not set the window. */

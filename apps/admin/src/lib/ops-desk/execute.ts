@@ -2,7 +2,8 @@ import 'server-only';
 import type { DeskRequest } from '@/lib/desk/approval-packet';
 import type { ExecuteFn } from '@/lib/desk/approval-steps';
 import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
+import { edgeCall, founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
+import { treasuryTransport } from '@/lib/ledger/reconciliation-server';
 import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
@@ -64,6 +65,26 @@ export function readCardStatusAnswer(raw: unknown): CardStatusAnswer | null {
   return { cardId: raw.cardId, status: raw.status, frozenBy: raw.frozenBy };
 }
 
+interface CardFundingAnswer {
+  readonly kind: string;
+  readonly amount: string;
+  readonly threshold: string | null;
+  readonly partnerRef: string;
+}
+
+/** A decimal's canonical text, compared as text and never as a number: "01000.50" and "1000.5" are one amount. */
+function canonicalDecimal(d: string): string {
+  const [whole = '', frac = ''] = d.split('.');
+  const f = frac.replace(/0+$/, '');
+  return `${whole.replace(/^0+(?=\d)/, '')}${f ? `.${f}` : ''}`;
+}
+
+export function readCardFundingAnswer(raw: unknown): CardFundingAnswer | null {
+  if (!isRecord(raw) || typeof raw.kind !== 'string' || typeof raw.amount !== 'string' || typeof raw.partnerRef !== 'string') return null;
+  if (!(raw.threshold === null || typeof raw.threshold === 'string')) return null;
+  return { kind: raw.kind, amount: raw.amount, threshold: raw.threshold, partnerRef: raw.partnerRef };
+}
+
 interface TakedownAnswer {
   readonly listingId: string;
   readonly status: string;
@@ -93,6 +114,21 @@ export function readVenueCostAnswer(raw: unknown): VenueCostAnswer | null {
     typeof asset === 'string' &&
     typeof version === 'number'
     ? { key, period, category, amount, asset, version }
+    : null;
+}
+
+interface CapitalThresholdAnswer {
+  readonly assetId: string;
+  readonly minimum: string;
+  readonly contact: string;
+  readonly version: number;
+}
+
+export function readCapitalThresholdAnswer(raw: unknown): CapitalThresholdAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { assetId, minimum, contact, version } = raw;
+  return typeof assetId === 'string' && typeof minimum === 'string' && typeof contact === 'string' && typeof version === 'number'
+    ? { assetId, minimum, contact, version }
     : null;
 }
 
@@ -306,6 +342,39 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
         detail: `svc-bank answered and its returned card is ${a.status}${a.frozenBy === 'operator' ? ', frozen by an operator' : ''}.`,
       };
     }
+    if (request.kind === 'bank.card.funding') {
+      // svc-bank asks for `admin:treasury`, which a founder session never carries, so the instruction goes on the console's
+      // treasury transport (`ADMIN_TREASURY_TOKEN`), as the posting freeze, the reconciliation run and staff holds do. The
+      // two founders' approval still binds it. A console without that credential sends nothing and names the setting.
+      const transport = treasuryTransport();
+      if ('reason' in transport) {
+        return { ok: false, refusal: { ...explainRefusal('admin.ledger_unconfigured', 503, false), body: transport.reason } };
+      }
+      const result = await edgeCall(
+        transport,
+        'bank',
+        'ops.requestCardProgrammeFunding',
+        'POST',
+        // The same fields the approval hash binds, byte for byte; the operation id is the client key, so a re-run replays.
+        {
+          kind: request.fundingKind,
+          amount: request.amount,
+          threshold: request.threshold === '' ? null : request.threshold,
+          reason: request.reason,
+          ...ids,
+          clientRequestId: ids.operationId,
+        },
+        readCardFundingAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-bank', 'bank', result);
+      const a = result.data;
+      // The instruction svc-bank recorded must be the one the founders approved: same kind, amount and threshold, answered.
+      const wantThreshold = request.threshold === '' ? null : canonicalDecimal(request.threshold);
+      const gotThreshold = a.threshold === null ? null : canonicalDecimal(a.threshold);
+      if (a.kind !== request.fundingKind || canonicalDecimal(a.amount) !== canonicalDecimal(request.amount)) return WRONG_STATE;
+      if (wantThreshold !== gotThreshold || a.partnerRef === '') return WRONG_STATE;
+      return { ok: true, detail: `svc-bank answered: the card partner took the instruction, reference ${a.partnerRef}.` };
+    }
     if (request.kind === 'market.listing.takedown') {
       const result = await founderCall(
         ctx,
@@ -319,6 +388,35 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.listingId !== request.listingId || a.status !== 'taken_down') return WRONG_STATE;
       return { ok: true, detail: 'svc-market answered and its returned listing is taken down.' };
+    }
+    if (request.kind === 'ops.capital.threshold.set') {
+      const result = await founderCall(
+        ctx,
+        'ops',
+        'capital.setThreshold',
+        'POST',
+        {
+          assetId: request.assetId,
+          minimum: request.minimum,
+          contact: request.contact,
+          reason: request.reason,
+          // One approval is one threshold version: running the same approved request twice returns the first.
+          idempotencyKey: `capital-threshold-approval:${ids.approvalId}`,
+          ...ids,
+        },
+        readCapitalThresholdAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
+      const a = result.data;
+      if (a.assetId !== request.assetId || a.contact !== request.contact || (request.minimum === '') !== (a.minimum === ''))
+        return WRONG_STATE;
+      return {
+        ok: true,
+        detail:
+          a.minimum === ''
+            ? `svc-ops answered: the ${a.assetId} threshold is cleared (version ${a.version}); it is not monitored.`
+            : `svc-ops answered: the ${a.assetId} minimum buffer is ${a.minimum} (version ${a.version}), escalated to ${a.contact}.`,
+      };
     }
     if (request.kind === 'ops.venue_cost.record') {
       const amount = normaliseCostAmount(request.amount);

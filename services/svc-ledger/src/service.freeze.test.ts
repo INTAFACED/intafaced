@@ -154,8 +154,8 @@ describe('svc-ledger freeze', () => {
     busB = new MemoryEventBus('b');
     sqlA = connect();
     sqlB = connect();
-    a = new LedgerService(sqlA, busA);
-    b = new LedgerService(sqlB, busB);
+    a = new LedgerService(sqlA, busA, { custodyLayer: 'on' });
+    b = new LedgerService(sqlB, busB, { custodyLayer: 'on' });
   });
 
   // Each test opens its own pools; left open they would exhaust the server's
@@ -190,7 +190,7 @@ describe('svc-ledger freeze', () => {
       await a.freeze('reconciliation mismatch', 'reconciliation');
 
       // Everything A and B knew is gone; this is the process that comes back up.
-      const restarted = new LedgerService(connect(), new MemoryEventBus('restarted'));
+      const restarted = new LedgerService(connect(), new MemoryEventBus('restarted'), { custodyLayer: 'on' });
 
       await expect(restarted.status()).resolves.toMatchObject({ postingEnabled: false, frozenBy: 'reconciliation' });
       await expect(restarted.post(deposit())).rejects.toMatchObject({ code: 'ledger.frozen' });
@@ -284,7 +284,7 @@ describe('svc-ledger freeze', () => {
 
   describe('LEDGER_POSTING_ENABLED at boot', () => {
     it('=false freezes durably, so the decision reaches replicas nobody reconfigured', async () => {
-      const configured = new LedgerService(connect(), new MemoryEventBus('boot'), { postingEnabled: false });
+      const configured = new LedgerService(connect(), new MemoryEventBus('boot'), { custodyLayer: 'on', postingEnabled: false });
       await configured.applyStartupPolicy();
 
       await expect(b.status()).resolves.toMatchObject({ postingEnabled: false, frozenBy: 'env:LEDGER_POSTING_ENABLED' });
@@ -297,7 +297,7 @@ describe('svc-ledger freeze', () => {
       // reconciliation halted — the original bug, back through the front door.
       await a.freeze('reconciliation mismatch', 'reconciliation');
 
-      const restarted = new LedgerService(connect(), new MemoryEventBus('boot'), { postingEnabled: true });
+      const restarted = new LedgerService(connect(), new MemoryEventBus('boot'), { custodyLayer: 'on', postingEnabled: true });
       const state = await restarted.applyStartupPolicy();
 
       expect(state).toMatchObject({ frozen: true, reason: 'reconciliation mismatch', actor: 'reconciliation' });
@@ -307,7 +307,7 @@ describe('svc-ledger freeze', () => {
     it('=false on an already-frozen book leaves the original reason standing', async () => {
       await a.freeze('operator: suspected drift', OPERATOR);
 
-      const configured = new LedgerService(connect(), new MemoryEventBus('boot'), { postingEnabled: false });
+      const configured = new LedgerService(connect(), new MemoryEventBus('boot'), { custodyLayer: 'on', postingEnabled: false });
       await configured.applyStartupPolicy();
 
       // Overwriting would erase the only record of why the platform is down.
@@ -393,6 +393,7 @@ describe('svc-ledger freeze', () => {
       const ledger = new LedgerService(
         connect(),
         gatedBus(inner, () => failPublish),
+        { custodyLayer: 'on' },
       );
 
       await expect(ledger.freeze('drift', OPERATOR)).rejects.toThrow(/bus down/);
@@ -441,6 +442,7 @@ describe('svc-ledger freeze', () => {
       const ledger = new LedgerService(
         connect(),
         gatedBus(inner, () => failPublish),
+        { custodyLayer: 'on' },
       );
 
       await expect(ledger.unfreeze(OPERATOR, CHECKER)).rejects.toThrow(/bus down/);
@@ -473,6 +475,7 @@ describe('svc-ledger freeze', () => {
       const ledger = new LedgerService(
         connect(),
         gatedBus(inner, () => failPublish),
+        { custodyLayer: 'on' },
       );
 
       await expect(ledger.freeze('drift', OPERATOR)).rejects.toThrow(/bus down/);

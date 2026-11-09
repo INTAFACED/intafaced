@@ -189,6 +189,10 @@ services:
       # reaches the container. Do not default posting OFF — that would halt the
       # money plane on a clean clone.
       LEDGER_POSTING_ENABLED: ${LEDGER_POSTING_ENABLED:-true}
+      # The custody switch (OWNER 226: no customer money held at launch). Off unless the environment says on: this file
+      # is also staging's deployment unit. The TEST journey stacks (pnpm local:stack, the CX-8 boot) set it on for the
+      # journeys marked Later. tooling/ci/custody-layer-check.mjs fails if this default stops being off.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Owner-published reconcile cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 60 explicitly. Never invent 60.
       RECONCILE_CRON_MINUTES: ${RECONCILE_CRON_MINUTES:-}
