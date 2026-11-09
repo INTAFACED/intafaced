@@ -40,19 +40,24 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,withdrawalFee?,networkFee?}   each fee a MaybeKnown<Amount>
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
- *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC and BTC-PERP
+ *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP and XAU-PERP
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
  *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
  *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
  *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
+ *        /test/feed {symbol,state: 'live'|'stale'}        an oracle market's feed goes stale (the oracle stops) or live
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
 
+/** The venue itself as the lister of its own markets (the BTC markets). */
+const VENUE_LISTED = { kind: 'venue', name: 'TEST venue simulator' } as const;
+
 /**
- * The stack's TEST markets: BTC-USDC cash spot, the BTC-PERP perpetual (isolated margin only), and ETH-USDC cash spot
- * with no ladder (a market the venue lists that INTAFACED has not reviewed: J-cex-spot-16). Every market starts
- * `trading` with a TEST largest order. Figures are TEST.
+ * The stack's TEST markets: BTC-USDC cash spot, the BTC-PERP perpetual, ETH-USDC cash spot with no ladder (a market the
+ * venue lists that INTAFACED has not reviewed: J-cex-spot-16), and XAU-PERP, a TEST gold perpetual a TEST HIP-3 deployer
+ * lists, priced by the simulator's own TEST oracle; perpetuals take isolated margin only. Every market starts `trading`
+ * with a TEST largest order. Every figure and word is TEST: the oracle reads no outside gold price.
  */
 export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
   {
@@ -98,6 +103,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     // J-cex-spot-16 proves the venue's own caps on TEST markets of its own (/test/market-add, /test/market-limits).
     maxOrderQty: parseAmount('1000'),
     maxOrderNotional: parseAmount('100000000'),
+    listing: VENUE_LISTED,
   },
   {
     symbol: 'ETH-USDC',
@@ -118,17 +124,51 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     // TEST: the same spot builder-fee cap as BTC-USDC.
     builderFeeCapBps: { known: true, value: parseAmount('100') },
   },
+
+  {
+    symbol: 'XAU-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XAU',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.1'),
+    lotSize: parseAmount('0.01'),
+    makerFeeBps: { known: true, value: parseAmount('1') },
+    takerFeeBps: { known: true, value: parseAmount('3') },
+    // TEST: the same perpetual builder-fee cap as BTC-PERP.
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.01'),
+    markPrice: parseAmount('2650'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('10000000'),
+    listing: { kind: 'hip3', name: 'TEST gold deployer' },
+    oracleRule: "TEST oracle: one XAU/USD price, set by the simulator's TEST control; it reads no outside gold price.",
+    markRule: 'The mark price is the oracle price; fills do not move it.',
+    tradingHours: '24/7, no close',
+    oracle: {
+      staleRule: 'While the oracle is stale the mark holds at the last oracle price and only reduce-only orders are taken.',
+    },
+  },
 ];
 
-/** The markets `seed` rests a ladder on (its prices are around a BTC mid). */
-const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP']);
+/** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'XAU-PERP']);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
-/** The ladder `seed` rests: around 60000, five levels a side, 10 apart, 1 BTC each. TEST. */
-const SEED_MID = 60_000;
+/**
+ * The ladder `seed` rests on each market, five levels a side, around the market's own price: BTC around 60000, 10 apart,
+ * 1 BTC each; XAU-PERP around its oracle price 2650, 0.5 apart, 1 XAU each. TEST.
+ */
 const SEED_LEVELS = 5;
-const SEED_STEP = 10;
-const SEED_SIZE = '1';
+const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount; size: Amount }>> = {
+  'BTC-USDC': { mid: parseAmount('60000'), step: parseAmount('10'), size: parseAmount('1') },
+  'BTC-PERP': { mid: parseAmount('60000'), step: parseAmount('10'), size: parseAmount('1') },
+  'XAU-PERP': { mid: parseAmount('2650'), step: parseAmount('0.5'), size: parseAmount('1') },
+};
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
 function testMakerKey(name: string) {
@@ -203,8 +243,11 @@ export async function seedTestVenue(sim: TestVenueSimulator): Promise<{ makers: 
         if (!lev.value)
           await makerRun(sim, name, { kind: 'update_leverage', symbol: market.symbol, leverageBps: 100_000, marginMode: 'isolated' });
       }
+      const ladder = SEED_LADDERS[market.symbol];
+      if (!ladder) throw new Error(`TEST seed: no ladder for ${market.symbol}`);
       for (let level = 1; level <= SEED_LEVELS; level += 1) {
-        const price = side === 'bid' ? SEED_MID - level * SEED_STEP : SEED_MID + level * SEED_STEP;
+        const offset = ladder.step * BigInt(level);
+        const price = side === 'bid' ? ladder.mid - offset : ladder.mid + offset;
         const clientOrderKey = `order:test-maker-${name}:seed:${market.symbol}:${level}`;
         if ((await sim.orderByClientId(acct, venueClientOrderId(sim.venue.id, clientOrderKey))).value) continue;
         const intent: PlaceUserOrderIntent = {
@@ -212,8 +255,8 @@ export async function seedTestVenue(sim: TestVenueSimulator): Promise<{ makers: 
           symbol: market.symbol,
           side: side === 'bid' ? 'buy' : 'sell',
           type: 'limit',
-          amount: parseAmount(SEED_SIZE),
-          price: parseAmount(String(price)),
+          amount: ladder.size,
+          price,
           timeInForce: 'GTC',
           reduceOnly: false,
           clientOrderKey,
@@ -311,6 +354,14 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
       sim.setMark(str(body, 'symbol'), price as Amount);
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/feed': {
+      const state = body.state;
+      if (state !== 'live' && state !== 'stale') throw new VenueWireError("state is required ('live' or 'stale')");
+      const symbol = str(body, 'symbol');
+      sim.setFeed(symbol, state);
+      const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
+      return { feed: market?.feed ?? { known: false }, label: 'TEST' };
     }
     case '/test/seed':
       return { ...(await seedTestVenue(sim)), label: 'TEST' };

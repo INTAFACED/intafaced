@@ -337,7 +337,7 @@ describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
     expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, perpOrder('buy', '60000', '0.01', 'order:t:d6')))).toBe(
       'leverage_not_set',
     );
-    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 250_000 }))).toBe('not_offered');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 250_000 }))).toBe('leverage_above_cap');
     expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 105_000 }))).toBe('not_offered');
     expect((await w.sim.leverage(w.trader, 'BTC-PERP')).value).toBeNull();
     await w.run(w.wallet, w.trader, tenX);
@@ -904,7 +904,7 @@ describe('TEST venue simulator: council round 2 regressions (every check runs ag
           marginMode: 'isolated',
         }),
       ),
-    ).toBe('not_offered');
+    ).toBe('leverage_above_cap');
     expect((await w.sim.leverage(w.trader, 'BTC-PERP')).value).toBeNull();
   });
 
