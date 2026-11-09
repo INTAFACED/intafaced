@@ -1,5 +1,9 @@
-// World: book, freeze, gates, stack
+// World: book, freeze, gates, restart, stack
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { test, expect } from './journey.mjs';
 import {
   awayBid,
@@ -47,7 +51,44 @@ const TITLES = {
 // that set the platform posting freeze earlier on the same stack leaves them in this inbox too.
 const PLATFORM_KINDS = ['ledger.freeze.set', 'ledger.freeze.cleared'];
 
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** One query on svc-notify's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+async function notifyDb(read) {
+  const ctx = await makeContext({ log: () => undefined });
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-notify', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  const sql = postgres(`postgres://svc_notify:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await read(sql);
+  } finally {
+    await sql.end();
+  }
+}
+
+/**
+ * `count` unread LOCAL TEST notices in one TEST person's inbox: the stack's seed-notice row, then copies of it under new keys,
+ * each a millisecond older than the last, so the inbox's newest-first order is one order.
+ */
+async function seedNotices(person, tag, count) {
+  tool('local-test-stack.mjs', 'seed-notice', person.email, tag);
+  if (count > 1)
+    await notifyDb(
+      (sql) => sql`
+        INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key, created_at)
+        SELECT user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key || ':' || n,
+               created_at - n * interval '1 millisecond'
+          FROM notify.notifications, generate_series(2, ${count}) AS n
+         WHERE source_idempotency_key = ${`local-test-old-link:${tag}`}`,
+    );
+}
+
 let who;
+/** #1's second TEST person, whose inbox holds more notices than the cap and than one page. */
+let many;
 let cancelled;
 /** This account's own fills of its two market buys, from svc-trade: one fill notice each. */
 let fills;
@@ -165,7 +206,10 @@ test.beforeAll(async ({ browser }) => {
   await page.close();
 });
 
-test(`${J} #1 the bell shows the unread count and a popover of recent notices in plain words`, async ({ page }) => {
+test(`${J} #1 the bell shows the unread count (capped at 99+) and a popover of recent notices in plain words; the count is read again on page change and every 60 seconds; a refused read shows plain words`, async ({
+  page,
+}) => {
+  test.setTimeout(420_000);
   await signIn(page, who);
   await page.goto('/');
   await expect(bell(page)).toHaveAttribute('aria-label', `Notifications, ${total} unread`);
@@ -181,6 +225,90 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
   const words = await popup(page).innerText();
   expect(words).not.toMatch(uuidText);
   expect(words).not.toMatch(rawKey);
+  await page.keyboard.press('Escape');
+  await signOutBrowser(page.context());
+
+  // A second TEST person whose inbox holds more unread notices than the cap: their verification and 100 LOCAL TEST notices.
+  many = await signUp(page, 'hmncap');
+  await verify(page, many);
+  const tag = `cap-${many.handle}`;
+  await seedNotices(many, tag, 100);
+  const session = await api(many);
+  await expect.poll(async () => (await told(session)).unread, { timeout: 20_000 }).toBeGreaterThan(99);
+  // Every read of the count, with its time and the page it was read on.
+  const reads = [];
+  page.on('request', (request) => {
+    if (request.url().includes('notify.unreadCount')) reads.push({ at: Date.now(), path: new URL(page.url()).pathname });
+  });
+  await signIn(page, many);
+  await page.goto('/');
+  // Capped: more than 99 unread shows 99+, on the badge and in the bell's name.
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText('99+');
+  await expect(bell(page)).toHaveAttribute('aria-label', 'Notifications, 99+ unread');
+
+  // Read again on page change: everything is marked read behind the page's back, then the person moves to another page
+  // inside the app. The count is asked for again at once (long before the next timed read) and the badge goes.
+  expect((await session.post('/api/notify/trpc/notify.markAllRead', {})).status).toBe(200);
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText('99+');
+  await bell(page).click();
+  const before = reads.length;
+  const moved = Date.now();
+  await popup(page).getByTestId('nf-pop__all').click();
+  await expect(page).toHaveURL(/\/notifications$/);
+  await expect(bell(page).getByTestId('tb-badge')).toHaveCount(0, { timeout: 10_000 });
+  const onChange = reads.slice(before).find((read) => read.path === '/notifications');
+  expect(onChange, 'a read of the count on the new page').toBeDefined();
+  expect(onChange.at - moved, 'ms from the page change to the read').toBeLessThan(10_000);
+  await expect(page.getByRole('button', { name: 'Mark all as read' })).toBeVisible();
+
+  // Read again every 60 seconds: one new notice lands while the person stays on this page, with no page change; the badge
+  // shows it at the next timed read, which comes no more than 60 seconds after the one before it.
+  const quiet = reads.length;
+  await seedNotices(many, `${tag}-late`, 1);
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText('1', { timeout: 75_000 });
+  expect(new URL(page.url()).pathname).toBe('/notifications');
+  const timed = reads.slice(quiet - 1);
+  expect(timed.length, 'timed reads while the page stood still').toBeGreaterThanOrEqual(2);
+  for (const [i, read] of timed.slice(1).entries()) {
+    const gap = read.at - timed[i].at;
+    expect(gap, `ms between two reads of the count on one page (${timed.map((r) => r.at - timed[0].at).join(', ')})`).toBeLessThanOrEqual(
+      61_000,
+    );
+  }
+
+  // A refused read: with svc-notify stopped the inbox cannot be read, and the popover says so in plain words, never the
+  // raw code of the refusal.
+  const refusals = [];
+  page.on('response', async (response) => {
+    if (!response.url().includes('/api/notify/')) return;
+    if (response.ok()) return;
+    const body = await response.text().catch(() => '');
+    refusals.push({ status: response.status(), codes: body.match(/[a-z][a-z_]*(?:\.[a-z_]+)+/g) ?? [] });
+  });
+  let failure = null;
+  try {
+    tool('local-test-stack.mjs', 'stop', 'notify');
+    await page.goto('/');
+    await bell(page).click();
+    await expect(popup(page)).toBeVisible();
+    await expect(popup(page)).toContainText(/Couldn’t load your notifications\.|refused|not available|unavailable/i, { timeout: 30_000 });
+    await expect(popup(page).getByTestId('nf-row')).toHaveCount(0);
+    expect(refusals.length, 'the inbox read was refused').toBeGreaterThan(0);
+    const shown = await popup(page).innerText();
+    expect(shown).not.toMatch(rawKey);
+    for (const code of refusals.flatMap((r) => r.codes)) expect(shown, `the raw code ${code}`).not.toContain(code);
+    expect(shown).not.toMatch(/\b[45]\d\d\b/);
+  } catch (error) {
+    failure = error;
+  }
+  // Bring svc-notify back for the steps after this one; a failure to restart never hides this step's own failure.
+  try {
+    tool('local-test-stack.mjs', 'start', '--only', 'notify');
+  } catch (restart) {
+    failure ??= restart;
+  }
+  if (failure) throw failure;
+  await expect.poll(async () => (await told(await api(who))).unread, { timeout: 60_000 }).toBe(total);
 });
 
 test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a cancelled order opens Orders`, async ({ page }) => {
@@ -308,6 +436,36 @@ test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots an
   // Load more only when the account holds more notices than one page.
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(total > PAGE_ITEMS ? 1 : 0);
   expect(await page.locator('main').innerText()).not.toMatch(uuidText);
+
+  // Load more, in the owner's page size with a cursor: #1's second TEST person holds more than two pages of notices. The
+  // page asks for one page, then, on Load more, the next page from the cursor the first answer gave; the rows are the
+  // inbox's newest first, each once.
+  await signOutBrowser(page.context());
+  const lists = [];
+  page.on('response', async (response) => {
+    if (!response.url().includes('notify.list')) return;
+    const input = JSON.parse(new URL(response.url()).searchParams.get('input') ?? '{}');
+    if (input.limit !== PAGE_ITEMS || input.unreadOnly) return;
+    lists.push({ input, data: (await response.json().catch(() => null))?.result?.data });
+  });
+  await signIn(page, many);
+  const server = (await told(await api(many))).items;
+  expect(server.length, 'notices held by the second person').toBeGreaterThan(2 * PAGE_ITEMS);
+  await page.goto('/notifications');
+  await expect(page.getByTestId('nf-row')).toHaveCount(PAGE_ITEMS);
+  await expect.poll(() => lists.length).toBe(1);
+  const [first] = lists;
+  expect(first.input.cursor, 'the first page is asked for with no cursor').toBeUndefined();
+  expect(first.data.items.map((item) => item.id)).toEqual(server.slice(0, PAGE_ITEMS).map((item) => item.id));
+  expect(first.data.nextCursor, 'a full first page gives a cursor').toEqual(expect.any(String));
+  await page.getByRole('button', { name: 'Load more' }).click();
+  await expect(page.getByTestId('nf-row')).toHaveCount(2 * PAGE_ITEMS);
+  await expect.poll(() => lists.length).toBe(2);
+  const second = lists[1];
+  expect(second.input.cursor, 'Load more asks from the first answer’s cursor').toBe(first.data.nextCursor);
+  expect(second.data.items.map((item) => item.id)).toEqual(server.slice(PAGE_ITEMS, 2 * PAGE_ITEMS).map((item) => item.id));
+  // More remain, so Load more is still offered.
+  await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(1);
 });
 
 /** Counts the browser's permission prompts on this page, from before the app loads. */

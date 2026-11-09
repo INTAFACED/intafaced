@@ -204,8 +204,10 @@ test(`${J} #5 starts bar replay 100 bars back at 4x; the chart moves forward bar
   await expect.poll(async () => Number(await canvas.getAttribute('data-bars'))).toBeGreaterThan(0);
   const total = Number(await canvas.getAttribute('data-bars'));
   const newest = await canvas.getAttribute('data-last');
+  // The step starts 100 bars back, so the chart must hold more than 100 bars; never a shorter start in their place.
+  expect(total, '1m bars loaded on the chart').toBeGreaterThan(100);
   await page.getByRole('button', { name: 'Bar replay' }).click();
-  const back = Math.min(100, total - 1);
+  const back = 100;
   await page.getByLabel('Start this many bars back').fill(String(back));
   await page.getByRole('group', { name: 'Bar replay' }).getByLabel('Speed').selectOption('4');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
@@ -328,7 +330,12 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await page.keyboard.press('Alt+Enter');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
   for (const i of [0, 1, 2, 3]) await expect(cell(page, i)).toBeVisible();
-  // The next layout.
+  // The next layout, each press: from the grid round the whole list (single, two across, two down) and back to the grid.
+  for (const next of ['single', 'two-across', 'two-down', 'grid']) {
+    await page.keyboard.press('Alt+G');
+    await expect(page.getByTestId('cg-area')).toHaveAttribute('data-layout', next);
+    await expect(page.getByRole('combobox', { name: /^Layout/ })).toHaveValue(next);
+  }
   await page.keyboard.press('Alt+G');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-layout', 'single');
   // ? opens the list again.
@@ -340,10 +347,18 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await page.getByLabel('Go to date').first().focus();
   await page.keyboard.press('Alt+G');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-layout', 'single');
-  // The desk key opens the desk for this market; nothing is sent.
+  // The desk key opens the desk for this market; nothing is sent: no order request leaves the page from the key press
+  // until the desk has loaded and held still.
+  const sent = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && /\/orders?\b|order\.|\.place\b/i.test(new URL(request.url()).pathname))
+      sent.push(`${request.method()} ${request.url()}`);
+  });
   await canvasOf(page, 0).focus();
   await page.keyboard.press('Alt+T');
   await expect(page).toHaveURL(/\/trade\/spot\/BTC-USDT/);
+  await page.waitForLoadState('networkidle');
+  expect(sent, 'order requests sent by Alt+T').toEqual([]);
 });
 
 test(`${J} #4 applies RSI to every chart of a 2x2 sync group at once: each cell draws its RSI pane`, async ({ page }) => {

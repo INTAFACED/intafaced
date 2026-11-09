@@ -89,7 +89,9 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   // Money: the balance read answers or refuses in words; it is never blank.
   const balances = page.getByTestId('read-bank.customer-balances');
   await expect(balances).toBeVisible();
-  await readState(balances);
+  expect(await readState(balances), 'the balance read answered, or refused with its own heading and code').toMatch(
+    /^read$|^.+ \/ [a-z][\w.]*$/,
+  );
 
   // Trade: svc-trade's restriction history answers for a founder; orders and positions name their blocker.
   await page.getByTestId('customer-tab-trade').click();
@@ -115,11 +117,24 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
     await expect(page.getByTestId(`customer-panel-${tab}`)).toContainText('ops.customer_record_source_unwired');
   }
 
-  // svc-trade down: the trade tab's read refuses as unavailable, and every read on the money, pay and documents tabs keeps
-  // the state it had before.
-  const before = { money: await tabStates(page, 'money'), pay, documents: await tabStates(page, 'documents') };
-  expect(Object.keys(before.money)).toContain('read-bank.customer-balances');
-  expect(Object.keys(before.documents)).toContain('read-identity.documents');
+  // svc-trade down: the trade tab's read refuses as unavailable, and every other tab (money, pay, cards, documents and
+  // tickets) keeps the state it had before, so only the trade tab refuses.
+  /** A tab's whole state: each read's state, and its panel's words with read times left out. */
+  const tabSnapshot = async (tab) => {
+    const reads = await tabStates(page, tab);
+    const words = (await page.getByTestId(`customer-panel-${tab}`).innerText()).replace(/As of [^\n]*/g, '');
+    return { reads, words };
+  };
+  const before = {
+    money: await tabSnapshot('money'),
+    pay: await tabSnapshot('pay'),
+    cards: await tabSnapshot('cards'),
+    documents: await tabSnapshot('documents'),
+    tickets: await tabSnapshot('tickets'),
+  };
+  expect(before.pay.reads).toEqual(pay);
+  expect(Object.keys(before.money.reads)).toContain('read-bank.customer-balances');
+  expect(Object.keys(before.documents.reads)).toContain('read-identity.documents');
   let failure = null;
   try {
     tool('local-test-stack.mjs', 'stop', 'trade');
@@ -130,8 +145,11 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
     await expect(refused).toBeVisible({ timeout: 60_000 });
     // Unavailable, not a refused session or a part not switched on: the stopped service is the reason.
     await expect(refused).toHaveAttribute('data-tone', 'danger');
-    for (const tab of ['money', 'pay', 'documents'])
-      expect(await tabStates(page, tab), `the ${tab} tab's reads are as they were`).toEqual(before[tab]);
+    for (const tab of ['money', 'pay', 'cards', 'documents', 'tickets']) {
+      const now = await tabSnapshot(tab);
+      expect(now, `the ${tab} tab is as it was`).toEqual(before[tab]);
+      await expect(page.getByTestId(`customer-panel-${tab}`).getByTestId('read-failed').filter({ hasText: 'trade' })).toHaveCount(0);
+    }
   } catch (error) {
     failure = error;
   }
