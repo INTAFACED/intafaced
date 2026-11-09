@@ -55,8 +55,14 @@ export function elideGeneratedWith(diff) {
     .map((part) => {
       const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(part);
       if (!m || m[1] !== m[2] || !Object.hasOwn(GENERATED, m[1])) return part;
-      elided.push(m[1]);
-      return `diff --git a/${m[1]} b/${m[1]}\n[generated file, ${Buffer.byteLength(part)} bytes of diff not shown: ${GENERATED[m[1]]}]\n`;
+      if (!elided.includes(m[1])) elided.push(m[1]);
+      // git's own header lines (new, deleted or mode lines) stay, so a deletion or a type change reads as one.
+      const lines = part.split('\n');
+      const end = lines.findIndex((l, i) => i > 0 && /^(--- |\+\+\+ |@@|Binary files )/.test(l));
+      const head = lines
+        .slice(1, end < 0 ? 1 : end)
+        .filter((l) => /^(new|deleted|old|similarity|index) /.test(l) || /^(new|deleted) file mode /.test(l));
+      return `diff --git a/${m[1]} b/${m[1]}\n${head.map((l) => `${l}\n`).join('')}[generated file, ${Buffer.byteLength(part)} bytes of diff not shown: ${GENERATED[m[1]]}]\n`;
     })
     .join('');
   return { diff: out, elided };

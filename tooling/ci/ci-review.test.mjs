@@ -1114,7 +1114,9 @@ test('the generated map reaches the reviewer as a note naming its proof; everyth
   assert.ok(out.startsWith(code) && out.endsWith(code), 'the code around it is kept byte for byte');
   assert.match(
     out,
-    new RegExp(`diff --git a/${MAP} b/${MAP}\\n\\[generated file, \\d+ bytes of diff not shown: ${GENERATED[MAP].slice(0, 30)}`),
+    new RegExp(
+      `diff --git a/${MAP} b/${MAP}\\nindex 1\\.\\.2 100644\\n\\[generated file, \\d+ bytes of diff not shown: ${GENERATED[MAP].slice(0, 30)}`,
+    ),
   );
   assert.equal(out.includes('xxxx'), false);
   // Planted: the same text under any other path, or renamed into or out of the map's path, is never elided.
@@ -1133,6 +1135,11 @@ test('the generated map reaches the reviewer as a note naming its proof; everyth
   const prompt = buildPrompt({ brief: 'B', diff: out, pr: 1, head: 'h', elided });
   assert.ok(prompt.indexOf(`generated file ${MAP}`) < prompt.indexOf('BEGIN UNTRUSTED DIFF'));
   assert.equal(buildPrompt({ brief: 'B', diff: code, pr: 1, head: 'h' }).includes('generated file'), false);
+  // git's header lines stay: a deletion reads as one, and a path elided twice is named once.
+  const del = mapPart.replace('index 1..2 100644\n', 'deleted file mode 100644\nindex 1..0\n');
+  const twice = elideGeneratedWith(del + mapPart);
+  assert.match(twice.diff, /^diff --git a\/\S+ b\/\S+\ndeleted file mode 100644\nindex 1\.\.0\n\[generated file/);
+  assert.deepEqual(twice.elided, [MAP]);
   // A diff with no generated file is returned unchanged, and an empty one stays empty.
   assert.equal(elideGenerated(code), code);
   assert.equal(elideGenerated(''), '');
