@@ -6,7 +6,7 @@
  */
 import type { Timeframe } from '@intafaced/exchange-contract';
 import { requireScope, type Principal } from '@intafaced/auth';
-import { parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { queryCandlesFromFills, assertCandleRangeWithinCap, exportOhlcv, OHLC_RECENT_ROW_CAP } from '../candles.js';
 import { publicTapePrint } from '../public-tape.js';
 import { orderIdFor } from '../ids.js';
@@ -392,6 +392,53 @@ export async function publicTape(svc: TradeServiceInternal, marketId: string, li
       ts: row.ts,
     }),
   );
+}
+
+/**
+ * Volume that traded at or through `price` on the side a resting order on `side` waits for, since `sinceMs`: for a
+ * resting buy, taker sells printed at or below its price; for a resting sell, taker buys printed at or above it. The same
+ * rows as the public tape (taker leg only, no print involving a seeded order), summed in SQL so no page cuts it short.
+ * Feeds the queue fill estimate (queue-position.ts); a read only.
+ */
+export async function tradedThrough(
+  svc: TradeServiceInternal,
+  marketId: string,
+  side: OrderSide,
+  price: Amount,
+  sinceMs: number,
+): Promise<Amount> {
+  const taker: OrderSide = side === 'buy' ? 'sell' : 'buy';
+  const at = formatAmount(price);
+  const since = new Date(sinceMs);
+  const [row] =
+    side === 'buy'
+      ? await svc.sql<Array<{ volume: string | null }>>`
+        SELECT sum(f.qty)::text AS volume
+          FROM trade.fills f
+          INNER JOIN trade.orders o ON o.id = f.order_id
+          INNER JOIN trade.orders c ON c.id = f.counter_order_id
+         WHERE f.market_id = ${marketId}
+           AND f.liquidity = 'taker'
+           AND f.side = ${taker}
+           AND f.price <= ${at}::numeric
+           AND f.ts >= ${since}
+           AND o.seeded = false
+           AND c.seeded = false
+      `
+      : await svc.sql<Array<{ volume: string | null }>>`
+        SELECT sum(f.qty)::text AS volume
+          FROM trade.fills f
+          INNER JOIN trade.orders o ON o.id = f.order_id
+          INNER JOIN trade.orders c ON c.id = f.counter_order_id
+         WHERE f.market_id = ${marketId}
+           AND f.liquidity = 'taker'
+           AND f.side = ${taker}
+           AND f.price >= ${at}::numeric
+           AND f.ts >= ${since}
+           AND o.seeded = false
+           AND c.seeded = false
+      `;
+  return row?.volume ? parseAmount(row.volume) : 0n;
 }
 
 /**

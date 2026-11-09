@@ -8,6 +8,7 @@ import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { groupLevels, type RawLevel } from './book-math';
 import { formatAmount } from '../../../shared/money';
 import { scaled } from './order-math';
+import type { QueuePosition } from '../../../features/trade/trade-api';
 
 const unscale = (units: bigint): string => formatAmount(units);
 
@@ -248,4 +249,45 @@ export function spreadOf(bestBid: string | null, bestAsk: string | null): string
   const ask = bestAsk === null ? null : scaled(bestAsk);
   if (bid === null || ask === null || ask < bid) return null;
   return unscale(ask - bid);
+}
+
+/**
+ * What the DOM says about one resting order's place in the queue. The chance is shown only when the service sent both
+ * the estimate and its basis (the owner's window is set); otherwise the readout is "not set" and holds no percent.
+ */
+export type QueueReadout = {
+  readonly ahead:
+    | { readonly kind: 'first' }
+    | { readonly kind: 'one'; readonly size: string }
+    | { readonly kind: 'many'; readonly n: number; readonly size: string };
+  readonly chance:
+    | {
+        readonly kind: 'estimate';
+        readonly ratio: string;
+        readonly windowSeconds: number;
+        readonly tradedThrough: string;
+        readonly sizeToFill: string;
+      }
+    | { readonly kind: 'unset' };
+};
+
+export function queueReadout(q: QueuePosition): QueueReadout {
+  const ahead: QueueReadout['ahead'] =
+    q.ordersAhead === 0
+      ? { kind: 'first' }
+      : q.ordersAhead === 1
+        ? { kind: 'one', size: q.sizeAhead }
+        : { kind: 'many', n: q.ordersAhead, size: q.sizeAhead };
+  const basis = q.fillProbabilityBasis;
+  const chance: QueueReadout['chance'] =
+    q.fillProbability !== undefined && basis !== undefined
+      ? {
+          kind: 'estimate',
+          ratio: q.fillProbability,
+          windowSeconds: basis.windowSeconds,
+          tradedThrough: basis.tradedThrough,
+          sizeToFill: basis.sizeToFill,
+        }
+      : { kind: 'unset' };
+  return { ahead, chance };
 }
