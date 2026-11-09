@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
-/** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2). */
-export const LOCAL_TEST_SANCTIONED_ADDRESS = '0x5a7c7100000000000000000000000000000ba5ed';
+/** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
+import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
+
+export { LOCAL_TEST_SANCTIONED_ADDRESS };
 const LOCAL_TEST_SANCTIONED_DESTINATION = `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`;
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -87,6 +89,18 @@ function cardPartner() {
   throw new Error(
     `LOCAL_STACK_BANK_CARD_PARTNER is "${asked}"; leave it unset for the TEST partner, or set it to wallet_pull, narrow, reported or off.`,
   );
+}
+
+/**
+ * The card dispute cap (J-bank-27 #4): the profile's TEST cap, or blank when a restart asks
+ * `LOCAL_STACK_BANK_CARD_DISPUTE_CAP=off`, so a journey can see a credit and a cardholder decision refused
+ * bank.card_dispute_cap_unset.
+ */
+function disputeCap() {
+  const asked = process.env.LOCAL_STACK_BANK_CARD_DISPUTE_CAP;
+  if (asked === undefined || asked === '') return { BANK_CARD_DISPUTE_CAP_JSON: testValue('BANK_CARD_DISPUTE_CAP_JSON') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_CARD_DISPUTE_CAP is "${asked}"; leave it unset for the TEST cap, or set it to off.`);
 }
 
 /**
@@ -298,6 +312,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // The money-out step-up rule is off unless `LOCAL_STACK_BANK_STEP_UP_MONEY_OUT=required` on a restart (J-pay-01 #5).
     ...moneyOutStepUp(),
     ...cardPartner(),
+    ...disputeCap(),
     // No send review rule unless `LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on` on a restart (J-pay-01 #6).
     ...sendReview(),
     // Nothing moves money in the background of a test stack.
