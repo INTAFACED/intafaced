@@ -225,16 +225,13 @@ export function createTransfersRouter(c: BankRouterContext) {
             note: input.note ?? null,
             reference: input.reference ?? null,
           };
-          // The caller's money at the partner bank (OWNER 226): one partner move, nothing on the ledger. Otherwise the
-          // custodial layer's transfer, exactly as before.
-          const partnerHeld = (bank.spaces.custody?.bankFor(ctx.principal.userId) ?? null) !== null;
-          const result = await (partnerHeld ? bank.transfers.moveBetweenSpaces(move) : bank.transfers.transfer(move)).catch(
-            async (err: unknown) => {
-              const shown = gate.mayDescribe ? err : hideDestinationDetail(err);
-              // RC-wallet-09: the debit side is the caller's own space (assertSelf above), so these are the caller's own figures.
-              throw await bank.spendFigures.refusal(shown, ctx.principal.userId, from.assetId);
-            },
-          );
+          // The service decides whose book holds the money (OWNER 226): one partner move and nothing on the ledger when
+          // the partner holds it, otherwise the custodial layer's transfer, exactly as before.
+          const result = await bank.transfers.moveBetweenSpaces(move).catch(async (err: unknown) => {
+            const shown = gate.mayDescribe ? err : hideDestinationDetail(err);
+            // RC-wallet-09: the debit side is the caller's own space (assertSelf above), so these are the caller's own figures.
+            throw await bank.spendFigures.refusal(shown, ctx.principal.userId, from.assetId);
+          });
           if ('partnerMove' in result) {
             const move = result.partnerMove;
             return {

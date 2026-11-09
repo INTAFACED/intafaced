@@ -5,7 +5,14 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryLedger, formatAmount, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
-import { bankCustodyLayer, custodyGuardedLedger, partnerAccountFor, reportedAmount, type PartnerAccountRef } from './partner-bank.js';
+import {
+  bankCustodyLayer,
+  custodyGuardedLedger,
+  ledgerPostingFreeze,
+  partnerAccountFor,
+  reportedAmount,
+  type PartnerAccountRef,
+} from './partner-bank.js';
 import { TEST_PARTNER_LABEL, testPartner, testPartnerCustody } from './test-partner.js';
 
 const ADA = 'ada-0001';
@@ -183,5 +190,18 @@ describe('the custody switch as svc-bank reads it', () => {
   it('on: the ledger is the same object, every post passes through unchanged', async () => {
     const book = new MemoryLedger();
     expect(custodyGuardedLedger(book, 'on')).toBe(book);
+  });
+});
+
+describe("ledgerPostingFreeze: svc-ledger's /health as svc-bank reads it", () => {
+  const answer = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+  it('reads posting enabled only from an exact postingEnabled: true', async () => {
+    expect(await ledgerPostingFreeze('http://ledger.test', answer(200, { ok: true, postingEnabled: true })).postingEnabled()).toBe(true);
+    expect(await ledgerPostingFreeze('http://ledger.test', answer(200, { ok: true, postingEnabled: false })).postingEnabled()).toBe(false);
+    expect(await ledgerPostingFreeze('http://ledger.test', answer(200, { ok: true })).postingEnabled()).toBe(false);
+    expect(await ledgerPostingFreeze('http://ledger.test', answer(200, { postingEnabled: 'true' })).postingEnabled()).toBe(false);
+  });
+  it('throws when svc-ledger answers an error, so the guard refuses', async () => {
+    await expect(ledgerPostingFreeze('http://ledger.test', answer(503, {})).postingEnabled()).rejects.toThrow('503');
   });
 });

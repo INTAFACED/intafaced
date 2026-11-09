@@ -63,6 +63,12 @@ export const JOURNEY_CI = [
   'tooling/ci/factory-switch.mjs',
   // real-app-journeys.yml's `Main's journeys first` job runs it.
   'tooling/ci/main-first.mjs',
+  // Main trust's post-merge job runs it after each journeys run on main, and main-bisect.yml's journeys revert jobs.
+  'tooling/ci/journeys-revert.mjs',
+  'tooling/ci/journeys-revert-probe.mjs',
+  'tooling/ci/journeys-revert-probe.sh',
+  // journeys-revert.mjs mints its App token with it.
+  'tooling/ci/factory-builder.mjs',
   // Reached through the seal's imports (review-marker.mjs) and the test-infra action; journey-touch.test.mjs finds them.
   'tooling/ci/assert-test-db-env.mjs',
   'tooling/ci/look-baselines.mjs',

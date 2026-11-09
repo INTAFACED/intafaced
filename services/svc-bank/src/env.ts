@@ -253,7 +253,8 @@ const schema = serviceEnvSchema
       /**
        * THE CUSTODY SWITCH (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any
        * value but `on` or `off` refuses to start. Off: INTAFACED holds no customer money, so svc-bank posts no customer
-       * balance and refuses `bank.no_partner_bank` by name before svc-ledger would refuse `ledger.custody_layer_off`. A
+       * balance and refuses `bank.no_partner_bank` by name before svc-ledger would refuse `ledger.custody_layer_off`, and a card
+       * authorisation for a person whose money no partner holds refuses `bank.partner_unset`. A
        * person the TEST partner holds money for (`custody: 'off'`) is read and moved at the partner either way. The local
        * TEST stack pins `on`, as it does for svc-ledger, so the custodial journeys marked Later still run.
        */

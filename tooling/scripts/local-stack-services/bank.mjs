@@ -279,7 +279,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_TEST_PARTNER: 'test',
     // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
     // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
-    // 'off' })`, and then nothing of theirs is posted to the ledger (OWNER 226).
+    // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
+    // partner-held (OWNER 226).
     LEDGER_CUSTODY_LAYER: 'on',
     // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid

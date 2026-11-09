@@ -23,6 +23,7 @@ import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from '
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
+import { ledgerPostingFreeze } from './partner/partner-bank.js';
 import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './cards/card-programme.js';
 import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
@@ -166,6 +167,8 @@ const bank = createBankServices(sql, ledger, history, {
   testPartner,
   // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
   custodyLayer: env.LEDGER_CUSTODY_LAYER,
+  // A partner move posts nothing on the ledger, so it asks svc-ledger's posting freeze first (floor 4).
+  postingFreeze: ledgerPostingFreeze(env.LEDGER_URL),
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
