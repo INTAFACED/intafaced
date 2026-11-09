@@ -4,7 +4,9 @@ import { test, expect } from './journey.mjs';
 import { ROOT, api, fund, restartWith } from './stack.mjs';
 import { codeOf, keyHolder, withKey } from './developer.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { PASSKEY_ORIGIN } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, virtualAuthenticator } from './identity-factors.mjs';
+import { openBusiness, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { tableIn } from './tables.mjs';
 
 // J-developer-15, in the running app (docs/roadmap/journeys.json): run keys for sub-accounts, teams and agents. One
 // test per step, titled "J-developer-15 #<n>", each checking the step's own words. The person is a TEST master account
@@ -347,4 +349,83 @@ test(`${J} #6 the agent key attempts a payout: an approval row appears and no pa
   // A read call runs with the same agent key.
   const read = await withKey(agentKey, { path: BALANCE });
   expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+});
+
+test(`${J} #7 the API explorer with a live key builds a write: a typed refusal; with a sandbox key it runs`, async ({ browser }) => {
+  test.setTimeout(600_000);
+  expect(agentKey, 'the live key from #5').toMatch(/^ifc_(?!test_)/);
+  // A person with an approved TEST business (as J-developer-02 sets one up) and a passkey, who holds a sandbox key with
+  // the TEST payments preset.
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const sbPage = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
+  try {
+    await virtualAuthenticator(sbPage);
+    const sbWho = await signUp(sbPage, 'jd15sb');
+    await verify(sbPage, sbWho);
+    await signInWithCode(sbPage, sbWho, '/uc/safe');
+    const { secret, step } = await addAuthenticator(sbPage, totp);
+    Object.assign(sbWho, { totp, secret, step });
+    await forgetSession(sbPage);
+    await signInWithCode(sbPage, sbWho, '/pay/merchant');
+    const merchantId = await openBusiness(sbPage, sbWho);
+    await verifiedBusiness(sbPage, sbWho, merchantId);
+    await forgetSession(sbPage);
+    await signInWithCode(sbPage, sbWho, '/uc/safe');
+    delete sbWho.totp;
+    await addPasskey(sbPage);
+    await sbPage.goto('/developers/sandbox');
+    await sbPage.getByRole('textbox', { name: 'Sandbox name' }).fill('explorer');
+    await sbPage.getByRole('button', { name: 'Create sandbox' }).click();
+    await sbPage.getByRole('link', { name: 'explorer', exact: true }).click();
+    await sbPage.getByRole('link', { name: 'Create a sandbox key' }).click();
+    await sbPage.getByLabel('Key name').fill('explorer-payments');
+    await sbPage.getByLabel('Test payments', { exact: true }).check();
+    await sbPage.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+    const sandboxKey = (await sbPage.getByTestId('api-keys__key').textContent())?.trim();
+    expect(sandboxKey).toMatch(/^ifc_test_/);
+    await sbPage.getByLabel('I have stored this key somewhere safe').check();
+    await sbPage.getByRole('button', { name: 'Done' }).click();
+
+    await sbPage.goto('/developers/sandbox/test-values');
+    const tokenRow = tableIn(sbPage, 'Test values').getByRole('row', { name: /Decline/ });
+    const cardToken = (await tokenRow.getByRole('code').first().textContent())?.trim();
+    expect(cardToken).toBeTruthy();
+
+    /** Builds the payment write in the explorer with `key` and sends it; returns the explorer's answer section. */
+    async function sendWrite(p, key) {
+      await p.goto('/developers/explorer');
+      await expect(p.getByRole('heading', { level: 1 })).toBeVisible();
+      await p.getByLabel('API key').fill(key);
+      await p.getByLabel('Request').selectOption('payment-create');
+      await p.getByLabel('Business id').fill(merchantId);
+      // The explorer builds the request and shows it as code before anything is sent; the key itself is never printed.
+      await expect(p.getByTestId('explorer-code')).toContainText(`POST`);
+      await expect(p.getByTestId('explorer-code')).toContainText('/api/pay/v1/payments');
+      await expect(p.getByTestId('explorer-code')).not.toContainText(key);
+      const body = JSON.parse(await p.getByLabel('Body (JSON)').inputValue());
+      expect(body).toMatchObject({ merchantId, railAdapter: 'card-sandbox' });
+      // The card token comes from the sandbox's test values page, as the body's hint says.
+      body.instrument.token = cardToken;
+      await p.getByLabel('Body (JSON)').fill(JSON.stringify(body, null, 2));
+      await p.getByRole('button', { name: 'Send', exact: true }).click();
+      return p.getByTestId('explorer-answer');
+    }
+
+    // A live key: the write is refused with the typed reason, before it reaches the service, and no payment exists.
+    const live = await sendWrite(page, agentKey);
+    await expect(page.getByTestId('explorer-key-mode')).toHaveText('Live key: reads only.');
+    await expect(live.getByTestId('explorer-status')).toHaveText('Status 403');
+    await expect(live.getByTestId('explorer-refused')).toContainText('Refused: edge.explorer_live_write_refused');
+    await expect(live.getByTestId('explorer-refused')).toContainText('Nothing was sent.');
+
+    // A sandbox key: the same write runs, at the sandbox address, as a sandbox payment.
+    const ran = await sendWrite(sbPage, sandboxKey);
+    await expect(sbPage.getByTestId('explorer-key-mode')).toHaveText('Sandbox key: sent to your sandbox address.');
+    await expect(ran.getByTestId('explorer-status')).toHaveText(/Status 20\d/);
+    await expect(ran.getByTestId('explorer-refused')).toHaveCount(0);
+    const answered = JSON.parse((await ran.getByTestId('explorer-body').textContent()) ?? '{}');
+    expect(answered, JSON.stringify(answered)).toMatchObject({ mode: 'sandbox', status: 'created' });
+  } finally {
+    await sbPage.context().close();
+  }
 });

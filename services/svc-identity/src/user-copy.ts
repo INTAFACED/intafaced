@@ -177,7 +177,7 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.portfolio_key_cap_unset': 'Sub-account keys cannot be made yet. The number of keys a sub-account may hold is not set.',
   'identity.portfolio_key_cap_reached': 'This sub-account holds as many keys as it may. Revoke one to make another.',
   'identity.agent_scope_forbidden': 'An agent key cannot hold refund, payout, withdrawal or settings permissions.',
-  'identity.developer_roles_unset': 'Developer roles are not set for this organisation yet.',
+  'identity.developer_roles_unset': 'Developer roles are not set for this organisation.',
   'identity.developer_role_read_only': 'Your developer role can see this organisation’s keys but not create or revoke them.',
   'identity.developer_role_none': 'You hold no developer role in this organisation.',
   'identity.developer_org_denied': 'You are not a member of this organisation.',

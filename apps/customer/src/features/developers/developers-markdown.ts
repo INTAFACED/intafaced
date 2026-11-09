@@ -9,6 +9,8 @@ import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
 import { developersCopy } from './developers-copy';
 import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
+import { explorerCopy } from './explorer/explorer-copy';
+import { EXPLORER_ROUTES } from './explorer/explorer-model';
 import { docsCopy } from './developers-docs-copy';
 import { causeKey, fixKey, tradeErrorsCopy } from './errors/trade-errors-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
@@ -29,6 +31,7 @@ import {
 const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
 const limits = rateLimitsCopy.forLocale('en').t;
+const explorer = explorerCopy.forLocale('en').t;
 const tradeErrors = tradeErrorsCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
 
@@ -185,6 +188,18 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         limits('backoffExample'),
         `## ${limits('formTitle')}`,
         limits('formLead'),
+      ].join('\n\n'),
+  },
+  {
+    // The written part of the API explorer (DV-console-01); the explorer itself runs on its page.
+    slug: 'explorer',
+    title: sectionTitle('explorer'),
+    summary: explorer('lead'),
+    body: () =>
+      [
+        explorer('lead'),
+        ...EXPLORER_ROUTES.map((route) => `- ${explorer(`route.${route.id}`)}: ${code(`${route.method} ${route.path.split('?')[0]}`)}`),
+        explorer('keyHint'),
       ].join('\n\n'),
   },
   {

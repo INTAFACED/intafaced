@@ -297,6 +297,7 @@ export const en = {
   'error.unauthorized': 'Sign in to continue.',
   'error.forbidden': 'You do not have access to this.',
   'error.agentApprovalRequired': 'An agent key cannot do this on its own. It waits for the key owner on the key page. Nothing was sent.',
+  'error.explorerLiveWriteRefused': 'The API explorer only reads with a live key. Use a sandbox key to send a write. Nothing was sent.',
   'error.rateLimited': 'Too many requests. Wait a moment.',
   'error.validation.required': 'This field is required.',
   'error.validation.invalidAmount': 'Enter a valid amount.',

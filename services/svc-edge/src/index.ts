@@ -32,6 +32,7 @@ import { KeyBuckets, parseRouteCosts } from './rate-bucket.js';
 import { registerRateLimitsDoor } from './rate-limits-door.js';
 import { API_KEY_DENIED, apiKeyRefusalBody } from './api-key-refusal.js';
 import { agentHeldAction, holdAgentKeyAttempt } from './agent-key-hold.js';
+import { EXPLORER_LIVE_WRITE_REFUSED, explorerLiveWrite } from './explorer-guard.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
@@ -510,6 +511,12 @@ await app.register(async (api) => {
     // signing-key mismatch, and a spike in `anonymous` is a front-end that stopped
     // attaching the header. An availability panel that merges them shows neither.
     markAuthOutcome(req, exchanged.rejected ? 'refused' : exchanged.principal ? 'authenticated' : 'anonymous');
+
+    // The API explorer never writes with a live key (DV-console-01): its tagged write is refused before anything else.
+    if (explorerLiveWrite(req.method, req.headers, exchanged.principal)) {
+      req.log.info({ path: url.pathname }, 'edge: explorer write with a live key refused');
+      return reply.code(403).send({ error: userCopy(EXPLORER_LIVE_WRITE_REFUSED), code: EXPLORER_LIVE_WRITE_REFUSED });
+    }
 
     // An agent key's sensitive action (a payout, a refund) is held for its owner and never forwarded (DV-keys-05):
     // identity writes the waiting row, and the answer names it. Any other key's request goes on below.

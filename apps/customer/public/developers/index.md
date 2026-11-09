@@ -51,7 +51,7 @@ Open to everyone: reading these pages needs no account.
 - Libraries: Waits for DV-tools-01
 - Command line: Waits for DV-tools-02
 - Assistant tools: Waits for DV-tools-02
-- API explorer: Waits for DV-console-01
+- API explorer: /developers/explorer
 - Machine-readable specs: /developers/openapi
 - Developer support: Waits for DV-portal-03
 - Service status: /developers/status
