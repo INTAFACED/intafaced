@@ -1,4 +1,5 @@
 // World: book, restart, stack
+import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, journeyState, otherTrader, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { awayBid, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit, signIn, signUp, verify } from './desk.mjs';
@@ -211,19 +212,10 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
 
   // A TEST withdrawal of 10 USDT, held: sending out is switched off on this stack, so the stack books the hold through the
   // ledger's own recipe exactly as svc-pay's withdraw does (local-test-stack.mjs seed-withdrawal, as J-wallet-06 does).
-  const seeded = tool(
-    'local-test-stack.mjs',
-    'seed-withdrawal',
-    who.email,
-    'USDT',
-    WITHDRAWN,
-    '--state',
-    'held',
-    '--ref',
-    `${J}-${Date.now()}`,
-  );
+  const withdrawalRef = `${J}-${Date.now()}`;
+  const seeded = tool('local-test-stack.mjs', 'seed-withdrawal', who.email, 'USDT', WITHDRAWN, '--state', 'held', '--ref', withdrawalRef);
   expect(seeded).toMatch(/withdrawal\s+[0-9a-f-]{36}/);
-  run.write({ resting: resting.id, cancelled: cancelled.id, space: space.id });
+  run.write({ resting: resting.id, cancelled: cancelled.id, space: space.id, withdrawalRef });
 
   // The bank's lines add up to the ledger: per coin, what came in less what went out is what the main account holds.
   const lines = await allLines(who);
@@ -347,19 +339,54 @@ test(`${J} #2 filters by date, asset, type, account, address and year, and sorts
   await expect(list.first().locator('td').nth(2)).toHaveText('+20 USDT');
   await bar.getByRole('combobox', { name: 'Account', exact: true }).selectOption('');
 
-  // Year: this calendar year holds everything; a tax year cannot be picked because its start date is not published.
+  // Year: a UTC calendar year. The screen offers UTC years and asks the bank for one by number; the bank keeps exactly
+  // the lines whose UTC posting year it is, in every year asked, and the screen shows what the bank kept. The browser
+  // sits in a zone 13 hours ahead of UTC, so a local year would not pass for the UTC one.
   const year = bar.getByRole('combobox', { name: 'Year', exact: true });
-  await year.selectOption(String(new Date().getUTCFullYear()));
+  const thisYear = new Date().getUTCFullYear();
+  const lines = await allLines(who);
+  for (const asked of [thisYear, thisYear - 1, thisYear + 1]) {
+    const kept = await allLines(who, { year: asked });
+    const want = lines.filter((l) => new Date(l.postedAt).getUTCFullYear() === asked).map((l) => l.id);
+    expect(kept.map((l) => l.id).sort(), `UTC year ${asked}`).toEqual(want.sort());
+  }
+  expect(lines.filter((l) => new Date(l.postedAt).getUTCFullYear() === thisYear)).toHaveLength(lines.length);
+  const askedFor = (y) =>
+    page.waitForRequest((r) => r.url().includes('activity.list') && decodeURIComponent(r.url()).includes(`"year":${y}`));
+  const asks = askedFor(thisYear);
+  await year.selectOption(String(thisYear));
+  await asks;
   await expect(list).toHaveCount(all);
+  const asksLast = askedFor(thisYear - 1);
+  await year.selectOption(String(thisYear - 1));
+  await asksLast;
+  await expect(activity(page)).toContainText('Nothing matches');
+  await expect(list).toHaveCount(0);
+  // The tax year is offered and refused by name while its start date is unset: disabled on the screen, and the bank
+  // refuses it by name, so the screen's disabled option is not the only guard.
   await expect(year.locator('option', { hasText: 'Tax year (not set up)' })).toHaveAttribute('disabled', '');
-  // The bank refuses a tax year by name while its start date is unset, so the screen's disabled option is not the only guard.
-  const taxYear = await bankRead(who, 'activity.list', { limit: 10, taxYear: new Date().getUTCFullYear() });
+  const taxYear = await bankRead(who, 'activity.list', { limit: 10, taxYear: thisYear });
   expect(taxYear.status).toBe(412);
   expect(JSON.stringify(taxYear.body)).toContain('portfolio.tax_year_start_unset');
   await year.selectOption('');
+  await expect(list).toHaveCount(all);
 
-  // Address: no withdrawal went anywhere, so no line matches an address.
-  await bar.getByLabel('Withdrawal address').fill('0xabcdef');
+  // Address: the TEST withdrawal #1 seeded went to the address the stack's seed names for its reference
+  // (local-test-stack.mjs seed-withdrawal). Part of it, in capitals, keeps that withdrawal alone; an address nothing went
+  // to keeps nothing.
+  const { withdrawalRef } = run.read();
+  expect(withdrawalRef, '#1 seeded the withdrawal').toBeTruthy();
+  const address = `0x${createHash('sha256').update(`seed-withdrawal-to:${withdrawalRef}`).digest('hex').slice(0, 40)}`;
+  const part = address.slice(6, 22);
+  const byAddress = await allLines(who, { address: part.toUpperCase() });
+  expect(byAddress.map((l) => [l.kind, l.direction, l.amount, l.asset, l.address])).toEqual([
+    ['withdrawal', 'out', WITHDRAWN, 'USDT', address],
+  ]);
+  await bar.getByLabel('Withdrawal address').fill(part.toUpperCase());
+  await expect(list).toHaveCount(1);
+  await expect(list.first()).toContainText('Withdrawal');
+  await expect(list.first().locator('td').nth(2)).toHaveText(`−${WITHDRAWN} USDT`);
+  await bar.getByLabel('Withdrawal address').fill('0xabcdef0123456789');
   await expect(activity(page)).toContainText('Nothing matches');
   await bar.getByRole('button', { name: 'Clear filters' }).click();
   await expect(list).toHaveCount(all);
@@ -623,4 +650,46 @@ test(`${J} #8 opens activity when it is empty, fails or is refused: a way forwar
   }
   await activity(page).getByRole('button', { name: 'Try again' }).click();
   await expect(rows(page)).toHaveCount(all, { timeout: 30_000 });
+
+  // A failed Load more keeps the rows. More lines than one page (50): TEST moves of 0.01 USDT from the main account to
+  // the person's own space and back, made through the bank's own transfer, two lines each.
+  const { space } = run.read();
+  const spaces = (await bankRead(who, 'spaces.list', { limit: 50 })).data;
+  const main = spaces.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  const me = await api(who);
+  const batch = Date.now();
+  for (let i = 0; (await allLines(who)).length <= 60; i += 1) {
+    expect(i, 'the moves made more than a page of lines').toBeLessThan(40);
+    const [fromSpaceId, toSpaceId] = i % 2 === 0 ? [main.id, space] : [space, main.id];
+    const moved = await me.post('/api/bank/trpc/transfers.create', {
+      transferId: `${J}-more-${batch}-${i}`,
+      fromSpaceId,
+      toSpaceId,
+      amount: '0.01',
+    });
+    expect(moved.status, `transfers.create: ${JSON.stringify(moved.body).slice(0, 300)}`).toBe(200);
+  }
+  const lineCount = (await allLines(who)).length;
+  await openActivity(page);
+  const more = activity(page).getByRole('button', { name: 'Load more' });
+  await expect(more).toBeVisible();
+  const firstPage = await rows(page).count();
+  expect(firstPage).toBeGreaterThan(0);
+  const shown = await rows(page).allInnerTexts();
+  try {
+    tool('local-test-stack.mjs', 'stop', 'bank');
+    await more.click();
+    await expect(activity(page).getByTestId('money-more__note')).toHaveText('Couldn’t load more', { timeout: 30_000 });
+    // The rows already on screen stay, every one as it was.
+    await expect(rows(page)).toHaveCount(firstPage);
+    expect(await rows(page).allInnerTexts()).toEqual(shown);
+    await expect(activity(page).locator('[data-slot="state-block"][data-kind="error"]')).toHaveCount(0);
+  } finally {
+    tool('local-test-stack.mjs', 'start', '--only', 'bank');
+  }
+  // Back up, Try again loads the next page under the rows that stayed.
+  await activity(page).locator('.money-more').getByRole('button', { name: 'Try again' }).click();
+  await expect.poll(async () => rows(page).count(), { timeout: 30_000 }).toBeGreaterThan(firstPage);
+  expect((await rows(page).allInnerTexts()).slice(0, firstPage)).toEqual(shown);
+  expect(lineCount).toBeGreaterThan(50);
 });
