@@ -125,7 +125,7 @@ const WORDS: Readonly<Record<string, Words>> = {
     retryable: false,
   },
   'trade.futures_amend_not_confirmed': {
-    title: 'The book hasn’t confirmed the cancel yet',
+    title: 'The book hasn’t confirmed the cancel',
     body: 'Nothing new was placed. Refresh, and amend again once the order shows its final state.',
   },
   'trade.futures_amend_replacement_refused': {

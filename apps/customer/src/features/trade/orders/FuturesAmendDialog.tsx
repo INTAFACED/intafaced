@@ -18,7 +18,7 @@ import { useFuturesApi } from '../../../screens/trade/futures/data';
 import { futuresRefusal } from '../../../screens/trade/futures/refusals';
 import { futuresOrdersCopy } from './futures-orders-copy';
 
-/** A futures order the room offers to amend: the trader's own resting limit order, nothing filled yet. */
+/** A futures order the room offers to amend: the trader's own resting limit order, with nothing filled. */
 export function amendable(order: FuturesOrder): boolean {
   return order.status === 'open' && (order.origin ?? 'user') === 'user' && order.type === 'limit' && !/[1-9]/.test(order.filledQty);
 }
