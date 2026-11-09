@@ -1,8 +1,8 @@
-// World: book
+// World: book, restart, stack
 import { test, expect } from './journey.mjs';
 import { asDesk } from './help-centre.mjs';
 import { awayBid, fundedTrader } from './desk.mjs';
-import { api, ORIGIN } from './stack.mjs';
+import { api, ORIGIN, tool } from './stack.mjs';
 
 // J-support-public-20, in the running app (docs/roadmap/journeys.json): a support agent handles a customer's "my deposit
 // or withdrawal is missing" request without moving money, lifting a restriction or reading what they are not entitled to.
@@ -78,8 +78,10 @@ async function restingOrder(who) {
   return res.body.id;
 }
 
-test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it`, async ({ browser }) => {
-  test.setTimeout(180_000);
+test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it, and a request linked to a recovery-required order ranks above a withdrawal request of the same age`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
   const { ticket, who } = await request(browser);
   const link = (kind, recordId) => asDesk('lead', 'mutation', 'linkRecord', { ticketId: ticket.id, kind, recordId });
 
@@ -108,11 +110,87 @@ test(`${J} #1 only a record that already belongs to the ticket's customer can be
   }
   const links = await asDesk('lead', 'query', 'ticketLinks', { ticketId: ticket.id });
   expect(links.json?.result?.data, links.text.slice(0, 300)).toEqual([linked.json.result.data]);
-  // Not checked here: the step's ranking half (a request linked to a recovery-required order above a withdrawal request of
-  // the same age). The stack has no path that leaves an order recovery_required, so the ranking rule is checked only in
-  // services/svc-support/src/ticket-links.test.ts and services/svc-support/src/ticket-links.pg.test.ts, and #1 is named
-  // left in the pull request.
+  // The ranking half. Two unclaimed withdrawal requests from the customer, the plain one made first: on age alone it is
+  // read first. The later one is linked to an order whose hold has an unknown outcome, made for real: the order rests,
+  // the stack's matching engine stops, and the cancel sent then cannot learn whether the engine took the order off, so
+  // svc-trade marks it recovery_required and keeps its hold.
+  // The customer's own order is cancelled first: its hold frees the funds the next order needs (the link stays, a fact).
+  expect((await cancelOrder(who, own)).status).toBeLessThan(300);
+  const plain = await openRequest(who, 'plain');
+  const flagged = await openRequest(who, 'flagged');
+  const stuck = await restingOrder(who);
+  let stopped = false;
+  try {
+    // Marked first, so a stop that times out after its signal still brings the engine back.
+    stopped = true;
+    stack('stop', 'matching');
+    const cancel = await cancelOrder(who, stuck);
+    expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeGreaterThanOrEqual(400);
+  } finally {
+    if (stopped) stack('start', '--only', 'matching');
+  }
+  const flaggedLink = await lead('mutation', 'linkRecord', { ticketId: flagged.id, kind: 'order', recordId: stuck });
+  expect(flaggedLink).toMatchObject({ ticketId: flagged.id, kind: 'order', recordId: stuck, recoveryRequired: true });
+
+  // Same category, same age band: the request linked to the recovery-required order is read before the older plain one.
+  const ranked = await queueOrder(plain.id, flagged.id);
+  expect(ranked.flagged.score, JSON.stringify(ranked)).toBeGreaterThan(ranked.plain.score);
+  expect(ranked.flagged.at, JSON.stringify(ranked)).toBeLessThan(ranked.plain.at);
+
+  // Once the hold resolves (the engine is back and the cancel goes through), the queue reads the order's status live and
+  // the linked request stops ranking first: the plain one is read first again.
+  await expect
+    .poll(async () => (await cancelOrder(who, stuck)).status, {
+      timeout: 90_000,
+      intervals: [3_000],
+    })
+    .toBeLessThan(300);
+  await expect
+    .poll(
+      async () => {
+        const now = await queueOrder(plain.id, flagged.id);
+        return now.plain.at < now.flagged.at && now.plain.score === now.flagged.score;
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
 });
+
+/** Cancel one of `who`'s BTC/USDT orders: the answer as Edge gave it. */
+async function cancelOrder(who, id) {
+  return (await api(who)).delete(`/api/v1/orders/${id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+}
+
+function stack(...args) {
+  return tool('local-test-stack.mjs', ...args);
+}
+
+/** A new, unclaimed "my withdrawal is missing" request from `who`, so it stays in the desk's shared queue. */
+async function openRequest(who, tag) {
+  const res = await (
+    await api(who)
+  ).post('/api/support/trpc/create', {
+    category: 'deposit_withdraw',
+    subject: `TEST ${J} ${RUN} ${tag} withdrawal missing`,
+    body: 'TEST My withdrawal left my account two days ago and never arrived.',
+    clientRequestId: `j20:${RUN}:${tag}:${test.info().retry}`,
+  });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+/** Where the two requests sit in the desk's queue, and their scores. */
+async function queueOrder(plainId, flaggedId) {
+  const res = await asDesk('lead', 'query', 'listQueue', { limit: 500 });
+  const entries = res.json?.result?.data?.entries;
+  expect(Array.isArray(entries), `listQueue: ${res.text.slice(0, 300)}`).toBe(true);
+  const at = (id) => {
+    const i = entries.findIndex((e) => e.ticketId === id);
+    expect(i, `${id} is not in the queue`).toBeGreaterThanOrEqual(0);
+    return { at: i, score: entries[i].score };
+  };
+  return { plain: at(plainId), flagged: at(flaggedId) };
+}
 
 test(`${J} #2 reading the customer's balance or withdrawal destination is refused until two checks the customer can confirm are recorded`, async ({
   browser,
