@@ -14,6 +14,8 @@ import {
 } from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, type BuilderFeeValue } from './user-venue-door.js';
 
@@ -189,6 +191,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       stepUp: opts.stepUp ?? stepUp('approve').check,
       builder: opts.builder === undefined ? BUILDER : opts.builder,
       now: () => new Date(),
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
     return { d, store, connects: () => connects };
   }
@@ -264,6 +267,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       stepUp: stepUp('approve').check,
       builder: BUILDER,
       now: () => new Date(),
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
     const actionKey = `approve-builder:${USER}:council-r1`;
     const prepared = await d.prepare(principal, {

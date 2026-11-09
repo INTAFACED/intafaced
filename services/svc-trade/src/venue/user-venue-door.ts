@@ -19,6 +19,7 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
+import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, type VenueRoutingGate } from './venue-listing.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -34,6 +35,9 @@ import type { PreparedActionStore, StoredVenueAction } from './prepared-action-s
  *   · Our builder fee comes from the owner value, never from the request. Blank, every order refuses
  *     `builder_fee_not_published` before the venue is asked (AGENTS.md floor 8).
  *   · The ledger posts nothing and no event is sent: the venue is the record of balances, locks, fills and withdrawals.
+ *   · Only markets two operators listed are shown, and a new order goes only where our listing, routing state, dates
+ *     and largest order admit it (venue-listing.ts, J-cex-spot-16), checked at preview, at prepare and at first send.
+ *     A cancel is never checked against them.
  */
 
 /**
@@ -66,7 +70,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_invalid'
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
-  | 'trade.venue_action_unknown';
+  | 'trade.venue_action_unknown'
+  | VenueRouteRefusalCode;
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -111,6 +116,8 @@ export interface UserVenueDoorDeps {
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
   readonly now: () => Date;
+  /** Our listings, routing states and largest routed orders (J-cex-spot-16). */
+  readonly listings: VenueRoutingGate;
 }
 
 export interface PrepareRequest {
@@ -240,9 +247,33 @@ export class UserVenueDoor {
     return { ...intent, builderFee: { builder: builder.address, feeBps: builder.feeBps } };
   }
 
+  /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
+  async markets() {
+    const venue = await this.venue();
+    const read = await venue.markets(null);
+    const shown = await this.deps.listings.shown(venue.venue.id, this.deps.now());
+    const value: ListedVenueMarket[] = [];
+    for (const m of read.value) {
+      const listing = shown.get(m.symbol);
+      if (listing) value.push({ ...m, listing });
+    }
+    return { ...read, value };
+  }
+
+  /** A new order our listing, routing state, dates or largest order refuse, as this door's typed refusal. */
+  private async admitPlace(venueId: string, intent: PlaceUserOrderIntent): Promise<void> {
+    try {
+      await this.deps.listings.admitPlace(venueId, intent, this.deps.now());
+    } catch (err) {
+      if (err instanceof VenueRouteRefusal) throw new UserVenueDoorError(err.message, err.code, 422);
+      throw err;
+    }
+  }
+
   async preview(_principal: Principal, owner: string, intent: VenueIntent) {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
     const venue = await this.venue();
+    await this.admitPlace(venue.venue.id, intent);
     const account = await this.account(owner);
     return venue.preview(account, this.withBuilderFee(venue.venue.id, intent));
   }
@@ -322,6 +353,7 @@ export class UserVenueDoor {
 
     const existing = await this.deps.store.find(principal.userId, key);
     if (existing) return this.reuse(existing, account, signer, finalIntent);
+    if (finalIntent.kind === 'place_order') await this.admitPlace(venue.venue.id, finalIntent);
 
     const prepared = await venue.prepare(account, signer, finalIntent);
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());
@@ -376,6 +408,8 @@ export class UserVenueDoor {
       invalid('signature must be { digest, signature, signedBy }');
     }
     let signed = row;
+    // An order never sent yet is checked again: a stop or limit approved since it was prepared applies to it.
+    if (!row.signature && row.prepared.intent.kind === 'place_order') await this.admitPlace(row.prepared.venueId, row.prepared.intent);
     if (!row.signature) {
       assertSignatureMatches(row.prepared, signature);
       await assertSignatureRecovers(row.prepared, signature);

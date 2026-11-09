@@ -50,6 +50,10 @@ import {
 } from './bust.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
 import { MarketModeAdmin } from './market-mode.js';
+import { VenueMarketsAdmin } from './venue-markets.js';
+import type { VenueListingStore } from '../venue/venue-listing-store.js';
+import { NO_VENUE_DELISTING_NOTICES, type VenueDelistingNotices } from '../venue/venue-listing.js';
+import type { UserVenue } from '@intafaced/venue-contracts';
 import { SeedConfigAdmin } from './seed-config.js';
 import { MakerProgrammeAdmin } from './maker-programme.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
@@ -115,6 +119,15 @@ export interface TradeOpsDeps {
   readonly metricsWindowSeconds?: number | null;
   /** Convert's owner values and what it offers now, for the finance read. Absent: that read refuses unwired. */
   readonly convert?: ConvertOwnerValues;
+  /**
+   * The venue markets desk (J-cex-spot-16): the user-venue door's venue (absent or null: the door is off, and the desk
+   * refuses `trade.user_venue_off`), our listing store, and the bus the dated delisting notice goes on.
+   */
+  readonly venueMarkets?: {
+    readonly venue: (() => Promise<UserVenue>) | null;
+    readonly store: VenueListingStore;
+    readonly notices?: VenueDelistingNotices;
+  };
   readonly now?: () => Date;
 }
 
@@ -157,6 +170,8 @@ export class TradeOpsAdmin {
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
   /** A market's trading mode, set by two operators (SP-developer-status-01, J-cex-spot-14 #3 #4). */
   readonly marketMode: MarketModeAdmin;
+  /** The outside venue's markets we list, route and limit, set by two operators (J-cex-spot-16). Absent: unwired. */
+  readonly venueMarkets: VenueMarketsAdmin | null;
   readonly seedConfig: SeedConfigAdmin;
   /** The maker incentive programme and the launch-liquidity plan per market (J-cex-spot-20 #8). */
   readonly makerProgramme: MakerProgrammeAdmin;
@@ -185,6 +200,15 @@ export class TradeOpsAdmin {
     this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.chartOwnerValues = new ChartOwnerValuesAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.marketMode = new MarketModeAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
+    this.venueMarkets = deps.venueMarkets
+      ? new VenueMarketsAdmin({
+          venue: deps.venueMarkets.venue,
+          store: deps.venueMarkets.store,
+          approvals: deps.approvals,
+          notices: deps.venueMarkets.notices ?? NO_VENUE_DELISTING_NOTICES,
+          now: () => nowOf(deps),
+        })
+      : null;
     this.seedConfig = new SeedConfigAdmin({ sql: deps.sql, approvals: deps.approvals });
     this.makerProgramme = new MakerProgrammeAdmin({ sql: deps.sql, approvals: deps.approvals });
     this.futuresContracts = new FuturesContractsAdmin({

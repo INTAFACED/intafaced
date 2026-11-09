@@ -10,7 +10,7 @@ import type { OwnerFeeSchedule } from '../spot/fee-schedule.js';
 import type { OtcDeskLaw } from '../otc/desk-law.js';
 import type { ApprovalBook } from './common.js';
 import type { ConvertOwnerValues } from './fees-convert-desk.js';
-import { TradeOpsAdmin } from './service.js';
+import { TradeOpsAdmin, type TradeOpsDeps } from './service.js';
 
 /** A principal that may only read trading, for the operator's view of what Convert offers a customer. */
 function reader(): Principal {
@@ -39,6 +39,8 @@ export function wireTradeOpsAdmin(deps: {
   sweepEnabled?: boolean;
   /** Convert's owner values; what Convert offers now is read from `trade` as a reader principal. */
   convert?: Omit<ConvertOwnerValues, 'pairs'>;
+  /** The venue markets desk (J-cex-spot-16). */
+  venueMarkets?: TradeOpsDeps['venueMarkets'];
 }): TradeOpsAdmin {
   return new TradeOpsAdmin({
     sql: deps.sql,
@@ -50,6 +52,7 @@ export function wireTradeOpsAdmin(deps: {
     engineLiveOrderIds: (marketId) => deps.trade.engineLiveOrderIds(marketId),
     ...(deps.convert ? { convert: { ...deps.convert, pairs: () => deps.trade.convertPairs(reader()) } } : {}),
     ...(deps.feeSchedule ? { feeSchedule: deps.feeSchedule } : {}),
+    ...(deps.venueMarkets ? { venueMarkets: deps.venueMarkets } : {}),
     vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,
     approvals: deps.approvals,

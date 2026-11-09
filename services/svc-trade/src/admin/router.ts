@@ -98,6 +98,14 @@ const indexSourcesConfig = z
   .strict();
 
 const expectedVersion = z.string().regex(/^(?:0|[1-9]\d*)$/);
+/** One venue market write (J-cex-spot-16): blank values pass through so the service refuses them by name. */
+const venueWrite = z.object({
+  symbol: z.string().trim().min(1).max(64),
+  expectedVersion: z.string().trim().min(1).max(16),
+  reason,
+  approvalId,
+  operationId: z.string().trim().min(1).max(128),
+});
 /** A seed configuration value as typed: a string, or null when left blank (refused `mm.seed_unset` by name). */
 const seedValue = z.string().max(64).nullable();
 /** A programme term or plan value as typed: a string, or null when blank (refused by name, never filled in). */
@@ -114,9 +122,12 @@ function fail(error: unknown): never {
       error.code === 'position_not_found' ||
       error.code === 'export_not_found' ||
       error.code === 'market_not_found' ||
-      error.code === 'vip_application_not_found'
+      error.code === 'vip_application_not_found' ||
+      error.code === 'trade.venue_market_unknown'
         ? 'NOT_FOUND'
-        : 'BAD_REQUEST';
+        : error.code === 'trade.user_venue_off'
+          ? 'SERVICE_UNAVAILABLE'
+          : 'BAD_REQUEST';
     throw new TRPCError({ code, message: error.message, cause: error });
   }
   throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Request failed', cause: error });
@@ -134,6 +145,12 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       });
     }
     return admin;
+  };
+  // The venue markets desk (J-cex-spot-16); unwired, every door refuses like the rest of the desk.
+  const venueDesk = () => {
+    const desk = ready().venueMarkets;
+    if (!desk) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'trade_ops_admin_unconfigured' });
+    return desk;
   };
   return router({
     orders: router({
@@ -495,6 +512,21 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       set: operatorWrite
         .input(chartOwnerValueSet)
         .mutation(({ ctx, input }) => ready().chartOwnerValues.set(ctx.principal, input).catch(fail)),
+    }),
+    venueMarkets: router({
+      list: operator.query(({ ctx }) => venueDesk().list(ctx.principal).catch(fail)),
+      listingSet: operatorWrite
+        .input(venueWrite.extend({ opensAt: z.string().max(64).nullable() }).strict())
+        .mutation(({ ctx, input }) => venueDesk().listingSet(ctx.principal, input).catch(fail)),
+      routingSet: operatorWrite
+        .input(venueWrite.extend({ routing: z.string().trim().min(1).max(32) }).strict())
+        .mutation(({ ctx, input }) => venueDesk().routingSet(ctx.principal, input).catch(fail)),
+      limitsSet: operatorWrite
+        .input(venueWrite.extend({ maxOrderQty: z.string().max(64).nullable(), maxOrderNotional: z.string().max(64).nullable() }).strict())
+        .mutation(({ ctx, input }) => venueDesk().limitsSet(ctx.principal, input).catch(fail)),
+      delistingSchedule: operatorWrite
+        .input(venueWrite.extend({ delistsAt: z.string().max(64).nullable() }).strict())
+        .mutation(({ ctx, input }) => venueDesk().delistingSchedule(ctx.principal, input).catch(fail)),
     }),
     marketMode: router({
       get: operator
