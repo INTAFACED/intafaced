@@ -251,10 +251,15 @@ export const spaceOutput = z.object({
   unlockRequestedAt: z.string().nullable(),
   /** Set when this pot pays the person's bills (BK-pots-03): whether a standing order from it tops it up from the account. */
   billsPot: z.object({ fallback: z.boolean() }).nullable(),
-  /** Read from the ledger at request time. Not stored, not cached. */
+  /** Read from the ledger at request time, or from the partner bank when it holds this money. Not stored, not cached. */
   balance: amountString,
-  /** The ledger account this space is a view of — so a client can verify us. */
-  ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }),
+  /**
+   * The ledger account this space is a view of — so a client can verify us. Null when the partner bank holds this money
+   * (OWNER 226): no ledger account holds it, and `heldAt` says whose figure the balance is.
+   */
+  ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }).nullable(),
+  /** Set when the partner bank holds this money: its label (TEST on the TEST partner) and when it reported the balance. */
+  heldAt: z.object({ label: z.string(), asOf: z.string().datetime() }).nullable(),
 });
 
 /**
@@ -327,3 +332,33 @@ export const heldSendOutput = z.object({
   createdAt: z.string().datetime(),
   decidedAt: z.string().datetime().nullable(),
 });
+
+/**
+ * The card partner's figures for one cardholder and asset, as it reports them (OWNER 226; `cards/partner-card-holds.ts`).
+ * `test` is true on the TEST partner card. Each null is "not known", never 0.
+ */
+export const partnerFiguresOutput = z
+  .object({
+    test: z.boolean(),
+    mode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
+    assetId: z.string(),
+    available: z.string().nullable(),
+    held: z.string().nullable(),
+  })
+  .strict();
+
+/** One partner-held hold as the card partner reports it now. */
+export const partnerHoldReportOutput = z
+  .object({
+    test: z.boolean(),
+    partnerRef: z.string(),
+    mode: z.enum(['partner_holds', 'wallet_pull']),
+    status: z.enum(['held', 'captured', 'released', 'expired']),
+    amount: z.string(),
+    captured: z.string(),
+    released: z.string(),
+    refunded: z.string(),
+    open: z.string(),
+    expiresAt: z.string().nullable(),
+  })
+  .strict();

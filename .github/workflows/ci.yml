@@ -17,9 +17,6 @@ on:
   # reports. A path filter that skipped docs/** and **/*.md left that check
   # missing, and a required check that never reports cannot merge. Test shards
   # still skip docs and markdown: tooling/ci/ci-affected.mjs ignores them.
-  # The founding document coverage-check reads moved to the private
-  # INTAFACED/project-state repo (product/INTAFACED_DEFINITIVE_BUILD.md); the
-  # gate reads its structure from tooling/coverage-law-index.json, which `**` covers.
   # Agent-rule markdown stays listed so a rules-only change cannot be treated
   # as docs-only. No script mirrors this list (tooling/scripts/merge-gate.mjs,
   # which once did, is gone). The last matching pattern wins.
@@ -194,7 +191,9 @@ jobs:
             exit 0
           fi
           git worktree add --detach "$RUNNER_TEMP/reach-base" "$base"
-          node "$RUNNER_TEMP/reach-base/tooling/ci/journey-reach-map.mjs" verify --map "$GITHUB_WORKSPACE/$map"
+          # The runs and the builder are main's; the workspace inputs (packages, consumers, money) are the pull request's own,
+          # so a pull request that adds a package holds the map its own build writes (B1, #7724).
+          node "$RUNNER_TEMP/reach-base/tooling/ci/journey-reach-map.mjs" verify --map "$GITHUB_WORKSPACE/$map" --workspace "$GITHUB_WORKSPACE"
 
       # The journey list is the finish line (OWNER 1), from main like the guard above (tooling/ci/journey-list-guard.mjs):
       # a journey or step on main may leave docs/roadmap/journeys.json, or its live count, only on a body line
@@ -273,6 +272,8 @@ jobs:
       - run: node tooling/ci/post-merge-trust.mjs --self-test
       - run: node --test tooling/ci/journey-verdict.test.mjs
       - run: node tooling/ci/bisect-main.mjs --self-test
+      - run: node tooling/ci/journeys-revert.mjs --self-test
+      - run: node tooling/ci/journeys-revert-probe.mjs --self-test
       - run: node tooling/ci/test-shards.mjs --self-test
       - run: node tooling/ci/test-diff-guard.mjs --self-test
       - run: node tooling/ci/look-drift.mjs --self-test

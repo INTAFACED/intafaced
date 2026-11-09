@@ -6,9 +6,10 @@
  *   GET /developer-portal/hosts       (through the edge: /api/trade/developer-portal/hosts)
  *   GET /developer-portal/data-terms  (through the edge: /api/trade/developer-portal/data-terms)
  *   GET /developer-portal/regional-rule (through the edge: /api/trade/developer-portal/regional-rule)
+ *   GET /developer-portal/bot-policy  (through the edge: /api/trade/developer-portal/bot-policy; J-cex-spot-15 #3)
  *
  * Plain JSON, signed-out readable. Blank setting → 503 with its one code (`trade.developer_hosts_unset`,
- * `trade.developer_data_terms_unset`, `trade.developer_regional_rule_unset`). A published hosts or data terms setting
+ * `trade.developer_data_terms_unset`, `trade.developer_regional_rule_unset`, `trade.developer_bot_policy_unset`). A published hosts or data terms setting
  * answers every row, with `null` where the owner left that host or product out; a published rule answers its text. A malformed setting stops the service at boot instead of serving a guess.
  */
 import type { FastifyInstance } from 'fastify';
@@ -17,6 +18,7 @@ import { z } from 'zod';
 export const DEVELOPER_HOSTS_PATH = '/developer-portal/hosts';
 export const DEVELOPER_DATA_TERMS_PATH = '/developer-portal/data-terms';
 export const DEVELOPER_REGIONAL_RULE_PATH = '/developer-portal/regional-rule';
+export const DEVELOPER_BOT_POLICY_PATH = '/developer-portal/bot-policy';
 
 export const DEVELOPER_PROTOCOLS = ['rest', 'websocket', 'fix'] as const;
 export const DEVELOPER_ENVIRONMENTS = ['production', 'sandbox', 'regional'] as const;
@@ -26,7 +28,9 @@ export const DATA_TERMS = ['entitlement', 'redistribution', 'retention', 'privac
 export const DEVELOPER_HOSTS_UNSET = 'trade.developer_hosts_unset';
 export const DEVELOPER_DATA_TERMS_UNSET = 'trade.developer_data_terms_unset';
 export const DEVELOPER_REGIONAL_RULE_UNSET = 'trade.developer_regional_rule_unset';
+export const DEVELOPER_BOT_POLICY_UNSET = 'trade.developer_bot_policy_unset';
 const REGIONAL_RULE_MAX = 1000;
+const BOT_POLICY_MAX = 4000;
 
 /** A host name with an optional port (1 to 65535), lower case; never a scheme or a path. */
 const HOST = /^(?=.{1,253}(?::\d{1,5})?$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/;
@@ -98,10 +102,25 @@ export function parseRegionalRule(raw: string): string | null {
   return rule;
 }
 
+/**
+ * `TRADE_DEVELOPER_BOT_POLICY`: blank → null; else the owner's text, trimmed. It says what automated trading the
+ * platform permits; until the owner publishes it, nothing claims a bot may trade. Too long stops boot.
+ */
+export function parseBotPolicy(raw: string): string | null {
+  const policy = raw.trim();
+  if (policy === '') return null;
+  if ([...policy].length > BOT_POLICY_MAX) {
+    throw new Error(`TRADE_DEVELOPER_BOT_POLICY is malformed: longer than ${BOT_POLICY_MAX} characters`);
+  }
+  return policy;
+}
+
 export interface DeveloperPortalDeps {
   hosts: DeveloperHostRow[] | null;
   dataTerms: DataTermsRow[] | null;
   regionalRule: string | null;
+  /** The owner's bot policy; null until published. Optional so a caller that predates it serves the refusal. */
+  botPolicy?: string | null;
 }
 
 export function registerDeveloperPortalRest(app: FastifyInstance, deps: DeveloperPortalDeps): void {
@@ -122,5 +141,12 @@ export function registerDeveloperPortalRest(app: FastifyInstance, deps: Develope
       return reply.code(503).send({ code: DEVELOPER_REGIONAL_RULE_UNSET, message: 'The regional host rule is not published yet.' });
     }
     return reply.code(200).send({ rule: deps.regionalRule });
+  });
+  app.get(DEVELOPER_BOT_POLICY_PATH, async (_req, reply) => {
+    const policy = deps.botPolicy ?? null;
+    if (policy === null) {
+      return reply.code(503).send({ code: DEVELOPER_BOT_POLICY_UNSET, message: 'The bot policy is not published yet.' });
+    }
+    return reply.code(200).send({ policy });
   });
 }

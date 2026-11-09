@@ -25,6 +25,8 @@ export const WALLET_SECTIONS = {
   safety: '/wallet/safety',
   /** The person's own wallet connected to their account for venue trading (J-wallet-09). */
   venue: '/wallet/venue',
+  /** The person's own embedded self-custody wallet, made with a passkey and no seed phrase (J-wallet-22). */
+  embedded: '/wallet/embedded',
 } as const;
 export type WalletSection = keyof typeof WALLET_SECTIONS;
 

@@ -62,7 +62,9 @@ export function createSpacesRouter(c: BankRouterContext) {
             ...potState(v, now),
             billsPot: bills.has(v.id) ? { fallback: bills.get(v.id)! } : null,
             balance: v.balance,
-            ledgerAccount: accountForSpace(v),
+            // Partner-held money has no ledger account; the partner's label and report time say whose figure it is.
+            ledgerAccount: v.heldAt ? null : accountForSpace(v),
+            heldAt: v.heldAt,
           }));
         }),
       ),

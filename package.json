@@ -43,8 +43,6 @@
     "verify": "node tooling/ci/verify.mjs",
     "verify:verdict": "node tooling/ci/infra-verdict.mjs",
     "gate": "node tooling/ci/dod-gate.mjs",
-    "scan:coverage": "node tooling/ci/coverage-check.mjs",
-    "coverage:report": "node tooling/ci/coverage-check.mjs --report",
     "scan:brand": "node tooling/ci/brand-scan.mjs",
     "scan:custody": "node tooling/ci/custody-scan.mjs",
     "scan:s2s": "node tooling/ci/s2s-scan.mjs",
