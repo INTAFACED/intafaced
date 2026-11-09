@@ -91,6 +91,21 @@ describe('words for the bank’s typed refusals', () => {
 });
 
 describe('reading a refusal that has come back', () => {
+  it("takes a space create refused at the limit, or with the limit blank, as a definite no in the bank's own words", () => {
+    for (const [code, message] of [
+      ['bank.space_limit_reached', 'This account already has 5 spaces, the most it can hold. Archive one to make room.'],
+      ['bank.space_limit_unset', 'The owner has not set how many spaces an account can hold, so no new space is made'],
+    ] as const) {
+      const settled = settleRefusal({ ok: false, reason: 'uncertain', status: 412, code, message }, 'spaces.create');
+      expect(settled.refusedFirst, code).toBe(true);
+      expect(settled.outcome).toMatchObject({ ok: false, reason: 'error', message });
+    }
+    // Only on the create: the same code on another write is not taken as definite.
+    expect(
+      settleRefusal({ ok: false, reason: 'uncertain', status: 412, code: 'bank.space_limit_reached', message: 'x' }, 'loans.open')
+        .refusedFirst,
+    ).toBe(false);
+  });
   it('turns a typed refusal made before posting into plain words and a definite no, on a checked write', () => {
     const settled = settleRefusal(failure(400, 'bank.card_limit_exceeded'), 'cards.setLimits');
     expect(settled.refusedFirst).toBe(true);
