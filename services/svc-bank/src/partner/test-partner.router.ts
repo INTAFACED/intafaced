@@ -18,6 +18,7 @@ const switches = z
     rampFee: z.enum(['known', 'unknown']),
     custody: z.enum(['on', 'off']),
     nextReply: z.enum(['answered', 'lost']),
+    accountDetails: z.enum(['none', 'issued']),
   })
   .strict();
 
