@@ -2089,6 +2089,7 @@ services:
       CUSTOMER_LIVEKIT_ORIGIN: ${CUSTOMER_LIVEKIT_ORIGIN:-}
       CUSTOMER_STORAGE_ORIGIN: ${CUSTOMER_STORAGE_ORIGIN:-}
       CUSTOMER_MEDIA_ORIGINS: ${CUSTOMER_MEDIA_ORIGINS:-}
+      CUSTOMER_SANDBOX_API_ORIGIN: ${CUSTOMER_SANDBOX_API_ORIGIN:-}
     # nginx proxies /api to the edge and /ws to the socket by SERVICE NAME, so
     # both must be resolvable on this network — the browser stays same-origin
     # and never learns a port.

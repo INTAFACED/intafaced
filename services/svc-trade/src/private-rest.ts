@@ -1702,18 +1702,19 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     try {
       requireScope(principal, 'trade:read');
-      // A sub-account-bound key's token names its sub-account: it reads that account's balance and no other
+      // A sub-account-bound key's token names its key and its sub-account: it reads that account's balance and no other
       // (DV-sub-accounts-01). A missing sub-account door refuses rather than answering with the person's own balance.
-      if (principal.sub_account && !deps.subAccountBalances) {
+      // A signed-in tab using a sub-account (no key) keeps reading the person's own balance, as before this journey:
+      // the copy wizard's free-balance check reads it (J-copy-bots-otc-01 #5).
+      const keySubAccount = principal.kid ? principal.sub_account : undefined;
+      if (keySubAccount && !deps.subAccountBalances) {
         return sendCcxt(reply, {
           status: 403,
           body: { code: 'PermissionDenied', message: 'Sub-account balances are not served here', intafacedCode: 'ownership.denied' },
         });
       }
       const rows =
-        principal.sub_account && deps.subAccountBalances
-          ? await deps.subAccountBalances(principal.sub_account)
-          : await deps.userBalances(principal.userId);
+        keySubAccount && deps.subAccountBalances ? await deps.subAccountBalances(keySubAccount) : await deps.userBalances(principal.userId);
       const serverTime = stampServerTime(reply, deps);
       return reply.code(200).send({ ...presentCcxtBalances(rows, new Date(serverTime)), serverTime });
     } catch (err) {
