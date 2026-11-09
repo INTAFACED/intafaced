@@ -9,7 +9,7 @@ import type { Principal } from '@intafaced/auth';
 import { parseAmount } from '@intafaced/ledger-client';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
-import { MatchingUnavailableError, type EngineL3Queue } from './matching-client.js';
+import { MatchingNoBookError, MatchingUnavailableError, type EngineL3Queue } from './matching-client.js';
 import { fillEstimate, placeInQueue, readQueuePosition, TRADE_QUEUE_PROBABILITY_UNSET, type QueuePositionDeps } from './queue-position.js';
 import { TradeError, type OrderRecord } from './types.js';
 
@@ -162,6 +162,15 @@ describe('readQueuePosition', () => {
   it('an open order matching no longer holds at its price refuses trade.order_not_open', async () => {
     const d = deps({ l3Queue: async () => ({ ...QUEUE, bids: [] }) });
     await expect(readQueuePosition(d, principal, MINE)).rejects.toMatchObject({ code: 'trade.order_not_open' });
+  });
+
+  it('a book matching has not opened (404) is trade.queue_unavailable too, never trade.no_book', async () => {
+    const d = deps({
+      l3Queue: async () => {
+        throw new MatchingNoBookError(MARKET);
+      },
+    });
+    await expect(readQueuePosition(d, principal, MINE)).rejects.toMatchObject({ code: 'trade.queue_unavailable' });
   });
 
   it('L3 down refuses trade.queue_unavailable and reads nothing else', async () => {

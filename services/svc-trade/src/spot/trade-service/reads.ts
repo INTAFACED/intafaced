@@ -396,9 +396,10 @@ export async function publicTape(svc: TradeServiceInternal, marketId: string, li
 
 /**
  * Volume that traded at or through `price` on the side a resting order on `side` waits for, since `sinceMs`: for a
- * resting buy, taker sells printed at or below its price; for a resting sell, taker buys printed at or above it. The same
- * rows as the public tape (taker leg only, no print involving a seeded order), summed in SQL so no page cuts it short.
- * Feeds the queue fill estimate (queue-position.ts); a read only.
+ * resting buy, taker sells printed at or below its price; for a resting sell, taker buys printed at or above it. One row
+ * per match (the taker leg), summed in SQL so no page cuts it short. Seeded orders are counted here, unlike on the public
+ * tape: the queue this volume is set against counts every resting order, seeded ones included, so both sides of the
+ * estimate measure the same book. Feeds the queue fill estimate (queue-position.ts); a read only.
  */
 export async function tradedThrough(
   svc: TradeServiceInternal,
@@ -409,35 +410,16 @@ export async function tradedThrough(
 ): Promise<Amount> {
   const taker: OrderSide = side === 'buy' ? 'sell' : 'buy';
   const at = formatAmount(price);
-  const since = new Date(sinceMs);
-  const [row] =
-    side === 'buy'
-      ? await svc.sql<Array<{ volume: string | null }>>`
-        SELECT sum(f.qty)::text AS volume
-          FROM trade.fills f
-          INNER JOIN trade.orders o ON o.id = f.order_id
-          INNER JOIN trade.orders c ON c.id = f.counter_order_id
-         WHERE f.market_id = ${marketId}
-           AND f.liquidity = 'taker'
-           AND f.side = ${taker}
-           AND f.price <= ${at}::numeric
-           AND f.ts >= ${since}
-           AND o.seeded = false
-           AND c.seeded = false
-      `
-      : await svc.sql<Array<{ volume: string | null }>>`
-        SELECT sum(f.qty)::text AS volume
-          FROM trade.fills f
-          INNER JOIN trade.orders o ON o.id = f.order_id
-          INNER JOIN trade.orders c ON c.id = f.counter_order_id
-         WHERE f.market_id = ${marketId}
-           AND f.liquidity = 'taker'
-           AND f.side = ${taker}
-           AND f.price >= ${at}::numeric
-           AND f.ts >= ${since}
-           AND o.seeded = false
-           AND c.seeded = false
-      `;
+  const through = side === 'buy' ? svc.sql`f.price <= ${at}::numeric` : svc.sql`f.price >= ${at}::numeric`;
+  const [row] = await svc.sql<Array<{ volume: string | null }>>`
+    SELECT sum(f.qty)::text AS volume
+      FROM trade.fills f
+     WHERE f.market_id = ${marketId}
+       AND f.liquidity = 'taker'
+       AND f.side = ${taker}
+       AND ${through}
+       AND f.ts >= ${new Date(sinceMs)}
+  `;
   return row?.volume ? parseAmount(row.volume) : 0n;
 }
 

@@ -1,6 +1,7 @@
 /**
  * The queue fill estimate's volume (J-charts-desk-14 #8), on real Postgres: taker prints at or through a resting order's
- * price, on the side that would fill it, inside the window, with no seeded order on either leg (the public tape's rows).
+ * price, on the side that would fill it, inside the window, one row per match, seeded makers included (the queue the
+ * volume is set against counts seeded orders too).
  */
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -80,8 +81,8 @@ describe('tradedThrough', () => {
     await print(m, 'sell', '100.5', '7', 5_000); // above my bid: a sell there never reaches me
     await print(m, 'buy', '99', '3', 5_000); // a taker buy does not fill a resting buy
     await print(m, 'sell', '100', '9', 400_000); // outside a 300 s window
-    await print(m, 'sell', '100', '4', 1_000, true); // a seeded maker: not on the public tape
-    expect(await tradedThrough(svc, m, 'buy', parseAmount('100'), NOW - 300_000)).toBe(parseAmount('0.75'));
+    await print(m, 'sell', '100', '4', 1_000, true); // a seeded maker: counted, as the queue counts seeded orders
+    expect(await tradedThrough(svc, m, 'buy', parseAmount('100'), NOW - 300_000)).toBe(parseAmount('4.75'));
   });
 
   it('a resting sell at 100 counts taker buys at or above 100', async () => {

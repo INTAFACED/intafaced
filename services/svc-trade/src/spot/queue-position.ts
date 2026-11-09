@@ -8,7 +8,7 @@
  * makers' order ids and single sizes are counted here and never returned: only the count and the sum leave.
  *
  * The estimate is one documented method, `traded_through_window`: the volume that traded at or through this order's
- * price over the owner's window (`queueFillWindowSeconds`, charts owner values), divided by the size that has to trade
+ * price (every taker print, seeded makers included, as the queue counts them) over the owner's window (`queueFillWindowSeconds`, charts owner values), divided by the size that has to trade
  * for this order to fill completely (the size ahead plus its own remaining size), capped at 1, floored to 4 places. It
  * reads: "if the next window trades as the last one did at this price, this share of the queue up to and including me
  * would be cleared." It is a ratio from recent prints, not a model; with the window blank there is no estimate at all,
@@ -18,7 +18,7 @@
  */
 import type { Principal } from '@intafaced/auth';
 import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { MatchingUnavailableError, type EngineL3Queue } from './matching-client.js';
+import { MatchingNoBookError, MatchingUnavailableError, type EngineL3Queue } from './matching-client.js';
 import { TradeError, type OrderRecord, type OrderSide } from './types.js';
 
 export const QUEUE_FILL_METHOD = 'traded_through_window' as const;
@@ -157,7 +157,9 @@ export async function readQueuePosition(deps: QueuePositionDeps, principal: Prin
   try {
     queue = await deps.l3Queue(order.marketId, QUEUE_L3_LEVELS);
   } catch (err) {
-    if (err instanceof MatchingUnavailableError) throw new TradeError(err.message, 'trade.queue_unavailable');
+    // The order is open here but matching cannot show its queue (down, refused L3, or the book not opened yet): retryable.
+    if (err instanceof MatchingUnavailableError || err instanceof MatchingNoBookError)
+      throw new TradeError(err.message, 'trade.queue_unavailable');
     throw err;
   }
   const place = placeInQueue(queue, order.side, order.price, order.id);
@@ -167,8 +169,7 @@ export async function readQueuePosition(deps: QueuePositionDeps, principal: Prin
     if (side.length >= QUEUE_L3_LEVELS) throw new TradeError(`order ${orderId} is past the queue page`, 'trade.queue_unavailable');
     throw new TradeError(`order ${orderId} is not resting in the book`, 'trade.order_not_open');
   }
-  const market = await deps.marketById(order.marketId);
-  const windowSeconds = await deps.queueFillWindowSeconds();
+  const [market, windowSeconds] = await Promise.all([deps.marketById(order.marketId), deps.queueFillWindowSeconds()]);
   const estimate =
     windowSeconds === null
       ? null

@@ -679,11 +679,6 @@ export function createMatchingClient(
       }
     },
 
-    /**
-     * Non-destructive live book read. Same 404-vs-empty discipline as depth:
-     * matching 200 `{ orders: [] }` is a live empty list; matching 404 is
-     * MarketNotFound, not a fabricated empty list.
-     */
     async l3Queue(marketId, limit) {
       const published = publishedMatchingDepthLimit(limit);
       const path = `/markets/${encodeURIComponent(marketId)}/depth/l3?limit=${published}`;
@@ -720,6 +715,11 @@ export function createMatchingClient(
       return body as EngineL3Queue;
     },
 
+    /**
+     * Non-destructive live book read. Same 404-vs-empty discipline as depth:
+     * matching 200 `{ orders: [] }` is a live empty list; matching 404 is
+     * MarketNotFound, not a fabricated empty list.
+     */
     async listOrders(marketId, orderId) {
       const path = `/markets/${encodeURIComponent(marketId)}/orders?limit=${MATCHING_RESTING_ORDERS_PAGE}`;
       let response: Response;

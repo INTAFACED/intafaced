@@ -163,7 +163,8 @@ function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
   const size = (value: string) => fmtAmount(value, { places: amountPlaces });
   const head = t('My queue order', {
     side: order.side === 'buy' ? t('My queue side buy') : t('My queue side sell'),
-    amount: size(order.remaining),
+    // Once the queue read answers, its own remaining size, so the heading and the basis below never disagree.
+    amount: size(read.status === 'ready' ? read.data.remaining : order.remaining),
     asset: market.base,
     price: order.price ? fmtPrice(order.price, market.tickSize) : '—',
   });
