@@ -69,9 +69,15 @@ export function stepsRan(report, steps) {
 
 function main() {
   const { CANDIDATES, FILES, STEPS, PROBE_SH, JOURNEY_REPORT } = process.env;
-  const commits = String(CANDIDATES ?? '').split(/\s+/).filter(Boolean);
-  const files = String(FILES ?? '').split(/\s+/).filter(Boolean);
-  const steps = String(STEPS ?? '').split(/[\s,]+/).filter(Boolean);
+  const commits = String(CANDIDATES ?? '')
+    .split(/\s+/)
+    .filter(Boolean);
+  const files = String(FILES ?? '')
+    .split(/\s+/)
+    .filter(Boolean);
+  const steps = String(STEPS ?? '')
+    .split(/[\s,]+/)
+    .filter(Boolean);
   if (commits.length < 2 || !commits.every((c) => SHA.test(c))) throw new Error('CANDIDATES: two or more full shas');
   if (!files.length || !files.every((f) => FILE.test(f))) throw new Error('FILES: journey file names');
   if (!steps.length || !steps.every((s) => STEP.test(s))) throw new Error('STEPS: journey steps');
@@ -95,7 +101,9 @@ function main() {
     '### Journeys revert: probe',
     '',
     ...lines,
-    confirmed ? `Culprit: \`${culprit.slice(0, 10)}\`` : `\`${culprit.slice(0, 10)}\` passes too: nothing reproduces, so nothing is reverted.`,
+    confirmed
+      ? `Culprit: \`${culprit.slice(0, 10)}\``
+      : `\`${culprit.slice(0, 10)}\` passes too: nothing reproduces, so nothing is reverted.`,
     '',
   ].join('\n');
   process.stdout.write(text);

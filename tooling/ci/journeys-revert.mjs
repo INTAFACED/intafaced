@@ -62,7 +62,12 @@ export function outrightFailures(report) {
       const m = STEP_TITLE.exec(spec.title ?? '');
       if (!m) continue;
       if ((spec.tests ?? []).some((t) => t.status === 'unexpected'))
-        out.set(`${m[1]}#${Number(m[2])}`, String(spec.file ?? f ?? '').split('/').pop());
+        out.set(
+          `${m[1]}#${Number(m[2])}`,
+          String(spec.file ?? f ?? '')
+            .split('/')
+            .pop(),
+        );
     }
     for (const child of suite.suites ?? []) walk(child, f);
   };
@@ -103,7 +108,9 @@ export function commitReaches(paths, failingFiles, reach, atHead) {
   const t = journeyTouch(paths, atHead, reach);
   if (t.mode === 'full') return { reaches: true, why: t.full[0] ? `${t.full[0].path}: ${t.full[0].why}` : 'full' };
   const hit = t.files.filter((f) => failingFiles.includes(f));
-  return hit.length ? { reaches: true, why: `reaches ${hit.join(', ')}` } : { reaches: false, why: `${t.mode}: ${t.files.join(', ') || 'no journey'}` };
+  return hit.length
+    ? { reaches: true, why: `reaches ${hit.join(', ')}` }
+    : { reaches: false, why: `${t.mode}: ${t.files.join(', ') || 'no journey'}` };
 }
 
 /**
@@ -182,7 +189,8 @@ function client(token) {
     });
     const text = await res.text();
     // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop.
-    if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on ${method} ${path.split('?')[0]}: stopping, not retrying`);
+    if (res.status === 403 || res.status === 429)
+      throw new Error(`GitHub ${res.status} on ${method} ${path.split('?')[0]}: stopping, not retrying`);
     let json = null;
     try {
       json = text ? JSON.parse(text) : null;
@@ -253,19 +261,30 @@ async function trigger(env) {
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   const [prevRun, olderRun] = earlier;
   if (!prevRun || !olderRun) return summary(['Journeys revert: fewer than two earlier finished runs on main; nothing to compare.']);
-  const [now, prev, older] = [await runReport(gh, repo, run.id, env.GH_TOKEN), await runReport(gh, repo, prevRun.id, env.GH_TOKEN), await runReport(gh, repo, olderRun.id, env.GH_TOKEN)];
+  const [now, prev, older] = [
+    await runReport(gh, repo, run.id, env.GH_TOKEN),
+    await runReport(gh, repo, prevRun.id, env.GH_TOKEN),
+    await runReport(gh, repo, olderRun.id, env.GH_TOKEN),
+  ];
   if (!now || !prev || !older) return summary(['Journeys revert: one of the three runs kept no journey report; nothing is reverted.']);
   const steps = revertSteps(older, prev, now);
-  if (!steps.length) return summary([`Journeys revert: no step passed on \`${olderRun.head_sha.slice(0, 10)}\` and then failed outright twice; nothing to revert.`]);
+  if (!steps.length)
+    return summary([
+      `Journeys revert: no step passed on \`${olderRun.head_sha.slice(0, 10)}\` and then failed outright twice; nothing to revert.`,
+    ]);
   if (olderRun.head_sha === prevRun.head_sha)
-    return summary([`Journeys revert: ${steps.join(', ')} broke with no commit between the runs (flaky or outside the code); nothing to revert.`]);
+    return summary([
+      `Journeys revert: ${steps.join(', ')} broke with no commit between the runs (flaky or outside the code); nothing to revert.`,
+    ]);
   const inputs = { good: olderRun.head_sha, bad: prevRun.head_sha, journeys: steps.join(','), red_run: String(prevRun.id), base: 'main' };
   const r = await gh('POST', `/repos/${repo}/actions/workflows/main-bisect.yml/dispatches`, { ref: 'main', inputs });
   summary([
     `### Journeys revert`,
     '',
     `${steps.join(', ')} passed on \`${olderRun.head_sha.slice(0, 10)}\` (run ${olderRun.id}) and failed outright on \`${prevRun.head_sha.slice(0, 10)}\` (run ${prevRun.id}) and \`${run.head_sha.slice(0, 10)}\` (run ${run.id}).`,
-    r.status === 204 || r.status === 0 ? 'Dispatched main-bisect.yml to find the culprit and open its revert.' : `Dispatch failed: HTTP ${r.status}`,
+    r.status === 204 || r.status === 0
+      ? 'Dispatched main-bisect.yml to find the culprit and open its revert.'
+      : `Dispatch failed: HTTP ${r.status}`,
   ]);
   if (r.status !== 204 && r.status !== 0) return 1;
 }
@@ -287,7 +306,8 @@ async function find(env) {
 
   const { json: run } = await gh('GET', `/repos/${repo}/actions/runs/${env.RED_RUN}`);
   if (run?.name !== JOURNEYS_WORKFLOW) return none(`Run ${env.RED_RUN} is not a ${JOURNEYS_WORKFLOW} run.`);
-  if (run.head_sha !== env.BAD) return none(`Run ${env.RED_RUN} ran \`${run.head_sha?.slice(0, 10)}\`, not the bad commit \`${env.BAD.slice(0, 10)}\`.`);
+  if (run.head_sha !== env.BAD)
+    return none(`Run ${env.RED_RUN} ran \`${run.head_sha?.slice(0, 10)}\`, not the bad commit \`${env.BAD.slice(0, 10)}\`.`);
   if (run.head_branch !== env.BASE) return none(`Run ${env.RED_RUN} ran on \`${run.head_branch}\`, not \`${env.BASE}\`.`);
   const report = await runReport(gh, repo, env.RED_RUN, env.GH_TOKEN);
   if (!report) return none(`Run ${env.RED_RUN} kept no journey report.`);
@@ -308,7 +328,10 @@ async function find(env) {
   let reach = null;
   const map = loadMap();
   if (map) {
-    const { json: runs } = await gh('GET', `/repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=30`);
+    const { json: runs } = await gh(
+      'GET',
+      `/repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=30`,
+    );
     const atBad = new Set(
       git('ls-tree', '--name-only', `${env.BAD}:${REAL_APP.slice(0, -1)}`)
         .split('\n')
@@ -399,22 +422,35 @@ async function open(env) {
 
     const refused = refuseRevert({ subject, parents, files, pr });
     if (refused) {
-      await comment(`The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. It opened no revert: ${refused}. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`);
+      await comment(
+        `The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. It opened no revert: ${refused}. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+      );
       return summary([`Journeys revert: no revert of \`${sha.slice(0, 10)}\`: ${refused}.`]);
     }
     const exists = await gh('GET', `/repos/${repo}/branches/${encodeURIComponent(branch)}`);
-    if (exists.status === 200) return summary([`Journeys revert: \`${branch}\` already exists, so its revert was opened before; nothing new.`]);
+    if (exists.status === 200)
+      return summary([`Journeys revert: \`${branch}\` already exists, so its revert was opened before; nothing new.`]);
 
     git('checkout', '--quiet', '-B', branch, `origin/${env.BASE}`);
     try {
       execFileSync(
         'git',
-        ['-c', 'user.name=intafaced-mac-agents[bot]', '-c', 'user.email=intafaced-mac-agents[bot]@users.noreply.github.com', 'revert', '--no-edit', sha],
+        [
+          '-c',
+          'user.name=intafaced-mac-agents[bot]',
+          '-c',
+          'user.email=intafaced-mac-agents[bot]@users.noreply.github.com',
+          'revert',
+          '--no-edit',
+          sha,
+        ],
         { stdio: 'pipe' },
       );
     } catch {
       execFileSync('git', ['revert', '--abort'], { stdio: 'ignore' });
-      await comment(`The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert doesn't apply cleanly on \`${env.BASE}\`, so no revert was opened. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`);
+      await comment(
+        `The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert doesn't apply cleanly on \`${env.BASE}\`, so no revert was opened. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+      );
       return summary([`Journeys revert: \`git revert ${sha.slice(0, 10)}\` doesn't apply cleanly; commented instead.`]);
     }
     if (dry) {
@@ -448,14 +484,23 @@ async function open(env) {
       });
       armed = q.json?.errors?.length ? `not armed: ${String(q.json.errors[0].message).slice(0, 200)}` : 'armed (squash)';
     }
-    await comment(`The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. To keep this change, fix it forward and close the revert.\n\n_Posted by tooling/ci/journeys-revert.mjs._`);
-    summary([`### Journeys revert`, '', `Opened #${number ?? '(dry run)'}: ${title}`, `Auto-merge: ${armed}.`, `Culprit: ${pr ? `#${pr.number}` : 'no pull request'} \`${sha.slice(0, 10)}\` ${subject}`]);
+    await comment(
+      `The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. To keep this change, fix it forward and close the revert.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+    );
+    summary([
+      `### Journeys revert`,
+      '',
+      `Opened #${number ?? '(dry run)'}: ${title}`,
+      `Auto-merge: ${armed}.`,
+      `Culprit: ${pr ? `#${pr.number}` : 'no pull request'} \`${sha.slice(0, 10)}\` ${subject}`,
+    ]);
   } finally {
     if (token && !dry) {
       // Revoke, then prove it: GitHub must refuse the token afterwards (401).
       const end = await fetch(`${API}/installation/token`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
       const after = await fetch(`${API}/repos/${repo}`, { headers: { authorization: `Bearer ${token}` } });
-      if (end.status !== 204 || after.status !== 401) throw new Error(`the revert token may still be live (revoke ${end.status}, then ${after.status})`);
+      if (end.status !== 204 || after.status !== 401)
+        throw new Error(`the revert token may still be live (revoke ${end.status}, then ${after.status})`);
       console.log('the revert token is revoked: GitHub now refuses it (401)');
     }
   }
@@ -511,11 +556,23 @@ function selfTest() {
   eq(refuseRevert({ ...ok, parents: 2 }) !== null, true, 'a merge commit is not reverted');
   eq(refuseRevert({ ...ok, files: ['.github/workflows/ci.yml'] }) !== null, true, 'a workflow change is not reverted by the App');
   eq(revertBranch(A), 'revert/auto-aaaaaaaaaa', 'branch name');
-  eq(revertTitle({ prNumber: 7, sha: A, files: ['apps/x.ts'], redRun: 9 }), 'Revert #7, which turned the Real-app journeys red (run 9)', 'title');
-  eq(revertTitle({ prNumber: 7, sha: A, files: ['tooling/ci/gates.mjs'], redRun: 9 }).startsWith('ci: revert #7'), true, 'a gate revert says ci:');
+  eq(
+    revertTitle({ prNumber: 7, sha: A, files: ['apps/x.ts'], redRun: 9 }),
+    'Revert #7, which turned the Real-app journeys red (run 9)',
+    'title',
+  );
+  eq(
+    revertTitle({ prNumber: 7, sha: A, files: ['tooling/ci/gates.mjs'], redRun: 9 }).startsWith('ci: revert #7'),
+    true,
+    'a gate revert says ci:',
+  );
   eq(/J-[a-z]/.test(revertTitle({ prNumber: 7, sha: A, files: [], redRun: 9 })), false, 'no journey step in the title');
   const body = revertBody({ repo: 'o/r', sha: A, subject: 's (#7)', prNumber: 7, redRun: 9, steps: ['J-a-01#2'], base: 'main' });
-  eq(['actions/runs/9', '`J-a-01 #2`', '#7'].every((t) => body.includes(t)), true, 'body names the red run, the steps and the culprit');
+  eq(
+    ['actions/runs/9', '`J-a-01 #2`', '#7'].every((t) => body.includes(t)),
+    true,
+    'body names the red run, the steps and the culprit',
+  );
   console.log('✓ journeys-revert --self-test OK (31 fixtures)');
 }
 
