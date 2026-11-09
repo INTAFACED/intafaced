@@ -372,8 +372,12 @@ export function sealProblems(text) {
   if (pushed.group === at('ccc', { action: 'synchronize', number: 202 }).group) problems.push('two pull requests share a group');
   // Runs on the head being merged: an edit or a reopen joins the pull request's group (a newer one replaces it while it
   // waits, before it has a job) but never cancels a running seal; a re-run is in no group a push or an open cancels in.
+  // A title or body edit runs no seal (its job is skipped, INTAFACED/project-state#1574): in the pull request's group it
+  // could replace a push's waiting seal and leave the new head with none, so it keeps a group of its own.
+  const edit = at('bbb', { action: 'edited', changes: { title: { from: 'x' } } });
+  if (edit.cancel) problems.push('an edit cancels a running seal on the head being merged');
+  if (edit.group === pushed.group) problems.push("an edit shares the pull request's group, so it could replace a push's waiting seal");
   const onHead = {
-    'an edit': at('bbb', { action: 'edited', changes: { title: { from: 'x' } } }),
     'a base change': at('bbb', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
     'a reopen': at('bbb', { action: 'reopened' }),
   };
@@ -621,11 +625,15 @@ test("planted: yesterday's seal (never cancelled), and one where every run joins
     .replace(c.group, 'merge-seal-pr-${{ github.event.pull_request.number }}')
     .replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: true');
   const p = sealProblems(all);
-  for (const what of ['an edit', 'a reopen', "a push's re-run"])
+  for (const what of ['a base change', 'a reopen', "a push's re-run"])
     assert.ok(
       p.some((x) => x.startsWith(`${what} `)),
       `${what}: ${p}`,
     );
+  assert.ok(
+    p.some((x) => x.startsWith('an edit shares')),
+    `an edit in the group: ${p}`,
+  );
   // Keyed on the event alone (no run_attempt), a re-run of an old head's push joins the group and cancels the new head's seal.
   const noAttempt = t.replaceAll("github.run_attempt == '1' && ", '');
   assert.notEqual(noAttempt, t);

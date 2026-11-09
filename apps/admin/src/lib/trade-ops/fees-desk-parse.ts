@@ -1,6 +1,6 @@
 /**
  * Parsers for the Fees and convert room's finance reads (J-cex-spot-17 #4, #7, #8): svc-trade's snapshot runs, Convert's
- * owner values and quotes, and svc-bank's fiat buy quotes. Each returns null for a body that is not the expected shape, so
+ * owner values and quotes, and svc-bank's fiat buy quotes and the buy fees its partner did not give. Each returns null for a body that is not the expected shape, so
  * the room refuses it rather than half-show it. Amounts stay the decimal strings the services sent. No network, no clock.
  */
 
@@ -202,6 +202,52 @@ export const parseOnrampQuotes = (raw: unknown): OnrampQuote[] | null =>
         }
       : null,
   );
+
+/**
+ * A buy ask the partner's ramp gave no fee for (svc-bank `ops.onrampFeesNotKnown`): no fee, pay amount or rate was quoted,
+ * so the room shows "not known", never 0.
+ */
+export interface OnrampFeeNotKnown {
+  readonly requestId: string;
+  readonly userId: string;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly method: string;
+  readonly country: string;
+  readonly createdAt: string;
+}
+
+export interface OnrampFeesNotKnown {
+  /** The TEST partner's label when the local stack's TEST partner ramp gave no fee, or null. */
+  readonly testPartner: string | null;
+  readonly rows: OnrampFeeNotKnown[];
+}
+
+export const parseOnrampFeesNotKnown = (raw: unknown): OnrampFeesNotKnown | null => {
+  if (!rec(raw) || !(raw.testPartner === null || str(raw.testPartner))) return null;
+  const rows = listOf(raw.rows, (v) =>
+    rec(v) &&
+    str(v.requestId) &&
+    str(v.userId) &&
+    str(v.assetId) &&
+    dec(v.amount) &&
+    str(v.method) &&
+    str(v.country) &&
+    v.refusalCode === 'bank.onramp_fee_not_known' &&
+    str(v.createdAt)
+      ? {
+          requestId: v.requestId,
+          userId: v.userId,
+          assetId: v.assetId,
+          amount: v.amount,
+          method: v.method,
+          country: v.country,
+          createdAt: v.createdAt,
+        }
+      : null,
+  );
+  return rows ? { testPartner: raw.testPartner, rows } : null;
+};
 
 /** A notice row as svc-notify answers a draft: its id, kind and the time it takes effect. */
 export interface FeeNotice {

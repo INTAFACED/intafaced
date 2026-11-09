@@ -427,6 +427,15 @@ jobs:
         run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
       - name: Install
         run: pnpm install --frozen-lockfile
+      # svc-fix's pinned JDK and Maven archives, kept between runs: the build fetches them from GitHub's release host,
+      # whose 504s failed every journeys run before any test (runs 42561646967 and 42578853059, 9 Nov). Only the archives
+      # are kept; ensure-toolchain.mjs checks each one's pinned sha256/sha512 and fetches it again when it does not match.
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
+            ${{ runner.temp }}/stack-state/java-tools/maven.tgz
+          key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
       - name: Build what the stack starts
         run: LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs build --no-admin
       # Everything the build wrote: git's ignored paths outside node_modules and turbo's cache (the dist folders), and the
@@ -598,6 +607,15 @@ jobs:
           chmod 700 "$LOCAL_STACK_STATE"
           cp "$RUNNER_TEMP/stack-build/build-stamp.json" "$LOCAL_STACK_STATE/"
           rm -f "$RUNNER_TEMP/stack-build/outputs.tar"
+
+      # The build job's kept JDK and Maven archives, read only: a shard without the run's build builds svc-fix itself and
+      # fetched the JDK from the same release host (run 42568666064, 9 Nov: the build and 20 shards failed on its 504s).
+      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
+            ${{ runner.temp }}/stack-state/java-tools/maven.tgz
+          key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
 
       - name: Start the local test stack (TEST funds only)
         run: |

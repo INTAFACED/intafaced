@@ -20,6 +20,20 @@ import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { stubApprovalConsumer } from '../action-approval-consume.js';
 import { CardService } from './card-service.js';
 import { cardIssuerFor, cardProgrammeOutput, cardSim, type CardIssuerAdapter } from './issuer.js';
+import { NOTHING_REPORTED } from './partner-terms.js';
+
+function luhnOk(digits: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < digits.length; i += 1) {
+    let d = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
 import { createBankRouter } from '../router.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';
 
@@ -539,7 +553,7 @@ describe('customer card procedures (PG-hard)', () => {
       });
       const approval = identity.approve('bank.step_up.cards.reveal', { actor: HOLDER, cardId, revealId });
       const revealed = await user.cards.reveal({ cardId, revealId, stepUpApprovalId: approval });
-      expect(revealed).toEqual({ pan: PAN, expiry: '12/30', cvv: CVV, expiresAt: '2026-06-15T12:01:00.000Z' });
+      expect(revealed).toEqual({ pan: PAN, expiry: '12/30', cvv: CVV, expiresAt: '2026-06-15T12:01:00.000Z', test: false });
       await expect(user.cards.reveal({ cardId, revealId, stepUpApprovalId: approval })).rejects.toMatchObject({
         message: expect.stringContaining('bank.step_up_used'),
       });
@@ -558,11 +572,13 @@ describe('customer card procedures (PG-hard)', () => {
       await expect(user.cards.pin.reveal({ cardId, revealId: pinView, stepUpApprovalId: pinViewApproval })).resolves.toEqual({
         pin: PIN,
         expiresAt: '2026-06-15T12:01:00.000Z',
+        test: false,
       });
       const provisionId = randomUUID();
       await expect(user.cards.walletProvision({ cardId, provisionId, wallet: 'google', nonce: 'device-nonce' })).resolves.toEqual({
         payload: WALLET_PAYLOAD,
         expiresAt: '2026-06-15T12:01:00.000Z',
+        test: false,
       });
       const stored = JSON.stringify(await sql`SELECT id, user_id, asset_id, pan_tail, card_type, shipping_address FROM bank.cards`);
       const audits = await sql<Array<{ kind: string; payload_hash: string }>>`
@@ -579,6 +595,194 @@ describe('customer card procedures (PG-hard)', () => {
     } finally {
       await sql.unsafe(SIMULATED_UP);
     }
+  });
+
+  /** The TEST partner adapter with `secrets: "test"` and the owner's PIN try limit (J-bank-14 #3, #4). */
+  async function testSecretsSim(pinTryLimit: number | null) {
+    await sql`TRUNCATE bank.card_wallet_tokens, bank.card_controls, bank.card_status_events, bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
+    const ledger = new MemoryLedger();
+    const partner = { ...NOTHING_REPORTED, secrets: 'test' as const };
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      cards: { issuer: cardIssuerFor('card-sim', { live: false }, partner), clock: () => NOW, pinTryLimit },
+    });
+    const identity = new FakeIdentity();
+    const gate = createStepUpGate({ mode: 'required', approvals: identity, clock: () => NOW });
+    return { ledger, bank, identity, user: caller(bank, ['bank:read', 'bank:write'], gate), ops: caller(bank, ['admin:treasury']) };
+  }
+
+  it('shows the TEST partner card details once per step-up, labelled TEST, and keeps none of them', async () => {
+    const { bank, user, identity } = await testSecretsSim(3);
+    await expect(user.cards.secretsOffered()).resolves.toEqual({ details: true, pin: true, wallet: true, test: true });
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const revealId = randomUUID();
+    const approval = identity.approve('bank.step_up.cards.reveal', { actor: HOLDER, cardId, revealId });
+    const revealed = await user.cards.reveal({ cardId, revealId, stepUpApprovalId: approval });
+    expect(revealed).toMatchObject({ test: true, expiresAt: '2026-06-15T12:01:00.000Z' });
+    expect(revealed.pan).toMatch(/^999999\d{10}$/);
+    expect(luhnOk(revealed.pan)).toBe(true);
+    expect(revealed.expiry).toMatch(/^(0[1-9]|1[0-2])\/3[0-4]$/);
+    expect(revealed.cvv).toMatch(/^\d{3}$/);
+    // A second reveal is a new reveal id and needs its own step-up; the first approval does not carry over.
+    const again = randomUUID();
+    await expect(user.cards.reveal({ cardId, revealId: again, stepUpApprovalId: approval })).rejects.toMatchObject({
+      message: expect.stringMatching(/bank\.step_up_(used|mismatch|required|invalid)/),
+    });
+    await expect(user.cards.reveal({ cardId, revealId: again })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.step_up_required'),
+    });
+    const second = await user.cards.reveal({
+      cardId,
+      revealId: again,
+      stepUpApprovalId: identity.approve('bank.step_up.cards.reveal', { actor: HOLDER, cardId, revealId: again }),
+    });
+    expect(second.pan).toBe(revealed.pan);
+    const stored = JSON.stringify(await sql`SELECT * FROM bank.cards`) + JSON.stringify(await sql`SELECT * FROM bank.card_secret_audits`);
+    expect(stored).not.toContain(revealed.pan);
+  });
+
+  it('sets a TEST PIN and blocks it at the owner count of wrong tries, until a new PIN is set', async () => {
+    const { bank, user, identity, ops, ledger } = await testSecretsSim(3);
+    await fund(ledger, '100');
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const setPin = async (pin: string) => {
+      const commandId = randomUUID();
+      return user.cards.pin.set({
+        cardId,
+        commandId,
+        pin,
+        stepUpApprovalId: identity.approve('bank.step_up.cards.pinSet', { actor: HOLDER, cardId, commandId }),
+      });
+    };
+    let n = 0;
+    const tap = (pin: string) =>
+      ops.ops.cardAuthorize({ cardId, authorizationRef: `auth-pin-${++n}`, amount: '1', pin, confirmOperatorId: CONFIRM, ...APPROVAL });
+
+    // No PIN yet: nothing to show, and a typed PIN declines by name.
+    const viewId = randomUUID();
+    await expect(
+      user.cards.pin.reveal({
+        cardId,
+        revealId: viewId,
+        stepUpApprovalId: identity.approve('bank.step_up.cards.pinReveal', { actor: HOLDER, cardId, revealId: viewId }),
+      }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('bank.card_pin_not_set') });
+    expect(await tap('1234')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_not_set' });
+
+    await expect(setPin('4321')).resolves.toEqual({ ok: true });
+    const shown = randomUUID();
+    await expect(
+      user.cards.pin.reveal({
+        cardId,
+        revealId: shown,
+        stepUpApprovalId: identity.approve('bank.step_up.cards.pinReveal', { actor: HOLDER, cardId, revealId: shown }),
+      }),
+    ).resolves.toEqual({ pin: '4321', expiresAt: '2026-06-15T12:01:00.000Z', test: true });
+
+    expect(await tap('4321')).toMatchObject({ decision: 'approved' });
+    expect(await tap('0000')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_blocked' });
+    // Blocked: even the right PIN declines now.
+    expect(await tap('4321')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_blocked' });
+    // A new PIN clears the wrong tries.
+    await setPin('8642');
+    expect(await tap('8642')).toMatchObject({ decision: 'approved' });
+    // A right PIN between wrong ones starts the count again.
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('8642')).toMatchObject({ decision: 'approved' });
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_blocked' });
+
+    // The same purchase delivered twice at once is one wrong try, not two.
+    await setPin('8642');
+    const twice = await Promise.all([
+      ops.ops.cardAuthorize({
+        cardId,
+        authorizationRef: 'auth-pin-twice',
+        amount: '1',
+        pin: '0000',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+      ops.ops.cardAuthorize({
+        cardId,
+        authorizationRef: 'auth-pin-twice',
+        amount: '1',
+        pin: '0000',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+    ]);
+    expect(twice.map((d) => d.declineCode)).toEqual(['bank.card_pin_wrong', 'bank.card_pin_wrong']);
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_blocked' });
+
+    const stored =
+      JSON.stringify(await sql`SELECT * FROM bank.card_authorizations`) + JSON.stringify(await sql`SELECT * FROM bank.card_secret_audits`);
+    expect(stored).not.toContain('4321');
+    expect(stored).not.toContain('8642');
+  });
+
+  it('declines a typed PIN by name while the owner has not set the try limit', async () => {
+    const { bank, user, identity, ops, ledger } = await testSecretsSim(null);
+    await fund(ledger, '10');
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const commandId = randomUUID();
+    await user.cards.pin.set({
+      cardId,
+      commandId,
+      pin: '4321',
+      stepUpApprovalId: identity.approve('bank.step_up.cards.pinSet', { actor: HOLDER, cardId, commandId }),
+    });
+    const tapped = await ops.ops.cardAuthorize({
+      cardId,
+      authorizationRef: 'auth-no-limit',
+      amount: '1',
+      pin: '4321',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    expect(tapped).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_try_limit_unset' });
+    await expect(ledger.balance(userAvailable(HOLDER, 'USDT'))).resolves.toMatchObject({ amount: amt('10') });
+  });
+
+  it('adds the card to a phone wallet once per wallet, shows its tokens paused while frozen, and adds none to a frozen card', async () => {
+    const { bank, user } = await testSecretsSim(3);
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const first = await user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'device-a' });
+    expect(first).toMatchObject({ test: true });
+    expect(first.payload).toMatch(/^TEST-wallet-apple-/);
+    // The same card into the same wallet again is the same token.
+    await user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'device-b' });
+    const added = await user.cards.walletTokens({ cardId });
+    expect(added.test).toBe(true);
+    expect(added.tokens).toHaveLength(1);
+    expect(added.tokens[0]).toMatchObject({ wallet: 'apple', state: 'added' });
+
+    await user.cards.setStatus({ cardId, status: 'frozen' });
+    expect((await user.cards.walletTokens({ cardId })).tokens).toEqual([expect.objectContaining({ wallet: 'apple', state: 'paused' })]);
+    await expect(
+      user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'google', nonce: 'device-c' }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('bank.card_not_active') });
+    expect((await user.cards.walletTokens({ cardId })).tokens).toHaveLength(1);
+    const rows = JSON.stringify(await sql`SELECT * FROM bank.card_wallet_tokens`);
+    expect(rows).not.toContain(first.payload);
+  });
+
+  it('keeps card-sim without `secrets` refusing card details, PIN and wallet by name', async () => {
+    const { user } = await freshSim();
+    const cardId = randomUUID();
+    await user.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '100' });
+    await expect(user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'n' })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.card_wallet_issuer_unset'),
+    });
+    await expect(user.cards.walletTokens({ cardId })).resolves.toEqual({ test: false, tokens: [] });
+    await expect(user.cards.secretsOffered()).resolves.toEqual({ details: false, pin: false, wallet: false, test: false });
   });
 
   it('issues a simulated physical card only with a delivery address', async () => {
