@@ -11,6 +11,8 @@ import {
   judgedFile,
   parseDiff,
   testsIn,
+  journeyOfFile,
+  declarationProblem,
   stepsTouched,
   reachMap,
   parseStepWords,
@@ -20,6 +22,15 @@ import {
   buildInputs,
   summaryLines,
   JOURNEY_FILE,
+  JUDGE_SCHEMA,
+  moneyGuard,
+  setAsideDays,
+  setAsideRefusal,
+  retryProblem,
+  mainSetAsideDays,
+  setAsideCap,
+  SET_ASIDE_CONDITIONS,
+  SET_ASIDE_FILES,
 } from './test-judge.mjs';
 import {
   ciReviewVerdict,
@@ -252,6 +263,294 @@ test('fails closed (planted): an unanswered step or change, an error, or no stru
   assert.equal(readAnswer(cli({ ...ok(), steps: [{ step: 'J-x-01 #2', verdict: 'fine', why: 'x' }] }), REQ).ok, false);
 });
 
+// ── The machine's set-aside (B8, owner decision 2026-11-07) ───────────────────────────────────────────────────────
+
+const CONFIG = SET_ASIDE_FILES[0];
+const SA_REQ = { steps: ['J-x-01 #1', 'J-x-01 #2', 'J-m-01 #1'], changes: [CONFIG] };
+/** The facts buildInputs decides: J-m-01 #1 is money, J-x-01 #2's own test changed, the head sets aside for 7 days. */
+const RULES = { money: ['J-m-01 #1'], own: ['J-x-01 #2'], days: 7, mainDays: 'none', retry: null, touches: true };
+const held = (over = {}) => ({
+  used: true,
+  ...Object.fromEntries(Object.keys(SET_ASIDE_CONDITIONS).map((k) => [k, { holds: true, why: 'journey-verdict.mjs:1' }])),
+  ...over,
+});
+/** The answer the judge gives a B8 set-aside done right: the retry's file and a non-money reached step `set-aside`. */
+const b8 = ({ setAside = held(), steps = {}, change = 'set-aside' } = {}) => ({
+  verdict: 'PASS',
+  steps: [
+    { step: 'J-x-01 #1', verdict: 'set-aside', why: 'retries=1 on main; excused only while set aside' },
+    { step: 'J-x-01 #2', verdict: 'still-proves', why: 'unchanged assertions' },
+    { step: 'J-m-01 #1', verdict: 'still-proves', why: 'money: a retry pass is red' },
+  ].map((e) => (steps[e.step] ? { ...e, verdict: steps[e.step] } : e)),
+  changes: [{ file: CONFIG, verdict: change, why: 'retries: JOURNEY_RETRIES' }],
+  setAside,
+});
+const verdictOf = (answer, rules = RULES, req = SA_REQ) => readAnswer(cli(answer), req, rules);
+
+test('B8 (passing case): a set-aside in exactly its approved form passes, with a note naming each condition', () => {
+  const a = verdictOf(b8());
+  assert.equal(a.ok, true);
+  assert.equal(a.verdict, 'PASS');
+  assert.deepEqual(
+    a.lines.filter((l) => l.verdict === 'set-aside').map((l) => l.id),
+    ['J-x-01 #1', CONFIG],
+  );
+  assert.match(a.note, /owner, endDate, neverMoney, notProven, machineOnly/);
+  assert.match(a.note, /7 at this head/);
+});
+
+test('B8 refuses (planted): a money step set aside', () => {
+  const a = verdictOf(b8({ steps: { 'J-m-01 #1': 'set-aside' } }));
+  assert.equal(a.verdict, 'FAIL');
+  assert.match(a.lines.find((l) => l.id === 'J-m-01 #1').why, /^set-aside refused: a money step is never set aside/);
+  // The judge's own reading can't override the code's money fact.
+  assert.equal(
+    verdictOf(b8({ steps: { 'J-m-01 #1': 'set-aside' }, setAside: held({ neverMoney: { holds: true, why: 'x' } }) })).verdict,
+    'FAIL',
+  );
+  // And when the judge finds the code would set a money step aside.
+  const code = verdictOf(b8({ setAside: held({ neverMoney: { holds: false, why: 'setAsideGuard drops the p2p test' } }) }));
+  assert.equal(code.verdict, 'FAIL');
+  assert.match(code.lines.find((l) => l.id === CONFIG).why, /did not find these held: neverMoney/);
+});
+
+test('B8 refuses (planted): no end date, an end date the code does not set, or a set-aside longer than 7 days', () => {
+  for (const days of [null, 0, 8, 30, 1.5]) {
+    const a = verdictOf(b8(), { ...RULES, days });
+    assert.equal(a.verdict, 'FAIL', `days ${days}`);
+    assert.match(a.lines.find((l) => l.id === CONFIG).why, /set-aside refused: .*(no end date|longer than 7)/, `days ${days}`);
+  }
+  assert.equal(verdictOf(b8({ setAside: held({ endDate: { holds: false, why: 'until is never read' } }) })).verdict, 'FAIL');
+  // The length comes from the head's code, one declaration only.
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\n'), 7);
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nexport const SET_ASIDE_DAYS = 70;\n'), null);
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7 * 10;\n'), null);
+  assert.equal(setAsideDays('// export const SET_ASIDE_DAYS = 7;\n'), null);
+  assert.equal(setAsideDays('/*\nexport const SET_ASIDE_DAYS = 7;\n*/\n'), null, 'a block-commented line never counts');
+  assert.equal(
+    setAsideDays('export const SET_ASIDE_DAYS = 7;\n/*\nexport const SET_ASIDE_DAYS = 70;\n*/\n'),
+    null,
+    'a second copy, even in a block comment, refuses',
+  );
+  assert.equal(setAsideDays('// export const SET_ASIDE_DAYS = 70;\nexport const SET_ASIDE_DAYS = 7;\n'), 7, 'a line comment is ignored');
+  // The CI review's plant on 0a50400: a template holds the 7 while the real length is computed another way.
+  for (const real of [
+    'export const SET_ASIDE_DAYS = Number(process.env.D);',
+    'export let SET_ASIDE_DAYS = 30;',
+    'const SET_ASIDE_DAYS = 30;\nexport { SET_ASIDE_DAYS };',
+  ])
+    assert.equal(setAsideDays(`const doc = \`\nexport const SET_ASIDE_DAYS = 7;\n\`;\n${real}\n`), null, real);
+  assert.equal(setAsideDays('const doc = `\nexport const SET_ASIDE_DAYS = 7;\n`;\nconst D = 30;\n'), null, 'the 7 only in a template');
+  // The CI review's plant on f829d44 (run 42439981348): a backtick inside a quote evens the count, the template stays open.
+  for (const opener of ["const q = '`';\nconst doc = `", "const doc = `${'`'}", 'const re = /[/*]/;\nconst doc = `'])
+    assert.equal(setAsideDays(`${opener}\nexport const SET_ASIDE_DAYS = 7;\n\`;\nconst LEN = 30;\n`), null, opener);
+  // Only a header before it: comment blocks, line comments, one-line imports and consts.
+  const header =
+    "#!/usr/bin/env node\n/**\n * The verdict. `a` and `b`.\n */\nimport { x } from 'node:fs';\n// c\n/** d */\nexport const A = 'b';\n";
+  assert.equal(setAsideDays(`${header}export const SET_ASIDE_DAYS = 7;\n`), 7, 'the control');
+  for (const bad of [
+    '/**\n * x */ const doc = `\n',
+    '/**\n * x */ const doc = `\n */\n',
+    'const s = "x\\\n',
+    'function f() {\n',
+    '/* x */ const doc = `\n',
+    'const a = 1; /* `\n',
+    'import {\n  x,\n} from "y";\n',
+    '/**\n * never closed\n',
+  ])
+    assert.equal(setAsideDays(`${bad}export const SET_ASIDE_DAYS = 7;\n`), null, JSON.stringify(bad));
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nSET_ASIDE_DAYS = 30;\n'), null, 'reassigned');
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nexport { X as SET_ASIDE_DAYS };\n'), null, 'renamed export');
+  assert.equal(
+    setAsideDays('export const SET_ASIDE_DAYS = 7;\nconst t = `${SET_ASIDE_DAYS} days`;\nf({ days: SET_ASIDE_DAYS });\n'),
+    7,
+    'uses are fine',
+  );
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 0;\n'), null);
+  assert.equal(setAsideDays(null), null);
+});
+
+test('B8 refuses (planted): a set-aside lengthened past the default branch, a retry of more than once, or no set-aside change', () => {
+  // Main sets aside for 3 days: the head may shorten it, never lengthen it, and 7 stays the ceiling.
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: 3, days: 3 }).verdict, 'PASS', 'the control: as long as main');
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: 3, days: 2 }).verdict, 'PASS', 'shorter than main');
+  const longer = verdictOf(b8(), { ...RULES, mainDays: 3, days: 7 });
+  assert.equal(longer.verdict, 'FAIL');
+  assert.match(longer.lines.find((l) => l.id === CONFIG).why, /longer than 3 \(the default branch's length\)/);
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: 30, days: 8 }).verdict, 'FAIL', 'never past 7, whatever main says');
+  // Main's length unreadable (named in a form setAsideDays doesn't read): every set-aside refused.
+  assert.equal(mainSetAsideDays('const SET_ASIDE_DAYS = 3;\n'), 'unreadable');
+  assert.equal(mainSetAsideDays('export const SET_ASIDE_DAYS = 3 * 1;\n'), 'unreadable');
+  assert.equal(mainSetAsideDays('export const SET_ASIDE_DAYS = 3;\n'), 3);
+  assert.equal(mainSetAsideDays('export const X = 1;\n'), 'none');
+  // Main mentions a set-aside anywhere (a comment too) but its length can't be read: unreadable, never 7.
+  assert.equal(mainSetAsideDays('// the set-aside lasts SET_ASIDE_DAYS\nconst days = 7;\n'), 'unreadable');
+  assert.equal(mainSetAsideDays('/*\nexport const SET_ASIDE_DAYS = 3;\n*/\nexport const setAside = 1;\n'), 'unreadable');
+  // A renamed length: main has a set-aside, so it is unreadable, never 'none' (which would cap at 7).
+  assert.equal(mainSetAsideDays('// the set-aside length\nexport const SET_ASIDE_LENGTH = 3;\n'), 'unreadable');
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: mainSetAsideDays('export function setAsideSteps() {}\n'), days: 7 }).verdict, 'FAIL');
+  assert.equal(setAsideCap('unreadable'), null);
+  assert.equal(mainSetAsideDays(null), 'none');
+  const unreadable = verdictOf(b8(), { ...RULES, mainDays: 'unreadable', days: 3 });
+  assert.equal(unreadable.verdict, 'FAIL');
+  assert.match(unreadable.lines.find((l) => l.id === CONFIG).why, /set-aside length can't be read/);
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: undefined }).verdict, 'FAIL', 'not given: refused');
+  // The retry, fail closed over the raw text: `retries` only on B8's one line, and elsewhere only in `//` comment lines.
+  const cfg = (line, extra = '') => `export default defineConfig({\n  workers: 1,\n${line}\n  timeout: 90_000,${extra}\n});\n`;
+  const RETRY_LINE = "  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,";
+  const B8_LINE = `  // retries once on main\n${RETRY_LINE}`;
+  assert.equal(retryProblem(cfg(B8_LINE)), null, 'the control: B8 form, a comment that mentions retries is ignored');
+  assert.notEqual(
+    retryProblem(cfg(B8_LINE, '\n  /* retries: 9, */')),
+    null,
+    'a block-commented key refuses (no parser decides what is a comment)',
+  );
+  for (const [why, text] of [
+    // The independent review's plants on ef5639a13 (comment 6716262764), each accepted by the old line check.
+    ['a value read from elsewhere', cfg('  retries: main ? R : 0, // R = 5 above')],
+    ['a hex literal', cfg('  retries: main ? 0x3 : 0,')],
+    ['an exponent', cfg('  retries: main ? 1e1 : 0,')],
+    ['a nested second key', cfg(B8_LINE, '\n  projects: [{ name: "x", retries: 4 }],')],
+    ['a property set later', `${cfg(B8_LINE)}config.retries = 3;\n`],
+    ['a quoted key', cfg(B8_LINE, "\n  use: { 'retries': 2 },")],
+    ['a second retry', cfg("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,")],
+    ['every run', cfg('  retries: 1,')],
+    ['a number from the environment', cfg('  retries: Number(process.env.R ?? 0),')],
+    ['no retry at all (nothing to set aside)', cfg('  retries: 0,')],
+    ['the key only in a comment', cfg("  // retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,")],
+    ['an unclosed block comment', cfg(B8_LINE, '\n  /* retries: 1,')],
+    ['no file', null],
+    // The CI review's plants on 0a50400 (run 42439593286): a regular expression or a template that a comment stripper
+    // misreads can't hide a live key, since every line is read as it is.
+    ['a regular expression that looks like a comment', `const re = () => { return /[/*]/; };\n${cfg(B8_LINE)}config.retries = 5; // */\n`],
+    ['a template holding a quoted backtick', `const t = \`\${'\`'}\`;\nconst u = '//';\n${cfg(B8_LINE, '\n  retries: 5,')}`],
+    ['the B8 line twice (a nested project)', cfg(B8_LINE, `\n  projects: [{\n${RETRY_LINE}\n  }],`)],
+    ['B8 line only inside a template', `const fake = \`\n${RETRY_LINE}\n\`;\n${cfg('  retries: 5,')}`],
+  ])
+    assert.notEqual(retryProblem(text), null, why);
+  // The facts line says "at most one retry" only when the check passed.
+  const twice = verdictOf(b8(), { ...RULES, retry: retryProblem(cfg("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,")) });
+  assert.equal(twice.verdict, 'FAIL');
+  assert.match(twice.lines.find((l) => l.id === 'J-x-01 #1').why, /the retry is not B8's: retries appears outside B8's line/);
+  assert.equal(verdictOf(b8(), { ...RULES, retry: undefined }).verdict, 'FAIL', 'an unread retry refuses');
+  // A step reached only through another shared file can't be set aside on the judge's word alone.
+  const untouched = verdictOf(b8({ change: 'still-proves' }), { ...RULES, touches: false });
+  assert.equal(untouched.verdict, 'FAIL');
+  assert.match(untouched.lines.find((l) => l.id === 'J-x-01 #1').why, /changes neither the retry's file nor the set-aside's code/);
+});
+
+test('B8 refuses (planted): a set-aside step counted as proven, with no owner, retried past B8, or set aside by anyone but the machine', () => {
+  for (const k of ['notProven', 'owner', 'machineOnly', 'retryOnce']) {
+    const a = verdictOf(b8({ setAside: held({ [k]: { holds: false, why: 'x' } }) }));
+    assert.equal(a.verdict, 'FAIL', k);
+    assert.match(a.lines.find((l) => l.id === 'J-x-01 #1').why, new RegExp(`did not find these held: ${k}`), k);
+  }
+  // A condition left out, or a set-aside the judge did not find in the code, refuses too.
+  const { notProven: _n, ...missing } = held();
+  assert.equal(verdictOf(b8({ setAside: missing })).verdict, 'FAIL');
+  assert.equal(verdictOf(b8({ setAside: held({ used: false }) })).verdict, 'FAIL');
+  assert.equal(verdictOf(b8({ setAside: null })).verdict, 'FAIL');
+});
+
+test('B8 refuses (planted): a softened step, whatever else the set-aside gets right', () => {
+  // The step's own test changed: a set-aside never covers it.
+  const own = verdictOf(b8({ steps: { 'J-x-01 #2': 'set-aside' } }));
+  assert.equal(own.verdict, 'FAIL');
+  assert.match(own.lines.find((l) => l.id === 'J-x-01 #2').why, /own test changed/);
+  // A weaker step next to an approved set-aside is still a FAIL.
+  assert.equal(verdictOf(b8({ steps: { 'J-x-01 #2': 'weaker' } })).verdict, 'FAIL');
+  // A shared file other than the retry's can't be set aside.
+  const req = { ...SA_REQ, changes: [CONFIG, 'apps/customer/tests/real-app/stack.mjs'] };
+  const other = b8();
+  other.changes.push({ file: 'apps/customer/tests/real-app/stack.mjs', verdict: 'set-aside', why: 'y' });
+  assert.equal(verdictOf(other, RULES, req).verdict, 'FAIL');
+  // No set-aside facts in the input (an older meta.json): nothing is accepted.
+  assert.equal(verdictOf(b8(), null).verdict, 'FAIL');
+});
+
+test('B8: the schema asks for every condition; the money guard reads money, money journeys and unknown slices as money', () => {
+  assert.deepEqual(JUDGE_SCHEMA.properties.setAside.required, ['used', ...Object.keys(SET_ASIDE_CONDITIONS)]);
+  assert.deepEqual(JUDGE_SCHEMA.properties.steps.items.properties.verdict.enum, ['still-proves', 'set-aside', 'weaker']);
+  const g = moneyGuard({
+    journeys: [
+      {
+        id: 'J-docs-01',
+        steps: [
+          { n: 1, slices: ['S-ui'] },
+          { n: 2, slices: [] },
+          { n: 3, slices: ['S-none'] },
+          { n: 4, slices: ['S-lost'] },
+        ],
+      },
+      { id: 'J-p2p-01', steps: [{ n: 1, slices: ['S-ui'] }] },
+      { id: 'J-ops-console-27', steps: [{ n: 1, slices: ['S-ui'] }] },
+      { id: 'J-led-01', steps: [{ n: 1, slices: ['S-led'] }] },
+    ],
+    slices: [
+      { id: 'S-ui', touches: ['customer: docs'] },
+      { id: 'S-none', touches: [] },
+      { id: 'S-led', touches: ['svc-led'] },
+    ],
+    manifests: new Map([
+      ['apps/customer', { name: 'customer' }],
+      ['services/svc-led', { name: 'led', dependencies: { '@intafaced/ledger-client': '1' } }],
+    ]),
+  });
+  assert.deepEqual(
+    [
+      'J-docs-01 #1',
+      'J-docs-01#1',
+      'J-docs-01 #2',
+      'J-docs-01 #3',
+      'J-docs-01 #4',
+      'J-p2p-01 #1',
+      'J-ops-console-27 #1',
+      'J-led-01 #1',
+      'J-new-01 #1',
+    ].map(g),
+    [false, false, true, true, true, true, true, true, true],
+  );
+});
+
+test("B8: the input carries the code's set-aside facts and, when changed, the set-aside's code whole", async () => {
+  const verdictFile = 'tooling/ci/journey-verdict.mjs';
+  const diff = `${DIFF}diff --git a/${verdictFile} b/${verdictFile}\n--- a/${verdictFile}\n+++ b/${verdictFile}\n@@ -1 +1 @@\n-export const X = 1;\n+export const SET_ASIDE_DAYS = 7;\n`;
+  const base = fakeSrc(diff);
+  const src = {
+    ...base,
+    read: async (sha, p) =>
+      p === verdictFile
+        ? sha === HEAD
+          ? 'export const SET_ASIDE_DAYS = 7;\n'
+          : 'export const X = 1;\n'
+        : p === 'tooling/ci/post-merge-trust.mjs'
+          ? 'export const stepStates = 1; // the unchanged reader\n'
+          : base.read(sha, p),
+    money: async () => (s) => s.startsWith('J-x-01 #1'),
+  };
+  const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
+  const got = await buildInputs({ src, base: BASE, head: HEAD, pr: 1, brief: 'B', loadWords });
+  assert.deepEqual(got.setAside, {
+    money: ['J-x-01 #1'],
+    own: ['J-x-01 #2'],
+    days: 7,
+    mainDays: 'none',
+    retry: "the retry's file can't be read",
+    touches: true,
+  });
+  assert.match(got.prompt, /SET-ASIDE FACTS[^]*money steps among those listed \(never set aside\): J-x-01 #1/);
+  assert.match(got.prompt, new RegExp(`BEGIN UNTRUSTED FILE after \\(head [0-9a-f]{10}\\) ${verdictFile}`));
+  // An unchanged reader is read whole too: a line left as main has it never shows in the diff.
+  assert.match(
+    got.prompt,
+    /BEGIN UNTRUSTED FILE after \(head [0-9a-f]{10}\) tooling\/ci\/post-merge-trust\.mjs\nexport const stepStates = 1;/,
+  );
+  // No money source: every step counts as money.
+  const closed = await buildInputs({ src: fakeSrc(), base: BASE, head: HEAD, pr: 1, brief: 'B', loadWords });
+  assert.deepEqual(closed.setAside.money, closed.required.steps);
+  assert.equal(closed.setAside.days, null);
+});
+
 /** A fake repository: the diff above, the files at the merge base and the head, and the default branch's journeys. */
 const fakeSrc = (diff = DIFF) => {
   const files = {
@@ -426,5 +725,96 @@ test('a copied journey file: the old file still runs, so only the copy is new', 
   assert.deepEqual(
     parts.map((p) => [p.path, p.whole]),
     [['apps/customer/tests/real-app/J-x-01.pw.mjs.off', 'new']],
+  );
+});
+
+// ── A journey split across files (project-state #1578, intafaced #7540) ──────────────────────────────────────────────
+
+test('a split journey file: `${J}` steps are the journey its file name gives, never a `const J` the PR writes', async () => {
+  // Review R1 on #7544: a decoy declaration in a comment or a function must not steer which words the steps answer to.
+  for (const decoy of ["/*\nconst J = 'J-bank-01';\n*/\n", "function f() {\n  const J = 'J-bank-01';\n}\n"])
+    assert.deepEqual(
+      testsIn(decoy + JFILE, 'J-x-01').map((t) => t.step),
+      ['J-x-01 #1', 'J-x-01 #2'],
+    );
+  assert.equal(journeyOfFile('apps/customer/tests/real-app/J-identity-06-apps.pw.mjs'), 'J-identity-06');
+  assert.equal(journeyOfFile('apps/customer/tests/real-app/J-identity-06.pw.mjs'), 'J-identity-06');
+  assert.equal(journeyOfFile('apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs'), 'J-copy-bots-otc-12');
+  assert.equal(journeyOfFile('apps/customer/tests/real-app/stack.mjs'), null);
+  // A top-level const J that disagrees with the file name, in a file whose titles use ${J}: the judge refuses.
+  assert.equal(declarationProblem(JFILE, 'J-x-01'), null);
+  assert.match(declarationProblem(JFILE.replace("const J = 'J-x-01';", "const J = 'J-y-02';"), 'J-x-01') ?? '', /J-y-02.*J-x-01/);
+  // Review R6: every way of declaring or reassigning J is read, not only `const J = '…'` at column 0.
+  for (const decl of [
+    "const J='J-bank-01';",
+    "export const J = 'J-bank-01';",
+    "let J = 'J-bank-01';",
+    '  var J = "J-bank-01";',
+    'const J = `J-bank-01`;',
+    "const J = 'J-x-01';\nJ = 'J-bank-01';",
+    'const J = makeId();',
+  ])
+    assert.ok(declarationProblem(JFILE.replace("const J = 'J-x-01';", decl), 'J-x-01'), `refused: ${decl}`);
+  assert.equal(declarationProblem(JFILE.replace("const J = 'J-x-01';", "const J = 'J-x-01'; // the journey"), 'J-x-01'), null);
+  assert.equal(declarationProblem(JFILE + "\nif (J === 'J-x-01') {}\n", 'J-x-01'), null, 'a comparison is not an assignment');
+  assert.equal(
+    declarationProblem("const J = 'J-ops-console-04-holds';\ntest('J-ops-console-04 #1 x', async () => {\n});\n", 'J-ops-console-04'),
+    null,
+    'a file that writes its step ids out is named by them',
+  );
+
+  // End to end through buildInputs: a change inside step #2's test of a split file is J-x-01 #2's own change, judged
+  // against J-x-01's words; before the fix it was "J-x-01-apps #2", which has no words.
+  const P = 'apps/customer/tests/real-app/J-x-01-apps.pw.mjs';
+  const diff = DIFF.replaceAll('apps/customer/tests/real-app/J-x-01.pw.mjs', P).split(
+    'diff --git a/apps/customer/tests/real-app/stack.mjs',
+  )[0];
+  const files = { [P]: JFILE, 'apps/customer/tests/real-app/journey.mjs': 'export const test = 1; export const expect = 2;\n' };
+  const headFiles = { ...files, [P]: JFILE.replace('toBe(1);', 'toBeTruthy();') };
+  const src = {
+    diff: async () => ({ diff, mergeBase: BASE }),
+    read: async (sha, p) => (sha === HEAD ? headFiles : files)[p] ?? null,
+    journeys: async () => [P],
+    readGraph: (p) => files[p] ?? null,
+  };
+  const got = await buildInputs({
+    src,
+    base: BASE,
+    head: HEAD,
+    pr: 1,
+    brief: 'B',
+    loadWords: async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) }),
+  });
+  assert.ok(got.required.steps.includes('J-x-01 #2'), JSON.stringify(got.required.steps));
+  assert.ok(!got.required.steps.some((s) => s.startsWith('J-x-01-apps')), 'no step is named after the file');
+  assert.doesNotMatch((got.deterministic ?? []).map((d) => d.line).join(' '), /no step words/);
+});
+
+test('review R1/R5 on #7544: a split file whose const J disagrees with its name fails without the model', async () => {
+  const P = 'apps/customer/tests/real-app/J-x-01-apps.pw.mjs';
+  const bad = JFILE.replace("const J = 'J-x-01';", "const J = 'J-bank-01';");
+  const diff = DIFF.replaceAll('apps/customer/tests/real-app/J-x-01.pw.mjs', P).split(
+    'diff --git a/apps/customer/tests/real-app/stack.mjs',
+  )[0];
+  const files = { [P]: bad, 'apps/customer/tests/real-app/journey.mjs': 'export const test = 1; export const expect = 2;\n' };
+  const headFiles = { ...files, [P]: bad.replace('toBe(1);', 'toBeTruthy();') };
+  const src = {
+    diff: async () => ({ diff, mergeBase: BASE }),
+    read: async (sha, p) => (sha === HEAD ? headFiles : files)[p] ?? null,
+    journeys: async () => [P],
+    readGraph: (p) => files[p] ?? null,
+  };
+  const got = await buildInputs({
+    src,
+    base: BASE,
+    head: HEAD,
+    pr: 1,
+    brief: 'B',
+    loadWords: async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) }),
+  });
+  assert.match(got.deterministic.map((d) => d.line).join(' '), /declares J = 'J-bank-01', but its file name gives journey J-x-01/);
+  assert.ok(
+    got.required.steps.every((s) => !s.startsWith('J-bank-01')),
+    'the decoy journey names no step',
   );
 });

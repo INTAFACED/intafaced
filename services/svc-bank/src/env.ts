@@ -1,3 +1,4 @@
+import { TEST_PARTNER_SETTINGS } from './partner/test-partner.js';
 import { z } from 'zod';
 import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
@@ -239,6 +240,14 @@ const schema = serviceEnvSchema
        * plausible one, so choosing the ledger half is an act somebody performed.
        */
       BANK_RAMP_MODE: z.enum(RAMP_SETTINGS).default('none'),
+
+      /**
+       * THE TEST PARTNER BANK AND RAMP (CUSTODY-DELTA §4; OWNER 226): `off` (default) | `test`. `test` stands in for the
+       * partner while none is named, with per-person switches a journey sets (`testPartner.set`): a feature not offered by
+       * the partner, a fee not known, a reserve required, the partner down, a ramp quote expired, a ramp fee not known.
+       * Refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production (`partner/test-partner.ts`).
+       */
+      BANK_TEST_PARTNER: z.enum(TEST_PARTNER_SETTINGS).default('off'),
 
       /**
        * WHO PRICES ADD MONEY ON A TEST STACK. `none` (default) | `ramp-sim` (J-bank-02 #4).
@@ -488,6 +497,22 @@ const schema = serviceEnvSchema
        * simulated card pays none (`bank.rewards_issuer_unset`).
        */
       BANK_CARD_SIM_CASHBACK: z.enum(CARD_SIM_CASHBACK_SETTINGS).default('off'),
+
+      /**
+       * THE TEST PARTNER CARD ADAPTER'S SWITCHES (CUSTODY-DELTA §4, `cards/partner-terms.ts`), as JSON: `{ custodyMode:
+       * "partner_holds" | "wallet_pull" | null, spendFrom: [assetId] | null, lossLiability: { bearer, terms } | null,
+       * reserve: { required: false } | { required: true, amount, assetId } | null, funder: string | null }`. `null` is
+       * "not known" and is shown so. Unset, card-sim reports nothing. Refused at boot outside APP_ENV=dev or test, or under
+       * NODE_ENV=production, whatever BANK_CARD_ISSUER says: a TEST partner's answers left in a deployment's settings stop it
+       * starting rather than waiting for someone to switch the simulator on.
+       */
+      BANK_CARD_SIM_PARTNER_JSON: z.string().optional(),
+
+      /**
+       * The owner's list of assets a card may pay from, comma separated (BK-ccrypto-01, J-bank-29 #1). NO DEFAULT. Blank or
+       * malformed → Pay from refuses `bank.card_spend_assets_unset`.
+       */
+      BANK_CARD_SPEND_ASSETS: z.string().optional(),
 
       /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",

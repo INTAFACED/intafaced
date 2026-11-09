@@ -64,6 +64,7 @@ import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
 import { marketplaceInstallDoor } from './fleet/install.js';
 import { listCatalogue } from './ops/catalogue.js';
+import { agentEligibility } from './fleet/eligibility.js';
 import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, resolveRoute, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
@@ -608,10 +609,29 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               }),
               engine: z.enum(['sandbox', 'live', 'unknown']),
               metered: z.boolean(),
+              /** Who may use the agent under its published law, and whether this person may (fleet/eligibility.ts). */
+              eligibility: z.discriminatedUnion('rule', [
+                z.object({
+                  rule: z.literal('none'),
+                  eligible: z.literal(true),
+                  reason: z.null(),
+                  code: z.null(),
+                  yourPlan: z.string(),
+                }),
+                z.object({
+                  rule: z.literal('plan'),
+                  published: z.boolean(),
+                  plans: z.array(z.string()),
+                  yourPlan: z.string(),
+                  eligible: z.boolean(),
+                  reason: z.literal('plan').nullable(),
+                  code: z.string().nullable(),
+                }),
+              ]),
             })
             .nullable(),
         )
-        .query(({ input }) =>
+        .query(({ ctx, input }) =>
           guard(async () => {
             const definition = await runtime.agentDefinition(input.agentId);
             if (!definition) return null;
@@ -640,6 +660,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               },
               engine: flagged.engine,
               metered: flagged.metered,
+              eligibility: agentEligibility(guardrail.agentId, tierLaws, ctx.principal.tier),
             };
           }),
         ),

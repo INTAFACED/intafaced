@@ -27,28 +27,13 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join, dirname, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
+// The default branch's copy: the job runs this file from the default branch's checkout (ci-review.yml), never the pull
+// request's, so the money rule below is main's.
+import { moneyRule, manifestsAt } from './journey-verdict.mjs';
+import { JOURNEY_FILE, JUDGE_PATHS, judgedFile } from './judged-paths.mjs';
 
-/** The journey tests and the shared code they run on: a pull request that changes any of these is judged. */
-export const JUDGE_PATHS = [
-  [/^apps\/customer\/tests\/real-app\//, 'the journey tests and their harness'],
-  [/^tooling\/scripts\/local-stack-services\//, "the local stack's per-service settings"],
-  [/^tooling\/scripts\/local-stack-fixtures\//, "the local stack's fixtures"],
-  [/^tooling\/scripts\/local-test-[^/]+$/, 'the local test world and stack tools'],
-  [/^tooling\/scripts\/local-(founder-seed|video-store)\.mjs$/, 'the local stack tools the journeys call'],
-  [/^tooling\/scripts\/journey-(world|fund|fail-fast|freeze-guard)\.mjs$/, 'the journey harness tools'],
-  [/^tooling\/scripts\/seed-[^/]*test[^/]*\.mjs$/, 'the TEST seeds the journeys call'],
-  [/^tooling\/scripts\/owner-settings\.mjs$/, 'the owner settings the journeys read'],
-  [/^tooling\/profiles\/test-owner-values\//, 'the TEST owner values'],
-  // Product files the journey tests and look sweeps import: what they answer or match decides what a test observes.
-  [/^apps\/customer\/src\/screens\/[^/]+\/[^/]+\.fixtures\.mjs$/, 'the screen fixtures the look sweeps answer from'],
-  [/^apps\/customer\/src\/app\/(feature-registry|path-match)\.ts$/, 'the feature registry and path matcher the journeys import'],
-  [/^apps\/customer\/deployment\/(host-dispatch|render-security-headers)\.mjs$/, 'the host dispatch and headers the journeys import'],
-  [/^services\/svc-fix\/scripts\/ensure-toolchain\.mjs$/, 'the FIX toolchain the journeys start'],
-  // Everything proof v2's reach reads covered (project-state tooling/proof-v2/request.mjs, reachKind), so the judge can
-  // stand in for them: any tests/real-app/ folder, and every tool script under tooling/scripts/ (its unit tests aside).
-  [/(^|\/)tests\/real-app\//, 'a real-app test folder'],
-  [/^tooling\/scripts\/[^/]+\.mjs$/, 'the tool scripts'],
-];
+export { JOURNEY_FILE, JUDGE_PATHS, judgedFile };
+
 /** Shared code that sets the environment every journey starts in, whether or not a test imports it. */
 const ENVIRONMENT = [
   /^tooling\/scripts\/local-stack-services\//,
@@ -57,9 +42,7 @@ const ENVIRONMENT = [
   /^tooling\/scripts\/local-test-(stack|world)\.mjs$/,
   /^apps\/customer\/tests\/real-app\/real-app\.playwright\.config\.mjs$/,
 ];
-const UNIT_TEST = /\.test\.(mjs|ts|js)$/;
 const REAL_APP = 'apps/customer/tests/real-app';
-export const JOURNEY_FILE = /^apps\/customer\/tests\/real-app\/(J-[a-z0-9-]+)\.pw\.mjs$/;
 /** The harness files the judge always reads, so it can follow a test's calls into them (E1: W5 and W9). */
 export const HARNESS = ['journey.mjs', 'stack.mjs', 'desk.mjs', 'world-restore.mjs'].map((f) => `${REAL_APP}/${f}`);
 
@@ -74,18 +57,194 @@ export const MAX_OWN_STEPS = 150;
 export const SAMPLE_STEPS = 24;
 const SHA40 = /^[0-9a-f]{40}$/;
 
-/** Whether a file is shared test code or a journey test the judge rules on. */
-// A unit test is skipped only where proof v2's reachKind skips one: directly under tooling/scripts/. Anywhere else
-// (any tests/real-app/ folder, the TEST config folders) a file named like a unit test is still judged.
-const SKIPPED_UNIT_TEST = /^tooling\/scripts\/[^/]+$/;
-export const judgedFile = (f) => !(UNIT_TEST.test(f) && SKIPPED_UNIT_TEST.test(f)) && JUDGE_PATHS.some(([re]) => re.test(f));
-
 /** Why the seal needs the test judge for this change, or null. An empty file list fails closed. */
 export function judgeReason(files) {
   if (files.length === 0) return 'no changed files could be read for this head';
   const f = files.find(judgedFile);
   if (!f) return null;
   return `journey test or shared test code: ${f}`;
+}
+
+// ── The machine's set-aside (B8) ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The owner's approved exception (owner decision 2026-11-07, B8; the default branch's tooling/ci/ci-review/REVIEW.md
+ * item 3: "The machine's set-aside of flaky non-money journey steps ... is not a quarantine; a change that lets an agent
+ * set a step aside, sets a money step aside, or lengthens the set-aside is"; AGENTS.md rule 6): CI on main retries a
+ * failed journey test once and sets aside, for a limited time with an owner, a step that failed and then passed on the
+ * same commit, never a money step, and a set-aside step never counts as proven. The judge's one question stays; an entry
+ * the judge says is weaker only through that set-aside may answer `set-aside`, and this code accepts it only in exactly
+ * B8's form (setAsideRefusal): every condition below held, in the judge's reading of the code, plus these facts the code
+ * decides itself, from the default branch and the head: the step is not money, its own test did not change, the change
+ * is the retry's file, and the head's set-aside lasts at most SET_ASIDE_MAX_DAYS. Anything else stays `weaker`.
+ */
+export const SET_ASIDE_CONDITIONS = {
+  owner: 'each set-aside step has an owner, named where people see it',
+  endDate: 'each set-aside has an end date, and a step is not set aside again straight after it ends',
+  neverMoney: 'a money step is never set aside, and a step not known to be non-money counts as money',
+  notProven: 'a set-aside step, or a pass only on a retry, never counts as proven',
+  machineOnly: 'only CI on main sets a step aside, from a list no person or agent can edit',
+  retryOnce: 'a failed journey test is retried at most once, and only in a CI run on main',
+};
+/**
+ * B8's limited time when main has no set-aside yet: the length shown to the owner with B8 was 7 days. Once main has one,
+ * its own SET_ASIDE_DAYS is the cap, so a pull request can shorten the set-aside but never lengthen it.
+ */
+export const SET_ASIDE_MAX_DAYS = 7;
+/**
+ * Main's set-aside length: its days, 'none' when main's SET_ASIDE_CODE never names SET_ASIDE_DAYS (no set-aside yet), or
+ * 'unreadable' when it names it in any form but the one setAsideDays reads, which refuses every set-aside (fail closed).
+ */
+export const mainSetAsideDays = (text) =>
+  // 'none' only when main's file never mentions a set-aside at all, comments included: main before the set-aside.
+  !/set.?aside/i.test(String(text ?? '')) ? 'none' : (setAsideDays(text) ?? 'unreadable');
+/** The cap for a head: main's length (never above SET_ASIDE_MAX_DAYS), SET_ASIDE_MAX_DAYS when main has none, else null. */
+export const setAsideCap = (mainDays) =>
+  mainDays === 'none' ? SET_ASIDE_MAX_DAYS : Number.isInteger(mainDays) && mainDays >= 1 ? Math.min(mainDays, SET_ASIDE_MAX_DAYS) : null;
+
+/**
+ * Whether lines[0..end) are a header that leaves nothing open at line `end`: a first-line shebang, blank lines, `//`
+ * lines, block comments
+ * laid out one way (a line that is a block-comment opener alone, then lines starting `*` that never close it early,
+ * then a line that is the closer alone; or a one-line doc comment with nothing after it), and one-line
+ * `import ... from '...';` or `[export] const NAME = ...;` statements with no backtick, no comment marker and no
+ * backslash. Anything else (a template, a multi-line statement, a regular expression with a comment marker) refuses.
+ */
+export function headerBefore(lines, end) {
+  if (!(end >= 0)) return false;
+  let inBlock = false;
+  for (const [n, raw] of lines.slice(0, end).entries()) {
+    const l = raw.trim();
+    if (n === 0 && raw.startsWith('#!')) continue; // a shebang line
+    if (inBlock) {
+      if (l === '*/') inBlock = false;
+      else if (!l.startsWith('*') || l.includes('*/')) return false;
+      continue;
+    }
+    if (l === '' || l.startsWith('//')) continue;
+    if (l === '/*' || l === '/**') {
+      inBlock = true;
+      continue;
+    }
+    if (/^\/\*\*? /.test(l) && l.endsWith('*/') && l.indexOf('*/') === l.length - 2) continue;
+    const code = /^import [^`\\]+ from '[^'`\\]+';$/.test(l) || /^(?:export )?const [A-Za-z_$][\w$]* = [^`\\]+;$/.test(l);
+    if (!code || l.includes('/*') || l.includes('*/')) return false;
+  }
+  return !inBlock;
+}
+
+/** A line that is only a line comment: the one place outside B8's own line where these checks let a name appear. */
+const commentLine = (l) => l.trim().startsWith('//');
+
+/**
+ * B8's one retry form, exactly: one retry when the journeys workflow sets JOURNEY_RETRIES to '1' (on main), none
+ * otherwise. The literal 1 and 0 and nothing else: no number read from elsewhere, no other base or exponent.
+ */
+export const RETRY_FORM = "retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,";
+/**
+ * The retry in the head's Playwright config, fail closed over the raw text (no parser runs here, and none is trusted
+ * to strip comments): the word `retries` appears on exactly one line that is RETRY_FORM alone, and on no other line
+ * except a line that is only a `//` comment. Any other mention (a nested project, a property set later, a quoted key,
+ * one inside a string, a template, a regular expression or a block comment) refuses. Returns null when it is so, else
+ * why not. What no word check can see (a computed key, a spread from another file) is the judge's `retryOnce` reading.
+ */
+export function retryProblem(text) {
+  if (text == null) return "the retry's file can't be read";
+  const word = /(?<![\w$])retries(?![\w$])/;
+  const lines = String(text).split('\n');
+  const b8 = lines.filter((l) => l.trim() === RETRY_FORM).length;
+  const other = lines.findIndex((l) => word.test(l) && l.trim() !== RETRY_FORM && !commentLine(l));
+  if (other !== -1) return `retries appears outside B8's line on line ${other + 1}`;
+  if (b8 !== 1) return `B8's retries line (${RETRY_FORM}) appears ${b8} times, not once`;
+  return null;
+}
+/** The files whose change is the set-aside's retry (a change entry may answer `set-aside` only for these). */
+export const SET_ASIDE_FILES = ['apps/customer/tests/real-app/real-app.playwright.config.mjs'];
+/** Where the set-aside lives. */
+export const SET_ASIDE_CODE = 'tooling/ci/journey-verdict.mjs';
+/**
+ * The set-aside and the readers that decide whether a journeys report's pass counts: the judge reads each whole, at
+ * the head, whenever the head sets anything aside or the pull request changes one of them, since a line the pull
+ * request leaves as main has it (a reader counting a pass only on the retry) never shows in the diff.
+ */
+export const SET_ASIDE_READERS = [
+  SET_ASIDE_CODE,
+  'tooling/ci/post-merge-trust.mjs',
+  'tooling/scripts/roadmap.mjs',
+  // Where the retry is set for runs on main only (retryOnce).
+  '.github/workflows/real-app-journeys.yml',
+];
+
+/** The head's set-aside length in days (`export const SET_ASIDE_DAYS = <n>;` in SET_ASIDE_CODE), or null. */
+export function setAsideDays(text) {
+  // Fail closed over the raw text: exactly one line `export const SET_ASIDE_DAYS = <n>;` at the line's start, and no
+  // other line, outside a line that is only a `//` comment, that declares, exports, renames or reassigns the name. A
+  // second copy of the line (in a block comment, a string or a template) refuses, so none can stand in for the real one.
+  if (text == null) return null;
+  const lines = String(text).split('\n');
+  const decl = lines.map((l) => /^export const SET_ASIDE_DAYS = ([1-9]\d*);$/.exec(l)).filter(Boolean);
+  const BIND =
+    /(?:\b(?:const|let|var|as|function|class)\s+|(?<!\$)[{,]\s*)SET_ASIDE_DAYS(?![\w$])|(?<![\w$.])SET_ASIDE_DAYS\s*(?:[-+*/%]?=(?!=)|\+\+|--)|\.SET_ASIDE_DAYS\b/;
+  const binds = lines.filter((l) => BIND.test(l) && !/^export const SET_ASIDE_DAYS = [1-9]\d*;$/.test(l) && !commentLine(l));
+  if (decl.length !== 1 || binds.length !== 0) return null;
+  // The declaration must sit in the file's header, so it is live code and no string, template or comment can be open
+  // around it: every line before it is one headerBefore allows. Whether the end date is built from it is the judge's
+  // endDate reading.
+  return headerBefore(lines, lines.indexOf(decl[0][0])) ? Number(decl[0][1]) : null;
+}
+
+/**
+ * The set-aside's money guard, read from the default branch (never the pull request's copy): the money rule
+ * (journey-verdict.mjs moneyRule), a wallet, bank, pay or p2p journey, J-ops-console-27, a step with no slices, or a
+ * slice that touches nothing or is unknown. A step missing from journeys.json is money. Returns a predicate on 'J-x-01 #3'.
+ */
+export function moneyGuard({ journeys, slices, manifests }) {
+  const money = moneyRule({ journeys, slices, manifests });
+  const touches = new Map(slices.map((x) => [x.id, x.touches ?? []]));
+  const safe = new Set();
+  for (const j of journeys)
+    for (const st of j.steps ?? []) {
+      const key = `${j.id}#${st.n}`;
+      const ids = st.slices ?? [];
+      const guarded =
+        (money[key] ?? true) ||
+        /^J-(wallet|bank|pay|p2p)-/.test(j.id) ||
+        j.id === 'J-ops-console-27' ||
+        ids.length === 0 ||
+        ids.some((id) => !(touches.get(id)?.length > 0));
+      if (!guarded) safe.add(`${j.id} #${st.n}`);
+    }
+  return (step) => !safe.has(normStep(step));
+}
+
+/**
+ * Why a `set-aside` entry is refused, or null when it is accepted. `answer` is the judge's setAside reading; `rules` is
+ * meta.setAside: { money: [steps], own: [steps], days, mainDays, retry, touches }. Refused: a money step, a step whose
+ * own test changed (a softened step is weaker, whatever else changed), a change outside SET_ASIDE_FILES, a pull request
+ * that changes neither the retry's file nor the set-aside's code, a head with no set-aside length or one longer than
+ * main's (setAsideCap), a retry that is not at most one (retryProblem), or any condition the judge did not find held.
+ * Missing rules refuse.
+ */
+export function setAsideRefusal(line, answer, rules) {
+  if (!rules) return 'the input carries no set-aside facts';
+  if (line.kind === 'step' && (rules.money ?? []).map(normStep).includes(normStep(line.id)))
+    return 'a money step is never set aside (the money guard, from the default branch)';
+  if (line.kind === 'step' && (rules.own ?? []).map(normStep).includes(normStep(line.id)))
+    return "this step's own test changed, which a set-aside never covers";
+  if (line.kind === 'change' && !SET_ASIDE_FILES.includes(line.id))
+    return `only the retry's file (${SET_ASIDE_FILES.join(', ')}) may be set aside`;
+  if (rules.touches !== true) return "the pull request changes neither the retry's file nor the set-aside's code";
+  if (!Number.isInteger(rules.days) || rules.days < 1)
+    return `the head's ${SET_ASIDE_CODE} sets no end date (no single export const SET_ASIDE_DAYS = <n>;)`;
+  const cap = setAsideCap(rules.mainDays);
+  if (cap === null) return `the default branch's ${SET_ASIDE_CODE} set-aside length can't be read (${rules.mainDays ?? 'not given'})`;
+  if (rules.days > cap)
+    return `a set-aside of ${rules.days} days is longer than ${cap}${rules.mainDays === 'none' ? '' : " (the default branch's length)"}`;
+  if (rules.retry !== null) return `the retry is not B8's: ${rules.retry ?? 'unread'}`;
+  if (answer?.used !== true) return 'the judge did not find the set-aside in the code';
+  const failed = Object.keys(SET_ASIDE_CONDITIONS).filter((k) => answer?.[k]?.holds !== true);
+  if (failed.length) return `the judge did not find these held: ${failed.join(', ')}`;
+  return null;
 }
 
 // ── Reading a diff ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -159,7 +318,39 @@ export function parseDiff(text) {
 
 const TEST_CALL = /^(\s*)test(?:\.(?:skip|fixme|only|fail|slow))?\(\s*[`'"](?:\$\{J\}|(J-[a-z0-9-]+)) #(\d+)\b/;
 
-/** The step tests of one journey file: `{ step: 'J-x-01 #3', start, end }` (1-based lines), as test-hash.mjs cuts them. */
+/** The journey id a journey file's name gives: segments up to the first number, so a journey split across files
+ *  (`J-identity-06-apps.pw.mjs`) is J-identity-06, the id journey-seal.mjs JOURNEY_TEST and fileSteps give the same
+ *  file's `${J}` steps. The file's text never names it: a PR controls that, and a decoy `const J` could steer which
+ *  words its tests are judged against (review R1 on #7544). */
+export const journeyOfFile = (path) =>
+  /\/(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)(?:-[a-z0-9-]+)?\.pw\.mjs$/.exec(String(path ?? ''))?.[1] ?? null;
+/** Every declaration of J a journey file holds, however written (`const`, `let`, `var`, `export`, any spacing), and
+ *  every later assignment to it (review R6 on #7544). */
+const J_DECLS = /^\s*(?:export\s+)?(?:const|let|var)\s+J\s*=\s*(.*)$/gm;
+const J_ASSIGN = /^\s*J\s*=(?!=)/m;
+const J_LITERAL = /^(['"`])(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)\1\s*;?\s*(?:\/\/.*)?$/;
+/** Why a journey file's J disagrees with the journey its name gives, or null: its `${J}` steps would run and report
+ *  under one id while the seal and this judge name them by another, so the judge refuses rather than guess. Only a
+ *  file whose step titles use `${J}`: one that writes its ids out (J-ops-console-04-holds.pw.mjs) is named by them. */
+export function declarationProblem(text, journey) {
+  const t = String(text ?? '');
+  if (!/^\s*test(?:\.[a-z]+)?\(\s*`\$\{J\} #\d/m.test(t)) return null;
+  if (J_ASSIGN.test(t)) return `assigns J after declaring it, so its \${J} steps' id can't be read from the file name ${journey}`;
+  for (const m of t.matchAll(J_DECLS)) {
+    const lit = J_LITERAL.exec(m[1].trim());
+    if (!lit)
+      return `declares J as \`${m[1].trim().slice(0, 60)}\`, not a journey id in quotes, so it may differ from its file name's ${journey}`;
+    if (lit[2] !== journey) return `declares J = '${lit[2]}', but its file name gives journey ${journey}`;
+  }
+  return null;
+}
+
+/**
+ * The step tests of one journey file: `{ step: 'J-x-01 #3', start, end }` (1-based lines), as test-hash.mjs cuts them.
+ * A `${J}` title is `journey`, the id the file name gives (journeyOfFile). (Failure it prevents: a split journey file,
+ * J-identity-06-apps.pw.mjs, was judged as steps of "J-identity-06-apps", which has no step words; #7540, project-state
+ * #1578.)
+ */
 export function testsIn(text, journey) {
   const lines = String(text ?? '').split('\n');
   const out = [];
@@ -364,6 +555,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
   const headReach = reachMap(journeyFiles, (p) => (after.has(p) ? after.get(p) : src.readGraph(p)));
   const reach = new Map(journeyFiles.map((j) => [j, new Set([...(graphReach.get(j) ?? []), ...(headReach.get(j) ?? [])])]));
 
+  const declared = []; // journey files whose const J disagrees with their name: a FAIL line, without the model
   const own = new Set(); // steps whose own test changed
   const reached = new Map(); // step -> journey file, reached by a shared or file-level change
   const changes = []; // { file, kind, reaches, names }
@@ -373,17 +565,27 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     for (const t of testsIn(text, journey)) if (!testText.has(t.step)) testText.set(t.step, lines.slice(t.start - 1, t.end).join('\n'));
   };
   const allStepsOf = (jf) => {
-    const journey = JOURNEY_FILE.exec(jf)?.[1];
+    const journey = journeyOfFile(jf);
     const text = after.has(jf) ? after.get(jf) : src.readGraph(jf);
     bodyOf(text, journey);
     return testsIn(text, journey).map((t) => t.step);
   };
   for (const f of judged) {
-    const j = JOURNEY_FILE.exec(f.path) ?? (f.oldPath ? JOURNEY_FILE.exec(f.oldPath) : null);
+    const j =
+      JOURNEY_FILE.test(f.path) || (f.oldPath && JOURNEY_FILE.test(f.oldPath)) ? (journeyOfFile(f.path) ?? journeyOfFile(f.oldPath)) : null;
     if (j) {
-      const t = stepsTouched({ journey: j[1], before: before.get(f.path), after: after.get(f.path), removed: f.removed, added: f.added });
-      bodyOf(after.get(f.path), j[1]);
-      bodyOf(before.get(f.path), j[1]);
+      const t = stepsTouched({ journey: j, before: before.get(f.path), after: after.get(f.path), removed: f.removed, added: f.added });
+      bodyOf(after.get(f.path), j);
+      bodyOf(before.get(f.path), j);
+      for (const [text, name] of [
+        [after.get(f.path), f.newPath],
+        [before.get(f.path), f.oldPath],
+      ])
+        if (text != null && name) {
+          const why = declarationProblem(text, journeyOfFile(name));
+          if (why)
+            declared.push({ step: `${f.path}`, line: `${f.path} ${why}; the judge can't tell which journey's words its tests answer to` });
+        }
       for (const s of t.own) own.add(s);
       if (t.fileLevel) {
         changes.push({ file: f.path, kind: 'file-level', reaches: t.all.size, journeys: 1 });
@@ -427,7 +629,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
   for (const s of pool) if (sample.length < Math.min(SAMPLE_STEPS, pool.length) && !sample.includes(s)) sample.push(s);
 
   // A step whose test changed but that has no words can't be judged adequate to them: a FAIL line, without the model.
-  const deterministic = [];
+  const deterministic = [...declared];
   const ownList = [...own].sort();
   for (const s of ownList)
     if (!stepWords.has(s))
@@ -437,8 +639,27 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
       });
   const judgedSteps = ownList.filter((s) => stepWords.has(s));
   const required = { steps: [...judgedSteps, ...sample.sort()], changes: changes.map((c) => c.file) };
+  // The set-aside's facts, decided here rather than by the judge (setAsideRefusal): money from the default branch (no
+  // money source: every step counts as money), the steps whose own test changed, and the head's set-aside length.
+  const isMoney = src.money ? await src.money() : () => true;
+  const setAsideText = await src.read(head, SET_ASIDE_CODE);
+  const setAside = {
+    money: required.steps.filter((s) => isMoney(s)),
+    own: judgedSteps,
+    days: setAsideDays(setAsideText),
+    mainDays: mainSetAsideDays(src.readGraph(SET_ASIDE_CODE)),
+    retry: retryProblem(await src.read(head, SET_ASIDE_FILES[0])),
+    touches: files.some((f) => SET_ASIDE_FILES.includes(f.path) || SET_ASIDE_READERS.includes(f.path)),
+  };
   if (required.steps.length === 0 && required.changes.length === 0)
-    return { applicable: true, wordsRef, deterministic, required, facts: { own: own.size, reached: reached.size, sample: 0, changes } };
+    return {
+      applicable: true,
+      wordsRef,
+      deterministic,
+      required,
+      setAside,
+      facts: { own: own.size, reached: reached.size, sample: 0, changes },
+    };
 
   // The prompt, in priority order, until the budget runs out.
   const parts = [];
@@ -483,6 +704,17 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     ].join('\n'),
     { must: true },
   );
+  add(
+    [
+      "\nSET-ASIDE FACTS (decided by the judge's code, from the default branch and the head; trusted)",
+      `money steps among those listed (never set aside): ${setAside.money.join('; ') || '(none)'}`,
+      `steps whose own test changed (never set aside): ${setAside.own.join('; ') || '(none)'}`,
+      `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${setAsideCap(setAside.mainDays) ?? '(none: main is unreadable)'}; the default branch's: ${setAside.mainDays})`,
+      `the retry's file: ${setAside.retry === null ? `retries appears only as ${RETRY_FORM} (one line, nowhere else but line comments); the judge still checks nothing else sets it (retryOnce)` : `refused: ${setAside.retry}`}`,
+      `a change may answer set-aside only for: ${SET_ASIDE_FILES.join(', ')}`,
+    ].join('\n'),
+    { must: true },
+  );
   add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
   const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
   const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));
@@ -498,6 +730,12 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     if (b != null) add(fileBlock(`before (merge base ${mergeBase.slice(0, 10)})`, f.oldPath, b), { label: `${f.path} before`, must });
     if (a != null) add(fileBlock(`after (head ${head.slice(0, 10)})`, f.newPath, a), { label: `${f.path} after`, must });
   }
+  // The set-aside and its readers, whole: the judge reads its conditions there.
+  if (/\bSET_ASIDE_DAYS\b/.test(setAsideText ?? '') || files.some((f) => SET_ASIDE_READERS.includes(f.path)))
+    for (const r of SET_ASIDE_READERS) {
+      const t = r === SET_ASIDE_CODE ? setAsideText : await src.read(head, r);
+      if (t != null) add(fileBlock(`after (head ${head.slice(0, 10)})`, r, t), { must: true });
+    }
   for (const h of HARNESS) {
     if (after.has(h)) continue;
     const t = await src.read(head, h);
@@ -534,6 +772,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     prompt: parts.join('\n'),
     required,
     deterministic,
+    setAside,
     shingleTexts,
     facts: {
       own: own.size,
@@ -546,6 +785,13 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
   };
 }
 
+const VERDICTS = ['still-proves', 'set-aside', 'weaker'];
+const CONDITION = {
+  type: 'object',
+  properties: { holds: { type: 'boolean' }, why: { type: 'string' } },
+  required: ['holds', 'why'],
+  additionalProperties: false,
+};
 /** The structured answer the judge must give (the reviewer CLI, -p --json-schema). */
 export const JUDGE_SCHEMA = {
   type: 'object',
@@ -555,7 +801,7 @@ export const JUDGE_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { step: { type: 'string' }, verdict: { type: 'string', enum: ['still-proves', 'weaker'] }, why: { type: 'string' } },
+        properties: { step: { type: 'string' }, verdict: { type: 'string', enum: VERDICTS }, why: { type: 'string' } },
         required: ['step', 'verdict', 'why'],
         additionalProperties: false,
       },
@@ -564,13 +810,22 @@ export const JUDGE_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { file: { type: 'string' }, verdict: { type: 'string', enum: ['still-proves', 'weaker'] }, why: { type: 'string' } },
+        properties: { file: { type: 'string' }, verdict: { type: 'string', enum: VERDICTS }, why: { type: 'string' } },
         required: ['file', 'verdict', 'why'],
         additionalProperties: false,
       },
     },
+    setAside: {
+      type: 'object',
+      properties: {
+        used: { type: 'boolean' },
+        ...Object.fromEntries(Object.keys(SET_ASIDE_CONDITIONS).map((k) => [k, CONDITION])),
+      },
+      required: ['used', ...Object.keys(SET_ASIDE_CONDITIONS)],
+      additionalProperties: false,
+    },
   },
-  required: ['verdict', 'steps', 'changes'],
+  required: ['verdict', 'steps', 'changes', 'setAside'],
   additionalProperties: false,
 };
 
@@ -582,9 +837,10 @@ const normStep = (s) =>
 /**
  * The reviewer CLI's JSON output to a verdict. Fails closed: an error, no structured answer, an answer outside the
  * schema, or a listed step or change left unanswered is no verdict, never a PASS. The verdict is computed here from
- * the entries: PASS only when every required entry still proves and the judge said PASS.
+ * the entries: PASS only when every required entry still proves, or answers `set-aside` and setAsideRefusal accepts it
+ * against `rules` (meta.setAside), and the judge said PASS. A refused `set-aside` is counted as `weaker`.
  */
-export function readAnswer(text, required) {
+export function readAnswer(text, required, rules = null) {
   let out;
   try {
     out = JSON.parse(text);
@@ -596,8 +852,7 @@ export function readAnswer(text, required) {
   const a = out.structured_output;
   if (!a || typeof a !== 'object') return { ok: false, why: 'the judge gave no structured answer' };
   if (a.verdict !== 'PASS' && a.verdict !== 'FAIL') return { ok: false, why: `the verdict "${a.verdict}" is neither PASS nor FAIL` };
-  const good = (e, key) =>
-    e && typeof e[key] === 'string' && (e.verdict === 'still-proves' || e.verdict === 'weaker') && typeof e.why === 'string';
+  const good = (e, key) => e && typeof e[key] === 'string' && VERDICTS.includes(e.verdict) && typeof e.why === 'string';
   if (!Array.isArray(a.steps) || !a.steps.every((e) => good(e, 'step'))) return { ok: false, why: 'the steps are not well-formed' };
   if (!Array.isArray(a.changes) || !a.changes.every((e) => good(e, 'file'))) return { ok: false, why: 'the changes are not well-formed' };
   const steps = new Map(a.steps.map((e) => [normStep(e.step), e]));
@@ -613,9 +868,20 @@ export function readAnswer(text, required) {
     if (!e) return { ok: false, why: `the judge left the change to ${f} unanswered` };
     lines.push({ kind: 'change', id: f, verdict: e.verdict, why: e.why });
   }
+  const asides = lines.filter((l) => l.verdict === 'set-aside');
+  for (const l of asides) {
+    const no = setAsideRefusal(l, a.setAside, rules);
+    if (no) Object.assign(l, { verdict: 'weaker', why: `set-aside refused: ${no}; ${l.why}` });
+  }
   const weaker = lines.some((l) => l.verdict === 'weaker');
   const verdict = weaker || a.verdict === 'FAIL' ? 'FAIL' : 'PASS';
-  const note = !weaker && a.verdict === 'FAIL' ? 'the judge answered FAIL with every entry still proving: counted as FAIL' : null;
+  const kept = lines.filter((l) => l.verdict === 'set-aside').length;
+  const note =
+    !weaker && a.verdict === 'FAIL'
+      ? 'the judge answered FAIL with every entry still proving: counted as FAIL'
+      : !weaker && kept
+        ? `${kept} entr${kept === 1 ? 'y is' : 'ies are'} weaker only through the machine's approved set-aside (owner decision 2026-11-07, B8), accepted in its exact form: ${Object.keys(SET_ASIDE_CONDITIONS).join(', ')}, not money, not its own test, at most ${setAsideCap(rules.mainDays)} days (${rules.days} at this head), at most one retry`
+        : null;
   return { ok: true, verdict, lines, note };
 }
 
@@ -720,8 +986,16 @@ function ciSource(repo, token, graphRoot) {
         .map((f) => `${REAL_APP}/${f}`)
         .sort(),
     readGraph: (p) => (existsSync(join(graphRoot, p)) ? readFileSync(join(graphRoot, p), 'utf8') : null),
+    money: async () => moneyGuard(roadmapAt((p) => readFileSync(join(graphRoot, p), 'utf8'), manifestsAt(graphRoot))),
   };
 }
+
+/** The default branch's journeys and slices, through `read(path)`, with its package manifests. */
+const roadmapAt = (read, manifests) => ({
+  journeys: JSON.parse(read('docs/roadmap/journeys.json')),
+  slices: JSON.parse(read('docs/roadmap/slices.json')),
+  manifests,
+});
 
 export function gitSource(clone, graphSha) {
   const git = (...a) => execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
@@ -747,6 +1021,16 @@ export function gitSource(clone, graphSha) {
         .map((f) => `${REAL_APP}/${f}`)
         .sort(),
     readGraph: (p) => show(graphSha, p),
+    money: async () => {
+      const manifests = new Map();
+      for (const parent of ['apps', 'services', 'packages', 'tooling'])
+        for (const line of git('ls-tree', `${graphSha}:${parent}`).split('\n')) {
+          const m = /^040000 tree \S+\t(.+)$/.exec(line);
+          const t = m && show(graphSha, `${parent}/${m[1]}/package.json`);
+          if (t != null && t !== false && m) manifests.set(`${parent}/${m[1]}`, JSON.parse(t));
+        }
+      return moneyGuard(roadmapAt((p) => show(graphSha, p), manifests));
+    },
   };
 }
 
@@ -780,7 +1064,14 @@ export async function writeInputs(dir, { src, base, head, pr, loadWords }) {
     done('FAIL', { findings: [got.tooLarge], wordsRef: got.wordsRef });
     return 'too large: FAIL without asking the judge';
   }
-  const meta = { head, wordsRef: got.wordsRef, required: got.required, deterministic: got.deterministic, facts: got.facts };
+  const meta = {
+    head,
+    wordsRef: got.wordsRef,
+    required: got.required,
+    deterministic: got.deterministic,
+    setAside: got.setAside,
+    facts: got.facts,
+  };
   writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
   writeFileSync(join(dir, 'shingles.json'), JSON.stringify([...shingles(got.shingleTexts ?? [])]));
   if (!got.prompt) {
@@ -795,7 +1086,7 @@ export async function writeInputs(dir, { src, base, head, pr, loadWords }) {
 
 function cmdRead(dir) {
   const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
-  const a = readAnswer(readFileSync(join(dir, 'answer.json'), 'utf8'), meta.required);
+  const a = readAnswer(readFileSync(join(dir, 'answer.json'), 'utf8'), meta.required, meta.setAside ?? null);
   if (!a.ok) {
     console.error(`::error::no verdict: ${a.why}. Re-run the job; nothing about this head is decided yet.`);
     process.exit(1);

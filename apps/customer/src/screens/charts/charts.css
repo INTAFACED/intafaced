@@ -610,6 +610,23 @@
     cursor: ns-resize;
     touch-action: none;
   }
+  .ct-line--alert {
+    inset-inline-start: auto;
+    inset-inline-end: 4.5rem;
+    border-style: dotted;
+    pointer-events: auto;
+    cursor: ns-resize;
+    touch-action: none;
+  }
+  .ct-alerts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.75rem;
+  }
   .ct-line[data-side='buy'] {
     border-color: var(--if-up);
   }

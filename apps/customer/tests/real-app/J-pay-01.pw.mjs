@@ -6,6 +6,7 @@ import { test, expect } from './journey.mjs';
 import { ROOT, api, fromUnits, fund, journeyState, signUpInBrowser, toUnits, signOutBrowser, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-pay-01, in the running app (docs/roadmap/journeys.json): send TEST money to a person by handle and see it complete.
 // One test per step, titled "J-pay-01 #<n>", run in order on TEST accounts: A sends, B receives. The stack's gates
@@ -366,6 +367,19 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   await expect(line).toHaveAttribute('data-terms', 'ok');
   await expect(line).toHaveText(`${expected.fee}. ${expected.perPayment}`);
   await expect(page.getByTestId('pay-review')).toBeEnabled();
+
+  // The partner that moves it and does not say what that costs (the TEST partner switched to give no fee): the network
+  // fee reads "not known", never 0, beside our own published fee.
+  await withPartner(sender, { fee: 'unknown' }, async () => {
+    await amount.fill('25.5');
+    await amount.fill(AMOUNT);
+    await expect(line).toHaveText(`${expected.fee}. Network fee: not known. ${expected.perPayment}`);
+    const quote = await trpc(await api(sender), 'GET', 'bank/trpc/transfers.quote', { assetId: 'USDT', amount: AMOUNT });
+    expect(quote.networkFee).toBeNull();
+  });
+  await amount.fill('25.5');
+  await amount.fill(AMOUNT);
+  await expect(line).toHaveText(`${expected.fee}. ${expected.perPayment}`);
 });
 
 test(`${J} #4 presses Review and sees amount, recipient identity, source, note, fee and today's allowance, with a first-time caution and no test payment`, async ({
