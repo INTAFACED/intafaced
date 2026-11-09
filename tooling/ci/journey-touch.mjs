@@ -15,7 +15,8 @@
  *     the journeys verdict and the baseline, build and environment files, the docs the run or the stack reads
  *     (DOCS_READ), and every product path (apps/, services/, packages/) other than a unit test, unless the next
  *     kind takes it. A static guess at which journeys reach which code would miss journeys (a journey runs through the
- *     customer app, svc-edge and whatever services they call and the events those raise), so only evidence narrows it;
+ *     customer app, svc-edge and whatever services they call and the events those raise), so only evidence narrows it:
+ *     the map below for product paths, and for docs a scan of every file the run or the stack can read;
  *   - reach (the touched-journeys map, journey-reach-map.mjs, with --reach): a product path runs only the journeys main's
  *     own full runs recorded reaching it, when no full path above is in the change and the map can speak for every
  *     product path in it (shared setup, scripts, admin-app paths, packages it can't map, a switched-off, missing or
@@ -25,7 +26,9 @@
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
  *     file (real-app-journeys.yml splits shards by file on that basis), and a helper they share is shared setup, so
  *     full. A file the head removed runs nothing and needs nothing.
- *   - none: a path no journeys run executes or reads: every other doc under docs/, Markdown at the root, another workflow under .github (not real-app-journeys.yml, not
+ *   - none: a path no journeys run executes or reads: every other doc under docs/ (journey-touch.test.mjs scans the
+ *     journeys run's code, the stack's code, the container files and the rest of tooling/ and .github/, and fails when a
+ *     file that can run reads a doc outside DOCS_READ), Markdown at the root (the same test, for the root), another workflow under .github (not real-app-journeys.yml, not
  *     .github/actions), a CI check under tooling/ci that the journeys run does not use (JOURNEY_CI lists the ones it
  *     does; journey-touch.test.mjs fails when an import or a reference from the journeys run reaches one not listed),
  *     and a unit test (`*.test.*`, `*.spec.*`).
