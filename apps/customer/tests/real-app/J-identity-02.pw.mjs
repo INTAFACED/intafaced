@@ -134,8 +134,17 @@ test(`${J} #1 signs in with a phone and a password and is returned to the room t
   const row = card.getByRole('listitem', { name: 'Phone number', exact: true });
   await row.getByRole('button', { name: 'Link a phone number' }).click();
   await row.getByLabel('Phone number, starting with +').fill(phone);
+  // The code request's own answer, then the card settled after it (no control left busy), and only then the checks: a
+  // not-connected notice drawn after the answer cannot slip past them.
+  const asked = own.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/linkSigninMethod'));
   await row.getByRole('button', { name: 'Text me a code' }).click();
-  await expect(card.locator('[data-not-connected="vendor.sms"]')).toHaveCount(0);
+  const reply = await asked;
+  const replied = await reply.text();
+  await expect(card.locator('button:disabled, input:disabled')).toHaveCount(0);
+  const shown = await card.innerText();
+  expect(replied, `identity answered ${reply.status()}; the card shows: ${shown}`).not.toContain('vendor.sms');
+  expect(reply.status(), `identity answered ${replied.slice(0, 300)}`).toBe(200);
+  await expect(card.locator('[data-not-connected="vendor.sms"]'), `the card shows: ${shown}`).toHaveCount(0);
   await expect.poll(() => textedCodes(phone).length, { timeout: 20_000 }).toBeGreaterThan(0);
   await row.getByLabel(/code/i).fill(textedCodes(phone).at(-1));
   await row.getByRole('button', { name: /confirm|link/i }).click();
