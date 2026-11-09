@@ -1,9 +1,20 @@
 // World: restart
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { signInChallengeMet, signInChallengeText } from '@intafaced/contracts/identity-signin-challenge';
-import { EDGE, ORIGIN, ROOT, mailedCodes, nextMailedCode, signOutBrowser, signUpInBrowser, staffFreeze, tool } from './stack.mjs';
+import {
+  DEVICE_KEY,
+  EDGE,
+  ORIGIN,
+  ROOT,
+  mailedCodes,
+  nextMailedCode,
+  signOutBrowser,
+  signUpInBrowser,
+  staffFreeze,
+  tool,
+} from './stack.mjs';
 import { founderSignIn } from './admin.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -34,38 +45,58 @@ async function fillSignIn(page, identifier, password) {
   await page.getByRole('button', { name: /^sign in$/i }).click();
 }
 
-test(`${J} #1 signs in with the email or the handle and a password; an unknown name and a wrong password read the same`, async ({
+test(`${J} #1 signs in with the handle or the email and a password and is returned to the room they came from; an unknown name and a wrong password read the same`, async ({
   page,
   browser,
 }) => {
   const who = await account(browser);
-  await page.goto('/login');
+  /** Opens a private room signed out, follows its sign-in link, and answers the sign-in page it lands on. */
+  const fromRoom = async (room) => {
+    await page.goto(room);
+    await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+    await page.getByRole('main').getByRole('link', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/\/login\?redirect=/);
+  };
+  const signedInAs = async (identifier) => {
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.login'));
+    await fillSignIn(page, identifier, who.password);
+    const res = await answered;
+    expect(res.status(), identifier).toBe(200);
+    return (await res.json()).result.data.userId;
+  };
+
+  // Came from Security: an unknown name and a wrong password get the very same words, and neither signs in.
+  await fromRoom('/uc/safe');
   const refusal = page.getByTestId('failure');
   await fillSignIn(page, `nobody-${who.handle}@local-test.invalid`, who.password);
   await expect(refusal).toContainText('Those details did not work');
   await expect(refusal).toContainText('Check what you typed');
   const unknown = await refusal.textContent();
   await page.reload();
+  await expect(page).toHaveURL(/\/login\?redirect=/);
+  await fillSignIn(page, who.handle, `${who.password}-wrong`);
+  await expect(refusal).toHaveText(unknown);
+  await page.reload();
   await fillSignIn(page, who.email, `${who.password}-wrong`);
   await expect(refusal).toHaveText(unknown);
-  // The handle with the password signs in, and so does the email with the password; identity answers both with the
-  // same account.
-  const signedInAs = async (identifier) => {
-    const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.login'));
-    await fillSignIn(page, identifier, who.password);
-    const res = await answered;
-    expect(res.status(), identifier).toBe(200);
-    await expect(page).not.toHaveURL(/\/login/);
-    return (await res.json()).result.data.userId;
-  };
+  await expect(page).toHaveURL(/\/login\?redirect=/);
+
+  // The handle with the password signs in and lands back on Security, signed in, with this session in its device list.
+  await page.reload();
   const byHandle = await signedInAs(who.handle);
+  await expect(page).toHaveURL(/\/uc\/safe$/);
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toHaveCount(0);
+  const devices = page.getByRole('region', { name: 'Your devices' });
+  await expect(devices.getByTestId('security__row').filter({ hasText: 'This device' })).toHaveCount(1);
+
+  // Signed out, from another room: the email with the password signs in the same account and lands back in that room.
   await page.goto('about:blank');
   await signOutBrowser(page.context());
-  await page.goto('/login');
+  await fromRoom('/money?asset=BTC');
   const byEmail = await signedInAs(who.email);
   expect(byEmail).toBe(byHandle);
-  await page.goto('/uc/account');
-  await expect(page).toHaveURL(/\/uc\/account$/);
+  await expect(page).toHaveURL(/\/money\?asset=BTC$/);
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toHaveCount(0);
 });
 
 test(`${J} #8 a private address while signed out goes to sign-in and back to that exact room; a reload keeps the sign-in`, async ({
@@ -366,61 +397,169 @@ test(`${J} #5 a new device's sign-in waits until a signed-in session on a truste
   await trustedContext.close();
 });
 
-test(`${J} #7 a frozen account is named after the right password, with the way to support; a wrong password names nothing`, async ({
+/**
+ * A staff close of `who`'s account through identity's own closure control, as the founder console runs it: founder a
+ * reads the account's closure version, a proposes and founder b approves the close over that version, reason code and
+ * reason, and a runs it once (services/svc-identity/src/controls/founder-controls.ts). Returns the account's user id.
+ */
+async function staffClose(who, reason = 'LOCAL TEST journey close') {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  });
+  const userId = (await login.json())?.result?.data?.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} refused: ${login.status}`);
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  const state = await ctx.edge.query('identity', 'accountControls.closureState', { userId }, founders.a.token);
+  const expectedVersion = state.json?.result?.data?.version;
+  if (!expectedVersion) throw new Error(`closure state refused: ${state.status} ${state.text.slice(0, 300)}`);
+  const reasonCode = 'customer_request';
+  const { approvalId } = await gates.twoPerson(ctx, founders, {
+    actionType: 'identity.account_close',
+    targetService: 'svc-identity',
+    targetId: userId,
+    expectedVersion,
+    payloadHash: gates.identityPayloadHash(userId, { action: 'close', reasonCode, reason }),
+    policyVersion: 'v1',
+  });
+  const res = await ctx.edge.mutate(
+    'identity',
+    'accountControls.closure',
+    { requestId: randomUUID(), userId, action: 'close', reasonCode, reason, expectedVersion, approvalId },
+    founders.a.token,
+  );
+  if (res.status !== 200) throw new Error(`staff close refused: ${res.status} ${res.text.slice(0, 300)}`);
+  return userId;
+}
+
+test(`${J} #7 a frozen or a closed account is named after the right password, with the way to lift it or to support; a wrong password names nothing`, async ({
   page,
   browser,
 }) => {
-  const who = await account(browser);
-  await staffFreeze(who);
-  await page.goto('/login');
+  test.setTimeout(180_000);
   const refusal = page.getByTestId('failure');
-  // A wrong password learns nothing about the account's state.
-  await fillSignIn(page, who.email, `${who.password}-wrong`);
-  await expect(refusal).toContainText('Those details did not work');
-  await expect(refusal).not.toContainText('frozen');
-  await page.reload();
-  await fillSignIn(page, who.email, who.password);
-  await expect(page.getByRole('alert')).toContainText('This account is frozen.');
-  await expect(page.getByRole('alert')).toContainText('Only support can lift a freeze');
-  await expect(page).toHaveURL(/\/login/);
-  await page.getByRole('alert').getByRole('link', { name: 'Contact support' }).click();
+  /** A wrong password first (it learns nothing about the state), then the right one; answers the sign-in's own reply. */
+  const tryBoth = async (who) => {
+    await page.goto('/login');
+    await fillSignIn(page, who.email, `${who.password}-wrong`);
+    await expect(refusal).toContainText('Those details did not work');
+    await expect(refusal).not.toContainText(/frozen|closed/);
+    await page.reload();
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.login'));
+    await fillSignIn(page, who.email, who.password);
+    const res = await answered;
+    expect(res.status()).toBe(403);
+    expect(JSON.stringify(await res.json())).toContain('auth.account_frozen');
+    await expect(page).toHaveURL(/\/login/);
+    return refusal;
+  };
+
+  // Frozen: the state, that only support lifts it, and both ways forward: contact support or appeal.
+  const frozen = await account(browser);
+  await staffFreeze(frozen);
+  const frozenNotice = await tryBoth(frozen);
+  await expect(frozenNotice).toContainText('This account is frozen.');
+  await expect(frozenNotice).toContainText('Only support can lift a freeze');
+  await expect(frozenNotice).not.toContainText('closed');
+  await expect(frozenNotice.getByRole('link', { name: 'Contact support' })).toHaveAttribute('href', '/help');
+  await expect(frozenNotice.getByRole('link', { name: 'Appeal this freeze' })).toHaveAttribute('href', '/appeal');
+  await expect(frozenNotice.getByRole('link')).toHaveCount(2);
+  await frozenNotice.getByRole('link', { name: 'Contact support' }).click();
+  await expect(page).toHaveURL(/\/help/);
+
+  // Closed: the state, that a closed account cannot be reopened, and the way to support; no appeal is offered.
+  const closed = await account(browser);
+  await staffClose(closed);
+  const closedNotice = await tryBoth(closed);
+  await expect(closedNotice).toContainText('This account is closed.');
+  await expect(closedNotice).toContainText('A closed account cannot be reopened');
+  await expect(closedNotice).not.toContainText('frozen');
+  await expect(closedNotice.getByRole('link', { name: 'Contact support' })).toHaveAttribute('href', '/help');
+  await expect(closedNotice.getByRole('link')).toHaveCount(1);
+  await closedNotice.getByRole('link', { name: 'Contact support' }).click();
   await expect(page).toHaveURL(/\/help/);
 });
 
 test.describe('passkeys', () => {
   test.use({ baseURL: PASSKEY_ORIGIN });
 
-  test(`${J} #4 passkey sign-in by handle; an unknown handle and one without passkeys look the same until the prompt`, async ({
+  test(`${J} #4 passkey sign-in by handle opens the browser prompt; an unknown handle and one without passkeys look the same until the prompt; a good passkey signs in`, async ({
     page,
     browser,
   }) => {
     const bare = await account(browser);
     const who = person('pk');
-    await virtualAuthenticator(page);
+    const { cdp, authenticatorId } = await virtualAuthenticator(page);
+    // The account's own id, as identity answers the sign-up's sign-in.
+    let ownId;
+    const seenId = (res) =>
+      res
+        .json()
+        .then((body) => {
+          if (body?.result?.data?.userId) ownId = body.result.data.userId;
+        })
+        .catch(() => {});
+    page.on('response', seenId);
     await signUpInBrowser(page, who);
+    await expect.poll(() => ownId).toBeTruthy();
+    page.off('response', seenId);
     await addPasskey(page);
     await forgetSession(page);
+    const credentials = async () => (await cdp.send('WebAuthn.getCredentials', { authenticatorId })).credentials;
+    const [stored] = await credentials();
+    expect(stored).toBeTruthy();
+    // DevTools gives the credential id in base64; identity names it in base64url.
+    const passkey = { ...stored, credentialId: stored.credentialId.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') };
+    const used = async () => (await credentials()).find((c) => c.credentialId === stored.credentialId).signCount;
 
     const answers = [];
     for (const identifier of [`nobody-${who.handle}`, bare.handle]) {
+      const before = await used();
       await page.goto('/login');
       await page.fill('input[name=identifier]', identifier);
       const options = page.waitForResponse((res) => res.url().includes('webauthn.authOptions'));
       await page.getByRole('button', { name: 'Use a passkey' }).click();
-      const body = (await (await options).json()).result.data;
-      // Both get a challenge and a list of credentials, so the browser prompt opens for each.
+      const reply = await options;
+      expect(reply.status()).toBe(200);
+      const body = (await reply.json()).result.data;
+      // Both get a challenge and a list of credentials, so the browser prompt opens for each; none of them is this
+      // device's passkey, so the prompt answers nothing and no sign-in starts.
       expect(body.challenge).toBeTruthy();
       expect(body.allowCredentials.length).toBeGreaterThan(0);
+      expect(body.allowCredentials.map((c) => c.id)).not.toContain(passkey.credentialId);
       await expect(page.getByTestId('failure')).toBeVisible();
+      await expect(page).toHaveURL(/\/login/);
+      expect(await used()).toBe(before);
       answers.push(await page.getByTestId('failure').textContent());
     }
     expect(answers[1]).toBe(answers[0]);
 
+    // The account's handle: the options list its passkey, the browser prompt signs with it, and identity opens a session
+    // for this account.
+    const before = await used();
     await page.goto('/login');
     await page.fill('input[name=identifier]', who.handle);
+    const options = page.waitForResponse((res) => res.url().includes('webauthn.authOptions'));
+    const verified = page.waitForResponse((res) => res.url().includes('webauthn.authVerify'));
     await page.getByRole('button', { name: 'Use a passkey' }).click();
+    expect((await (await options).json()).result.data.allowCredentials.map((c) => c.id)).toContain(passkey.credentialId);
+    const verify = await verified;
+    expect(verify.status()).toBe(200);
+    const session = (await verify.json()).result.data;
+    expect(session.userId).toBe(ownId);
+    expect(session.accessToken).toBeTruthy();
+    expect(await used()).toBeGreaterThan(before);
     await expect(page).not.toHaveURL(/\/login/);
     await expect(page.locator('input[name=password]')).toHaveCount(0);
+    // Signed in: Security opens with this session in its device list, not a sign-in prompt.
+    await page.goto('/uc/safe');
+    await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toHaveCount(0);
+    await expect(
+      page.getByRole('region', { name: 'Your devices' }).getByTestId('security__row').filter({ hasText: 'This device' }),
+    ).toHaveCount(1);
   });
 
   test(`${J} #6 a second step: the authenticator code or a passkey; a code used twice is refused`, async ({ page, browser }) => {
