@@ -26,7 +26,7 @@ import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusPro
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
-import { onrampQuotesProcedure } from '../ops/onramp-quotes.js';
+import { onrampFeesNotKnownProcedure, onrampQuotesProcedure } from '../ops/onramp-quotes.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from '../ops/customer-balances.js';
@@ -34,6 +34,7 @@ import { customerCardsProcedure } from '../ops/customer-cards.js';
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
+import { cardDisputeProcedures } from '../ops/card-disputes.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
 import { amountString, actionApprovalFields, heldSendOutput, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
@@ -610,6 +611,15 @@ export function createOpsRouter(c: BankRouterContext) {
             .regex(/^[A-Za-z]{2}$/)
             .optional(),
           channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']).optional(),
+          /**
+           * The PIN typed at the terminal, when there was one (J-bank-14 #3). The issuer checks it against the owner's try
+           * limit; a wrong one declines `bank.card_pin_wrong`, the last allowed wrong try `bank.card_pin_blocked`. It is
+           * not part of the approval's binding and is never stored.
+           */
+          pin: z
+            .string()
+            .regex(/^\d{4,12}$/)
+            .optional(),
           ...actionApprovalFields,
         }),
       )
@@ -648,6 +658,7 @@ export function createOpsRouter(c: BankRouterContext) {
             ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
             ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
             ...(input.channel === undefined ? {} : { channel: input.channel }),
+            ...(input.pin === undefined ? {} : { pin: input.pin }),
           });
           return {
             authorizationId: authorization.id,
@@ -1004,9 +1015,17 @@ export function createOpsRouter(c: BankRouterContext) {
     /** Fund, defund or set auto reload at the card partner, with a second founder's approval (J-bank-26 #6). */
     requestCardProgrammeFunding: requestCardProgrammeFundingProcedure(bank, consumeOpsApproval, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
+    /** J-bank-27: card disputes worked by support (queue, case, evidence, representment, arbitration, credit, decision). */
+    ...cardDisputeProcedures(bank, guard),
     rampHealth: rampHealthProcedure(bank, guard),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
+    /** J-cex-spot-17 #8: the buy asks the partner's ramp gave no fee for, read as "not known". Read only. */
+    onrampFeesNotKnown: onrampFeesNotKnownProcedure(
+      () => bank.transferOps.sql,
+      () => bank.testPartner?.label ?? null,
+      guard,
+    ),
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),
