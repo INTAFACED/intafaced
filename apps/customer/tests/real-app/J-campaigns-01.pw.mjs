@@ -198,6 +198,47 @@ test(`${J} #3 a campaign's page shows its rules, its time frame in my time zone,
   // The page reads what the service stores.
   const stored = (await catalogueOf(me)).campaigns.find((c) => c.id === campaignId);
   expect(stored).toMatchObject({ budget: { limit: '1000', left: '1000', asset: 'USDT' }, reward: { amount: '10', asset: 'USDT' } });
+
+  // Budget left only when the owner set a cap: a campaign with no cap cannot go live (the activation gate names the
+  // blank budget), so no customer ever reads a campaign without one, and no budget line is shown for it.
+  const { ctx, pair } = await operators();
+  const a = await pair.a.campaignsOpsToken();
+  const uncapped = data(
+    await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition(`TEST no cap ${tag}`, { budget: null }), a),
+    'ops.campaigns.create',
+  );
+  const noCap = await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: uncapped.id, action: 'submit', revision: 1 }, a);
+  expect(noCap.json?.error?.message ?? noCap.text).toContain('campaigns.budget_unset');
+  expect((await catalogueOf(me)).campaigns.map((c) => c.id)).not.toContain(uncapped.id);
+  await page.goto(`/campaigns/${uncapped.id}`);
+  await expect(page.getByTestId('campaign-budget-left')).toHaveCount(0);
+  await expect(page.getByTestId('campaign-detail').getByRole('heading', { name: `TEST no cap ${tag}` })).toHaveCount(0);
+
+  // The reward reads "Not set" when the campaign has none: a TEST welcome campaign, whose reward is per task and left
+  // blank here, shows its cap and "Not set" for the reward.
+  const welcome = await liveCampaign(`TEST no reward ${tag}`, {
+    type: 'welcome',
+    reward: null,
+    tasks: {
+      steps: [{ title: 'TEST verify your identity', event: 'identity.verified', count: 1, reward: null }],
+      claimWindowSeconds: null,
+      holdSeconds: 0,
+      kycGate: 'none',
+      welcomeWindowSeconds: 86_400,
+    },
+  });
+  try {
+    await page.goto(`/campaigns/${welcome.id}`);
+    const unset = page.getByTestId('campaign-detail');
+    await expect(unset.getByRole('heading', { name: welcome.name })).toBeVisible({ timeout: 30_000 });
+    await expect(unset.getByTestId('campaign-reward')).toHaveText('Not set');
+    await expect(unset.getByTestId('campaign-budget-left')).toHaveText('1000 USDT of 1000 USDT');
+  } finally {
+    data(
+      await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: welcome.id, action: 'end', revision: welcome.revision }, a),
+      `end ${welcome.name}`,
+    );
+  }
 });
 
 test(`${J} #4 an excluded account type sees the typed reason and can ask for one review`, async ({ browser }) => {

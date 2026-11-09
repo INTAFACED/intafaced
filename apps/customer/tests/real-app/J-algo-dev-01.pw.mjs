@@ -633,7 +633,12 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
   const { window, backtest } = run.read();
   if (!window || !backtest) throw new Error(`${J} #6 stored no run, so this step has nothing to chart`);
   await signIn(page, developer());
+  // The stack's own reply for the stored run: the fills the screen, the chart and the file must all carry.
+  const replied = page.waitForResponse((r) => r.url().includes('/api/quant/trpc/backtest.start') && r.ok());
   const result = await runBacktest(page, window);
+  const stored = (await (await replied).json()).result.data;
+  expect(stored.runId).toBe(backtest.runId);
+  expect(stored.trades).toHaveLength(backtest.trades);
   await expect(result).toHaveAttribute('data-run-id', backtest.runId);
 
   // Orders and trades: every fill with its side.
@@ -654,6 +659,14 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
   expect(csv[0]).toBe('time_utc,side,reason,quantity,bar_price,fill_price,fee,slippage');
   const rows = csv.slice(1).map((line) => line.split(','));
   expect(rows.map(([ts, side]) => [ts, side])).toEqual(shown);
+  expect(shown).toEqual(stored.trades.map((t) => [t.ts, t.side]));
+  // Every cell is the stack's own value for that fill, and a cell that would start a formula (an equals sign, or the
+  // other formula leads + - @) is saved behind an apostrophe; no cell of the file starts a formula.
+  const safe = (value) => (/^[=+\-@]/.test(value) ? `'${value}` : value);
+  expect(rows).toEqual(
+    stored.trades.map((t) => [t.ts, t.side, t.reason, t.qty, t.barPrice, t.price, t.fee, t.slippage].map((cell) => safe(String(cell)))),
+  );
+  for (const cell of csv.flatMap((line) => line.split(','))) expect(cell, cell).not.toMatch(/^[=+\-@]/);
 
   // Charts: the equity curve, with a marker on the bar of each fill and the same side.
   await result.getByRole('button', { name: 'Charts' }).click();

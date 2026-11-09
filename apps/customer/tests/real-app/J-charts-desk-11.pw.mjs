@@ -149,6 +149,7 @@ test(`${J} #2 sorts the list, resizes a column, adds a section and a second name
 });
 
 test(`${J} #3 shows the last price and change of each row live, from the stack's own quotes`, async ({ page }) => {
+  test.setTimeout(300_000);
   await signIn(page, account());
   await openWorkbench(page);
   // Every row on the list: its last price and its 24 h change are the ones Edge serves for that market. The quote may
@@ -174,6 +175,56 @@ test(`${J} #3 shows the last price and change of each row live, from the stack's
       )
       .toEqual([true, true]);
   }
+
+  // Tick colouring: as the stack's quotes move, a last price that went up is marked up and drawn in the up colour, one
+  // that went down is marked down and drawn in the down colour. The page is watched as it ticks: every change of a
+  // row's shown last price is recorded with the mark it carries, and a moment later the colour the cell is drawn in.
+  await panel(page).evaluate((root) => {
+    const swatch = (role) => {
+      const probe = document.createElement('span');
+      probe.style.color = `var(${role})`;
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    const seen = { up: swatch('--if-up'), down: swatch('--if-down'), moves: [] };
+    const value = (text) => Number(text.replace(/[^0-9.-]/g, ''));
+    const lastText = new Map();
+    const changes = new Map();
+    for (const cell of root.querySelectorAll('tr[data-symbol] td[data-column="last"]')) lastText.set(cell, cell.textContent);
+    new MutationObserver(() => {
+      for (const cell of root.querySelectorAll('tr[data-symbol] td[data-column="last"]')) {
+        const before = lastText.get(cell);
+        const now = cell.textContent;
+        lastText.set(cell, now);
+        if (before === undefined || before === now) continue;
+        const count = (changes.get(cell) ?? 0) + 1;
+        changes.set(cell, count);
+        if (!Number.isFinite(value(before)) || !Number.isFinite(value(now)) || value(now) === value(before)) continue;
+        const symbol = cell.closest('tr').dataset.symbol;
+        const went = value(now) > value(before) ? 'up' : 'down';
+        // Read once the move has settled: the mark and the colour the cell is drawn in, unless it moved again meanwhile.
+        setTimeout(() => {
+          if (changes.get(cell) !== count) return;
+          seen.moves.push({ symbol, from: before, to: now, went, tick: cell.dataset.tick, color: getComputedStyle(cell).color });
+        }, 400);
+      }
+    }).observe(root, { subtree: true, childList: true, characterData: true });
+    window.__ticks = seen;
+  });
+  const ticked = () => page.evaluate(() => window.__ticks);
+  await expect
+    .poll(async () => [...new Set((await ticked()).moves.map((m) => m.went))].sort(), {
+      message: 'the stack quotes move both up and down while the list is watched',
+      timeout: 180_000,
+      intervals: [2_000],
+    })
+    .toEqual(['down', 'up']);
+  const { up, down, moves } = await ticked();
+  expect(up).not.toBe(down);
+  const colourOf = { up, down };
+  for (const move of moves) expect(move, JSON.stringify(move)).toMatchObject({ tick: move.went, color: colourOf[move.went] });
 });
 
 test(`${J} #4 a row click shows that market on the chart at the interval the workbench has; a drag onto the chart does the same`, async ({
