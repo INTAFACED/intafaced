@@ -123,12 +123,18 @@ const READS_NO_REQUEST = [
   'deskPolicy',
   'kbPolicy',
   'categories',
+  'officialChannels',
   'create',
   'listKb',
   'searchKb',
   'getKb',
   'kbFeedback',
   'kbRelated',
+  // A complaint or bereavement report opens a request as `create` does, and answers only its acknowledgement: id, kind,
+  // ticket id, reference, time and deadline (`supportSafetyAcknowledgementSchema`), never a comment (J-bank-18 #5 #6).
+  'safety.complain',
+  'safety.reportBereavement',
+  'safety.mine',
 ] as const;
 
 describe('internal notes', () => {

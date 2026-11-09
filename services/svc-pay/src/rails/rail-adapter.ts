@@ -409,7 +409,14 @@ export type RailEventType =
    */
   | 'funds.available'
   /** The rail still holds a captured payment's funds and names (`availableOn`) the day it will release them. */
-  | 'funds.pending';
+  | 'funds.pending'
+  /**
+   * The destination sent a payout back (J-merchant-08 #5). Carries `amount`, the amount returned as the partner
+   * reports it, which may differ from what was sent. Never posted: payouts are the partner's. NOT RECORDED YET: the
+   * core has no `case` for it and its ref names a payout, not a payment, so svc-pay answers it unmatched (202) until
+   * the payout's returned state is built.
+   */
+  | 'payout.returned';
 
 /** §6.1: `verifyWebhook(req): RailEvent | null`. */
 export interface RailEvent {
@@ -872,6 +879,40 @@ export async function quoteFx(adapter: RailAdapter, request: RailFxQuoteRequest)
   return adapter.quoteFx!(request);
 }
 
+/**
+ * What the acquiring partner has told us about one business's terms (CUSTODY-DELTA §1.3, "Unknown, never zero"; OWNER
+ * 226). `{ known: false }` is the partner having said nothing: the rooms show "not known", never zero, and the core
+ * assumes nothing from it. In particular a shortfall on a lost dispute is never covered by the ledger because a partner
+ * has not said who covers it. `offered: false` is the partner saying it does not offer the feature.
+ */
+export type PartnerNotKnown = { readonly known: false };
+export interface AcquirerPartnerTerms {
+  readonly reserveRule: PartnerNotKnown | { readonly known: true; readonly rollingReserveBps: number; readonly holdDays: number };
+  /**
+   * `house` is the partner's terms saying INTAFACED covers it: only then does the ledger's house fund cover a shortfall
+   * (the "Later (OWNER 226)" path). Never the default.
+   */
+  readonly shortfallCover: PartnerNotKnown | { readonly known: true; readonly who: 'merchant' | 'partner' | 'house' };
+  readonly currencies: PartnerNotKnown | { readonly known: true; readonly offered: readonly string[] };
+  readonly instantPayout:
+    | PartnerNotKnown
+    | { readonly known: true; readonly offered: false }
+    | {
+        readonly known: true;
+        readonly offered: true;
+        readonly fee: PartnerNotKnown | { readonly known: true; readonly amount: Amount; readonly assetId: string };
+      };
+}
+
+/** A partner that has told us nothing: every term reads "not known". */
+const NOT_KNOWN: PartnerNotKnown = Object.freeze({ known: false as const });
+export const PARTNER_TERMS_NOT_KNOWN: AcquirerPartnerTerms = Object.freeze({
+  reserveRule: NOT_KNOWN,
+  shortfallCover: NOT_KNOWN,
+  currencies: NOT_KNOWN,
+  instantPayout: NOT_KNOWN,
+});
+
 export interface RailAdapter {
   readonly id: string;
   readonly capabilities: readonly RailCapability[];
@@ -947,6 +988,12 @@ export interface RailAdapter {
    * says "this payment was captured" about money that never moved.
    */
   verifyWebhook(req: RailWebhookRequest): RailEvent | null;
+
+  /**
+   * The acquiring partner's terms for one business, as the partner has given them. Absent on a rail that is not an
+   * acquiring partner. Never filled in by the core: a term the partner has not given stays `{ known: false }`.
+   */
+  partnerTerms?(merchantId: string): AcquirerPartnerTerms;
 
   // ── OPTIONAL: THE CARD-SHAPED OPERATIONS ───────────────────────────────────
   //

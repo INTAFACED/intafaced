@@ -2,11 +2,17 @@ import { routingProcedures } from './desk-routing-router.js';
 import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
 import { guestProcedures } from './guest-router.js';
+import { officialChannelProcedures } from './official-channels.js';
+import type { OfficialChannelList } from '@intafaced/contracts';
+import { safetyRouter } from './safety-router.js';
+import { MemorySafetyBook, SafetyCases } from './safety-cases.js';
 import type { GuestRequests } from './guest-requests.js';
 import { z } from 'zod';
 import {
   createTicketWireInputSchema,
   SUPPORT_CATEGORY_UNKNOWN,
+  SUPPORT_CATEGORY_GUIDED,
+  SUPPORT_GUIDED_CATEGORIES,
   supportCategoriesSchema,
   supportMyTicketPropertiesSchema,
   supportTicketCategorySchema,
@@ -245,6 +251,10 @@ export function createSupportRouter(
   kbSegmentCap: number | null = null,
   /** The balance disclosure gate (J-support-public-20 #2). Left out, no record owner is wired and no check can be recorded. */
   checks: VerificationChecks = new VerificationChecks(new MemoryCheckBook(), support, null),
+  /** The owner's official channel list (`SUPPORT_OFFICIAL_CHANNELS`); null is unpublished. */
+  officialChannels: OfficialChannelList | null = null,
+  /** Complaints and bereavement reports, each acknowledged once (BK-safe-03, J-bank-18 #5 #6). */
+  safety: SafetyCases = new SafetyCases(new MemorySafetyBook(), support, null),
   /** Routing, capacity and skills (SP-routing-01). Left out, no routing procedure is mounted and nothing routes. */
   routing?: DeskRouting,
 ) {
@@ -263,6 +273,8 @@ export function createSupportRouter(
     ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
     ...verificationCheckProcedures(checks),
+    ...officialChannelProcedures(officialChannels),
+    safety: safetyRouter(safety),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
@@ -290,6 +302,13 @@ export function createSupportRouter(
             code: 'BAD_REQUEST',
             message: userCopy(SUPPORT_CATEGORY_UNKNOWN),
             cause: Object.assign(new Error(SUPPORT_CATEGORY_UNKNOWN), { code: SUPPORT_CATEGORY_UNKNOWN }),
+          });
+        // A complaint or a bereavement report is made only through its own form, which acknowledges it once (BK-safe-03).
+        if ((SUPPORT_GUIDED_CATEGORIES as readonly string[]).includes(category.data))
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: userCopy(SUPPORT_CATEGORY_GUIDED),
+            cause: Object.assign(new Error(SUPPORT_CATEGORY_GUIDED), { code: SUPPORT_CATEGORY_GUIDED }),
           });
         const input = { ...wire, category: category.data };
         const userId = ctx.principal!.userId;

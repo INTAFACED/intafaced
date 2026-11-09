@@ -56,6 +56,11 @@
       "value": "2",
       "note": "The fewest characters a macro shortcode may have, so J-support-public-10 #7 can save a macro. Not an owner decision."
     },
+    "SUPPORT_COMPLAINT_RESPONSE_DAYS": {
+      "service": "support",
+      "value": "14",
+      "note": "A complaint's final-response limit in calendar days, so J-bank-18 #5 can show a deadline. Not an owner decision; blank, every deadline reads not set."
+    },
     "SUPPORT_FRAUD_GROUP": {
       "service": "support",
       "value": "TEST Compliance",
@@ -90,6 +95,11 @@
       "service": "support",
       "value": "30",
       "note": "How long a guest's address and access link are kept, so the guest path can store one. Not an owner decision."
+    },
+    "SUPPORT_OFFICIAL_CHANNELS": {
+      "service": "support",
+      "value": "{\"test\":true,\"domains\":[\"official-test.invalid\"],\"senders\":[\"security@official-test.invalid\"],\"channels\":[{\"label\":\"TEST help centre\",\"url\":\"http://127.0.0.1:3210/help\"}]}",
+      "note": "A TEST official channel list (labelled test: true, .invalid domains), so J-identity-13 #1 can show a domain on the list and one not on it. LOCAL_STACK_SUPPORT_OFFICIAL_CHANNELS=off on a restart leaves it blank (unpublished). Not an owner decision."
     }
   }
 }

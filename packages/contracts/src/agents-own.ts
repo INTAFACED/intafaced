@@ -173,6 +173,49 @@ export const ownAgentRuleSchema = z.object({
 });
 export type OwnAgentRule = z.infer<typeof ownAgentRuleSchema>;
 
+/**
+ * `own.policy.*` (AG-spend-02, J-agents-08 #1): the person's allow and deny rules for what their agent may do, by action
+ * and account scope. A deny at any scope wins whatever order the rules were written in; on an agent that requires rules,
+ * an action no rule allows is refused. The rules only narrow: they never move value and an agent never writes them.
+ */
+export const OWN_AGENT_POLICY_EFFECTS = ['allow', 'deny'] as const;
+export type OwnAgentPolicyEffect = (typeof OWN_AGENT_POLICY_EFFECTS)[number];
+export const OWN_AGENT_POLICY_ACTIONS = ['place_order', 'cancel_order', 'amend_order'] as const;
+export type OwnAgentPolicyAction = (typeof OWN_AGENT_POLICY_ACTIONS)[number];
+/** `all` covers every account of the person's; `main` is their main account. */
+export const OWN_AGENT_POLICY_SCOPES = ['all', 'main'] as const;
+export type OwnAgentPolicyScope = (typeof OWN_AGENT_POLICY_SCOPES)[number];
+/** What the rules decide for one action on one account: refused by a deny, allowed by an allow, refused because rules
+ * are required and none allows it, or open because no rule touches it and rules are not required. */
+export const OWN_AGENT_POLICY_OUTCOMES = ['denied', 'allowed', 'no_match_refused', 'no_rule'] as const;
+export type OwnAgentPolicyOutcome = (typeof OWN_AGENT_POLICY_OUTCOMES)[number];
+
+export const ownAgentPolicyRuleSchema = z.object({
+  id: z.string().uuid(),
+  effect: z.enum(OWN_AGENT_POLICY_EFFECTS),
+  action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+  scope: z.enum(OWN_AGENT_POLICY_SCOPES),
+  createdAt: z.string(),
+});
+export type OwnAgentPolicyRule = z.infer<typeof ownAgentPolicyRuleSchema>;
+
+export const ownAgentPolicyDecisionSchema = z.object({
+  action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+  account: z.literal('main'),
+  outcome: z.enum(OWN_AGENT_POLICY_OUTCOMES),
+  /** The rule that decided it, or null when no rule did. */
+  ruleId: z.string().uuid().nullable(),
+});
+export type OwnAgentPolicyDecision = z.infer<typeof ownAgentPolicyDecisionSchema>;
+
+/** The stored rules, whether rules are required, and the service's decision for each action on the main account. */
+export const ownAgentPolicySchema = z.object({
+  rulesRequired: z.boolean(),
+  rules: z.array(ownAgentPolicyRuleSchema),
+  decisions: z.array(ownAgentPolicyDecisionSchema),
+});
+export type OwnAgentPolicy = z.infer<typeof ownAgentPolicySchema>;
+
 /** `own.consents.*`: the person's consent to one class of tools for one agent; a withdrawn one keeps its revoke time. */
 export const ownAgentConsentSchema = z.object({
   dataClass: z.enum(OWN_AGENT_DATA_CLASSES),
@@ -395,11 +438,38 @@ export type OwnAgentLiveEngine = (typeof OWN_AGENT_LIVE_ENGINES)[number];
 
 /** One row of a test run's log, in the order it happened; every row is labelled TEST. */
 export const ownAgentTestLogRowSchema = z.object({
-  step: z.enum(['asked', 'answered', 'billed']),
+  step: z.enum(['asked', 'answered', 'blocked', 'decided', 'billed']),
   text: z.string(),
   label: z.literal('TEST'),
 });
 export type OwnAgentTestLogRow = z.infer<typeof ownAgentTestLogRowSchema>;
+
+/** An amount, asset and destination of a value-moving action, as the person's own words gave them (AG-guardrails-03). */
+export const ownAgentValuePayloadSchema = z.object({
+  /** Canonical decimal string, never a number. */
+  amount: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+  assetId: z.string().min(1).max(12),
+  destination: z.string().min(1).max(120),
+});
+export type OwnAgentValuePayload = z.infer<typeof ownAgentValuePayloadSchema>;
+
+/**
+ * What the guards decided on a test engine run (AG-guardrails-03; J-agents-10 #1-#3):
+ * - `answered`: the reply passed every guard;
+ * - `blocked`: nothing runs and no reply is shown, with the code (`agents.content.untrusted`, `agents.output.blocked`);
+ * - `awaiting_approval`: a value-moving action waits for the person, with the payload read from the person's own words;
+ * - `approved`: the approved payload and the drafted step matched (a test run still sends nothing);
+ * - `payload_refused`: the drafted step differed from the approved payload, refused `agents.payload.mismatch`.
+ * `content` is the label on the outside content the agent read: always untrusted, or null when it read none.
+ */
+export const OWN_AGENT_TEST_OUTCOMES = ['answered', 'blocked', 'awaiting_approval', 'approved', 'payload_refused'] as const;
+export const ownAgentTestGuardSchema = z.object({
+  content: z.object({ trust: z.literal('untrusted') }).nullable(),
+  outcome: z.enum(OWN_AGENT_TEST_OUTCOMES),
+  code: z.string().nullable(),
+  approval: ownAgentValuePayloadSchema.nullable(),
+});
+export type OwnAgentTestGuard = z.infer<typeof ownAgentTestGuardSchema>;
 
 const testRunBase = {
   id: z.string().uuid(),
@@ -443,6 +513,11 @@ export const ownAgentTestRunSchema = z.discriminatedUnion('kind', [
     engine: z.literal('test'),
     liveEngine: z.enum(OWN_AGENT_LIVE_ENGINES),
     log: z.array(ownAgentTestLogRowSchema),
+    /** The outside content the agent read, labelled by `guard.content`, or null. */
+    content: z.string().nullable(),
+    /** The output schema the reply had to meet, or null. */
+    outputSchema: z.string().nullable(),
+    guard: ownAgentTestGuardSchema,
   }),
 ]);
 export type OwnAgentTestRun = z.infer<typeof ownAgentTestRunSchema>;
@@ -452,8 +527,20 @@ export const ownAgentTestRunStartSchema = z.object({
   id: z.string().min(1).max(64),
   requestId: z.string().min(8).max(200),
   ask: z.string().max(4000),
+  /** Outside content the agent reads (a page, a message): always untrusted (AG-guardrails-03). */
+  content: z.string().max(8000).optional(),
+  /** A JSON schema the reply must meet before it is shown (AG-guardrails-03). */
+  outputSchema: z.string().max(4000).optional(),
 });
 export type OwnAgentTestRunStart = z.infer<typeof ownAgentTestRunStartSchema>;
+
+/** `own.testApprove` input: the person approves one test run's value-moving action with exactly this payload. */
+export const ownAgentTestApproveSchema = z.object({
+  id: z.string().min(1).max(64),
+  runId: z.string().uuid(),
+  payload: ownAgentValuePayloadSchema,
+});
+export type OwnAgentTestApprove = z.infer<typeof ownAgentTestApproveSchema>;
 
 /** `own.toolTest` input: one tool that moves value. The same request id again is that test. */
 export const ownAgentToolTestStartSchema = z.object({

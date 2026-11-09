@@ -71,6 +71,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
+import { reduceMaps } from './journey-reach.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
@@ -97,6 +98,7 @@ import quant from './local-stack-services/quant.mjs';
 import support, { SUPPORT_EMPTY_CATALOGUE_DB, onEmptyCatalogueDb, supportCatalogueOff } from './local-stack-services/support.mjs';
 import tax from './local-stack-services/tax.mjs';
 import campaigns from './local-stack-services/campaigns.mjs';
+import dex from './local-stack-services/dex.mjs';
 import ws from './local-stack-services/ws.mjs';
 import token from './local-stack-services/token.mjs';
 import trade from './local-stack-services/trade.mjs';
@@ -120,6 +122,7 @@ import {
   localPgBin,
   assertActiveLocalStack,
   processRecordMatches,
+  readKernelStart,
   readProcessIdentity,
   postgresProcessMatches,
   localPgOsUser,
@@ -186,6 +189,8 @@ const PORTS = {
   protocol: 14520,
   // The chain explorer's read model; follows the TEST chain through the same gate (local-stack-services/indexer.mjs).
   indexer: 14524,
+  // The Protocol plane's order door: the wallet-signed order session and the person's own vault orders (J-dex-protocol-10).
+  dex: 14529,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
   // Seasons, limited drops and the TGE claim (the drop room).
@@ -522,7 +527,9 @@ function startProc(name, argv, env, cwd, extra = {}) {
   child.unref();
   fs.closeSync(fd);
   const procs = readProcs();
-  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), ...extra };
+  // The kernel's birth mark, read now while the child certainly lives, is what ownedAlive holds it to on Linux (#7488).
+  const kernelStart = readKernelStart(child.pid) ?? undefined;
+  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), kernelStart, ...extra };
   writeProcs(procs);
   return child.pid;
 }
@@ -732,6 +739,7 @@ const BACKEND_PKGS = [
   'svc-ops',
   'svc-protocol',
   'svc-indexer',
+  'svc-dex',
   'svc-campaigns',
   'svc-ws',
 ];
@@ -809,13 +817,21 @@ function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
  * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
  * content), '' when there are none. A build made from a dirty tree vouches only for that same dirt.
  */
-function worktreeEdits(paths, exclude = []) {
-  const spec = [...paths, ...exclude.map((p) => `:(exclude)${p}`)];
-  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: REPO });
+/**
+ * The state files a running service writes in its own folder of the checkout (`services/<name>/.data/`, the default of
+ * paths such as TRADE_MM_SEED_STATE_PATH, relative to the service's working folder). They are no source and git does not
+ * ignore them, so counting them made every restart after a journey that wrote one rebuild the whole stack (#7463). Only
+ * this folder, one level under `services/`: any other untracked or edited file still counts.
+ */
+export const RUNTIME_STATE = ['services/*/.data/**'];
+
+export function worktreeEdits(paths, exclude = [], repo = REPO) {
+  const spec = [...paths, ...[...exclude, ...RUNTIME_STATE].map((p) => `:(exclude,glob)${p}`)];
+  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: repo });
   // A read that fails or is cut short is never "same as before".
   if (status.status !== 0 || status.error) return `unreadable:${Date.now()}`;
   if (status.stdout.length === 0) return '';
-  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: repo, maxBuffer: 256 * 1024 * 1024 });
   if (diff.status !== 0 || diff.error) return `unreadable:${Date.now()}`;
   const hash = crypto
     .createHash('sha256')
@@ -825,7 +841,7 @@ function worktreeEdits(paths, exclude = []) {
     // Untracked files are in no diff: hash their bytes too.
     if (entry.startsWith('?? ')) {
       try {
-        hash.update(fs.readFileSync(path.join(REPO, entry.slice(3))));
+        hash.update(fs.readFileSync(path.join(repo, entry.slice(3))));
       } catch {
         hash.update(`unreadable:${entry}`);
       }
@@ -850,6 +866,17 @@ const newBuildId = () => `${new Date().toISOString()}-${crypto.randomBytes(4).to
  * Whether a running process was started on the build that is on disk now. `wanted` is the stamp's id for that part; a
  * process recorded before builds had ids started on an unknown build.
  */
+/**
+ * What a start or restart builds, from the stamp the last build wrote: 'none' while the stamp still holds, 'missing'
+ * when it holds but a package's build output is gone, 'full' otherwise (everything rebuilt, every service restarted).
+ */
+export function backendDecision({ rebuild = false, stamp, repo, head, edits, customerOk = true, missing = [] }, unchanged) {
+  const fresh =
+    !rebuild &&
+    buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo, head, edits }, unchanged);
+  return fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+}
+
 export function onCurrentBuild(rec, wanted) {
   return !wanted || rec?.build === wanted;
 }
@@ -986,14 +1013,16 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
   // Our own dist must also name the Team link this script gives it: a build from before that, or with another, is stale.
+  // So is one built before its scripts had position maps (the journeys' reach recorder, journey-reach.mjs).
   const customerOk = override
     ? !act.error
-    : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
+    : fs.existsSync(path.join(P.customerDist, 'index.html')) &&
+      stamp.customerBuilt !== false &&
+      stamp.customerTeamUrl === TEAM_TLS_ORIGIN &&
+      stamp.customerPositions === true;
   const edits = worktreeEdits(SOURCE_PATHS);
-  const fresh =
-    !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
-  const backend = fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+  const backend = backendDecision({ rebuild, stamp, repo: REPO, head, edits, customerOk, missing });
   return { head, edits, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 
@@ -1137,9 +1166,17 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     );
   say('  build: backend packages and services (a few minutes on a cold tree)…');
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
+  // Hidden source maps beside the scripts, for the journeys' reach recorder (apps/customer/vite.config.ts).
   if (!override) {
     say('  build: customer app…');
-    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', { VITE_TEAM_URL: TEAM_TLS_ORIGIN });
+    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', {
+      VITE_TEAM_URL: TEAM_TLS_ORIGIN,
+      INTAFACED_SOURCEMAP: 'hidden',
+    });
+    // Each map becomes positions only (source paths and line positions, no source text) and the .map is deleted, before
+    // the build is served or packed: the journeys run's build artifact is public (journey-reach.mjs reduceMaps).
+    const { reduced, dropped } = reduceMaps(REPO, P.customerDist);
+    say(`  build: customer app position maps: ${reduced} reduced, ${dropped} unreadable and dropped; no .map file kept`);
   }
   writePrivate(
     P.buildStamp,
@@ -1155,6 +1192,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
         backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
         customerBuild: override ? stamp.customerBuild : newBuildId(),
         customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
+        customerPositions: override ? stamp.customerPositions : true,
       },
       null,
       2,
@@ -1305,12 +1343,12 @@ const EDGE_UPSTREAMS = {
   OPS_URL: 'ops',
   PROTOCOL_URL: 'protocol',
   INDEXER_URL: 'indexer',
+  DEX_URL: 'dex',
   CAMPAIGNS_URL: 'campaigns',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
-  DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
@@ -1346,6 +1384,7 @@ const SERVICES = [
   miningPool,
   protocol,
   indexer,
+  dex,
   campaigns,
   ws,
   // After ws and before edge: the edge's adapter status door reads both (startDependencies).
@@ -1450,22 +1489,29 @@ const screeningSet = () => Boolean(screeningEnv().INTAFACED_SANCTIONS_REGIONS);
 
 // ── Start / status / stop ───────────────────────────────────────────────────
 
+/** The last lines of a service's log, or why there are none, for a start that failed. */
+function logTail(name, lines = 20) {
+  const file = path.join(P.logs, `${name}.log`);
+  try {
+    return fs.readFileSync(file, 'utf8').split('\n').slice(-lines).join('\n');
+  } catch (err) {
+    return `(could not read ${file}: ${err.code ?? err.message})`;
+  }
+}
+
 async function waitHealthy(name, url, pid, timeoutMs = 90_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
-    if (!psCommand(pid)) {
-      const tail = fs
-        .readFileSync(path.join(P.logs, `${name}.log`), 'utf8')
-        .split('\n')
-        .slice(-20)
-        .join('\n');
-      fail(`${name} exited during start. Log ${path.join(P.logs, `${name}.log`)}:\n${tail}`);
-    }
+    if (!psCommand(pid)) fail(`${name} exited during start. Log ${path.join(P.logs, `${name}.log`)}:\n${logTail(name)}`);
     const r = await httpGet(url, 2000);
     if (r.status === 200) return;
     await sleep(500);
   }
-  fail(`${name} did not become healthy at ${url} within ${timeoutMs / 1000}s (see ${path.join(P.logs, `${name}.log`)})`);
+  // Still running but not answering: its log says how far it got. A Node service's logger writes asynchronously, so
+  // a process whose event loop is blocked can hold its last lines unwritten (#7554).
+  fail(
+    `${name} did not become healthy at ${url} within ${timeoutMs / 1000}s; it is still running (pid ${pid}). Log ${path.join(P.logs, `${name}.log`)}:\n${logTail(name)}`,
+  );
 }
 
 async function startNats() {
@@ -3788,6 +3834,111 @@ async function cmdCardFunds(rawArgs) {
   say(`  answer    ${text}`);
 }
 
+/** Signs one TEST card acquirer delivery with this stack's TEST card webhook secret and posts it to its own svc-pay. */
+async function deliverCardSandbox(payload) {
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payCardWebhook;
+  if (!secret) fail('refusing: this stack has no TEST card webhook secret. Run: pnpm local:stack --rebuild');
+  const body = JSON.stringify(payload);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/card-sandbox`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-sandbox-signature': signature, 'x-sandbox-timestamp': timestamp },
+    body,
+  });
+  return { status: res.status, text: await res.text() };
+}
+
+/** The TEST partner terms a `card-terms` call may set: each `{ known: false }` or its known shape (card-sandbox.ts). */
+export function cardTermsPayload(merchantId, termsJson, now = new Date()) {
+  if (!/^[0-9a-f-]{36}$/i.test(merchantId ?? '')) throw new Error(`bad merchant id: ${merchantId}`);
+  let terms;
+  try {
+    terms = JSON.parse(termsJson ?? '');
+  } catch {
+    throw new Error('terms must be one JSON object, e.g. {"instantPayout":{"known":true,"offered":false}}');
+  }
+  if (typeof terms !== 'object' || terms === null || Array.isArray(terms)) throw new Error('terms must be one JSON object');
+  const id = crypto
+    .createHash('sha256')
+    .update(`${merchantId}:${JSON.stringify(terms)}`)
+    .digest('hex')
+    .slice(0, 24);
+  return { id: `terms:${merchantId}:${id}`, type: 'partner.terms', merchantId, terms, occurredAt: now.toISOString() };
+}
+
+/**
+ * `card-terms <merchantId> '<terms JSON>'`: the TEST card acquirer reports its own terms for one business (CUSTODY-DELTA
+ * §4 "TEST acquirer"): reserve rule, who covers a chargeback shortfall, the currencies it offers, its instant payout.
+ * A term left out keeps what the partner said before; a business never reported reads every term "not known". Signed
+ * with this stack's TEST card webhook secret, to svc-pay's own `/webhooks/card-sandbox`; svc-pay keeps it on the TEST
+ * acquirer only, and refuses it outside dev and test. Nothing here touches the ledger.
+ */
+async function cmdCardTerms(rawArgs) {
+  const usage = `usage: node tooling/scripts/local-test-stack.mjs card-terms <merchantId> '<terms JSON>'`;
+  if (rawArgs.length !== 2) fail(usage, 2);
+  let payload;
+  try {
+    payload = cardTermsPayload(rawArgs[0], rawArgs[1]);
+  } catch (err) {
+    fail(`${err.message}\n${usage}`, 2);
+  }
+  const { status, text } = await deliverCardSandbox(payload);
+  if (status !== 200) fail(`svc-pay refused the TEST partner terms (${status}): ${text.slice(0, 400)}`);
+  say('TEST partner terms delivered to svc-pay (TEST acquirer, not a real partner)');
+  say(`  merchant  ${payload.merchantId}`);
+  say(`  terms     ${JSON.stringify(payload.terms)}`);
+  say(`  answer    ${text}`);
+}
+
+/**
+ * `card-dispute <paymentId> opened|won|lost <disputeId> [--amount <decimal>] [--resend <n>]`: the TEST card acquirer reports
+ * a dispute on one card payment it captured, signed, to svc-pay's own `/webhooks/card-sandbox`. The event id comes from
+ * the dispute and the outcome, so sending it again is the same delivery. `--resend <n>` is the partner sending the same
+ * outcome again under a new delivery id (`…:resend-<n>`), which svc-pay must not book twice.
+ */
+async function cmdCardDispute(rawArgs) {
+  const args = [...rawArgs];
+  const at = args.indexOf('--amount');
+  if (at !== -1 && args[at + 1] === undefined) fail('--amount takes a decimal string', 2);
+  const amount = at === -1 ? undefined : args[at + 1];
+  if (at !== -1) args.splice(at, 2);
+  const re = args.indexOf('--resend');
+  if (re !== -1 && args[re + 1] === undefined) fail('--resend takes a delivery number from 1', 2);
+  const resend = re === -1 ? undefined : args[re + 1];
+  if (re !== -1) args.splice(re, 2);
+  const usage =
+    'usage: node tooling/scripts/local-test-stack.mjs card-dispute <paymentId> opened|won|lost <disputeId> [--amount <decimal>] [--resend <n>]';
+  const [paymentId, outcome, disputeId, ...extra] = args;
+  if (!paymentId || !outcome || !disputeId || extra.length > 0) fail(usage, 2);
+  if (!/^[0-9a-f-]{36}$/i.test(paymentId)) fail(`bad payment id: ${paymentId}`, 2);
+  if (!['opened', 'won', 'lost'].includes(outcome)) fail(usage, 2);
+  if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(disputeId)) fail(`bad dispute id: ${disputeId}`, 2);
+  if (amount !== undefined && !/^\d+(\.\d+)?$/.test(amount)) fail('--amount takes a decimal string', 2);
+  if (resend !== undefined && !/^[1-9]\d{0,3}$/.test(resend)) fail('--resend takes a delivery number from 1', 2);
+  const payload = {
+    id: `dispute:${disputeId}:${outcome}${resend ? `:resend-${resend}` : ''}`,
+    type: `dispute.${outcome}`,
+    ref: `ch_${paymentId}`,
+    disputeId,
+    ...(outcome === 'opened' ? { reasonCode: 'LOCAL-TEST product_not_received' } : {}),
+    ...(amount ? { amount } : {}),
+    occurredAt: new Date().toISOString(),
+  };
+  const { status, text } = await deliverCardSandbox(payload);
+  if (status !== 200) fail(`svc-pay refused the TEST card dispute (${status}): ${text.slice(0, 400)}`);
+  say('TEST card dispute delivered to svc-pay (TEST acquirer, not real money)');
+  say(`  payment   ${paymentId}`);
+  say(`  dispute   ${disputeId} ${outcome}${amount ? ` ${amount}` : ''}`);
+  say(`  answer    ${text}`);
+}
+
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
@@ -3875,6 +4026,8 @@ async function runCli() {
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
   else if (cmd === 'card-funds') await cmdCardFunds(rest);
+  else if (cmd === 'card-terms') await cmdCardTerms(rest);
+  else if (cmd === 'card-dispute') await cmdCardDispute(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);

@@ -18,6 +18,7 @@ import {
 import { RESTORE_NO, RESTORE_SERVICES, type RestoreServiceName } from '@/lib/restore/model';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
 import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
+import { approvalPolicySetFieldsSchema, type ConsoleSettablePolicyActionType } from '@intafaced/contracts/action-approval-policy';
 import {
   accountLimitAmountSchema,
   accountLimitAssetIdSchema,
@@ -56,6 +57,10 @@ const VERSION = /^[\x20-\x7e]{1,128}$/;
 const WHOLE = /^[1-9][0-9]{0,8}$/;
 const GOV_REVISION = /^(?:0|[1-9][0-9]{0,8})$/;
 const REVISION = /^(?:0|[1-9][0-9]{0,8})$/;
+/** The console's business key for a staff change (contracts `requestId`: 8 to 160 characters). */
+const STAFF_REQUEST_ID = /^[A-Za-z0-9._:-]{8,160}$/;
+/** A plain address, as contracts reads one after trimming and lower-casing. */
+const STAFF_EMAIL = /^[^\s@]{1,64}@[^\s@]{1,189}\.[^\s@]{2,}$/;
 
 export type DeskRequest =
   | { readonly kind: 'edge.kill'; readonly module: ModuleId; readonly disabled: boolean; readonly reason: string }
@@ -101,9 +106,35 @@ export type DeskRequest =
   | { readonly kind: 'academy.ambassador.appoint'; readonly userId: string }
   | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision }
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
+  /**
+   * One programme funding instruction to the card partner (svc-bank `ops.requestCardProgrammeFunding`, J-bank-26 #6): fund or
+   * defund an amount of the funding stablecoin, or set auto reload with a threshold. A blank threshold is the empty string.
+   */
+  | {
+      readonly kind: 'bank.card.funding';
+      readonly fundingKind: CardFundingKind;
+      readonly amount: string;
+      readonly threshold: string;
+      readonly reason: string;
+    }
   | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
   | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
   | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
+  /**
+   * Set one governed action type's approval row (svc-identity `approvalPolicy.set`, J-ops-console-09 #1). The four values
+   * travel as typed; a blank one is a row identity reads as unset. `expectedVersion` is the row version the founder read.
+   */
+  | {
+      readonly kind: 'identity.approval_policy.set';
+      readonly actionType: ConsoleSettablePolicyActionType;
+      readonly requiredApprovals: string;
+      readonly approverAudience: string;
+      readonly applier: string;
+      readonly maxAgeSeconds: string;
+      readonly expectedVersion: string;
+    }
+  /** Invite one named person to the console (svc-identity `staff.invite`, J-ops-console-09 #2). `requestId` makes a lost reply safe. */
+  | { readonly kind: 'identity.staff.invite'; readonly requestId: string; readonly email: string; readonly displayName: string }
   /** Release the next waitlist wave (svc-identity `waitlist.waves.release`, RC-campaigns-03). `size` is the owner's wave size read. */
   | { readonly kind: 'campaigns.waitlist.wave_release'; readonly wave: string; readonly size: string }
   /**
@@ -254,6 +285,10 @@ export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
 export const CARD_STATUSES = ['frozen', 'active'] as const;
 export type CardStatus = (typeof CARD_STATUSES)[number];
+export const CARD_FUNDING_KINDS = ['fund', 'defund', 'auto_reload'] as const;
+export type CardFundingKind = (typeof CARD_FUNDING_KINDS)[number];
+const POSITIVE_DECIMAL = /^(?:0|[1-9]\d{0,19})(?:\.\d{1,18})?$/;
+const positiveDecimal = (v: unknown): v is string => typeof v === 'string' && POSITIVE_DECIMAL.test(v) && /[1-9]/.test(v);
 export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
 export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
 /** The decisions identity takes on a selfie (`kycSelfieDecisionSchema`). */
@@ -549,6 +584,21 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.status !== 'string' || !(CARD_STATUSES as readonly string[]).includes(raw.status)) return null;
     return { kind: 'bank.card.status', cardId: raw.cardId, status: raw.status as CardStatus, reason: raw.reason };
   }
+  // svc-bank binds the kind, the amount and the threshold to the approval; the reason is recorded with the instruction and
+  // rides in the packet so the second founder reads it. Only auto reload carries a threshold.
+  if (raw.kind === 'bank.card.funding') {
+    if (keys !== 'amount,fundingKind,kind,reason,threshold') return null;
+    if (typeof raw.fundingKind !== 'string' || !(CARD_FUNDING_KINDS as readonly string[]).includes(raw.fundingKind)) return null;
+    if (!positiveDecimal(raw.amount) || !validReason(raw.reason)) return null;
+    if (raw.fundingKind === 'auto_reload' ? !positiveDecimal(raw.threshold) : raw.threshold !== '') return null;
+    return {
+      kind: 'bank.card.funding',
+      fundingKind: raw.fundingKind as CardFundingKind,
+      amount: raw.amount,
+      threshold: raw.threshold as string,
+      reason: raw.reason,
+    };
+  }
   // svc-market binds the listing AND the reason to the approval, so a changed reason cannot ride on an approved takedown.
   if (raw.kind === 'market.listing.takedown') {
     if (keys !== 'kind,listingId,reason') return null;
@@ -566,6 +616,38 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'kind,size,wave') return null;
     if (typeof raw.wave !== 'string' || !WHOLE.test(raw.wave) || typeof raw.size !== 'string' || !WHOLE.test(raw.size)) return null;
     return { kind: 'campaigns.waitlist.wave_release', wave: raw.wave, size: raw.size };
+  }
+  // svc-identity binds the type, the four values as typed and the row version read (`approvalPolicySetPayloadFields`).
+  if (raw.kind === 'identity.approval_policy.set') {
+    if (keys !== 'actionType,applier,approverAudience,expectedVersion,kind,maxAgeSeconds,requiredApprovals') return null;
+    const parsed = approvalPolicySetFieldsSchema.safeParse({
+      actionType: raw.actionType,
+      requiredApprovals: raw.requiredApprovals,
+      approverAudience: raw.approverAudience,
+      applier: raw.applier,
+      maxAgeSeconds: raw.maxAgeSeconds,
+      expectedVersion: raw.expectedVersion,
+    });
+    if (!parsed.success) return null;
+    const v = parsed.data;
+    // Values as typed, trimmed: what the founder sees is what is hashed.
+    if ([raw.requiredApprovals, raw.approverAudience, raw.applier, raw.maxAgeSeconds].some((x) => typeof x !== 'string' || x.trim() !== x))
+      return null;
+    return { kind: 'identity.approval_policy.set', ...v };
+  }
+  // svc-identity binds the named person (email, name) and the request id's target to the approval (`staffChangeApprovalSubject`).
+  if (raw.kind === 'identity.staff.invite') {
+    if (keys !== 'displayName,email,kind,requestId') return null;
+    if (typeof raw.requestId !== 'string' || !STAFF_REQUEST_ID.test(raw.requestId)) return null;
+    if (typeof raw.email !== 'string' || raw.email !== raw.email.trim().toLowerCase() || !STAFF_EMAIL.test(raw.email)) return null;
+    if (
+      typeof raw.displayName !== 'string' ||
+      raw.displayName !== raw.displayName.trim() ||
+      raw.displayName.length < 1 ||
+      raw.displayName.length > 120
+    )
+      return null;
+    return { kind: 'identity.staff.invite', requestId: raw.requestId, email: raw.email, displayName: raw.displayName };
   }
   if (raw.kind === 'identity.auth_key.remove_old') {
     if (keys !== 'keyIds,kind') return null;
@@ -773,12 +855,18 @@ export function confirmPhrase(request: DeskRequest): string {
       return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} RESIDENCY ${request.id.slice(0, 8)}`;
     case 'bank.card.status':
       return `${request.status === 'frozen' ? 'FREEZE' : 'UNFREEZE'} CARD ${request.cardId.slice(0, 8)}`;
+    case 'bank.card.funding':
+      return `${request.fundingKind === 'auto_reload' ? 'AUTO RELOAD' : request.fundingKind.toUpperCase()} CARD PROGRAMME ${request.amount}`;
     case 'market.listing.takedown':
       return `TAKE DOWN LISTING ${request.listingId.slice(0, 8)}`;
     case 'identity.auth_key.rotate':
       return `ROTATE KEY ${request.keyId}`;
     case 'identity.auth_key.remove_old':
       return 'REMOVE OLD KEYS';
+    case 'identity.approval_policy.set':
+      return `SET POLICY ${request.actionType.toUpperCase()}`;
+    case 'identity.staff.invite':
+      return `INVITE ${request.email.toUpperCase()}`;
     case 'campaigns.waitlist.wave_release':
       return `RELEASE WAVE ${request.wave}`;
     case 'identity.account.unfreeze':
@@ -879,12 +967,22 @@ export function describeRequest(request: DeskRequest): string {
       return request.status === 'frozen'
         ? `Freeze card ${request.cardId} as an operator: the card is frozen and its owner cannot unfreeze it. Only an operator can lift it. The owner can still close it.`
         : `Lift the freeze on card ${request.cardId}, whoever set it: this includes a freeze the owner set themselves (for example after reporting the card lost). The card can be spent again at once. svc-bank does not show this console who froze it, so check with the owner first.`;
+    case 'bank.card.funding':
+      return request.fundingKind === 'auto_reload'
+        ? `Set auto reload at the card partner: when the programme falls below ${request.threshold}, the partner tops it up by ${request.amount} of the funding stablecoin. The partner moves the money under its own licence; nothing posts to INTAFACED's ledger.`
+        : `${request.fundingKind === 'fund' ? 'Fund' : 'Defund'} the card programme at the partner by ${request.amount} of the funding stablecoin. The partner moves the money under its own licence; nothing posts to INTAFACED's ledger.`;
     case 'market.listing.takedown':
       return `Take down market listing ${request.listingId}: it leaves the market for good. Nobody can set it active again, and the vendor cannot restore it. Purchases already settled keep their access, and nothing is refunded.`;
     case 'identity.auth_key.rotate':
       return `Rotate the access-token signing key to "${request.keyId}": new sign-ins are signed with it from now on, and the key that signs today keeps verifying, so nobody is signed out. Every other service must already carry the same key, or its checks of new tokens fail.`;
     case 'identity.auth_key.remove_old':
       return `Remove the previous signing keys (${request.keyIds}): tokens signed with them stop working at once and their holders have to sign in again. Only do this after the overlap.`;
+    case 'identity.approval_policy.set': {
+      const blank = (v: string) => (v === '' ? 'blank' : v);
+      return `Set the approval policy for ${request.actionType}: ${blank(request.requiredApprovals)} approver(s) other than the requester, from ${blank(request.approverAudience)}, applied only by ${blank(request.applier)}, within ${blank(request.maxAgeSeconds)} seconds. A blank or unreadable value leaves the row unset: identity then refuses every request of this type (action_approval.policy_unset) until a whole row is set. Requests already asked under the old row are refused.`;
+    }
+    case 'identity.staff.invite':
+      return `Invite ${request.displayName} (${request.email}) to the console as staff. They get a one-time link by email and set their own password at first connection. They hold no role, and so can do nothing, until roles are given to them.`;
     case 'campaigns.waitlist.wave_release':
       return `Release waitlist wave ${request.wave}: the ${request.size} people highest in the queue (most friends invited, then who joined first) are invited, once. A release is a record, not an account: nobody is signed up and nothing moves value. The invitation email is not connected, so each person sees it on their waitlist page.`;
     case 'identity.account.unfreeze':
@@ -963,6 +1061,8 @@ export function requestReason(request: DeskRequest): string | null {
     case 'academy.residency.decide':
     case 'identity.auth_key.rotate':
     case 'identity.auth_key.remove_old':
+    case 'identity.approval_policy.set':
+    case 'identity.staff.invite':
     case 'campaigns.waitlist.wave_release':
     case 'protocol.pool.restore':
     case 'protocol.market.restore':

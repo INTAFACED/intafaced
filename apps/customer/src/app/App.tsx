@@ -71,6 +71,8 @@ function DevRibbon({ feature }: { feature: Feature }) {
 const isAcademyPath = (path: string) => path === '/academy' || path.startsWith('/academy/');
 // The launch catalogue and a launch's page open signed out too (J-more-catalogue-11): they read only published events.
 // Eligibility and basis inside them still ask the visitor to sign in. The issuer forms under /launch stay private.
+// The Algo dev Preview rooms open signed out too (J-algo-dev-15 #1): TEST sample data only; an engine action asks to sign in.
+const isQuantPreviewPath = (path: string) => path === '/quant/editor' || path === '/quant/tester' || path === '/quant/optimise';
 const isLaunchCataloguePath = (path: string) => {
   if (path === '/launch') return true;
   const hit = matchMoreRoute(path);
@@ -140,7 +142,8 @@ export function App() {
     ['home', 'money', 'pay', 'more', 'person'].includes(room.area) &&
     path !== '/pay/checkout' &&
     !isAcademyPath(path) &&
-    !isLaunchCataloguePath(path);
+    !isLaunchCataloguePath(path) &&
+    !isQuantPreviewPath(path);
   // Someone signed out who opens a new support request gets the same form with an email field (SP-tickets-01), in the
   // public frame, once the boot refresh says there is no session.
   const guestRequest = path === '/support/new' && !session && !restoring && !restoreFailed;

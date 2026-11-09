@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type { CardRecord } from '../cards/card-service.js';
 import { assertSelf } from '../assert-self.js';
 import {
   issueCardBinding,
@@ -15,7 +14,30 @@ import {
   updateCardShippingBinding,
 } from '../step-up/money-out-fields.js';
 import { cardInactive } from '../cards/card-service.js';
+import { cardOutput, presentCard } from '../cards/card-view.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
+import { CARD_CUSTODY_MODES, NOT_USED_FOR_CARDS } from '../cards/partner-terms.js';
+
+const decimalOrNull = z
+  .string()
+  .regex(/^\d+(\.\d{1,18})?$/)
+  .nullable();
+const payFromOutput = z.object({
+  test: z.boolean(),
+  custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
+  settlementAssetId: z.string().nullable(),
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
+      partnerBalance: decimalOrNull,
+      rate: decimalOrNull,
+      rateAsOf: z.string().nullable(),
+    }),
+  ),
+  order: z.array(z.string()).nullable(),
+  notUsedForCards: z.array(z.enum(NOT_USED_FOR_CARDS)),
+});
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
 import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
@@ -48,55 +70,6 @@ export function createCardsRouter(c: BankRouterContext) {
    * deployment with no issuer at all cannot get this far: it refuses with
    * `bank.no_card_issuer` before a row is written.
    */
-  const cardOutput = z.object({
-    id: z.string(),
-    /** Which balance the card draws on. Every posting against it is in this asset. */
-    assetId: z.string(),
-    /**
-     * What merchants charge this card in (§18).
-     *
-     * Equal to `assetId` means no conversion happens and no rate is consulted.
-     * Different means every authorisation is quoted at the authorisation moment
-     * — and refuses by name where no rate can be got, which on a fiat settlement
-     * asset is every time, because this platform has no FX source.
-     */
-    settlementAssetId: z.string(),
-    /** The programme id, which is also the ledger rail label. */
-    issuer: z.string(),
-    /** TRUE MEANS THERE IS NO CARD. Never omitted, never defaulted. */
-    simulated: z.boolean(),
-    /** Four digits. Not a card number and not part of one. */
-    panTail: z.string(),
-    /** `inactive`: issued but not activated yet (BK-cissue-04); it declines every authorisation until it is. */
-    status: z.enum(['active', 'inactive', 'frozen', 'closed']),
-    cashbackBps: z.number().int(),
-    perAuthorizationLimit: amountString,
-    dailyLimit: amountString.nullable(),
-    monthlyLimit: amountString.nullable(),
-    cashLimit: amountString.nullable(),
-    online: z.boolean(),
-    contactless: z.boolean(),
-    atm: z.boolean(),
-    abroad: z.boolean(),
-    cardType: z.enum(['virtual', 'physical']),
-    shippingAddress: z
-      .object({
-        name: z.string(),
-        line1: z.string(),
-        line2: z.string().nullable(),
-        city: z.string(),
-        region: z.string().nullable(),
-        postalCode: z.string(),
-        country: z.string(),
-      })
-      .nullable(),
-    /** Single-use (1) or n-use: captured payments before it closes itself. NULL is no limit. */
-    usesAllowed: z.number().int().nullable(),
-    designId: z.string().nullable(),
-    deliverySpeed: z.string().nullable(),
-    replacesCardId: z.string().nullable(),
-    replacedByCardId: z.string().nullable(),
-  });
 
   const shippingAddressInput = z.object({
     name: z.string().trim().min(1).max(120),
@@ -110,38 +83,6 @@ export function createCardsRouter(c: BankRouterContext) {
       .trim()
       .regex(/^[A-Za-z]{2}$/),
   });
-
-  function presentCard(c: CardRecord) {
-    return {
-      id: c.id,
-      assetId: c.assetId,
-      settlementAssetId: c.settlementAssetId,
-      issuer: c.issuer,
-      simulated: c.simulated,
-      panTail: c.panTail,
-      status: presentStatus(c),
-      cashbackBps: c.cashbackBps,
-      perAuthorizationLimit: formatAmount(c.perAuthorizationLimit),
-      dailyLimit: c.dailyLimit == null ? null : formatAmount(c.dailyLimit),
-      monthlyLimit: c.monthlyLimit == null ? null : formatAmount(c.monthlyLimit),
-      cashLimit: c.cashLimit == null ? null : formatAmount(c.cashLimit),
-      online: c.online ?? true,
-      contactless: c.contactless ?? true,
-      atm: c.atm ?? true,
-      abroad: c.abroad ?? true,
-      cardType: c.cardType ?? 'virtual',
-      shippingAddress: c.shippingAddress ?? null,
-      usesAllowed: c.usesAllowed ?? null,
-      designId: c.designId ?? null,
-      deliverySpeed: c.deliverySpeed ?? null,
-      replacesCardId: c.replacesCardId ?? null,
-      replacedByCardId: c.replacedByCardId ?? null,
-    };
-  }
-
-  function presentStatus(c: CardRecord): 'active' | 'inactive' | 'frozen' | 'closed' {
-    return c.status === 'active' && cardInactive(c) ? 'inactive' : c.status;
-  }
 
   const deliveryOutput = z.object({
     cardId: z.string(),
@@ -639,6 +580,36 @@ export function createCardsRouter(c: BankRouterContext) {
           };
         }),
       ),
+
+    /**
+     * Pay from (J-bank-29 #1 and #2; BK-ccrypto-01): the owner's spendable assets and any other the person's cards draw on,
+     * each offered, "not offered by the partner" or "not known", from the card partner's own list; how the partner spends
+     * (it holds the crypto, or the card pulls from the person's own wallet); for each offered asset the partner's balance
+     * and the rate with its time, or null ("not known"); the saved order; and the account kinds a card never pays from. No
+     * owner list refuses `bank.card_spend_assets_unset`. Reads only.
+     */
+    payFrom: scopedProcedure('bank:read', { module: 'bank' })
+      .output(payFromOutput)
+      .query(({ ctx }) => guard(async () => bank.cards.payFrom(ctx.principal.userId))),
+
+    /**
+     * Save the pay-from order (J-bank-29 #2): each asset once, each one the owner lists and the partner can spend from. No
+     * owner list refuses `bank.card_spend_assets_unset`; another asset refuses `bank.card_pay_from_not_offered`. Saving the
+     * same order again changes nothing. Moves no value.
+     */
+    setPayFromOrder: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z
+          .object({
+            assetIds: z
+              .array(z.string().regex(/^[A-Z0-9]{2,16}$/))
+              .min(1)
+              .max(50),
+          })
+          .strict(),
+      )
+      .output(payFromOutput)
+      .mutation(({ ctx, input }) => guard(async () => bank.cards.setPayFromOrder(ctx.principal.userId, input.assetIds))),
 
     // ── Getting a card (J-bank-13; BK-cissue-01 to -04) ─────────────────────
 

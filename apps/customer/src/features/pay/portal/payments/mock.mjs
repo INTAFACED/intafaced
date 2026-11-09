@@ -538,6 +538,24 @@ export function createPaymentsMock(ctx) {
             })(),
           });
         }
+        case 'merchantOps.disputes.funds': {
+          // TEST: the stand-in's opening took the whole disputed amount when its ledger wire posted, and a win gave it back.
+          const d = state.disputes.find((x) => x.disputeId === input.disputeId);
+          if (!d) return refuse(route, 404, 'pay.dispute_not_found');
+          const booked = d.ledgerWire === 'posted';
+          return ok(route, {
+            disputeId: d.disputeId,
+            assetId: d.assetId,
+            status: d.status,
+            disputed: d.amount,
+            takenAtOpening: booked ? d.amount : '0',
+            openingBooked: booked,
+            notYetTaken: booked ? '0' : d.amount,
+            returned: booked && d.status === 'won' ? d.amount : '0',
+            shortfall: booked ? '0' : null,
+            shortfallRecovered: '0',
+          });
+        }
         case 'merchantOps.disputes.addEvidence': {
           const row = {
             evidenceId: `e${Date.now()}`,

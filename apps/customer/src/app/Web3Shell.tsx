@@ -84,6 +84,13 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                   ))}
                 </ul>
               </nav>
+              {/* Algo dev (AL-order-01, J-algo-dev-15 #1): the same editor room the Trade menu opens, in its own small nav so the
+                  six Web3 sections stay exactly six (J-dex-protocol-01 #1). The room lives in the Exchange frame at /quant. */}
+              <nav className="web3-tools" aria-label={t('shellTools')}>
+                <a className="tb-tab" href="/quant/editor">
+                  {t('nav_algo')}
+                </a>
+              </nav>
               <div data-testid="tb-right" className="tb-right web3-chips">
                 <span className="web3-chip" data-chip="network" role="status" title={chip}>
                   {chip}

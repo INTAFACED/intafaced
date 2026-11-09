@@ -129,7 +129,7 @@ const schema = serviceEnvSchema
       /**
        * Owner-published affiliate commission accrual tiers (DIRECTION §8).
        * Blank / unset → unpublished; accrue refuses unless the request supplies
-       * tiers. JSON shape: { "published": true, "tiers": [{ "hop": 0, "rate": "0.10" }] }.
+       * tiers. JSON shape: { "published": true, "tiers": [{ "hop": 0, "rate": "<decimal 0..1>" }] }.
        * Malformed → fail boot (parseAccrualTierLawJson throws). Never invent rates.
        */
       IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: z.string().optional().default(''),
@@ -250,6 +250,25 @@ const schema = serviceEnvSchema
        * a value that is not a positive whole number stops the service.
        */
       IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
+      /**
+       * Owner setting: API rate tiers for keys and the most a reviewer may grant one key (DV-limits-01, J-developer-06).
+       * JSON `{"tiers":[{"id":"base"|"sandbox","burst":n,"refillPerMinute":n}],"grantCeilingPerMinute":n|null}`. NO
+       * DEFAULT. Blank: no tier is set, so the key exchange hands the edge no limit and the edge refuses every key call
+       * (`edge.limits_unset`), the limits page shows the not-set banner and every limit request refuses
+       * `identity.rate_limits_unset`. Parsed at start by `parseRatePolicy`; a value that does not parse stops the service.
+       */
+      IDENTITY_API_RATE_LIMITS: z.string().optional(),
+      /**
+       * Owner setting: the most seconds a sign-in may go without a refresh before its next refresh is refused
+       * (`auth.session_idle`, I-signin-sessions-06). NO DEFAULT. Blank: no idle sign-out; a sign-in still ends at its
+       * absolute lifetime. A person may choose a shorter one in Security. Parsed at start by `parseSessionLimits`.
+       */
+      SESSION_IDLE_SECONDS: z.string().optional(),
+      /**
+       * Owner setting: the most devices (sign-ins) one account may be signed in on at once; a sign-in beyond it ends the
+       * oldest (I-signin-sessions-06). NO DEFAULT. Blank: no limit, and Security says so. Parsed by `parseSessionLimits`.
+       */
+      SESSION_MAX_CONCURRENT: z.string().optional(),
       /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
@@ -502,6 +521,15 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
+      /**
+       * Owner-published life of a staff invite's first-connection link, in seconds (J-ops-console-09 #2). NO DEFAULT:
+       * blank / unset → inviting refuses `identity.staff_invite_ttl_unset`.
+       */
+      IDENTITY_STAFF_INVITE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(60).max(2_592_000).optional()),
       /**
        * Owner setting (OPS-change-control-01 CR-1): the approval policy of each governed action type
        * (`POLICY_GOVERNED_ACTION_TYPES` in contracts), a JSON object keyed by action type:

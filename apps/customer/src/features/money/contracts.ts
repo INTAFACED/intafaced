@@ -997,6 +997,24 @@ export const recoveryWrites = {
   }),
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
+/** Pay from (J-bank-29 #1 #2): svc-bank `cards.payFrom` and `cards.setPayFromOrder`. Each null is "not known". */
+const payFromSchema = z.object({
+  test: z.boolean(),
+  custodyMode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
+  settlementAssetId: z.string().nullable(),
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
+      partnerBalance: z.string().nullable(),
+      rate: z.string().nullable(),
+      rateAsOf: z.string().nullable(),
+    }),
+  ),
+  order: z.array(z.string()).nullable(),
+  notUsedForCards: z.array(z.enum(['trading', 'agent'])),
+});
+
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -1072,6 +1090,7 @@ export const bankReads = {
   }),
   'cards.programme': programmeSchema,
   'cards.catalogue': cardCatalogueSchema,
+  'cards.payFrom': payFromSchema,
   'cards.delivery': cardDeliverySchema,
   'cards.cashback': z.object({
     tier: z.enum(['none', 'standard', 'metal', 'obsidian']),
@@ -1193,6 +1212,7 @@ export const bankWrites = {
   'cards.order': cardSchema,
   'cards.acceptTerms': z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }),
   'cards.updateShipping': cardDeliverySchema,
+  'cards.setPayFromOrder': payFromSchema,
   'cards.activate': cardSchema,
   'cards.replace': cardSchema,
   'cards.setLimits': cardSchema,

@@ -1,5 +1,7 @@
 import { hasScope, type Principal, type Scope } from '@intafaced/auth';
+import type { KeyRateLimit, RateLimitReason, RouteCost } from '@intafaced/contracts/api-rate-limits';
 import { EDGE_API_KEY_RATE_BUCKET, EDGE_RATE_COST } from './hardening.js';
+import { routeCost, type KeyBuckets } from './rate-bucket.js';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -25,17 +27,6 @@ export const GATEWAY_DIALECTS = {
 
 export type GatewayDoor = keyof typeof GATEWAY_DIALECTS;
 
-export interface QuotaBucket {
-  count: number;
-  resetAt: number;
-}
-
-export type QuotaStore = Map<string, QuotaBucket>;
-
-export function createQuotaStore(): QuotaStore {
-  return new Map();
-}
-
 export function doorForPath(pathname: string): GatewayDoor | null {
   if (pathname === '/api/v1' || pathname.startsWith('/api/v1/')) return 'trade';
   if (pathname === '/api/trade' || pathname.startsWith('/api/trade/')) return 'trade';
@@ -50,7 +41,23 @@ export function requiredScopeFor(door: GatewayDoor, method: string): Scope {
   return write ? 'pay:write' : 'pay:read';
 }
 
-export type GatewayDecision = { allow: true; sandbox: boolean } | { allow: false; status: number; body: Record<string, unknown> };
+/** What the key's bucket said about an allowed call, for the `x-ratelimit-*` headers. */
+export interface KeyMetered {
+  readonly limit: number;
+  readonly remaining: number;
+  readonly cost: number;
+  /** Whole seconds until the key's bucket is full again. */
+  readonly resetSeconds: number;
+}
+
+export type GatewayDecision =
+  | { allow: true; sandbox: boolean; metered?: KeyMetered }
+  | {
+      allow: false;
+      status: number;
+      body: Record<string, unknown>;
+      limited?: { reason: RateLimitReason; limit: number; cost: number; retryAfterSeconds: number | null };
+    };
 
 /** The published permission-to-endpoint table. A fixed path: it names no account, so it tells a caller nothing about one. */
 export const PERMISSION_TABLE_DOCS = '/developers/permissions' as const;
@@ -76,35 +83,34 @@ export function scopeRefuseBody(door: GatewayDoor, scope: Scope): Record<string,
   };
 }
 
-/** Same code the IP throttle already emits — one quota vocabulary, not a third. */
-export function quotaRefuseBody(retryAfterSeconds: number): Record<string, unknown> {
+/**
+ * Same code the IP throttle already emits — one quota vocabulary, not a third. `reason` says which limit refused it
+ * (`global`: the key's bucket is spent; `endpoint`: the route costs more than the key's whole burst). The request id
+ * is added on the way out (`reply-envelope.ts`).
+ */
+export function quotaRefuseBody(
+  retryAfterSeconds: number | null,
+  reason: RateLimitReason = 'global',
+  cost: number = EDGE_RATE_COST,
+): Record<string, unknown> {
   return {
     error: userCopy('edge.rate_limited'),
     code: 'edge.rate_limited',
+    reason,
     retryAfterSeconds,
     remaining: 0,
     bucket: EDGE_API_KEY_RATE_BUCKET,
-    cost: EDGE_RATE_COST,
+    cost,
+    docs: RATE_LIMITS_DOCS,
   };
 }
 
-export function takeQuota(
-  store: QuotaStore,
-  kid: string,
-  now: number,
-  max: number,
-  windowMs: number,
-): { ok: true } | { ok: false; retryAfterSeconds: number } {
-  const existing = store.get(kid);
-  if (!existing || existing.resetAt <= now) {
-    store.set(kid, { count: 1, resetAt: now + windowMs });
-    return { ok: true };
-  }
-  if (existing.count >= max) {
-    return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)) };
-  }
-  existing.count += 1;
-  return { ok: true };
+/** The published limits page: tiers, costs and the backoff guidance. */
+export const RATE_LIMITS_DOCS = '/developers/rate-limits' as const;
+
+/** A key's limit or a route's cost that the owner has not set: nothing is metered on a guess, so nothing passes. */
+export function limitsUnsetBody(code: 'edge.limits_unset' | 'edge.cost_unset' | 'edge.api_key_bearer_required'): Record<string, unknown> {
+  return { error: userCopy(code), code, docs: RATE_LIMITS_DOCS };
 }
 
 export function sandboxOf(principal: Principal | null): boolean {
@@ -196,10 +202,13 @@ export function decideGateway(input: {
   pathname: string;
   method: string;
   principal: Principal | null;
-  quota: QuotaStore;
+  /** Every key's token bucket on this replica (`rate-bucket.ts`). */
+  buckets: KeyBuckets;
+  /** The key's limit from identity's exchange; null or absent: no limit is set, so a key call is refused. */
+  keyRateLimit?: KeyRateLimit | null | undefined;
+  /** The owner's per-route cost table (`EDGE_RATE_ROUTE_COSTS`). A call it names no cost for is refused. */
+  costs: readonly RouteCost[];
   now: number;
-  max: number;
-  windowMs: number;
   /** The request's Host header. */
   host?: string | null;
   /** Parsed `EDGE_SANDBOX_HOSTS`. Empty: no sandbox host. */
@@ -230,10 +239,21 @@ export function decideGateway(input: {
     return { allow: false, status: 403, body: scopeRefuseBody(door, needed) };
   }
 
-  const quota = takeQuota(input.quota, kid, input.now, input.max, input.windowMs);
-  if (!quota.ok) {
-    return { allow: false, status: 429, body: quotaRefuseBody(quota.retryAfterSeconds) };
+  // The key's limit is read only when the key itself is presented; its exchanged access token sent instead carries none.
+  if (input.keyRateLimit === undefined) return { allow: false, status: 401, body: limitsUnsetBody('edge.api_key_bearer_required') };
+  const limit = input.keyRateLimit;
+  if (!limit) return { allow: false, status: 503, body: limitsUnsetBody('edge.limits_unset') };
+  const cost = routeCost(input.costs, verb, input.pathname);
+  if (cost === null) return { allow: false, status: 503, body: limitsUnsetBody('edge.cost_unset') };
+  const taken = input.buckets.take(kid, input.principal!.userId, limit, cost, input.now);
+  if (!taken.ok) {
+    return {
+      allow: false,
+      status: 429,
+      body: quotaRefuseBody(taken.retryAfterSeconds, taken.reason, cost),
+      limited: { reason: taken.reason, limit: taken.burst, cost, retryAfterSeconds: taken.retryAfterSeconds },
+    };
   }
 
-  return { allow: true, sandbox };
+  return { allow: true, sandbox, metered: { limit: taken.burst, remaining: taken.remaining, cost, resetSeconds: taken.fullInSeconds } };
 }

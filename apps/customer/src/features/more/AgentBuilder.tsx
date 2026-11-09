@@ -32,6 +32,7 @@ import {
 import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, toolWords, TryTool } from './AgentGuardrails';
+import { AccessPage } from './AgentAccess';
 import { ReviewerPanel } from './AgentReviewer';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { EvaluationsPage } from './AgentEvaluations';
@@ -92,6 +93,7 @@ const CODE_WORDS = {
   'agents.own.delete_unconfirmed': 'code_own_delete_unconfirmed',
   'agents.own.delete_published': 'code_own_delete_published',
   'agents.own.delete_has_sessions': 'code_own_delete_has_sessions',
+  'agents.agent.disabled': 'code_agent_disabled',
 } as const;
 const wordsKey = (code: string) => (Object.hasOwn(CODE_WORDS, code) ? CODE_WORDS[code as keyof typeof CODE_WORDS] : null);
 
@@ -479,6 +481,7 @@ export function OwnAgentPage({ id }: { id: string }) {
               onChange={setPage}
               label={t('pagesLabel')}
             />
+            <AgentStatus id={agent.id} />
             <p className="muted" data-testid="agent-version">
               {t(agent.state === 'published' ? 'versionPublished' : 'versionDraft', { version: String(agent.version) })}
             </p>
@@ -518,13 +521,15 @@ export function OwnAgentPage({ id }: { id: string }) {
               <EvaluationsPage agent={agent} />
             ) : page === 'Sharing' ? (
               <SharingPage agent={agent} />
+            ) : page === 'Access' ? (
+              <AccessPage agent={agent} />
             ) : page === 'Identity' ? (
               <IdentityPage key={agent.id} agent={agent} />
             ) : (
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
                 <p role="note">
                   {t(
-                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing' | 'Identity'>}`,
+                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing' | 'Identity' | 'Access'>}`,
                   )}
                 </p>
               </Panel>
@@ -533,6 +538,42 @@ export function OwnAgentPage({ id }: { id: string }) {
         );
       }}
     </Read>
+  );
+}
+
+const backgroundRunSchema = z.object({
+  id: z.string(),
+  state: z.enum(['running', 'done', 'stopped']),
+  stepsDone: z.number(),
+  stepsTotal: z.number(),
+  stopCode: z.string().nullable(),
+  cost: z.string(),
+  startedAt: z.string(),
+});
+
+const agentStatusSchema = z.object({ status: z.enum(['active', 'quarantined', 'disabled_by_kind']) });
+
+/**
+ * Whether the agent may start new work (AG-control-02). Switched off by an operator, the page says so on every tab, with
+ * the service's refusal code and the open button off; only an operator switches it off and only two founders restore it.
+ */
+function AgentStatus({ id }: { id: string }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const loaded = useResource((signal) => api.query('agents', 'own.status', { id }, agentStatusSchema, { signal }), `own-status:${id}`);
+  if (loaded.resource.status !== 'ready') return null;
+  const off = loaded.resource.data.status !== 'active';
+  return (
+    <section aria-label={t('agentStatusTitle')}>
+      <p data-testid="agent-status">{t(off ? 'status_disabled' : 'status_active')}</p>
+      {off ? (
+        <>
+          <p className="muted">{t('disabledNote')}</p>
+          <Refusal code="agents.agent.disabled" />
+          <Button disabled>{t('openSession')}</Button>
+        </>
+      ) : null}
+    </section>
   );
 }
 
@@ -882,6 +923,12 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
     (signal) => api.query('agents', 'own.runs', { id: agent.id, limit: 50 }, z.array(ownAgentRunRowSchema), { signal }),
     `own-runs:${agent.id}:${version}`,
   );
+  // Background test runs first, newest first: each says how far it got, or what stopped it at its next step.
+  const background = useResource(
+    (signal) => api.query('agents', 'own.backgroundRuns', { id: agent.id, limit: 20 }, z.array(backgroundRunSchema), { signal }),
+    `own-background-runs:${agent.id}:${version}`,
+  );
+  const backgroundRows = background.resource.status === 'ready' ? background.resource.data : [];
   return (
     <Panel title={t('runsTitle')} role="region" aria-label={t('runsTitle')}>
       <Read resource={runs.resource} retry={runs.reload}>
@@ -897,6 +944,24 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
                 </tr>
               </thead>
               <tbody>
+                {backgroundRows.map((run) => (
+                  <tr key={`background:${run.id}`} data-background-run={run.id}>
+                    <td>{new Date(run.startedAt).toLocaleString()}</td>
+                    <td>
+                      {run.state === 'running'
+                        ? t('bg_running', { done: String(run.stepsDone), total: String(run.stepsTotal) })
+                        : run.state === 'done'
+                          ? t('bg_done', { total: String(run.stepsTotal) })
+                          : run.stopCode === 'agents.agent.quarantined'
+                            ? t('bg_stopped_quarantined')
+                            : run.stopCode === 'agents.agent.disabled_by_kind'
+                              ? t('bg_stopped_kind')
+                              : t('bg_stopped_other')}
+                    </td>
+                    <td>{run.stopCode ? <code lang="zxx">{run.stopCode}</code> : null}</td>
+                    <td data-testid="run-cost">{run.cost}</td>
+                  </tr>
+                ))}
                 {rows.map((row) => (
                   <tr key={row.status === 'waiting' ? row.requestId : `${row.sessionId}:${row.sequence}`}>
                     <td>{new Date(row.occurredAt).toLocaleString()}</td>
@@ -913,7 +978,7 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
                 ))}
               </tbody>
             </table>
-            {rows.length === 0 ? <p className="muted">{t('runsEmpty')}</p> : null}
+            {rows.length === 0 && backgroundRows.length === 0 ? <p className="muted">{t('runsEmpty')}</p> : null}
           </>
         )}
       </Read>
