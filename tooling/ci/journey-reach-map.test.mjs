@@ -577,8 +577,12 @@ test('the harness: what tooling/scripts and the real-app files run in Node, foll
 test('the committed map’s money list is REVIEW.md’s money code: ledger-client, every workspace folder depending on it directly, the named services and svc-ledger (CI review on a50417c8)', () => {
   const map = loadMap();
   if (map?.mode !== 'reach') return; // a full map narrows nothing
-  const want = [...new Set([...moneyCodeDirs(manifestsAt(ROOT_DIR)), ...MONEY_SERVICES])].sort();
-  assert.deepEqual(map.money, want);
+  // The list is the money code when the map was built; folders added to main since then are missing from it until the
+  // next rebuild (packages/venue-hyperliquid, 9 Nov). Money code no longer forces the full run (REVIEW.md's C4 entry,
+  // OWNER 249), so the list selects nothing and only has to name money code, never anything else.
+  const want = new Set([...moneyCodeDirs(manifestsAt(ROOT_DIR)), ...MONEY_SERVICES]);
+  for (const d of map.money) assert.ok(want.has(d), `${d} is in the map's money list but is not money code`);
+  assert.ok(map.money.includes('packages/ledger-client') && map.money.includes('services/svc-ledger'));
   // apps/customer reaches ledger-client only through other packages (consumers follows dependencies through packages),
   // so it is not money code by the definition; its money journeys run through the money services it calls.
   const customer = JSON.parse(readFileSync(join(ROOT_DIR, 'apps/customer/package.json'), 'utf8'));
