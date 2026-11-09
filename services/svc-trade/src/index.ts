@@ -110,7 +110,8 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
-import { VenueRefusalError } from '@intafaced/venue-contracts';
+import { builderFeesAt } from './venue/builder-fee-versions.js';
+import { VenueRefusalError, isTestVenue } from '@intafaced/venue-contracts';
 import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
@@ -451,6 +452,8 @@ const userVenue = userVenueUrl
       store: new SqlPreparedActionStore(sql),
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
+      builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
     })
   : null;
@@ -612,6 +615,19 @@ export const appRouter = createTradeRouter(
       quoteTtlMs: env.TRADE_CONVERT_QUOTE_TTL_MS,
       // A malformed setting refuses both flows above, so the read shows both as not set.
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
+    },
+    // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
+    venueMarkets: async () => {
+      if (!userVenue) return null;
+      const venue = await userVenue.venue();
+      const markets = await venue.markets(null);
+      return {
+        venueId: venue.venue.id,
+        displayName: venue.venue.displayName,
+        test: isTestVenue(venue.venue),
+        markets: markets.value,
+        asOf: markets.asOf,
+      };
     },
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),

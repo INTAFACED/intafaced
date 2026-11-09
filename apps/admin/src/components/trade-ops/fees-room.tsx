@@ -9,6 +9,8 @@ import { tradeOpsAction } from '@/lib/trade-ops/client';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import type { FeesDeskView } from '@/lib/trade-ops/fees-calls';
 import type { FeeNotice } from '@/lib/trade-ops/fees-desk-parse';
+import type { BuilderCaps } from '@/lib/trade-ops/builder-fees-model';
+import { BuilderFeeInputs, BuilderFeeVersions } from './builder-fees';
 import {
   STATE_LABEL,
   buildProposal,
@@ -139,7 +141,7 @@ function Versions({ history, now }: { history: FeeHistory; now: Date }) {
 
 // ── #2-#4 the proposal ──
 
-function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: FeeVersionRow) => void }) {
+function Propose({ base, caps, onWritten }: { base: FeeVersionRow; caps: BuilderCaps | null; onWritten: (row: FeeVersionRow) => void }) {
   const [draft, setDraft] = useState<ProposalDraft>(() => draftFrom(base));
   const [reason, setReason] = useState('');
   const [localRefusal, setLocalRefusal] = useState<{ code: string; message: string } | null>(null);
@@ -149,6 +151,8 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: Fe
 
   const setRate = (i: number, field: 'makerBps' | 'takerBps', value: string) =>
     setDraft((d) => ({ ...d, rates: d.rates.map((r, j) => (j === i ? { ...r, [field]: value } : r)) }));
+  const setBuilderFee = (i: number, feeBps: string) =>
+    setDraft((d) => ({ ...d, builderFees: (d.builderFees ?? []).map((l, j) => (j === i ? { ...l, feeBps } : l)) }));
   const setThreshold = (i: number, value: string) =>
     setDraft((d) => ({ ...d, thresholds: d.thresholds?.map((t, j) => (j === i ? { ...t, minVolume30d: value } : t)) ?? null }));
   const body = () => ({ basisVersion: base.version, draft, reason: reason.trim() });
@@ -156,7 +160,7 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: Fe
   async function propose() {
     setProposed(null);
     // Checked here first: a blank or malformed value is refused with its typed code, and nothing is sent.
-    const check = buildProposal(base, draft, reason, new Date());
+    const check = buildProposal(base, draft, reason, new Date(), caps);
     if (!check.ok) {
       setLocalRefusal({ code: check.code, message: check.message });
       return;
@@ -167,7 +171,7 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: Fe
     setBusy(false);
   }
 
-  const check = buildProposal(base, draft, reason, new Date());
+  const check = buildProposal(base, draft, reason, new Date(), caps);
   return (
     <div className="flex flex-col gap-3" data-fees="propose">
       <p className="text-sm text-fg-2">
@@ -211,6 +215,7 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: Fe
           ))}
         </tbody>
       </table>
+      <BuilderFeeInputs lines={draft.builderFees ?? []} onChange={setBuilderFee} />
       {draft.thresholds === null ? (
         <p className="text-sm text-fg-2">
           This version has no VIP tier programme: thresholds not set, every account is on the regular tier.
@@ -751,7 +756,7 @@ function FiatBuyNotKnown({ view }: { view: FeesDeskView['onrampFeesNotKnown'] })
   );
 }
 
-export function FeesRoom({ initial }: { initial: FeesDeskView }) {
+export function FeesRoom({ initial, builderCaps = null }: { initial: FeesDeskView; builderCaps?: Outcome<BuilderCaps> | null }) {
   const [view, setView] = useState(initial);
   // Kept here, not in the form: the form starts again from the version just written, and this line must stay.
   const [written, setWritten] = useState<FeeVersionRow | null>(null);
@@ -780,11 +785,19 @@ export function FeesRoom({ initial }: { initial: FeesDeskView }) {
       <PageSection title="Fee versions by pair group">
         {history ? <Versions history={history} now={now} /> : <Problem outcome={fees} title="The fee versions could not be read" />}
       </PageSection>
+      <PageSection title="Builder-fee versions by venue and market group">
+        {history ? (
+          <BuilderFeeVersions history={history} now={now} caps={builderCaps} />
+        ) : (
+          <Problem outcome={fees} title="The fee versions could not be read" />
+        )}
+      </PageSection>
       <PageSection title="Propose a new version">
         {base ? (
           <Propose
             key={base.version}
             base={base}
+            caps={builderCaps?.kind === 'ok' ? builderCaps.data : null}
             onWritten={(row) => {
               setWritten(row);
               void reread();
