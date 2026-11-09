@@ -1,4 +1,4 @@
-// World: none
+// World: restart
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
