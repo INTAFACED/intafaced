@@ -108,6 +108,9 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { postBuilderFees } from './venue/builder-fee-poster.js';
+import { builderFeeRecon } from './venue/builder-fee-recon.js';
+import { SqlBuilderFeeStore } from './venue/builder-fee-store.js';
 import { VenueRefusalError } from '@intafaced/venue-contracts';
 import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
@@ -461,6 +464,13 @@ if (userVenue) {
     );
   }
 }
+// Our builder fee on our users' venue fills (D-venue-07; J-derivatives-17): the poster posts `builderFeeEarn` once per
+// fill (scheduled with the futures jobs below), and the founder console's recon reads the venue against the ledger.
+const builderFeeStore = new SqlBuilderFeeStore(sql);
+const builderFees = {
+  recon: (from: Date, to: Date) =>
+    builderFeeRecon({ venue: userVenue ? () => userVenue.venue() : null, ledger, store: builderFeeStore, now: () => new Date() }, from, to),
+};
 // The copy and bots kill switch (CB-ops-03): two founders pause or resume a lead, a bot type or a symbol. Copy mirrors,
 // grid bots and algo bots read its active pauses; the approvals book is the trade ops desk's (bound below).
 const platformPauses = new PlatformPauseDesk({
@@ -622,6 +632,7 @@ export const appRouter = createTradeRouter(
   }),
   grid,
   platformPauses,
+  builderFees,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -777,6 +788,12 @@ matchedLiquidation.current = positions.matchedLiquidation;
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
 // orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
 // around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.
+if (userVenue && env.TRADE_BUILDER_FEE_POSTER === 'on') {
+  futuresJobs.host.every('venue.builder_fees', env.TRADE_BUILDER_FEE_POSTER_INTERVAL_MS, async () => {
+    const run = await postBuilderFees({ venue: () => userVenue.venue(), ledger, store: builderFeeStore, now: () => new Date() });
+    if (run.refused > 0) app.log.error({ job: 'venue.builder_fees', ...run }, 'builder fees the ledger refused stay unposted');
+  });
+}
 futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
   const sweep = await positions.cancelMatchedOrdersOutsideBand();
   for (const item of sweep.skipped) {

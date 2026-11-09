@@ -1,0 +1,201 @@
+import { earnedBuilderFeeKey, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import { formatAmount, type Amount } from '@intafaced/ledger-client/money';
+import { VenueRefusalError, type UserVenue, type UserVenueFill } from '@intafaced/venue-contracts';
+import type { BuilderFeeStore, LoggedBuilderFee } from './builder-fee-store.js';
+
+/**
+ * THE BUILDER-FEE RECON (J-derivatives-17 #1 #2; D-venue-07, D-ops-02). For one period, the builder fees the venue
+ * reports on our users' fills against the builder fees the ledger records as earned (`builder-fee:<venueId>:<fillId>`),
+ * matched fill by fill. Read only: a break is a row for a person, never an entry to make the two agree; a correction is
+ * a separate approved ledger action.
+ *
+ * - The venue's side is the venue's own fills, read now, each with its builder fee.
+ * - The ledger's side is the ledger's own transaction under each key: for every fill the venue reports, and for every
+ *   fill the poster recorded in the period (so a fee the ledger holds and the venue no longer reports is listed too).
+ * - A venue that can't be read is `unknown` with its reason, never a zero; a ledger that can't be read fails the read.
+ */
+export type BuilderFeeLineStatus = 'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused';
+
+export interface BuilderFeeReconLine {
+  readonly fillId: string;
+  readonly userId: string | null;
+  readonly assetId: string;
+  /** The venue's builder fee on the fill, or null when the venue doesn't report the fill. */
+  readonly venueAmount: string | null;
+  /** The fee the ledger records as earned under the fill's key, or null when it records none. */
+  readonly ledgerAmount: string | null;
+  readonly filledAt: string;
+  readonly status: BuilderFeeLineStatus;
+  /** The ledger's refusal, for a fill the poster could not post. */
+  readonly refusalCode: string | null;
+}
+
+export interface BuilderFeeReconTotal {
+  readonly assetId: string;
+  readonly venueTotal: string;
+  readonly ledgerTotal: string;
+  readonly matched: boolean;
+}
+
+export type BuilderFeeReconVenue =
+  | {
+      readonly venueId: string;
+      readonly displayName: string;
+      readonly test: boolean;
+      readonly state: 'read';
+      readonly asOf: string;
+      readonly matched: boolean;
+      readonly totals: readonly BuilderFeeReconTotal[];
+      readonly lines: readonly BuilderFeeReconLine[];
+    }
+  | {
+      readonly venueId: string | null;
+      readonly displayName: string | null;
+      readonly test: boolean | null;
+      readonly state: 'unknown';
+      readonly code: string;
+      readonly message: string;
+    };
+
+export interface BuilderFeeRecon {
+  readonly from: string;
+  readonly to: string;
+  /** True when the period hasn't ended: fills may still arrive, so a green row can still change. */
+  readonly periodOpen: boolean;
+  readonly venues: readonly BuilderFeeReconVenue[];
+}
+
+export interface BuilderFeeReconDeps {
+  /** The venues we route to. Today one, through the user-venue door; null when the door is off. */
+  readonly venue: (() => Promise<UserVenue>) | null;
+  readonly ledger: Pick<LedgerClient, 'getTxByKey'>;
+  readonly store: BuilderFeeStore;
+  readonly now: () => Date;
+}
+
+export class BuilderFeeReconError extends Error {
+  constructor(
+    message: string,
+    readonly code: 'trade.builder_fee_recon_period_invalid' | 'trade.builder_fee_recon_venue_not_connected',
+  ) {
+    super(message);
+    this.name = 'BuilderFeeReconError';
+  }
+}
+
+/** The longest period one read covers, so a read stays bounded. */
+export const BUILDER_FEE_RECON_MAX_DAYS = 31;
+
+/** The fee the ledger records as earned in a `builderFeeEarn` transaction: its one debit, to house builder-fee revenue. */
+export function earnedAmount(tx: LedgerTx): Amount {
+  return tx.entries.filter((e) => e.direction === 'debit').reduce((sum, e) => sum + e.amount, 0n);
+}
+
+export function assertReconPeriod(from: Date, to: Date): void {
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+    throw new BuilderFeeReconError('The period must start before it ends', 'trade.builder_fee_recon_period_invalid');
+  }
+  if (to.getTime() - from.getTime() > BUILDER_FEE_RECON_MAX_DAYS * 86_400_000) {
+    throw new BuilderFeeReconError(
+      `A recon covers at most ${BUILDER_FEE_RECON_MAX_DAYS} days`,
+      'trade.builder_fee_recon_period_invalid',
+    );
+  }
+}
+
+interface Side {
+  venue: (UserVenueFill & { userId: string }) | null;
+  logged: LoggedBuilderFee | null;
+}
+
+export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to: Date): Promise<BuilderFeeRecon> {
+  assertReconPeriod(from, to);
+  const now = deps.now();
+  const head = { from: from.toISOString(), to: to.toISOString(), periodOpen: to > now };
+  if (!deps.venue) {
+    throw new BuilderFeeReconError('No venue is connected, so there is nothing to reconcile', 'trade.builder_fee_recon_venue_not_connected');
+  }
+
+  let venue: UserVenue;
+  let reported: (UserVenueFill & { userId: string })[] = [];
+  let asOf = now;
+  try {
+    venue = await deps.venue();
+    for (const { userId, account } of await deps.store.accounts(venue.venue.id)) {
+      const fills = await venue.fills(account, from);
+      if (fills.asOf < asOf) asOf = fills.asOf;
+      for (const fill of fills.value) {
+        if (fill.builderFee > 0n && fill.filledAt >= from && fill.filledAt < to) reported.push({ ...fill, userId });
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof VenueRefusalError)) throw error;
+    return {
+      ...head,
+      venues: [{ venueId: null, displayName: null, test: null, state: 'unknown', code: `venue.${error.refusal.code}`, message: error.message }],
+    };
+  }
+
+  const venueId = venue.venue.id;
+  const sides = new Map<string, Side>();
+  for (const fill of reported) sides.set(fill.fillId, { venue: fill, logged: null });
+  for (const logged of await deps.store.inPeriod(venueId, from, to)) {
+    const side = sides.get(logged.fillId);
+    if (side) side.logged = logged;
+    else sides.set(logged.fillId, { venue: null, logged });
+  }
+
+  const lines: BuilderFeeReconLine[] = [];
+  const totals = new Map<string, { venue: Amount; ledger: Amount }>();
+  for (const [fillId, side] of sides) {
+    const tx = await deps.ledger.getTxByKey(earnedBuilderFeeKey(venueId, fillId));
+    const ledgerAmount = tx ? earnedAmount(tx) : null;
+    const assetId = side.venue?.feeAsset ?? side.logged!.assetId;
+    const venueAmount = side.venue ? side.venue.builderFee : null;
+    const status: BuilderFeeLineStatus =
+      venueAmount === null
+        ? ledgerAmount === null
+          ? 'ledger_refused'
+          : 'not_reported_by_venue'
+        : ledgerAmount === null
+          ? side.logged?.status === 'refused'
+            ? 'ledger_refused'
+            : 'not_in_ledger'
+          : ledgerAmount === venueAmount
+            ? 'matched'
+            : 'amounts_differ';
+    if (venueAmount === null && ledgerAmount === null) continue; // a refused fill the venue no longer reports: nothing on either side
+    const sum = totals.get(assetId) ?? { venue: 0n, ledger: 0n };
+    totals.set(assetId, { venue: sum.venue + (venueAmount ?? 0n), ledger: sum.ledger + (ledgerAmount ?? 0n) });
+    lines.push({
+      fillId,
+      userId: side.venue?.userId ?? side.logged?.userId ?? null,
+      assetId,
+      venueAmount: venueAmount === null ? null : formatAmount(venueAmount),
+      ledgerAmount: ledgerAmount === null ? null : formatAmount(ledgerAmount),
+      filledAt: (side.venue?.filledAt ?? side.logged!.filledAt).toISOString(),
+      status,
+      refusalCode: status === 'ledger_refused' ? (side.logged?.refusalCode ?? null) : null,
+    });
+  }
+  lines.sort((a, b) => a.filledAt.localeCompare(b.filledAt) || a.fillId.localeCompare(b.fillId));
+
+  const totalRows = [...totals.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([assetId, t]) => ({ assetId, venueTotal: formatAmount(t.venue), ledgerTotal: formatAmount(t.ledger), matched: t.venue === t.ledger }));
+  return {
+    ...head,
+    venues: [
+      {
+        venueId,
+        displayName: venue.venue.displayName,
+        test: venue.venue.proofLevel !== 'live',
+        state: 'read',
+        asOf: asOf.toISOString(),
+        matched: lines.every((l) => l.status === 'matched'),
+        totals: totalRows,
+        lines,
+      },
+    ],
+  };
+}

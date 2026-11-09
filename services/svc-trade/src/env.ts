@@ -25,6 +25,13 @@ const schema = serviceEnvSchema
       TRADE_USER_VENUE_BUILDER_ADDRESS: z.string().default(''),
       /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
       TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
+      /**
+       * D-venue-07 builder-fee poster (src/venue/builder-fee-poster.ts): with the door on, how often it reads our users'
+       * venue fills and posts our builder fee on each to the ledger. `off` stops it, so fills wait unposted (the recon then
+       * lists them as not in the ledger); the next run posts each once.
+       */
+      TRADE_BUILDER_FEE_POSTER: z.enum(['on', 'off']).default('on'),
+      TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(10_000),
 
       /** CB-bots-10 bot verification switch: `required` (unset) or `off`, written explicitly. See algo/bots-verification.ts. */
       TRADE_BOTS_VERIFICATION: z.enum(['required', 'off']).optional(),
