@@ -94,6 +94,8 @@ export const FORBIDDEN_SIGNATURES = [
   'standingPermit(address,uint160,uint48,uint48,uint256,bytes)', // SovereignRouterV2
   // delegatecalls any router v2 function, exactIn and exactOut included, so it would reach them past this list
   'multicall(bytes[])', // SovereignRouterV2
+  // sets a new pool's pair and first price from the caller's arguments; seeding against a token the key controls drains
+  'createAndSeed(address,address,uint16,uint256,uint256,uint256,address,uint256)', // LiquidityRouter
   'permit(address,address,address,uint160,uint48,uint48,uint256,bytes)', // SovereignPermit standing allowance
   'permitTransferFrom(address,uint256,uint256,uint256,address,address,uint256,bytes)', // SovereignPermit
   // Permit2-style `transferFrom(owner, to, amount, token)`: pulls under an allowance to a caller-named recipient.
@@ -145,6 +147,14 @@ export const RECIPIENT_SCOPED_CALLS = [
   { signature: 'proposeSpend(address,uint256)', recipientArg: 0 },
   // SovereignNft.setTokenRoyalty(tokenId, receiver, bps) — royalties paid to `receiver`
   { signature: 'setTokenRoyalty(uint256,address,uint16)', recipientArg: 1 },
+  // LiquidityRouter.addLiquidity(pool, a0Desired, a1Desired, a0Min, a1Min, minShares, to, deadline) — shares to `to`
+  { signature: 'addLiquidity(address,uint256,uint256,uint256,uint256,uint256,address,uint256)', recipientArg: 6 },
+  // LiquidityRouter.removeLiquidity(pool, shares, a0Min, a1Min, to, deadline) — underlying paid to `to`
+  { signature: 'removeLiquidity(address,uint256,uint256,uint256,address,uint256)', recipientArg: 4 },
+  // LiquidityRouter.swapAndAdd(pool, tokenIn, amountIn, minShares, to, deadline) — shares to `to`
+  { signature: 'swapAndAdd(address,address,uint256,uint256,address,uint256)', recipientArg: 4 },
+  // LiquidityPool.skim(to) — the pool's surplus paid to `to`
+  { signature: 'skim(address)', recipientArg: 0 },
 ] as const;
 
 /**
@@ -159,6 +169,11 @@ export const RECIPIENT_SCOPED_CALLS = [
 export const TARGET_ARG_CALLS = [
   // SovereignRouter.swapExactIn(pool, tokenIn, amountIn, minAmountOut, to)
   { signature: 'swapExactIn(address,address,uint256,uint256,address)', targetArg: 0 },
+  // LiquidityRouter: any factory pool passes the router's own check, including one pairing a token the key controls, so
+  // the pool must be one the owner named.
+  { signature: 'addLiquidity(address,uint256,uint256,uint256,uint256,uint256,address,uint256)', targetArg: 0 },
+  { signature: 'removeLiquidity(address,uint256,uint256,uint256,address,uint256)', targetArg: 0 },
+  { signature: 'swapAndAdd(address,address,uint256,uint256,address,uint256)', targetArg: 0 },
 ] as const;
 
 /** selector → byte offset of the 32-byte trusted-address word in calldata. */
