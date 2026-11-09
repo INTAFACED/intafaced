@@ -11,6 +11,8 @@ import {
   FUTURES_EXECUTION_KINDS,
   FUTURES_ORDER_ORIGINS,
   ORDER_LABEL,
+  type FuturesCancelMany,
+  type FuturesCancelManyInput,
   type FuturesExecution,
   type FuturesOrder,
 } from '../../../screens/trade/futures/api';
@@ -108,10 +110,15 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
   const [olderFailed, setOlderFailed] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [cancelFailure, setCancelFailure] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchAnswer, setBatchAnswer] = useState<FuturesCancelMany | null>(null);
   const [revision, setRevision] = useState(0);
   const reads = useRef(0);
 
   useEffect(() => setLabelDraft(params.label), [params.label]);
+  // A selection belongs to the list it was made on: another view or filter starts it again.
+  useEffect(() => setSelected(new Set()), [search]);
   useEffect(() => setSymbolDraft(params.symbol), [params.symbol]);
 
   const key = `${writeFuturesParams(params)}:${revision}:${userId ?? 'out'}`;
@@ -198,6 +205,31 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
     setRevision((n) => n + 1);
   }
 
+  /**
+   * Several orders in one request (J-derivatives-04 step 4): the ones ticked, or every open order the contract and
+   * label filters name. Each order is answered on its own line; one that couldn't be cancelled never stops the rest.
+   */
+  async function cancelMany(input: FuturesCancelManyInput) {
+    setBatchBusy(true);
+    setCancelFailure(null);
+    setBatchAnswer(null);
+    const result = await api.cancelOrders(input);
+    setBatchBusy(false);
+    if (result.ok) {
+      setBatchAnswer(result.data);
+      setSelected(new Set());
+    } else setCancelFailure(futuresRefusal(result).title);
+    setRevision((n) => n + 1);
+  }
+
+  const toggle = (orderId: string, on: boolean) =>
+    setSelected((now) => {
+      const next = new Set(now);
+      if (on) next.add(orderId);
+      else next.delete(orderId);
+      return next;
+    });
+
   if (!userId)
     return (
       <Page eyebrow={orders('eyebrow')} title={t('title')} description={t('lead')}>
@@ -222,7 +254,21 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
   );
   const detailsHref = (orderId: string) => `/trade/orders/${encodeURIComponent(orderId)}?product=futures`;
 
+  const selectColumn: TableColumn<FuturesOrder> = {
+    id: 'select',
+    header: t('colSelect'),
+    cell: (o) =>
+      cancellable(o) ? (
+        <input
+          type="checkbox"
+          aria-label={t('selectOrder', { id: o.orderId })}
+          checked={selected.has(o.orderId)}
+          onChange={(event) => toggle(o.orderId, event.target.checked)}
+        />
+      ) : null,
+  };
   const orderColumns: TableColumn<FuturesOrder>[] = [
+    ...(params.view === 'open' ? [selectColumn] : []),
     { id: 'placed', header: t('colPlaced'), value: (o) => time(o.createdAt) },
     { id: 'contract', header: t('colContract'), value: (o) => o.symbol ?? o.marketId },
     {
@@ -415,6 +461,65 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
             {t('deskLink')}
           </a>
         </p>
+        {params.view === 'open' ? (
+          <div className="orders-filters" role="group" aria-label={t('batchLabel')}>
+            <Button
+              variant="secondary"
+              size={40}
+              disabled={selected.size === 0}
+              loading={batchBusy}
+              onClick={() => void cancelMany({ orderIds: [...selected] })}
+            >
+              {t('cancelSelected', { count: String(selected.size) })}
+            </Button>
+            {/* Only the filters the service cancels by: with a From filter on, the list shows less than it would cancel. */}
+            {(params.symbol !== '' || params.label !== '') && params.origin === '' ? (
+              <Button
+                variant="secondary"
+                size={40}
+                loading={batchBusy}
+                onClick={() =>
+                  void cancelMany({
+                    ...(params.symbol ? { symbol: params.symbol } : {}),
+                    ...(params.label ? { label: params.label } : {}),
+                  })
+                }
+              >
+                {t('cancelMatching')}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {batchAnswer ? (
+          <section className="orders-note" role="status" aria-label={t('batchResults')}>
+            <p>
+              {batchAnswer.results.length === 0
+                ? t('batchNone')
+                : t('batchSummary', {
+                    cancelled: String(batchAnswer.results.filter((r) => r.outcome === 'cancelled').length),
+                    count: String(batchAnswer.results.length),
+                  })}
+            </p>
+            <ul>
+              {batchAnswer.results.map((r) => (
+                <li key={r.orderId}>
+                  {t('batchLine', {
+                    id: r.orderId,
+                    outcome:
+                      r.outcome === 'cancelled'
+                        ? t('outcomeCancelled')
+                        : r.outcome === 'not_found'
+                          ? t('outcomeNotFound')
+                          : r.outcome === 'refused'
+                            ? t('outcomeRefused', { reason: r.message ?? r.error ?? '' })
+                            : t('outcomeNotCancelled', { status: r.status ?? '' }),
+                  })}
+                </li>
+              ))}
+            </ul>
+            {batchAnswer.more ? <p>{t('batchMore')}</p> : null}
+          </section>
+        ) : null}
         {cancelFailure ? (
           <p className="orders-note orders-note--bad" role="alert">
             {t('cancelFailed', { reason: cancelFailure })}

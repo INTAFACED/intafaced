@@ -1550,6 +1550,25 @@
         }
       }
     },
+    "/api/v1/futures/orders/cancel": {
+      "post": {
+        "operationId": "cancelFuturesOrders",
+        "summary": "Cancel several futures orders by id, contract or label; each id is answered, an unknown one while the rest cancel",
+        "tags": ["derivatives"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-only-with": "futures-matching",
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/futures/orders/split": {
       "post": {
         "operationId": "createSplitFuturesOrder",

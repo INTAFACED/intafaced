@@ -98,6 +98,7 @@ import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredA
 import {
   holdOf,
   MatchedFuturesOrders,
+  type FuturesCancelManyInput,
   type FuturesOrderQuery,
   type MatchedFillEvent,
   type OrderRow,
@@ -1197,6 +1198,11 @@ export class PositionService {
   /** Cancel a matched futures order the caller owns, and release the part of its hold no fill used. */
   async cancelMatchedOrder(principal: Principal, orderId: string) {
     return this.matched.cancel(principal, orderId);
+  }
+
+  /** Several of the caller's own orders cancelled in one request (`MatchedFuturesOrders.cancelMany`). */
+  async cancelMatchedOrders(principal: Principal, input: FuturesCancelManyInput) {
+    return this.matched.cancelMany(principal, input);
   }
 
   /** Settle matched fills that arrived while a position was busy (see `MatchedFuturesOrders.settleFillOrWait`). */

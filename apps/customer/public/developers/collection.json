@@ -1081,6 +1081,18 @@
           }
         },
         {
+          "name": "cancelFuturesOrders",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/orders/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "orders", "cancel"]
+            }
+          }
+        },
+        {
           "name": "createSplitFuturesOrder",
           "request": {
             "method": "POST",

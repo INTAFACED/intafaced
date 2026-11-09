@@ -2,7 +2,13 @@ import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { parseAmount } from '@intafaced/ledger-client';
-import { attachMatchedOrderRoutes, readPlaceBody, type FuturesOrderWire, type MatchedOrdersRestDeps } from './matched-orders-rest.js';
+import {
+  attachMatchedOrderRoutes,
+  readCancelManyBody,
+  readPlaceBody,
+  type FuturesOrderWire,
+  type MatchedOrdersRestDeps,
+} from './matched-orders-rest.js';
 import { MatchedOrderError, type PlaceMatchedOrderInput } from './matched-orders.js';
 import type { ReverseInput, ReverseView } from './reverse.js';
 
@@ -483,5 +489,62 @@ describe('futures orders through the book: REST', () => {
         (await (await app({ reverse }, { jurisdiction: false })).inject({ method: 'POST', url: '/api/v1/positions/p/reverse' })).statusCode,
       ).toBe(403);
     });
+  });
+});
+
+describe('futures batch cancel: REST (J-derivatives-04 step 4)', () => {
+  it('reads ids alone, or a contract and/or label, and refuses anything else', () => {
+    expect(readCancelManyBody({ orderIds: [' a ', 'b'] })).toEqual({ ok: true, input: { orderIds: ['a', 'b'] } });
+    expect(readCancelManyBody({ symbol: 'BTC/USDT:USDT' })).toEqual({ ok: true, input: { symbol: 'BTC/USDT:USDT', label: null } });
+    expect(readCancelManyBody({ label: 'grid-7' })).toEqual({ ok: true, input: { symbol: null, label: 'grid-7' } });
+    for (const bad of [
+      {},
+      null,
+      { orderIds: [] },
+      { orderIds: 'a' },
+      { orderIds: [1] },
+      { orderIds: Array.from({ length: 101 }, (_, i) => `id-${i}`) },
+      { orderIds: ['a'], symbol: 'X' },
+      { symbol: 7 },
+      { symbol: ' ', label: '' },
+    ]) {
+      expect(readCancelManyBody(bad), JSON.stringify(bad)).toMatchObject({ ok: false, code: 'trade.futures_cancel_batch_invalid' });
+    }
+    expect(readCancelManyBody({ label: 'two words' })).toMatchObject({ ok: false, code: 'trade.order_label_invalid' });
+  });
+
+  it('answers each id on its own line, not held back by the jurisdiction gate', async () => {
+    const seen: unknown[] = [];
+    const server = await app(
+      {
+        cancelMany: async (_p, input) => {
+          seen.push(input);
+          return {
+            results: [
+              { orderId: 'a', outcome: 'cancelled', status: 'cancelled' },
+              { orderId: 'b', outcome: 'not_found', error: 'trade.futures_order_not_found', message: 'futures order b not found' },
+            ],
+            more: false,
+          };
+        },
+      },
+      { jurisdiction: false },
+    );
+    const res = await server.inject({ method: 'POST', url: '/api/v1/futures/orders/cancel', payload: { orderIds: ['a', 'b'] } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().results.map((r: { outcome: string }) => r.outcome)).toEqual(['cancelled', 'not_found']);
+    expect(seen).toEqual([{ orderIds: ['a', 'b'] }]);
+    const bad = await server.inject({ method: 'POST', url: '/api/v1/futures/orders/cancel', payload: {} });
+    expect(bad.statusCode).toBe(400);
+    expect(seen).toHaveLength(1);
+  });
+
+  it('answers 503 when unmounted and 401 signed out', async () => {
+    const unmounted = await app({});
+    expect((await unmounted.inject({ method: 'POST', url: '/api/v1/futures/orders/cancel', payload: { label: 'x' } })).statusCode).toBe(
+      503,
+    );
+    const out = await app({ cancelMany: async () => ({ results: [], more: false }) }, { signedIn: false });
+    expect((await out.inject({ method: 'POST', url: '/api/v1/futures/orders/cancel', payload: { label: 'x' } })).statusCode).toBe(401);
   });
 });

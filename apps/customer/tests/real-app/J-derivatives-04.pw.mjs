@@ -384,3 +384,104 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   await expect(page.getByText(`Liquidation step ${fromLiq.originRef}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
 });
+
+/** A TEST limit buy `bps` from the mark that rests on the book, placed through the customer's own API. */
+async function restingBuy(me, tag, bps, label) {
+  const { mark, tier } = await markOf(me);
+  const placed = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    price: away(mark, bps),
+    amount: SIZE,
+    leverage: LEVERAGE,
+    marginMode: 'isolated',
+    confirmTier: tier,
+    clientOrderId: `${J}-${tag}-${Date.now()}`,
+    ...(label ? { orderLabel: label } : {}),
+  });
+  expect(placed.status, JSON.stringify(placed.body)).toBe(200);
+  expect(placed.body.status, JSON.stringify(placed.body)).toBe('open');
+  return placed.body;
+}
+
+/** The order as the service now holds it: cancelled, and every unit it held released back, once. */
+async function releasedOnce(me, order) {
+  const now = await until(
+    async () => (await me.get(`/api/v1/futures/orders/${encodeURIComponent(order.orderId)}`)).body,
+    (o) => o.status === 'cancelled' && toUnits(o.releasedAmount) === toUnits(o.holdAmount),
+    `order ${order.orderId} cancelled with its hold released`,
+  );
+  expect(toUnits(now.filledQty)).toBe(0n);
+  expect(now.appliedAmount).toBe('0');
+  return now;
+}
+
+test(`${J} #4 cancels by id, by instrument and by label, singly and in a batch: each id answered, an unknown id reported while the rest cancel`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Its own TEST account, so the orders it reads are only the ones it placed.
+  const who = await fundedTrader(page, 'jd4c', '1000');
+  const me = await api(who);
+  await signIn(page, who);
+  const batchLabel = 'grid-batch';
+  // Five limit buys 3% to 4% under the mark: they rest, and each holds its own margin and fees.
+  const single = await restingBuy(me, 'single', -300);
+  const viaApi = await restingBuy(me, 'api', -310);
+  const labelled = [await restingBuy(me, 'l1', -320, batchLabel), await restingBuy(me, 'l2', -330, batchLabel)];
+  const onContract = await restingBuy(me, 'contract', -340);
+  for (const o of [single, viaApi, ...labelled, onContract]) expect(toUnits(o.holdAmount)).toBeGreaterThan(0n);
+
+  // Singly, from the room: one order ticked and cancelled; the room answers its id.
+  await room(page);
+  await page.getByRole('checkbox', { name: `Select order ${single.orderId}` }).check();
+  const batch = page.getByRole('group', { name: 'Cancel several' });
+  const sent = page.waitForResponse((r) => r.url().endsWith('/api/v1/futures/orders/cancel') && r.request().method() === 'POST');
+  await batch.getByRole('button', { name: 'Cancel selected (1)' }).click();
+  expect((await sent).request().postDataJSON()).toEqual({ orderIds: [single.orderId] });
+  const results = page.getByRole('status', { name: 'What was cancelled' });
+  await expect(results).toContainText('1 of 1 cancelled.');
+  await expect(results.getByRole('listitem')).toHaveText([`${single.orderId}: Cancelled`]);
+  await releasedOnce(me, single);
+
+  // In a batch by id, as a bot sends it: an id that is no order of this trader's is reported, and the rest cancel.
+  const unknown = '00000000-0000-4000-8000-000000000000';
+  const answered = await me.post('/api/v1/futures/orders/cancel', { orderIds: [unknown, viaApi.orderId] });
+  expect(answered.status, JSON.stringify(answered.body)).toBe(200);
+  expect(answered.body.results).toEqual([
+    expect.objectContaining({ orderId: unknown, outcome: 'not_found', error: 'trade.futures_order_not_found' }),
+    { orderId: viaApi.orderId, outcome: 'cancelled', status: 'cancelled' },
+  ]);
+  expect(answered.body.more).toBe(false);
+  await releasedOnce(me, viaApi);
+
+  // By label, from the room: only the two labelled orders; the unlabelled one rests on.
+  await room(page, `&label=${batchLabel}`);
+  await expect(table(page, 'Open orders').getByRole('row').filter({ hasText: batchLabel })).toHaveCount(2);
+  await batch.getByRole('button', { name: 'Cancel every open order matching these filters' }).click();
+  await expect(results).toContainText('2 of 2 cancelled.');
+  await expect(results.getByRole('listitem')).toHaveText(labelled.map((o) => `${o.orderId}: Cancelled`));
+  for (const o of labelled) await releasedOnce(me, o);
+  expect((await me.get(`/api/v1/futures/orders/${onContract.orderId}`)).body.status).toBe('open');
+
+  // By instrument, from the room: every open order on the contract.
+  await room(page, `&symbol=${encodeURIComponent(SYMBOL)}`);
+  await batch.getByRole('button', { name: 'Cancel every open order matching these filters' }).click();
+  await expect(results).toContainText('1 of 1 cancelled.');
+  await expect(results.getByRole('listitem')).toHaveText([`${onContract.orderId}: Cancelled`]);
+  await releasedOnce(me, onContract);
+  await expect(page.getByText('No futures order rests on the book.').or(page.getByText('Nothing matches these filters.'))).toBeVisible();
+
+  // Nothing left: the same filter again answers that nothing matched, and moves nothing.
+  const again = await me.post('/api/v1/futures/orders/cancel', { symbol: SYMBOL });
+  expect(again.body).toEqual({ results: [], more: false });
+  expect((await orders(me, 'scope=open&limit=50')).length).toBe(0);
+  // Each order released exactly what it held, once: the five released amounts are the five holds.
+  const ended = await orders(me, 'scope=history&limit=50');
+  for (const o of [single, viaApi, ...labelled, onContract]) {
+    const row = ended.find((e) => e.orderId === o.orderId);
+    expect(row?.status, o.orderId).toBe('cancelled');
+    expect(toUnits(row.releasedAmount), o.orderId).toBe(toUnits(o.holdAmount));
+  }
+});

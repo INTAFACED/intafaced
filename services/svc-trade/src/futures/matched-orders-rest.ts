@@ -12,11 +12,15 @@ import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { isDerivativesAccessError, presentDerivativesAccessError } from './derivatives-access.js';
 import { presentFuturesErrorWire } from './futures-error-wire.js';
 import {
+  FUTURES_CANCEL_BATCH_INVALID,
+  FUTURES_CANCEL_BATCH_MAX,
   FUTURES_ORDER_ORIGINS,
   MATCHED_ORDER_STATUSES,
   MatchedOrderError,
   ORDER_LABEL_INVALID,
   ORDER_LABEL_PATTERN,
+  type FuturesCancelManyInput,
+  type FuturesCancelManyResult,
   type FuturesOrderOrigin,
   type FuturesOrderQuery,
   type MatchedOrderStatus,
@@ -60,6 +64,8 @@ export interface MatchedOrdersRestDeps {
     readonly stopped: { readonly child: number; readonly code: string; readonly message: string } | null;
   }>;
   readonly cancel?: (principal: Principal, orderId: string) => Promise<FuturesOrderWire>;
+  /** Several orders in one request, by id, contract or label, each answered on its own line. Absent answers 503. */
+  readonly cancelMany?: (principal: Principal, input: FuturesCancelManyInput) => Promise<FuturesCancelManyResult>;
   readonly list?: (principal: Principal, input: FuturesOrderQuery) => Promise<readonly FuturesOrderWire[]>;
   /** One of the caller's own orders; null answers 404. Absent answers 503 like `list`. */
   readonly get?: (principal: Principal, orderId: string) => Promise<FuturesOrderWire | null>;
@@ -113,6 +119,33 @@ function decimalField(value: unknown): Amount | null | undefined {
   } catch {
     return null;
   }
+}
+
+/**
+ * Reads a batch cancel body: `orderIds` alone, or `symbol` and/or `label`. Mixing the two, or naming nothing, refuses,
+ * so a request never cancels more than the caller named. Exported for the route test.
+ */
+export function readCancelManyBody(
+  raw: unknown,
+): { ok: true; input: FuturesCancelManyInput } | { ok: false; code: string; message: string } {
+  const body = (raw ?? {}) as Record<string, unknown>;
+  const invalid = (message: string) => ({ ok: false as const, code: FUTURES_CANCEL_BATCH_INVALID, message });
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : v === undefined || v === null ? null : undefined);
+  if (body.orderIds !== undefined) {
+    if (body.symbol !== undefined || body.label !== undefined) return invalid('name order ids, or a contract and label, not both');
+    const ids = body.orderIds;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > FUTURES_CANCEL_BATCH_MAX)
+      return invalid(`orderIds is a list of 1 to ${FUTURES_CANCEL_BATCH_MAX} order ids`);
+    if (!ids.every((id) => typeof id === 'string' && id.trim() !== '')) return invalid('every order id is a string');
+    return { ok: true, input: { orderIds: ids.map((id: string) => id.trim()) } };
+  }
+  const symbol = text(body.symbol);
+  const label = text(body.label);
+  if (symbol === undefined || label === undefined) return invalid('symbol and label are strings');
+  if (symbol === null && label === null) return invalid('name order ids, a contract or a label');
+  if (label !== null && !ORDER_LABEL_PATTERN.test(label))
+    return { ok: false, code: ORDER_LABEL_INVALID, message: 'a label is 1 to 36 of letters, digits and . _ : -' };
+  return { ok: true, input: { symbol, label } };
 }
 
 /** Reads a place body into the service input, or answers why it cannot. Exported for the route test. */
@@ -391,6 +424,24 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
       if (!order)
         return reply.code(404).send({ error: 'trade.futures_order_not_found', message: `futures order ${req.params.id} not found` });
       return reply.code(200).send(order);
+    } catch (err) {
+      const sent = sendFuturesFailure(reply, err, gates);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  // Each order is answered on its own line: one unknown or refused id never stops the rest (J-derivatives-04 step 4).
+  app.post('/api/v1/futures/orders/cancel', privateWrite, async (req, reply) => {
+    const principal = gates.requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.cancelMany) return reply.code(503).send(UNMOUNTED);
+    try {
+      // Like a single cancel, it only lowers exposure, so the trading jurisdiction gate does not hold it back.
+      requireScope(principal, 'trade:write');
+      const read = readCancelManyBody(req.body);
+      if (!read.ok) return bad(reply, read.code, read.message);
+      return reply.code(200).send(await deps.cancelMany(principal, read.input));
     } catch (err) {
       const sent = sendFuturesFailure(reply, err, gates);
       if (sent) return sent;

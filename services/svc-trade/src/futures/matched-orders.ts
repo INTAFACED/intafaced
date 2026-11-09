@@ -248,6 +248,26 @@ export interface FuturesOrderQuery {
 
 export type FuturesOrderListed = MatchedOrderView & { readonly symbol: string; readonly createdAt: string };
 
+/** The most orders one cancel request answers (`cancelMany`); a filter that matches more says so and stops there. */
+export const FUTURES_CANCEL_BATCH_MAX = 100;
+export const FUTURES_CANCEL_BATCH_INVALID = 'trade.futures_cancel_batch_invalid';
+
+/** A batch cancel: named ids, or a contract, a label or both (`cancelMany`). */
+export type FuturesCancelManyInput =
+  | { readonly orderIds: readonly string[]; readonly symbol?: undefined; readonly label?: undefined }
+  | { readonly orderIds?: undefined; readonly symbol?: string | null; readonly label?: string | null };
+
+/** One order's answer in a batch: cancelled, still on its way (the engine's word awaited), unknown, or refused. */
+export type FuturesCancelAnswer =
+  | { readonly orderId: string; readonly outcome: 'cancelled' | 'not_cancelled'; readonly status: MatchedOrderStatus }
+  | { readonly orderId: string; readonly outcome: 'not_found' | 'refused'; readonly error: string; readonly message: string };
+
+export interface FuturesCancelManyResult {
+  readonly results: readonly FuturesCancelAnswer[];
+  /** A filter matched more than one request answers; send it again for the rest. */
+  readonly more: boolean;
+}
+
 /** What a split request placed: every child, in order, and the refusal that stopped it early, if one did. */
 export interface SplitPlacement {
   readonly parts: number;
@@ -2850,6 +2870,60 @@ export class MatchedFuturesOrders {
       await this.releaseWhenDone(orderId);
     }
     return presentOrder(await this.loadOrder(orderId));
+  }
+
+  /**
+   * Cancel several of the caller's own orders in one request (J-derivatives-04 step 4): named by id, or every open order
+   * on one contract, with one label, or both. Each order is cancelled exactly as `cancel` does it, one after another, so
+   * each releases its own unused hold once; one that can't be cancelled is answered on its own line and the rest go on.
+   * A liquidation's order is never chosen by a filter, and is refused when named, since it is the venue's. Named ids are
+   * answered in the order given, once each; a filter takes the oldest open orders first, at most
+   * `FUTURES_CANCEL_BATCH_MAX`, and says whether more were left.
+   */
+  async cancelMany(principal: Principal, input: FuturesCancelManyInput): Promise<FuturesCancelManyResult> {
+    let ids: string[];
+    let more = false;
+    if (input.orderIds !== undefined) {
+      ids = [...new Set(input.orderIds)];
+      if (ids.length === 0 || ids.length > FUTURES_CANCEL_BATCH_MAX) {
+        refuse(FUTURES_CANCEL_BATCH_INVALID, `name from 1 to ${FUTURES_CANCEL_BATCH_MAX} order ids`);
+      }
+    } else {
+      const symbol = input.symbol ?? null;
+      const label = input.label ?? null;
+      if (symbol === null && label === null) refuse(FUTURES_CANCEL_BATCH_INVALID, 'name order ids, a contract or a label');
+      if (label !== null && !ORDER_LABEL_PATTERN.test(label))
+        refuse(ORDER_LABEL_INVALID, 'a label is 1 to 36 of letters, digits and . _ : -');
+      const sql = this.deps.sql;
+      const rows = await sql<{ id: string }[]>`
+        SELECT o.id FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
+         WHERE o.user_id = ${principal.userId}
+           AND o.status IN ${sql(['pending', ...LIVE_OR_UNKNOWN])}
+           AND o.origin <> 'liquidation'
+           ${symbol !== null ? sql`AND m.symbol = ${symbol}` : sql``}
+           ${label !== null ? sql`AND o.order_label = ${label}` : sql``}
+         ORDER BY o.created_at, o.id
+         LIMIT ${FUTURES_CANCEL_BATCH_MAX + 1}
+      `;
+      more = rows.length > FUTURES_CANCEL_BATCH_MAX;
+      ids = rows.slice(0, FUTURES_CANCEL_BATCH_MAX).map((r) => r.id);
+    }
+    const results: FuturesCancelAnswer[] = [];
+    for (const orderId of ids) {
+      try {
+        const view = await this.cancel(principal, orderId);
+        results.push({ orderId, outcome: view.status === 'cancelled' ? 'cancelled' : 'not_cancelled', status: view.status });
+      } catch (err) {
+        if (!(err instanceof MatchedOrderError)) throw err;
+        results.push({
+          orderId,
+          outcome: err.code === 'trade.futures_order_not_found' ? 'not_found' : 'refused',
+          error: err.code,
+          message: err.message,
+        });
+      }
+    }
+    return { results, more };
   }
 
   /**

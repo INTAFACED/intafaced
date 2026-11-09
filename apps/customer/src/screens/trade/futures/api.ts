@@ -211,6 +211,22 @@ export const ORDER_LABEL = /^[A-Za-z0-9._:-]{1,36}$/;
 export const FUTURES_ORDER_ORIGINS = ['user', 'stop', 'take_profit', 'stop_loss', 'trailing_stop', 'liquidation', 'reverse'] as const;
 export const FUTURES_EXECUTION_KINDS = ['open', 'close', 'liquidation', 'adl'] as const;
 
+/** A batch cancel's answer (J-derivatives-04 step 4): one line per order, and whether a filter left more. */
+export const futuresCancelManySchema = z.object({
+  results: z.array(
+    z.object({
+      orderId: z.string(),
+      outcome: z.enum(['cancelled', 'not_cancelled', 'not_found', 'refused']),
+      status: z.string().optional(),
+      error: z.string().optional(),
+      message: z.string().optional(),
+    }),
+  ),
+  more: z.boolean(),
+});
+export type FuturesCancelMany = z.infer<typeof futuresCancelManySchema>;
+export type FuturesCancelManyInput = { orderIds: string[] } | { symbol?: string; label?: string };
+
 export const futuresOrderSchema = z.object({
   orderId: z.string(),
   clientOrderId: z.string().optional(),
@@ -515,6 +531,9 @@ export function createFuturesApi(api: ApiClient) {
     placeSplit: (input: PlaceOrderInput) =>
       api.rest('/futures/orders/split', futuresSplitSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' } }),
     cancelOrder: (orderId: string) => api.rest(`/futures/orders/${encodeURIComponent(orderId)}`, futuresOrderSchema, { method: 'DELETE' }),
+    /** Several orders at once: named ids, or every open order on a contract, with a label, or both. */
+    cancelOrders: (input: FuturesCancelManyInput) =>
+      api.rest('/futures/orders/cancel', futuresCancelManySchema, { method: 'POST', body: input }),
     orders: (scope: 'open' | 'all', signal?: AbortSignal) =>
       api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope, limit: 100 }, signal }),
     /** A page of the trader's orders, newest first; `before` is the last order of the page before. */
