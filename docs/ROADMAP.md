@@ -46,11 +46,11 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1527 slices left in 21 modules. 273 need no other slice. 47 sit in a dependency loop that the lane untangles first. 364 end in a refusal that names an outside service (built, switched on later). Size: 716 L, 704 M, 107 S.
+1530 slices left in 21 modules. 273 need no other slice. 47 sit in a dependency loop that the lane untangles first. 365 end in a refusal that names an outside service (built, switched on later). Size: 717 L, 706 M, 107 S.
 
 ### Journey map
 
-Done is defined by 449 journeys (2960 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 46 steps still need a capability no slice covers yet.
+Done is defined by 450 journeys (2970 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 49 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -58,11 +58,11 @@ Done is defined by 449 journeys (2960 steps) in `modules/<module>/acceptance/jou
 | bank           | 30       | 4       | 17      | 9       | 180   | 0                   |
 | copy-bots-otc  | 30       | 0       | 18      | 12      | 205   | 1                   |
 | dex-protocol   | 30       | 0       | 19      | 11      | 250   | 0                   |
-| derivatives    | 28       | 15      | 5       | 8       | 200   | 3                   |
+| derivatives    | 28       | 15      | 5       | 8       | 203   | 0                   |
+| wallet         | 23       | 4       | 12      | 7       | 123   | 12                  |
 | support-public | 22       | 1       | 15      | 6       | 171   | 14                  |
-| wallet         | 22       | 4       | 11      | 7       | 117   | 7                   |
 | agents         | 21       | 4       | 9       | 8       | 134   | 3                   |
-| identity       | 21       | 7       | 9       | 5       | 133   | 1                   |
+| identity       | 21       | 7       | 9       | 5       | 134   | 2                   |
 | p2p            | 21       | 0       | 16      | 5       | 117   | 0                   |
 | pay            | 21       | 0       | 14      | 7       | 121   | 1                   |
 | campaigns      | 20       | 0       | 13      | 7       | 123   | 0                   |
@@ -126,7 +126,7 @@ Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built
 | dex-protocol   | 111    | 4            | 102                           | 40    |
 | bank           | 105    | 28           | 12                            | 59    |
 | identity       | 90     | 17           | 30                            | 27    |
-| derivatives    | 81     | 14           | 21                            | 37    |
+| derivatives    | 84     | 14           | 22                            | 38    |
 | wallet         | 77     | 25           | 27                            | 26    |
 | p2p            | 70     | 12           | 2                             | 40    |
 | academy        | 60     | 3            | 14                            | 34    |
@@ -153,7 +153,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-trade spot                | 164    | 41           | 42                    | 33                    | 17            |
 | svc-identity                  | 136    | 29           | 68                    | 46                    | 11            |
 | svc-protocol                  | 75     | 4            | 1                     | 0                     | 7             |
-| svc-trade futures             | 68     | 12           | 0                     | 51                    | 0             |
+| svc-trade futures             | 71     | 12           | 0                     | 54                    | 0             |
 | svc-p2p                       | 62     | 10           | 0                     | 0                     | 1             |
 | svc-academy                   | 60     | 3            | 0                     | 0                     | 15            |
 | svc-agents                    | 52     | 2            | 0                     | 16                    | 4             |

@@ -1860,7 +1860,7 @@
       { "n": 1, "slices": ["I-kyc-compliance-06"], "noSlice": false },
       { "n": 2, "slices": ["SP-order-entry-01"], "noSlice": false },
       { "n": 3, "slices": ["I-kyc-compliance-08", "I-kyc-compliance-02"], "noSlice": false },
-      { "n": 4, "slices": ["W-deposit-05"], "noSlice": false },
+      { "n": 4, "slices": ["W-deposit-05", "D-venue-11"], "noSlice": false },
       { "n": 5, "slices": ["SP-order-01", "SP-markets-data-01", "SP-developer-status-01"], "noSlice": false },
       { "n": 6, "slices": ["SP-order-entry-03", "SP-order-entry-04", "SP-fees-vip-02"], "noSlice": false },
       { "n": 7, "slices": ["SP-order-entry-01", "SP-lifecycle-history-01"], "noSlice": false },
@@ -3510,11 +3510,14 @@
     "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-multiasset-02"], "noSlice": false },
-      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 2, "slices": ["D-venue-03", "D-venue-10"], "noSlice": false },
       { "n": 3, "slices": ["D-multiasset-02"], "noSlice": false },
       { "n": 4, "slices": ["D-multiasset-03"], "noSlice": false },
-      { "n": 5, "slices": [], "noSlice": true },
-      { "n": 6, "slices": [], "noSlice": true }
+      { "n": 5, "slices": ["D-venue-03"], "noSlice": false },
+      { "n": 6, "slices": ["D-venue-03", "D-venue-07"], "noSlice": false },
+      { "n": 7, "slices": ["D-venue-10"], "noSlice": false },
+      { "n": 8, "slices": ["D-venue-10"], "noSlice": false },
+      { "n": 9, "slices": ["D-venue-10"], "noSlice": false }
     ]
   },
   {
@@ -4695,7 +4698,8 @@
       { "n": 5, "slices": ["I-signin-sessions-18", "I-signin-sessions-20"], "noSlice": false },
       { "n": 6, "slices": ["I-signin-sessions-32"], "noSlice": false },
       { "n": 7, "slices": ["I-kyc-compliance-18"], "noSlice": false },
-      { "n": 8, "slices": ["RC-identity-01"], "noSlice": false }
+      { "n": 8, "slices": ["RC-identity-01"], "noSlice": false },
+      { "n": 9, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -8291,7 +8295,23 @@
       { "n": 4, "slices": [], "noSlice": true },
       { "n": 5, "slices": [], "noSlice": true },
       { "n": 6, "slices": [], "noSlice": true },
-      { "n": 7, "slices": [], "noSlice": true }
+      { "n": 7, "slices": [], "noSlice": true },
+      { "n": 8, "slices": ["D-venue-09"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-wallet-23",
+    "title": "I approve a trading key once per session, so I do not sign every order with my wallet",
+    "module": "wallet",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   }
 ]
