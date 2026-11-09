@@ -4,6 +4,7 @@ import { KB_AUDIENCES } from './audience';
 import type { BulkChange } from './bulk';
 import { readGroupActionRequest, type GroupActionRequest } from './groups';
 import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
+import { readRoutingActionRequest, type RoutingActionRequest } from './routing';
 import { clauseOf, parseFilterText, type FilterClause } from './queue-query';
 import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
 
@@ -231,6 +232,7 @@ export function propertiesGate(ticket: { status: string }, change: PropertiesCha
 export type SupportActionRequest =
   | StaffAvailabilityRequest
   | GroupActionRequest
+  | RoutingActionRequest
   | ({
       readonly action: 'properties';
       readonly ticketId: string;
@@ -395,6 +397,10 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
     case 'group_save':
     case 'group_member':
       return readGroupActionRequest(raw);
+    case 'routing_mode':
+    case 'staff_routing':
+    case 'ticket_skill':
+      return readRoutingActionRequest(raw);
     case 'properties': {
       if (!isTicketId(raw.ticketId) || !isText(raw.clientRequestId, 200)) return null;
       if (raw.reason !== undefined && !isText(raw.reason, REASON_MAX)) return null;

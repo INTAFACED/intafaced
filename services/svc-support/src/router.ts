@@ -1,3 +1,5 @@
+import { routingProcedures } from './desk-routing-router.js';
+import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
 import { MemoryLinkBook, TicketLinks } from './ticket-links.js';
 import { ticketLinkProcedures } from './ticket-links-router.js';
@@ -271,6 +273,8 @@ export function createSupportRouter(
   safety: SafetyCases = new SafetyCases(new MemorySafetyBook(), support, null),
   /** Live chat (SP-chat-01). Left out, every chat door refuses `support.chat_unwired`. */
   chat?: SupportChat,
+  /** Routing, capacity and skills (SP-routing-01). Left out, no routing procedure is mounted and nothing routes. */
+  routing?: DeskRouting,
   /** A request's links to the customer's own records (J-support-public-20 #1). Left out, every link refuses unverifiable. */
   links: TicketLinks = new TicketLinks(new MemoryLinkBook(), support, null, null),
 ) {
@@ -278,6 +282,7 @@ export function createSupportRouter(
   return router({
     ...chatProcedures(chat, mapError),
     ...macroProcedures(macros),
+    ...(routing ? routingProcedures(routing, support) : {}),
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
@@ -1474,7 +1479,15 @@ export function createSupportRouter(
       .mutation(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          return await support.setTicketGroup({ actorId: ctx.principal!.userId, ...input });
+          const placed = await support.setTicketGroup({ actorId: ctx.principal!.userId, ...input });
+          // A request placed in a routed group goes to its next agent now (SP-routing-01); routing off or unset does nothing.
+          // The group change has committed; a routing pass that fails after it is logged and left to the next pass or
+          // sweep, never reported as a failed group change.
+          if (routing && placed.groupId !== null)
+            await routing
+              .route(placed.ticketId)
+              .catch((err: unknown) => console.error('svc-support: routing after a group change failed', err));
+          return placed;
         } catch (err) {
           mapError(err);
         }
