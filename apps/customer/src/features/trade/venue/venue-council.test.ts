@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { preparedStep, type KeptSignature, type PreparedAnswer } from '../venue-api';
 import { keepsDraft, type ActionResult } from './VenueKit';
-import { builderApprovalLine } from './VenueReview';
+import { builderApprovalLine, carriesBuilderFee } from './VenueReview';
 import { venueCopy } from './venue-copy';
 import { spotGateChoice } from '../../../screens/trade/desk/VenueSpotDesk';
 import { futuresVenueCopy } from '../../../screens/trade/futures/venue-copy';
@@ -91,6 +91,12 @@ describe('honest venue words', () => {
 
   it('names a blank builder fee as the blank owner value, not only "not known"', () => {
     expect(builderApprovalLine(false, null)).toBe('Builder fee owner blank');
+    // A spot buy carries no builder fee, so nothing is asked, even with the owner value blank (project-state #1888).
+    expect(builderApprovalLine(false, null, false)).toBe('Builder approval not needed');
+    expect(builderApprovalLine(true, false, false)).toBe('Builder approval not needed');
+    expect(carriesBuilderFee('spot', 'buy')).toBe(false);
+    expect(carriesBuilderFee('spot', 'sell')).toBe(true);
+    expect(carriesBuilderFee('perpetual', 'buy')).toBe(true);
     expect(t('Builder fee owner blank')).toMatch(/owner value that is blank/);
     expect(builderApprovalLine(true, null)).toBe('Not known');
     expect(builderApprovalLine(true, true)).toBe('Builder approved');

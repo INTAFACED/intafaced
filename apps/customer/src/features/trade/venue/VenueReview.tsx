@@ -20,10 +20,21 @@ export function builderApproved(account: VenueAccount, status: VenueUp): boolean
 export function builderApprovalLine(
   published: boolean,
   approved: boolean | null,
-): 'Builder fee owner blank' | 'Not known' | 'Builder approved' | 'Builder not approved' {
+  carriesBuilderFee = true,
+): 'Builder approval not needed' | 'Builder fee owner blank' | 'Not known' | 'Builder approved' | 'Builder not approved' {
+  if (!carriesBuilderFee) return 'Builder approval not needed';
   if (!published) return 'Builder fee owner blank';
   if (approved === null) return 'Not known';
   return approved ? 'Builder approved' : 'Builder not approved';
+}
+
+/**
+ * Whether an order carries our builder fee: not a spot buy, because the venue charges builder fees only on a spot sell and
+ * on both sides of a perp ("builder codes do not apply to the buying side of spot trades"; project-state #1888). The door
+ * attaches none to a spot buy, and nothing then asks for an approval.
+ */
+export function carriesBuilderFee(kind: 'spot' | 'perpetual', side: 'buy' | 'sell'): boolean {
+  return !(kind === 'spot' && side === 'buy');
 }
 
 /**
@@ -61,7 +72,8 @@ export function ReviewDialog({
 }) {
   const { t } = venueCopy.useCopy();
   const p = preview.value;
-  const approved = builderApproved(account, status);
+  const carries = carriesBuilderFee(p.kind, intent.side);
+  const approved = carries ? builderApproved(account, status) : true;
   const [approving, setApproving] = useState<ActionResult | null>(null);
   const [busy, setBusy] = useState(false);
   const feeBps = status.builder?.feeBps ?? '';
@@ -99,7 +111,9 @@ export function ReviewDialog({
           <div>
             <dt>{t('Our builder fee')}</dt>
             <dd className="numeric" data-line="builder-fee">
-              {status.builder ? (
+              {!carries ? (
+                t('Builder none spot buy')
+              ) : status.builder ? (
                 <>
                   <Known value={p.builderFee.known ? { known: true, value: p.builderFee.value.amount } : { known: false }} />{' '}
                   {p.builderFee.known ? p.builderFee.value.asset : ''}
@@ -126,7 +140,7 @@ export function ReviewDialog({
           {extra}
           <div>
             <dt>{t('Builder approval')}</dt>
-            <dd data-line="builder-approval">{t(builderApprovalLine(status.builder !== null, approved), { bps: feeBps })}</dd>
+            <dd data-line="builder-approval">{t(builderApprovalLine(status.builder !== null, approved, carries), { bps: feeBps })}</dd>
           </div>
         </dl>
         <AsOfLine asOf={preview.asOf} />

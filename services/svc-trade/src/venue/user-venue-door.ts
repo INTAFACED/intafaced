@@ -228,7 +228,17 @@ export class UserVenueDoor {
   }
 
   /** An order with our builder fee from the owner value; blank refuses before the venue is asked. */
-  private withBuilderFee(venueId: string, intent: PlaceUserOrderIntent): PlaceUserOrderIntent {
+  /**
+   * Our builder fee on an order, from the owner value. A spot buy carries none and so never needs it published or
+   * approved: the venue charges builder fees only on a spot sell and on both sides of a perp ("builder codes do not
+   * apply to the buying side of spot trades", Hyperliquid's builder-codes page, read 9 Nov 2026; project-state #1888).
+   */
+  private async withBuilderFee(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<PlaceUserOrderIntent> {
+    const venueId = venue.venue.id;
+    if (intent.side === 'buy') {
+      const market = (await venue.markets(null)).value.find((m) => m.symbol === intent.symbol);
+      if (market?.kind === 'spot') return { ...intent, builderFee: null };
+    }
     const builder = this.deps.builder;
     if (!builder) {
       throw new VenueRefusalError({
@@ -244,7 +254,7 @@ export class UserVenueDoor {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
     const venue = await this.venue();
     const account = await this.account(owner);
-    return venue.preview(account, this.withBuilderFee(venue.venue.id, intent));
+    return venue.preview(account, await this.withBuilderFee(venue, intent));
   }
 
   /** The key the action is stored under: the intent's own business key where it has one. */
@@ -307,7 +317,7 @@ export class UserVenueDoor {
     const account = await this.account(req.owner, req.subAccount);
     const signer: VenueSigner = { role: req.signer.role, address: req.signer.address.toLowerCase() };
     let finalIntent: VenueIntent = intent;
-    if (intent.kind === 'place_order') finalIntent = this.withBuilderFee(venue.venue.id, intent);
+    if (intent.kind === 'place_order') finalIntent = await this.withBuilderFee(venue, intent);
     if (intent.kind === 'approve_builder_fee') {
       const builder = this.deps.builder;
       if (!builder) {

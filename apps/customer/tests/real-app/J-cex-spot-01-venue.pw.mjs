@@ -105,12 +105,13 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
-test(`${J} #6 reviews a TEST 0.1 BTC limit buy: what the venue locks, the venue's fee and our builder fee, maker role, time in force, the client id held for retry, and the builder-fee approval`, async ({
+test(`${J} #6 reviews a TEST 0.1 BTC limit buy: what the venue locks, the venue's fee, our builder fee as its own line reading none on a spot buy, maker role, time in force and the client id held for retry; no builder-fee approval is asked`, async ({
   page,
 }) => {
   const { owner, wallet } = await desk(page);
   const sheet = await review(page, BUY);
-  // Every line is the venue's: the same intent previewed on the venue directly, with our builder fee as the door adds it.
+  // Every line is the venue's: the same intent previewed on the venue directly. The door attaches no builder fee to a
+  // spot buy, because the venue charges builder fees only in the quote asset (project-state #1888).
   const status = await testVenue('/venue');
   const clientId = (await line(sheet, 'client-id').innerText()).trim();
   expect(clientId).toMatch(new RegExp(`^order:${owner}:btc-usdc:[a-z0-9]+$`));
@@ -125,7 +126,7 @@ test(`${J} #6 reviews a TEST 0.1 BTC limit buy: what the venue locks, the venue'
       timeInForce: 'GTC',
       reduceOnly: false,
       clientOrderKey: clientId,
-      builderFee: { builder: '0x7e57000000000000000000000000000000000b1d', feeBps: '0.5' },
+      builderFee: null,
     },
   });
   expect(status.body.label).toBe('TEST');
@@ -133,19 +134,19 @@ test(`${J} #6 reviews a TEST 0.1 BTC limit buy: what the venue locks, the venue'
   expect((await line(sheet, 'lock').innerText()).replace(/,/g, '')).toBe(`${p.lock.amount} ${p.lock.asset}`);
   expect(p.lock.asset).toBe('USDC');
   expect((await line(sheet, 'venue-fee').innerText()).trim()).toBe(`${p.venueFee.value.amount} ${p.venueFee.value.asset}`);
-  expect((await line(sheet, 'builder-fee').innerText()).trim()).toBe(`${p.builderFee.value.amount} ${p.builderFee.value.asset}`);
+  // Our builder fee is its own line, reading none: the venue's own preview of a spot buy carries a known zero.
+  expect(p.builderFee.known && toUnits(p.builderFee.value.amount)).toBe(0n);
+  await expect(line(sheet, 'builder-fee')).toHaveText('None: the venue charges no builder fee on a spot buy');
   expect(p.role).toBe('maker');
   await expect(line(sheet, 'role')).toHaveText('Maker');
   await expect(line(sheet, 'tif')).toHaveText('Good till cancelled');
   await expect(sheet.getByTestId('venue-test').first()).toHaveText('TEST');
 
-  // The wallet has not approved our builder fee: the review says so and the wallet signs the approval here, once.
-  await expect(line(sheet, 'builder-approval')).toHaveText('Not signed: your wallet signs an approval of up to 0.5 bps before the order');
-  await expect(sheet.getByRole('button', { name: 'Confirm and sign' })).toBeDisabled();
-  await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' }).click();
-  await continueInWallet(page);
-  await expect(line(sheet, 'builder-approval')).toHaveText('Signed, up to 0.5 bps', { timeout: 15_000 });
-  expect(wallet.requests.map((r) => r.method)).toEqual(['eth_signTypedData_v4']);
+  // The order carries no builder fee, so no approval is asked: no approve button, Confirm is ready, the wallet is untouched.
+  await expect(line(sheet, 'builder-approval')).toHaveText('Not needed: this order carries no builder fee');
+  await expect(sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' })).toHaveCount(0);
+  await expect(sheet.getByRole('button', { name: 'Confirm and sign' })).toBeEnabled();
+  expect(wallet.requests).toEqual([]);
   // Nothing was placed: the review sends no order.
   expect((await venueRecord(owner, '/open-orders')).value).toEqual([]);
 });
@@ -155,7 +156,7 @@ test(`${J} #7 confirms and signs: the order rests on the venue and shows Open in
 }) => {
   const { owner, wallet } = await desk(page);
   const sheet = await review(page, BUY);
-  await expect(line(sheet, 'builder-approval')).toHaveText('Signed, up to 0.5 bps');
+  await expect(line(sheet, 'builder-approval')).toHaveText('Not needed: this order carries no builder fee');
   const outcome = await confirmAndSign(page, sheet);
   await expect(outcome).toContainText('Open on the venue.');
   expect(wallet.requests).toHaveLength(1);
@@ -175,7 +176,7 @@ test(`${J} #7 confirms and signs: the order rests on the venue and shows Open in
   await expect.poll(async () => sameDecimal((await shownBalance(page, 'USDC')).used, venue.locked), { timeout: 15_000 }).toBe(true);
 });
 
-test(`${J} #8 a TEST sell on the venue fills the order: filled with price, size, the venue's fee, our builder fee and the maker role, read from the venue; the venue balances move by the fill`, async ({
+test(`${J} #8 a TEST sell on the venue fills the order: filled with price, size, the venue's fee, no builder fee on this buy, and the maker role, read from the venue; the venue balances move by the fill`, async ({
   page,
 }) => {
   const { owner } = await desk(page);
@@ -220,8 +221,9 @@ test(`${J} #8 a TEST sell on the venue fills the order: filled with price, size,
   await expect(row.locator('[data-cell="amount"]')).toHaveText('0.1');
   await expect(row.locator('[data-cell="role"]')).toHaveText('Maker');
   await expect(row.locator('[data-cell="venue-fee"]')).toHaveText(fill.venueFee);
+  // No builder fee on this buy, as the venue records it (project-state #1888).
+  expect(toUnits(fill.builderFee)).toBe(0n);
   await expect(row.locator('[data-cell="builder-fee"]')).toHaveText(fill.builderFee);
-  expect(toUnits(fill.builderFee) > 0n).toBe(true);
 
   // The venue balances moved by the fill: the lock is spent, and the desk shows the venue's figures.
   const after = await venueBalance(owner, 'USDC');

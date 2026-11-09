@@ -14,6 +14,9 @@ export const venueCopy = defineCopy('trade.venue', {
   'Fee line': 'Fees on {symbol}: maker {maker}, taker {taker} (the venue’s), and our builder fee {builder}',
   'Fee bps': '{bps} bps',
   'Builder fee blank': 'not published, so no order can be placed',
+  'Fee line spot':
+    'Fees on {symbol}: maker {maker}, taker {taker} (the venue’s), and our builder fee {builder} on a sell; a buy carries none',
+  'Builder fee blank spot': 'not published, so no sell can be placed',
 
   // Wallet
   'Your wallet': 'Your wallet',
@@ -95,6 +98,8 @@ export const venueCopy = defineCopy('trade.venue', {
   'Client id held': 'Client id held for retry',
   'Builder approval': 'Builder fee approval',
   'Builder approved': 'Signed, up to {bps} bps',
+  'Builder approval not needed': 'Not needed: this order carries no builder fee',
+  'Builder none spot buy': 'None: the venue charges no builder fee on a spot buy',
   'Builder not approved': 'Not signed: your wallet signs an approval of up to {bps} bps before the order',
   'Approve in wallet': 'Approve our builder fee in your wallet',
   'Confirm and sign': 'Confirm and sign',

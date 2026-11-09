@@ -135,11 +135,12 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const sending = useRef(false);
 
   const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
-  const feeLine = v('Fee line', {
+  // The venue charges our builder fee on a spot sell only (project-state #1888), so the line says which side carries it.
+  const feeLine = v('Fee line spot', {
     symbol: market.symbol,
     maker: fee(market.makerFeeBps),
     taker: fee(market.takerFeeBps),
-    builder: status.builder ? v('Fee bps', { bps: status.builder.feeBps }) : v('Builder fee blank'),
+    builder: status.builder ? v('Fee bps', { bps: status.builder.feeBps }) : v('Builder fee blank spot'),
   });
 
   const cancelled = useCancelledOrders(owner, cancelledKeys);

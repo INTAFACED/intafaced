@@ -306,7 +306,8 @@ export class TestVenueSimulator implements UserVenue {
     };
     const venueFee = line((r) => (r === 'maker' ? market.makerFeeBps : market.takerFeeBps));
     const zeroFee: MaybeKnown<Amount> = { known: true, value: ZERO };
-    const builderLine = line(() => (builderFee ? { known: true, value: builderFee.feeBps } : zeroFee));
+    // No builder fee on a spot buy (see `fill`): known zero, whatever the order carries.
+    const builderLine = line(() => (builderFee && !feeInBase ? { known: true, value: builderFee.feeBps } : zeroFee));
 
     let perpetual: VenueOrderPreview['perpetual'] = null;
     if (perp && setting) {
@@ -939,7 +940,11 @@ export class TestVenueSimulator implements UserVenue {
       const feeInBase = market.kind === 'spot' && side.order.side === 'buy';
       const feeBasis = feeInBase ? qty : mul(price, qty, QUOTE_ROUND);
       const venueFeeDue = div(mul(feeBasis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
-      let builderFee = side.builderFee ? div(mul(feeBasis, side.builderFee.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
+      // As the venue does: a builder fee never applies to the buying side of a spot trade, only to a spot sell and to
+      // both sides of a perp ("builder codes do not apply to the buying side of spot trades", Hyperliquid's
+      // builder-codes page, read 9 Nov 2026; project-state #1888).
+      const builderApplies = side.builderFee !== null && !feeInBase;
+      let builderFee = builderApplies ? div(mul(feeBasis, side.builderFee!.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
       let venueFee = venueFeeDue;
       const { realisedPnl, uncharged } = this.settle(market, side, qty, price, add(venueFee, builderFee));
       // Report only what was charged: a fee the account could not pay is cut from our builder fee first.
