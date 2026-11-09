@@ -43,9 +43,10 @@ export const MIN_TARGET_MINUTES = 10;
 // Never above this, so setup plus the journeys stays well inside the job's limit.
 export const MAX_TARGET_MINUTES = 25;
 // At least the 8 shards the suite ran on before. At most 32: the org's runners are not the 500 GitHub's limits page names
-// for its plan. Counted from the jobs' own start and end times (project-state #1906, 9 Nov 2026), 178 to 185 jobs ran at
-// once through 09:50-10:50 UTC while hundreds waited, and 108 to 126 at 13:18-13:20. A main run of 48 shards took about
-// a third of that, so pull-request CI starved behind it. The replay above puts the median run at about 36 minutes with
+// for its plan. Counted from the jobs' own start and end times (project-state #1906, 9 Nov 2026), about 180 jobs ran at
+// once (178 to 185 through 09:50-10:50 UTC, 175 to 179 through 13:16-13:28, peaks to about 230) while jobs that wait on
+// nothing queued for up to 37 minutes. A main run of 48 shards took over a quarter of that, and pull-request CI starved
+// behind it. The replay above puts the median run at about 36 minutes with
 // 32 shards and the same 36 with 40 or 56, so 32 costs main's verdict about nothing and leaves the rest for CI.
 export const MIN_SHARDS = 8;
 export const MAX_SHARDS = 32;
