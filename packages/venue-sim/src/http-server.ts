@@ -103,7 +103,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     // J-cex-spot-16 proves the venue's own caps on TEST markets of its own (/test/market-add, /test/market-limits).
     maxOrderQty: parseAmount('1000'),
     maxOrderNotional: parseAmount('100000000'),
-    listing: VENUE_LISTED,
+    listedBy: VENUE_LISTED,
   },
   {
     symbol: 'ETH-USDC',
@@ -145,7 +145,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     status: 'trading',
     maxOrderQty: parseAmount('1000'),
     maxOrderNotional: parseAmount('10000000'),
-    listing: { kind: 'hip3', name: 'TEST gold deployer' },
+    listedBy: { kind: 'hip3', name: 'TEST gold deployer' },
     oracleRule: "TEST oracle: one XAU/USD price, set by the simulator's TEST control; it reads no outside gold price.",
     markRule: 'The mark price is the oracle price; fills do not move it.',
     tradingHours: '24/7, no close',

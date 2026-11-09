@@ -11,7 +11,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
  *
  * `typedData` is passed through untouched on both sides: it is the exact payload
  * the wallet signs, and the venue rebuilds and checks it at submit. A market's
- * published words (`listing`, `oracleRule`, `markRule`, `tradingHours`,
+ * published words (`listedBy`, `oracleRule`, `markRule`, `tradingHours`,
  * `staleRule`) are passed through too: their `value` is text.
  */
 
@@ -81,7 +81,7 @@ const DATE_FIELDS: ReadonlySet<string> = new Set(['asOf', 'preparedAt', 'filledA
  * Passed through untouched: the wallet's payload, and the venue's published words (a market's listing and rules, each a
  * `MaybeKnown` of text), whose `value` is text, never money, even when it happens to read like a number.
  */
-const OPAQUE_FIELDS: ReadonlySet<string> = new Set(['typedData', 'listing', 'oracleRule', 'markRule', 'tradingHours', 'staleRule']);
+const OPAQUE_FIELDS: ReadonlySet<string> = new Set(['typedData', 'listedBy', 'oracleRule', 'markRule', 'tradingHours', 'staleRule']);
 
 export class VenueWireError extends Error {
   constructor(message: string) {

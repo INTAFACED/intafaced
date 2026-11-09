@@ -576,7 +576,7 @@ export interface UserVenueMarket {
    * published by this venue", never filled with our own text): who lists it, the oracle and mark-price rules it is priced
    * by, its trading hours, and its price feed's state with the venue's rule while it is stale.
    */
-  readonly listing: MaybeKnown<UserVenueListing>;
+  readonly listedBy: MaybeKnown<UserVenueListing>;
   readonly oracleRule: MaybeKnown<string>;
   readonly markRule: MaybeKnown<string>;
   readonly tradingHours: MaybeKnown<string>;

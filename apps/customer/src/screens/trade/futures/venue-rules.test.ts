@@ -20,7 +20,7 @@ const market = {
   lotSize: '0.01',
   makerFeeBps: { known: true, value: '1' },
   takerFeeBps: { known: true, value: '3' },
-  listing: { known: true, value: { kind: 'hip3', name: 'TEST gold deployer' } },
+  listedBy: { known: true, value: { kind: 'hip3', name: 'TEST gold deployer' } },
   oracleRule: { known: true, value: 'TEST oracle' },
   markRule: { known: false },
   tradingHours: { known: true, value: '24/7, no close' },
@@ -30,11 +30,11 @@ const market = {
 describe('the futures desk: a market’s published rules (J-derivatives-21)', () => {
   it('reads the listing, rules, hours and feed from the venue, and keeps an unpublished one unpublished', () => {
     const parsed = venueMarketSchema.parse(market);
-    expect(parsed.listing).toEqual({ known: true, value: { kind: 'hip3', name: 'TEST gold deployer' } });
+    expect(parsed.listedBy).toEqual({ known: true, value: { kind: 'hip3', name: 'TEST gold deployer' } });
     expect(parsed.markRule).toEqual({ known: false });
     expect(parsed.feed).toMatchObject({ known: true, value: { state: 'stale', staleRule: { known: false } } });
     // A venue that sends none of them is refused, never read as "no rule": the door always sends each, known or not.
-    const { listing: _l, ...missing } = market;
+    const { listedBy: _l, ...missing } = market;
     expect(venueMarketSchema.safeParse(missing).success).toBe(false);
     expect(venueMarketSchema.safeParse({ ...market, feed: { known: true, value: { state: 'paused' } } }).success).toBe(false);
   });

@@ -214,8 +214,8 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
       <dl className="protocol-facts">
         <div>
           <dt>{t('Listed by')}</dt>
-          <dd data-testid="venue-listing" data-listing={market.listing.known ? market.listing.value.kind : 'unknown'}>
-            {market.listing.known ? t(`listing_${market.listing.value.kind}`, { name: market.listing.value.name }) : t('Not published')}
+          <dd data-testid="venue-listing" data-listing={market.listedBy.known ? market.listedBy.value.kind : 'unknown'}>
+            {market.listedBy.known ? t(`listing_${market.listedBy.value.kind}`, { name: market.listedBy.value.name }) : t('Not published')}
           </dd>
         </div>
         <div>

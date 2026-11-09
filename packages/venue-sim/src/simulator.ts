@@ -104,7 +104,7 @@ export interface SimMarketConfig {
   readonly maxOrderQty?: Amount | null;
   readonly maxOrderNotional?: Amount | null;
   /** Who lists the market, as the venue publishes it. Unset: not published. */
-  readonly listing?: UserVenueListing;
+  readonly listedBy?: UserVenueListing;
   /** The venue's published oracle and mark-price rules and trading hours, in its words. Unset: not published. */
   readonly oracleRule?: string;
   readonly markRule?: string;
@@ -398,7 +398,7 @@ export class TestVenueSimulator implements UserVenue {
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
-      listing: published(m.listing),
+      listedBy: published(m.listedBy),
       oracleRule: published(m.oracleRule),
       markRule: published(m.markRule),
       tradingHours: published(m.tradingHours),

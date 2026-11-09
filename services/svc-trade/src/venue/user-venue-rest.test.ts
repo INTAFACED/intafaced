@@ -50,7 +50,7 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve', builder: Build
     },
     builder,
     now: () => new Date(),
-    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP'])),
   });
 }
 
@@ -150,7 +150,7 @@ describe('/api/v1/venue/*', () => {
     expect(xau).toMatchObject({
       maxLeverageBps: 100_000,
       tickSize: '0.1',
-      listing: { known: true, value: { kind: 'hip3', name: 'TEST gold deployer' } },
+      listedBy: { known: true, value: { kind: 'hip3', name: 'TEST gold deployer' } },
       tradingHours: { known: true, value: '24/7, no close' },
       markRule: { known: true, value: 'The mark price is the oracle price; fills do not move it.' },
       feed: { known: true, value: { state: 'live', staleRule: { known: true } } },

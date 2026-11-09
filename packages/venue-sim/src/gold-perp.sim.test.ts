@@ -104,14 +104,14 @@ describe('TEST venue simulator: the TEST gold perpetual (J-derivatives-21)', () 
       maxLeverageBps: 100_000,
       tickSize: a('0.1'),
       lotSize: a('0.01'),
-      listing: { known: true, value: { kind: 'hip3', name: 'TEST gold deployer' } },
+      listedBy: { known: true, value: { kind: 'hip3', name: 'TEST gold deployer' } },
       oracleRule: { known: true, value: expect.stringContaining('TEST oracle') },
       markRule: { known: true, value: 'The mark price is the oracle price; fills do not move it.' },
       tradingHours: { known: true, value: '24/7, no close' },
       feed: { known: true, value: { state: 'live', lastOracleUpdateAt: w.now(), staleRule: { known: true, value: STALE_RULE } } },
     });
     const btc = markets.find((m) => m.symbol === 'BTC-PERP')!;
-    expect(btc.listing).toEqual({ known: true, value: { kind: 'venue', name: 'TEST venue simulator' } });
+    expect(btc.listedBy).toEqual({ known: true, value: { kind: 'venue', name: 'TEST venue simulator' } });
     for (const field of ['oracleRule', 'markRule', 'tradingHours', 'feed'] as const) expect(btc[field]).toEqual({ known: false });
   });
 

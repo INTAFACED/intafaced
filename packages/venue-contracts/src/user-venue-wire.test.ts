@@ -71,7 +71,7 @@ describe('user-venue wire', () => {
       maxOrderQty: null,
       maxOrderNotional: null,
       builderFeeCapBps: { known: false },
-      listing: { known: true, value: { kind: 'hip3', name: 'TEST deployer' } },
+      listedBy: { known: true, value: { kind: 'hip3', name: 'TEST deployer' } },
       // Text that reads like a number stays text: a rule is never money.
       oracleRule: { known: true, value: '3' },
       markRule: { known: false },

@@ -44,7 +44,7 @@ const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserV
   maxOrderQty: null,
   maxOrderNotional: null,
   builderFeeCapBps: { known: false },
-  listing: { known: false },
+  listedBy: { known: false },
   oracleRule: { known: false },
   markRule: { known: false },
   tradingHours: { known: false },
