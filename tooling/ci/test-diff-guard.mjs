@@ -19,8 +19,8 @@
  * Tests are `.test.`/`.spec.` files, `__tests__/` folders, and the browser journeys and harnesses (`*.pw.mjs`).
  *
  * Checks 1 (all but a focus: `.only`, `fit(`, `fdescribe(`, which drops every other test and stays here), 3, 4 and 5 leave an added or modified journey step file (`apps/customer/tests/real-app/J-*.pw.mjs`) to the test
- * judge on a pull request its job runs for (same repository, base main): the seal needs the judge's verdict on the exact
- * head, and the judge reads each changed test against the step it proves, which no line in the description can stand
+ * judge (the CI review's test part) on a pull request its job runs for (same repository, base main): the seal needs the
+ * judge's verdict (the CI review's Test verdict) on the exact head, and the judge reads each changed test against the step it proves, which no line in the description can stand
  * in for (judged-paths.mjs leftToJudge; R3 C6). A deleted journey file, look sweeps, harnesses, configs, unit tests and
  * any pull request the judge doesn't run for stay here: a PR that does one of 1-5 there on purpose says so in its
  * description with a line
@@ -69,7 +69,7 @@ const BASELINE_DECLARED = /^\s*Baseline-change:\s*(\S+)\s+[—–:-]+\s*(\S.{7,}
 const count = (lines) => lines.reduce((n, l) => n + (l.match(ASSERT)?.length ?? 0), 0);
 
 /** @param {{path:string, status:string, removed:string[], added:string[], sourceExists:boolean}[]} changes */
-/** `judgeRuns`: the test judge's job runs for this pull request (judged-paths.mjs leftToJudge). */
+/** `judgeRuns`: the CI review job, which carries the test judge, runs for this pull request (judged-paths.mjs leftToJudge). */
 export function judge(changes, { judgeRuns = false } = {}) {
   const problems = [];
   for (const c of changes) {

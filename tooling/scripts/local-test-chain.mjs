@@ -28,16 +28,13 @@ import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { localStackState } from './local-test-state.mjs';
+import { CHAIN_HOST, CHAIN_PORTS, GATE_URL, TEST_CHAIN_ID, chainRecordPath } from './local-test-facts.mjs';
 
-const HOST = '127.0.0.1';
+const HOST = CHAIN_HOST;
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PROTOCOL_DIR = path.join(REPO, 'services', 'svc-protocol');
-/** The app's network id (apps/customer/src/features/protocol/wallet/eip1193.ts APP_CHAIN_ID). */
-export const TEST_CHAIN_ID = 84532;
-/** Every port the chains hold, the second network's included, so the stack's in-use check covers them all. */
-export const CHAIN_PORTS = { gate: 14530, anvil: 14531, control: 14532, secondGate: 14533, secondAnvil: 14534, relay: 14535 };
-export const GATE_URL = `http://${HOST}:${CHAIN_PORTS.gate}`;
+// The chain's id, ports, gate and record file live in local-test-facts.mjs, so the journeys read them without this script.
+export { CHAIN_PORTS, GATE_URL, TEST_CHAIN_ID, chainRecordPath };
 /** The TEST network-fee relayer's submit URL (svc-protocol's PROTOCOL_FEE_RELAY_URL on the stack). */
 export const RELAY_URL = `http://${HOST}:${CHAIN_PORTS.relay}/relay`;
 /** FeeTokenRelay.swap's selector: the one call the TEST relayer sends. */
@@ -49,8 +46,6 @@ export const RELAY_SWAP_SELECTOR = '0xff292559';
 export const SECOND_CHAIN_ID = 31337;
 export const SECOND_CHAIN_PORTS = { gate: CHAIN_PORTS.secondGate, anvil: CHAIN_PORTS.secondAnvil };
 export const SECOND_GATE_URL = `http://${HOST}:${SECOND_CHAIN_PORTS.gate}`;
-/** What the seed put on the chain (addresses), written by `serve`'s seed step; absent when no chain runs. */
-export const chainRecordPath = (state = localStackState()) => path.join(state, 'test-chain.json');
 
 /** The anvil to run: LOCAL_STACK_ANVIL_BIN when set (CI), else `anvil` on PATH, else null (no TEST chain). */
 export function anvilBin(env = process.env) {

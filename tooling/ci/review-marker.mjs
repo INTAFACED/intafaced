@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Merge-seal step: a pull request that changes gate-file or look-baseline paths is sealed only when
- * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head.
+ * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head, and
+ * one that changes a journey test or shared test code only when the same job passed its `Test verdict` step there
+ * (JUDGE_CHECK; one model call answers both).
  *
  *   node tooling/ci/review-marker.mjs --self-test
  *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
@@ -48,15 +50,27 @@ export const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
 export const REVIEW_JOB = 'CI review';
 export const VERDICT_STEP = 'Verdict';
 /**
- * The two verdicts the seal reads from REVIEW_WORKFLOW, each a job and its `Verdict` step: the CI review (gate files
- * and look baselines, reviewReason) and the test judge (journey tests and shared test code, test-judge.mjs
- * judgeReason). Both run in the same pull_request_target run, so the tree index and "a FAIL stands for its code"
- * cover both. (Failure the judge prevents: proof v2's post-merge reach reads voided 545 proofs over one harness change
- * that altered nothing the tests observe; project-state research/system-design-2026-11-07/E1-RESULT.md.)
+ * The two verdicts the seal reads from REVIEW_WORKFLOW's one job, REVIEW_JOB, made from one model call per head (U4,
+ * project-state #1574: "Fold the AI test judge into the one CI review, so a PR has one AI judge"): the review's part
+ * (gate files and look baselines, reviewReason) in its `Verdict` step, and the test part (journey tests and shared test
+ * code, test-judge.mjs judgeReason) in its `Test verdict` step. They stay two steps so each blocks only what it always
+ * blocked: a review FAIL on a test-only change doesn't block, and a test FAIL blocks whatever the review says. Both are
+ * in one run, so the tree index and "a FAIL stands for its code" cover both. (Failure the test part prevents: proof
+ * v2's post-merge reach reads voided 545 proofs over one harness change that altered nothing the tests observe;
+ * project-state research/system-design-2026-11-07/E1-RESULT.md.)
  */
 export const REVIEW_CHECK = { job: REVIEW_JOB, step: VERDICT_STEP, label: 'CI review' };
+export const TEST_VERDICT_STEP = 'Test verdict';
+/** The retired `Test judge` job, whose FAIL on the same code still stands (never its pass): ciReviewVerdict. */
 export const JUDGE_JOB = 'Test judge';
-export const JUDGE_CHECK = { job: JUDGE_JOB, step: VERDICT_STEP, label: 'test judge' };
+export const JUDGE_CHECK = {
+  job: REVIEW_JOB,
+  step: TEST_VERDICT_STEP,
+  label: 'test judge',
+  standingFails: [{ job: JUDGE_JOB, step: VERDICT_STEP }],
+};
+/** The verdict steps of REVIEW_JOB: a FAIL in one never voids the other's PASS. */
+export const VERDICT_STEPS = [VERDICT_STEP, TEST_VERDICT_STEP];
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -122,6 +136,18 @@ export function indexesFirst(text) {
  */
 export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number, check = REVIEW_CHECK }) {
   const { job: JOB, step: STEP, label } = check;
+  // A FAIL counts in the check's own step, and in a retired job's step it replaced (standingFails); a pass only in its own.
+  const failPairs = [{ job: JOB, step: STEP }, ...(check.standingFails ?? [])];
+  const failedIn = (job) =>
+    failPairs.some((p) => job?.name === p.job && (job.steps ?? []).find((s) => s?.name === p.step)?.conclusion === 'failure');
+  // A pass: the job finished, its step passed, and the job concluded success, or failed only in its other verdict step
+  // (a FAIL that blocks only its own concern). Any other failed step (the read, the call, the seal re-run) voids it.
+  const passed = (job, step) =>
+    job.status === 'completed' &&
+    step?.conclusion === 'success' &&
+    (job.conclusion === 'success' ||
+      (job.conclusion === 'failure' &&
+        (job.steps ?? []).every((s) => s?.conclusion !== 'failure' || (s?.name !== STEP && VERDICT_STEPS.includes(s?.name)))));
   const want = String(sha ?? '').toLowerCase();
   if (!SHA40.test(want)) return { ok: false, state: 'none', why: `"${sha}" is not a full head sha` };
   if (base !== REVIEW_BASE)
@@ -151,9 +177,9 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
       const listed = String(run?.head_commit?.tree_id ?? '').toLowerCase();
       if (!mine || (SHA40.test(listed) ? listed : await tree(theirs)) !== mine) continue;
       for (const [i, jobs] of (await attempts(run)).entries()) {
-        for (const job of (jobs ?? []).filter((j) => j?.name === JOB)) {
+        for (const job of jobs ?? []) {
           if (String(job.head_sha ?? theirs).toLowerCase() !== theirs) continue;
-          if ((job.steps ?? []).find((s) => s?.name === STEP)?.conclusion === 'failure')
+          if (failedIn(job))
             return {
               ok: false,
               state: 'fail',
@@ -174,18 +200,19 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
   let pending = false;
   for (const run of own) {
     for (const [i, jobs] of (await attempts(run)).entries()) {
-      for (const job of (jobs ?? []).filter((j) => j?.name === JOB)) {
+      for (const job of jobs ?? []) {
         if (String(job.head_sha ?? want).toLowerCase() !== want) continue;
-        const step = (job.steps ?? []).find((s) => s?.name === STEP);
-        if (step?.conclusion === 'failure')
+        if (failedIn(job))
           return {
             ok: false,
             state: 'fail',
             why: `run ${run.id} attempt ${i + 1}: the ${label} found blocking findings on ${want}; a FAIL stands for its head, so push a fix`,
           };
+        if (job.name !== JOB) continue; // a retired job's FAIL stands (above); only the check's own job passes
         if (!intoMain(run)) continue; // reviewed against another base: neither a pass nor pending here
+        const step = (job.steps ?? []).find((s) => s?.name === STEP);
         if (job.status !== 'completed') pending = true;
-        else if (job.conclusion === 'success' && step?.conclusion === 'success') passedIn ??= `run ${run.id} attempt ${i + 1}`;
+        else if (passed(job, step)) passedIn ??= `run ${run.id} attempt ${i + 1}`;
       }
     }
   }
@@ -213,7 +240,7 @@ export function reviewReason(files) {
   return null;
 }
 
-/** The verdicts a change needs, each with why: the CI review's and the test judge's (both null when neither applies). */
+/** The verdicts a change needs, each with why: the CI review's two parts, its review and its test part (none when neither applies). */
 export function requiredChecks(files) {
   const out = [];
   const review = reviewReason(files);
@@ -370,18 +397,23 @@ async function selfTest() {
   console.log('review-marker self-test ok');
 }
 
-/** A `CI review` job object as GitHub's jobs API returns it, with its Verdict step's conclusion. */
-export function reviewJob(sha, verdict = 'success', { status = 'completed' } = {}) {
+/**
+ * A `CI review` job object as GitHub's jobs API returns it, with its Verdict step's conclusion and, when `tests` is
+ * given, its Test verdict step's (without it, a job from before the test part was folded in).
+ */
+export function reviewJob(sha, verdict = 'success', { status = 'completed', tests } = {}) {
   const done = status === 'completed';
+  const steps = [
+    { name: 'Review', status, conclusion: done ? 'success' : null },
+    { name: VERDICT_STEP, status, conclusion: done ? verdict : null },
+  ];
+  if (tests !== undefined) steps.push({ name: TEST_VERDICT_STEP, status, conclusion: done ? tests : null });
   return {
     name: REVIEW_JOB,
     head_sha: sha,
     status,
-    conclusion: done ? (verdict === 'success' ? 'success' : 'failure') : null,
-    steps: [
-      { name: 'Review', status, conclusion: done ? 'success' : null },
-      { name: VERDICT_STEP, status, conclusion: done ? verdict : null },
-    ],
+    conclusion: done ? (steps.every((s) => s.conclusion === 'success') ? 'success' : 'failure') : null,
+    steps,
   };
 }
 

@@ -1,5 +1,5 @@
 import { MODULES, type ModuleId, type Plane } from './modules.js';
-import { isExplicitDevOrTest } from './app-env.js';
+import { isExplicitDevOrTest, isUserAssignedRegionCode } from './app-env.js';
 import {
   SANCTIONS_REGIONS_ENV,
   SANCTIONS_SOURCE_ENV,
@@ -300,6 +300,49 @@ export function businessBlocksFrom(entries: readonly JurisdictionEntry[]): reado
  * control — so the blocked case gets a way in.
  */
 export const SHIPPED_BUSINESS_BLOCKS: readonly BusinessBlock[] = businessBlocksFrom(JURISDICTION_MATRIX);
+
+/**
+ * LOCAL TEST ONLY: business blocks a test stack adds for one TEST region, so a journey can play a visitor from a blocked
+ * region in the running app without knowing the screening list (a repository secret) or writing a sanctions value
+ * (J-wallet-09 #1). Each entry is `TEST:<code>` for a user-assigned ISO code (AA, QM-QZ, XA-XZ, ZZ), which no country
+ * holds, so it can never block a real visitor. It only ever ADDS a block, is read only when `APP_ENV` is exactly `dev`
+ * or `test`, and `assertNoLocalTestFixtures` refuses to boot with it set anywhere else.
+ */
+export const TEST_BUSINESS_BLOCKS_ENV = 'INTAFACED_TEST_BUSINESS_BLOCKS';
+/** The reason a TEST business block refuses with, shown to the visitor as the region's reason. */
+export const TEST_BUSINESS_BLOCK_REASON = 'TEST region, not served at launch';
+export const TEST_BUSINESS_BLOCK_SOURCE = `TEST:${TEST_BUSINESS_BLOCKS_ENV}`;
+
+/** The TEST business blocks in `env` (empty outside dev/test). A malformed entry throws: it is a test stack's typo. */
+export function testBusinessBlocksFromEnv(env: Record<string, string | undefined> = process.env): readonly BusinessBlock[] {
+  const raw = env[TEST_BUSINESS_BLOCKS_ENV]?.trim() ?? '';
+  if (raw === '' || !isExplicitDevOrTest(env.APP_ENV)) return [];
+  return raw.split(',').map((item) => {
+    const m = /^TEST:([A-Za-z]{2})$/.exec(item.trim());
+    if (!m || !isUserAssignedRegionCode(m[1]!)) {
+      throw new Error(`${TEST_BUSINESS_BLOCKS_ENV}: each entry must be TEST:<a user-assigned ISO code such as AA> (value not shown)`);
+    }
+    return {
+      region: m[1]!.toUpperCase(),
+      reason: TEST_BUSINESS_BLOCK_REASON,
+      source: TEST_BUSINESS_BLOCK_SOURCE,
+      authority: 'business' as const,
+    };
+  });
+}
+
+let activeBusinessCache: { raw: string | undefined; appEnv: string | undefined; blocks: readonly BusinessBlock[] } | null = null;
+
+/** The shipped matrix's business blocks plus any TEST ones (`testBusinessBlocksFromEnv`), cached on the raw values. */
+export function activeBusinessBlocks(env: Record<string, string | undefined> = process.env): readonly BusinessBlock[] {
+  const raw = env[TEST_BUSINESS_BLOCKS_ENV];
+  if (activeBusinessCache && activeBusinessCache.raw === raw && activeBusinessCache.appEnv === env.APP_ENV)
+    return activeBusinessCache.blocks;
+  const test = testBusinessBlocksFromEnv(env);
+  const blocks = test.length === 0 ? SHIPPED_BUSINESS_BLOCKS : [...SHIPPED_BUSINESS_BLOCKS, ...test];
+  activeBusinessCache = { raw, appEnv: env.APP_ENV, blocks };
+  return blocks;
+}
 
 let businessLookupCache: { blocks: readonly BusinessBlock[]; byRegion: ReadonlyMap<string, BusinessBlock> } | null = null;
 
@@ -632,7 +675,7 @@ export function ruleFor(module: ModuleId, region: RegionCode): JurisdictionRule 
 export function isRegionBlocked(
   region: RegionCode,
   screening: ScreeningList = activeScreeningList(),
-  business: readonly BusinessBlock[] = SHIPPED_BUSINESS_BLOCKS,
+  business: readonly BusinessBlock[] = activeBusinessBlocks(),
 ): boolean {
   if (businessBlockFor(region, business) !== undefined) return true;
   return screenedRegion(screening, region) !== undefined;
@@ -761,7 +804,7 @@ export function checkAccess(q: AccessQuery): AccessDecision {
   // consequential fact, and it is the one that must not look removable by
   // editing the matrix.
   const screened = screenedRegion(screening, q.region);
-  const businessBlock = businessBlockFor(q.region, q.business ?? SHIPPED_BUSINESS_BLOCKS);
+  const businessBlock = businessBlockFor(q.region, q.business ?? activeBusinessBlocks());
   const regionBlocked = businessBlock !== undefined || screened !== undefined;
   const blockedBy: BlockAuthority | undefined = screened ? 'screening' : businessBlock ? 'business' : undefined;
   const regionBlockReason = screened?.reason ?? businessBlock?.reason;

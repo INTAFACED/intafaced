@@ -1,5 +1,7 @@
 # ADR: leverage / margin / liquidation params — §1 defaults frozen
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about isolated margin mode, partial-before-full liquidation and depth-referenced maintenance in our engine applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-13 (D26-P0-07 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-07 — Leverage / margin / liq params beyond §1 defaults.  

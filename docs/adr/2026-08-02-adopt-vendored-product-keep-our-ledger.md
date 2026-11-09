@@ -1,5 +1,7 @@
 # ADR: adopt the vendored product, keep our ledger
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about ledger as the place customer balances live; vendored money controllers redirected to it; wallet RPC custody (BTC/ETH/USDT/EOS) applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-02.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Supersedes in scope:** nothing. **Depends on:** [`2026-07-28-vendored-exchange-integration.md`](2026-07-28-vendored-exchange-integration.md) (Accepted, Option B).
