@@ -257,7 +257,15 @@ describe('svc-trade futures amend: a reviewed cancel-and-replace (PG-backed)', (
              AND (${excludeOrderId ?? null}::text IS NULL OR id::text <> ${excludeOrderId ?? null}::text)
         `;
         const currentTier = live[0]!.n > 0 ? 2 : null;
-        return { currentTier, projectedTier: 2, maintenanceBps: 250, notional: qty * 100n, confirmRequired: currentTier === null };
+        return {
+          currentTier,
+          projectedTier: 2,
+          maintenanceBps: 250,
+          notional: qty * 100n,
+          confirmRequired: currentTier === null,
+          tiers: 2,
+          depthNotional: 0n,
+        };
       },
     });
     const resting = await svc.place(
