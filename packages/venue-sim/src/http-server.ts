@@ -59,6 +59,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     lotSize: parseAmount('0.0001'),
     makerFeeBps: { known: true, value: parseAmount('1') },
     takerFeeBps: { known: true, value: parseAmount('3.5') },
+    // TEST: the venue's own cap on a builder fee, 1% on spot (the figure Hyperliquid publishes for its builder codes).
+    builderFeeCapBps: { known: true, value: parseAmount('100') },
   },
   {
     symbol: 'BTC-PERP',
@@ -73,6 +75,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     lotSize: parseAmount('0.0001'),
     makerFeeBps: { known: true, value: parseAmount('1.5') },
     takerFeeBps: { known: true, value: parseAmount('4.5') },
+    // TEST: the venue's own cap on a builder fee, 0.1% on perpetuals (the figure Hyperliquid publishes for its builder codes).
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
     maintenanceMarginRate: parseAmount('0.005'),
     markPrice: parseAmount('60000'),
   },
