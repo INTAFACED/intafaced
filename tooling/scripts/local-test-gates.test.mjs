@@ -555,6 +555,7 @@ assert.deepEqual(TEST_CHART_COUNTS, {
   delayedBoundarySeconds: 30,
   renderBudgetMs: 500,
   orderProtectionBps: 500,
+  queueFillWindowSeconds: 300,
 });
 assert.deepEqual(TEST_CHART_DATA_CLASSES, { 'BTC/USDT': 'real_time', 'ETH/USDT': 'real_time' });
 assert.equal(Object.keys(TEST_CHART_DATA_CLASSES).includes('IFC/USDT'), false, 'IFC/USDT stays unset on purpose');
