@@ -1,5 +1,7 @@
 # ADR: the house desk and the market-making engine — what may be built before the owner rules
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about internal market maker seeding our house book and queue-advantage rules on the venue we settle customer trades against applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-12 (D26-P0-01 sealed).** The five mechanism rules below remain Accepted. The three owner questions are now **ruled** (external-only v1 · existence-disclosure deferred · hard mark exclusion). Source packet: `docs/OWNER-DECISION-PACKET-2026-08-09.md` (removed) §A1 — recommendations sealed as owner decisions this session.
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
 **Law:** `INTAFACED_DEFINITIVE_BUILD.md` (private: INTAFACED/project-state `product/`) §28 (`:770`–`:777`), the Throne Law at `:777`.
