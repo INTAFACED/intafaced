@@ -38,7 +38,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   Connected: 'Connected',
 
   // The ticket
-  'No price protection': 'Market orders are closed: the price protection that bounds them is not set yet.',
+  'No price protection': 'Market orders are closed: the price protection that bounds them is not set.',
   'Worst price line': 'Worst price: {price} {quote}',
   'No book side': 'The venue shows no price to meet on this side, so no market order can be placed now.',
   'Venue fees line': 'The venue’s fees: maker {maker}, taker {taker}',
