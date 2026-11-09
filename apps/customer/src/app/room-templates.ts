@@ -26,6 +26,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/login/returnUrl/:returnUrl': { template: 'flow' },
   '/register': { template: 'flow' },
   '/findPwd': { template: 'flow' },
+  '/completePasswordReset': { template: 'flow' },
   '/confirm-email': { template: 'flow' },
   '/cannot-sign-in': { template: 'flow' },
   '/recover-account': { template: 'flow' },

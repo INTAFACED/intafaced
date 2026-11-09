@@ -46,6 +46,7 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.password_breached': 'That password is known from a data breach. Choose a different one.',
   'auth.reset_proof_invalid': 'That reset code is not valid. Request a new one.',
   'auth.reset_unwired': 'Password reset is not available yet.',
+  'auth.reset_limit': 'Too many reset codes asked for this address. Nothing was sent. Try again later.',
   'auth.challenge_required': 'Too many failed sign-ins came from this connection. Your browser solves a short check before you sign in.',
   'auth.challenge_invalid': 'That sign-in check did not work. Sign in again to get a new one.',
   'auth.challenge_expired': 'That sign-in check ran out of time. Sign in again to get a new one.',

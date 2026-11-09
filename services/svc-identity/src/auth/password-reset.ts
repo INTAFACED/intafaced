@@ -30,8 +30,10 @@ import {
  * The code is high-entropy and only the SHA-256 is stored on the flow. It is handed to the
  * mail relay and must not be logged. There is no git-default number: an unset lifetime,
  * attempt cap, request cap or window, or identifier key refuses every address the same way
- * (`auth.reset_unwired`). A missing mail transport does not refuse: the job is marked
- * `undeliverable` and the request still answers `accepted`.
+ * (`auth.reset_unwired`). A missing mail transport refuses every request the same way, before anything is written
+ * (`vendor.email`, J-identity-03 #1): nothing could be mailed, so nothing is promised. A request past the owner's
+ * cap refuses with that cap named (`auth.reset_limit`, J-identity-03 #2); the cap counts every address, with an
+ * account or not, so the refusal says nothing about whether one exists.
  *
  * Equal work (FLW-3). Every request that is under the cap, for a known address or not, locks the
  * same identifier, counts the same rows, inserts one `auth_flows` row and one `mail_outbox` row.
@@ -125,6 +127,7 @@ export function publishedPasswordResetTtlSeconds(value: number | undefined): num
 }
 
 const INVALID_PROOF = 'That reset code is not valid. Request a new one.';
+const MAIL_OFF = 'Email delivery is switched off in this build, so a reset code cannot be sent. Nothing was sent.';
 const LOCKED = 'Too many wrong codes. Try again later.';
 const UNWIRED = 'Password reset is not available yet';
 
@@ -214,7 +217,7 @@ async function openFlow(deps: PasswordResetDeps, kind: FlowKind, email: string):
         SELECT count(*)::int AS n FROM auth_flows
         WHERE subject_hash = ${subjectHash} AND kind = ${kind} AND created_at > ${since}
       `;
-      if ((recent[0]?.n ?? 0) >= budget.requestMax) return false;
+      if ((recent[0]?.n ?? 0) >= budget.requestMax) return 'limit' as const;
       const flow = await tx<Array<{ id: string }>>`
         INSERT INTO auth_flows (kind, subject_hash, user_id, code_hash, status, expires_at, created_at)
         VALUES (
@@ -235,16 +238,59 @@ async function openFlow(deps: PasswordResetDeps, kind: FlowKind, email: string):
     },
     { isolation: 'read committed' },
   );
+  if (written === 'limit') {
+    throw new AuthError(limitSentence(budget), 'auth.reset_limit', { retryAfterSeconds: budget.requestWindowSeconds });
+  }
   if (written) await deps.afterCommit?.();
 }
 
+/** The owner's request cap and its window, as the page names them. */
+export interface PasswordResetLimits {
+  readonly requestMax: number;
+  readonly windowSeconds: number;
+}
+
+/**
+ * The published request cap, or null when the reset is unwired (the page then names no number). Read by the code page
+ * so the person knows the limit before reaching it. It is the same for every visitor and names no account.
+ */
+export function passwordResetLimits(deps: PasswordResetDeps): PasswordResetLimits | null {
+  try {
+    const budget = requireBudget(deps);
+    return { requestMax: budget.requestMax, windowSeconds: budget.requestWindowSeconds };
+  } catch {
+    return null;
+  }
+}
+
+function limitSentence(budget: Budget): string {
+  return `You can ask for ${budget.requestMax} codes per address in ${windowWords(budget.requestWindowSeconds)}, and that many have been asked for. Nothing was sent. Try again later.`;
+}
+
+/** A window in words: "an hour", "2 hours", "15 minutes", "30 seconds". */
+export function windowWords(seconds: number): string {
+  if (seconds === 3_600) return 'an hour';
+  if (seconds % 3_600 === 0) return `${seconds / 3_600} hours`;
+  if (seconds === 60) return 'a minute';
+  if (seconds % 60 === 0) return `${seconds / 60} minutes`;
+  return `${seconds} seconds`;
+}
+
+/** No transport, no request: the same refusal for every address, after the owner values are checked. */
+function requireMail(deps: PasswordResetDeps): void {
+  requireBudget(deps);
+  if (!deps.mail) throw new AuthError(MAIL_OFF, 'vendor.email');
+}
+
 export async function requestPasswordReset(deps: PasswordResetDeps, input: { email: string }): Promise<{ accepted: true }> {
+  requireMail(deps);
   await openFlow(deps, 'password_reset', input.email);
   return { accepted: true };
 }
 
 /** Same shape as the reset request: mail the username to a known address, a notice (if on) otherwise. */
 export async function requestHandleRecovery(deps: PasswordResetDeps, input: { email: string }): Promise<{ accepted: true }> {
+  requireMail(deps);
   await openFlow(deps, 'handle_recovery', input.email);
   return { accepted: true };
 }
@@ -367,6 +413,29 @@ async function stillOwnAddress(sql: Sql, userId: string, recipient: string): Pro
 }
 
 type OpenFlow = { id: string; user_id: string | null; code_hash: string; status: string; attempts: number; expires_at: Date };
+
+/**
+ * The mailed link (J-identity-03 #2): the code alone finishes the reset. The link carries no address, so the open flow
+ * is found by the code's hash. The code is 32 random bytes, so it cannot be guessed. The address comes from that flow's
+ * account, and the reset then runs exactly as `completePasswordReset`, with its attempt count, lock and checks. No
+ * flow answers the same refusal as a wrong code.
+ */
+export async function completePasswordResetByCode(
+  deps: PasswordResetDeps,
+  input: { code: string; newPassword: string },
+): Promise<{ userId: string; sessionsRevoked: number }> {
+  requireBudget(deps);
+  const code = input.code.trim();
+  if (code.length === 0) return rejectInvalidProof(input.newPassword);
+  const [owner] = await deps.sql<Array<{ email: string }>>`
+    SELECT u.email FROM auth_flows f JOIN users u ON u.id = f.user_id
+    WHERE f.code_hash = ${hashToken(code)} AND f.kind = 'password_reset' AND f.status = 'code_sent'
+      AND f.consumed_at IS NULL AND f.expires_at > ${deps.now()}
+    LIMIT 1
+  `;
+  if (!owner) return rejectInvalidProof(input.newPassword);
+  return completePasswordReset(deps, { email: owner.email, code, newPassword: input.newPassword });
+}
 
 export async function completePasswordReset(
   deps: PasswordResetDeps,

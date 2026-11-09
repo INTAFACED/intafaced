@@ -24,6 +24,10 @@ const messages = {
   codeOnItsWay: 'If an account uses this email, a code is on its way. It can take a few minutes to arrive.',
   invalidEmail: 'Enter the email address on your account.',
   codeMissing: 'Enter the code from the email.',
+  limitLine: 'You can ask for up to {n} codes for one address in {window}.',
+  resetLimit: 'You have asked for {n} codes for this address in {window}, the most allowed. Nothing was sent. Try again later.',
+  resetLimitUnnamed: 'You have asked for the most codes allowed for this address for now. Nothing was sent. Try again later.',
+  mailOff: 'Email delivery is switched off in this build, so a reset code cannot be sent. Nothing was sent.',
   doneBody:
     "Your password has been changed and every device that was signed in has been signed out. Sign in with the new password. API keys you created keep working; remove any you don't recognise in Security.",
   signIn: 'Go to sign in',

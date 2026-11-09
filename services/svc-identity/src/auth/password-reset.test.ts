@@ -311,19 +311,25 @@ if (!available) {
       await expect(anon().auth.refresh({ refreshToken: user.refreshToken })).resolves.toMatchObject({ userId: user.userId });
     });
 
-    it('accepts a known and an unknown email the same way with no mail transport, and marks the jobs undeliverable', async () => {
+    // J-identity-03 #1: "with mail switched off the page names the notice". With no transport nothing could be mailed,
+    // so the request refuses `vendor.email` for every address alike, and writes nothing to promise a code.
+    it('refuses a known and an unknown email the same way with no mail transport, and writes nothing', async () => {
       const user = await register();
       const before = await hashOf(user.userId);
       auth.usePasswordResetMail(undefined);
 
-      const known = await anon().auth.requestPasswordReset({ email: user.email });
-      const missing = await anon().auth.requestPasswordReset({ email: 'missing@example.com' });
+      const known = await refusal(anon().auth.requestPasswordReset({ email: user.email }));
+      const missing = await refusal(anon().auth.requestPasswordReset({ email: 'missing@example.com' }));
+      const handle = await refusal(anon().auth.requestHandleRecovery({ email: user.email }));
 
       expect(known).toEqual(missing);
-      expect(known).toEqual({ accepted: true });
+      expect(known.code).toBe('vendor.email');
+      expect(handle.code).toBe('vendor.email');
       expect(sent).toHaveLength(0);
       const jobs = await db.sql<Array<{ status: string }>>`SELECT status FROM mail_outbox ORDER BY created_at`;
-      expect(jobs.map((job) => job.status)).toEqual(['undeliverable', 'suppressed']);
+      expect(jobs).toEqual([]);
+      const flows = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM auth_flows`;
+      expect(flows[0]!.n).toBe(0);
       expect(await hashOf(user.userId)).toBe(before);
       await expect(anon().auth.passwordResetChannel()).resolves.toEqual({ emailDelivery: 'off' });
     });
