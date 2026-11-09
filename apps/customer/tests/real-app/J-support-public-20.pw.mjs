@@ -1,7 +1,7 @@
-// World: none
+// World: book
 import { test, expect } from './journey.mjs';
 import { asDesk } from './help-centre.mjs';
-import { signUp } from './desk.mjs';
+import { fundedTrader } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 
 // J-support-public-20, in the running app (docs/roadmap/journeys.json): a support agent handles a customer's "my deposit
@@ -42,7 +42,7 @@ async function refused(kind, procedure, input) {
 async function request(browser) {
   if (shared.ticket) return shared;
   const page = await visitor(browser);
-  const who = await signUp(page, 'j20c');
+  const who = await fundedTrader(page, 'j20c', '20');
   await page.context().close();
   const client = await api(who);
   const res = await client.post('/api/support/trpc/create', {
@@ -58,17 +58,57 @@ async function request(browser) {
   return shared;
 }
 
-test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it`, async ({ browser }) => {
-  const { ticket } = await request(browser);
-  // The desk links a related order, withdrawal or deposit by its id. Another customer's record, or one that does not
-  // exist, is refused; nothing is linked.
-  const res = await asDesk('lead', 'mutation', 'linkRecord', {
-    ticketId: ticket.id,
-    kind: 'withdrawal',
-    recordId: '00000000-0000-4000-8000-000000000000',
+/** One TEST limit buy far below the market, so it rests on the book: an order of `who`'s own. Its id. */
+async function restingOrder(who) {
+  const res = await (
+    await api(who)
+  ).post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'limit',
+    side: 'buy',
+    price: '1',
+    amount: '0.001',
+    clientOrderId: `${J}-${RUN}-${Math.random().toString(36).slice(2, 8)}`,
   });
-  expect(res.status, `linkRecord: ${res.text.slice(0, 300)}`).not.toBe(404);
-  expect(res.text).toContain('support.link_record_not_owned');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  expect(res.body.id).toMatch(/^[0-9a-f-]{36}$/);
+  return res.body.id;
+}
+
+test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it; a recovery-required order ranks above a withdrawal request of the same age`, async ({
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  const { ticket, who } = await request(browser);
+  const link = (kind, recordId) => asDesk('lead', 'mutation', 'linkRecord', { ticketId: ticket.id, kind, recordId });
+
+  // The customer's own order links, as svc-trade reports it; linking it again is the same link.
+  const own = await restingOrder(who);
+  const linked = await link('order', own);
+  expect(linked.status, `linkRecord: ${linked.text.slice(0, 300)}`).toBe(200);
+  expect(linked.json.result.data).toMatchObject({ ticketId: ticket.id, kind: 'order', recordId: own, recoveryRequired: false });
+  expect((await link('order', own)).json.result.data).toEqual(linked.json.result.data);
+
+  // Another customer's order, and records that don't exist, are refused the same way; nothing is linked for them.
+  const page = await visitor(browser);
+  const stranger = await fundedTrader(page, 'j20o', '20');
+  await page.context().close();
+  const theirs = await restingOrder(stranger);
+  for (const [kind, recordId] of [
+    ['order', theirs],
+    ['order', '00000000-0000-4000-8000-000000000000'],
+    ['withdrawal', '00000000-0000-4000-8000-000000000000'],
+    ['deposit', '00000000-0000-4000-8000-000000000001'],
+  ]) {
+    const res = await link(kind, recordId);
+    expect(res.status, `linkRecord ${kind}: ${res.text.slice(0, 300)}`).not.toBe(404);
+    expect(res.json?.result?.data, res.text.slice(0, 300)).toBeUndefined();
+    expect(res.text).toContain('support.link_record_not_owned');
+  }
+  const links = await asDesk('lead', 'query', 'ticketLinks', { ticketId: ticket.id });
+  expect(links.json?.result?.data, links.text.slice(0, 300)).toEqual([linked.json.result.data]);
+  // The ranking itself (a request linked to a recovery-required order above a withdrawal request of the same age) is
+  // proved in services/svc-support/src/ticket-links.test.ts: the stack has no path that leaves an order recovery_required.
 });
 
 test(`${J} #2 reading the customer's balance or withdrawal destination is refused until two checks the customer can confirm are recorded`, async ({
@@ -163,10 +203,60 @@ test(`${J} #6 escalated as a money request, the case file carries its citations,
 test(`${J} #7 a withdrawal freeze asked from the request is recorded by the identity service; no credit is posted and a status change never lifts it`, async ({
   browser,
 }) => {
-  const { ticket } = await request(browser);
+  test.setTimeout(180_000);
+  // Its own customer, so the freeze touches no other step's account.
+  const page = await visitor(browser);
+  const who = await fundedTrader(page, 'j20f', '20');
+  await page.context().close();
+  const client = await api(who);
+  const made = await client.post('/api/support/trpc/create', {
+    category: 'deposit_withdraw',
+    subject: `TEST ${J} ${RUN} withdrawal missing, freeze`,
+    body: 'TEST My withdrawal never arrived and I think someone else is in my account.',
+    clientRequestId: `j20f:${RUN}`,
+  });
+  expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
+  const ticket = made.body.result.data;
+  await lead('mutation', 'claim', { ticketId: ticket.id }).catch(() => null);
+  const lockOf = async () => (await client.get('/api/identity/trpc/securityLock.read')).body.result.data;
+  const order = await restingOrder(who);
+  const orderStatus = async () => (await client.get(`/api/v1/orders/${order}?symbol=BTC%2FUSDT`)).body.status;
+  const before = { balances: await client.balances(), order: await orderStatus() };
+  expect(before.order).toBe('open');
+  expect((await lockOf()).locked).toBe(false);
+
+  // The customer can't ask it for themselves through the desk's door.
+  const self = await client.post('/api/support/trpc/requestWithdrawalFreeze', { ticketId: ticket.id, reason: 'TEST' });
+  expect(self.status, JSON.stringify(self.body).slice(0, 300)).not.toBe(200);
+  expect((await lockOf()).locked).toBe(false);
+
+  // The desk asks; svc-identity records it as the account's security lock, set by support, with its audit row.
   const res = await asDesk('lead', 'mutation', 'requestWithdrawalFreeze', { ticketId: ticket.id, reason: `TEST ${J} #7` });
-  expect(res.status, `requestWithdrawalFreeze: ${res.text.slice(0, 300)}`).not.toBe(404);
-  expect(res.json?.result?.data?.recordedBy).toBe('svc-identity');
+  expect(res.status, `requestWithdrawalFreeze: ${res.text.slice(0, 300)}`).toBe(200);
+  const frozen = res.json.result.data;
+  expect(frozen).toMatchObject({
+    recordedBy: 'svc-identity',
+    changed: true,
+    lock: { userId: client.userId, locked: true, setBy: 'support' },
+  });
+  expect(frozen.auditId).toMatch(/^[0-9a-f-]{36}$/);
+  // Asking again from the same request answers the first record.
+  const again = (await asDesk('lead', 'mutation', 'requestWithdrawalFreeze', { ticketId: ticket.id, reason: `TEST ${J} #7` })).json.result
+    .data;
+  expect(again).toMatchObject({ changed: false, auditId: frozen.auditId });
+  expect(await lockOf()).toMatchObject({ locked: true, setBy: 'support', unlocksAt: null });
+
+  // No credit is posted and the existing hold stays: the balances and the resting order are as they were.
+  expect(await client.balances()).toEqual(before.balances);
+  expect(await orderStatus()).toBe('open');
+
+  // Resolving and closing the request never lifts it, and a closed request takes no new freeze.
+  for (const status of ['resolved', 'closed']) {
+    expect((await lead('mutation', 'setStatus', { ticketId: ticket.id, status })).status).toBe(status);
+    expect(await lockOf()).toMatchObject({ locked: true, setBy: 'support' });
+  }
+  expect(await refused('mutation', 'requestWithdrawalFreeze', { ticketId: ticket.id, reason: 'TEST' })).toContain('support.ticket_closed');
+  expect(await client.balances()).toEqual(before.balances);
 });
 
 test(`${J} #8 the customer reads a plain status, no promised time and no staff-only text`, async ({ browser }) => {

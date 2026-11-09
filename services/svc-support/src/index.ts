@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { createIdentityWithdrawalFreezeClient, WithdrawalFreezes } from './withdrawal-freeze.js';
 import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
 import { officialChannelsFromEnv } from './official-channels.js';
@@ -271,6 +272,8 @@ const appRouter = createSupportRouter(
   // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
   new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
   chat,
+  // Withdrawal freezes (J-support-public-20 #7): svc-identity records each one.
+  new WithdrawalFreezes(support, createIdentityWithdrawalFreezeClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

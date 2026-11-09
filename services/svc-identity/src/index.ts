@@ -127,6 +127,7 @@ import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.j
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
+import { freezeWithdrawalsForSupport, registerSupportWithdrawalFreezeRoute } from './auth/support-withdrawal-freeze.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
@@ -1199,6 +1200,14 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return view;
+});
+
+/** A support agent's withdrawal freeze from a customer's request (J-support-public-20 #7): svc-support only. */
+registerSupportWithdrawalFreezeRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  freeze: (input) => freezeWithdrawalsForSupport(securityLock, input),
 });
 
 /**

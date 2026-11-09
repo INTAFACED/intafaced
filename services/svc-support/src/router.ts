@@ -1,4 +1,6 @@
 import { TRPCError } from '@trpc/server';
+import { WithdrawalFreezes, WITHDRAWAL_FREEZE_UNAVAILABLE } from './withdrawal-freeze.js';
+import { withdrawalFreezeProcedures } from './withdrawal-freeze-router.js';
 import { guestProcedures } from './guest-router.js';
 import { chatProcedures } from './chat-router.js';
 import type { SupportChat } from './chat.js';
@@ -189,6 +191,7 @@ export function mapError(err: unknown): never {
       err.code === 'support.guest_delivery_unknown' ||
       err.code === 'support.category_unknown' ||
       err.code === 'vendor.email' ||
+      err.code === WITHDRAWAL_FREEZE_UNAVAILABLE ||
       err.code.startsWith('guest.')
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
@@ -266,10 +269,13 @@ export function createSupportRouter(
   safety: SafetyCases = new SafetyCases(new MemorySafetyBook(), support, null),
   /** Live chat (SP-chat-01). Left out, every chat door refuses `support.chat_unwired`. */
   chat?: SupportChat,
+  /** Withdrawal freezes asked from a request (J-support-public-20 #7). Left out, no identity is wired and each ask refuses. */
+  freezes: WithdrawalFreezes = new WithdrawalFreezes(support, null),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
     ...chatProcedures(chat, mapError),
+    ...withdrawalFreezeProcedures(freezes, mapError),
     ...macroProcedures(macros),
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
