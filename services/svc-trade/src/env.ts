@@ -25,6 +25,24 @@ const schema = serviceEnvSchema
       TRADE_USER_VENUE_BUILDER_ADDRESS: z.string().default(''),
       /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
       TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
+      /**
+       * J-agents-21 agent account, NO DEFAULT: the most any person's agent-account cap may be, a decimal in
+       * TRADE_AGENT_ACCOUNT_ASSET. Blank refuses every create `agents.account_ceiling_unset` (src/venue/agent-account.ts).
+       */
+      TRADE_AGENT_ACCOUNT_CEILING: z.string().default(''),
+      /** NO DEFAULT: the one asset an agent account is funded in and its cap counted in. Blank refuses `agents.account_asset_unset`. */
+      TRADE_AGENT_ACCOUNT_ASSET: z.string().default(''),
+      /**
+       * NO DEFAULT, a secret the owner sets: the seed the venue agent keys INTAFACED holds derive from
+       * (src/venue/agent-key.ts). Blank refuses every create `agents.agent_key_unset`.
+       */
+      TRADE_AGENT_KEY_SEED: z.string().default(''),
+      /** NO DEFAULT drain bound: the largest notional of one agent order. Blank refuses every agent order `agents.order_bound_unset`. */
+      TRADE_AGENT_MAX_ORDER_NOTIONAL: z.string().default(''),
+      /** NO DEFAULT drain bound: the worst price an agent order may name, bps from the mark. Blank refuses `agents.price_bound_unset`. */
+      TRADE_AGENT_WORST_PRICE_BPS: z.string().default(''),
+      /** NO DEFAULT drain bound: the markets an assistant may trade, comma-separated venue symbols. Blank refuses `agents.markets_unset`. */
+      TRADE_AGENT_MARKETS: z.string().default(''),
 
       /** CB-bots-10 bot verification switch: `required` (unset) or `off`, written explicitly. See algo/bots-verification.ts. */
       TRADE_BOTS_VERIFICATION: z.enum(['required', 'off']).optional(),

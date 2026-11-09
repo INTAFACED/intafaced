@@ -94,6 +94,8 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
+import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
+import type { AgentAccounts } from './venue/agent-account.js';
 import type { UserVenueDoor } from './venue/user-venue-door.js';
 import type { GridService } from './grid/grid-service.js';
 
@@ -201,6 +203,8 @@ export interface PrivateRestDeps {
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
   userVenue?: UserVenueDoor | null;
+  /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
+  agentAccounts?: AgentAccounts | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -1346,6 +1350,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
   attachUserVenueRoutes(app, deps.userVenue ?? null, { requirePrincipal, requireTradeJurisdiction });
+  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {

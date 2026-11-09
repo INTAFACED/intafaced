@@ -108,6 +108,8 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
+import { SqlAgentAccountStore } from './venue/agent-account-store.js';
 import { VenueRefusalError } from '@intafaced/venue-contracts';
 import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
@@ -448,6 +450,16 @@ const userVenue = userVenueUrl
       store: new SqlPreparedActionStore(sql),
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      now: () => new Date(),
+    })
+  : null;
+// J-agents-21's agent account beside the door: off with it. Its owner values are read even when blank (each refuses).
+const agentAccounts = userVenue
+  ? new AgentAccounts({
+      door: userVenue,
+      store: new SqlAgentAccountStore(sql),
+      stepUp,
+      values: parseAgentAccountValues(env),
       now: () => new Date(),
     })
   : null;
@@ -1576,6 +1588,7 @@ registerPrivateRest(app, {
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   grid,
   userVenue,
+  agentAccounts,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

@@ -52,6 +52,32 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
   }
 }
 
+/**
+ * Opening a sub-account and moving funds into or out of one are the agent account's own actions (J-agents-21,
+ * agent-account.ts): it checks the person's cap before the wallet is asked to sign a move in, and keeps the count of
+ * moves the cap is held to. The plain door refuses them, at prepare and at submit, so no move reaches the venue around
+ * that check.
+ */
+export const AGENT_ACCOUNT_INTENTS: ReadonlySet<VenueIntent['kind']> = new Set<VenueIntent['kind']>([
+  'create_sub_account',
+  'sub_account_transfer',
+]);
+
+/** How the agent account (agent-account.ts) calls the door for its own actions. */
+export interface DoorCaller {
+  readonly agentAccount?: boolean;
+}
+
+function assertDoorMay(kind: VenueIntent['kind'], caller: DoorCaller | undefined): void {
+  if (AGENT_ACCOUNT_INTENTS.has(kind) && !caller?.agentAccount) {
+    throw new UserVenueDoorError(
+      `a venue ${kind} is made only through the agent account (/api/v1/venue/agent-accounts), which holds it to the person's cap`,
+      'trade.venue_agent_account_only',
+      403,
+    );
+  }
+}
+
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
 
 /** Identity's step-up request id is at most 128 characters. */
@@ -66,7 +92,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_invalid'
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
-  | 'trade.venue_action_unknown';
+  | 'trade.venue_action_unknown'
+  | 'trade.venue_agent_account_only';
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -253,6 +280,8 @@ export class UserVenueDoor {
     if (intent.kind === 'place_order') key = intent.clientOrderKey;
     else if (intent.kind === 'withdraw') key = intent.withdrawalKey;
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
+    else if (intent.kind === 'sub_account_transfer') key = intent.moveKey;
+    else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {
@@ -265,9 +294,10 @@ export class UserVenueDoor {
     return k;
   }
 
-  async prepare(principal: Principal, req: PrepareRequest): Promise<PreparedAnswer> {
+  async prepare(principal: Principal, req: PrepareRequest, caller?: DoorCaller): Promise<PreparedAnswer> {
     const intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
+    assertDoorMay(intent.kind, caller);
     if (
       !req.signer ||
       (req.signer.role !== 'owner' && req.signer.role !== 'agent') ||
@@ -361,11 +391,17 @@ export class UserVenueDoor {
    * is the one every re-submit re-sends. A signature that does not claim the stored digest and signer, or whose bytes do
    * not recover to the prepared signer, is refused before it is stored; the venue verifies the bytes again.
    */
-  async submit(principal: Principal, actionKey: string, signature: VenueSignature): Promise<SubmitAnswer> {
+  /** The stored action under `actionKey`, or `null`: what the agent account reads back its own actions by. */
+  async stored(principal: Principal, actionKey: string): Promise<StoredVenueAction | null> {
+    return this.deps.store.find(principal.userId, actionKey);
+  }
+
+  async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
     const key = (actionKey ?? '').trim();
     const row = await this.deps.store.find(principal.userId, key);
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
+    assertDoorMay(row.prepared.intent.kind, caller);
     assertInteractive(principal, row.prepared.intent.kind);
     if (
       !signature ||
