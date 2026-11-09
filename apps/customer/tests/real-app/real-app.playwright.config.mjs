@@ -13,6 +13,7 @@ export default defineConfig({
   // A run on main retries a failed test once (JOURNEY_RETRIES=1, set by the Real-app journeys workflow), so a test that
   // fails and then passes on the same commit ends "flaky" and the machine sets its step aside; a money step never
   // (tooling/ci/journey-verdict.mjs, owner decision 2026-11-07). Everywhere else, no retry: a builder's run shows a red.
+  // A test of a step the fail-fast plan expects to fail runs once even on main (fail-fast-retries.mjs, below).
   retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,
   // A focused test (`.only` in any form) runs alone and drops every other journey test in the run; CI refuses it outright
   // (R3 C6, review 7550-R3), since the test judge reads only the steps a change touches.
@@ -24,6 +25,9 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   // A sharded run (the Real-app journeys workflow) also writes a blob per shard, which one job merges into the JSON report.
   reporter: [
+    // First, so it takes the retry off each test that fails fast before the run starts and before any other reporter
+    // records the plan (tooling/scripts/journey-fail-fast.mjs, noRetryForFailFast).
+    ['./fail-fast-retries.mjs'],
     ['list'],
     ['json', { outputFile: process.env.JOURNEY_REPORT ?? '/tmp/intafaced-real-app/report.json' }],
     ...(process.env.JOURNEY_BLOB_DIR ? [['blob', { outputDir: process.env.JOURNEY_BLOB_DIR }]] : []),
