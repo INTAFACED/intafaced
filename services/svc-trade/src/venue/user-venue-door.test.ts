@@ -177,7 +177,9 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
   });
   afterAll(async () => closeServer(server));
 
-  function door(opts: { store?: PreparedActionStore; builder?: BuilderFeeValue | null; stepUp?: StepUpCheck; appEnv?: string } = {}) {
+  function door(
+    opts: { store?: PreparedActionStore; builder?: BuilderFeeValue | null; stepUp?: StepUpCheck; appEnv?: string; now?: () => Date } = {},
+  ) {
     const store = opts.store ?? new InMemoryPreparedActionStore();
     let connects = 0;
     const d = new UserVenueDoor({
@@ -189,7 +191,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       store,
       stepUp: opts.stepUp ?? stepUp('approve').check,
       builder: opts.builder === undefined ? BUILDER : opts.builder,
-      now: () => new Date(),
+      now: opts.now ?? (() => new Date()),
     });
     return { d, store, connects: () => connects };
   }
@@ -422,6 +424,30 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     await d.preview(principal, owner, order(24, { price: a('50001') }));
     // The two refusals above already read the list; two more orders inside the minute read nothing more.
     expect(markets).toHaveBeenCalledTimes(0);
+  });
+
+  it('unlisted symbols re-read the market list at most once every 5 seconds, and a market listed since is found after that', async () => {
+    let t = Date.UTC(2026, 10, 9, 12);
+    const { d } = door({ builder: null, now: () => new Date(t) });
+    const venue = await d.venue();
+    const markets = vi.spyOn(venue, 'markets');
+    // A sell: once its market is found, the blank builder fee refuses it, before the venue is asked.
+    const unlisted = (n: number) => d.preview(principal, owner, order(n, { symbol: 'NEW-USDC', side: 'sell' }));
+    await expect(unlisted(31)).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
+    expect(markets).toHaveBeenCalledTimes(1);
+    // Many more misses inside 5 seconds are refused from the list just read: no venue read each.
+    for (let n = 32; n < 42; n += 1) await expect(unlisted(n)).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
+    t += 4_999;
+    await expect(unlisted(42)).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
+    expect(markets).toHaveBeenCalledTimes(1);
+    // After 5 seconds a miss reads the list again, so a market the venue lists now is found.
+    t += 1;
+    markets.mockImplementationOnce(async (account) => {
+      const list = await HttpUserVenue.prototype.markets.call(venue, account);
+      return { ...list, value: [...list.value, { ...list.value.find((m) => m.symbol === 'BTC-USDC')!, symbol: 'NEW-USDC' }] };
+    });
+    await expect(unlisted(43)).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
+    expect(markets).toHaveBeenCalledTimes(2);
   });
 
   it('blank builder fee: every order that would carry one refuses builder_fee_not_published, nothing stored; a spot buy carries none and goes ahead', async () => {
