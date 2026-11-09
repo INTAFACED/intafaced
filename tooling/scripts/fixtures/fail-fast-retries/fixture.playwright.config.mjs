@@ -1,4 +1,4 @@
-// The real reporter (apps/customer/tests/real-app/fail-fast-retries.mjs) on fixture journeys, retries 1 as on main.
+// The real reporter (apps/customer/tests/real-app/fail-fast-once.mjs) on fixture journeys, retries 1 as on main.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,7 +10,7 @@ export default {
   fullyParallel: false,
   retries: 1,
   reporter: [
-    [path.join(here, '../../../../apps/customer/tests/real-app/fail-fast-retries.mjs'), { baseline: path.join(here, 'baseline.json') }],
+    [path.join(here, '../../../../apps/customer/tests/real-app/fail-fast-once.mjs'), { baseline: path.join(here, 'baseline.json') }],
     ['json', { outputFile: process.env.FIXTURE_REPORT }],
   ],
   outputDir: process.env.FIXTURE_OUT,

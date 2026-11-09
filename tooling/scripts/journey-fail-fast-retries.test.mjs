@@ -1,5 +1,5 @@
 /**
- * The planted check for fail-fast-retries.mjs: real Playwright runs fixture journeys with one retry, as on main, and
+ * The planted check for fail-fast-once.mjs: real Playwright runs fixture journeys with one retry, as on main, and
  * the report shows that a test that fails fast runs once (its red unchanged), that a pass on its first attempt still
  * counts as a pass, and that every other test keeps its retry: an ordinary test, a test of an unbuilt step that passed
  * in a run read, and a test in a serial file. With the fail-fast plan off, every failed test is retried.
