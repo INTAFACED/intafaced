@@ -265,6 +265,35 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
+// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1): svc-protocol holds a TEST business block for the TEST region
+// AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const prior = process.env.LOCAL_STACK_TEST_REGION_SERVED;
+  const envs = () => localTestServiceEnvs(PLAN_SECRETS);
+  const envOf = (all, name) => all.find((d) => d.name === name).env;
+  try {
+    delete process.env.LOCAL_STACK_TEST_REGION_SERVED;
+    const served = envs();
+    assert.equal(envOf(served, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST block by default');
+    assert.equal(envOf(served, 'edge').DEFAULT_REGION, undefined, 'edge keeps its own default region');
+    process.env.LOCAL_STACK_TEST_REGION_SERVED = 'off';
+    const blocked = envs();
+    assert.equal(envOf(blocked, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
+    assert.equal(envOf(blocked, 'edge').DEFAULT_REGION, 'AA');
+    for (const { name, env } of blocked) {
+      const before = envOf(served, name);
+      assert.equal(env.INTAFACED_SANCTIONS_REGIONS, before.INTAFACED_SANCTIONS_REGIONS, `${name}'s sanctions list is unchanged`);
+      if (name !== 'protocol') assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
+      if (name !== 'edge') assert.equal(env.DEFAULT_REGION, before.DEFAULT_REGION, `${name}'s region is unchanged`);
+    }
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_TEST_REGION_SERVED;
+    else process.env.LOCAL_STACK_TEST_REGION_SERVED = prior;
+  }
+  console.log('local-test-stack: the TEST blocked region switch');
+}
+
 // Every service file in local-stack-services/ is started, once, under its own name.
 {
   const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
@@ -469,6 +498,29 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: agents TEST Coach route comes from the agents profile, and its off switch drops it');
 }
 
+// The capital monitor's TEST venues answer on this stack with the ops profile's TEST builder account, and
+// LOCAL_STACK_OPS_TEST_VENUE_READ=off switches them down (every venue read fails) without blanking the account.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const account = loadProfile().values.OPS_TEST_VENUE_BUILDER_ACCOUNT;
+  assert.equal(account.service, 'ops');
+  assert.match(account.value, /^TEST-/);
+  const opsEnv = () => localTestServiceEnvs().find((service) => service.name === 'ops').env;
+  assert.equal(opsEnv().OPS_TEST_VENUE, 'test');
+  assert.equal(opsEnv().OPS_TEST_VENUE_BUILDER_ACCOUNT, account.value);
+  const before = process.env.LOCAL_STACK_OPS_TEST_VENUE_READ;
+  process.env.LOCAL_STACK_OPS_TEST_VENUE_READ = 'off';
+  try {
+    assert.equal(opsEnv().OPS_TEST_VENUE, 'down');
+    assert.equal(opsEnv().OPS_TEST_VENUE_BUILDER_ACCOUNT, account.value);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_OPS_TEST_VENUE_READ;
+    else process.env.LOCAL_STACK_OPS_TEST_VENUE_READ = before;
+  }
+  console.log('local-test-stack: ops TEST venues answer with the profile builder account, and the read switch takes them down');
+}
+
 // The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank
 // profile verbatim, so no corridor, rate or reference length is typed anywhere else.
 {
@@ -478,6 +530,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   const profile = loadProfile().values;
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
   assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
+  assert.equal(bank.env.BANK_TEST_PARTNER, 'test');
   assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
   assert.equal(bank.env.BANK_ONRAMP_PARTNER, 'payin-sim');
   // The pay-in stand-in's page is svc-bank's own address, and it sends the payer back to the customer app's add-money room.
@@ -679,6 +732,11 @@ try {
   used.add('trade');
   used.delete('ledger'); // /api/ledger is deliberately not routed (a string in a comment/refusal)
   used.delete('v2');
+  // /api/edge/* is no upstream: svc-edge answers it itself (the rate-limit doors, J-developer-06). Exempt only while
+  // svc-edge really registers that door, so a customer call to a missing edge path still fails here.
+  if (/'\/api\/edge\/rate-limits\//.test(readFileSync(join(repo, 'services', 'svc-edge', 'src', 'rate-limits-door.ts'), 'utf8'))) {
+    used.delete('edge');
+  }
   assert.ok(used.size >= 12, `found only ${used.size} Customer modules: ${[...used]}`);
   const unmapped = [...used].filter((m) => !upstreams.some((u) => u.prefix === m));
   assert.deepEqual(unmapped, [], `Customer calls modules Edge has no route for: ${unmapped}`);

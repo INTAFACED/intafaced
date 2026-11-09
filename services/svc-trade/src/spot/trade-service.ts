@@ -1816,6 +1816,11 @@ export class TradeService {
     return reads.publicTape(this.internal, marketId, limit, sinceMs);
   }
 
+  /** Volume printed at or through `price` for a resting order on `side` since `sinceMs` (queue fill estimate). */
+  async tradedThrough(marketId: string, side: OrderSide, price: Amount, sinceMs: number): Promise<Amount> {
+    return reads.tradedThrough(this.internal, marketId, side, price, sinceMs);
+  }
+
   /**
    * Candles for a market (CCXT `fetchOHLCV`), aggregated from real taker fills.
    *

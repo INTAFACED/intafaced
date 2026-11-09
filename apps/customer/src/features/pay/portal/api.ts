@@ -3,6 +3,8 @@ import { coreApi } from './api-core';
 import { PAGE_SIZE, portalTools } from './api-tools';
 import { moneyApi } from './money/api';
 import { settlementAssetsApi } from './money/settlement-assets-api';
+import { partnerTermsApi } from './money/partner-terms-api';
+import { disputeFundsApi } from './payments/dispute-funds-api';
 import { paymentsApi } from './payments/api';
 import { settingsApi } from './settings/api';
 import { catalogApi } from './catalog/api';
@@ -28,6 +30,8 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
     ...coreApi(tools),
     ...moneyApi(tools),
     ...settlementAssetsApi(tools),
+    ...partnerTermsApi(tools),
+    ...disputeFundsApi(tools),
     ...paymentsApi(tools),
     ...settingsApi(tools),
     ...catalogApi(tools),

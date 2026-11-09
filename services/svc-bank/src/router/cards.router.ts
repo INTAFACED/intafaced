@@ -16,6 +16,43 @@ import {
 import { cardInactive } from '../cards/card-service.js';
 import { cardOutput, presentCard } from '../cards/card-view.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
+import { CARD_CATEGORIES, CARD_CONTROL_KINDS } from '../cards/card-controls.js';
+import { CARD_CUSTODY_MODES, NOT_USED_FOR_CARDS } from '../cards/partner-terms.js';
+
+const decimalOrNull = z
+  .string()
+  .regex(/^\d+(\.\d{1,18})?$/)
+  .nullable();
+/** `cards.controls.*`: the card's live controls, the categories it can block, and its lock history (J-bank-14 #1). */
+const cardControlsOutput = z.object({
+  categories: z.array(z.enum(CARD_CATEGORIES)),
+  controls: z.array(z.object({ id: z.string(), kind: z.enum(CARD_CONTROL_KINDS), value: z.string(), createdAt: z.string() })),
+  history: z.array(
+    z.object({
+      id: z.string(),
+      status: z.enum(['active', 'frozen', 'closed']),
+      actor: z.enum(['owner', 'holder', 'operator', 'system']),
+      at: z.string(),
+    }),
+  ),
+});
+
+const payFromOutput = z.object({
+  test: z.boolean(),
+  custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
+  settlementAssetId: z.string().nullable(),
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
+      partnerBalance: decimalOrNull,
+      rate: decimalOrNull,
+      rateAsOf: z.string().nullable(),
+    }),
+  ),
+  order: z.array(z.string()).nullable(),
+  notUsedForCards: z.array(z.enum(NOT_USED_FOR_CARDS)),
+});
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
 import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
@@ -391,6 +428,46 @@ export function createCardsRouter(c: BankRouterContext) {
       ),
 
     /**
+     * The card's controls (J-bank-14 #1, BK-cctl-01): the merchant categories, merchants and countries the person blocked,
+     * the categories they can block, and the history of the card's temporary lock. A purchase that names a blocked one
+     * declines before anything is held.
+     */
+    controls: router({
+      get: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid() }))
+        .output(cardControlsOutput)
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+      block: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid(), kind: z.enum(CARD_CONTROL_KINDS), value: z.string().min(1).max(64) }))
+        .output(cardControlsOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            await bank.cards.blockControl(card.id, input.kind, input.value);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+      lift: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid(), controlId: z.string().guid() }))
+        .output(cardControlsOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            await bank.cards.liftControl(card.id, input.controlId);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+    }),
+
+    /**
      * PAN, expiry and CVV from a live issuer. Step-up every time. Not stored.
      * card-sim refuses `bank.card_pan_issuer_unset` before step-up. With step-up
      * not `required`, the call refuses `bank.step_up_unavailable` and the issuer is not called.
@@ -558,6 +635,36 @@ export function createCardsRouter(c: BankRouterContext) {
           };
         }),
       ),
+
+    /**
+     * Pay from (J-bank-29 #1 and #2; BK-ccrypto-01): the owner's spendable assets and any other the person's cards draw on,
+     * each offered, "not offered by the partner" or "not known", from the card partner's own list; how the partner spends
+     * (it holds the crypto, or the card pulls from the person's own wallet); for each offered asset the partner's balance
+     * and the rate with its time, or null ("not known"); the saved order; and the account kinds a card never pays from. No
+     * owner list refuses `bank.card_spend_assets_unset`. Reads only.
+     */
+    payFrom: scopedProcedure('bank:read', { module: 'bank' })
+      .output(payFromOutput)
+      .query(({ ctx }) => guard(async () => bank.cards.payFrom(ctx.principal.userId))),
+
+    /**
+     * Save the pay-from order (J-bank-29 #2): each asset once, each one the owner lists and the partner can spend from. No
+     * owner list refuses `bank.card_spend_assets_unset`; another asset refuses `bank.card_pay_from_not_offered`. Saving the
+     * same order again changes nothing. Moves no value.
+     */
+    setPayFromOrder: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z
+          .object({
+            assetIds: z
+              .array(z.string().regex(/^[A-Z0-9]{2,16}$/))
+              .min(1)
+              .max(50),
+          })
+          .strict(),
+      )
+      .output(payFromOutput)
+      .mutation(({ ctx, input }) => guard(async () => bank.cards.setPayFromOrder(ctx.principal.userId, input.assetIds))),
 
     // ── Getting a card (J-bank-13; BK-cissue-01 to -04) ─────────────────────
 
@@ -790,6 +897,9 @@ export function createCardsRouter(c: BankRouterContext) {
             /** WHAT MOVED, in the card's funding asset. */
             amount: amountString,
             merchantCategory: z.string().nullable(),
+            /** The merchant and its country as the issuer named them; null when it named none. */
+            merchant: z.string().nullable(),
+            merchantCountry: z.string().nullable(),
             channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']),
             decision: z.enum(['approved', 'declined']),
             declineCode: z.string().nullable(),
@@ -830,6 +940,8 @@ export function createCardsRouter(c: BankRouterContext) {
             authorizationRef: a.authorizationRef,
             amount: formatAmount(a.amount),
             merchantCategory: a.merchantCategory,
+            merchant: a.merchant,
+            merchantCountry: a.merchantCountry,
             channel: a.channel,
             decision: a.decision,
             declineCode: a.declineCode,

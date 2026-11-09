@@ -50,6 +50,7 @@ const RAIL_REFUSALS: ReadonlySet<BankErrorCode> = new Set<BankErrorCode>([
   'bank.fiat_ramp_no_pay_adapter',
   'bank.no_fiat_rail',
   'bank.onramp_rate_unset',
+  'bank.onramp_fee_not_known',
 ]);
 
 const railRefusal = (err: unknown): BankErrorCode | null => (err instanceof BankError && RAIL_REFUSALS.has(err.code) ? err.code : null);

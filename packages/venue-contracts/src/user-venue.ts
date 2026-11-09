@@ -102,7 +102,11 @@ export interface PlaceUserOrderIntent {
    * the owner value is blank (floor 8); `prepare` refuses
    * `builder_fee_not_approved` when the account approved less.
    */
-  readonly builderFee: { readonly builder: string; /** Scaled decimal bps, as `maxFeeBps`. */ readonly feeBps: Amount } | null;
+  readonly builderFee: {
+    readonly builder: string;
+    /** Basis points of notional as a scaled decimal (`parseAmount('0.5')` is half a bp), the same scale as `maxFeeBps`, so the two compare directly. */
+    readonly feeBps: Amount;
+  } | null;
 }
 
 /**
@@ -116,7 +120,18 @@ export interface PlaceUserOrderIntent {
 export interface UpdateLeverageIntent {
   readonly kind: 'update_leverage';
   readonly symbol: string;
-  /** Basis points of 1x: `100_000` is 10x. */
+  /**
+   * Basis points of 1x: `100_000` is 10x. A venue that takes only whole
+   * leverage (Hyperliquid) refuses a value that is not a multiple of `10_000`
+   * as `not_offered` at prepare.
+   */
+  readonly leverageBps: number;
+  readonly marginMode: VenueMarginMode;
+}
+
+/** An account's leverage setting on one perpetual market, as the venue records it. */
+export interface UserVenueLeverage {
+  readonly symbol: string;
   readonly leverageBps: number;
   readonly marginMode: VenueMarginMode;
 }
@@ -315,8 +330,22 @@ export type VenueRefusalCode =
   | 'test_venue_outside_test'
   /** The client order key is not a business key (blank, or a random id). */
   | 'invalid_client_order_key'
+  /**
+   * The venue refused the action's nonce for a reason that guarantees it was
+   * not applied (below the venue's kept set, or outside its time window).
+   * A "nonce already used" answer is never this: that is `already_submitted`.
+   */
+  | 'nonce_rejected'
   /** The venue refused for its own stated reason; the text is in `detail`. */
-  | 'venue_rejected';
+  | 'venue_rejected'
+  /** An agent order would commit more than the room left under the person's cap (agent-cap.ts). Nothing signed. */
+  | 'agent_cap_exceeded'
+  /** The agent's cap is revoked or expired: only cancels are signed. */
+  | 'agent_cap_inactive'
+  /** The room under the cap can't be measured (a holding with no known mark, a market in another quote). Nothing signed. */
+  | 'agent_cap_unmeasured'
+  /** Not the cap's agent key, or not the agent's own sub-account. */
+  | 'agent_outside_capped_account';
 
 export interface VenueRefusal {
   readonly venueId: string;
@@ -413,7 +442,12 @@ export interface UserVenueWithdrawal {
   readonly nonce: string;
   readonly asset: string;
   readonly amount: Amount;
-  readonly destination: string;
+  /**
+   * Lowercase destination address, or `null` when the venue does not report
+   * it for this withdrawal (its record names none, and the reader did not
+   * send it). Never a made-up value (AGENTS.md floor 8).
+   */
+  readonly destination: string | null;
   readonly status: UserVenueWithdrawalStatus;
   /** The venue's withdrawal fee, or `known: false` when it does not publish one. */
   readonly fee: MaybeKnown<Amount>;
@@ -528,6 +562,13 @@ export interface UserVenue {
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
+  /**
+   * The account's leverage setting on `symbol`, or `null` when none is set
+   * (a venue with a default per market reports that default). What the Review
+   * screen's margin is computed from, and what an `update_leverage` answer
+   * that is not definite is read back by.
+   */
+  leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>>;
 }
 
 // ════════════════════════════════════════════════════════════════════════════

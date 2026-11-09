@@ -1,4 +1,6 @@
 import postgres from 'postgres';
+import { createHmac } from 'node:crypto';
+import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
 import { officialChannelsFromEnv } from './official-channels.js';
 import { GuestRequests } from './guest-requests.js';
 import { createGuestVerificationClient } from './guest-verification-client.js';
@@ -18,6 +20,7 @@ import { KbAuthoring } from './kb-authoring.js';
 import { SqlKbReviewBook } from './kb-review.js';
 import { createIdentityApprovalClient } from './action-approval-consume.js';
 import { SqlGroupBook } from './desk-groups.js';
+import { DeskRouting, SqlRoutingBook } from './desk-routing.js';
 import { SqlViewBook } from './desk-views.js';
 import { DeskMacros, SqlMacroBook } from './desk-macros.js';
 import { SqlPropertiesBook } from './desk-properties.js';
@@ -31,6 +34,7 @@ import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
 import { createSupportRouter } from './router.js';
 import { SqlCheckBook, VerificationChecks } from './verification-checks.js';
+import { SafetyCases, SqlSafetyBook } from './safety-cases.js';
 import { createTicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -181,15 +185,18 @@ const testAttachments = openLocalTestAttachments({
   scanner: env.SUPPORT_MALWARE_SCANNER,
 });
 // Third argument is the attachment desk; its size and type limits come from the owner's settings. Staff is fourth, orders fifth, then the blank-by-default staff heartbeat window.
+// One staff book and one group book, shared by the desk and its routing (SP-routing-01).
+const staffBook = new SqlStaffBook(sql);
+const groupBook = new SqlGroupBook(sql);
 const support = new SupportService(
   store,
   accounts,
   { ...UNCONFIGURED_ATTACHMENTS, store: testAttachments.store, scanner: testAttachments.scanner },
-  new SqlStaffBook(sql),
+  staffBook,
   orders,
   env.STAFF_HEARTBEAT_WINDOW_SECONDS ?? null,
   undefined,
-  new SqlGroupBook(sql),
+  groupBook,
   env.SUPPORT_ALL_GROUPS_ROLES,
   new SqlPropertiesBook(sql),
   new SqlLifecycleBook(sql),
@@ -224,13 +231,41 @@ const guests = new GuestRequests(
     publicOrigin: env.SUPPORT_PUBLIC_ORIGIN ?? null,
   },
 );
+const routing = new DeskRouting(
+  new SqlRoutingBook(sql),
+  staffBook,
+  groupBook,
+  support,
+  env.STAFF_HEARTBEAT_WINDOW_SECONDS ?? null,
+  env.SUPPORT_ROUTING_SWEEP_SECONDS ?? null,
+);
+const contactBook = new SqlContactBook(sql);
+// Live chat (SP-chat-01): the profile type is read from svc-identity per chat; claims are signed with a key derived from
+// the internal secret, which never leaves this process.
+const chat = new SupportChat(
+  new SqlChatBook(sql),
+  support,
+  createChatProfileClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
+  {
+    rateLimit: env.SUPPORT_CHAT_RATE_LIMIT ?? null,
+    rateWindowSeconds: env.SUPPORT_CHAT_RATE_WINDOW_SECONDS ?? null,
+    identityTtlSeconds: env.SUPPORT_CHAT_IDENTITY_TTL_SECONDS ?? null,
+    prechatFields: env.SUPPORT_CHAT_PRECHAT_FIELDS,
+    addressKey: env.SUPPORT_GUEST_ADDRESS_KEY ?? null,
+    retentionDays: env.SUPPORT_GUEST_RETENTION_DAYS ?? null,
+    guestRateLimit: env.SUPPORT_GUEST_RATE_LIMIT ?? null,
+    guestRateWindowSeconds: env.SUPPORT_GUEST_RATE_WINDOW_SECONDS ?? null,
+    claimSecret: createHmac('sha256', env.INTERNAL_SERVICE_SECRET).update('svc-support.chat.v1').digest('hex'),
+  },
+  async () => (await contactBook.get()).chatHours,
+);
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(
   support,
   loop,
   env.INTERNAL_SERVICE_SECRET,
   support,
-  new SqlContactBook(sql),
+  contactBook,
   attachmentSettings,
   new SqlSurveyBook(sql, undefined, env.SUPPORT_SURVEY_CAP ?? null),
   createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
@@ -245,6 +280,10 @@ const appRouter = createSupportRouter(
   // every check refuses naming its owner, and every read refuses support.verification_checks_required.
   new VerificationChecks(new SqlCheckBook(sql), support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
   officialChannelsFromEnv(env.SUPPORT_OFFICIAL_CHANNELS),
+  // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
+  new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
+  chat,
+  routing,
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
@@ -269,11 +308,30 @@ const sweep = (): void => void ratingRequests.flush().catch((err: unknown) => ap
 sweep();
 const sweepTimer = setInterval(sweep, 60_000);
 // Guest addresses past the owner's retention are erased, here and in svc-notify: once now, then each hour.
-const eraseGuests = (): void => void guests.eraseDue().catch((err: unknown) => app.log.warn({ err }, 'guest erase sweep failed'));
+const eraseGuests = (): void => {
+  void guests.eraseDue().catch((err: unknown) => app.log.warn({ err }, 'guest erase sweep failed'));
+  void chat.eraseDue().catch((err: unknown) => app.log.warn({ err }, 'chat enquiry erase sweep failed'));
+};
 eraseGuests();
 const guestTimer = setInterval(eraseGuests, 3_600_000);
 guestTimer.unref();
 sweepTimer.unref();
+// The routing worker's sweep re-selects waiting requests by state, at the owner's interval; blank runs none.
+if (env.SUPPORT_ROUTING_SWEEP_SECONDS) {
+  // One sweep at a time: a pass still running when the next tick comes is not joined by a second one.
+  let sweeping = false;
+  const routingTimer = setInterval(() => {
+    if (sweeping) return;
+    sweeping = true;
+    routing
+      .routeGroup()
+      .catch((err: unknown) => app.log.error({ err }, 'routing sweep failed'))
+      .finally(() => {
+        sweeping = false;
+      });
+  }, env.SUPPORT_ROUTING_SWEEP_SECONDS * 1000);
+  routingTimer.unref();
+}
 
 // Held attachments: scanned again only when the owner has set both the interval and the batch. Blank runs no pass.
 let rescanTimer: NodeJS.Timeout | null = null;

@@ -1,10 +1,15 @@
-// World: restart
+// World: gates, restart
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { api, fromUnits, stackFile, toUnits, tool } from './stack.mjs';
+import { createPublicClient, erc20Abi, http } from 'viem';
+import { GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
+import { testChain } from './dex.mjs';
+import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { installTestWallet } from './test-wallet.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set my spending limits and see that a run I cannot pay
 // for never starts. One test per step, titled "J-agents-02 #<n>", run in order on one verified TEST account funded with
@@ -44,6 +49,10 @@ async function stillCalls(engineCalls, expected) {
 }
 
 const J = 'J-agents-02';
+/** The stack's TEST chain, read straight through its gate: the figure a refusal names is checked against it. */
+const chain = createPublicClient({ transport: http(GATE_URL) });
+/** The seeded TEST USD token (services/svc-protocol/scripts/seed-test-chain.ts), 6 decimals: the wallet's payment token. */
+const TEST_USD = '0x000000000000000000000000000000000000d011';
 const agents = agentsRun(J);
 
 test.describe.configure({ mode: 'default' });
@@ -64,9 +73,12 @@ async function setAgentCap(page, cap) {
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
 }
 
-/** A fresh TEST person's own agent, opened on Limits with the journey's caps saved (0.012 per call, 0.02, 5 a month). */
-async function ownAgentWithLimits(page, who) {
-  await signIn(page, who);
+/**
+ * A fresh TEST person's own agent, opened on Limits with the journey's caps saved (0.012 per call, 0.02, 5 a month).
+ * `signedIn` keeps the browser's sign-in as it is (a step that already signed in and set up more).
+ */
+async function ownAgentWithLimits(page, who, { signedIn = false } = {}) {
+  if (!signedIn) await signIn(page, who);
   await createOwnAgent(page);
   await page.goto('/agents');
   await main(page).getByRole('link', { name: OWN_AGENT, exact: true }).click(UNBUILT);
@@ -304,38 +316,139 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
   expect(await ledgerBalances(agents.account())).toEqual(before);
 });
 
-test(`${J} #4 asks for a run when the available balance is below the worst case: refused as insufficient funds, the engine never called, nothing billed; with the balance read down, the run does not start and says why`, async ({
-  page,
+test(`${J} #4 asks for a run when the payment method's available amount, as the partner or the chain reports it, is below the worst case: a refusal naming the payment method and its figure with its source and as-of time; the engine is never called, nothing is billed; with that figure unreadable the run does not start and says why`, async ({
+  browser,
 }) => {
-  test.setTimeout(240_000);
-  // A second TEST person with 0.005 USDT, the same kind of agent (cap 1 per session) and the same limits: one run's
-  // worst case (just over 0.01024) is above the balance.
-  const poor = await fundedTrader(page, 'ag02p', '0.005');
-  await ownAgentWithLimits(page, poor);
+  test.setTimeout(480_000);
+  // A passkey belongs to the stack's relying party, `localhost` (an IP address cannot be one), so this step's page is
+  // the customer app at PASSKEY_ORIGIN, as J-identity-04 opens its own (identity-factors.mjs).
+  const passkeyContext = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  const page = await passkeyContext.newPage();
+  // The payment method is a TEST wallet that can sign (tests/real-app/test-wallet.mjs, a fresh key), linked by its own
+  // signature and a passkey confirmation as J-identity-04 #7 does, then chosen on the agent's Limits page. It holds 0
+  // TEST USD on the stack's TEST chain (tooling/scripts/local-test-chain.mjs, chain 84532), below one run's worst case
+  // (just over 0.01024). The person's platform balance, 20 TEST USDT, would cover it many times: a refusal here can only
+  // come from the wallet's own figure.
+  expect(testChain(), 'J-agents-02 #4 needs the stack’s TEST chain (anvil)').toMatchObject({ chain: 'running', gate: 'open' });
+  await virtualAuthenticator(page);
+  const wallet = await installTestWallet(page, { chainId: TEST_CHAIN_ID });
+  const address = wallet.address.toLowerCase();
+  const payer = await fundedTrader(page, 'ag02w', '20');
+  await signIn(page, payer);
+  await addPasskey(page);
+  const card = page.getByTestId('security__signin-methods');
+  const walletsRow = card.getByRole('listitem', { name: 'Wallets', exact: true });
+  await walletsRow.getByRole('button', { name: 'Link a wallet' }).click();
+  await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+  await expect(walletsRow.getByTitle(wallet.address)).toBeVisible();
+
+  await ownAgentWithLimits(page, payer, { signedIn: true });
+  const method = main(page).getByRole('form', { name: 'Payment method' });
+  await method.getByRole('combobox', { name: 'Wallet to pay from' }).selectOption(address);
+  await method.getByRole('button', { name: 'Save payment method' }).click();
+  await expect(method.getByRole('status')).toHaveText('Payment method saved.');
+  await expect(method.getByTestId('payment-method').getByTitle(address)).toBeVisible();
+
   await session(page).getByRole('button', { name: 'Open a session' }).click();
   await expect(session(page).getByText('Session open:')).toBeVisible();
   await session(page)
     .getByRole('textbox', { name: /^Ask the agent/ })
     .fill('TEST question');
-  const before = await ledgerBalances(poor);
-  // With the engine held, the refusal comes back and no run has reached the engine.
+  const before = await ledgerBalances(payer);
+  const fromBlock = await chain.getBlockNumber();
   const refusal = session(page).getByRole('alert');
   await withEngineHeld(async (engineCalls) => {
     await session(page).getByRole('button', { name: 'Run', exact: true }).click();
-    await expect(refusal).toContainText('Your available balance is below this run’s worst case, so it did not start.');
     await expect(refusal.locator('code')).toHaveText('agents.funds_insufficient');
     await stillCalls(engineCalls, 0);
   });
+  const toBlock = await chain.getBlockNumber();
+  // The refusal names the wallet (in full on the element), the figure the chain gave at the block it names and that
+  // block's own time, all checked against the chain itself.
+  await expect(refusal).toHaveAttribute('title', address);
+  const block = BigInt((await refusal.getAttribute('data-block')) ?? '-1');
+  expect(block >= fromBlock && block <= toBlock, `block ${block} within ${fromBlock}..${toBlock}`).toBe(true);
+  const onChain = await chain.getBlock({ blockNumber: block });
+  const asOf = new Date(Number(onChain.timestamp) * 1000).toISOString();
+  await expect(refusal).toHaveAttribute('data-as-of', asOf);
+  const held = await chain.readContract({
+    address: TEST_USD,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [address],
+    blockNumber: block,
+  });
+  expect(held).toBeLessThan(toUnits('0.01024') / 10n ** 12n);
+  const figure = fromUnits(held * 10n ** 12n);
+  // The figure is named in the token the chain holds, by the chain's own name for it, never relabelled.
+  const token = await chain.readContract({ address: TEST_USD, abi: erc20Abi, functionName: 'symbol', blockNumber: block });
+  const shown = await page.evaluate((iso) => new Date(iso).toLocaleString(), asOf);
+  await expect(refusal).toContainText(
+    `Wallet ${address.slice(0, 6)}…${address.slice(-4)} holds ${figure} ${token}, as TEST chain 84532, block ${block} reported it at ${shown}.`,
+  );
+  await expect(refusal).toContainText('so it did not start. Nothing was charged.');
   await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
   const runs = tableIn(main(page), 'Runs').getByRole('row');
   await expect(runs).toHaveCount(2);
   await expect(runs.nth(1)).toContainText('Refused');
   await expect(runs.nth(1).locator('code')).toHaveText('agents.funds_insufficient');
   await expect(runs.nth(1).getByTestId('run-cost')).toHaveText('0 USDT');
-  expect(await ledgerBalances(poor)).toEqual(before);
+  await expect(runs.nth(1).getByTitle(address)).toContainText(`block ${block}`);
+  expect(await ledgerBalances(payer)).toEqual(before);
 
-  // With the balance read down (the stack's ledger stopped), the run does not start and says why: the balance could
-  // not be read, which is not the same as short. The engine is never called and nothing is billed.
+  // With the chain unreachable (its gate closed) the figure cannot be read: the run does not start and says why, naming
+  // the wallet. The engine is never called and nothing is billed.
+  try {
+    tool('local-test-chain.mjs', 'gate', 'closed');
+    const unread = session(page).getByRole('alert');
+    await withEngineHeld(async (engineCalls) => {
+      await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+      await expect(unread.locator('code')).toHaveText('agents.funds_unread', { timeout: 20_000 });
+      await stillCalls(engineCalls, 0);
+    });
+    await expect(unread).toHaveAttribute('title', address);
+    await expect(unread).toHaveAttribute('data-reason', 'chain_unreachable');
+    await expect(unread).toContainText(
+      `The amount in wallet ${address.slice(0, 6)}…${address.slice(-4)} could not be read, so this run did not start: the chain could not be reached just now. Nothing was charged.`,
+    );
+    await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+    await expect(runs).toHaveCount(3);
+    await expect(runs.filter({ hasText: 'agents.funds_unread' }).getByTestId('run-cost')).toHaveText('0 USDT');
+  } finally {
+    tool('local-test-chain.mjs', 'gate', 'open');
+  }
+  expect(await ledgerBalances(payer)).toEqual(before);
+
+  // With no payment method chosen, the run is checked against the platform balance as before, and its two money
+  // failure branches keep their end-to-end check here (CI review on #7585). A second TEST person with 0.005 USDT, the
+  // same kind of agent and limits: one run's worst case is above the balance.
+  const poor = await fundedTrader(page, 'ag02p', '0.005');
+  await ownAgentWithLimits(page, poor);
+  await expect(main(page).getByRole('form', { name: 'Payment method' }).getByTestId('payment-method')).toContainText(
+    'No payment method chosen',
+  );
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  await expect(session(page).getByText('Session open:')).toBeVisible();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question');
+  const poorBefore = await ledgerBalances(poor);
+  const short = session(page).getByRole('alert');
+  await withEngineHeld(async (engineCalls) => {
+    await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(short).toContainText('Your available balance is below this run’s worst case, so it did not start.');
+    await expect(short.locator('code')).toHaveText('agents.funds_insufficient');
+    await stillCalls(engineCalls, 0);
+  });
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+  const poorRuns = tableIn(main(page), 'Runs').getByRole('row');
+  await expect(poorRuns).toHaveCount(2);
+  await expect(poorRuns.nth(1).locator('code')).toHaveText('agents.funds_insufficient');
+  await expect(poorRuns.nth(1).getByTestId('run-cost')).toHaveText('0 USDT');
+  expect(await ledgerBalances(poor)).toEqual(poorBefore);
+
+  // With the platform balance read down (the stack's ledger stopped), the run does not start and says why: the balance
+  // could not be read, which is not the same as short. The engine is never called and nothing is billed.
   try {
     tool('local-test-stack.mjs', 'stop', 'ledger');
     const unread = session(page).getByRole('alert');
@@ -348,12 +461,13 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
       await stillCalls(engineCalls, 0);
     });
     await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
-    await expect(runs).toHaveCount(3);
-    await expect(runs.filter({ hasText: 'agents.funds_unread' }).getByTestId('run-cost')).toHaveText('0 USDT');
+    await expect(poorRuns).toHaveCount(3);
+    await expect(poorRuns.filter({ hasText: 'agents.funds_unread' }).getByTestId('run-cost')).toHaveText('0 USDT');
   } finally {
     tool('local-test-stack.mjs', 'start', '--only', 'ledger');
   }
-  expect(await ledgerBalances(poor)).toEqual(before);
+  expect(await ledgerBalances(poor)).toEqual(poorBefore);
+  await passkeyContext.close();
 });
 
 test(`${J} #5 leaves the overage grace value blank after a window could not be paid: the next run refuses with recovery text; the unpaid window retries on its charge key`, async ({

@@ -54,6 +54,8 @@ const en = {
   unlockRuleUnset:
     'The bank has not set how long an early unlock waits, so no new lock is made and a locked space stays locked to its date. Nothing was changed.',
   spaceNotLocked: 'This space is not locked now, so there is no lock to end early. Nothing was changed.',
+  notOfferedByPartner: 'Not offered by the partner. Your bank partner does not offer this, so nothing was sent or changed.',
+  partnerDown: 'Your bank partner is not answering. Nothing was sent or changed. Try again later.',
   roundUpTarget:
     'A round-up goes into one of your own spaces or one pool, and never back into the account it comes from. Nothing was set up.',
   sorterTermsUnset: 'The bank has not published when incoming payments are sorted, so no sorter can be set up now. Nothing was set up.',
@@ -107,6 +109,9 @@ const en = {
   potCardForbidden: 'You can see this shared pot, but only its owner and contributors can freeze its card. Nothing was changed.',
   potCardMissing: 'No card is linked to this pot any more. Nothing was changed.',
   potCardTaken: 'This pot already has a linked card, or that card is linked to another pot. Unlink it first. Nothing was changed.',
+  cardControlInvalid:
+    'Block a category from the list, a merchant by a name of 1 to 64 characters, or a country by its two-letter code. Nothing was changed.',
+  cardControlGone: 'That block is no longer on this card. Refresh the card. Nothing was changed.',
 } as const;
 const es = {
   cardNotFound: 'No se encontró esa tarjeta. Actualiza tus tarjetas e inténtalo de nuevo.',
@@ -156,6 +161,8 @@ const es = {
   unlockRuleUnset:
     'El banco no ha fijado cuánto espera un desbloqueo anticipado, así que no se crea ningún bloqueo nuevo y un espacio bloqueado sigue así hasta su fecha. No se cambió nada.',
   spaceNotLocked: 'Este espacio no está bloqueado ahora, así que no hay bloqueo que terminar antes. No se cambió nada.',
+  notOfferedByPartner: 'No lo ofrece el socio. Tu banco asociado no ofrece esto, así que no se envió ni se cambió nada.',
+  partnerDown: 'Tu banco asociado no responde. No se envió ni se cambió nada. Inténtalo más tarde.',
   roundUpTarget: 'Un redondeo va a uno de tus espacios o a un fondo, y nunca de vuelta a la cuenta de la que sale. No se configuró nada.',
   sorterTermsUnset:
     'El banco no ha publicado cuándo se reparten los pagos entrantes, así que ahora no se puede configurar un reparto. No se configuró nada.',
@@ -212,6 +219,9 @@ const es = {
   potCardMissing: 'Esta hucha ya no tiene ninguna tarjeta vinculada. No se cambió nada.',
   potCardTaken:
     'Esta hucha ya tiene una tarjeta vinculada, o esa tarjeta está vinculada a otra hucha. Desvincúlala primero. No se cambió nada.',
+  cardControlInvalid:
+    'Bloquea una categoría de la lista, un comercio por un nombre de 1 a 64 caracteres o un país por su código de dos letras. No se cambió nada.',
+  cardControlGone: 'Ese bloqueo ya no está en esta tarjeta. Actualiza la tarjeta. No se cambió nada.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   cardNotFound: 'Cette carte est introuvable. Actualisez vos cartes et réessayez.',
@@ -262,6 +272,8 @@ const fr = {
   unlockRuleUnset:
     'La banque n’a pas fixé la durée d’attente d’un déverrouillage anticipé, donc aucun nouveau verrouillage n’est créé et un espace verrouillé le reste jusqu’à sa date. Rien n’a été modifié.',
   spaceNotLocked: 'Cet espace n’est pas verrouillé maintenant, donc il n’y a aucun verrouillage à terminer plus tôt. Rien n’a été modifié.',
+  notOfferedByPartner: 'Non proposé par le partenaire. Votre banque partenaire ne le propose pas, donc rien n’a été envoyé ni modifié.',
+  partnerDown: 'Votre banque partenaire ne répond pas. Rien n’a été envoyé ni modifié. Réessayez plus tard.',
   roundUpTarget: 'Un arrondi va dans un de tes espaces ou dans un fonds, et jamais dans le compte d’où il part. Rien n’a été configuré.',
   sorterTermsUnset:
     'La banque n’a pas publié quand les paiements entrants sont répartis, donc aucune répartition ne peut être configurée pour le moment. Rien n’a été configuré.',
@@ -321,6 +333,9 @@ const fr = {
   potCardMissing: 'Aucune carte n’est plus liée à cette cagnotte. Rien n’a été modifié.',
   potCardTaken:
     'Cette cagnotte a déjà une carte liée, ou cette carte est liée à une autre cagnotte. Délie-la d’abord. Rien n’a été modifié.',
+  cardControlInvalid:
+    'Bloquez une catégorie de la liste, un commerçant par un nom de 1 à 64 caractères ou un pays par son code à deux lettres. Rien n’a été modifié.',
+  cardControlGone: 'Ce blocage n’est plus sur cette carte. Actualisez la carte. Rien n’a été modifié.',
 } satisfies Record<keyof typeof en, string>;
 
 export const moneyRefusalCopy = defineCopy('customer.money.refusals', en, { es, fr });
@@ -333,6 +348,8 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.card_shipping_address_required': 'cardAddressRequired',
   'bank.card_issue_conflict': 'cardIssueConflict',
   'bank.card_command_conflict': 'cardCommandConflict',
+  'bank.card_control_invalid': 'cardControlInvalid',
+  'bank.card_control_not_found': 'cardControlGone',
   'bank.card_operator_frozen': 'cardOperatorFrozen',
   'bank.cards_disabled': 'cardsOff',
   'bank.no_card_issuer': 'noIssuer',
@@ -367,6 +384,8 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.space_change_invalid': 'spaceChangeInvalid',
   'bank.space_unlock_rule_unset': 'unlockRuleUnset',
   'bank.space_not_locked': 'spaceNotLocked',
+  'bank.not_offered_by_partner': 'notOfferedByPartner',
+  'bank.partner_unavailable': 'partnerDown',
   'bank.auto_invest_target_invalid': 'roundUpTarget',
   'bank.sorter_terms_unset': 'sorterTermsUnset',
   'bank.sorter_invalid': 'sorterInvalid',
@@ -432,6 +451,9 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
   'cards.setChannels',
   'cards.issue',
   'cards.setStatus',
+  // A card block is one insert and a lift one update, each after its checks: a refusal changes nothing.
+  'cards.controls.block',
+  'cards.controls.lift',
   'business.runPayroll',
   'business.setMemberRole',
   'business.removeMember',

@@ -200,6 +200,16 @@
       "service": "bank",
       "value": "{\"assetId\": \"IFC\", \"rates\": {\"none\": 100, \"standard\": 150, \"metal\": 200, \"obsidian\": 300}}",
       "note": "TEST cashback rates by rank card tier, paid in IFC on spend from an IFC card (J-bank-13 #7): 1%, 1.5%, 2% and 3%. Made up for the local test stack; not an owner decision."
+    },
+    "BANK_CARD_SPEND_ASSETS": {
+      "service": "bank",
+      "value": "USDC,BTC,USD",
+      "note": "TEST spendable-asset list for card payments (J-bank-29): USDC, BTC and USD, as the journey's Starts names them. Made up for the local test stack; not an owner decision."
+    },
+    "BANK_CARD_SIM_PARTNER_JSON": {
+      "service": "bank",
+      "value": "{\"custodyMode\": \"partner_holds\", \"spendFrom\": [\"USDC\", \"BTC\", \"USD\"], \"lossLiability\": null, \"reserve\": null, \"funder\": null, \"balances\": {\"USDC\": \"30\", \"BTC\": \"0.01\", \"USD\": \"50\"}, \"programmeFigures\": null, \"fundingAssetId\": null, \"fundingOffers\": null}",
+      "note": "The TEST partner card adapter's switches (CUSTODY-DELTA section 4): the stand-in partner holds the crypto, spends from USDC, BTC and USD and reports TEST 30 USDC, 0.01 BTC and 50 USD spendable for every cardholder (J-bank-29 Starts); loss liability, any programme reserve, who funds the programme, the partner's programme figures, the funding stablecoin and which funding actions it offers are not known (null), so the app shows \"not known\" (J-bank-26 #6, J-bank-27 #4). Not a partner's answers. Refused at boot outside dev/test."
     }
   }
 }

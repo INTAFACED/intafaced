@@ -2,12 +2,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  MONEY_SERVICES,
   MIN_RUNS,
   REACH_MAP_MODE,
   reportUnclean,
   STALE_RUNS,
   buildMap,
+  candidates,
+  dependentPackages,
   harnessImports,
+  mapText,
+  verifyMap,
   loadMap,
   mapProblem,
   reachSelect,
@@ -18,6 +23,12 @@ import {
 } from './journey-reach-map.mjs';
 import { journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, sealPull } from './journey-seal.mjs';
+import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
 
 const REPO = 'INTAFACED/intafaced';
 const HEAD = 'a'.repeat(40);
@@ -101,14 +112,17 @@ const CONSUMERS = {
   'packages/lonely': [],
   'packages/money-util': ['services/svc-ledger'],
 };
-const build = (runs = RUNS) =>
+const DEPENDENTS = { 'packages/market-data': [], 'packages/money-util': [] };
+const build = (runs = RUNS, over = {}) =>
   buildMap({
     runs,
     services: SERVICES,
     consumers: CONSUMERS,
+    dependents: DEPENDENTS,
     harness: ['packages/events', 'apps/customer/deployment/host-dispatch.mjs'],
     subscribers: ['services/svc-notify'],
     money: ['packages/ledger-client', 'services/svc-ops'],
+    ...over,
   });
 const MAP = build();
 // The map ships off (REACH_MAP_MODE 'full'); these tests judge it switched on.
@@ -151,7 +165,7 @@ test('planted: a one-service change selects that service’s journeys and no oth
 
 test('journeyTouch with the map: product code joins the files list; any other full path keeps the whole change full', () => {
   const reach = { map: MAP, behind: 0, journeyFiles: FILES, subscribes: () => false, mode: 'reach' };
-  assert.equal(journeyTouch(['services/svc-tax/src/rates.ts'], () => true, { ...reach, mode: undefined }).mode, 'full', 'shipped off');
+  assert.equal(journeyTouch(['services/svc-tax/src/rates.ts'], () => true, { ...reach, mode: undefined }).mode, 'files', 'on by default');
   const t = journeyTouch(['services/svc-tax/src/rates.ts', `apps/customer/tests/real-app/${BANK}`], () => true, reach);
   assert.equal(t.mode, 'files');
   assert.deepEqual(t.files, [BANK, POPUP, TAX]);
@@ -197,22 +211,111 @@ test('planted: reach is taken only from runs where the journey passed whole (rev
   assert.deepEqual([...reportUnclean(r)].sort(), [BANK, TAX].sort());
 });
 
-test('planted: money code never narrows (the CI review on b26447ca)', () => {
-  assert.deepEqual(MAP.money, ['packages/ledger-client', 'services/svc-ledger', 'services/svc-ops'], 'svc-ledger always');
-  for (const p of ['services/svc-ledger/src/post.ts', 'services/svc-ops/src/x.ts', 'packages/ledger-client/src/recipes.ts']) {
-    const r = select([p]);
-    assert.equal(r.mode, 'full', p);
-    assert.match(r.why, /money code, which always runs the full suite/);
-  }
-  const dep = select(['packages/money-util/src/x.ts']);
-  assert.equal(dep.mode, 'full');
-  assert.match(dep.why, /money code depends on packages\/money-util/);
-  // A map with no money list can't say what is money: everything is full.
-  const { money, ...bare } = MAP;
+test('planted: money code narrows like any path (REVIEW.md C4 entry, OWNER 249)', () => {
+  // svc-tax as money code: a change to it still runs only the journeys recorded reaching it.
+  const map = build(RUNS, { money: ['packages/ledger-client', 'services/svc-tax'] });
+  assert.ok(map.money.includes('services/svc-tax'), 'the map still lists money code, for the record');
+  const r = select(['services/svc-tax/src/rates.ts'], { map });
+  assert.equal(r.mode, 'files', JSON.stringify(r));
+  assert.deepEqual(r.files, [POPUP, TAX]);
+  // A package only a money package depends on narrows to the journeys of the services that use it.
+  const over = {
+    consumers: { ...CONSUMERS, 'packages/fee-math': ['services/svc-tax'] },
+    dependents: { ...DEPENDENTS, 'packages/fee-math': ['packages/wallet-kit'] },
+    money: ['packages/ledger-client', 'packages/wallet-kit', 'services/svc-ops'],
+  };
+  assert.deepEqual(select(['packages/fee-math/src/round.ts'], { map: build(RUNS, over) }).files, [POPUP, TAX].sort());
+  // A map with no money list narrows the same.
+  const { money, ...bare } = map;
   assert.ok(money);
-  assert.match(select(['services/svc-tax/src/rates.ts'], { map: bare }).why, /lists no money code/);
-  // Mixed with a narrowable path, the money path keeps the whole change full.
-  assert.equal(select(['services/svc-tax/src/rates.ts', 'services/svc-ledger/src/post.ts']).mode, 'full');
+  assert.equal(select(['services/svc-tax/src/rates.ts'], { map: bare }).mode, 'files');
+});
+
+test('dependentPackages: packages through packages', () => {
+  // dependentPackages follows packages through packages, and leaves apps and services to consumersOf.
+  const ws = {
+    dirs: ['packages/fee-math', 'packages/wallet-kit', 'packages/top', 'services/svc-tax', 'apps/customer'],
+    deps: {
+      'packages/fee-math': [],
+      'packages/wallet-kit': ['packages/fee-math'],
+      'packages/top': ['packages/wallet-kit'],
+      'services/svc-tax': ['packages/top'],
+      'apps/customer': ['packages/fee-math'],
+    },
+  };
+  assert.deepEqual(dependentPackages(ws), {
+    'packages/fee-math': ['packages/top', 'packages/wallet-kit'],
+    'packages/wallet-kit': ['packages/top'],
+    'packages/top': [],
+  });
+});
+
+test('verify: a map is exactly what the builder builds from the runs it names (review 7561-R1 #2)', () => {
+  const good = mapText(MAP);
+  const asked = [];
+  const rebuild = (until) => (asked.push(until), good);
+  assert.deepEqual(verifyMap(good, rebuild), { ok: true });
+  assert.deepEqual(asked, [3], 'rebuilt up to the newest run the map names');
+  // Planted: a hand edit (a journey dropped from a service) fails, naming the key.
+  const edited = JSON.parse(good);
+  edited.services['services/svc-bank'] = edited.services['services/svc-bank'].slice(1);
+  const r = verifyMap(mapText(edited), rebuild);
+  assert.equal(r.ok, false);
+  assert.match(r.why, /differs from the one built from main.s runs up to run 3 in: services$/);
+  // Planted: a key only the pull request's map holds is counted, never printed (review 7578-R1 #1).
+  const forged = { ...JSON.parse(good), 'x\n::warning::forged': 1 };
+  const f = verifyMap(mapText(forged), rebuild);
+  assert.equal(f.ok, false);
+  assert.doesNotMatch(f.why, /forged|::warning::/);
+  assert.match(f.why, /in: 1 key\(s\) main.s builder never writes$/);
+  // Only what main's code holds differs: main moved since the build, and the message says to rebuild.
+  const moved = JSON.parse(good);
+  moved.consumers['packages/new'] = [];
+  assert.match(
+    verifyMap(mapText(moved), rebuild).why,
+    /in: consumers \(only what main.s code holds: main moved since it was built, so rebuild it\)$/,
+  );
+  // Planted: a hand-picked map (an older run in place of the newest whole one) fails: the rebuild reads every run up to
+  // the newest it names, so the run left out comes back.
+  const picked = mapText(build([RUNS[0], RUNS[2]], { minRuns: 2 }));
+  const rebuiltPicked = mapText(build([RUNS[0], RUNS[1]], { minRuns: 2 }));
+  assert.match(verifyMap(picked, () => rebuiltPicked).why, /in: runs/);
+  // Planted: the same map reformatted is not byte for byte the built one.
+  assert.match(verifyMap(`${JSON.stringify(MAP, null, 2)}\n`, rebuild).why, /layout differs/);
+  // A map that can't be read, names no run, or can't be rebuilt fails.
+  assert.match(verifyMap('{', rebuild).why, /not JSON/);
+  assert.match(verifyMap(mapText({ v: 1, runs: [], mode: 'full' }), rebuild).why, /names no run/);
+  assert.match(
+    verifyMap(good, () => {
+      throw new Error('HTTP 404\nmore');
+    }).why,
+    /couldn't be rebuilt \(HTTP 404\)$/,
+  );
+});
+
+test("candidates: main's finished full runs, the named ones, up to the run named", () => {
+  const r = (id, created, over = {}) => ({
+    id,
+    created_at: created,
+    head_branch: 'main',
+    head_repository: { full_name: REPO },
+    event: 'push',
+    status: 'completed',
+    conclusion: 'success',
+    ...over,
+  });
+  const list = [
+    r(1, '2026-11-08T10:00:00Z'),
+    r(2, '2026-11-08T11:00:00Z', { conclusion: 'failure' }),
+    r(3, '2026-11-08T12:00:00Z', { conclusion: 'cancelled' }),
+    r(4, '2026-11-08T13:00:00Z', { head_branch: 'feature' }),
+    r(5, '2026-11-08T14:00:00Z', { status: 'in_progress' }),
+    r(6, '2026-11-08T15:00:00Z'),
+  ];
+  const ids = (xs) => xs.map((x) => x.id);
+  assert.deepEqual(ids(candidates(list, { repo: REPO })), [6, 2, 1], 'newest first; a red run is read, a cancelled one not');
+  assert.deepEqual(ids(candidates(list, { repo: REPO, until: list[1] })), [2, 1], 'nothing after the run named');
+  assert.deepEqual(ids(candidates(list, { repo: REPO, ids: ['1', '6'] })), [6, 1]);
 });
 
 test('planted: each full fallback', () => {
@@ -261,11 +364,11 @@ test('planted: each full fallback', () => {
 });
 
 test('planted: the off switch and the builder’s refusal', () => {
-  assert.equal(REACH_MAP_MODE, 'full', 'off in this commit: narrowing turns on only in a reviewed code change');
+  assert.equal(REACH_MAP_MODE, 'reach', 'on: setting it to full turns every product change back to the full suite');
   assert.equal(
     reachSelect({ map: MAP, paths: ['services/svc-tax/src/rates.ts'], behind: 0, atHead: FILES }).mode,
-    'full',
-    'the default is off',
+    'files',
+    'the default is on',
   );
   const off = select(['services/svc-tax/src/rates.ts'], { mode: 'full' });
   assert.equal(off.mode, 'full');
@@ -412,6 +515,7 @@ test('the committed map holds only shapes a public map may hold', () => {
     'packages',
     'customer',
     'consumers',
+    'dependents',
     'harness',
     'subscribers',
     'money',
@@ -422,10 +526,11 @@ test('the committed map holds only shapes a public map may hold', () => {
     assert.match(r.head, /^[0-9a-f]{40}$/);
     assert.match(r.created, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   }
-  const PATH = /^(apps|packages|services)\/[A-Za-z0-9._@/-]+$/;
+  // The roots manifestsAt (journey-verdict.mjs) reads workspace folders from: the money list holds tooling/pay-sim.
+  const PATH = /^(apps|packages|services|tooling)\/[A-Za-z0-9._@/-]+$/;
   const JOURNEY = /^J-[a-z0-9-]+\.pw\.mjs$/;
   for (const j of map.journeys ?? []) assert.match(j, JOURNEY);
-  for (const k of ['services', 'packages', 'customer', 'consumers'])
+  for (const k of ['services', 'packages', 'customer', 'consumers', 'dependents'])
     for (const [p, v] of Object.entries(map[k] ?? {})) {
       assert.match(p, PATH);
       for (const x of v) assert.ok(Number.isInteger(x) || PATH.test(x), `${k}.${p}`);
@@ -445,4 +550,22 @@ test('the harness: what tooling/scripts and the real-app files run in Node, foll
   ])
     assert.ok(h.includes(p), `${p} is part of the harness`);
   assert.equal(h.includes('services/svc-tax'), false, 'a service the harness does not import is not the harness');
+});
+
+test('the committed map’s money list is REVIEW.md’s money code: ledger-client, every workspace folder depending on it directly, the named services and svc-ledger (CI review on a50417c8)', () => {
+  const map = loadMap();
+  if (map?.mode !== 'reach') return; // a full map narrows nothing
+  const want = [...new Set([...moneyCodeDirs(manifestsAt(ROOT_DIR)), ...MONEY_SERVICES])].sort();
+  assert.deepEqual(map.money, want);
+  // apps/customer reaches ledger-client only through other packages (consumers follows dependencies through packages),
+  // so it is not money code by the definition; its money journeys run through the money services it calls.
+  const customer = JSON.parse(readFileSync(join(ROOT_DIR, 'apps/customer/package.json'), 'utf8'));
+  const direct = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some(
+    (k) => customer[k] && Object.hasOwn(customer[k], '@intafaced/ledger-client'),
+  );
+  assert.equal(
+    map.money.includes('apps/customer'),
+    direct,
+    'apps/customer is money code exactly when it depends on ledger-client directly',
+  );
 });
