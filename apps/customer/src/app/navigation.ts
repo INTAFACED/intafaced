@@ -1033,7 +1033,15 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
-  // The support desk's own addresses (SP-tickets-01): a new request, "My requests" and one request.
+  // The support desk's own addresses (SP-tickets-01): a new request, "My requests" and one request; and live chat (SP-chat-01).
+  {
+    path: '/support/chat',
+    title: 'Chat with support',
+    description: 'Tickets and published answers',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
   {
     path: '/support/new',
     title: 'New support request',
