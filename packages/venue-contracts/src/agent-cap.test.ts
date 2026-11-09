@@ -53,6 +53,7 @@ const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserV
   lotSize: A('0.0001'),
   makerFeeBps: { known: false },
   takerFeeBps: { known: false },
+  builderFeeCapBps: { known: false },
 });
 
 interface World {
