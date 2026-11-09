@@ -118,8 +118,15 @@ export function ledgerPostingFreeze(ledgerUrl: string, fetcher: typeof fetch = f
   };
 }
 
-function postingFrozen(): BankError {
+/** svc-ledger's posting freeze refused a partner move before the partner was asked: nothing was sent. */
+export function postingFrozen(): BankError {
   return new BankError('Money moves are paused across the platform right now. Nothing was sent or changed.', 'bank.posting_frozen');
+}
+
+/** Frozen, or a freeze that cannot be read, refuses `bank.posting_frozen`. */
+export async function assertPostingEnabled(freeze: PostingFreeze): Promise<void> {
+  const enabled = await freeze.postingEnabled().catch(() => false);
+  if (!enabled) throw postingFrozen();
 }
 
 /**
@@ -139,8 +146,7 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         move: async (request: PartnerMoveRequest) => {
-          const enabled = await freeze.postingEnabled().catch(() => false);
-          if (!enabled) throw postingFrozen();
+          await assertPostingEnabled(freeze);
           return bank.move(request);
         },
       });

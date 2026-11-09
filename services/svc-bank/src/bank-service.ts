@@ -1,7 +1,7 @@
 import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
 import { bankCustodyLayer, custodyGuardedLedger, freezeGuardedCustody, type PostingFreeze } from './partner/partner-bank.js';
 import { moneyHeldBy } from './partner/test-partner.js';
-import { testPartnerCardHolds } from './cards/partner-card-holds.js';
+import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
@@ -338,7 +338,8 @@ export function createBankServices(
   // A person the TEST partner holds money for (`custody: 'off'`) reads and moves it at the partner; everyone else, as before.
   // Every partner move first asks svc-ledger's posting freeze (floor 4). No freeze wired reads as frozen: a partner move
   // is refused, never made unguarded.
-  const custody = freezeGuardedCustody(testPartnerCustody(options.testPartner), options.postingFreeze ?? FREEZE_NOT_WIRED);
+  const postingFreeze = options.postingFreeze ?? FREEZE_NOT_WIRED;
+  const custody = freezeGuardedCustody(testPartnerCustody(options.testPartner), postingFreeze);
   const spaces = new SpaceService(sql, ledger, options.recipients, {
     spaceLimit: () => options.spaceLimit,
     unlockWaitHours: () => options.spaceUnlockWaitHours,
@@ -420,7 +421,8 @@ export function createBankServices(
   // both chosen, each refused at boot outside dev/test).
   const custodyLayer = bankCustodyLayer(options.custodyLayer);
   const cardIssuer = options.cards?.issuer;
-  const partnerHolds =
+  // Every partner card instruction first asks svc-ledger's posting freeze too, as every partner bank move does.
+  const unguardedHolds =
     options.cards?.partnerHolds ??
     (options.testPartner && cardIssuer && cardIssuer.programme.id === 'card-sim' && !cardIssuer.mutationRefuse
       ? testPartnerCardHolds({
@@ -428,6 +430,7 @@ export function createBankServices(
           switches: (userId) => options.testPartner!.switches(userId),
         })
       : null);
+  const partnerHolds = unguardedHolds ? freezeGuardedCardHolds(unguardedHolds, postingFreeze) : null;
   const cards = new CardService(sql, ledger, {
     ...(options.cards ?? {}),
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
