@@ -670,9 +670,44 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
 
   // Charts: the equity curve, with a marker on the bar of each fill and the same side.
   await result.getByRole('button', { name: 'Charts' }).click();
-  await expect(result.getByTestId('quant-bar-equity-chart').locator('polyline')).toHaveCount(1);
-  const markers = await result.getByTestId('quant-bar-marker').evaluateAll((dots) => dots.map((dot) => [dot.dataset.ts, dot.dataset.side]));
-  expect(markers).toEqual(shown);
+  const chart = result.getByTestId('quant-bar-equity-chart');
+  await expect(chart.locator('polyline')).toHaveCount(1);
+  // The curve's table is the stack's stored equity, point for point (#6 checked those points against the tape).
+  const table = await result.getByTestId('quant-bar-equity').evaluateAll((rows) => rows.map((row) => row.dataset.equity));
+  expect(table).toEqual(stored.equity.map((point) => point.equity));
+  expect(stored.equity.length, 'a curve needs at least two points').toBeGreaterThanOrEqual(2);
+  // Every drawn point is that stored point: x steps evenly by bar, y places the equity between the curve's lowest and
+  // highest value (top of the box is the highest). Scaled integers, floored, as a drawing of decimal strings must be.
+  const [, , boxW, boxH] = (await chart.getAttribute('viewBox')).split(' ').map(Number);
+  const W = BigInt(boxW - 16);
+  const H = BigInt(boxH - 16);
+  const values = stored.equity.map((point) => toUnits(point.equity));
+  const top = values.reduce((a, b) => (b > a ? b : a));
+  const bottom = values.reduce((a, b) => (b < a ? b : a));
+  const last = BigInt(values.length - 1);
+  const at = (i) => [(BigInt(i) * W) / last, top === bottom ? H / 2n : H - ((values[i] - bottom) * H) / (top - bottom)];
+  const drawn = (await chart.locator('polyline').getAttribute('points'))
+    .trim()
+    .split(/\s+/)
+    .map((pair) => pair.split(',').map((n) => BigInt(n)));
+  expect(drawn).toEqual(values.map((_, i) => at(i)));
+  // The curve moves with the trades: it is not a flat line.
+  expect(new Set(drawn.map(([, y]) => y)).size).toBeGreaterThan(1);
+  // One marker per fill, in order, with its side, drawn on the curve's point for the bar it filled on: a triangle whose
+  // tip points up from that point for a buy and down for a sell.
+  const markers = await result
+    .getByTestId('quant-bar-marker')
+    .evaluateAll((dots) => dots.map((dot) => [dot.dataset.ts, dot.dataset.side, dot.getAttribute('points')]));
+  expect(markers.map(([ts, side]) => [ts, side])).toEqual(shown);
+  const barOf = new Map(stored.equity.map((point, i) => [Date.parse(point.ts), i]));
+  for (const [ts, side, points] of markers) {
+    const i = barOf.get(Date.parse(ts));
+    expect(i, `the fill at ${ts} falls on a bar of the curve`).toBeDefined();
+    const [x, y] = at(i).map(Number);
+    const tip = side === 'buy' ? `${x},${y - 8}` : `${x},${y + 8}`;
+    const base = side === 'buy' ? [`${x - 9},${y + 8}`, `${x + 9},${y + 8}`] : [`${x - 9},${y - 8}`, `${x + 9},${y - 8}`];
+    expect(points.trim().split(/\s+/), `${side} marker at ${ts}`).toEqual([...base, tip]);
+  }
   await expect(result.getByText(/^Equity by bar\. A triangle pointing up marks a buy/)).toBeVisible();
 
   // Formula cells are neutralised in the file this screen saves: the run's reply is read again with one TEST cell
