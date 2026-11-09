@@ -6,6 +6,8 @@ import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { shortId } from '@/lib/desk/desk-model';
 import { fetchStaff, postSupportAction, type ActionReply } from '@/lib/support/browser';
 import { AVAILABILITIES, REASON_MAX, availabilityGate, heartbeatNote, type Availability, type StaffMemberView } from '@/lib/support/staff';
+import { ROUTING_LEAD_ONLY, parseCapacity, parseSkills, staffRoutingGate, type StaffRoutingRow } from '@/lib/support/routing';
+import type { SupportActionRequest } from '@/lib/support/model';
 import type { SupportStaffView } from '@/lib/support/types';
 import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
 
@@ -15,7 +17,14 @@ import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
  * The roster is exactly what svc-support lists. A person sets their own availability; a lead can set anyone's. Automatic
  * offline (moving a quiet person to offline) is an owner value: while it is blank this says so and nobody is moved. A
  * refusal on the roster is shown as that part's refusal, never as "no staff".
+ *
+ * The roster also shows each person's desk groups (teams), and their routing: capacity (blank means never assigned
+ * automatically) and skills, which a lead sets. Under it is svc-support's availability log, oldest first.
  */
+
+export type StaffStep = 'availability' | 'routing';
+
+export const CAPACITY_NOT_SET = 'Capacity not set: never assigned automatically';
 
 const TONE: Record<Availability, 'live' | 'warn' | 'neutral'> = { online: 'live', busy: 'warn', offline: 'neutral' };
 
@@ -24,19 +33,30 @@ export interface StaffForm {
   readonly target: string;
   readonly availability: Availability;
   readonly reason: string;
+  /** Whose routing is being set; empty means nobody picked yet. */
+  readonly routingTarget: string;
+  /** Typed capacity; blank means not set. */
+  readonly capacity: string;
+  /** Comma-separated skills. */
+  readonly skills: string;
 }
 
-export const emptyStaffForm: StaffForm = { target: '', availability: 'online', reason: '' };
+export const emptyStaffForm: StaffForm = { target: '', availability: 'online', reason: '', routingTarget: '', capacity: '', skills: '' };
+
+/** A person's routing as svc-support lists it. Someone it does not list has a blank capacity and no skills. */
+export function routingOf(rows: readonly StaffRoutingRow[], userId: string): StaffRoutingRow {
+  return rows.find((r) => r.userId === userId) ?? { userId, capacity: null, skills: [] };
+}
 
 export interface StaffPanelViewProps {
   readonly view: SupportStaffView | null;
   readonly loading: boolean;
   readonly form: StaffForm;
-  readonly armed: boolean;
+  readonly armed: StaffStep | null;
   readonly busy: boolean;
   readonly outcome: ActionReply | null;
   readonly onField: (patch: Partial<StaffForm>) => void;
-  readonly onArm: (on: boolean) => void;
+  readonly onArm: (step: StaffStep | null) => void;
   readonly onSend: () => void;
   readonly onRefresh: () => void;
 }
@@ -50,7 +70,24 @@ export function StaffPanelView(p: StaffPanelViewProps) {
   const gate = target
     ? availabilityGate(me, target, p.form.availability, p.form.reason, p.busy)
     : ({ ok: false, why: roster ? 'Pick a person on the list.' : 'The roster could not be read.' } as const);
-  const disabled = p.busy || p.armed;
+  const disabled = p.busy || p.armed !== null;
+  const routingRows = p.view?.routing.kind === 'ok' ? p.view.routing.data.staff : null;
+  const routingTarget = roster?.find((m) => m.userId === p.form.routingTarget) ?? null;
+  const routingGate = !roster
+    ? ({ ok: false, why: 'The roster could not be read.' } as const)
+    : !routingRows
+      ? ({ ok: false, why: 'Routing could not be read.' } as const)
+      : staffRoutingGate(
+          me,
+          routingTarget?.userId ?? '',
+          p.form.capacity,
+          p.form.skills,
+          routingTarget ? routingOf(routingRows, routingTarget.userId) : null,
+          p.busy,
+        );
+  const capacity = parseCapacity(p.form.capacity);
+  const skills = parseSkills(p.form.skills);
+  const log = p.view?.log;
   return (
     <section className="dk-stack" aria-label="Support staff" data-testid="staff-panel">
       <h3>Support staff</h3>
@@ -65,6 +102,7 @@ export function StaffPanelView(p: StaffPanelViewProps) {
               {heartbeatNote(p.view.policy.data)}
             </p>
           )}
+          {p.view.routing.kind === 'failed' && <Failed name="Routing (capacity and skills)" part={p.view.routing} />}
           {p.view.roster.kind === 'failed' ? (
             <Failed name="Staff list" part={p.view.roster} />
           ) : roster && roster.length === 0 ? (
@@ -79,26 +117,41 @@ export function StaffPanelView(p: StaffPanelViewProps) {
                     <tr>
                       <th>Person</th>
                       <th>Role</th>
+                      <th>Groups (teams)</th>
                       <th>Availability</th>
                       <th>Set</th>
                       <th>Last heartbeat</th>
+                      <th>Capacity</th>
+                      <th>Skills</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {roster.map((m) => (
-                      <tr key={m.userId} data-testid={`staff-${m.userId}`}>
-                        <td className="dk-packet">
-                          {shortId(m.userId)}
-                          {m.userId === meId ? ' (you)' : ''}
-                        </td>
-                        <td>{m.role}</td>
-                        <td>
-                          <Chip tone={TONE[m.availability]}>{m.availability}</Chip>
-                        </td>
-                        <td>{m.availabilitySetAt ? formatWhen(m.availabilitySetAt) : 'Never'}</td>
-                        <td>{m.lastHeartbeatAt ? formatWhen(m.lastHeartbeatAt) : 'None yet'}</td>
-                      </tr>
-                    ))}
+                    {roster.map((m) => {
+                      const r = routingRows ? routingOf(routingRows, m.userId) : null;
+                      return (
+                        <tr key={m.userId} data-testid={`staff-${m.userId}`}>
+                          <td className="dk-packet">
+                            {shortId(m.userId)}
+                            {m.userId === meId ? ' (you)' : ''}
+                          </td>
+                          <td>{m.role}</td>
+                          <td data-testid={`staff-groups-${m.userId}`}>
+                            {m.groups.length === 0 ? 'None' : m.groups.map((g) => g.name).join(', ')}
+                          </td>
+                          <td>
+                            <Chip tone={TONE[m.availability]}>{m.availability}</Chip>
+                          </td>
+                          <td>{m.availabilitySetAt ? formatWhen(m.availabilitySetAt) : 'Never'}</td>
+                          <td>{m.lastHeartbeatAt ? formatWhen(m.lastHeartbeatAt) : 'None yet'}</td>
+                          <td data-testid={`staff-capacity-${m.userId}`}>
+                            {!r ? 'Not read' : r.capacity === null ? CAPACITY_NOT_SET : String(r.capacity)}
+                          </td>
+                          <td data-testid={`staff-skills-${m.userId}`}>
+                            {!r ? 'Not read' : r.skills.length === 0 ? 'None' : r.skills.join(', ')}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -159,24 +212,151 @@ export function StaffPanelView(p: StaffPanelViewProps) {
           onChange={(e) => p.onField({ reason: e.target.value })}
         />
       </div>
-      {p.armed ? (
+      {p.armed === 'availability' ? (
         <ConfirmStep
           title={`Set ${target ? shortId(target.userId) : 'this person'} to ${p.form.availability}?`}
           consequence="It is logged with your name. Setting the value they already have changes nothing."
           confirmLabel={`Yes, set ${p.form.availability}`}
           busy={p.busy}
           onConfirm={p.onSend}
-          onCancel={() => p.onArm(false)}
+          onCancel={() => p.onArm(null)}
         />
       ) : (
         <div className="dk-row">
-          <button type="button" className="adm-btn" data-tone="primary" disabled={!gate.ok} onClick={() => p.onArm(true)}>
+          <button
+            type="button"
+            className="adm-btn"
+            data-tone="primary"
+            disabled={!gate.ok || disabled}
+            onClick={() => p.onArm('availability')}
+          >
             Review availability
           </button>
           {!gate.ok && <span className="dk-why">{gate.why}</span>}
         </div>
       )}
+
+      <h4>Routing: capacity and skills</h4>
+      <p className="dk-muted">
+        Capacity is how many open requests svc-support may give a person automatically. Blank means not set, and they are never assigned
+        automatically. A request that needs a skill goes only to someone with it.
+      </p>
+      {me && me.role !== 'lead' && (
+        <p className="dk-muted" data-testid="staff-routing-not-lead">
+          {ROUTING_LEAD_ONLY}
+        </p>
+      )}
+      <div className="dk-row">
+        <div className="adm-field">
+          <label htmlFor="sd-routing-target">Person</label>
+          <select
+            id="sd-routing-target"
+            className="adm-input"
+            value={p.form.routingTarget}
+            disabled={disabled || !roster || !routingRows}
+            onChange={(e) => {
+              const r = routingRows && e.target.value ? routingOf(routingRows, e.target.value) : null;
+              p.onField({
+                routingTarget: e.target.value,
+                capacity: r && r.capacity !== null ? String(r.capacity) : '',
+                skills: r ? r.skills.join(', ') : '',
+              });
+            }}
+          >
+            <option value="">Pick a person</option>
+            {(roster ?? []).map((m: StaffMemberView) => (
+              <option key={m.userId} value={m.userId}>
+                {shortId(m.userId)}
+                {m.userId === meId ? ' (you)' : ''} · {m.role}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="adm-field">
+          <label htmlFor="sd-routing-capacity">Capacity (blank for not set)</label>
+          <input
+            id="sd-routing-capacity"
+            className="adm-input"
+            type="number"
+            min={0}
+            step={1}
+            inputMode="numeric"
+            value={p.form.capacity}
+            autoComplete="off"
+            disabled={disabled || !routingTarget}
+            onChange={(e) => p.onField({ capacity: e.target.value })}
+          />
+        </div>
+        <div className="adm-field">
+          <label htmlFor="sd-routing-skills">Skills (comma-separated)</label>
+          <input
+            id="sd-routing-skills"
+            className="adm-input"
+            value={p.form.skills}
+            autoComplete="off"
+            disabled={disabled || !routingTarget}
+            onChange={(e) => p.onField({ skills: e.target.value })}
+          />
+        </div>
+      </div>
+      {p.armed === 'routing' ? (
+        <ConfirmStep
+          title={`Save routing for ${routingTarget ? shortId(routingTarget.userId) : 'this person'}?`}
+          consequence={`Capacity: ${capacity.ok ? (capacity.value === null ? CAPACITY_NOT_SET : capacity.value) : 'not valid'}. Skills: ${skills.ok ? (skills.value.length === 0 ? 'none' : skills.value.join(', ')) : 'not valid'}. It is logged with your name and changes who svc-support gives requests to from now on.`}
+          confirmLabel="Yes, save routing"
+          busy={p.busy}
+          onConfirm={p.onSend}
+          onCancel={() => p.onArm(null)}
+        />
+      ) : (
+        <div className="dk-row">
+          <button
+            type="button"
+            className="adm-btn"
+            data-tone="primary"
+            disabled={!routingGate.ok || disabled}
+            onClick={() => p.onArm('routing')}
+          >
+            Review routing
+          </button>
+          {!routingGate.ok && <span className="dk-why">{routingGate.why}</span>}
+        </div>
+      )}
       <ActionOutcome reply={p.outcome} testId="staff-outcome" />
+
+      <h4>Availability log</h4>
+      {!log ? null : log.kind === 'failed' ? (
+        <Failed name="Availability log" part={log} />
+      ) : log.data.length === 0 ? (
+        <p className="dk-muted" data-testid="staff-log-none">
+          svc-support has no availability changes logged yet.
+        </p>
+      ) : (
+        <div className="dk-table-wrap" role="region" aria-label="Availability log" tabIndex={0}>
+          <table className="adm-table" data-testid="staff-log">
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Availability</th>
+                <th>Set by</th>
+                <th>Reason</th>
+                <th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {log.data.map((row, i) => (
+                <tr key={`${row.userId}:${row.at}:${i}`}>
+                  <td className="dk-packet">{row.userId}</td>
+                  <td>{row.availability}</td>
+                  <td className="dk-packet">{row.by}</td>
+                  <td>{row.reason ?? 'No reason given'}</td>
+                  <td>{formatWhen(row.at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="dk-row">
         <button type="button" className="adm-btn" onClick={p.onRefresh} disabled={p.loading || p.busy}>
           {p.loading ? 'Reading…' : 'Refresh staff'}
@@ -191,7 +371,7 @@ export function StaffPanel({ initial }: { initial: SupportStaffView | null }) {
   const [view, setView] = useState<SupportStaffView | null>(initial);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<StaffForm>(emptyStaffForm);
-  const [armed, setArmed] = useState(false);
+  const [armed, setArmed] = useState<StaffStep | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<ActionReply | null>(null);
   const lock = useRef(false);
@@ -211,21 +391,35 @@ export function StaffPanel({ initial }: { initial: SupportStaffView | null }) {
     if (lock.current || !armed || !view) return;
     const roster = view.roster.kind === 'ok' ? view.roster.data : null;
     const me = roster?.find((m) => m.userId === view.meId) ?? null;
-    const target = roster?.find((m) => m.userId === (form.target || view.meId)) ?? null;
-    if (!target || !availabilityGate(me, target, form.availability, form.reason, false).ok) return;
-    lock.current = true;
-    setBusy(true);
-    try {
+    let request: SupportActionRequest;
+    if (armed === 'availability') {
+      const target = roster?.find((m) => m.userId === (form.target || view.meId)) ?? null;
+      if (!target || !availabilityGate(me, target, form.availability, form.reason, false).ok) return;
       const reason = form.reason.trim();
-      const reply = await postSupportAction({
+      request = {
         action: 'staff_availability',
         availability: form.availability,
         ...(target.userId !== view.meId ? { userId: target.userId } : {}),
         ...(reason ? { reason } : {}),
-      });
+      };
+    } else {
+      const rows = view.routing.kind === 'ok' ? view.routing.data.staff : null;
+      const target = roster?.find((m) => m.userId === form.routingTarget) ?? null;
+      if (!target || !rows) return;
+      if (!staffRoutingGate(me, target.userId, form.capacity, form.skills, routingOf(rows, target.userId), false).ok) return;
+      const capacity = parseCapacity(form.capacity);
+      const skills = parseSkills(form.skills);
+      if (!capacity.ok || !skills.ok) return;
+      request = { action: 'staff_routing', userId: target.userId, capacity: capacity.value, skills: skills.value };
+    }
+    lock.current = true;
+    setBusy(true);
+    try {
+      const reply = await postSupportAction(request);
       setOutcome(reply);
-      setArmed(false);
-      if (reply.ok) setForm((f) => ({ ...f, reason: '' }));
+      const step = armed;
+      setArmed(null);
+      if (reply.ok && step === 'availability') setForm((f) => ({ ...f, reason: '' }));
       // Whatever the answer, read again: after "outcome not known" the page must show what is true.
       await load();
     } finally {
@@ -243,8 +437,8 @@ export function StaffPanel({ initial }: { initial: SupportStaffView | null }) {
       busy={busy}
       outcome={outcome}
       onField={(patch) => setForm((f) => ({ ...f, ...patch }))}
-      onArm={(on) => {
-        if (!busy) setArmed(on);
+      onArm={(step) => {
+        if (!busy) setArmed(step);
       }}
       onSend={() => void send()}
       onRefresh={() => void load()}

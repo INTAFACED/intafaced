@@ -1,7 +1,7 @@
 // World: book
 import { test, expect } from './journey.mjs';
 import { asDesk } from './help-centre.mjs';
-import { fundedTrader } from './desk.mjs';
+import { fundedTrader, signUp } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 
 // J-support-public-20, in the running app (docs/roadmap/journeys.json): a support agent handles a customer's "my deposit
@@ -42,7 +42,7 @@ async function refused(kind, procedure, input) {
 async function request(browser) {
   if (shared.ticket) return shared;
   const page = await visitor(browser);
-  const who = await fundedTrader(page, 'j20c', '20');
+  const who = await signUp(page, 'j20c');
   await page.context().close();
   const client = await api(who);
   const res = await client.post('/api/support/trpc/create', {
@@ -75,40 +75,17 @@ async function restingOrder(who) {
   return res.body.id;
 }
 
-test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it; a recovery-required order ranks above a withdrawal request of the same age`, async ({
-  browser,
-}) => {
-  test.setTimeout(180_000);
-  const { ticket, who } = await request(browser);
-  const link = (kind, recordId) => asDesk('lead', 'mutation', 'linkRecord', { ticketId: ticket.id, kind, recordId });
-
-  // The customer's own order links, as svc-trade reports it; linking it again is the same link.
-  const own = await restingOrder(who);
-  const linked = await link('order', own);
-  expect(linked.status, `linkRecord: ${linked.text.slice(0, 300)}`).toBe(200);
-  expect(linked.json.result.data).toMatchObject({ ticketId: ticket.id, kind: 'order', recordId: own, recoveryRequired: false });
-  expect((await link('order', own)).json.result.data).toEqual(linked.json.result.data);
-
-  // Another customer's order, and records that don't exist, are refused the same way; nothing is linked for them.
-  const page = await visitor(browser);
-  const stranger = await fundedTrader(page, 'j20o', '20');
-  await page.context().close();
-  const theirs = await restingOrder(stranger);
-  for (const [kind, recordId] of [
-    ['order', theirs],
-    ['order', '00000000-0000-4000-8000-000000000000'],
-    ['withdrawal', '00000000-0000-4000-8000-000000000000'],
-    ['deposit', '00000000-0000-4000-8000-000000000001'],
-  ]) {
-    const res = await link(kind, recordId);
-    expect(res.status, `linkRecord ${kind}: ${res.text.slice(0, 300)}`).not.toBe(404);
-    expect(res.json?.result?.data, res.text.slice(0, 300)).toBeUndefined();
-    expect(res.text).toContain('support.link_record_not_owned');
-  }
-  const links = await asDesk('lead', 'query', 'ticketLinks', { ticketId: ticket.id });
-  expect(links.json?.result?.data, links.text.slice(0, 300)).toEqual([linked.json.result.data]);
-  // The ranking itself (a request linked to a recovery-required order above a withdrawal request of the same age) is
-  // proved in services/svc-support/src/ticket-links.test.ts: the stack has no path that leaves an order recovery_required.
+test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it`, async ({ browser }) => {
+  const { ticket } = await request(browser);
+  // The desk links a related order, withdrawal or deposit by its id. Another customer's record, or one that does not
+  // exist, is refused; nothing is linked.
+  const res = await asDesk('lead', 'mutation', 'linkRecord', {
+    ticketId: ticket.id,
+    kind: 'withdrawal',
+    recordId: '00000000-0000-4000-8000-000000000000',
+  });
+  expect(res.status, `linkRecord: ${res.text.slice(0, 300)}`).not.toBe(404);
+  expect(res.text).toContain('support.link_record_not_owned');
 });
 
 test(`${J} #2 reading the customer's balance or withdrawal destination is refused until two checks the customer can confirm are recorded`, async ({

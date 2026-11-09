@@ -1,3 +1,5 @@
+import { routingProcedures } from './desk-routing-router.js';
+import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
 import { WithdrawalFreezes, WITHDRAWAL_FREEZE_UNAVAILABLE } from './withdrawal-freeze.js';
 import { withdrawalFreezeProcedures } from './withdrawal-freeze-router.js';
@@ -269,6 +271,8 @@ export function createSupportRouter(
   safety: SafetyCases = new SafetyCases(new MemorySafetyBook(), support, null),
   /** Live chat (SP-chat-01). Left out, every chat door refuses `support.chat_unwired`. */
   chat?: SupportChat,
+  /** Routing, capacity and skills (SP-routing-01). Left out, no routing procedure is mounted and nothing routes. */
+  routing?: DeskRouting,
   /** Withdrawal freezes asked from a request (J-support-public-20 #7). Left out, no identity is wired and each ask refuses. */
   freezes: WithdrawalFreezes = new WithdrawalFreezes(support, null),
 ) {
@@ -277,6 +281,7 @@ export function createSupportRouter(
     ...chatProcedures(chat, mapError),
     ...withdrawalFreezeProcedures(freezes, mapError),
     ...macroProcedures(macros),
+    ...(routing ? routingProcedures(routing, support) : {}),
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
@@ -1472,7 +1477,15 @@ export function createSupportRouter(
       .mutation(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          return await support.setTicketGroup({ actorId: ctx.principal!.userId, ...input });
+          const placed = await support.setTicketGroup({ actorId: ctx.principal!.userId, ...input });
+          // A request placed in a routed group goes to its next agent now (SP-routing-01); routing off or unset does nothing.
+          // The group change has committed; a routing pass that fails after it is logged and left to the next pass or
+          // sweep, never reported as a failed group change.
+          if (routing && placed.groupId !== null)
+            await routing
+              .route(placed.ticketId)
+              .catch((err: unknown) => console.error('svc-support: routing after a group change failed', err));
+          return placed;
         } catch (err) {
           mapError(err);
         }

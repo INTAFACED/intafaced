@@ -168,6 +168,17 @@ export function partnerReserve(partner: TestPartner | null | undefined, userId: 
   return partner.switches(userId).reserve === 'required' ? { required: true, amount: null } : { required: false };
 }
 
+/**
+ * The reserve the TEST partner bank requires of INTAFACED's programme, as it reports it: required, of an amount it has not
+ * told us (J-ops-console-24 #1, the capital monitor's "not known"). The per-person `reserve` switch above is what one
+ * person's partner account shows; this is the programme's, the same for everyone. Without the adapter, null: no partner
+ * has said anything.
+ */
+export function programmeReserve(partner: TestPartner | null | undefined): PartnerReserve | null {
+  if (!partner) return null;
+  return { required: true, amount: null };
+}
+
 /** Whether the ramp says a quote it gave has expired, whatever its own time said. */
 export function rampQuoteExpired(partner: TestPartner | null | undefined, userId: string): boolean {
   return !!partner && partner.switches(userId).rampQuote === 'expired';

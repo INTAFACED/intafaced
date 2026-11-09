@@ -240,4 +240,20 @@
   .of-trade-note[data-tone='bad'] {
     color: var(--if-error-text);
   }
+  .of-queue {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-1-5);
+  }
+  .of-queue-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-0-5);
+    padding-block: var(--if-space-1-5);
+    border-block-end: 0.0625rem solid var(--if-line);
+  }
+  .of-queue-head {
+    font-weight: 600;
+    color: var(--if-fg);
+  }
 }

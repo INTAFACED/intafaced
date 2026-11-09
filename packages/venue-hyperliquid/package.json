@@ -1,0 +1,35 @@
+{
+  "name": "@intafaced/venue-hyperliquid",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "conformance:live": "tsx scripts/live-conformance.ts",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "@intafaced/ledger-client": "workspace:*",
+    "@intafaced/venue-contracts": "workspace:*",
+    "viem": "^2.57.10"
+  },
+  "devDependencies": {
+    "@intafaced/venue-sim": "workspace:*",
+    "@types/node": "^22.20.5",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12"
+  }
+}

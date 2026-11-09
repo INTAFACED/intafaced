@@ -134,6 +134,15 @@ describe('LOCAL_TEST_KMS outside explicit dev/test', () => {
   });
 });
 
+describe('INTAFACED_TEST_BUSINESS_BLOCKS outside explicit dev/test', () => {
+  it('refuses to boot with a TEST business block anywhere but dev or test', () => {
+    expect(localTestFixtureIssues({ APP_ENV: 'prod', INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' })).toContain(
+      'INTAFACED_TEST_BUSINESS_BLOCKS is set (a TEST business block)',
+    );
+    expect(localTestFixtureIssues({ APP_ENV: 'dev', INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' })).toEqual([]);
+  });
+});
+
 describe('error shape', () => {
   it('names the env, the code, and says unset counts as not dev', () => {
     try {
