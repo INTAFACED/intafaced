@@ -189,6 +189,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       store,
       stepUp: opts.stepUp ?? stepUp('approve').check,
       builder: opts.builder === undefined ? BUILDER : opts.builder,
+      slippageCapBps: null,
       now: () => new Date(),
     });
     return { d, store, connects: () => connects };
@@ -273,6 +274,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       store,
       stepUp: stepUp('approve').check,
       builder: BUILDER,
+      slippageCapBps: null,
       now: () => new Date(),
     });
     const actionKey = `approve-builder:${USER}:council-r1`;
@@ -586,6 +588,7 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       store: new InMemoryPreparedActionStore(),
       stepUp: stepUp('approve').check,
       builder: BUILDER,
+      slippageCapBps: null,
       now: () => new Date(),
     });
 

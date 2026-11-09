@@ -76,9 +76,18 @@ function isDecimal(value: string): boolean {
   }
 }
 
-/** The ticket as the venue's order intent: a limit good till cancelled at its price, a market IOC at its worst price. */
-export function intentOf(fields: TicketFields, market: VenueMarket, worst: string | null, clientOrderKey: string): OrderIntent | null {
-  if (ticketProblem(fields, market, worst) !== null) return null;
+/**
+ * The ticket as the venue's order intent: a limit good till cancelled at its price, a market IOC at its worst price.
+ * `capSet` is the owner's market price protection as the desk read it: blank, no market intent is built (`no_cap`).
+ */
+export function intentOf(
+  fields: TicketFields,
+  market: VenueMarket,
+  worst: string | null,
+  clientOrderKey: string,
+  capSet: boolean,
+): OrderIntent | null {
+  if (ticketProblem(fields, market, worst, capSet) !== null) return null;
   const limit = fields.type === 'limit';
   return {
     kind: 'place_order',
@@ -104,9 +113,13 @@ export function draftSignature(fields: TicketFields): string {
  * The client order key held for retry: minted once for a ticket's order and kept while that order is unchanged and has
  * no definite answer, so a closed and reopened review, a double press or a lost answer names the same venue order. A
  * changed order, or one the venue answered definitely, gets a new key.
+ *
+ * A market order's worst price is held with its key: the best prices are polled and its live worst price moves, but the
+ * intent sent under one key never changes, so a retry never meets `trade.venue_action_key_reused`. A changed side, type
+ * or amount mints a new key, and with it the worst price of that moment.
  */
 export class HeldDraft {
-  private held: { signature: string; key: string } | null = null;
+  private held: { signature: string; key: string; worst: string | null } | null = null;
   private counter = 0;
 
   constructor(
@@ -116,17 +129,34 @@ export class HeldDraft {
   ) {}
 
   keyFor(fields: TicketFields): string {
-    const signature = draftSignature(fields);
-    if (this.held?.signature !== signature) {
-      this.held = { signature, key: keys.order(this.owner, this.symbol, draftId(this.now(), this.counter++)) };
-    }
-    return this.held.key;
+    return this.hold(fields, null).key;
   }
 
-  /** The venue answered this order definitely: the next order is a new one. */
+  /** The key for this order and the worst price held with it (a limit's is unused). */
+  hold(fields: TicketFields, worst: string | null): { key: string; worst: string | null } {
+    const signature = draftSignature(fields);
+    if (this.held?.signature !== signature) {
+      this.held = { signature, key: keys.order(this.owner, this.symbol, draftId(this.now(), this.counter++)), worst };
+    } else if (this.held.worst === null && worst !== null) {
+      // Nothing was built under the key without a worst price (no intent with no book), so the first one is held.
+      this.held = { ...this.held, worst };
+    }
+    return { key: this.held.key, worst: this.held.worst };
+  }
+
+  /** The venue answered this order definitely, or the door refused it before preparing anything: the next order is a new one. */
   settle(key: string) {
     if (this.held?.key === key) this.held = null;
   }
+}
+
+/**
+ * The door refused the order before anything was prepared under its key because its held worst price is past the owner's
+ * price protection (the book moved since the key was minted): the key is free, so the next try mints a new key at the
+ * worst price of that moment rather than resending the same refused intent.
+ */
+export function refusedAtHeldWorst(result: { kind: string; code?: string | undefined }): boolean {
+  return result.kind === 'refused' && result.code === 'trade.venue.price_outside_protection';
 }
 
 /** The deposit route `/venue/status` names (B2's chain-transfer watcher). */

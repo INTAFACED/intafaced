@@ -172,6 +172,28 @@ if (!available) {
       expect((await desk().read(userId)).state).toBe('held');
     });
 
+    it('screens and records the country given at sign-up: another typed country is refused kyc.country_mismatch and grants nothing', async () => {
+      const userId = await person();
+      const err = await refusal(desk().run(userId, { legalName: 'TEST Trader Four', country: 'FR', confirmed: true }));
+      expect(err.code).toBe('kyc.country_mismatch');
+      expect(await records(userId)).toEqual([]);
+      expect(await checks(userId)).toEqual([]);
+      expect(await auth.kycTier(userId)).toBe('none');
+    });
+
+    it('a listed person who types another country is still held', async () => {
+      const userId = await person('1970-01-01');
+      // FR would screen clear against the DE entry; it is refused, nothing is granted, and the recorded DE is what is screened.
+      const err = await refusal(desk().run(userId, { legalName: 'TEST Listed Person', country: 'FR', confirmed: true }));
+      expect(err.code).toBe('kyc.country_mismatch');
+      expect(await auth.kycTier(userId)).toBe('none');
+      expect(await records(userId)).toEqual([]);
+      const held = await desk().run(userId, { legalName: 'TEST Listed Person', country: 'DE', confirmed: true });
+      expect(held).toMatchObject({ outcome: 'held', fresh: true });
+      expect(await records(userId)).toEqual([{ tier: 'basic', status: 'pending', reviewed_by: null, jurisdiction: 'DE' }]);
+      expect(await auth.kycTier(userId)).toBe('none');
+    });
+
     it('with the owner list blank, refuses kyc.screening_list_unset and writes nothing', async () => {
       const userId = await person();
       const err = await refusal(desk(null).run(userId, { legalName: 'TEST Trader Two', country: 'DE', confirmed: true }));

@@ -6,6 +6,7 @@ import {
   HeldDraft,
   depositTransfer,
   intentOf,
+  refusedAtHeldWorst,
   shortAddress,
   slippageLimit,
   ticketProblem,
@@ -36,7 +37,7 @@ const limitBuy: TicketFields = { side: 'buy', type: 'limit', price: '60000.1', a
 describe('the ticket asks the venue as the order is typed', () => {
   it('a typed limit is the preview body the door takes: place_order, GTC, its price, amount and the held key', () => {
     const key = new HeldDraft(OWNER, MARKET.symbol, () => 1).keyFor(limitBuy);
-    expect(intentOf(limitBuy, MARKET, null, key)).toEqual({
+    expect(intentOf(limitBuy, MARKET, null, key, true)).toEqual({
       kind: 'place_order',
       symbol: 'BTC-USDC',
       side: 'buy',
@@ -55,7 +56,7 @@ describe('the ticket asks the venue as the order is typed', () => {
     expect(ticketProblem({ ...limitBuy, price: '' }, MARKET, null)).toBe('price');
     expect(ticketProblem({ ...limitBuy, amount: '0.000001' }, MARKET, null)).toBe('amount_step');
     expect(ticketProblem({ ...limitBuy, price: '60000.15' }, MARKET, null)).toBe('price_step');
-    expect(intentOf({ ...limitBuy, amount: '' }, MARKET, null, 'order:x:y:z')).toBeNull();
+    expect(intentOf({ ...limitBuy, amount: '' }, MARKET, null, 'order:x:y:z', true)).toBeNull();
     expect(ticketProblem(limitBuy, MARKET, null)).toBeNull();
   });
 
@@ -65,7 +66,17 @@ describe('the ticket asks the venue as the order is typed', () => {
     // With the owner's price protection blank, a market order is refused, never bounded by a figure the desk made up.
     expect(ticketProblem(market, MARKET, '60600.2', false)).toBe('no_cap');
     expect(ticketProblem({ ...market, type: 'limit', price: '60000' }, MARKET, null, false)).toBeNull();
-    expect(intentOf(market, MARKET, '60600.2', 'order:x:y:z')).toMatchObject({ type: 'market', timeInForce: 'IOC', price: '60600.2' });
+    expect(intentOf(market, MARKET, '60600.2', 'order:x:y:z', true)).toMatchObject({
+      type: 'market',
+      timeInForce: 'IOC',
+      price: '60600.2',
+    });
+  });
+
+  it('a market intent is never built with the owner’s price protection blank; a limit is', () => {
+    const market: TicketFields = { side: 'buy', type: 'market', price: '', amount: '0.001' };
+    expect(intentOf(market, MARKET, '60600.2', 'order:x:y:z', false)).toBeNull();
+    expect(intentOf(limitBuy, MARKET, null, 'order:x:y:z', false)).toMatchObject({ type: 'limit', price: '60000.1' });
   });
 });
 
@@ -96,6 +107,41 @@ describe('the client id held for retry', () => {
     draft.settle(changed);
     expect(draft.keyFor({ ...limitBuy, price: '60000.2' })).not.toBe(changed);
   });
+
+  it('a market order’s worst price is held with its key: polled best prices never change the intent sent for a key', () => {
+    let now = 2_000;
+    const draft = new HeldDraft(OWNER, MARKET.symbol, () => now++);
+    const market: TicketFields = { side: 'buy', type: 'market', price: '', amount: '0.001' };
+    const first = draft.hold(market, '60600.2');
+    const intentAt = (worst: string) => {
+      const held = draft.hold(market, worst);
+      return intentOf(market, MARKET, held.worst, held.key, true);
+    };
+    // The book moved twice; the key, and so the whole intent, is the one first sent.
+    expect(intentAt('60700.3')).toEqual(intentOf(market, MARKET, '60600.2', first.key, true));
+    expect(intentAt('60500.1')).toMatchObject({ clientOrderKey: first.key, price: '60600.2' });
+  });
+
+  it('a changed amount, side or type mints a new key, held at the worst price of that moment', () => {
+    let now = 3_000;
+    const draft = new HeldDraft(OWNER, MARKET.symbol, () => now++);
+    const market: TicketFields = { side: 'buy', type: 'market', price: '', amount: '0.001' };
+    const first = draft.hold(market, '60600.2');
+    const bigger = draft.hold({ ...market, amount: '0.002' }, '60700.3');
+    expect(bigger.key).not.toBe(first.key);
+    expect(bigger.worst).toBe('60700.3');
+    const sell = draft.hold({ ...market, amount: '0.002', side: 'sell' }, '59399.9');
+    expect(sell.key).not.toBe(bigger.key);
+    expect(sell.worst).toBe('59399.9');
+    const limit = draft.hold({ ...market, amount: '0.002', side: 'sell', type: 'limit', price: '60000' }, null);
+    expect(limit.key).not.toBe(sell.key);
+  });
+
+  it('a door refusal at the held worst price frees the key; every other refusal keeps it for retry', () => {
+    expect(refusedAtHeldWorst({ kind: 'refused', code: 'trade.venue.price_outside_protection' })).toBe(true);
+    expect(refusedAtHeldWorst({ kind: 'refused', code: 'trade.venue.insufficient_balance' })).toBe(false);
+    expect(refusedAtHeldWorst({ kind: 'unknown' })).toBe(false);
+  });
 });
 
 const preview = (over: Partial<VenuePreview> = {}): AsOf<VenuePreview> => ({
@@ -112,7 +158,7 @@ const preview = (over: Partial<VenuePreview> = {}): AsOf<VenuePreview> => ({
     ...over,
   },
 });
-const intent: OrderIntent = intentOf(limitBuy, MARKET, null, 'order:0xowner:btc-usdc:abc1')!;
+const intent: OrderIntent = intentOf(limitBuy, MARKET, null, 'order:0xowner:btc-usdc:abc1', true)!;
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 describe('the review’s lines are the venue’s', () => {

@@ -47,6 +47,7 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve') {
       },
     },
     builder: null,
+    slippageCapBps: null,
     now: () => new Date(),
   });
 }

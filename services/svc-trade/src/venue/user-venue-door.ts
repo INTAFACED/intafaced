@@ -14,11 +14,15 @@ import {
   type UserVenue,
   type UserVenueAccount,
   type UserVenueDepositRoute,
+  type UserVenueMarket,
+  type VenueBestPrices,
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
+import { requireMarketSlippageCapBps } from '../spot/risk.js';
+import { TradeError } from '../spot/types.js';
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
 
 /**
@@ -78,7 +82,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_invalid'
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
-  | 'trade.venue_action_unknown';
+  | 'trade.venue_action_unknown'
+  | 'trade.venue.price_outside_protection';
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -125,7 +130,35 @@ export interface UserVenueDoorDeps {
   readonly store: PreparedActionStore;
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
+  /**
+   * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank. Every
+   * market order is checked against it here, on preview and on prepare: blank refuses `trade.slippage_cap_unset`, and a
+   * worst price past the bound refuses `trade.venue.price_outside_protection`. Never a default.
+   */
+  readonly slippageCapBps: number | null;
   readonly now: () => Date;
+}
+
+/**
+ * The furthest a market order's worst price may be from the venue's best price under the owner's protection: a buy pays
+ * at most the best ask plus `capBps`, rounded up to the tick; a sell takes at least the best bid less `capBps`, rounded
+ * down. The same rounding as the desk's `slippageLimit` (apps/customer venue-desk.ts), so the desk's own worst price is
+ * always inside. Null when the side the order meets has no price, or the bound is not a positive price.
+ */
+export function marketProtectionBound(
+  side: 'buy' | 'sell',
+  best: Pick<VenueBestPrices, 'bid' | 'ask'>,
+  capBps: number,
+  tick: Amount,
+): Amount | null {
+  const reference = side === 'buy' ? best.ask : best.bid;
+  if (reference === null || reference <= 0n || tick <= 0n) return null;
+  const one = 10_000n;
+  const ratio = BigInt(capBps);
+  const moved = side === 'buy' ? (reference * (one + ratio)) / one : (reference * (one - ratio)) / one;
+  const ticks = side === 'buy' ? (moved + tick - 1n) / tick : moved / tick;
+  const bound = ticks * tick;
+  return bound > 0n ? bound : null;
 }
 
 export interface PrepareRequest {
@@ -244,23 +277,56 @@ export class UserVenueDoor {
     return { venueId: venue.venue.id, owner: o, subAccount: subAccount ?? null };
   }
 
-  /** Each listed symbol's market kind, read once a minute, so an order costs no extra venue read. */
-  private marketKinds: { at: number; kinds: Map<string, 'spot' | 'perpetual'> } | null = null;
+  /** Each listed market (its kind and tick), read once a minute, so an order costs no extra venue read. */
+  private marketList: { at: number; markets: Map<string, UserVenueMarket> } | null = null;
 
-  private async marketKind(venue: UserVenue, symbol: string): Promise<'spot' | 'perpetual'> {
+  private async market(venue: UserVenue, symbol: string): Promise<UserVenueMarket> {
     const now = this.deps.now().getTime();
-    const fresh = this.marketKinds && now - this.marketKinds.at < MARKET_KINDS_TTL_MS ? this.marketKinds : null;
-    let kind = fresh?.kinds.get(symbol);
-    if (!kind) {
+    const fresh = this.marketList && now - this.marketList.at < MARKET_KINDS_TTL_MS ? this.marketList : null;
+    let market = fresh?.markets.get(symbol);
+    if (!market) {
       // A miss re-reads the list: a market listed since the last read is found, and an unlisted one is refused.
-      const kinds = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m.kind] as const));
-      this.marketKinds = { at: now, kinds };
-      kind = kinds.get(symbol);
+      const markets = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m] as const));
+      this.marketList = { at: now, markets };
+      market = markets.get(symbol);
     }
-    if (!kind) {
+    if (!market) {
       throw new VenueRefusalError({ venueId: venue.venue.id, code: 'unknown_market', detail: `${symbol} is not listed on this venue` });
     }
-    return kind;
+    return market;
+  }
+
+  private async marketKind(venue: UserVenue, symbol: string): Promise<'spot' | 'perpetual'> {
+    return (await this.market(venue, symbol)).kind;
+  }
+
+  /**
+   * A market order is bounded by the owner's price protection, here and not only in the browser: blank refuses
+   * `trade.slippage_cap_unset`; no best price on the side it meets refuses `trade.no_reference_price` (never an
+   * unbounded order); a worst price past the bound refuses `trade.venue.price_outside_protection`. A limit order is
+   * not touched.
+   */
+  private async assertMarketProtection(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
+    if (intent.type !== 'market') return;
+    const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
+    if (typeof intent.price !== 'bigint') invalid('a market order carries its worst price as a decimal string');
+    const market = await this.market(venue, intent.symbol);
+    const best = venue.bestPrices ? (await venue.bestPrices(intent.symbol)).value : null;
+    const bound = best ? marketProtectionBound(intent.side, best, cap, market.tickSize) : null;
+    if (bound === null) {
+      throw new TradeError(
+        `${intent.symbol} has no ${intent.side === 'buy' ? 'ask' : 'bid'} on the venue to bound a market ${intent.side} by the price protection; place a limit order`,
+        'trade.no_reference_price',
+      );
+    }
+    const outside = intent.side === 'buy' ? intent.price > bound : intent.price < bound;
+    if (outside) {
+      throw new UserVenueDoorError(
+        `a market ${intent.side} at ${formatAmount(intent.price)} is past the owner's price protection (${intent.side === 'buy' ? 'at most' : 'at least'} ${formatAmount(bound)}, ${cap} bps from the venue's best ${intent.side === 'buy' ? 'ask' : 'bid'}); nothing was prepared`,
+        'trade.venue.price_outside_protection',
+        422,
+      );
+    }
   }
 
   /**
@@ -287,6 +353,7 @@ export class UserVenueDoor {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
     const venue = await this.venue();
     const account = await this.account(owner);
+    await this.assertMarketProtection(venue, intent);
     return venue.preview(account, await this.withBuilderFee(venue, intent));
   }
 
@@ -366,6 +433,10 @@ export class UserVenueDoor {
 
     const existing = await this.deps.store.find(principal.userId, key);
     if (existing) return this.reuse(existing, account, signer, finalIntent);
+
+    // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
+    // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
+    if (finalIntent.kind === 'place_order') await this.assertMarketProtection(venue, finalIntent);
 
     const prepared = await venue.prepare(account, signer, finalIntent);
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());

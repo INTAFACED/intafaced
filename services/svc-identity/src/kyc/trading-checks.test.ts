@@ -3,7 +3,15 @@
  * look like, that a blank one is no list, that a TEST list is refused outside a test stack, and what counts as a hit.
  */
 import { describe, expect, it } from 'vitest';
-import { parseSanctionsPersonsList, screenPerson, screeningName, tradingCheckKey } from './trading-checks.js';
+import type { Sql } from 'postgres';
+import {
+  TradingChecksDesk,
+  parseSanctionsPersonsList,
+  screenPerson,
+  screeningCountry,
+  screeningName,
+  tradingCheckKey,
+} from './trading-checks.js';
 
 const TEST_LIST = JSON.stringify({
   label: 'TEST: the local test stack only',
@@ -58,5 +66,57 @@ describe('the screen', () => {
 
   it('keys each person once, by a business key', () => {
     expect(tradingCheckKey('00000000-0000-4000-8000-000000000001')).toBe('kyc:trading-checks:00000000-0000-4000-8000-000000000001');
+  });
+});
+
+describe('the country screened is the one recorded at sign-up', () => {
+  it('a submitted country that differs is refused kyc.country_mismatch; no recorded country is kyc.country_unknown', () => {
+    expect(screeningCountry('DE', 'de')).toBe('DE');
+    expect(() => screeningCountry('DE', 'FR')).toThrow(expect.objectContaining({ code: 'kyc.country_mismatch' }));
+    expect(() => screeningCountry(null, 'DE')).toThrow(expect.objectContaining({ code: 'kyc.country_unknown' }));
+    expect(() => screeningCountry('', 'DE')).toThrow(expect.objectContaining({ code: 'kyc.country_unknown' }));
+  });
+
+  /** A database that answers what the check reads and records every statement, so a refusal is seen to write nothing. */
+  function fakeSql(region: string) {
+    const statements: string[] = [];
+    const tag = (strings: TemplateStringsArray) => {
+      const text = strings.join('?').replace(/\s+/g, ' ').trim();
+      statements.push(text);
+      if (text.startsWith('SELECT region FROM profiles')) return Promise.resolve([{ region }]);
+      if (text.startsWith('INSERT')) return Promise.resolve([{ id: 'r1', created_at: new Date() }]);
+      return Promise.resolve([]);
+    };
+    const sql = Object.assign(tag, { begin: async (_mode: string, fn: (tx: unknown) => unknown) => fn(tag) });
+    return { sql: sql as unknown as Sql, writes: () => statements.filter((s) => /^(INSERT|UPDATE|DELETE)/.test(s)) };
+  }
+
+  const LISTED = parseSanctionsPersonsList(TEST_LIST, 'test')!;
+  const desk = (sql: Sql) =>
+    new TradingChecksDesk(sql, {
+      key: Buffer.alloc(32, 7),
+      list: LISTED,
+      capabilities: {} as never,
+      kycTier: async () => 'none',
+    });
+
+  it('a person recorded in DE who types FR is refused and nothing is written or granted', async () => {
+    const db = fakeSql('DE');
+    await expect(desk(db.sql).run('u1', { legalName: 'TEST Trader', country: 'FR', confirmed: true })).rejects.toMatchObject({
+      code: 'kyc.country_mismatch',
+    });
+    expect(db.writes()).toEqual([]);
+  });
+
+  it('a listed person who types another country is never cleared: refused, and held on the recorded one', async () => {
+    const db = fakeSql('DE');
+    // The listed entry is DE; typing FR (where the screen would read clear) is refused before any screen or write.
+    await expect(desk(db.sql).run('u2', { legalName: 'TEST Listed Person', country: 'FR', confirmed: true })).rejects.toMatchObject({
+      code: 'kyc.country_mismatch',
+    });
+    expect(db.writes()).toEqual([]);
+    expect(
+      screenPerson(LISTED, { legalName: 'TEST Listed Person', dateOfBirth: '1970-01-01', country: screeningCountry('DE', 'DE') }),
+    ).toBe('hit');
   });
 });

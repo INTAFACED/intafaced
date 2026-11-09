@@ -37,8 +37,9 @@ export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
   /**
-   * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank. The desk
-   * bounds a venue market order's worst price by it; blank, a market order has no bound and the desk refuses it
+   * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank, as
+   * `best-prices` answers it. The desk bounds a venue market order's worst price by it, and the door enforces the same
+   * bound on preview and prepare (UserVenueDoorDeps.slippageCapBps); blank, a market order refuses
    * (`trade.slippage_cap_unset`). Never a default.
    */
   slippageCapBps?: number | null;
@@ -57,9 +58,11 @@ export function venueRefusalReply(reply: FastifyReply, err: unknown) {
     });
   }
   if (err instanceof UserVenueDoorError) {
-    return reply
-      .code(err.status)
-      .send({ code: err.status === 404 ? 'NotFound' : 'BadRequest', message: err.message, intafacedCode: err.code });
+    return reply.code(err.status).send({
+      code: err.status === 404 ? 'NotFound' : err.status === 422 ? 'InvalidOrder' : 'BadRequest',
+      message: err.message,
+      intafacedCode: err.code,
+    });
   }
   if (err instanceof StepUpCheckError) {
     const unavailable = err.code === 'identity.step_up_unavailable';

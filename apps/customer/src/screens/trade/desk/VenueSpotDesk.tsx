@@ -70,6 +70,7 @@ import {
   depositTransfer,
   draftSignature,
   intentOf,
+  refusedAtHeldWorst,
   shortAddress,
   slippageLimit,
   ticketProblem,
@@ -491,7 +492,10 @@ function VenueSideForm({
   const draft = useMemo(() => (owner ? new HeldDraft(owner, market.symbol) : null), [owner, market.symbol]);
   const fields: TicketFields = { side, type, price, amount };
   const issue = ticketProblem(fields, market, worst, capSet);
-  const intent = draft && issue === null ? intentOf(fields, market, worst, draft.keyFor(fields)) : null;
+  // A market order's worst price is held with its key (HeldDraft.hold): the intent sent under one key never changes.
+  const held = draft && issue === null ? draft.hold(fields, worst) : null;
+  const intent = held ? intentOf(fields, market, held.worst, held.key, capSet) : null;
+  const shownWorst = type === 'market' ? (intent?.price ?? worst) : null;
   const signature = intent ? `${draftSignature(fields)}|${intent.price}|${intent.clientOrderKey}` : null;
 
   // The venue's preview as the order is typed: one ask per settled order, the latest answer kept.
@@ -545,7 +549,7 @@ function VenueSideForm({
     sending.current = false;
     setBusy(false);
     setResult(answer);
-    if (!keepsDraft(answer)) draft?.settle(sent.clientOrderKey);
+    if (!keepsDraft(answer) || refusedAtHeldWorst(answer)) draft?.settle(sent.clientOrderKey);
     onPlaced(sent, answer);
   }
 
@@ -597,9 +601,9 @@ function VenueSideForm({
         placeholder="0"
         aria-label={d('Amount')}
       />
-      {type === 'market' && worst ? (
+      {shownWorst ? (
         <p className="dk-note-small if-num" data-testid="venue-worst-price">
-          {t('Worst price line', { price: displayAmount(worst), quote: market.quoteAsset })}
+          {t('Worst price line', { price: displayAmount(shownWorst), quote: market.quoteAsset })}
         </p>
       ) : null}
       <Button

@@ -268,6 +268,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc.screening_list_unset':
       case 'kyc.trading_checks_unconfigured':
       case 'kyc.date_of_birth_unknown':
+      case 'kyc.country_unknown':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'kyc.level_held':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });

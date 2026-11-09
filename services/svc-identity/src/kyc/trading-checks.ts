@@ -30,6 +30,8 @@ export type TradingCheckErrorCode =
   | 'kyc.date_of_birth_unknown'
   | 'kyc.country_unconfirmed'
   | 'kyc.country_invalid'
+  | 'kyc.country_unknown'
+  | 'kyc.country_mismatch'
   | 'kyc.region_blocked'
   | 'kyc.legal_name_invalid'
   | 'kyc.level_held';
@@ -124,6 +126,23 @@ export async function tradingOnly(sql: Sql, userId: string): Promise<boolean> {
   return rows.length > 0 && rows.every((r) => r.reviewed_by === TRADING_CHECKS_REVIEWER);
 }
 
+/**
+ * The country the check screens and checks access on: the one recorded at sign-up (the profile's region), never the one
+ * typed into the check. The person confirms it; a different country is refused (`kyc.country_mismatch`) and clears
+ * nothing, so a listed person cannot clear by naming another country. No recorded country refuses `kyc.country_unknown`.
+ */
+export function screeningCountry(recorded: string | null, submitted: string): string {
+  const onRecord = countryCode(recorded ?? '');
+  if (!onRecord)
+    throw new TradingCheckError('We do not have the country you gave at sign-up. Ask Support to add it.', 'kyc.country_unknown');
+  if (countryCode(submitted) !== onRecord)
+    throw new TradingCheckError(
+      'The country must be the one you gave at sign-up. To change where you live, ask Support.',
+      'kyc.country_mismatch',
+    );
+  return onRecord;
+}
+
 export function tradingCheckKey(userId: string): string {
   return `kyc:trading-checks:${userId}`;
 }
@@ -177,12 +196,12 @@ export class TradingChecksDesk {
     const legalName = input.legalName.trim().replace(/\s+/g, ' ');
     if (legalName.length < 2 || legalName.length > 200 || !/\p{L}/u.test(legalName))
       throw new TradingCheckError('Enter your legal name as you use it.', 'kyc.legal_name_invalid');
-    const country = countryCode(input.country);
-    if (!country) throw new TradingCheckError('Choose the country you live in from the list.', 'kyc.country_invalid');
+    const submitted = countryCode(input.country);
+    if (!submitted) throw new TradingCheckError('Choose the country you live in from the list.', 'kyc.country_invalid');
     if (!input.confirmed) throw new TradingCheckError('Confirm the country you live in.', 'kyc.country_unconfirmed');
     const now = this.deps.now?.() ?? new Date();
 
-    const outcome = await transaction(this.sql, async (tx) => {
+    const outcome = await transaction(this.sql, async (tx): Promise<TradingChecksResult & { jurisdiction?: string }> => {
       await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
       // The same business key answers what it answered before; a held person is never screened again.
       const [prior] = await tx<Row[]>`SELECT outcome, record_id FROM trading_checks WHERE business_key = ${tradingCheckKey(userId)}`;
@@ -192,6 +211,9 @@ export class TradingChecksDesk {
       // A blank owner list refuses before anything is read or written.
       const list = this.deps.list;
       if (!list) throw new TradingCheckError('The trading checks are paused: no list is set.', 'kyc.screening_list_unset');
+      // The screen, the region check and the record all use the country recorded at sign-up; a different one clears nothing.
+      const [profile] = await tx<Array<{ region: string | null }>>`SELECT region FROM profiles WHERE user_id = ${userId}`;
+      const country = screeningCountry(profile?.region ?? null, submitted);
       const decision = checkAccess({ module: 'identity', region: country, plane: 'fiat', kycTier: 'none' });
       if (!decision.allowed) {
         if (decision.code === 'denied.screening_unconfigured' || decision.code === 'denied.screening_fixture')
@@ -226,9 +248,10 @@ export class TradingChecksDesk {
       await tx`
         INSERT INTO trading_checks (user_id, business_key, outcome, country, record_id, name_ciphertext, name_nonce, created_at)
         VALUES (${userId}, ${tradingCheckKey(userId)}, ${result}, ${country}, ${recordId}, ${name.ciphertext}, ${name.nonce}, ${now})`;
-      return { outcome: result, recordId, fresh: true } as TradingChecksResult;
+      return { outcome: result, recordId, fresh: true, jurisdiction: country };
     });
-    if (outcome.fresh && outcome.outcome === 'cleared') await this.deps.announce?.({ userId, tier: 'basic', jurisdiction: country });
-    return outcome;
+    if (outcome.fresh && outcome.outcome === 'cleared' && outcome.jurisdiction)
+      await this.deps.announce?.({ userId, tier: 'basic', jurisdiction: outcome.jurisdiction });
+    return { outcome: outcome.outcome, recordId: outcome.recordId, fresh: outcome.fresh };
   }
 }

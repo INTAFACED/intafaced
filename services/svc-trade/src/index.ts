@@ -451,6 +451,7 @@ const userVenue = userVenueUrl
       store: new SqlPreparedActionStore(sql),
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
       now: () => new Date(),
     })
   : null;
