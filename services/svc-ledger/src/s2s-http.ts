@@ -32,6 +32,7 @@ import { composePortfolioView } from '@intafaced/portfolio-view';
 import { handleCustody } from './ledger/custody-adapters.js';
 import { handleFinanceClose } from './ledger/finance-close.js';
 import { parseFeeRevenueInput, serializeFeeRevenue } from './ledger/fee-revenue.js';
+import { serializeOwnFunds } from './ledger/own-funds.js';
 import { parseHoldingsHistoryInput, serializeHoldingsHistory } from './ledger/holdings-history.js';
 import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { handleReportExport } from './ledger/report-export.js';
@@ -294,6 +295,15 @@ export async function handleS2sHoldingsHistory(ledger: LedgerService, body: unkn
 export async function handleS2sFeeRevenue(ledger: LedgerService, body: unknown) {
   const range = parseFeeRevenueInput(body);
   return serializeFeeRevenue(range, await ledger.feeRevenue(range));
+}
+
+/**
+ * INTAFACED's own funds now, for svc-ops' capital monitor (J-ops-console-24 #1). A read: house and module accounts with
+ * a balance, customer money left out (`own-funds.ts`). Its only caller is svc-ops. It takes no input.
+ */
+export async function handleS2sOwnFunds(ledger: LedgerService) {
+  const { asOf, rows } = await ledger.ownFunds();
+  return serializeOwnFunds(asOf, rows);
 }
 
 /** The ledger's `restore.watermark.read`: chain tip position and hash, live or as of `{ asOf }`, for svc-ops alone. A read. */
@@ -602,6 +612,11 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   );
   // Fee revenue per asset. Same `guarded` door; the caller list names svc-ops alone.
   app.post('/trpc/feeRevenue', guarded('feeRevenue', handleS2sFeeRevenue));
+  // INTAFACED's own funds now (J-ops-console-24 #1). Same `guarded` door; the caller list names svc-ops alone.
+  app.post(
+    '/trpc/ownFunds',
+    guarded('ownFunds', (svc) => handleS2sOwnFunds(svc)),
+  );
   app.post(
     '/trpc/restoreWatermark',
     guarded('restoreWatermark', (_svc, body) => handleS2sRestoreWatermark(ledger, body)),
