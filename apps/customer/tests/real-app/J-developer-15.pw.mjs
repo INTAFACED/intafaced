@@ -36,7 +36,7 @@ async function createOnForm({ name, account }) {
   await expect(page.getByRole('heading', { name: 'Create an API key' })).toBeVisible();
   await page.getByLabel('Key name').fill(name);
   await page.getByLabel('Sub-account', { exact: true }).selectOption({ label: account });
-  await page.getByLabel('Read', { exact: true }).check();
+  await page.getByLabel('Read only', { exact: true }).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
 }
 
@@ -51,10 +51,13 @@ async function takeShownKey() {
 }
 
 function keyRow(name) {
-  return page
-    .getByTestId('api-keys__table')
-    .locator('tbody tr')
-    .filter({ has: page.getByRole('rowheader', { name, exact: true }) });
+  return (
+    page
+      .getByTestId('api-keys__table')
+      .locator('tbody tr')
+      // The row header also holds the Agent badge, so the row is found by its name link, which holds the name only.
+      .filter({ has: page.getByRole('link', { name, exact: true }) })
+  );
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -82,8 +85,11 @@ test(`${J} #1 the master creates a key for the second sub-account: it reaches on
   test.setTimeout(180_000);
   // The form lists the master's two sub-accounts, and the key is made for the second one.
   await page.goto('/uc/safe/api-keys/new');
+  // The list's order is the service's (newest first); the step asks only that both sub-accounts are offered.
   const options = page.getByLabel('Sub-account', { exact: true }).locator('option');
-  await expect(options).toHaveText(['None: a key for this account', 'Sub A', 'Sub B']);
+  await expect(options).toHaveCount(3);
+  await expect(options.first()).toHaveText('None: a key for this account');
+  expect((await options.allTextContents()).slice(1).sort()).toEqual(['Sub A', 'Sub B']);
   await createOnForm({ name: 'sub-b-reader', account: 'Sub B' });
   subKey = await takeShownKey();
   expect(subKey).toMatch(/^ifc_/);
@@ -105,7 +111,8 @@ test(`${J} #1 the master creates a key for the second sub-account: it reaches on
   }
   // A route that would answer for the master's own account is refused at the edge, even with B named.
   const orders = await withKey(subKey, { path: '/api/v1/orders/open', headers: { 'x-account-id': sub.b } });
-  expect(orders.status, JSON.stringify(orders.body).slice(0, 300)).toBe(403);
+  // The edge's key door answers a denied key 401 (`API_KEY_DENIED`, services/svc-edge/src/api-key-refusal.ts).
+  expect(orders.status, JSON.stringify(orders.body).slice(0, 300)).toBe(401);
   expect(codeOf(orders.body)).toBe('edge.api_key_denied');
 });
 
@@ -171,7 +178,7 @@ test(`${J} #4 a member with a read role opens the key page: create and revoke ar
   await page.goto(`/uc/safe/api-keys/new?org=${orgId}`);
   await page.getByLabel('Key name').fill('team-reader');
   await page.getByLabel('Sub-account', { exact: true }).selectOption({ label: 'Sub A' });
-  await page.getByLabel('Read', { exact: true }).check();
+  await page.getByLabel('Read only', { exact: true }).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   await takeShownKey();
 
@@ -270,7 +277,7 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   await expect(page.getByRole('heading', { name: 'Create an API key' })).toBeVisible();
   await page.getByLabel('Key name').fill('agent-settings');
   await page.getByLabel('This key is for an AI agent').check();
-  await page.getByLabel('Custom', { exact: true }).check();
+  await page.getByLabel('Choose', { exact: true }).check();
   await page.getByRole('checkbox', { name: /^trade:read/ }).check();
   await page.getByRole('checkbox', { name: /^identity:write/ }).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
@@ -291,7 +298,7 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   await page.goto('/uc/safe/api-keys/new');
   await page.getByLabel('Key name').fill('agent-reader');
   await page.getByLabel('This key is for an AI agent').check();
-  await page.getByLabel('Custom', { exact: true }).check();
+  await page.getByLabel('Choose', { exact: true }).check();
   await page.getByRole('checkbox', { name: /^trade:read/ }).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   agentKey = await takeShownKey();

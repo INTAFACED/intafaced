@@ -179,6 +179,9 @@ export function ApiKeys() {
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [notice, setNotice] = useState<ApiKeysPlainKey | null>(null);
   const sending = useRef(false);
+  // The Account column (J-developer-15 #1) shows once the person has a sub-account or a key bound to one; with a single
+  // account every row would only say "This account".
+  const showAccount = labels.size > 0 || (resource.status === 'ready' && resource.data.keys.some((key) => key.accountId !== null));
   const when = useMemo(
     () => new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }),
     [requestedLocale],
@@ -252,7 +255,7 @@ export function ApiKeys() {
                     <th scope="col">{t('colName')}</th>
                     <th scope="col">{t('colPrefix')}</th>
                     <th scope="col">{t('colMode')}</th>
-                    <th scope="col">{t('colAccount')}</th>
+                    {showAccount && <th scope="col">{t('colAccount')}</th>}
                     <th scope="col">{t('colScopes')}</th>
                     <th scope="col">{t('colIps')}</th>
                     <th scope="col">{t('colCreated')}</th>
@@ -284,15 +287,17 @@ export function ApiKeys() {
                           <code lang="und">{key.prefix}</code>
                         </td>
                         <td>{t(key.mode === 'live' ? 'modeLive' : 'modeSandbox')}</td>
-                        <td data-testid="api-keys__account">
-                          {key.accountId === null ? (
-                            t('accountOwn')
-                          ) : (
-                            <>
-                              {t('subaccount')}: <bdi lang="und">{labels.get(key.accountId) ?? key.accountId}</bdi>
-                            </>
-                          )}
-                        </td>
+                        {showAccount && (
+                          <td data-testid="api-keys__account">
+                            {key.accountId === null ? (
+                              t('accountOwn')
+                            ) : (
+                              <>
+                                {t('subaccount')}: <bdi lang="und">{labels.get(key.accountId) ?? key.accountId}</bdi>
+                              </>
+                            )}
+                          </td>
+                        )}
                         <td>
                           <bdi lang="und">{key.scopes.join(', ')}</bdi>
                         </td>

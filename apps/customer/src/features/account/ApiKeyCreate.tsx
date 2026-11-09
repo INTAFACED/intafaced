@@ -210,9 +210,11 @@ export function ApiKeyCreate() {
       >
         <Field label={t('name')} hint={t('nameHint')} name="name" autoComplete="off" maxLength={64} />
         <label className="field">
-          <span>{t('subaccount')}</span>
+          {/* Named by its label only, as Field does; the hint describes it. */}
+          <span id="api-key-subaccount-label">{t('subaccount')}</span>
           <select
             name="accountId"
+            aria-labelledby="api-key-subaccount-label"
             defaultValue=""
             aria-describedby="api-key-subaccount-hint"
             disabled={subaccounts === null}
