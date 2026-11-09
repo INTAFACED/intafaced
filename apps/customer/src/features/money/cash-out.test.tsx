@@ -181,6 +181,7 @@ describe('cash out to a linked bank account', () => {
           request({
             status: 'failed',
             heldAt: at,
+            partnerMoveId: 'test-partner-move-000000000001',
             refusalCode: null,
             failureCode: 'bank.payout_account_closed',
             failedAt: '2026-10-23T05:00:00.000Z',
@@ -189,6 +190,22 @@ describe('cash out to a linked bank account', () => {
       />,
     );
     expect(failed).toContain('20 USDT is back in your balance at TEST partner bank, once.');
+    // The partner never took it: nothing is said to come back, because nothing left.
+    const never = renderToStaticMarkup(
+      <RequestRows
+        rows={[
+          request({
+            status: 'failed',
+            heldAt: at,
+            refusalCode: null,
+            failureCode: 'bank.payout_rejected',
+            failedAt: '2026-10-23T05:00:00.000Z',
+          }),
+        ]}
+      />,
+    );
+    expect(never).toContain('Nothing left your balance.');
+    expect(never).not.toContain('is back in your balance');
     const back = renderToStaticMarkup(
       <RequestRows
         rows={[

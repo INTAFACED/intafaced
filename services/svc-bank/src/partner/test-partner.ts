@@ -1,7 +1,15 @@
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import type { PartnerAccountRef, PartnerBalance, PartnerBank, PartnerMove, PartnerMoveRequest, PartnerMovesQuery } from './partner-bank.js';
+import {
+  PARTNER_PAYOUTS_OWNER,
+  type PartnerAccountRef,
+  type PartnerBalance,
+  type PartnerBank,
+  type PartnerMove,
+  type PartnerMoveRequest,
+  type PartnerMovesQuery,
+} from './partner-bank.js';
 import type { AccountDetailSet, AccountDetailsPartner } from '../account-details/account-details.js';
 
 /**
@@ -184,7 +192,10 @@ export function testPartner(): TestPartner {
         }
         return prior;
       }
-      if (switches(request.from.userId).down) throw partnerDown();
+      // The person whose switches apply: the source's owner, or, for an amount the partner gives back out of its own
+      // outbound-payments account, the person it goes to.
+      const person = request.from.userId === PARTNER_PAYOUTS_OWNER ? request.to.userId : request.from.userId;
+      if (switches(person).down) throw partnerDown();
       if (byKey.size >= MAX_MOVES) throw partnerDown();
       if (request.amount <= 0n) throw new BankError('A partner move needs an amount above zero.', 'bank.partner_amount_invalid');
       if (request.from.assetId !== request.to.assetId) {
@@ -213,8 +224,8 @@ export function testPartner(): TestPartner {
       held.set(fromKey, has - request.amount);
       held.set(accountKey(request.to), (held.get(accountKey(request.to)) ?? 0n) + request.amount);
       remember(move);
-      if (switches(request.from.userId).nextReply === 'lost') {
-        set(request.from.userId, { nextReply: 'answered' });
+      if (switches(person).nextReply === 'lost') {
+        set(person, { nextReply: 'answered' });
         throw new BankError(
           'The partner bank did not answer, so whether this move was made is not known. Try again with the same request: it is made at most once.',
           'bank.partner_reply_lost',

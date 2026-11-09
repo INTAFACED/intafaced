@@ -1,5 +1,11 @@
 -- Reversal of the partner-held cash-out columns and the cancelled status. Run only once no request is partner-held or
 -- cancelled: such a row is a record of a partner move, and dropping its columns would lose which move it made.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM "bank"."cash_out_requests" WHERE "custodian" IS NOT NULL OR "status" = 'cancelled') THEN
+    RAISE EXCEPTION 'cash_out_requests holds partner-held or cancelled cash-outs; this reversal would lose which partner move each made';
+  END IF;
+END $$;
 DROP INDEX IF EXISTS "bank"."cash_out_requests_partner_move_idx";
 ALTER TABLE "bank"."cash_out_requests"
   DROP CONSTRAINT IF EXISTS "cash_out_requests_status_ck",

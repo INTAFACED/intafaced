@@ -167,6 +167,15 @@ function ReceiptPanel({ requestId, load }: { requestId: string; load?: LoadRecei
   );
 }
 
+/**
+ * What came back of a cash-out the bank did not pay: once, to the balance it left, or, when the partner bank never took
+ * it (no move under its key), that nothing left the balance.
+ */
+function backWords(row: CashOutRequest, amount: string, t: ReturnType<typeof cashOutCopy.useCopy>['t']): string {
+  if (!row.heldAt) return t('failedBack', { amount });
+  return row.partnerMoveId ? t('failedBackAt', { amount, label: row.heldAt }) : t('nothingTaken');
+}
+
 /** Where one cash-out stands: the tracker while the bank has it, then its receipt, or why it failed or came back. */
 function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
   const { t } = cashOutCopy.useCopy();
@@ -220,8 +229,7 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
       {failed && (
         <>
           <span data-testid="cash-out-why">
-            {t(FAIL_KEYS[row.failureCode ?? ''] ?? 'fail_other')}{' '}
-            {at ? t('failedBackAt', { amount, label: at }) : t('failedBack', { amount })}{' '}
+            {t(FAIL_KEYS[row.failureCode ?? ''] ?? 'fail_other')} {backWords(row, amount, t)}{' '}
             <small className="muted">{t('reference', { code: row.failureCode ?? '' })}</small>
           </span>
           <small className="muted" data-testid="cash-out-no-receipt">
@@ -232,8 +240,7 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
       {cancelled && (
         <>
           <span data-testid="cash-out-why">
-            {t(CANCEL_KEYS[row.failureCode ?? ''] ?? 'cancel_other')}{' '}
-            {at ? t('failedBackAt', { amount, label: at }) : t('failedBack', { amount })}{' '}
+            {t(CANCEL_KEYS[row.failureCode ?? ''] ?? 'cancel_other')} {backWords(row, amount, t)}{' '}
             <small className="muted">{t('reference', { code: row.failureCode ?? '' })}</small>
           </span>
           <small className="muted" data-testid="cash-out-no-receipt">
