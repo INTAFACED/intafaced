@@ -125,6 +125,33 @@ function statementJobs() {
   throw new Error(`LOCAL_STACK_BANK_STATEMENT_HOLD is "${asked}"; leave it unset for renders that finish, or set it to on.`);
 }
 
+/** The account terms (BK-acct-01): the TEST base tier, or blank when the stack is asked to show them unpublished. */
+function accountTerms() {
+  const asked = process.env.LOCAL_STACK_BANK_ACCOUNT_TERMS;
+  if (asked === undefined || asked === '')
+    return {
+      BANK_ACCOUNT_TERMS_JSON: JSON.stringify({
+        tier: 'TEST base tier',
+        version: 'local-test-1',
+        currency: 'USDT',
+        monthlyFee: '0',
+        minimumBalance: '0',
+        overdraftFee: '1',
+        included: ['TEST spaces for your goals', 'TEST moves between your spaces'],
+      }),
+    };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_ACCOUNT_TERMS is "${asked}"; leave it unset for the TEST terms, or set it to off.`);
+}
+
+/** The space limit (BK-pots-01): the TEST limit of 5, or blank when the stack is asked to show it not set. */
+function spaceLimit() {
+  const asked = process.env.LOCAL_STACK_BANK_SPACE_LIMIT;
+  if (asked === undefined || asked === '') return { BANK_SPACE_LIMIT: '5' };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_SPACE_LIMIT is "${asked}"; leave it unset for the TEST limit, or set it to off.`);
+}
+
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
 function depositCustody(urlOf) {
   const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
@@ -157,17 +184,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // The TEST tier publishes a TEST overdraft fee of 1 USDT, so it is a plan that allows a negative balance: J-bank-02 #8
     // pays more than the balance holds on it and sees the bank refuse, naming the overdraft as switched off
     // (bank.overdraft_switched_off), as no overdraft engine exists in this build.
-    BANK_ACCOUNT_TERMS_JSON: JSON.stringify({
-      tier: 'TEST base tier',
-      version: 'local-test-1',
-      currency: 'USDT',
-      monthlyFee: '0',
-      minimumBalance: '0',
-      overdraftFee: '1',
-      included: ['TEST spaces for your goals', 'TEST moves between your spaces'],
-    }),
+    // `LOCAL_STACK_BANK_ACCOUNT_TERMS=off` or `LOCAL_STACK_BANK_SPACE_LIMIT=off` on a restart leaves that value blank, so
+    // the panel's "terms not published" and the create's "limit not set" can be seen too (J-bank-01 #2 and #4).
+    ...accountTerms(),
     BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
-    BANK_SPACE_LIMIT: '5',
+    ...spaceLimit(),
     // LOCAL TEST value from the bank profile (BK-pots-02): how long an early unlock of a locked space waits. Unset, every
     // early unlock refuses bank.space_unlock_rule_unset and the space stays locked to its date.
     BANK_SPACE_UNLOCK_WAIT_HOURS: testValue('BANK_SPACE_UNLOCK_WAIT_HOURS'),

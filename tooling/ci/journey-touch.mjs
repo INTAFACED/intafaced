@@ -61,6 +61,8 @@ export const JOURNEY_CI = [
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
   'tooling/ci/factory-switch.mjs',
+  // real-app-journeys.yml's `Main's journeys first` job runs it.
+  'tooling/ci/main-first.mjs',
   // Reached through the seal's imports (review-marker.mjs) and the test-infra action; journey-touch.test.mjs finds them.
   'tooling/ci/assert-test-db-env.mjs',
   'tooling/ci/look-baselines.mjs',
