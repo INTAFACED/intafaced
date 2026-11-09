@@ -853,6 +853,13 @@ export class NoticeBoard {
       .filter((row) => row.endsAt === null || row.endsAt.getTime() > at.getTime())
       .map((row) => ({ row, markets: row.components.filter((c) => MARKET_COMPONENT_PATTERN.test(c)) }))
       .filter(({ markets }) => markets.length > 0)
+      // Nearest start first; a window with no start is under way, so it leads. The id breaks a tie, so the order
+      // never rests on publish times that can match.
+      .sort(
+        (a, b) =>
+          (a.row.startsAt?.getTime() ?? Number.NEGATIVE_INFINITY) - (b.row.startsAt?.getTime() ?? Number.NEGATIVE_INFINITY) ||
+          a.row.id.localeCompare(b.row.id),
+      )
       .map(({ row, markets }) => ({
         id: row.id,
         title: row.title,
