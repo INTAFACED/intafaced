@@ -416,7 +416,11 @@ describe('sub-country rows and citizenship (Hyperliquid terms 1.6, OWNER 258)', 
   });
 
   it('refuses Ontario (CA-ON) as a business block on every module and plane, and never as screening', () => {
-    expect(businessBlockFor('CA-ON')).toMatchObject({ region: 'CA-ON', authority: 'business', reason: 'Ontario, Canada is not served at launch.' });
+    expect(businessBlockFor('CA-ON')).toMatchObject({
+      region: 'CA-ON',
+      authority: 'business',
+      reason: 'Ontario, Canada is not served at launch.',
+    });
     for (const m of Object.values(MODULES)) {
       for (const plane of m.planes) {
         const d = checkAccess({ ...q, module: m.id, plane, region: 'ca-on', screening: CLEAR });
