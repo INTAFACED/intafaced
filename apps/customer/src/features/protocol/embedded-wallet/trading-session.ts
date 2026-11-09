@@ -1,3 +1,4 @@
+// hand-declared-ok: svc-trade's user-venue door and session-key answers are declared in svc-trade (src/venue/session-key.ts), not in @intafaced/contracts.
 import { z } from 'zod';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { ApiClient } from '../../../shared/api';
