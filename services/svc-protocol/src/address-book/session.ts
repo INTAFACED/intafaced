@@ -113,18 +113,20 @@ function requireSetting(setting: WalletSessionSetting | null): WalletSessionSett
 
 // ── Sealing ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type Purpose = 'challenge' | 'session';
+/** `venue-challenge` is the venue wallet connection's challenge (src/venue-wallet/connection.ts), sealed with the same secret. */
+export type SealPurpose = 'challenge' | 'session' | 'venue-challenge';
+type Purpose = SealPurpose;
 /** One key per purpose, derived from the secret, so a challenge can never be presented as a session or the reverse. */
 function key(secret: string, purpose: Purpose): Buffer {
   return createHmac('sha256', secret).update(`intafaced.protocol.wallet-${purpose}.v1`).digest();
 }
-function seal(secret: string, purpose: Purpose, payload: object): string {
+export function seal(secret: string, purpose: Purpose, payload: object): string {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const mac = createHmac('sha256', key(secret, purpose)).update(body).digest('base64url');
   return `v1.${body}.${mac}`;
 }
 /** The payload when the seal checks out, else null. Never throws on caller input. */
-function unseal(secret: string, purpose: Purpose, token: string): Record<string, unknown> | null {
+export function unseal(secret: string, purpose: Purpose, token: string): Record<string, unknown> | null {
   const parts = token.split('.');
   if (parts.length !== 3 || parts[0] !== 'v1') return null;
   const [, body, mac] = parts as [string, string, string];
