@@ -234,6 +234,10 @@
       "types": "./dist/support-categories.d.ts",
       "default": "./dist/support-categories.js"
     },
+    "./support-safety": {
+      "types": "./dist/support-safety.d.ts",
+      "default": "./dist/support-safety.js"
+    },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"
