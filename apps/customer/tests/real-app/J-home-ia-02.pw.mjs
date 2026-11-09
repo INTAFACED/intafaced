@@ -1,10 +1,11 @@
-// World: stack
+// World: stack, restart
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, verifiedBusiness } from './merchant.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, tool } from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-home-ia-02, in the running app (docs/roadmap/journeys.json): I find any room I need. Tests titled "J-home-ia-02 #<n>"
 // prove a whole step. One TEST person, signed up once; the signed-out step uses a fresh browser. #7's Business half makes
@@ -47,6 +48,30 @@ async function dropdown(page, door) {
     .evaluateAll((links) =>
       links.map((link) => ({ href: link.getAttribute('href'), advanced: Boolean(link.closest('ul[aria-label="Advanced"]')) })),
     );
+}
+
+/**
+ * Runs `fn` with svc-ops restarted on one owner value blank (`LOCAL_STACK_OPS_<NAME>=off`,
+ * tooling/scripts/local-stack-services/ops.mjs), and restarts it on the TEST value after, even when `fn` fails.
+ */
+async function withOpsValueBlank(key, fn) {
+  const restart = (value) => {
+    const before = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+    try {
+      tool('local-test-stack.mjs', 'restart', 'ops');
+    } finally {
+      if (before === undefined) delete process.env[key];
+      else process.env[key] = before;
+    }
+  };
+  restart('off');
+  try {
+    return await fn();
+  } finally {
+    restart(undefined);
+  }
 }
 
 /** Type into the header search and return its open results panel. */
@@ -176,29 +201,20 @@ test(`${J} #4 typing "chain" lists the parked room and says it opens to its bloc
 test(`${J} #5 typing a help article's title lists it under Help and opens it; with no help result limit set the search says so and still offers Help`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   await signIn(page, who);
-  // The result limit is an owner value. While it is blank (as it is until the owner sets it), Help says why it lists no
-  // articles and still offers Help itself. The stack publishes a TEST limit, so this part answers home.config as blank.
-  const blankCap = async (route) => {
-    if (!route.request().url().includes('home.config')) return route.continue();
-    const res = await route.fetch();
-    const body = await res.json();
-    // Only home.config's answer is changed; any other answer in a batch, or an error, goes through as it came.
-    const blank = (one) =>
-      one?.result?.data && 'searchResultCap' in one.result.data
-        ? { ...one, result: { ...one.result, data: { ...one.result.data, searchResultCap: null } } }
-        : one;
-    await route.fulfill({ response: res, json: Array.isArray(body) ? body.map(blank) : blank(body) });
-  };
-  await page.route('**/api/ops/trpc/**', blankCap);
-  await page.goto('/home');
-  const unset = await search(page, ARTICLE);
-  await expect(
-    unset.getByRole('status').filter({ hasText: 'Help articles are hidden: no limit for the number of results is set.' }),
-  ).toBeVisible();
-  await unset.getByRole('option', { name: 'Open Help', exact: true }).click();
-  await expect(page).toHaveURL(/\/support$/);
-  await page.unroute('**/api/ops/trpc/**', blankCap);
+  // The result limit is an owner value. With it blank on the running stack (svc-ops restarted without it), Help says
+  // why it lists no articles and still offers Help itself.
+  await withOpsValueBlank('LOCAL_STACK_OPS_HOME_SEARCH_RESULT_CAP', async () => {
+    await page.goto('/home');
+    const unset = await search(page, ARTICLE);
+    await expect(
+      unset.getByRole('status').filter({ hasText: 'Help articles are hidden: no limit for the number of results is set.' }),
+    ).toBeVisible();
+    await expect(unset.getByRole('option', { name: ARTICLE, exact: true })).toHaveCount(0);
+    await unset.getByRole('option', { name: 'Open Help', exact: true }).click();
+    await expect(page).toHaveURL(/\/support$/);
+  });
 
   // With the limit set, the article is listed under Help by the title a person reads, and opens.
   await page.goto('/home');
@@ -210,9 +226,27 @@ test(`${J} #5 typing a help article's title lists it under Help and opens it; wi
   await expect(page.locator('main')).toContainText(ARTICLE);
 });
 
+/** The founders' search-miss total on the console's Notify desk (svc-notify `navMetrics.searchMisses`, admin:read). */
+async function founderMisses(page) {
+  await page.goto(`${ADMIN}/notify`);
+  const panel = page.getByTestId('search-misses');
+  await expect(panel).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByTestId('search-misses-failed')).toHaveCount(0);
+  const text = await panel.getByTestId('search-misses-total').innerText();
+  const m = /^(\d+) miss(es)? from /.exec(text);
+  if (!m) throw new Error(`the founders' search-miss total reads "${text}"`);
+  return { total: Number(m[1]), panel };
+}
+
 test(`${J} #6 a search that finds nothing says so plainly, and one miss is counted for the founders without who searched`, async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(180_000);
+  // The founders' count before this person's miss, read where the founders read it.
+  const desk = await (await browser.newContext()).newPage();
+  await founderSignIn(desk, 'a');
+  const before = await founderMisses(desk);
   await signIn(page, who);
   await page.goto('/home');
   const counted = [];
@@ -232,6 +266,16 @@ test(`${J} #6 a search that finds nothing says so plainly, and one miss is count
   expect(counted[0]).not.toContain(RUN);
   expect(counted[0]).not.toContain(who.email);
   expect(counted[0]).not.toContain(who.handle);
+
+  // The founders' desk now counts this miss (others' misses may land too, so at least one more), and what it shows is a
+  // count per day: neither the words searched nor who searched appear anywhere on it.
+  await expect.poll(async () => (await founderMisses(desk)).total, { timeout: 30_000 }).toBeGreaterThan(before.total);
+  const after = await founderMisses(desk);
+  await expect(after.panel).not.toContainText(words);
+  await expect(after.panel).not.toContainText(RUN);
+  await expect(after.panel).not.toContainText(who.email);
+  await expect(after.panel).not.toContainText(who.handle);
+  await desk.context().close();
 });
 
 /** A stable uuid for a journey key, so a create sent again in this run names the same record (idempotency keys are business keys). */
