@@ -215,6 +215,11 @@
       "service": "bank",
       "value": "3",
       "note": "TEST count of wrong PIN tries in a row that block a card's PIN (J-bank-14 #3). Made up for the local test stack; not an owner decision."
+    },
+    "BANK_CARD_DISPUTE_CAP_JSON": {
+      "service": "bank",
+      "value": "{\"USDC\": \"100.00\"}",
+      "note": "TEST card dispute cap (J-bank-27 #4): the most one USDC dispute may be provisionally credited or decided for the cardholder, small so a journey can see a dispute above it refused. Not an owner decision; blank refuses bank.card_dispute_cap_unset."
     }
   }
 }
