@@ -55,7 +55,12 @@ export type DeveloperKeyRefusal =
   | 'identity.key_signing_unset'
   | 'identity.key_not_found'
   | 'identity.key_not_live'
-  | 'identity.key_revoke_reason_invalid';
+  | 'identity.key_revoke_reason_invalid'
+  | 'identity.key_account_required'
+  | 'identity.key_account_denied'
+  | 'identity.key_org_denied'
+  | 'identity.portfolio_key_cap_unset'
+  | 'identity.portfolio_key_cap_reached';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -130,7 +135,26 @@ export function describeKeyScopes(sessionScopes: readonly string[]): ApiKeyScope
 
 const NAME = new RegExp(`^[^\\p{Cc}\\p{Cf}]{1,${API_KEY_NAME_MAX}}$`, 'u');
 
-type Checked = { name: string; scopes: string[]; ips: string[]; expiresAt: Date | null; fingerprint: string };
+type Checked = {
+  name: string;
+  scopes: string[];
+  ips: string[];
+  expiresAt: Date | null;
+  accountId: string | null;
+  orgId: string | null;
+  fingerprint: string;
+};
+
+/**
+ * `IDENTITY_PORTFOLIO_KEYS_MAX`: the owner's cap on live keys bound to one sub-account (a portfolio-scoped key,
+ * DV-sub-accounts-01). Blank: null, and every portfolio-scoped create refuses `identity.portfolio_key_cap_unset`;
+ * never a default. A malformed value throws, so the service does not start on a cap it cannot read.
+ */
+export function parsePortfolioKeyCap(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  if (!/^\d{1,4}$/.test(raw.trim())) throw new Error('IDENTITY_PORTFOLIO_KEYS_MAX must be a whole number');
+  return Number(raw.trim());
+}
 
 /** Everything that needs no second factor and no lock. Throws the first refusal. */
 export function checkCreate(input: Omit<ApiKeyCreateInput, 'requestId'>, sessionScopes: readonly string[], now: Date): Checked {
@@ -161,10 +185,18 @@ export function checkCreate(input: Omit<ApiKeyCreateInput, 'requestId'>, session
     if (!(expiresAt.getTime() > now.getTime()))
       throw new DeveloperKeyError('Choose an end date in the future', 'identity.key_expiry_invalid');
   }
+  const accountId = input.accountId?.toLowerCase() ?? null;
+  const orgId = input.orgId?.toLowerCase() ?? null;
+  // An organisation key must name the one account it reaches: an org id alone never maps the key to anything.
+  if (orgId !== null && accountId === null) {
+    throw new DeveloperKeyError('An organisation key must name the account it reaches', 'identity.key_account_required');
+  }
+  // Fingerprinted only when present, so a request without them hashes as it did before they existed.
+  const scoped = accountId === null && orgId === null ? [] : [accountId, orgId];
   const fingerprint = createHash('sha256')
-    .update(JSON.stringify([name, scopes, ips, expiresAt?.toISOString() ?? null]))
+    .update(JSON.stringify([name, scopes, ips, expiresAt?.toISOString() ?? null, ...scoped]))
     .digest('hex');
-  return { name, scopes, ips, expiresAt, fingerprint };
+  return { name, scopes, ips, expiresAt, accountId, orgId, fingerprint };
 }
 
 export type KeyRow = {
@@ -182,11 +214,12 @@ export type KeyRow = {
   revoked_at: Date | null;
   revoked_cause: string | null;
   revoke_reason: string | null;
+  account_id: string | null;
 };
 
 /** The columns every key read takes, in the order `KeyRow` names them. Never the hash or a secret. */
 export const KEY_COLUMNS =
-  'id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked, revoked_at, revoked_cause, revoke_reason';
+  'id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked, revoked_at, revoked_cause, revoke_reason, account_id';
 
 export function toRecord(row: KeyRow): ApiKeyRecord {
   return {
@@ -207,6 +240,7 @@ export function toRecord(row: KeyRow): ApiKeyRecord {
         ? (row.revoked_cause as ApiKeyRevokedBy)
         : null,
     revokeReason: row.revoked && row.revoked_cause === 'owner' ? row.revoke_reason : null,
+    accountId: row.account_id ?? null,
   };
 }
 
@@ -235,6 +269,8 @@ export type DeveloperKeysDeps = {
   signingWindowSeconds?: number | null;
   /** The owner's idle period (`parseApiKeyIdleExpirySeconds`); null is `not set`. Shown on the detail, never defaulted. */
   idleExpirySeconds?: number | null;
+  /** The owner's cap on live keys per sub-account (`parsePortfolioKeyCap`). Null or absent: a portfolio-scoped key refuses. */
+  portfolioKeyCap?: number | null;
   now?: () => Date;
 };
 
@@ -250,7 +286,7 @@ async function capFor(deps: DeveloperKeysDeps, userId: string, sql: Sql): Promis
 async function replayOf(sql: Sql, userId: string, requestId: string, fingerprint: string): Promise<ApiKeyCreateOutput | null> {
   const rows = await sql<Array<KeyRow & { fingerprint: string }>>`
     SELECT r.fingerprint, k.id, k.name, k.key_prefix, k.mode, k.scopes, k.ip_allowlist, k.require_signature,
-           k.created_at, k.expires_at, k.last_used_at, k.revoked, k.revoked_at, k.revoked_cause, k.revoke_reason
+           k.created_at, k.expires_at, k.last_used_at, k.revoked, k.revoked_at, k.revoked_cause, k.revoke_reason, k.account_id
     FROM api_key_create_requests r JOIN api_keys k ON k.id = r.key_id AND k.user_id = r.user_id
     WHERE r.user_id = ${userId} AND r.request_id = ${requestId}
   `;
@@ -271,6 +307,39 @@ async function assertNameFree(sql: Sql, userId: string, name: string): Promise<v
     LIMIT 1
   `;
   if (taken[0]) throw new DeveloperKeyError('You already have a key with this name', 'identity.key_name_taken');
+}
+
+/**
+ * A portfolio-scoped key (DV-sub-accounts-01): the account must be the caller's own live sub-account, an organisation
+ * key's caller must be an admin of that organisation, and the account must hold fewer live keys than the owner's cap.
+ */
+async function assertAccountKeyAllowed(deps: DeveloperKeysDeps, userId: string, checked: Checked, sql: Sql): Promise<void> {
+  if (checked.accountId === null) return;
+  if (checked.orgId !== null) {
+    const member = await sql<Array<{ role: string }>>`
+      SELECT role FROM organization_members WHERE org_id = ${checked.orgId} AND user_id = ${userId} LIMIT 1
+    `;
+    if (member[0]?.role !== 'admin') {
+      throw new DeveloperKeyError('Only an admin of this organisation may make its keys', 'identity.key_org_denied');
+    }
+  }
+  const owned = await sql<Array<{ parent_user_id: string; revoked: boolean }>>`
+    SELECT parent_user_id, revoked FROM sub_accounts WHERE id = ${checked.accountId} LIMIT 1
+  `;
+  if (!owned[0] || owned[0].parent_user_id !== userId || owned[0].revoked) {
+    throw new DeveloperKeyError('That account is not one of your live sub-accounts', 'identity.key_account_denied');
+  }
+  const cap = deps.portfolioKeyCap ?? null;
+  if (cap === null) {
+    throw new DeveloperKeyError('The number of keys a sub-account may hold is not set', 'identity.portfolio_key_cap_unset');
+  }
+  const live = await sql<Array<{ n: number }>>`
+    SELECT count(*)::int AS n FROM api_keys
+    WHERE user_id = ${userId} AND account_id = ${checked.accountId} AND revoked = false AND (expires_at IS NULL OR expires_at > now())
+  `;
+  if ((live[0]?.n ?? 0) >= cap) {
+    throw new DeveloperKeyError('This sub-account holds as many keys as it may', 'identity.portfolio_key_cap_reached');
+  }
 }
 
 async function assertUnderCap(deps: DeveloperKeysDeps, userId: string, sql: Sql): Promise<void> {
@@ -295,6 +364,7 @@ export async function createDeveloperKey(
   try {
     await assertNameFree(deps.sql, caller.userId, checked.name);
     await assertUnderCap(deps, caller.userId, deps.sql);
+    await assertAccountKeyAllowed(deps, caller.userId, checked, deps.sql);
   } catch (err) {
     // The twin of this request may have committed since the replay read: its key is this request's answer, not a clash.
     const twin = await replayOf(deps.sql, caller.userId, input.requestId, checked.fingerprint);
@@ -320,6 +390,7 @@ export async function createDeveloperKey(
         if (seen.length > 0) throw new SameRequestRace();
         await assertNameFree(tx, caller.userId, checked.name);
         await assertUnderCap(deps, caller.userId, tx);
+        await assertAccountKeyAllowed(deps, caller.userId, checked, tx);
         const minted = await scope.createApiKey({
           userId: caller.userId,
           name: checked.name,
@@ -329,6 +400,9 @@ export async function createDeveloperKey(
           ...(checked.expiresAt ? { expiresAt: checked.expiresAt } : {}),
           mode: 'live',
         });
+        if (checked.accountId !== null) {
+          await tx`UPDATE api_keys SET account_id = ${checked.accountId} WHERE id = ${minted.id} AND user_id = ${caller.userId}`;
+        }
         if (checked.ips.length > 0) await bindApiKeyIpAllowlist(tx, caller.userId, minted.id, checked.ips);
         let signingSecret: string | null = null;
         if (signs) {

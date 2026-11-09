@@ -70,6 +70,7 @@ const live: ApiKeyRecord = {
   revokedAt: null,
   revokedBy: null,
   revokeReason: null,
+  accountId: null,
 };
 const frozen: ApiKeyRecord = {
   ...live,

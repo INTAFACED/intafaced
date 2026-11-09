@@ -4,7 +4,13 @@ import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { forwardedPrincipalHeaders } from './forward-principal-signature.js';
 import { normalizeIp } from './request-client-ip.js';
 import { assertKeyNotExpired, optionalExpiresAtFromExchange, KeyExpiresError } from './api-key-expires.js';
-import { assertApiKeyAccount, optionalAccountIdFromExchange, requestAccountId, KeyAccountError } from './api-key-account.js';
+import {
+  assertApiKeyAccount,
+  optionalAccountIdFromExchange,
+  requestAccountId,
+  KeyAccountError,
+  subAccountKeyRouteAllowed,
+} from './api-key-account.js';
 import { assertUserNotFrozen, optionalUserStatusFromExchange, KeyUserStatusError } from './api-key-user-status.js';
 import { assertApiKeyOrigin, optionalOriginAllowlistFromExchange, KeyOriginError } from './api-key-origin.js';
 import { assertApiKeyIp, optionalIpAllowlist, optionalIpAllowlistFromExchange, KeyIpError } from './api-key-ip.js';
@@ -458,6 +464,9 @@ export async function exchangePrincipal(
     try {
       assertKeyNotExpired(exchanged.expiresAt, now);
       assertApiKeyAccount(exchanged.accountId, presentedAccountId);
+      if (exchanged.accountId !== undefined && !subAccountKeyRouteAllowed(options.request)) {
+        throw new KeyAccountError('This key reaches only its sub-account', 'auth.account_mismatch');
+      }
       assertUserNotFrozen(exchanged.status);
       assertApiKeyOrigin(exchanged.originAllowlist, origin);
       assertApiKeyIp(exchanged.ipAllowlist, clientIp);

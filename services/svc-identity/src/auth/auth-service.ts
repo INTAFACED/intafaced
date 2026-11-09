@@ -2835,9 +2835,15 @@ export class AuthService {
     return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };
   }
 
-  async verifyApiKey(
-    key: string,
-  ): Promise<{ userId: string; scopes: string[]; keyId: string; mode: 'live' | 'sandbox'; domainWhitelist: string[] } | null> {
+  async verifyApiKey(key: string): Promise<{
+    userId: string;
+    scopes: string[];
+    keyId: string;
+    mode: 'live' | 'sandbox';
+    domainWhitelist: string[];
+    /** The sub-account a portfolio-scoped key is bound to (DV-sub-accounts-01); null on the account's own keys. */
+    accountId: string | null;
+  } | null> {
     const rows = await this.sql<
       Array<{
         id: string;
@@ -2846,14 +2852,22 @@ export class AuthService {
         expires_at: Date | null;
         mode: string | null;
         domain_whitelist: string[] | null;
+        account_id: string | null;
       }>
-    >`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
+    >`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist, account_id FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
     const row = rows[0];
     if (!row) return null;
     if (row.expires_at && row.expires_at.getTime() < Date.now()) return null;
     await this.sql`UPDATE api_keys SET last_used_at = now() WHERE id = ${row.id}`;
     const mode: 'live' | 'sandbox' = row.mode === 'sandbox' ? 'sandbox' : 'live';
-    return { userId: row.user_id, scopes: row.scopes, keyId: row.id, mode, domainWhitelist: row.domain_whitelist ?? [] };
+    return {
+      userId: row.user_id,
+      scopes: row.scopes,
+      keyId: row.id,
+      mode,
+      domainWhitelist: row.domain_whitelist ?? [],
+      accountId: row.account_id ?? null,
+    };
   }
 
   /**
@@ -2901,6 +2915,11 @@ export class AuthService {
     const user = users[0];
     if (!user) throw new AuthError('Account not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    if (verified.accountId) {
+      // A portfolio-scoped key lives only as long as its sub-account: a revoked (deleted) sub-account's key is dead.
+      const bound = await this.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sub_accounts WHERE id = ${verified.accountId}`;
+      if (!bound[0] || bound[0].revoked) throw new AuthError('API key is revoked', 'auth.api_key_revoked');
+    }
     const tier = await this.kycTier(verified.userId);
     const { token: accessToken, expiresAt } = await issueAccessToken(
       {
@@ -2911,6 +2930,8 @@ export class AuthService {
         mfa: false,
         apiKeyId: verified.keyId,
         keyEnv: verified.mode,
+        // The token carries the bound sub-account, so every service reads that account and no other (DV-sub-accounts-01).
+        ...(verified.accountId ? { subAccountId: verified.accountId } : {}),
       },
       this.tokens,
     );

@@ -233,6 +233,11 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
+       * Owner-published cap on live keys bound to one sub-account (a portfolio-scoped key, DV-sub-accounts-01), a whole
+       * number. Blank refuses every portfolio-scoped create (`identity.portfolio_key_cap_unset`). Never git-default.
+       */
+      IDENTITY_PORTFOLIO_KEYS_MAX: z.string().optional(),
+      /**
        * Owner-published developer sandbox cap per verification level (`full=3`, levels none, basic, full, institutional).
        * Every account may hold one sandbox; blank, or a level left out, refuses a second (`identity.sandbox_cap_unset`).
        * Never git-default. Parsed at start by `parseSandboxCapByTier`; a malformed value stops the service.

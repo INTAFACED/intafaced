@@ -1472,6 +1472,7 @@ registerPrivateRest(app, {
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
+  subAccountBalances: (subAccountId) => ledger.balances('subaccount', subAccountId),
   ...(env.TRADE_FUTURES_MATCHING_ENABLED
     ? {
         futuresOrders: {

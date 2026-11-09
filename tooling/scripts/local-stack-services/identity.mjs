@@ -215,6 +215,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...(process.env.LOCAL_STACK_IDENTITY_KEY_CAP === 'off'
       ? {}
       : { IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3' }),
+    // Keys per sub-account (J-developer-15 #2): an explicit LOCAL TEST value, not an owner limit. Blank refuses every
+    // sub-account key with identity.portfolio_key_cap_unset; `LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP=off` on a start or
+    // restart leaves it blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP === 'off' ? {} : { IDENTITY_PORTFOLIO_KEYS_MAX: '2' }),
     // LOCAL TEST named developer sandboxes (J-developer-02 #2, #3), labelled in the same profile, never an owner decision.
     // The code keeps no default: blank refuses a second sandbox with identity.sandbox_cap_unset, and
     // `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a start or restart leaves it blank so that refusal can be seen.

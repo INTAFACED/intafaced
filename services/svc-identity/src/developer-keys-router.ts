@@ -42,6 +42,11 @@ export const DEVELOPER_KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['
   'identity.key_not_found': 'NOT_FOUND',
   'identity.key_not_live': 'PRECONDITION_FAILED',
   'identity.key_revoke_reason_invalid': 'BAD_REQUEST',
+  'identity.key_account_required': 'BAD_REQUEST',
+  'identity.key_account_denied': 'FORBIDDEN',
+  'identity.key_org_denied': 'FORBIDDEN',
+  'identity.portfolio_key_cap_unset': 'PRECONDITION_FAILED',
+  'identity.portfolio_key_cap_reached': 'PRECONDITION_FAILED',
 };
 
 function refused(err: unknown): never {

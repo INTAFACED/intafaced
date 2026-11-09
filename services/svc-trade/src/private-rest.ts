@@ -303,6 +303,8 @@ export interface PrivateRestDeps {
    * self-only is enforced here at the edge of this surface.
    */
   userBalances(userId: string): Promise<readonly Balance[]>;
+  /** The ledger projection for one sub-account (`ownerType 'subaccount'`). Absent: a sub-account principal is refused. */
+  subAccountBalances?(subAccountId: string): Promise<readonly Balance[]>;
   /** Open futures positions for the principal (empty [] when none). Optional clientOpenId is the caller's own key. */
   listPositions(principal: Principal, symbol?: string, clientOpenId?: string): Promise<Position[]>;
   /** Closed/liquidated rows for the principal (empty [] when none). */
@@ -1700,7 +1702,18 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     try {
       requireScope(principal, 'trade:read');
-      const rows = await deps.userBalances(principal.userId);
+      // A sub-account-bound key's token names its sub-account: it reads that account's balance and no other
+      // (DV-sub-accounts-01). A missing sub-account door refuses rather than answering with the person's own balance.
+      if (principal.sub_account && !deps.subAccountBalances) {
+        return sendCcxt(reply, {
+          status: 403,
+          body: { code: 'PermissionDenied', message: 'Sub-account balances are not served here', intafacedCode: 'ownership.denied' },
+        });
+      }
+      const rows =
+        principal.sub_account && deps.subAccountBalances
+          ? await deps.subAccountBalances(principal.sub_account)
+          : await deps.userBalances(principal.userId);
       const serverTime = stampServerTime(reply, deps);
       return reply.code(200).send({ ...presentCcxtBalances(rows, new Date(serverTime)), serverTime });
     } catch (err) {

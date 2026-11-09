@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkCreate, parseApiKeyCapByTier } from './developer-keys.js';
+import { checkCreate, DeveloperKeyError, parseApiKeyCapByTier, parsePortfolioKeyCap } from './developer-keys.js';
 
 describe('IDENTITY_API_KEYS_MAX_BY_TIER', () => {
   it('is null while blank, so every create refuses identity.key_cap_unset', () => {
@@ -52,5 +52,42 @@ describe('checkCreate', () => {
     expect(() => checkCreate({ name: 'b', scopes: ['trade:read'], expiresAt: now.toISOString() }, session, now)).toThrow(
       expect.objectContaining({ code: 'identity.key_expiry_invalid' }),
     );
+  });
+});
+
+describe('portfolio-scoped and organisation keys (J-developer-15 #2)', () => {
+  const now = new Date('2026-10-23T00:00:00.000Z');
+  const session = ['identity:read', 'trade:read'];
+  const ACC = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const ORG = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  it('refuses an organisation key that names no account, before anything is read', () => {
+    const refusal = (() => {
+      try {
+        checkCreate({ name: 'org-bot', scopes: ['trade:read'], orgId: ORG }, session, now);
+      } catch (err) {
+        return err;
+      }
+    })();
+    expect(refusal).toBeInstanceOf(DeveloperKeyError);
+    expect((refusal as DeveloperKeyError).code).toBe('identity.key_account_required');
+  });
+
+  it('keeps the account and org on the checked request and in its fingerprint, and leaves an account-less request hashed as before', () => {
+    const plain = checkCreate({ name: 'bot', scopes: ['trade:read'] }, session, now);
+    const bound = checkCreate({ name: 'bot', scopes: ['trade:read'], accountId: ACC.toUpperCase() }, session, now);
+    const org = checkCreate({ name: 'bot', scopes: ['trade:read'], accountId: ACC, orgId: ORG }, session, now);
+    expect(bound).toMatchObject({ accountId: ACC, orgId: null });
+    expect(org).toMatchObject({ accountId: ACC, orgId: ORG });
+    expect(new Set([plain.fingerprint, bound.fingerprint, org.fingerprint]).size).toBe(3);
+    expect(plain).toMatchObject({ accountId: null, orgId: null });
+  });
+
+  it('reads the owner cap per sub-account, and blank stays blank (never a default)', () => {
+    expect(parsePortfolioKeyCap(undefined)).toBeNull();
+    expect(parsePortfolioKeyCap(' ')).toBeNull();
+    expect(parsePortfolioKeyCap('2')).toBe(2);
+    expect(parsePortfolioKeyCap('0')).toBe(0);
+    for (const bad of ['-1', 'two', '2.5', '99999']) expect(() => parsePortfolioKeyCap(bad)).toThrow();
   });
 });

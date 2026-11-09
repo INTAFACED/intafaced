@@ -48,14 +48,31 @@ function fetchOk(opts: { accountId?: string; expectPath?: string; expectAccount?
 }
 
 describe('API key account bind at the session door', () => {
-  it('matching account proceeds via exchangeApiKeyForAccount', async () => {
+  it('matching account proceeds via exchangeApiKeyForAccount, on a route that answers for the sub-account', async () => {
     const result = await exchangePrincipal(
       { authorization: 'Bearer ifc_bound', 'x-account-id': ACC },
-      { ...options, fetch: fetchOk({ accountId: ACC, expectPath: '/trpc/exchangeApiKeyForAccount', expectAccount: ACC }) },
+      {
+        ...options,
+        request: { method: 'GET', path: '/api/v1/account/balance' },
+        fetch: fetchOk({ accountId: ACC, expectPath: '/trpc/exchangeApiKeyForAccount', expectAccount: ACC }),
+      },
     );
     expect(result.rejected).toBeNull();
     expect(result.principal?.userId).toBe(USER);
     expect(result.headers[EDGE_PRINCIPAL_HEADER]).toBeDefined();
+  });
+
+  it('matching account on any other route refuses: the key reaches only its sub-account (J-developer-15 #1)', async () => {
+    for (const request of [{ method: 'GET', path: '/api/v1/orders/open' }, undefined]) {
+      const result = await exchangePrincipal(
+        { authorization: 'Bearer ifc_bound', 'x-account-id': ACC },
+        { ...options, ...(request ? { request } : {}), fetch: fetchOk({ accountId: ACC, expectAccount: ACC }) },
+      );
+      expect(result.rejected).toBe('invalid');
+      expect(result.apiKeyRefusal?.code).toBe('edge.api_key_denied');
+      expect(result.principal).toBeNull();
+      expect(result.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+    }
   });
 
   it('bound key + a different account refuses', async () => {

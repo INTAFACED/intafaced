@@ -29,6 +29,11 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_cap_reached',
   'identity.key_request_conflict',
   'identity.key_signing_unset',
+  'identity.key_account_required',
+  'identity.key_account_denied',
+  'identity.key_org_denied',
+  'identity.portfolio_key_cap_unset',
+  'identity.portfolio_key_cap_reached',
 ] as const;
 export type ApiKeyCreateRefusal = (typeof API_KEY_CREATE_REFUSALS)[number];
 
@@ -54,6 +59,16 @@ export const apiKeyCreateInputSchema = z
     ips: z.array(z.string().max(64)).max(API_KEY_LIST_MAX).optional(),
     /** The key stops working at this instant. Absent: no end date. */
     expiresAt: isoInstant.optional(),
+    /**
+     * A portfolio-scoped key (DV-sub-accounts-01): the master's own sub-account the key is bound to. The key then
+     * reaches only that account. Absent: a key of the person's own account.
+     */
+    accountId: z.string().guid().optional(),
+    /**
+     * An organisation key (DV-sub-accounts-01): the organisation the key is made for. It must name an account id
+     * too, and omitting one refuses (`identity.key_account_required`); an org id never widens what the key reaches.
+     */
+    orgId: z.string().guid().optional(),
   })
   .strict();
 export type ApiKeyCreateInput = z.infer<typeof apiKeyCreateInputSchema>;
@@ -91,6 +106,8 @@ export const apiKeyRecordSchema = z
     revokedBy: z.enum(API_KEY_REVOKED_BY).nullable(),
     /** The reason the person typed when they revoked it themselves. An operator's own note is never shown here. */
     revokeReason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).nullable(),
+    /** The sub-account a portfolio-scoped key is bound to (it reaches only that account). Null on the account's own keys. */
+    accountId: z.string().guid().nullable(),
   })
   .strict();
 export type ApiKeyRecord = z.infer<typeof apiKeyRecordSchema>;
