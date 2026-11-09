@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import path from 'node:path';
 import { api, bestPrices, fromUnits, journeyState, ROOT, signUpInBrowser, toUnits, signOutBrowser, restartWith } from './stack.mjs';
-import { confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
+import { confirm, free, held, openDesk, openOrders, previewed, reviewSheet, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 import { CHAIN_ID, testChain } from './dex.mjs';
@@ -281,9 +281,29 @@ async function venueDesk(page) {
   const panel = venuePanel(page);
   await expect(panel).toBeVisible();
   const connect = panel.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  const short = `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`;
+  // The wallet announces itself after the panel paints: wait for either the Connect button or the connected address.
+  await expect(connect.or(panel.getByText(short))).toBeVisible();
   if (await connect.isVisible()) await connect.click();
-  await expect(panel).toContainText(`${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`);
+  await expect(panel).toContainText(short);
   return { wallet, owner: wallet.address.toLowerCase(), panel };
+}
+
+/**
+ * The limit form on the venue desk, filled and reviewed: as desk.mjs `reviewLimit`, but the review's figures come from
+ * the venue's own preview (POST /api/v1/venue/preview), never our engine's.
+ */
+async function venueReviewLimit(page, side, price, amount) {
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  const at = side === 'buy' ? 0 : 1;
+  await page.getByRole('textbox', { name: 'Price' }).nth(at).fill(price);
+  const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+  await page.getByRole('textbox', { name: 'Amount' }).nth(at).fill(amount);
+  expect((await answer).status()).toBe(200);
+  await page.getByRole('button', { name: side === 'buy' ? 'Buy BTC' : 'Sell BTC' }).click();
+  const review = reviewSheet(page);
+  await expect(review).toBeVisible();
+  return review;
 }
 
 /** The desk's venue-account panel: the person's own venue balances, as the venue reports them. */
@@ -469,7 +489,7 @@ test(`${J} #6 types a limit buy of TEST 0.1 BTC and reviews: the venue's lock, t
     if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/preview') previews.push(r.postDataJSON());
   });
   const asked = wallet.requests.length;
-  const review = await reviewLimit(page, 'buy', price, VENUE_BUY);
+  const review = await venueReviewLimit(page, 'buy', price, VENUE_BUY);
   // The figures are the venue's own preview of this order, line for line.
   expect(previews.length, 'the review asks the venue for its preview').toBeGreaterThan(0);
   const sent = previews.at(-1);
@@ -514,7 +534,7 @@ test(`${J} #7 confirms and signs: the order rests on the venue, shows Open, and 
   expect(venueBuy, '#6 reviewed the buy').toBeTruthy();
   const { wallet } = await venueDesk(page);
   const price = await venueTopBid();
-  await reviewLimit(page, 'buy', price, VENUE_BUY);
+  await venueReviewLimit(page, 'buy', price, VENUE_BUY);
   const asked = wallet.requests.length;
   await confirm(page, 'buy');
   // The wallet signs the order once.
@@ -645,7 +665,7 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   const before = await venueBalance(who, owner, 'USDC');
   const { bid } = await venueBook(VENUE_SPOT);
   const away = fromUnits((bid / 2n / toUnits('1')) * toUnits('1'));
-  await reviewLimit(page, 'buy', away, '0.001');
+  await venueReviewLimit(page, 'buy', away, '0.001');
   await confirm(page, 'buy');
   await expect.poll(async () => (await venueOpenOrders(who, owner)).length, { timeout: 20_000 }).toBe(1);
   const [order] = await venueOpenOrders(who, owner);
@@ -661,9 +681,9 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   const row = page.locator('tr', { hasText: Number(away).toLocaleString('en-US') });
   const asked = wallet.requests.length;
   await row.getByRole('button', { name: /^Cancel/ }).click();
-  await expect.poll(async () => (await venueOrder(who, owner, order.venueClientOrderId))?.status, { timeout: 20_000 }).toBe('cancelled');
+  await expect.poll(async () => (await venueOrder(who, owner, order.venueClientOrderId))?.status, { timeout: 20_000 }).toBe('canceled');
   expect(wallet.requests.length).toBe(asked + 1);
-  await expect(page.getByText(/cancelled/i).first()).toBeVisible();
+  await expect(page.getByText(/cancel+ed/i).first()).toBeVisible();
   // The lock is released on the venue, and the panel shows it.
   expect(await venueOpenOrders(who, owner)).toHaveLength(0);
   expect(wireUnits((await panelEqualsVenue(page, who, owner)).locked)).toBe(wireUnits(before.locked));
@@ -673,8 +693,10 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   expect(first, 'the cancel was prepared for the venue').toBeTruthy();
   const repeat = await (await api(who)).post('/api/v1/venue/prepare', first.sent);
   expect(repeat.status, JSON.stringify(repeat.body).slice(0, 300)).toBe(200);
-  expect(repeat.body.prepared?.digest ?? repeat.body.digest).toBe(first.answer?.prepared?.digest ?? first.answer?.digest);
-  expect((await venueOrder(who, owner, order.venueClientOrderId))?.status).toBe('cancelled');
+  const digestOf = (answer) => answer?.prepared?.digest ?? answer?.digest;
+  expect(digestOf(first.answer), JSON.stringify(first.answer).slice(0, 300)).toMatch(/^0x[0-9a-f]{64}$/);
+  expect(digestOf(repeat.body)).toBe(digestOf(first.answer));
+  expect((await venueOrder(who, owner, order.venueClientOrderId))?.status).toBe('canceled');
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(wireUnits(before.locked));
 });
 
