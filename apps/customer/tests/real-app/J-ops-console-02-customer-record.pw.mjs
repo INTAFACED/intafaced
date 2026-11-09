@@ -6,13 +6,14 @@ import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { tool } from './stack.mjs';
+import { staffSignIn } from './staff.mjs';
 
 // J-ops-console-02 steps #3 and #4: /accounts/:userId shows the money, trade, pay, cards, documents and tickets tabs for one
 // account, each read loading or refusing on its own, and a part no service can read for one account names why; with svc-trade
 // stopped only the trade tab's read refuses and every other read keeps its state (#3). And the risk card and indicator strip,
 // which say there is no risk level and nothing is set rather than show a number (#4).
-// #3's last clause, a staff member without the cards scope seeing "permission denied", fails by name: the console signs in
-// founders only until staff access (OPS-admin-access-03) is built, so there is no such member to sign in yet. Step #5
+// #3's last clause, a staff member without the cards scope seeing "permission denied", signs in the stack's TEST support
+// staff member (staff.mjs). Step #5
 // (each document's status and the viewer) is its own test, J-ops-console-02-documents.pw.mjs.
 // The account looked at is the stack's second TEST founder, an account that always exists on the stack.
 
@@ -72,7 +73,7 @@ test('J-ops-console-02 #4 the risk card says no risk level and the indicator str
   }
 });
 
-test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing on its own', async ({ page }) => {
+test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing on its own', async ({ page, browser }) => {
   test.setTimeout(480_000);
   const customer = await secondFounder();
   await founderSignIn(page, 'a');
@@ -146,11 +147,23 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   await expect(page.getByTestId('customer-panel-trade')).toBeVisible({ timeout: 60_000 });
   expect(await readState(page.getByTestId('read-trade.controls'))).toBe('read');
 
-  // A staff member without the cards scope sees "permission denied" on the cards tab. The console has no staff sign-in yet,
-  // so this clause cannot run and the step stays red for that reason until staff access is built.
-  const staffWithoutCards = null;
-  expect(
-    staffWithoutCards,
-    'no staff member without the cards scope can sign in to the console: it signs in founders only until staff access (OPS-admin-access-03) is built',
-  ).not.toBeNull();
+  // A staff member without the cards scope sees "permission denied" on the cards tab: the stack's TEST support staff member
+  // (staff.mjs), whose role reads accounts, payments, trading and documents and not cards. The other tabs still load for
+  // them, so the refusal is the cards tab's own and not the whole record's.
+  const staff = await (await browser.newContext()).newPage();
+  try {
+    await staffSignIn(staff, browser, 'support');
+    await staff.goto(`${ADMIN}/accounts/${customer}?tab=cards`, { waitUntil: 'load' });
+    await expect(staff.getByTestId('customer-record-id')).toHaveText(customer, { timeout: 60_000 });
+    const cards = staff.getByTestId('customer-panel-cards');
+    await expect(cards.getByTestId('customer-tab-denied')).toContainText('Permission denied');
+    await expect(cards.getByTestId('customer-tab-denied')).toContainText('ops.customer_record_permission_denied');
+    await expect(cards.getByTestId('unwired-cards.list')).toHaveCount(0);
+    await staff.goto(`${ADMIN}/accounts/${customer}?tab=documents`, { waitUntil: 'load' });
+    await expect(staff.getByTestId('customer-panel-documents')).toBeVisible({ timeout: 60_000 });
+    await expect(staff.getByTestId('customer-tab-denied')).toHaveCount(0);
+    await expect(staff.getByTestId('read-identity.documents')).toBeVisible();
+  } finally {
+    await staff.context().close();
+  }
 });

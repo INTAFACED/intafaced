@@ -89,6 +89,11 @@ export interface PlaceChildResult {
 
 export interface TwapEnginePorts {
   placeChild(req: PlaceChildRequest): Promise<PlaceChildResult>;
+  /**
+   * Whether the platform halted this parent's symbol (CB-ops-03). While halted the parent places nothing and keeps its
+   * place in the schedule; it runs again once resumed. Omit → never halted.
+   */
+  platformHalted?(parent: TwapParent): Promise<boolean>;
   /** Cancel disposition for in-flight children on parent cancel. */
   cancelChild(orderId: string): Promise<void>;
   /**
@@ -162,7 +167,8 @@ export type SliceTickResult =
         | 'superseded'
         | 'adopted'
         | 'child_open'
-        | 'awaiting_fills';
+        | 'awaiting_fills'
+        | 'paused_by_platform';
     }
   | { readonly kind: 'completed' };
 
@@ -514,6 +520,7 @@ export class TwapEngine {
     if (parent.status === 'cancelled') return { kind: 'idle', reason: 'cancelled' };
     if (parent.status === 'halted') return { kind: 'idle', reason: 'halted' };
     if (parent.status === 'completed') return { kind: 'idle', reason: 'completed' };
+    if (await this.ports.platformHalted?.(parent)) return { kind: 'idle', reason: 'paused_by_platform' };
     if (parent.kind === 'chase') return this.tickChase(parent, true);
 
     const plan = this.plans.get(parentId);

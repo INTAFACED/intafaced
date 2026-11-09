@@ -5,6 +5,7 @@
 // branch of the journey, never main or factory-switch, and never a force). tooling-tests.mjs runs this file.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createVerify, generateKeyPairSync } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -12,19 +13,29 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  ACCOUNTS,
   HARD_MIN,
+  READ_TOKEN,
   SOFT_MIN,
+  WRITE_TOKEN,
   agentCommand,
+  appJwt,
   buildPrompt,
   checkInputs,
   childEnv,
+  openPrompt,
+  promptKey,
+  sealPrompt,
+  deleteArtifact,
   handoverLine,
   journeySection,
+  mintToken,
   nextAction,
   pickBranch,
   publishPlan,
   pushRef,
   readAgentOutput,
+  revokeToken,
   statusText,
   usageStats,
 } from './factory-builder.mjs';
@@ -311,6 +322,30 @@ test('as the agent user, the CLI starts through sudo with variable names only on
   });
 });
 
+test('the read-only token is revoked, and the revoke counts only when GitHub then refuses the token', async () => {
+  const fake = (after) => {
+    const calls = [];
+    return {
+      calls,
+      send: async (method, path) => {
+        calls.push(`${method} ${path}`);
+        return null;
+      },
+      status: async (path) => {
+        calls.push(`GET ${path}`);
+        return after;
+      },
+    };
+  };
+  const ok = fake(401);
+  assert.equal(await revokeToken(ok), 401);
+  assert.deepEqual(ok.calls, ['DELETE /installation/token', 'GET /repos/INTAFACED/project-state']);
+  for (const still of [200, 403, 404, 500])
+    await assert.rejects(revokeToken(fake(still)), new RegExp(`still answers after its revoke .*HTTP ${still}`), `HTTP ${still}`);
+  const refused = { send: async () => Promise.reject(new Error('DELETE /installation/token: HTTP 401')), status: async () => 401 };
+  await assert.rejects(revokeToken(refused), /HTTP 401/, 'a failed DELETE fails the step');
+});
+
 // ---- The workflow's shape: each rule holds on the file, and each planted fault breaks one ----
 
 const steps = (wf) => {
@@ -323,16 +358,6 @@ const steps = (wf) => {
   return out;
 };
 const stepOf = (wf, name) => steps(wf).find((s) => s.name === name)?.text ?? '';
-/** Steps that may hold the factory token: the gate's checks, the reads before the agent exists, and the publish. */
-const PAT_STEPS = [
-  'The factory secrets are set',
-  'Read the factory switch',
-  'Pick the branch',
-  'CI status for the agent',
-  'Write the prompt',
-  'Publish',
-];
-
 /** Shell words that aren't programs looked up on PATH: bash keywords and builtins, and the step's own function. */
 const NOT_LOOKED_UP = new Set([
   'if',
@@ -410,52 +435,124 @@ export function workflowProblems(wf) {
     /\n  (push|pull_request|pull_request_target|schedule|workflow_run|issue_comment|issues|repository_dispatch):/.test(on)
   )
     p.push('starts on workflow_dispatch only');
-  for (const input of ['journey', 'area'])
+  for (const input of ['journey', 'area', 'account'])
     if (!new RegExp(`\\n      ${input}:\\n(?:        .*\\n)*?        required: true\\n`).test(on)) p.push(`input ${input} is required`);
+  if (!/\n      account:\n(?:        .*\n)*?        type: choice\n        options: \[acct1, acct3, acct4\]\n/.test(on))
+    p.push('the account is one of a fixed list');
   if (!/\npermissions: \{\}\n/.test(wf)) p.push('the workflow grants no token permissions by default');
   if (!/\nconcurrency:\n  group: builder-\$\{\{ inputs\.journey \}\}\n  cancel-in-progress: false\n/.test(wf))
     p.push('one run per journey');
-  const gate = wf.slice(wf.indexOf('\n  gate:\n'), wf.indexOf('\n  build:\n'));
-  const build = wf.slice(wf.indexOf('\n  build:\n'));
-  if (!gate || !build) return [...p, 'two jobs, gate then build'];
-  // The secrets come from the environment `factory` (main only): every job that reads one names it.
+  const ki = wf.indexOf('\n  key:\n');
+  const gi = wf.indexOf('\n  gate:\n');
+  const bi = wf.indexOf('\n  build:\n');
+  const pi = wf.indexOf('\n  publish:\n');
+  if (ki < 0 || gi < ki || bi < gi || pi < bi) return [...p, 'four jobs: key, gate, build, publish'];
+  const key = wf.slice(ki, gi);
+  const gate = wf.slice(gi, bi);
+  const build = wf.slice(bi, pi);
+  const publish = wf.slice(pi);
+  // The secrets come from environments that allow main only: `factory` for the gate and the publish (the App key), the
+  // account's own `factory-<account>` for the build (its CLI token, and nothing else).
   for (const [name, job] of [
     ['gate', gate],
-    ['build', build],
+    ['publish', publish],
   ])
     if (/secrets\./.test(job) && !/\n    environment: factory\n/.test(job))
       p.push(`the ${name} job takes its secrets from the environment factory`);
+  for (const [name, job] of [
+    ['key', key],
+    ['build', build],
+  ]) {
+    if (!/\n    environment: factory-\$\{\{ inputs\.account \}\}\n/.test(job))
+      p.push(`the ${name} job runs in the account's own environment`);
+    if ((job.match(/secrets\.[A-Za-z_]+/g) ?? []).some((r) => r !== 'secrets.CLAUDE_FACTORY_TOKEN'))
+      p.push(`the ${name} job references no secret but the account's CLI token`);
+  }
+  const ks = steps(key);
+  if (ks[0]?.name !== 'Only from main' || !/"\$REF" != "refs\/heads\/main"[\s\S]*exit 1/.test(ks[0].text))
+    p.push("the key job's first step refuses any ref but main");
+  if (
+    stepOf(key, 'The prompt key')
+      .match(/\n        run: (.*)\n/)?.[1]
+      ?.trim() !== 'node tooling/ci/factory-builder.mjs pubkey' ||
+    !/\n    needs: key\n/.test(gate)
+  )
+    p.push('the gate gets the public half of the prompt key from the key job');
   const gs = steps(gate);
   if (gs[0]?.name !== 'Only from main' || !/"\$REF" != "refs\/heads\/main"[\s\S]*exit 1/.test(gs[0].text))
     p.push('the first step refuses any ref but main');
   const sec = stepOf(gate, 'The factory secrets are set');
   if (
     gs[1]?.name !== 'The factory secrets are set' ||
-    !/\[ -n "\$FACTORY_GH_TOKEN" \]/.test(sec) ||
-    !/\[ -n "\$CLAUDE_FACTORY_TOKEN" \]/.test(sec) ||
-    !/exit 1/.test(sec)
+    !/if \[ -z "\$FACTORY_APP_KEY" \]; then\n[^\n]*\n            exit 1\n          fi\n/.test(sec)
   )
-    p.push('both secrets are checked before anything else runs, and a missing one fails');
+    p.push('the App key is checked before anything else runs, and a missing one fails');
+  const cliCheck = stepOf(build, "The account's CLI token is set");
+  if (!/if \[ -z "\$CLAUDE_FACTORY_TOKEN" \]; then\n[^\n]*\n            exit 1\n          fi\n/.test(cliCheck))
+    p.push("the account's CLI token is checked, and a missing one fails");
   if (!/factory-builder\.mjs switch/.test(stepOf(gate, 'Read the factory switch'))) p.push('the gate reads the switch');
   if (!/\n    needs: gate\n    if: needs\.gate\.outputs\.run == 'true'\n/.test(build))
     p.push('the build runs only when the switch says run');
-  if ((wf.match(/\n    runs-on: ubuntu-latest\n/g) ?? []).length !== 2 || /runs-on: (?!ubuntu-latest)/.test(wf)) p.push('ubuntu-latest');
+  if (!/\n    needs: \[gate, build\]\n    if: always\(\) && needs\.build\.outputs\.took == 'true'\n/.test(publish))
+    p.push("the publish runs after the build, only when the agent's commits were taken");
+  if ((wf.match(/\n    runs-on: ubuntu-latest\n/g) ?? []).length !== 4 || /runs-on: (?!ubuntu-latest)/.test(wf)) p.push('ubuntu-latest');
   if (!/\n    timeout-minutes: 340 /.test(build)) p.push('the build job is limited to 340 minutes');
-  // Tokens: never GITHUB_TOKEN; the factory token only in its steps, never in the agent's; every GH_TOKEN is it.
-  if (/secrets\.GITHUB_TOKEN|github\.token/.test(wf)) p.push('GITHUB_TOKEN is never used');
-  for (const s of steps(wf))
-    if (/secrets\.FACTORY_GH_TOKEN/.test(s.text) && !PAT_STEPS.includes(s.name)) p.push(`the factory token is in step ${s.name}`);
-  for (const m of wf.matchAll(/GH_TOKEN: (.*)\n/g))
-    if (m[1] !== '${{ secrets.FACTORY_GH_TOKEN }}') p.push('every GH_TOKEN is the factory token');
+  // Tokens. No step's environment holds a GitHub token: the two steps that need GitHub mint theirs in memory from the
+  // App key (factory-builder.mjs before and publish, whose token specs the script's own tests pin), and the App key
+  // reaches only them and the secrets check. GITHUB_TOKEN is never used, and no third-party action mints a token.
+  if (/secrets\.GITHUB_TOKEN|github\.token|GH_TOKEN|_PAT\b/.test(wf)) p.push('no step holds a GitHub token');
+  if (/create-github-app-token|actions\/github-script/.test(wf)) p.push('no action mints or uses a GitHub token');
+  const keySteps = steps(wf)
+    .filter((s) => /FACTORY_APP_KEY/.test(s.text))
+    .map((s) => s.name)
+    .join();
+  if (keySteps !== 'The factory secrets are set,Read GitHub before the agent,Publish' || /FACTORY_APP_KEY/.test(build))
+    p.push('the App key reaches only the two GitHub steps, never the build job');
+  if ((wf.match(/FACTORY_APP_KEY: (.*)\n/g) ?? []).some((l) => l !== 'FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n'))
+    p.push('the App key is the secret itself');
+  const bnames = steps(build).map((s) => s.name);
+  const at = (n) => bnames.indexOf(n);
+  // GitHub is read in the gate, on a runner the agent never uses; the prompt reaches the build as data.
+  const before = stepOf(gate, 'Read GitHub before the agent');
+  if (
+    before.match(/\n        run: (.*)\n/)?.[1]?.trim() !== 'node tooling/ci/factory-builder.mjs before' ||
+    !/\n        if: steps\.switch\.outputs\.run == 'true'\n/.test(before) ||
+    !/\n      prompt: \$\{\{ steps\.before\.outputs\.prompt \}\}\n/.test(gate) ||
+    !/\n          PROMPT_PUB: \$\{\{ needs\.key\.outputs\.pub \}\}\n/.test(before)
+  )
+    p.push('the gate reads GitHub and hands the prompt on sealed, only when the switch says run');
+  const promptIn = stepOf(build, 'Write the prompt');
+  if (
+    !/\n          PROMPT_SEALED: \$\{\{ needs\.gate\.outputs\.prompt \}\}\n/.test(promptIn) ||
+    (wf.match(/needs\.gate\.outputs\.prompt/g) ?? []).length !== 1 ||
+    !/factory-builder\.mjs prompt-in/.test(promptIn) ||
+    !(at('Write the prompt') >= 0 && at('Write the prompt') < at('The agent user and its working tree'))
+  )
+    p.push("the build opens the gate's sealed prompt, its one reader, before the agent user exists");
+  if (!/\n          GATE_STARTED_AT: \$\{\{ needs\.gate\.outputs\.started_at \}\}\n/.test(stepOf(build, 'Start the clock')))
+    p.push("the deadlines count from the gate's read");
+  if (/factory-builder\.mjs (publish|before)\b/.test(build) || /factory-builder\.mjs (before|run)\b/.test(publish))
+    p.push("GitHub is never read or written from the agent's runner");
   if (/\n          token: /.test(wf)) p.push('no checkout holds a token');
   for (const m of wf.matchAll(/persist-credentials: (\w+)/g)) if (m[1] !== 'false') p.push('no checkout keeps a credential');
   if ((wf.match(/actions\/checkout@/g) ?? []).length !== (wf.match(/persist-credentials: false/g) ?? []).length)
     p.push('every checkout drops its credential');
+  if (/actions\/checkout@/.test(build)) p.push('the build job has no checkout action (its post step would run git after the agent)');
+  const mainCode = stepOf(build, "Main's code");
+  if (!/\n          SHA: \$\{\{ github\.sha \}\}\n/.test(mainCode) || !/test "\$\(git rev-parse HEAD\)" = "\$SHA"/.test(mainCode))
+    p.push('the build job fetches the dispatched commit of main and checks it');
+  // The CLI token: the build environment's one secret, only in its check and the Build step.
+  const cliSteps = steps(wf)
+    .filter((s) => /secrets\.CLAUDE_FACTORY_TOKEN|CLAUDE_CODE_OAUTH_TOKEN: /.test(s.text))
+    .map((s) => s.name)
+    .join();
   if (
-    (wf.match(/secrets\.CLAUDE_FACTORY_TOKEN/g) ?? []).length !== 2 ||
-    !/CLAUDE_CODE_OAUTH_TOKEN: \$\{\{ secrets\.CLAUDE_FACTORY_TOKEN \}\}/.test(stepOf(build, 'Build'))
+    cliSteps !== "The prompt key,The account's CLI token is set,Write the prompt,Build" ||
+    !stepOf(build, 'Build').includes('          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n') ||
+    (wf.match(/secrets\.CLAUDE_FACTORY_TOKEN/g) ?? []).length !== 4 ||
+    /secrets\.CLAUDE_CODE_OAUTH_TOKEN|secrets\[/.test(wf)
   )
-    p.push('the CLI token reaches only the secrets check and the Build step');
+    p.push("the account's CLI token reaches only the prompt key, its check, the prompt's opening and the Build step");
   // Trust: the job's steps run main's code only. Its checkouts are of the dispatched commit on main; nothing runs in
   // the agent's tree except as the agent user; the job's own scripts run from the job's checkout with its pinned node.
   for (const m of wf.matchAll(/\n          ref: (.*)\n/g))
@@ -464,13 +561,21 @@ export function workflowProblems(wf) {
   for (const s of steps(build)) {
     const run = /\n        run: ([\s\S]*)$/.exec(s.text)?.[1] ?? '';
     for (const line of run.split('\n')) {
+      if (line.trim().startsWith('#')) continue;
       if (/\$WORK|\$\{WORK\}|\/home\/factory-agent/.test(line) && !/sudo -n -u "\$AGENT_USER"|as_agent /.test(line))
         p.push(`step ${s.name} touches the agent's tree as the runner`);
       if (/\b(cd|pushd)\b/.test(line)) p.push(`step ${s.name} changes directory`);
-      if (/factory-builder\.mjs/.test(line) && !/^'?"\$NODE_BIN" tooling\/ci\/factory-builder\.mjs \w+'?$/.test(line.trim()))
+      if (/factory-builder\.mjs/.test(line) && !/^'?"\$NODE_BIN" tooling\/ci\/factory-builder\.mjs [\w-]+'?$/.test(line.trim()))
         p.push(`step ${s.name} runs the builder's script other than from main's checkout with the pinned node`);
     }
   }
+  if (/\$WORK|\/home\/factory-agent|AGENT_USER|services:/.test(publish)) p.push("the publish job never touches the agent's runner or tree");
+  if (
+    stepOf(publish, 'Publish')
+      .match(/\n        run: (.*)\n?$/)?.[1]
+      ?.trim() !== 'node tooling/ci/factory-builder.mjs publish'
+  )
+    p.push("the publish runs main's script");
   if (/uses: \.\/(?!\.github\/actions\/test-infra\n)/.test(wf)) p.push("local actions are main's test-infra only");
   // The CLI: as the agent user, through the watcher, with no settings from the branch.
   const b = stepOf(build, 'Build');
@@ -483,8 +588,30 @@ export function workflowProblems(wf) {
   if ((wf.match(/"--effort","[a-z]+"/g) ?? []).join() !== '"--effort","medium"') p.push('the effort is medium');
   if (!/npm ci --prefix "\$RUNNER_TEMP\/cli"/.test(wf) || !/sudo chown -R root:root \/opt\/factory-cli/.test(wf))
     p.push('the CLI is the pinned one, root-owned');
-  // Public logs and leftovers.
-  if (/upload-artifact|actions\/cache@/.test(wf)) p.push('nothing is uploaded');
+  // Public logs and leftovers: one upload, of the four files publish needs, kept a day; never the CLI's files.
+  const up = stepOf(build, "Hand the agent's output to the publish job");
+  const uploadPaths =
+    /\n          path: \|\n((?:            .*\n)+)/
+      .exec(up)?.[1]
+      ?.trim()
+      .split('\n')
+      .map((l) => l.trim()) ?? [];
+  if (
+    (wf.match(/upload-artifact/g) ?? []).length !== 1 ||
+    /actions\/cache@/.test(wf) ||
+    uploadPaths.join() !== ['branch.bundle', 'pr.md', 'actions.json', 'end.json'].map((f) => `\${{ env.BUILDER_DIR }}/${f}`).join() ||
+    !/\n          retention-days: 1\n/.test(up)
+  )
+    p.push("only the agent's commits, PR text, asks and end record are uploaded, for a day");
+  // One artifact name per build attempt, which the publish job (and a re-run of it alone) reads from the build's output.
+  const NAME = 'builder-output-${{ github.run_id }}-${{ github.run_attempt }}';
+  if (
+    !build.includes(`\n      artifact: ${NAME}\n`) ||
+    !up.includes(`\n          name: ${NAME}\n`) ||
+    !stepOf(publish, "The agent's output").includes('\n          name: ${{ needs.build.outputs.artifact }}\n') ||
+    !stepOf(publish, 'Publish').includes('\n          ARTIFACT: ${{ needs.build.outputs.artifact }}\n')
+  )
+    p.push("the publish reads, and deletes, the build attempt's own artifact");
   for (const line of wf.split('\n'))
     if (
       /\b(cat|tee|head|tail|less|more)\b/.test(line) &&
@@ -498,29 +625,27 @@ export function workflowProblems(wf) {
     !/\/usr\/bin\/sudo \/usr\/bin\/pkill -KILL -u "\$AGENT_USER"/.test(kill) ||
     !/\/usr\/bin\/pgrep -u "\$AGENT_USER"[\s\S]*exit 1/.test(kill)
   )
-    p.push('every process of the agent is stopped before the publish');
-  const names = steps(build).map((s) => s.name);
+    p.push('every process of the agent is stopped before its output is taken');
   if (!(
-    names.indexOf('Build') < names.indexOf('Stop every process of the agent') &&
-    names.indexOf('Stop every process of the agent') < names.indexOf('Publish')
+    at('Build') < at('Stop every process of the agent') &&
+    at('Stop every process of the agent') < at("Take the agent's commits") &&
+    at("Take the agent's commits") < at("Hand the agent's output to the publish job")
   ))
-    p.push('the publish comes after the agent is stopped');
-  if (names.at(-1) !== 'Last, stop anything left' || !/if: always\(\)/.test(stepOf(build, 'Last, stop anything left')))
+    p.push('the output is handed over after the agent is stopped');
+  if (bnames.at(-1) !== 'Last, stop anything left' || !/if: always\(\)/.test(stepOf(build, 'Last, stop anything left')))
     p.push('the last step stops anything left');
   // PATH: closed before the agent user exists, and from then on no step calls a program by its bare name.
   const close = stepOf(build, 'Close every directory on PATH');
   if (
-    !(
-      names.indexOf('Close every directory on PATH') >= 0 &&
-      names.indexOf('Close every directory on PATH') < names.indexOf('The agent user and its working tree')
-    ) ||
+    !(at('Close every directory on PATH') >= 0 && at('Close every directory on PATH') < at('The agent user and its working tree')) ||
     !/\/usr\/bin\/sudo \/usr\/bin\/chmod -R go-w "\$d"/.test(close) ||
     !/-perm \/022/.test(close) ||
     !/\/usr\/bin\/find -H "\$up" -maxdepth 0 -perm \/022/.test(close) ||
     !/::error title=PATH writable::[\s\S]*exit 1/.test(close)
   )
     p.push('every directory on PATH is closed, and checked, before the agent user exists');
-  for (const s of steps(build).slice(names.indexOf('The agent user and its working tree'))) {
+  for (const s of steps(build).slice(at('The agent user and its working tree'))) {
+    if (!/\n        run: /.test(s.text)) continue; // an action, run by the runner's own node: no shell, no PATH lookup
     if (!/\n        shell: \/usr\/bin\/bash -e \{0\}\n/.test(s.text)) p.push(`step ${s.name} runs /usr/bin/bash by its path`);
     if (!/\n          PATH: \/usr\/bin:\/bin\n/.test(s.text)) p.push(`step ${s.name} runs with PATH=/usr/bin:/bin`);
     for (const word of commandWords(s.text)) p.push(`step ${s.name} calls ${word} by its bare name`);
@@ -537,39 +662,71 @@ test('each planted fault in the workflow is caught', () => {
     assert.ok(WF.includes(from), `the plant's anchor is in the file: ${from.slice(0, 60)}`);
     return WF.replace(from, to);
   };
+  const GATE_CHECKOUT =
+    '          persist-credentials: false\n          sparse-checkout: |\n            tooling/ci\n            docs/roadmap\n';
+  const CLI_TOKEN = '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n';
+  const USAGE =
+    "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n";
+  const AGENT_ENV = '          FACTORY_OUT: /home/factory-agent/out\n';
   const faults = {
     'a push trigger': plant('on:\n  workflow_dispatch:\n', 'on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n'),
-    'no main check': plant('if [ "$REF" != "refs/heads/main" ]; then', 'if false; then'),
+    'no main check in the key job': plant('if [ "$REF" != "refs/heads/main" ]; then', 'if false; then'),
+    'no main check in the gate': (() => {
+      const at = WF.lastIndexOf('if [ "$REF" != "refs/heads/main" ]; then');
+      return `${WF.slice(0, at)}if false; then${WF.slice(at + 'if [ "$REF" != "refs/heads/main" ]; then'.length)}`;
+    })(),
     'a missing secret only warns': plant(
       '            exit 1\n          fi\n\n      - uses: actions/checkout',
       '            exit 0\n          fi\n\n      - uses: actions/checkout',
     ),
-    'the CLI secret unchecked': plant('[ -n "$CLAUDE_FACTORY_TOKEN" ] || missing="$missing CLAUDE_FACTORY_TOKEN"\n', ''),
+    'the App key unchecked': plant('          if [ -z "$FACTORY_APP_KEY" ]; then\n', '          if false; then\n'),
+    'the account optional': WF.replace(/(      account:\n(?:        .*\n)*?        required: )true/, '$1false'),
+    'a free-text account': plant('        type: choice\n        options: [acct1, acct3, acct4]\n', '        type: string\n'),
     'the gate off the environment': plant(
       '    timeout-minutes: 10 # healthy run: under a minute\n    environment: factory\n',
       '    timeout-minutes: 10 # healthy run: under a minute\n',
     ),
-    'the build off the environment': plant(
-      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory\n',
-      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n',
+    'the publish off the environment': plant(
+      '    timeout-minutes: 15 # healthy run: under two minutes\n    environment: factory\n',
+      '    timeout-minutes: 15 # healthy run: under two minutes\n',
     ),
     'a checkout pushing with GITHUB_TOKEN': plant(
-      '          ref: ${{ github.sha }}\n          persist-credentials: false\n      - uses: actions/setup-node',
-      '          ref: ${{ github.sha }}\n          token: ${{ secrets.GITHUB_TOKEN }}\n      - uses: actions/setup-node',
+      GATE_CHECKOUT,
+      `          token: \${{ secrets.GITHUB_TOKEN }}\n${GATE_CHECKOUT.slice(GATE_CHECKOUT.indexOf('\n') + 1)}`,
     ),
-    'a checkout keeping the factory token': plant(
-      '          ref: ${{ github.sha }}\n          persist-credentials: false\n      - uses: actions/setup-node',
-      '          ref: ${{ github.sha }}\n          token: ${{ secrets.FACTORY_GH_TOKEN }}\n      - uses: actions/setup-node',
+    'a checkout keeping a credential': plant(
+      GATE_CHECKOUT,
+      GATE_CHECKOUT.replace('persist-credentials: false', 'persist-credentials: true'),
     ),
-    'the factory token given to the agent': plant(
-      '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n',
-      '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}\n',
+    'a GitHub token given to the agent': plant(AGENT_ENV, `${AGENT_ENV}          GH_TOKEN: \${{ secrets.FACTORY_GH_TOKEN }}\n`),
+    'the App key given to the agent': plant(AGENT_ENV, `${AGENT_ENV}          KEY: \${{ secrets.FACTORY_APP_KEY }}\n`),
+    'the App key in another step': plant(
+      "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n        env:\n          PATH: /usr/bin:/bin\n",
+      "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n        env:\n          PATH: /usr/bin:/bin\n          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n",
     ),
-    'GITHUB_TOKEN for the API': WF.replace(/GH_TOKEN: \$\{\{ secrets\.FACTORY_GH_TOKEN \}\}/, 'GH_TOKEN: ${{ github.token }}'),
-    "the branch's script run": plant(
+    'GITHUB_TOKEN for the publish': plant(
+      '          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n          BRANCH:',
+      '          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n          GH_TOKEN: ${{ github.token }}\n          BRANCH:',
+    ),
+    'a token-minting action': plant(
+      '      - name: Read GitHub before the agent\n',
+      '      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510\n      - name: Read GitHub before the agent\n',
+    ),
+    'the publish on the agent runner': plant(
+      `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs stats'`,
       `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs publish'`,
-      `run: '"$NODE_BIN" "$WORK/tooling/ci/factory-builder.mjs" publish'`,
     ),
+    'the publish without the build': plant('    needs: [gate, build]\n', '    needs: [gate]\n'),
+    'the publish on a failed take': plant("    if: always() && needs.build.outputs.took == 'true'\n", '    if: always()\n'),
+    'the publish touching the agent tree': plant(
+      '          BUILDER_DIR: ${{ runner.temp }}/builder\n',
+      '          BUILDER_DIR: /home/factory-agent/out\n',
+    ),
+    'a checkout action in the build job': plant(
+      "      - name: Main's code\n",
+      "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          ref: ${{ github.sha }}\n          persist-credentials: false\n      - name: Main's code\n",
+    ),
+    "main's code unchecked": plant('          test "$(git rev-parse HEAD)" = "$SHA"\n', ''),
     'a step entering the agent tree': plant(
       '      - name: Publish\n',
       '      - name: Publish\n        working-directory: /home/factory-agent/work\n',
@@ -579,12 +736,26 @@ test('each planted fault in the workflow is caught', () => {
       'pnpm install --frozen-lockfile --dir "$WORK"',
     ),
     'a checkout of the branch': plant(
-      '          ref: ${{ github.sha }}\n          persist-credentials: false\n      - uses: actions/setup-node',
-      '          ref: ${{ steps.branch.outputs.branch }}\n          persist-credentials: false\n      - uses: actions/setup-node',
+      `          ref: \${{ github.sha }}\n${GATE_CHECKOUT}`,
+      `          ref: \${{ steps.branch.outputs.branch }}\n${GATE_CHECKOUT}`,
     ),
     "the branch's CLI settings": plant('"--setting-sources",""', '"--setting-sources","project"'),
     'the CLI not as the agent user': plant('      AGENT_USER: factory-agent\n', ''),
-    'the transcript uploaded': `${WF}\n      - uses: actions/upload-artifact@v7\n        with:\n          path: \${{ env.BUILDER_DIR }}\n`,
+    'the transcript uploaded': plant(
+      '            ${{ env.BUILDER_DIR }}/end.json\n',
+      '            ${{ env.BUILDER_DIR }}/end.json\n            ${{ env.BUILDER_DIR }}/out.jsonl\n',
+    ),
+    'a second upload': `${WF}\n      - uses: actions/upload-artifact@v7\n        with:\n          path: \${{ env.BUILDER_DIR }}\n`,
+    'the output kept for months': plant('          retention-days: 1\n', '          retention-days: 90\n'),
+    'a re-run reading another attempt': plant(
+      '          name: ${{ needs.build.outputs.artifact }}\n',
+      '          name: builder-output-${{ github.run_id }}-${{ github.run_attempt }}\n',
+    ),
+    'the output handed over before the stop': (() => {
+      const kill = stepOf(WF, 'Stop every process of the agent');
+      const take = stepOf(WF, "Take the agent's commits");
+      return WF.replace(kill, '').replace(take, `${take}${kill}`);
+    })(),
     'the output printed': plant(`run: '"$NODE_BIN" tooling/ci/factory-builder.mjs stats'`, 'run: cat "$BUILDER_DIR/out.jsonl"'),
     'the CLI run in the shell': plant(`run: '"$NODE_BIN" tooling/ci/factory-builder.mjs run'`, 'run: \'"$CLAUDE_BIN" -p < prompt.txt\''),
     'leftovers not stopped': plant(
@@ -607,17 +778,64 @@ test('each planted fault in the workflow is caught', () => {
       '          sudo pkill -KILL -u "$AGENT_USER" || true\n          /usr/bin/sleep 2\n',
     ),
     'the job PATH after the agent': plant(
-      "      - name: Publish\n        if: always() && steps.take.outcome == 'success'\n        shell: /usr/bin/bash -e {0}\n        env:\n          PATH: /usr/bin:/bin\n",
-      "      - name: Publish\n        if: always() && steps.take.outcome == 'success'\n        shell: /usr/bin/bash -e {0}\n        env:\n",
+      `${USAGE}        env:\n          PATH: /usr/bin:/bin\n`,
+      `${USAGE}        env:\n          OTHER: x\n`,
     ),
-    'bash found on PATH after the agent': plant(
-      "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n",
-      "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n",
-    ),
+    'bash found on PATH after the agent': plant(USAGE, USAGE.replace('        shell: /usr/bin/bash -e {0}\n', '')),
     'the area optional': WF.replace(/(      area:\n(?:        .*\n)*?        required: )true/, '$1false'),
     'an unpinned model': WF.replace(/"--model","[a-z0-9-]+"/, '"--model","sonnet"'),
     'another effort': plant('"--effort","medium"', '"--effort","high"'),
+    'the CLI secret unchecked': plant('          if [ -z "$CLAUDE_FACTORY_TOKEN" ]; then\n', '          if false; then\n'),
+    'the build in the shared environment': plant(
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory-${{ inputs.account }}\n',
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory\n',
+    ),
+    'one account for every builder': plant(
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory-${{ inputs.account }}\n',
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory-acct1\n',
+    ),
+    'the build off any environment': plant(
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory-${{ inputs.account }}\n',
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n',
+    ),
+    'the CI review token': plant(CLI_TOKEN, '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n'),
+    'another secret on the agent runner': plant(CLI_TOKEN, `${CLI_TOKEN}          OTHER: \${{ secrets.CLAUDE_TOKEN_ACCT1 }}\n`),
+    'the token named from the input': plant(
+      CLI_TOKEN,
+      "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets[format('CLAUDE_TOKEN_{0}', inputs.account)] }}\n",
+    ),
+    'a CLI token in the publish': plant(
+      '          BRANCH: ${{ needs.gate.outputs.branch }}\n          ARTIFACT:',
+      '          BRANCH: ${{ needs.gate.outputs.branch }}\n          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n          ARTIFACT:',
+    ),
+    'GitHub read on the agent runner': plant(
+      '      - name: Write the prompt\n',
+      '      - name: Read again\n        env:\n          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n        run: \'"$NODE_BIN" tooling/ci/factory-builder.mjs before\'\n      - name: Write the prompt\n',
+    ),
+    'the prompt not handed on': plant('      prompt: ${{ steps.before.outputs.prompt }}\n', ''),
+    'the prompt unsealed': plant('          PROMPT_PUB: ${{ needs.key.outputs.pub }}\n', ''),
+    'the prompt in another step': plant(
+      '      - name: Write the prompt\n',
+      '      - name: Peek\n        env:\n          P: ${{ needs.gate.outputs.prompt }}\n        run: /usr/bin/true\n      - name: Write the prompt\n',
+    ),
+    'the key job in the shared environment': plant(
+      '    timeout-minutes: 5 # healthy run: under a minute\n    environment: factory-${{ inputs.account }}\n',
+      '    timeout-minutes: 5 # healthy run: under a minute\n    environment: factory\n',
+    ),
+    'the gate not waiting for the key': plant('    needs: key\n', ''),
+    'the read run while paused': plant("        if: steps.switch.outputs.run == 'true'\n", ''),
+    'the prompt written after the agent exists': (() => {
+      const w = stepOf(WF, 'Write the prompt');
+      const close = stepOf(WF, 'The agent user and its working tree');
+      return WF.replace(w, '').replace(close, `${close}${w}`);
+    })(),
+    'a late clock': plant('          GATE_STARTED_AT: ${{ needs.gate.outputs.started_at }}\n', '          GATE_STARTED_AT: 0\n'),
+    "the branch's script run": plant(
+      `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs prompt-in'`,
+      `run: '"$NODE_BIN" "$WORK/tooling/ci/factory-builder.mjs" prompt-in'`,
+    ),
   };
+
   for (const [name, wf] of Object.entries(faults)) {
     assert.notEqual(wf, WF, name);
     assert.ok(workflowProblems(wf).length > 0, `${name} is caught`);
@@ -703,7 +921,8 @@ import { existsSync, writeFileSync } from 'node:fs';
 let input = '';
 process.stdin.on('data', (c) => (input += c)).on('end', () => {
   const tokens = Object.keys(process.env).filter((k) => /TOKEN|^GH_/.test(k));
-  writeFileSync(process.env.FAKE_SEEN, JSON.stringify({ args: process.argv.slice(2), input, summary: process.env.GITHUB_STEP_SUMMARY ?? null, tokens }));
+  const cli = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? null;
+  writeFileSync(process.env.FAKE_SEEN, JSON.stringify({ args: process.argv.slice(2), input, summary: process.env.GITHUB_STEP_SUMMARY ?? null, tokens, cli }));
   console.log('PRINTED-BY-THE-CLI');
   console.error('ERR-BY-THE-CLI');
   if (${JSON.stringify(mode)} === 'done') {
@@ -805,6 +1024,7 @@ test('run: the CLI finishes, its output stays in files, and no GitHub token or r
       input: 'THE PROMPT',
       summary: null,
       tokens: ['CLAUDE_CODE_OAUTH_TOKEN'],
+      cli: 'c',
     });
     assert.equal(JSON.parse(readFileSync(join(dir, 'end.json'), 'utf8')).reason, 'done');
     assert.ok(!existsSync(join(dir, 'summary')));
@@ -950,4 +1170,239 @@ test('publish refuses main, factory-switch or another journey before it pushes a
     assert.ok(!r.refs.includes(r.agentHead), `${branch}: nothing pushed`);
     assert.equal(r.log.length, 0, `${branch}: no API call`);
   }
+});
+
+// ---- The App tokens: minted in memory from the key, narrowed, and revoked; never in a step's environment ----
+
+const KEYS = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const PEM = KEYS.privateKey.export({ type: 'pkcs1', format: 'pem' });
+
+/** A JWT's claims, if its RS256 signature verifies with the public key; else null. */
+function verifiedClaims(jwt, publicKey = KEYS.publicKey) {
+  const [h, c, sig] = String(jwt).split('.');
+  const ok = createVerify('RSA-SHA256')
+    .update(`${h}.${c}`)
+    .verify(publicKey, Buffer.from(sig ?? '', 'base64url'));
+  return ok ? JSON.parse(Buffer.from(c, 'base64url').toString()) : null;
+}
+
+test("the App's JWT is RS256 by its client id, nine minutes long, and verifies only with its key", () => {
+  const now = Date.UTC(2026, 10, 8, 15, 0, 0);
+  const claims = verifiedClaims(appJwt(PEM, now));
+  assert.deepEqual(claims, { iat: now / 1000 - 60, exp: now / 1000 - 60 + 540, iss: 'Iv23lihKJK3UhiuiTgLa' });
+  const other = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  assert.equal(verifiedClaims(appJwt(PEM, now), other.publicKey), null, 'another key does not verify it');
+});
+
+test('the two token specs: the read one reads only; the write one is intafaced only and never workflows or admin', () => {
+  assert.deepEqual(READ_TOKEN.repositories, ['intafaced', 'project-state']);
+  assert.ok(Object.values(READ_TOKEN.permissions).every((v) => v === 'read'));
+  assert.deepEqual(WRITE_TOKEN.repositories, ['intafaced']);
+  for (const k of ['workflows', 'administration', 'secrets', 'environments', 'members', 'organization_administration'])
+    assert.equal(WRITE_TOKEN.permissions[k], undefined, k);
+  assert.deepEqual(Object.keys(WRITE_TOKEN.permissions).sort(), ['actions', 'contents', 'pull_requests']);
+});
+
+test('a minted token is refused unless GitHub grants exactly what was asked (metadata aside)', async () => {
+  const fake = (granted) => (token) => ({
+    json: async (path) => {
+      assert.equal(path, '/repos/o/r/installation');
+      assert.ok(verifiedClaims(token), 'the installation is looked up with the signed JWT');
+      return { id: 7 };
+    },
+    send: async (method, path, body) => {
+      assert.equal(`${method} ${path}`, 'POST /app/installations/7/access_tokens');
+      assert.deepEqual(body, READ_TOKEN);
+      return { token: 'ghs_x', permissions: granted };
+    },
+  });
+  assert.equal(
+    await mintToken({ pem: PEM, repo: 'o/r', spec: READ_TOKEN, apiFor: fake({ ...READ_TOKEN.permissions, metadata: 'read' }) }),
+    'ghs_x',
+  );
+  await assert.rejects(
+    mintToken({ pem: PEM, repo: 'o/r', spec: READ_TOKEN, apiFor: fake({ ...READ_TOKEN.permissions, workflows: 'write' }) }),
+    /a permission it was not asked for/,
+  );
+  await assert.rejects(
+    mintToken({ pem: PEM, repo: 'o/r', spec: READ_TOKEN, apiFor: fake({ ...READ_TOKEN.permissions, contents: 'write' }) }),
+    /contents permission is write, not read/,
+  );
+});
+
+/** A fake GitHub for `before`: the App's installation, its token, the reads, and the revoke. */
+function appServer(state) {
+  const server = createServer((req, res) => {
+    const auth = req.headers.authorization ?? '';
+    const send = (code, body, type = 'application/json') => {
+      res.writeHead(code, { 'content-type': type });
+      res.end(typeof body === 'string' ? body : JSON.stringify(body ?? {}));
+    };
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      state.calls.push(`${req.method} ${req.url.split('?')[0]}`);
+      if (req.url === '/repos/o/r/installation') return verifiedClaims(auth.replace('Bearer ', '')) ? send(200, { id: 7 }) : send(401);
+      if (req.url === '/app/installations/7/access_tokens') {
+        if (!verifiedClaims(auth.replace('Bearer ', ''))) return send(401);
+        state.asked = JSON.parse(body);
+        return send(201, { token: 'ghs_fake', permissions: state.grant ?? state.asked.permissions });
+      }
+      if (auth !== 'Bearer ghs_fake' || state.revoked) return send(401);
+      if (req.method === 'DELETE' && req.url === '/installation/token') {
+        state.revoked = !state.revokeIgnored;
+        return send(204, '');
+      }
+      if (req.url.startsWith('/repos/o/r/pulls?')) return send(200, []);
+      if (req.url.startsWith('/repos/o/r/branches/')) return send(404);
+      if (req.url === '/repos/INTAFACED/project-state/contents/BUILDER.md?ref=main') return send(200, 'THE BRIEF {journey}', 'text/plain');
+      if (req.url === '/repos/INTAFACED/project-state/contents/operation-zero/modules/identity/acceptance/journeys.md?ref=main')
+        return send(200, '## J-identity-13: x\n| 1 | step |\n', 'text/plain');
+      return send(404);
+    });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
+}
+
+const beforeEnv = (dir, server) => ({
+  REPO: 'o/r',
+  FACTORY_APP_KEY: PEM,
+  JOURNEY: 'J-identity-13',
+  AREA: 'identity',
+  MODULE: 'identity',
+  RUN_NUMBER: '5',
+  RUN_URL: 'https://example.invalid/run',
+  STARTED_AT: String(Math.floor(Date.now() / 1000)),
+  GITHUB_WORKSPACE: fileURLToPath(new URL('../..', import.meta.url)),
+  GITHUB_OUTPUT: join(dir, 'out'),
+  BUILDER_DIR: dir,
+  WORK: '/home/factory-agent/work',
+  OUT: '/home/factory-agent/out',
+  GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`,
+  PROMPT_PUB: promptKey('cli', '9').publicKey,
+});
+
+test('before: one read-only token, minted from the key, reads, writes the prompt, and is revoked; a failed revoke fails', async () => {
+  for (const planted of [null, 'revoke ignored', 'write granted']) {
+    const dir = mkdtempSync(join(tmpdir(), 'before-'));
+    const state = {
+      calls: [],
+      revokeIgnored: planted === 'revoke ignored',
+      grant: planted === 'write granted' ? { contents: 'write' } : null,
+    };
+    const server = await appServer(state);
+    try {
+      const { code, out } = await runStep('before', beforeEnv(dir, server));
+      if (planted === 'revoke ignored') {
+        assert.notEqual(code, 0, 'a token GitHub still accepts fails the step');
+        assert.match(out, /still answers after its revoke/);
+        continue;
+      }
+      if (planted === 'write granted') {
+        assert.notEqual(code, 0, 'a token with more than asked fails before any read');
+        assert.ok(!state.calls.some((c) => /pulls|contents/.test(c)), 'nothing was read with it');
+        continue;
+      }
+      assert.equal(code, 0, out);
+      assert.deepEqual(state.asked, READ_TOKEN);
+      assert.equal(state.revoked, true);
+      assert.equal(state.calls.at(-2), 'DELETE /installation/token');
+      assert.equal(state.calls.at(-1), 'GET /repos/INTAFACED/project-state', 'the probe after the revoke');
+      assert.match(readFileSync(join(dir, 'prompt.txt'), 'utf8'), /THE BRIEF[\s\S]*\| 1 \| step \|/);
+      const outs = readFileSync(join(dir, 'out'), 'utf8');
+      assert.match(outs, /^branch=factory\/J-identity-13$/m);
+      assert.match(outs, /^started_at=\d{10}$/m);
+      const sealed = /^prompt=([A-Za-z0-9+/]+=*)$/m.exec(outs)?.[1];
+      const written = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+      assert.equal(
+        openPrompt(sealed, promptKey('cli', '9').privateKey).toString(),
+        written,
+        'the prompt handed on opens to the one written',
+      );
+      assert.ok(
+        !outs.includes('THE BRIEF') && !outs.includes(Buffer.from(written).toString('base64').slice(0, 16)),
+        'the outputs carry no plaintext',
+      );
+      // The runner swallows its own ::add-mask:: line (it masks the token in every later line, and isn't shown).
+      const shown = out
+        .split('\n')
+        .filter((l) => l !== '::add-mask::ghs_fake')
+        .join('\n');
+      assert.doesNotMatch(shown, /THE BRIEF|step \||ghs_fake|BEGIN RSA/, 'nothing it read, nor the token or key, is printed');
+    } finally {
+      server.close();
+    }
+  }
+});
+
+test('switch: read without a token (the repository is public)', async () => {
+  const state = { value: 'run' };
+  const server = await switchServer(state);
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'switch-'));
+    const { code, out } = await runStep('switch', {
+      REPO: 'o/r',
+      GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`,
+      GITHUB_OUTPUT: join(dir, 'o'),
+    });
+    assert.equal(code, 0, out);
+    assert.equal(state.auth, false, 'no authorization header was sent');
+    assert.match(readFileSync(join(dir, 'o'), 'utf8'), /^run=true$/m);
+  } finally {
+    server.close();
+  }
+});
+
+test("publish deletes the build's artifact by its exact name; a failed delete only warns", async () => {
+  const calls = [];
+  const gh = {
+    json: async (path) => {
+      calls.push(`GET ${path}`);
+      return {
+        artifacts: [
+          { id: 11, name: 'builder-output-5-1' },
+          { id: 12, name: 'builder-output-5-10' },
+        ],
+      };
+    },
+    send: async (method, path) => calls.push(`${method} ${path}`),
+  };
+  assert.equal(await deleteArtifact(gh, 'o/r', '5', 'builder-output-5-1'), 1);
+  assert.deepEqual(calls, [
+    'GET /repos/o/r/actions/runs/5/artifacts?name=builder-output-5-1&per_page=10',
+    'DELETE /repos/o/r/actions/artifacts/11',
+  ]);
+  const broken = { json: async () => Promise.reject(new Error('GET: HTTP 403')), send: async () => null };
+  assert.equal(await deleteArtifact(broken, 'o/r', '5', 'builder-output-5-1'), 0);
+});
+
+test("prompt-in writes the gate's prompt, and refuses anything that isn't one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'prompt-in-'));
+  const text = 'THE PROMPT\nline two';
+  const sealedEnv = (v) => ({ PROMPT_SEALED: v, BUILDER_DIR: dir, CLAUDE_FACTORY_TOKEN: 'cli', RUN_ID: '7' });
+  const ok = await runStep('prompt-in', sealedEnv(sealPrompt(text, promptKey('cli', '7').publicKey)));
+  assert.equal(ok.code, 0, ok.out);
+  assert.equal(readFileSync(join(dir, 'prompt.txt'), 'utf8'), text);
+  assert.doesNotMatch(ok.out, /THE PROMPT/);
+  const other = sealPrompt(text, promptKey('cli', '8').publicKey);
+  for (const bad of ['', 'not base64!', 'abc\n::error::x', Buffer.from(text).toString('base64'), other])
+    assert.notEqual((await runStep('prompt-in', sealedEnv(bad))).code, 0, JSON.stringify(bad).slice(0, 40));
+});
+
+test("the prompt is sealed to the run's key: only the same CLI token and run id open it, and no plaintext crosses", () => {
+  const text = 'THE BRIEF and | 1 | step |';
+  const { publicKey, privateKey } = promptKey('cli-token', '42');
+  assert.equal(promptKey('cli-token', '42').publicKey, publicKey, 'the key job and the build derive the same key');
+  const sealed = sealPrompt(text, publicKey);
+  assert.ok(!sealed.includes(Buffer.from(text).toString('base64').slice(0, 16)), 'no plaintext base64 in the sealed form');
+  assert.equal(openPrompt(sealed, privateKey).toString(), text);
+  assert.notEqual(sealPrompt(text, publicKey), sealed, 'a fresh ephemeral key each time');
+  for (const [tok, run] of [
+    ['other-token', '42'],
+    ['cli-token', '43'],
+  ])
+    assert.throws(() => openPrompt(sealed, promptKey(tok, run).privateKey), undefined, `${tok} ${run}`);
+  const tampered = Buffer.from(sealed, 'base64');
+  tampered[tampered.length - 1] ^= 1;
+  assert.throws(() => openPrompt(tampered.toString('base64'), privateKey), undefined, 'a changed ciphertext is refused');
 });

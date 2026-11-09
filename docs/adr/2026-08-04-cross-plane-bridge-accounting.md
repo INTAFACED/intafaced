@@ -1,5 +1,7 @@
 # ADR: cross-plane bridge accounting — the window cannot be closed, so it must be bounded
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-12. **Accounting law only** — the chain side is Shehzad's S-D7 / S-B5 and this does not reach into it.

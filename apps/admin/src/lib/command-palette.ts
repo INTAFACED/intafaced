@@ -42,9 +42,12 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/support/articles', label: 'Support: write and review help articles' },
   { href: '/compliance/cases', label: 'Compliance cases', keywords: ['aml', 'review', 'case'] },
   { href: '/bank-ops/holds', label: 'Bank: global send holds', keywords: ['held', 'release'] },
+  { href: '/bank-ops/cards/disputes', label: 'Bank: card disputes', keywords: ['chargeback', 'dispute', 'provisional credit'] },
   { href: '/more-ops/mining', label: 'Mining desk', keywords: ['pool', 'shares', 'workers'] },
   { href: '/more-ops/predict', label: 'Predict desk', keywords: ['prediction'] },
+  { href: '/more-ops/agents', label: 'Agent fleet', keywords: ['agents', 'registry', 'quarantine', 'kill', 'owner'] },
   { href: '/more-ops/agents/log', label: 'Agent action log', keywords: ['agents', 'refused', 'transcript', 'audit'] },
+  { href: '/more-ops/capital', label: 'Capital monitor', keywords: ['buffer', 'threshold', 'reserve'] },
   { href: '/more-ops/venue-economics', label: 'Venue unit economics', keywords: ['cost'] },
   { href: '/more-ops/campaigns', label: 'Campaigns desk', keywords: ['campaign', 'builder', 'promotion', 'calendar'] },
   { href: '/more-ops/campaigns/waves', label: 'Waitlist waves', keywords: ['waitlist', 'campaigns', 'invite'] },
@@ -61,6 +64,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/trade-ops/exports', label: 'Trade: exports', keywords: ['csv'] },
   { href: '/identity-ops/keys', label: 'Identity: signing keys', keywords: ['rotate', 'jwt'] },
   { href: '/identity-ops/oauth', label: 'Identity: OAuth apps' },
+  { href: '/identity-ops/limits', label: 'Identity: API limits' },
 ];
 
 /** Things an operator does, each opening the page where it is done. */

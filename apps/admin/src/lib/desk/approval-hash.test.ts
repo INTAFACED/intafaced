@@ -168,6 +168,42 @@ describe('card freeze and listing takedown hashes equal the services’ own func
       payloadHashFor({ kind: 'bank.card.status', cardId, status: 'active', reason: 'owner reported the card stolen' }),
     );
   });
+  it('bank.ops.requestCardProgrammeFunding binds the kind, amount and threshold as svc-bank consumes them; the reason is not in it (J-bank-26 #6)', () => {
+    const fund = {
+      kind: 'bank.card.funding',
+      fundingKind: 'fund',
+      amount: '1000',
+      threshold: '',
+      reason: 'TEST top up for the month',
+    } as const;
+    expect(payloadHashFor(fund)).toBe(
+      bankActionPayloadHash('bank.ops.requestCardProgrammeFunding', { kind: 'fund', amount: '1000', threshold: '' }),
+    );
+    expect(payloadHashFor({ ...fund, reason: 'a different reason entirely' })).toBe(payloadHashFor(fund));
+    expect(payloadHashFor({ ...fund, amount: '1001' })).not.toBe(payloadHashFor(fund));
+    expect(payloadHashFor({ ...fund, fundingKind: 'defund' })).not.toBe(payloadHashFor(fund));
+    const reload = { ...fund, fundingKind: 'auto_reload', threshold: '500' } as const;
+    expect(payloadHashFor(reload)).toBe(
+      bankActionPayloadHash('bank.ops.requestCardProgrammeFunding', { kind: 'auto_reload', amount: '1000', threshold: '500' }),
+    );
+    expect(proposeInputFor(fund)).toMatchObject({
+      actionType: 'bank.ops.requestCardProgrammeFunding',
+      targetService: 'svc-bank',
+      targetId: 'bank.ops.requestCardProgrammeFunding',
+    });
+  });
+  it('a programme funding packet is read only in shape: a threshold only on auto reload, a positive amount, a real reason', () => {
+    const ok = { kind: 'bank.card.funding', fundingKind: 'fund', amount: '1000', threshold: '', reason: 'TEST top up for the month' };
+    expect(readDeskRequest(ok)).toEqual(ok);
+    expect(readDeskRequest({ ...ok, fundingKind: 'auto_reload', threshold: '500' })).toMatchObject({ threshold: '500' });
+    expect(readDeskRequest({ ...ok, threshold: '500' })).toBeNull();
+    expect(readDeskRequest({ ...ok, fundingKind: 'auto_reload' })).toBeNull();
+    expect(readDeskRequest({ ...ok, amount: '0' })).toBeNull();
+    expect(readDeskRequest({ ...ok, amount: '-1' })).toBeNull();
+    expect(readDeskRequest({ ...ok, fundingKind: 'withdraw' })).toBeNull();
+    expect(readDeskRequest({ ...ok, reason: 'short' })).toBeNull();
+    expect(readDeskRequest({ ...ok, extra: 'x' })).toBeNull();
+  });
   it('market.takedown binds the listing AND the reason, so a changed reason is a different request', () => {
     expect(payloadHashFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' })).toBe(
       marketActionPayloadHash('market.takedown', { listingId, reason: 'sells a forbidden product' }),

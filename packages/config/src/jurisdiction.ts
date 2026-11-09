@@ -1,5 +1,5 @@
 import { MODULES, type ModuleId, type Plane } from './modules.js';
-import { isExplicitDevOrTest } from './app-env.js';
+import { isExplicitDevOrTest, isUserAssignedRegionCode } from './app-env.js';
 import {
   SANCTIONS_REGIONS_ENV,
   SANCTIONS_SOURCE_ENV,
@@ -300,6 +300,49 @@ export function businessBlocksFrom(entries: readonly JurisdictionEntry[]): reado
  * control — so the blocked case gets a way in.
  */
 export const SHIPPED_BUSINESS_BLOCKS: readonly BusinessBlock[] = businessBlocksFrom(JURISDICTION_MATRIX);
+
+/**
+ * LOCAL TEST ONLY: business blocks a test stack adds for one TEST region, so a journey can play a visitor from a blocked
+ * region in the running app without knowing the screening list (a repository secret) or writing a sanctions value
+ * (J-wallet-09 #1). Each entry is `TEST:<code>` for a user-assigned ISO code (AA, QM-QZ, XA-XZ, ZZ), which no country
+ * holds, so it can never block a real visitor. It only ever ADDS a block, is read only when `APP_ENV` is exactly `dev`
+ * or `test`, and `assertNoLocalTestFixtures` refuses to boot with it set anywhere else.
+ */
+export const TEST_BUSINESS_BLOCKS_ENV = 'INTAFACED_TEST_BUSINESS_BLOCKS';
+/** The reason a TEST business block refuses with, shown to the visitor as the region's reason. */
+export const TEST_BUSINESS_BLOCK_REASON = 'TEST region, not served at launch';
+export const TEST_BUSINESS_BLOCK_SOURCE = `TEST:${TEST_BUSINESS_BLOCKS_ENV}`;
+
+/** The TEST business blocks in `env` (empty outside dev/test). A malformed entry throws: it is a test stack's typo. */
+export function testBusinessBlocksFromEnv(env: Record<string, string | undefined> = process.env): readonly BusinessBlock[] {
+  const raw = env[TEST_BUSINESS_BLOCKS_ENV]?.trim() ?? '';
+  if (raw === '' || !isExplicitDevOrTest(env.APP_ENV)) return [];
+  return raw.split(',').map((item) => {
+    const m = /^TEST:([A-Za-z]{2})$/.exec(item.trim());
+    if (!m || !isUserAssignedRegionCode(m[1]!)) {
+      throw new Error(`${TEST_BUSINESS_BLOCKS_ENV}: each entry must be TEST:<a user-assigned ISO code such as AA> (value not shown)`);
+    }
+    return {
+      region: m[1]!.toUpperCase(),
+      reason: TEST_BUSINESS_BLOCK_REASON,
+      source: TEST_BUSINESS_BLOCK_SOURCE,
+      authority: 'business' as const,
+    };
+  });
+}
+
+let activeBusinessCache: { raw: string | undefined; appEnv: string | undefined; blocks: readonly BusinessBlock[] } | null = null;
+
+/** The shipped matrix's business blocks plus any TEST ones (`testBusinessBlocksFromEnv`), cached on the raw values. */
+export function activeBusinessBlocks(env: Record<string, string | undefined> = process.env): readonly BusinessBlock[] {
+  const raw = env[TEST_BUSINESS_BLOCKS_ENV];
+  if (activeBusinessCache && activeBusinessCache.raw === raw && activeBusinessCache.appEnv === env.APP_ENV)
+    return activeBusinessCache.blocks;
+  const test = testBusinessBlocksFromEnv(env);
+  const blocks = test.length === 0 ? SHIPPED_BUSINESS_BLOCKS : [...SHIPPED_BUSINESS_BLOCKS, ...test];
+  activeBusinessCache = { raw, appEnv: env.APP_ENV, blocks };
+  return blocks;
+}
 
 let businessLookupCache: { blocks: readonly BusinessBlock[]; byRegion: ReadonlyMap<string, BusinessBlock> } | null = null;
 
@@ -632,7 +675,7 @@ export function ruleFor(module: ModuleId, region: RegionCode): JurisdictionRule 
 export function isRegionBlocked(
   region: RegionCode,
   screening: ScreeningList = activeScreeningList(),
-  business: readonly BusinessBlock[] = SHIPPED_BUSINESS_BLOCKS,
+  business: readonly BusinessBlock[] = activeBusinessBlocks(),
 ): boolean {
   if (businessBlockFor(region, business) !== undefined) return true;
   return screenedRegion(screening, region) !== undefined;
@@ -761,7 +804,7 @@ export function checkAccess(q: AccessQuery): AccessDecision {
   // consequential fact, and it is the one that must not look removable by
   // editing the matrix.
   const screened = screenedRegion(screening, q.region);
-  const businessBlock = businessBlockFor(q.region, q.business ?? SHIPPED_BUSINESS_BLOCKS);
+  const businessBlock = businessBlockFor(q.region, q.business ?? activeBusinessBlocks());
   const regionBlocked = businessBlock !== undefined || screened !== undefined;
   const blockedBy: BlockAuthority | undefined = screened ? 'screening' : businessBlock ? 'business' : undefined;
   const regionBlockReason = screened?.reason ?? businessBlock?.reason;
@@ -899,11 +942,25 @@ export interface ScreeningStatus {
    * that let a commercial block satisfy the boot guard, moved to the screen.
    */
   readonly businessBlockedRegions: readonly RegionCode[];
+  /**
+   * Where the list came from. IN-PROCESS ONLY: it holds the value of the
+   * `INTAFACED_SANCTIONS_LIST_SOURCE` secret, so it never goes in a log line,
+   * a probe or a response. Log `sourceSet` instead.
+   */
   readonly source: string;
+  /** Was an attributing source supplied in `INTAFACED_SANCTIONS_LIST_SOURCE`? Safe to log. */
+  readonly sourceSet: boolean;
   /** Counsel vs fixture vs unset — fixtures must not render as a clean tick. */
   readonly moneyGrade: ScreeningMoneyGrade;
   readonly readsAsScreenedClean: boolean;
-  /** One line an operator can read in a log or on a dashboard. */
+  /**
+   * One line an operator can read in a log or on a dashboard.
+   *
+   * VALUE-FREE ON PURPOSE. It names the state, the count and the variable
+   * names, never a screened region code or the source string: both are secret
+   * values, a log line reaches public CI job logs, and GitHub masks a secret
+   * only when it prints verbatim, so a re-joined region list prints unmasked.
+   */
   readonly summary: string;
 }
 
@@ -934,16 +991,22 @@ export function screeningStatus(
         `${BUSINESS_BLOCK_SOURCE} for commercial/licensing reasons — that is business configuration, not screening.)`;
 
   const moneyGrade = screeningMoneyGrade(screening);
+  // `listed` without a supplied source falls back to naming the variable; that
+  // is a name, not a value, and it means no attribution was supplied.
+  const sourceSet = screening.declaration !== 'unset' && screening.source !== `env:${SANCTIONS_REGIONS_ENV}`;
+  const sourceNote = sourceSet ? `source set in ${SANCTIONS_SOURCE_ENV}` : `no source set in ${SANCTIONS_SOURCE_ENV}`;
+  const valuesNote = 'Region codes and the source are not logged.';
   const summary =
     moneyGrade === 'fixture'
-      ? `sanctions screening: FIXTURE / TEST LIST — not counsel. Must not be read as screened clean. Source ${screening.source}.` +
+      ? `sanctions screening: FIXTURE / TEST LIST — not counsel. Must not be read as screened clean. ` +
+        `${blockedRegions.length} region(s) on the list from ${SANCTIONS_REGIONS_ENV}, ${sourceNote}. ${valuesNote}` +
         businessNote
       : screening.declaration === 'listed'
-        ? `sanctions screening: ${blockedRegions.length} region(s) blocked [${blockedRegions.join(', ')}] from ${screening.source}` +
+        ? `sanctions screening: ${blockedRegions.length} region(s) blocked from ${SANCTIONS_REGIONS_ENV}, ${sourceNote}. ${valuesNote}` +
           businessNote
         : screening.declaration === 'reviewed-empty'
           ? `sanctions screening: REVIEWED, DELIBERATELY EMPTY — 0 regions screened out, on the authority of ` +
-            `${screening.source}. This is a recorded decision, not an unset default.` +
+            `the record named in ${SANCTIONS_SOURCE_ENV}. This is a recorded decision, not an unset default. ${valuesNote}` +
             businessNote
           : `sanctions screening: NOT CONFIGURED — 0 regions blocked because no list was consulted. ` +
             `This is not "everywhere is clear"; nothing has been screened. Supply ${SANCTIONS_REGIONS_ENV}.` +
@@ -955,6 +1018,7 @@ export function screeningStatus(
     blockedRegions,
     businessBlockedRegions,
     source: screening.source,
+    sourceSet,
     moneyGrade,
     readsAsScreenedClean: moneyGrade === 'counsel',
     summary,

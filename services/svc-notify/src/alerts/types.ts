@@ -273,6 +273,11 @@ export type MarkSource = {
     sides: readonly AlertPriceSide[],
     at?: Date,
   ): Promise<{ readonly mark: MarkQuote; readonly sides: ReadonlyMap<AlertPriceSide, MarkQuote> }>;
+  /**
+   * The listed markets by symbol (`BTC/USDT` to the market id an alert stores), from the same market list the marks read. A
+   * watchlist names symbols; a watchlist alert stores market ids. `null` when the list cannot be read: never an empty map.
+   */
+  marketIdsBySymbol?(): Promise<ReadonlyMap<string, string> | null>;
 };
 
 export type AlertRefuseCode =

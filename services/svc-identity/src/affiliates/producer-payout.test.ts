@@ -17,7 +17,7 @@ const BENE = '00000000-0000-4000-8000-00000000000b';
 const FEE = 'fee-evt-producer-payout';
 const ASSET = 'USDT';
 
-const PUBLISHED: AccrualTierLaw = { published: true, tiers: [{ hop: 0, rate: '0.10' }] };
+const PUBLISHED: AccrualTierLaw = { published: true, tiers: [{ hop: 0, rate: '0.130' }] };
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -27,9 +27,9 @@ function row(over: Partial<CommissionRow> = {}): CommissionRow {
     beneficiaryId: BENE,
     payerId: PAYER,
     hop: 0,
-    rate: '0.10',
+    rate: '0.130',
     feeAmount: '100',
-    commissionAmount: '10',
+    commissionAmount: '13',
     asset: ASSET,
     accruedAt: new Date('2026-08-16T00:00:00.000Z'),
     sourceModule: 'trade',
@@ -159,7 +159,7 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
   });
 
   it('412 unpublished hop — nothing posted', async () => {
-    const law: AccrualTierLaw = { published: true, tiers: [{ hop: 1, rate: '0.05' }] };
+    const law: AccrualTierLaw = { published: true, tiers: [{ hop: 1, rate: '0.07' }] };
     const { f, ledger } = await app({ law });
     const journalBefore = ledger!.journal().map((tx) => tx.idempotencyKey);
     const res = await f.inject(post({ feeEventId: FEE }));
@@ -224,10 +224,10 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
     expect(res.statusCode).toBe(200);
     const body = res.json() as { posted: boolean; totalCommission: string; idempotencyKeys: string[] };
     expect(body.posted).toBe(true);
-    expect(body.totalCommission).toBe('10');
+    expect(body.totalCommission).toBe('13');
     expect(body.idempotencyKeys.some((k) => k.includes(FEE))).toBe(true);
-    expect(await bal(ledger!, houseFees('trade', ASSET))).toBe('90');
-    expect(await bal(ledger!, userAvailable(BENE, ASSET))).toBe('10');
+    expect(await bal(ledger!, houseFees('trade', ASSET))).toBe('87');
+    expect(await bal(ledger!, userAvailable(BENE, ASSET))).toBe('13');
     expect(ledger!.reconcile()).toEqual({ ok: true });
     await f.close();
   });

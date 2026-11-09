@@ -5,6 +5,8 @@ import { AlgoHome } from './AlgoHome';
 import { BacktestRoom } from './BacktestRoom';
 import { StrategiesRoom } from './StrategiesRoom';
 import { StrategyPage } from './StrategyPage';
+import { EditorRoom, OptimiseRoom, TesterRoom } from './PreviewRooms';
+import { previewCopy } from './preview-copy';
 import { strategyPageCopy } from './strategy-page-copy';
 import { strategiesCopy } from './strategies-copy';
 import { algoCopy } from './algo-copy';
@@ -36,6 +38,16 @@ export function quantRoute(
       title: strategyPageCopy.t('roomTitle'),
       description: strategyPageCopy.t('description'),
       content: <StrategyPage key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+    };
+  }
+  // The Preview rooms (AL-order-01): full layouts on TEST sample data; every engine action is refused by name.
+  if (pathname === '/quant/editor' || pathname === '/quant/tester' || pathname === '/quant/optimise') {
+    const room = pathname.slice('/quant/'.length) as 'editor' | 'tester' | 'optimise';
+    const Room = room === 'editor' ? EditorRoom : room === 'tester' ? TesterRoom : OptimiseRoom;
+    return {
+      title: previewCopy.t(room === 'editor' ? 'editorTitle' : room === 'tester' ? 'testerTitle' : 'optimiseTitle'),
+      description: previewCopy.t('label'),
+      content: <Room key={userId ?? 'anonymous'} paper={paper} />,
     };
   }
   if (pathname === '/quant/strategies') {

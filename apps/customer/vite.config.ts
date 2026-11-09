@@ -69,6 +69,9 @@ export default defineConfig(({ mode }) => {
         '/ws': { target: process.env.CUSTOMER_WS_URL ?? 'ws://127.0.0.1:4014', ws: true, rewrite: (path) => path.replace(/^\/ws/, '') },
       },
     },
-    build: { target: 'es2022', sourcemap: false, assetsInlineLimit },
+    // Hidden source maps (no sourceMappingURL in the scripts, so the scripts are byte for byte the same) only when the
+    // local test stack asks: the journeys' reach recorder maps the functions a page ran back to source lines with them
+    // (tooling/scripts/journey-reach.mjs). Every other build has none.
+    build: { target: 'es2022', sourcemap: process.env.INTAFACED_SOURCEMAP === 'hidden' ? 'hidden' : false, assetsInlineLimit },
   };
 });

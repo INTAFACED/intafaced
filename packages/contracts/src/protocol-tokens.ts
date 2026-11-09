@@ -12,6 +12,15 @@ export const ORGANIC_SCORE_UNSET = 'protocol.organic_score_unset' as const;
 export const TOKENS_READ_TOO_LARGE = 'protocol.tokens_read_too_large' as const;
 /** The token's own Transfer logs do not add up to its supply, so no holder list from them is shown. */
 export const TOKENS_HOLDERS_INCONSISTENT = 'protocol.tokens_holders_inconsistent' as const;
+/** A read asked for a block the chain has not mined yet. */
+export const TOKENS_BLOCK_AHEAD = 'protocol.tokens_block_ahead' as const;
+/** A read asked for a block further back than `TOKENS_PAST_BLOCKS_KEPT`, the state a non-archive node keeps. */
+export const TOKENS_BLOCK_TOO_OLD = 'protocol.tokens_block_too_old' as const;
+/**
+ * How far behind the head block a list may be read at a stated block. A non-archive node keeps the state of its last
+ * 128 blocks (geth's default); past that a read could fail or answer from pruned state, so it refuses instead.
+ */
+export const TOKENS_PAST_BLOCKS_KEPT = 128n;
 /** A token page is read only for a token in one of the factory's pools. */
 export const TOKEN_NOT_LISTED = 'protocol.token_not_listed' as const;
 /** The token claims more decimals than the pages take, so it is left out with its pools. */
@@ -54,7 +63,11 @@ export const tokenListRowSchema = z
   .strict();
 export type TokenListRow = z.infer<typeof tokenListRowSchema>;
 
-export const tokensListInputSchema = z.object({ window: tokenWindowSchema }).strict();
+/**
+ * `blockNumber` (optional) reads the list at that block instead of the head block, so a caller can line it up with
+ * another read that named its block (the market brief). Without it the list is read at the head block, as before.
+ */
+export const tokensListInputSchema = z.object({ window: tokenWindowSchema, blockNumber: units.optional() }).strict();
 export const tokensListOutputSchema = z
   .object({
     blockNumber: units,

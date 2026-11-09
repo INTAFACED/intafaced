@@ -12,7 +12,8 @@
  *
  * Owner of a flaky test = the author of the last commit that touched the file (the PR is named in the issue),
  * unless tooling/ci/flaky-owners.json maps a path prefix to a GitHub login. Failures are confirmed by re-run
- * before anything acts on them; there is no quarantine and no skip.
+ * before anything acts on them; there is no quarantine and no skip. (The one set-aside is the machine's, for journey
+ * steps on main, never a money step: tooling/ci/journey-verdict.mjs.)
  *
  *   node tooling/ci/main-trust.mjs --self-test
  *   (CI) GH_TOKEN GITHUB_REPOSITORY RUN_ID RUN_ATTEMPT CONCLUSION HEAD_SHA node tooling/ci/main-trust.mjs

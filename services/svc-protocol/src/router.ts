@@ -144,6 +144,8 @@ import {
   unwiredAddressBookStore,
   type AddressBookDeps,
 } from './address-book/router.js';
+import { createVenueWalletRouter, unwiredVenueConnectionStore } from './venue-wallet/router.js';
+import type { VenueConnectionDeps } from './venue-wallet/connection.js';
 import {
   issueChallenge,
   LISTING_CHALLENGE_TTL_UNSET,
@@ -527,6 +529,11 @@ export interface ProtocolRouterDeps {
   /** The embedded login's export fact (RC-dex-protocol-05). Absent = not wired. */
   embedded?: Omit<EmbeddedDeps, 'chainId'>;
   /**
+   * The venue wallet connection (J-wallet-09): a signed-in person's own wallet, connected by its signature. Absent = not
+   * wired: every setting reads blank and connecting refuses by name.
+   */
+  venueWallet?: Omit<VenueConnectionDeps, 'chainId'>;
+  /**
    * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
    * `mainnet()` is true only for a production network (claims refuse `audit.external`).
@@ -630,6 +637,16 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       session: () => null,
       maxContacts: () => undefined,
       maxGroups: () => undefined,
+    }),
+  };
+
+  const venueWalletDeps: VenueConnectionDeps = {
+    chainId: () => chain.config.chainId,
+    ...(deps.venueWallet ?? {
+      store: unwiredVenueConnectionStore,
+      session: () => null,
+      ttlSeconds: () => null,
+      sanctions: () => null,
     }),
   };
 
@@ -1288,6 +1305,8 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     addressBook: createAddressBookRouter(addressBookDeps),
     addressRisk: createAddressRiskRouter(addressRiskDeps),
     addressReports: createAddressReportsRouter(addressRiskDeps),
+    // ── Venue wallet connection (J-wallet-09): src/venue-wallet/router.ts ──
+    venueWallet: createVenueWalletRouter(venueWalletDeps),
 
     // ── The embedded login's key export, once (RC-dex-protocol-05): src/embedded/ ──
     embedded: createEmbeddedRouter({

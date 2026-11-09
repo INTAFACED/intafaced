@@ -35,7 +35,7 @@ describe('subscribe — refuse unbuilt recurring before any write', () => {
   it('refuses even when commission is configured (C3 is the gate, not the rate)', async () => {
     const ledger = { post: vi.fn() };
     const commerce = new CommerceService(vi.fn() as never, { myVendor: vi.fn() } as never, ledger as never, {
-      commissionBps: 0,
+      commissionBps: 137,
     });
     await expect(commerce.subscribe()).rejects.toBeInstanceOf(MarketError);
     expect(ledger.post).not.toHaveBeenCalled();

@@ -39,7 +39,8 @@ export function requireScope(principal: Principal, scope: Scope): void {
   }
 }
 
-function isApiKeyPrincipal(principal: Principal): boolean {
+/** True for a token minted for an API key (it names the key's `kid`): the one test of "this credential is a key". */
+export function isApiKeyPrincipal(principal: Principal): boolean {
   return typeof principal.kid === 'string' && principal.kid.length > 0;
 }
 

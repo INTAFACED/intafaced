@@ -21,18 +21,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WORLD, declaredWorld, worldLine } from '../../apps/customer/tests/real-app/world-line.mjs';
 
 export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 
-/** The shared parts a journey can change, and what each means. */
-export const WORLD = {
-  book: 'rests, places or runs orders, algos or bots on a shared order book',
-  market: 'stops, starts, moves or delists the TEST market maker',
-  restart: 'restarts, stops or starts a stack service, or rewinds the TEST chain',
-  freeze: 'switches the platform-wide posting freeze',
-  gates: 'sets a platform-wide gate, limit, fee, risk or fault at runtime',
-  stack: "runs one of the stack's global tools (ageing, expiry, seeding, ticks, world events)",
-};
+// What a `// World:` line means is the harness's (world-line.mjs); this scan reads it from there, and the journeys never
+// import this scan.
+export { WORLD, declaredWorld, worldLine };
 
 // Subcommands that act on one named account only, so they change nothing another journey can see.
 const PER_ACCOUNT = {
@@ -164,26 +159,6 @@ export function fileWorld(src, helpers) {
   for (const [name, world] of helpers)
     if (world.size && new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\s*\\(`).test(src)) for (const part of world) found.add(part);
   return found;
-}
-
-/** The parts a file's `// World:` line declares, or null when it has none. An unknown part is an error. */
-export function declaredWorld(src) {
-  const m = /^\/\/ World: (.+)$/m.exec(src);
-  if (!m) return null;
-  const words = m[1]
-    .split(',')
-    .map((w) => w.trim())
-    .filter(Boolean);
-  if (words.length === 1 && words[0] === 'none') return new Set();
-  const unknown = words.filter((w) => !(w in WORLD));
-  if (unknown.length || words.includes('none')) throw new Error(`unknown world part(s): ${unknown.join(', ') || 'none with others'}`);
-  return new Set(words);
-}
-
-/** The `// World:` line a file with these parts needs, parts in WORLD's order. */
-export function worldLine(parts) {
-  const ordered = Object.keys(WORLD).filter((p) => parts.has(p));
-  return `// World: ${ordered.length ? ordered.join(', ') : 'none'}`;
 }
 
 /** Every journey file's verdict: what it declares, what it does, and what its line leaves out. */

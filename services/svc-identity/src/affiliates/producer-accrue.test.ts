@@ -14,7 +14,7 @@ const FEE = 'fee-evt-o2-producer';
 
 const publishedLaw = {
   published: true as const,
-  tiers: [{ hop: 0, rate: '0.10' }],
+  tiers: [{ hop: 0, rate: '0.130' }],
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -162,7 +162,7 @@ describe('D26-P1-O2 S2S producer accrue', () => {
     const json = res.json() as { inserted: number; rows: Array<{ sourceModule: string; rate: string; commissionAmount: string }> };
     expect(json.inserted).toBe(1);
     expect(json.rows).toHaveLength(1);
-    expect(json.rows[0]).toMatchObject({ sourceModule: 'trade', rate: '0.10', commissionAmount: '10' });
+    expect(json.rows[0]).toMatchObject({ sourceModule: 'trade', rate: '0.130', commissionAmount: '13' });
     expect(await store.listByFeeEvent(FEE)).toHaveLength(1);
     await f.close();
   });

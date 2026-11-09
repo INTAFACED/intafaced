@@ -18,6 +18,7 @@ import {
   type ProgrammeInfo,
 } from './card-controls';
 import { CardChannelsPanel, CardLimitsPanel } from './CardSettings';
+import { CardBlocksPanel } from './CardBlocks';
 import { cardDepthCopy } from './card-depth-copy';
 import { bps, positiveMoney, type ActionSpec } from './components';
 import type { cardSchema } from './contracts';
@@ -222,6 +223,7 @@ export function CardControlPanels({
     <div className="bd-grid" data-card={card.id}>
       <CardLimitsPanel card={card} open={open} />
       <CardChannelsPanel card={card} open={open} />
+      <CardBlocksPanel card={card} />
       <DepthPanel title={t('detailsTitle')}>
         <dl className="bd-facts">
           <Fact label={t('lastFour')}>
