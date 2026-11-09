@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api, ORIGIN, ROOT, tool } from './stack.mjs';
+import { api, fund, ORIGIN, ROOT, tool } from './stack.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-bank-18, in the running app (docs/roadmap/journeys.json): I stay safe, report a scam and make a complaint. Tests
@@ -16,6 +16,11 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 //
 // #2 (BK-safe-02): the scam warning on a first-time payee, in the transfer review of a saved recipient. Saving a
 // recipient takes a fresh confirmation, so the person sets up an authenticator first, as J-bank-04 does.
+//
+// #3 (BK-safe-02): a scam report after sending money. The person sends TEST 5 USDT to another TEST person, then reports
+// it with the amount and the transfer id; svc-support asks svc-bank on its signed door whether this person sent that
+// transfer before it takes the report. The mule policy is the support profile's TEST wording (SUPPORT_MULE_POLICY), or
+// blank with `LOCAL_STACK_SUPPORT_MULE_POLICY=off`, put back in the same step.
 //
 // #5 and #6 (BK-safe-03): a complaint and a bereavement report, each a request on the support desk with one
 // acknowledgement. The stack publishes a TEST final-response limit of 14 calendar days (SUPPORT_COMPLAINT_RESPONSE_DAYS
@@ -212,6 +217,125 @@ test(`${J} #2 reviews a first-time payee: the warning once per payee with a link
   await expect(page).toHaveURL(/\/help\/official-channels$/);
   await expect(page.getByRole('heading', { name: 'Scam guides' })).toBeVisible();
   expect((await payees()).Cem.scamWarning.state).toBe('unread');
+  await page.context().close();
+});
+
+test(`${J} #3 reports a scam with an amount and a transfer id: a ticket in the scam category and a case note; the mule policy page`, async ({
+  browser,
+}) => {
+  test.setTimeout(420_000);
+  // The person who received the money, on a device of their own.
+  const other = await visitor(browser);
+  const mule = await signUp(other, 'jb18m');
+  await verify(other, mule);
+  const muleApi = await api(mule);
+  await other.context().close();
+
+  const page = await visitor(browser);
+  const who = await signUp(page, 'jb18s');
+  await verify(page, who);
+  expect(fund(who.email, 'USDT', '20').tx).toBeTruthy();
+  const bank = await api(who);
+  const desk = await support(who);
+  const spaces = await bank.get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(spaces.status, JSON.stringify(spaces.body).slice(0, 300)).toBe(200);
+  const from = spaces.body.result.data.find((x) => x.kind === 'primary' && x.assetId === 'USDT');
+  const transferId = `jb18-scam-${RUN}`;
+  const paid = await bank.post('/api/bank/trpc/transfers.toUser', {
+    transferId,
+    fromSpaceId: from.id,
+    toUserId: muleApi.userId,
+    amount: '5',
+  });
+  expect(paid.status, JSON.stringify(paid.body).slice(0, 300)).toBe(200);
+
+  // The bank's services open the scam report.
+  await page.goto('/bank');
+  await page
+    .locator('main')
+    .getByRole('link', { name: /Report a scam/ })
+    .click();
+  await expect(page).toHaveURL(/\/bank\/safety\/scam$/);
+  const main = page.locator('main');
+  const form = main.getByRole('form', { name: 'Report a scam' });
+  await form.getByLabel('Have you sent money').selectOption('after_sending');
+  await form.getByLabel('Amount').fill('5');
+  await form.getByLabel('Currency or asset').fill('USDT');
+  await form.getByLabel('How they contacted you').selectOption('phone_call');
+  await form
+    .getByLabel('What happened (optional)')
+    .fill(`TEST ${J} ${RUN}: a caller said they were the bank and told me to move money to a safe account.`);
+
+  // A transfer the person did not send is refused, and nothing is made.
+  await form.getByLabel('Transfer id').fill(`jb18-not-mine-${RUN}`);
+  await form.getByRole('button', { name: 'Send scam report' }).click();
+  await expect(main).toContainText('That transfer id is not a transfer you sent.');
+  expect((await desk.mine()).filter((a) => a.kind === 'scam')).toHaveLength(0);
+
+  // The transfer they sent: one acknowledgement with a reference and the case note naming the amount and the transfer.
+  await form.getByLabel('Transfer id').fill(transferId);
+  await form.getByRole('button', { name: 'Send scam report' }).click();
+  const ack = main.getByRole('status').filter({ hasText: 'Scam report received' });
+  await expect(ack).toBeVisible();
+  const reference = await ack.getByTestId('safety-ack-reference').innerText();
+  expect(reference).toMatch(/^SC-[0-9A-F]{8}$/);
+  const note = ack.getByTestId('safety-ack-case-note');
+  await expect(note).toContainText(`5 USDT on transfer ${transferId}, which the bank confirms this customer sent`);
+  await expect(note).toContainText('Contacted by a phone call.');
+
+  // The record behind it: one scam acknowledgement on one request in the scam category, naming the amount and transfer.
+  const acks = (await desk.mine()).filter((a) => a.kind === 'scam');
+  expect(acks).toHaveLength(1);
+  const [one] = acks;
+  expect(one).toMatchObject({ reference, responseDeadline: null, caseNote: expect.stringContaining(transferId) });
+  const scams = (await desk.tickets()).filter((t) => t.category === 'scam');
+  expect(scams.map((t) => t.id)).toEqual([one.ticketId]);
+
+  // One report per transfer: the same transfer reported again, in other words, answers with the first acknowledgement.
+  const again = await desk.post('safety.reportScam', {
+    when: 'before_sending',
+    amount: '7',
+    assetId: 'USDT',
+    transferId,
+    contactedBy: 'email',
+  });
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body.result.data).toEqual(one);
+  expect((await desk.tickets()).filter((t) => t.category === 'scam')).toHaveLength(1);
+  // The person who received it cannot report it as theirs, and the general request form refuses the category.
+  const notTheirs = await (
+    await support(mule)
+  ).post('safety.reportScam', { when: 'after_sending', amount: '5', assetId: 'USDT', transferId, contactedBy: 'other' });
+  expect(notTheirs.status).toBe(403);
+  expect(JSON.stringify(notTheirs.body)).toContain('support.scam_transfer_not_yours');
+  const general = await desk.post('create', { category: 'scam', subject: 'TEST', body: 'TEST' });
+  expect(general.status).toBe(400);
+  expect(JSON.stringify(general.body)).toContain('support.category_guided');
+
+  // The request opens from the acknowledgement.
+  await ack.getByRole('link', { name: 'Open the request' }).click();
+  await expect(page).toHaveURL(new RegExp(`/support/tickets/${one.ticketId}$`));
+  await expect(page.locator('main')).toContainText('Scam report');
+  await expect(page.locator('main')).toContainText(`Transfer: ${transferId}`);
+
+  // The mule policy page: the owner's wording (here the TEST wording), and with none published, a notice that says so.
+  await page.goto('/bank/safety/scam');
+  await main.getByRole('link', { name: 'Read our money mule policy' }).click();
+  await expect(page).toHaveURL(/\/help\/mule-policy$/);
+  const policy = page.getByTestId('mule-policy');
+  await expect(policy.getByRole('heading', { name: 'Money mule policy' })).toBeVisible();
+  await expect(policy.getByTestId('mule-policy__text')).toContainText('passing it on for someone else is money laundering');
+  await expect(policy.getByRole('link', { name: 'Report a scam' })).toHaveAttribute('href', '/bank/safety/scam');
+  try {
+    restartWithAll('support', { LOCAL_STACK_SUPPORT_MULE_POLICY: 'off' });
+    await page.reload();
+    await expect(policy.getByTestId('mule-policy__unpublished')).toHaveText('The owner has not published the money mule policy.');
+    await expect(policy.getByTestId('mule-policy__text')).toHaveCount(0);
+  } finally {
+    restartWithAll('support', { LOCAL_STACK_SUPPORT_MULE_POLICY: undefined });
+  }
+  await page.reload();
+  await expect(policy.getByTestId('mule-policy__text')).toBeVisible();
   await page.context().close();
 });
 

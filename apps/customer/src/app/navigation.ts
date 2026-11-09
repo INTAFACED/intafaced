@@ -52,6 +52,12 @@ export const rooms: readonly Room[] = [
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
   {
+    path: '/help/mule-policy',
+    title: 'Money mule policy',
+    description: 'Passing money on for someone else, and how to report it',
+    area: 'public',
+  },
+  {
     path: '/help/official-channels',
     title: 'Official channels',
     description: 'Our real web addresses, email senders and support channels, and scam guides',
@@ -249,6 +255,13 @@ export const rooms: readonly Room[] = [
     path: '/bank/safety/complaint',
     title: 'Make a complaint',
     description: 'Acknowledged once, with a reference and a response date',
+    door: 'Money',
+    area: 'money',
+  },
+  {
+    path: '/bank/safety/scam',
+    title: 'Report a scam',
+    description: 'Before or after sending money, with the transfer it went out on',
     door: 'Money',
     area: 'money',
   },

@@ -35,6 +35,11 @@ const schema = serviceEnvSchema
        */
       TRADE_URL: z.string().url().optional(),
       /**
+       * svc-bank, for one question on a scam report: did this person send this transfer (J-bank-18 #3,
+       * `bank-scam-transfer.ts`)? Unset means no transfer can be checked, so a scam report is not taken. Never written to.
+       */
+      BANK_URL: z.string().url().optional(),
+      /**
        * Seconds without a heartbeat before an online or busy agent reads as
        * offline. Blank is an owner value left unset: availability stays as
        * last set and the desk says so. Never defaulted.
@@ -171,6 +176,7 @@ const schema = serviceEnvSchema
        * "channels": [{ "label", "url" }] }`. Blank is unpublished: /help/official-channels says so and checks nothing. A
        * value that is not a valid list refuses boot (officialChannelsFromEnv). Never defaulted.
        */
+      SUPPORT_MULE_POLICY: z.preprocess((v) => (v === '' ? undefined : v), z.string().trim().min(1).optional()),
       SUPPORT_OFFICIAL_CHANNELS: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(2).optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**

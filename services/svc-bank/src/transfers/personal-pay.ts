@@ -659,6 +659,19 @@ export class PersonalPayService {
     return results;
   }
 
+  /**
+   * Whether `userId` sent the posted transfer `transferId` (J-bank-18 #3, asked by svc-support for a scam report). One
+   * boolean: missing, someone else's and received-only all read false the same way.
+   */
+  async sentBy(userId: string, transferId: string): Promise<boolean> {
+    const rows = await this.sql<{ one: number }[]>`
+      SELECT 1 AS one FROM bank.personal_transfers
+       WHERE transfer_id = ${transferId} AND from_user_id = ${userId} AND status = 'posted'
+       LIMIT 1
+    `;
+    return rows.length > 0;
+  }
+
   async get(actorUserId: string, ledgerTxId: string): Promise<PersonalTransferView> {
     const rows = await this.sql<TransferRow[]>`
       SELECT ${this.sql.unsafe(TRANSFER_COLS)}

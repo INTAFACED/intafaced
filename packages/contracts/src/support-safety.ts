@@ -63,6 +63,73 @@ export const supportBereavementInputSchema = z.object({
 });
 export type SupportBereavementInput = z.infer<typeof supportBereavementInputSchema>;
 
+/** When the scam happened: before any money was sent, or after the person sent some. */
+export const supportScamWhenSchema = z.enum(['before_sending', 'after_sending']);
+export type SupportScamWhen = z.infer<typeof supportScamWhenSchema>;
+
+/** How the scammer got in touch. */
+export const supportScamContactSchema = z.enum([
+  'phone_call',
+  'text_message',
+  'email',
+  'social_media',
+  'messaging_app',
+  'in_person',
+  'other',
+]);
+export type SupportScamContact = z.infer<typeof supportScamContactSchema>;
+
+/**
+ * A scam report (BK-safe-02, J-bank-18 #3): the amount, the transfer it went out on, when and how the person was
+ * contacted. The transfer is one the person sent from their bank (`bank.transfers`); svc-support asks svc-bank before it
+ * takes the report (`bank-scam-transfer.ts`), and a transfer that is not theirs is refused.
+ */
+/**
+ * A scam report (BK-safe-02, J-bank-18 #3). Its business key is the transfer: one report per transfer the person sent
+ * (`scam-report:<transferId>`, under the person), so a double submit, or the same transfer reported again, answers with the
+ * first report's acknowledgement.
+ */
+export const supportScamReportInputSchema = z.object({
+  when: supportScamWhenSchema,
+  /** The amount the scam was about, a decimal string greater than zero. */
+  amount: z
+    .string()
+    .trim()
+    .regex(/^\d{1,18}(\.\d{1,18})?$/, 'an amount is a decimal number')
+    .refine((v) => /[1-9]/.test(v), 'an amount is greater than zero'),
+  assetId: z
+    .string()
+    .trim()
+    .regex(/^[A-Z0-9]{2,16}$/),
+  /** svc-bank's id of the transfer the money went out on, from the person's transfer record. */
+  transferId: z
+    .string()
+    .trim()
+    .min(8)
+    .max(64)
+    .regex(/^[A-Za-z0-9._:-]+$/),
+  contactedBy: supportScamContactSchema,
+  /** What happened, in the person's words. */
+  details: z.string().trim().max(5000).optional(),
+});
+export type SupportScamReportInput = z.infer<typeof supportScamReportInputSchema>;
+
+/**
+ * The owner's money-mule policy (BK-safe-02, J-bank-18 #3): receiving money and passing it on for someone else is money
+ * laundering, and how to report a suspected mule account. Owner copy from `SUPPORT_MULE_POLICY`; blank is unpublished, and
+ * the page says so rather than showing words of ours.
+ */
+export const supportMulePolicySchema = z.discriminatedUnion('published', [
+  z.object({ published: z.literal(true), text: z.string().min(1) }),
+  z.object({ published: z.literal(false) }),
+]);
+export type SupportMulePolicy = z.infer<typeof supportMulePolicySchema>;
+
+/** The transfer the report names is not one the person sent. */
+export const SUPPORT_SCAM_TRANSFER_NOT_YOURS = 'support.scam_transfer_not_yours';
+/** The bank could not be asked whether the transfer is the person's: the report is not taken as checked. */
+export const SUPPORT_SCAM_TRANSFER_UNCHECKED = 'support.scam_transfer_unchecked';
+
 /** The final-response deadline: from the owner's limit, or not set while the owner has published none. */
 export const supportResponseDeadlineSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('set'), dueAt: z.string().datetime(), limitDays: z.number().int().positive() }),
@@ -70,7 +137,7 @@ export const supportResponseDeadlineSchema = z.discriminatedUnion('status', [
 ]);
 export type SupportResponseDeadline = z.infer<typeof supportResponseDeadlineSchema>;
 
-export const supportSafetyCaseKindSchema = z.enum(['complaint', 'bereavement']);
+export const supportSafetyCaseKindSchema = z.enum(['complaint', 'bereavement', 'scam']);
 export type SupportSafetyCaseKind = z.infer<typeof supportSafetyCaseKindSchema>;
 
 /** The acknowledgement the person reads: the request it made, a reference to quote, when, and (a complaint) its deadline. */
@@ -83,6 +150,8 @@ export const supportSafetyAcknowledgementSchema = z.object({
   acknowledgedAt: z.string().datetime(),
   /** A complaint's final-response deadline; null for a bereavement report, which has none. */
   responseDeadline: supportResponseDeadlineSchema.nullable(),
+  /** A scam report's case note, written once when it was acknowledged; null for every other kind. */
+  caseNote: z.string().nullable(),
 });
 export type SupportSafetyAcknowledgement = z.infer<typeof supportSafetyAcknowledgementSchema>;
 

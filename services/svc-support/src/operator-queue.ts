@@ -23,6 +23,8 @@ export const CATEGORY_WEIGHT: Readonly<Record<string, number>> = {
   complaint: 50,
   /** A reported death is read before an ordinary question. */
   bereavement: 50,
+  /** A scam report after money was sent: read with a stuck deposit, since a recall is quicker the sooner it is asked. */
+  scam: 70,
   other: 10,
 };
 

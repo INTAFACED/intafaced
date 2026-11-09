@@ -1,6 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 
-// Complaints and bereavement reports (BK-safe-03, J-bank-18 #5 #6). English source; other languages fall back to English.
+// Scam reports, complaints and bereavement reports (BK-safe-02 and BK-safe-03, J-bank-18 #3 #5 #6). English source; other languages fall back to English.
 // No service sentence is shown: a refusal is worded here and its code shown small.
 const en = {
   complaintTitle: 'Make a complaint',
@@ -57,6 +57,37 @@ const en = {
   bereavementSummaryMoney: 'Nothing is moved or closed from this report alone.',
   yourReports: 'Your reports',
   noReports: 'You have sent no reports.',
+
+  scamTitle: 'Report a scam',
+  scamDescription: 'Tell us about a scam, whether you have sent money or not yet. We take one report per transfer and give it a reference.',
+  scamWhenLabel: 'Have you sent money',
+  scamWhenAfter: 'Yes, I already sent money',
+  scamWhenBefore: 'Not yet, someone is asking me to',
+  scamAmountLabel: 'Amount',
+  scamAssetLabel: 'Currency or asset',
+  scamTransferLabel: 'Transfer id',
+  scamTransferHint: 'The id on the transfer’s receipt. It must be a transfer you sent.',
+  scamContactLabel: 'How they contacted you',
+  contactPhone: 'A phone call',
+  contactText: 'A text message',
+  contactEmail: 'An email',
+  contactSocial: 'Social media',
+  contactMessaging: 'A messaging app',
+  contactInPerson: 'In person',
+  contactOther: 'Another way',
+  scamDetailsLabel: 'What happened (optional)',
+  sendScamReport: 'Send scam report',
+  scamReceived: 'Scam report received',
+  caseNoteLabel: 'Case note',
+  scamSummaryTitle: 'What to do now',
+  scamSummaryStop: 'Send no more money, and stop replying to the person who contacted you.',
+  scamSummaryNever: 'We will never ask you to move money to a "safe account", and never ask for your password or codes.',
+  scamSummaryOnce: 'One report per transfer: reporting the same transfer again shows the same acknowledgement.',
+  mulePolicyLink: 'Read our money mule policy',
+  yourScamReports: 'Your scam reports',
+  noScamReports: 'You have reported no scams.',
+  scamNotYoursBody: 'That transfer id is not a transfer you sent. Check the id on the transfer’s receipt.',
+  scamUncheckedBody: 'We could not check the transfer with the bank just now, so the report was not taken. Try again in a moment.',
 
   reference: 'Reference',
   acknowledgedAt: 'Acknowledged',

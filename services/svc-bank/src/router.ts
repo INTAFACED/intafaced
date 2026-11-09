@@ -354,7 +354,11 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     /** BK-xfer-02: send to a bank account over a bank rail. Kept refused with `rail.bank`; nothing is held or posted. */
     railSends: createRailSendsRouter(bank, guard),
     /** BK-safe-01: why a blocked region's transfer refuses, in the owner's wording. Public, outside the region gate. */
-    safety: createSafetyRouter({ blockedRegionNotice: () => bank.blockedRegionNotice }),
+    safety: createSafetyRouter({
+      blockedRegionNotice: () => bank.blockedRegionNotice,
+      transferSent: (userId, transferId) => bank.personalPay.sentBy(userId, transferId),
+      guard,
+    }),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),

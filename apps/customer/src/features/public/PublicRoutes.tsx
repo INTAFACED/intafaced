@@ -22,6 +22,7 @@ import { PasswordRecovery } from './PasswordRecovery';
 import { AboutPage, AppPage, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
 import { LabPage } from './LabPage';
 import { OfficialChannels } from './OfficialChannels';
+import { MulePolicy } from './MulePolicy';
 import { FeesPage } from './FeesPage';
 import { MyTierPage } from './MyTierPage';
 import { RulebookRoom } from './rulebook/RulebookRoom';
@@ -105,6 +106,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <Invitation />
         ) : path === '/help/official-channels' ? (
           <OfficialChannels />
+        ) : path === '/help/mule-policy' ? (
+          <MulePolicy />
         ) : path === '/help' || path === '/helpdetail' ? (
           <Help />
         ) : library ? (

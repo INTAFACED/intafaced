@@ -5,7 +5,7 @@ import { officialChannelsFromEnv } from './official-channels.js';
 import { GuestRequests } from './guest-requests.js';
 import { createGuestVerificationClient } from './guest-verification-client.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createBankScamTransferClient, createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
@@ -281,7 +281,16 @@ const appRouter = createSupportRouter(
   new VerificationChecks(new SqlCheckBook(sql), support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
   officialChannelsFromEnv(env.SUPPORT_OFFICIAL_CHANNELS),
   // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
-  new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
+  new SafetyCases(
+    new SqlSafetyBook(sql),
+    support,
+    env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null,
+    undefined,
+    // A scam report's transfer is checked with svc-bank (J-bank-18 #3); unset BANK_URL leaves every report unchecked.
+    createBankScamTransferClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+    // The owner's money-mule policy (J-bank-18 #3); blank reads "not published".
+    env.SUPPORT_MULE_POLICY ?? null,
+  ),
   chat,
   routing,
 );
