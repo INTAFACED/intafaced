@@ -1,5 +1,7 @@
 # ADR: D26-P0-02 owner launch seals — fee-shares, profit pot, payout click
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about realised futures profit paid from house:fees:trade:available applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-13 (D26-P0-02 + PKT-B5 + PAYOUT-01 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-02 — DIRECTION §8 rates / fee-shares.  

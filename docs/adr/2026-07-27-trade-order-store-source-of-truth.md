@@ -1,5 +1,7 @@
 # ADR: Trade order store is source of truth for fills
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 | Field       | Value                                                              |
 | ----------- | ------------------------------------------------------------------ |
 | **Status**  | Accepted                                                           |

@@ -1,5 +1,7 @@
 # ADR: Protocol rails until INTACHAIN — house book + Base; P1 parked
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about house book (svc-matching to ledger post) as the Fiat exchange applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-09-03.** Nitro human decision.  
 **Decision owner:** Nitro.  
 **Does not replace:** `INTAFACED_DEFINITIVE_BUILD.md` (private: INTAFACED/project-state `product/`) §16–§17 (end-state still own L1).  

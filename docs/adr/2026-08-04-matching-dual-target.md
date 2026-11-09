@@ -1,5 +1,7 @@
 # ADR: matching dual-target — one spec, two runtimes, and two different words for "final"
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about fiat Plane fill final when our ledger posts it (house book matching customer funds) applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-06.

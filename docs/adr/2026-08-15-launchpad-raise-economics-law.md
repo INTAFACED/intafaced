@@ -1,5 +1,7 @@
 # ADR: Launchpad raise economics — named params, sockets, refuse until set (D26-P0-13)
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about ledger contribute/refund/settlement recipes and ledger-lock vesting over user balances applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-15 (law catalog + refuse).** Magnitudes remain **unpublished**. This ADR does **not** invent raise math.
 **Decision owner (magnitudes):** Nitro (authority store). **Law catalog owner:** Denon.
 **On-chain implement:** Shehzad (`launch.launchpad` · S-G2 / escrow / vesting). Agents babysit only.

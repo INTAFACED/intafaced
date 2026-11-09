@@ -1,5 +1,7 @@
 # ADR: when a bank vertical may say Done, and when it is a §13 socket
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about bank.loans as reference implementation (collateral seize/sell/repay, bad debt from insurance fund); earn/cards/ramps run as our own ledger verticals applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-09, **completing** it rather than opening it.

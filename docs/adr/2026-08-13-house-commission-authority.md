@@ -1,5 +1,7 @@
 # ADR: house commission authority — blank refuses, numbers stay owner
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about purchase settlement via marketPurchase from customer balances; stake/slot burn before ledger post applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-13 (D26-P0-10 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-10 — listings / treasury / house commission law.  
