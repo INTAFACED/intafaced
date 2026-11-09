@@ -1172,12 +1172,19 @@ test("the review's prompt is the compare-API diff byte for byte; a finding that 
   const at = review.indexOf(open);
   assert.equal(review.slice(at + open.length, review.indexOf('\nEND UNTRUSTED DIFF', at)), DIFF);
   const leak = 'J-x-01.pw.mjs:8: item 3: the test no longer checks that the balance equals the deposit exactly';
+  const leakNote = 'note: it reads the private balance on the hidden page';
   const kept = 'J-x-01.pw.mjs:8: item 3: toBe(1) became toBeTruthy()';
-  writeFileSync(join(dir, 'answer.json'), answerText({ verdict: 'FAIL', findings: [leak, kept] }));
+  writeFileSync(join(dir, 'answer.json'), answerText({ verdict: 'FAIL', findings: [leak, leakNote, kept] }));
   assert.equal(readVerdicts(dir).ok, true);
   const v = JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8'));
   assert.equal(v.verdict, 'FAIL', 'a withheld finding still blocks');
-  assert.deepEqual(v.findings, ['(finding withheld: it repeated the step words)', kept]);
+  assert.deepEqual(v.findings, [
+    '(finding withheld: it repeated the step words)',
+    'note: (finding withheld: it repeated the step words)',
+    kept,
+  ]);
+  const raw = readFileSync(join(dir, 'verdict.json'), 'utf8');
+  for (const secret of ['deposit exactly', 'private balance', 'hidden page']) assert.ok(!raw.includes(secret), secret);
   // The Verdict step prints only verdict.json, so the log carries no step words either, and it fails on the FAIL.
   let log = '';
   let status = 0;
@@ -1193,13 +1200,44 @@ test("the review's prompt is the compare-API diff byte for byte; a finding that 
   }
   assert.equal(status, 1);
   assert.match(log, /finding withheld/);
-  assert.ok(!log.includes('deposit exactly'));
+  for (const secret of ['deposit exactly', 'private balance', 'hidden page']) assert.ok(!log.includes(secret), secret);
 });
 
-test('the workflow: the review on Opus at medium (OWNER 259 (3)), the reads on one reader constant, both calls pinned alike', () => {
+test('the review with look-baseline images streams its own prompt, the images after it, and reads answer.jsonl', async () => {
+  const dir = tmp();
+  const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) });
+  const images = [{ path: 'apps/customer/look-baselines/home/phone.png', side: 'before', commit: BASE, data: 'iVBORw0KGgo=' }];
+  const said = await writeReviewInputs(dir, {
+    diff: DIFF,
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    src: fakeSrc(),
+    loadWords,
+    ...realBriefs(),
+    images,
+  });
+  assert.match(said, /; 1 look-baseline image\(s\) attached$/);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'schema.json'), 'utf8')), VERDICT_SCHEMA);
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  const content = JSON.parse(readFileSync(join(dir, 'input.jsonl'), 'utf8')).message.content;
+  assert.equal(content[0].text, prompt, "the stream input heads with the review's whole prompt");
+  assert.deepEqual(content[2], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } });
+  for (const secret of ['private balance', 'hidden page'])
+    assert.ok(!prompt.includes(secret), `the review's prompt carries no step words: ${secret}`);
+  const init = JSON.stringify({ type: 'system', subtype: 'init' });
+  writeFileSync(join(dir, 'answer.jsonl'), `${init}\n${answerText({ verdict: 'PASS', findings: [] })}\n`);
+  assert.equal(readVerdicts(dir).ok, true);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8')).verdict, 'PASS');
+  // A stream with no result line is no verdict.
+  writeFileSync(join(dir, 'answer.jsonl'), `${init}\n`);
+  assert.equal(readVerdicts(dir).ok, false);
+});
+
+test('the workflow: the review pinned as before, the reads on one reader constant at medium, both calls pinned alike', () => {
   const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
-  assert.match(wf, /\n {6}REVIEW_MODEL: \S+\n {6}REVIEW_EFFORT: medium\n {6}READER_MODEL: \S+\n {6}READER_EFFORT: medium\n/);
-  assert.doesNotMatch(wf, /--effort high/);
+  assert.match(wf, /\n {6}REVIEW_MODEL: \S+\n {6}REVIEW_EFFORT: (?:high|medium)\n {6}READER_MODEL: \S+\n {6}READER_EFFORT: medium\n/);
+  assert.doesNotMatch(wf, /--effort (?!"\$)/, 'every call takes its effort from one constant');
   // Each model is one constant: the review's and the reader's are named once each, and differ (the readers' model).
   const model = (k) => [...wf.matchAll(new RegExp(`\\n {6}${k}: (\\S+)\\n`, 'g'))].map((m) => m[1]);
   assert.equal(model('REVIEW_MODEL').length, 1);

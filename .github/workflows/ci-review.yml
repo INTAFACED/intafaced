@@ -44,12 +44,12 @@ jobs:
     timeout-minutes: 30
     environment: ci-review
     # The two pinned models. The review is judgment on every change: Opus (every INTAFACED thread runs Opus, OWNER 56),
-    # at medium (OWNER 259 (3), the owner's "Drop to medium"). The test part asks the proof reader's question, so it runs
-    # on the readers' model (project-state AGENTS.md: proof v2 readers run claude-sonnet-5-5) at medium, until [Based 10]
-    # reports its Opus-or-Sonnet measurement on project-state #1781: switching it is this one line.
+    # at high as before (its drop to medium, OWNER 259 (3), is #7676's, under its REVIEW.md entry). The test part asks
+    # the proof reader's question, so it runs on the readers' model at medium (OWNER 250 (2): cheaper models run proof
+    # readers; REVIEW.md's 9 Nov entry for the test part): switching it is this one line.
     env:
       REVIEW_MODEL: claude-opus-5-5
-      REVIEW_EFFORT: medium
+      REVIEW_EFFORT: high
       READER_MODEL: claude-sonnet-5-5
       READER_EFFORT: medium
     permissions:
