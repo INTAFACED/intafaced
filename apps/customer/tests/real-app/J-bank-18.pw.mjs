@@ -1,4 +1,4 @@
-// World: none
+// World: restart
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
