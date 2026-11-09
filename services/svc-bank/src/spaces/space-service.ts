@@ -502,10 +502,13 @@ export class SpaceService {
   private async heldMain(userId: string, assetId?: string): Promise<Array<{ assetId: string; amount: Amount }>> {
     const partner = this.custody.bankFor(userId);
     if (partner) {
+      // A main balance the partner has not reported refuses by name (`bank.partner_balance_not_known`), never dropped
+      // from the person's view and never read as 0.
       return (await partner.balances(userId))
-        .filter((b) => b.account.spaceId === null && b.amount !== null && b.amount > 0n)
+        .filter((b) => b.account.spaceId === null)
         .filter((b) => assetId === undefined || b.account.assetId === assetId)
-        .map((b) => ({ assetId: b.account.assetId, amount: b.amount! }));
+        .map((b) => ({ assetId: b.account.assetId, amount: reportedAmount(b) }))
+        .filter((b) => b.amount > 0n);
     }
     return heldAvailable(await this.ledger.balances('user', userId), assetId).map((b) => ({
       assetId: b.account.assetId,

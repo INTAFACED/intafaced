@@ -244,17 +244,34 @@ describe('partner-held bank moves (OWNER 226)', () => {
     await expect(api.currencies.remove({ assetId: 'USDT' })).rejects.toSatisfy((err) => codeOf(err) === 'bank.currency_in_use');
   });
 
-  it('a partner-held person who still has money on the ledger in a currency cannot remove it', async () => {
+  it('a main balance the partner has not reported refuses the unnamed-currency read by name, never dropped or read as 0', async () => {
     const { api } = await partnerHeld(ADA);
-    await api.transfers.create({
-      transferId: 'empty-main-01',
-      fromSpaceId: (await mainOf(api)).id,
-      toSpaceId: (await byName(api, 'Trip TEST')).id,
-      amount: '100',
-    });
-    await api.spaces.archive({ spaceId: (await byName(api, 'Trip TEST')).id });
+    const real = partner.bank.balances.bind(partner.bank);
+    const spy = vi
+      .spyOn(partner.bank, 'balances')
+      .mockImplementation(async (userId) => (await real(userId)).map((b) => (b.account.spaceId === null ? { ...b, amount: null } : b)));
+    try {
+      await expect(api.spaces.unnamed()).rejects.toSatisfy((err) => codeOf(err) === 'bank.partner_balance_not_known');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a partner-held person who still has money on the ledger in a currency cannot remove it', async () => {
+    // Partner-held with nothing at the partner: the only money anywhere is the 1 left on the ledger, so only the ledger
+    // read in `CurrencyService.remove` can refuse (money left on the ledger is never hidden).
+    const { bank, api } = as(ADA);
+    await api.testPartner.set({ custody: 'off' });
+    await bank.spaces.ensurePrimary(ADA, 'USDT');
+    expect((await partner.bank.balances(ADA)).filter((b) => b.amount !== null && b.amount !== 0n)).toEqual([]);
     await ledger.post(recipes.deposit({ userId: ADA, assetId: 'USDT', amount: parseAmount('1'), rail: 'test', railRef: 'r-left' }));
     await expect(api.currencies.remove({ assetId: 'USDT' })).rejects.toSatisfy((err) => codeOf(err) === 'bank.currency_in_use');
+    // The control: another partner-held person set up the same way, with nothing on the ledger, removes it, so the 1 on
+    // the ledger was what refused.
+    const bob = as(BOB);
+    await bob.api.testPartner.set({ custody: 'off' });
+    await bob.bank.spaces.ensurePrimary(BOB, 'USDT');
+    expect(await bob.api.currencies.remove({ assetId: 'USDT' })).toEqual({ assetId: 'USDT', removed: true });
   });
 
   it('J-bank-07 #3: a standing order between own spaces is one partner move per occurrence, recorded with its reference, nothing on the ledger', async () => {
