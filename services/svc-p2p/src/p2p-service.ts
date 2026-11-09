@@ -66,6 +66,7 @@ import {
   pairLimitRefusal,
   type TakeLimits,
 } from './take-limits.js';
+import { rankOrder, type RankingPolicy } from './ranking.js';
 import { completionRates, toAppeal, type AppealRecord, type AppealRow, type CompletionRates } from './completion-rate.js';
 import {
   ORDER_TABS,
@@ -269,6 +270,7 @@ export type P2pErrorCode =
   | 'p2p.method_delisted'
   | 'p2p.offer_not_found'
   | 'p2p.offer_not_active'
+  | 'p2p.offer_never_listed'
   // P-ads-merchant-18: the payment method is the last payable one of an active sell ad; confirm to pause the ads.
   | 'p2p.method_in_use'
   | 'p2p.offer_method_unsupported'
@@ -840,6 +842,10 @@ export interface P2pServiceOptions {
    * values, where blank refuses every take `p2p.config_unset`; omitted is a service built without them (tests).
    */
   takeLimits?: TakeLimits;
+  /** P-ads-merchant-10: the owner's board ranking weights; absent or blank ranks by price alone. */
+  ranking?: RankingPolicy;
+  /** P-ads-merchant-06 part 2: whether a listed draft waits for review; absent or null refuses every submit. */
+  adReview?: 'required' | 'none' | null;
   /**
    * P-trade-orders-15. The wait before (and between) seller reminders and how many an order may send. `index.ts`
    * always passes the owner's values, where blank refuses every reminder `p2p.config_unset`; omitted is unset too.
@@ -936,7 +942,7 @@ export interface OfferRecord {
   releaseWindowSeconds?: number | null;
   /** P-ads-merchant-07: `public` ads are on the board; `private` ones only reach their maker or a share link. */
   visibility: OfferVisibility;
-  status: 'active' | 'paused' | 'closed';
+  status: 'active' | 'paused' | 'closed' | 'draft' | 'pending';
   /** P-ads-merchant-18: why the service paused it (`method_removed`); null when it is not paused or the maker paused it. */
   pauseReason: OfferPauseReason | null;
   /** P-ads-merchant-06: why it is closed (`by_you`, `sold_out`); null when it is not closed or was closed before reasons. */
@@ -1169,7 +1175,9 @@ interface OfferRow {
   maker_tier: string | null;
   accepts_non_instant?: boolean;
   release_window_seconds?: number | null;
-  status: 'active' | 'paused' | 'closed';
+  status: 'active' | 'paused' | 'closed' | 'draft' | 'pending';
+  /** P-ads-merchant-06 part 2: false until the ad is first on the board (a draft, or one waiting for review). */
+  listed?: boolean;
   pause_reason?: OfferPauseReason | null;
   close_reason?: OfferCloseReason | null;
   visibility?: OfferVisibility;
@@ -1465,6 +1473,8 @@ export class P2pService {
   private readonly securityChangeLockSeconds: number | null;
   private readonly reviewEditWindowSeconds: number | undefined;
   private readonly takeLimits: TakeLimits | undefined;
+  private readonly ranking: RankingPolicy;
+  private readonly adReview: 'required' | 'none' | null;
   private readonly reminders: ReminderPolicy;
   private readonly offerEditsPerDay: number | null | undefined;
   private readonly shareLinkMaxSeconds: number | null;
@@ -1510,6 +1520,8 @@ export class P2pService {
     this.securityChangeLockSeconds = options.securityChangeLockSeconds ?? null;
     this.reviewEditWindowSeconds = options.reviewEditWindowSeconds;
     this.takeLimits = options.takeLimits;
+    this.ranking = options.ranking ?? { status: 'off', weights: null };
+    this.adReview = options.adReview ?? null;
     this.reminders = options.reminders ?? { waitSeconds: null, max: null };
     this.offerEditsPerDay = options.offerEditsPerDay;
     this.shareLinkMaxSeconds = options.shareLinkMaxSeconds ?? null;
@@ -2134,6 +2146,8 @@ export class P2pService {
     visibility?: OfferVisibility;
     /** P-trade-orders-15: the ad's own release window; absent keeps the published release clock. */
     releaseWindowSeconds?: number;
+    /** P-ads-merchant-06 part 2: `saveDraft` keeps the ad as a draft, off the board, until it is submitted. */
+    initialStatus?: 'active' | 'draft';
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
@@ -2266,6 +2280,8 @@ export class P2pService {
       ...(input.acceptsNonInstant === true ? ['non-instant'] : []),
       // Likewise only an ad with its own release window adds one.
       ...(releaseWindowSeconds === null ? [] : [`release:${releaseWindowSeconds}`]),
+      // A draft and a live ad from the same key are different requests.
+      ...(input.initialStatus === 'draft' ? ['draft'] : []),
     ]);
 
     let replayId: string | null = null;
@@ -2301,16 +2317,16 @@ export class P2pService {
             INSERT INTO p2p.offers (
               id, maker_id, side, asset, fiat_currency, price_type, price,
               min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier, accepts_non_instant,
-              relisted_from, visibility, release_window_seconds
+              relisted_from, visibility, release_window_seconds, listed
             )
             VALUES (
               ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
               ${input.priceType}, ${formatAmount(input.price)}::numeric,
               ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
               ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
-              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active', ${makerTier},
+              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, ${input.initialStatus ?? 'active'}, ${makerTier},
               ${input.acceptsNonInstant === true}, ${input.relistedFrom ?? null}, ${input.visibility ?? 'public'},
-              ${releaseWindowSeconds}
+              ${releaseWindowSeconds}, ${input.initialStatus !== 'draft'}
             )
             RETURNING *
           `;
@@ -2336,6 +2352,8 @@ export class P2pService {
     if (replayId) return this.loadOfferRaw(replayId);
     if (!createdRow) throw new P2pError('p2p.idempotency_in_progress', 'p2p.idempotency_in_progress');
     const offer = toOffer(createdRow);
+    // A draft is not an ad anyone can see yet: it is announced when it is listed.
+    if (offer.status === 'draft') return offer;
 
     await this.bus.publish(
       'p2pOfferCreated',
@@ -2354,6 +2372,107 @@ export class P2pService {
     );
 
     return offer;
+  }
+
+  /**
+   * P-ads-merchant-06 part 2: list a draft. With the owner's review switch `required` it waits for review (`pending`,
+   * off the board and not takeable); with `none` it is listed (`active`) and announced. A blank switch refuses
+   * `p2p.config_unset` and the draft stays a draft. Only its maker submits it, and only a draft; a second submit of
+   * one already submitted returns it as it is.
+   */
+  /**
+   * A draft is listed (or put up for review) under today's rules, not the ones it was saved under: the switches, the
+   * maker's buying pause, the method registry and destinations, the floating rule, the content rules, the merchant
+   * ceiling, the posting threshold and, for a sell ad with the balance check on, the seller's free balance. The
+   * advertiser terms were accepted when it was saved.
+   */
+  private async assertListable(offer: OfferRecord, makerTier: string | undefined): Promise<void> {
+    this.assertTradingEnabled();
+    this.assertSellNotLocked(offer.side === 'sell');
+    if (offer.side === 'buy') await this.assertBuyingNotRestricted(this.sql, { buyerId: offer.makerId, tradeId: null, asMaker: false });
+    const registered = await this.instruments.enabledMethodKeys();
+    if (missingSellDestinations(offer.methods, registered).length > 0) {
+      throw new InstrumentError(resolveP2pCopy(P2P_COPY.methodUnknown), 'p2p.instrument_method_unknown');
+    }
+    await this.assertFloatingAllowed({ priceType: offer.priceType, methods: offer.methods });
+    if (offer.side === 'sell') {
+      const live = await this.instruments.liveMethodKeys(offer.makerId, offer.fiatCurrency);
+      if (missingSellDestinations(offer.methods, live).length > 0) {
+        throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodNoDestination), 'p2p.offer_method_no_destination');
+      }
+      await this.assertNonInstantConsent({ methods: offer.methods, consented: offer.acceptsNonInstant });
+    }
+    const standing = this.merchantStatusOf ? await this.merchantStatusOf(offer.makerId) : null;
+    const verdict = checkOfferLimit({ status: standing, maxAmt: offer.maxAmt, asset: offer.asset, policy: this.offerLimits });
+    if (!verdict.withinLimit) throw new P2pError(verdict.reason, 'p2p.offer_limit_exceeded');
+    this.assertAdContent(offer.terms);
+    const tier = makerTier ?? offer.makerTier ?? undefined;
+    if (offer.side === 'buy') {
+      this.assertBuyAdRange({
+        tier,
+        fiatCurrency: offer.fiatCurrency,
+        priceType: offer.priceType,
+        price: offer.price,
+        minAmt: offer.minAmt,
+        maxAmt: offer.maxAmt,
+      });
+    }
+    const thresholds = this.postingThresholds;
+    const floating = offer.priceType === 'float';
+    const [free, refusal, reference] = await Promise.all([
+      this.sellBalanceAtPost && offer.side === 'sell' ? this.sellBalance(offer.makerId, offer.asset) : null,
+      thresholds ? this.postingRefusal(thresholds, offer.makerId, offer.fiatCurrency, tier) : null,
+      floating ? this.referenceOrNull(offer.asset, offer.fiatCurrency) : null,
+    ]);
+    if (refusal) throw refusal;
+    if (floating && reference === null) throw noReference(offer.asset, offer.fiatCurrency, 'posted');
+    if (free !== null && compare(offer.totalAmt, free) > 0) {
+      throw shortOf(free, offer.totalAmt, offer.asset, "this ad's total; it was not listed");
+    }
+  }
+
+  async submitForListing(offerId: string, makerId: string, makerTier?: string): Promise<OfferRecord> {
+    const review = this.adReview;
+    if (review === null) throw new P2pError('P2P_AD_REVIEW is not published; a draft cannot be listed', 'p2p.config_unset');
+    const to = review === 'required' ? 'pending' : 'active';
+    const preview = await this.loadOfferRaw(offerId).catch(() => null);
+    if (!preview || preview.makerId !== makerId) throw new P2pError('Only the maker can list an offer', 'p2p.not_a_party');
+    if (preview.status === 'draft') await this.assertListable(preview, makerTier);
+    const moved = await transaction(
+      this.sql,
+      async (tx) => {
+        const [row] = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${offerId} FOR UPDATE`;
+        if (!row || row.maker_id !== makerId) throw new P2pError('Only the maker can list an offer', 'p2p.not_a_party');
+        if (row.status !== 'draft') return { offer: toOffer(row), listed: false };
+        // The seller's destinations are checked again under the instrument key, as at post (P-ads-merchant-18).
+        if (row.side === 'sell') await assertSellDestinations(tx, this.instruments, makerId, row.fiat_currency, row.methods ?? []);
+        const [next] = await tx<OfferRow[]>`
+          UPDATE p2p.offers SET status = ${to}, listed = ${to === 'active'}, updated_at = now()
+           WHERE id = ${offerId} AND status = 'draft' RETURNING *
+        `;
+        return { offer: toOffer(next!), listed: to === 'active' };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+    if (moved.listed) {
+      const offer = moved.offer;
+      await this.bus.publish(
+        'p2pOfferCreated',
+        {
+          offerId: offer.id,
+          makerId: offer.makerId,
+          side: offer.side,
+          asset: offer.asset,
+          fiatCurrency: offer.fiatCurrency,
+          priceType: offer.priceType,
+          price: formatAmount(offer.price),
+          minAmount: formatAmount(offer.minAmt),
+          maxAmount: formatAmount(offer.maxAmt),
+        },
+        { idempotencyKey: `p2p.offer:${offer.id}` },
+      );
+    }
+    return moved.offer;
   }
 
   async listOffers(
@@ -2404,7 +2523,11 @@ export class P2pService {
    * how a maker finds the ads that are paused (by hand, or because the last payment method went) to resume them, and the
    * closed ones, each with why and with the ad it was relisted as, if any (P-ads-merchant-06).
    */
-  async listOwnOffers(makerId: string, status: 'active' | 'paused' | 'closed', limit?: number): Promise<OfferRecord[]> {
+  async listOwnOffers(
+    makerId: string,
+    status: 'active' | 'paused' | 'closed' | 'draft' | 'pending',
+    limit?: number,
+  ): Promise<OfferRecord[]> {
     const lim = assertOfferListLimit(limit);
     const rows = await this.sql<OfferRow[]>`
       SELECT o.*, (SELECT r.id FROM p2p.offers r WHERE r.relisted_from = o.id) AS relisted_as
@@ -2490,6 +2613,11 @@ export class P2pService {
     if (closed.makerId !== input.makerId) throw new P2pError('Only the maker can relist an offer', 'p2p.not_a_party');
     if (closed.status !== 'closed') {
       throw new P2pError(`Offer ${closed.id} is ${closed.status}; only a closed ad is relisted`, 'p2p.offer_not_active');
+    }
+    // A draft or an ad waiting for review that was closed was never on the board: relisting it would skip review.
+    const [listed] = await this.sql<Array<{ listed: boolean }>>`SELECT listed FROM p2p.offers WHERE id = ${closed.id}`;
+    if (listed?.listed === false) {
+      throw new P2pError(`Offer ${closed.id} was never listed; save it as a new draft and submit it`, 'p2p.offer_never_listed');
     }
     // Relisted already: that ad is the answer, whatever it has done since (an ad is relisted once).
     const [already] = await this.sql<Array<{ id: string }>>`
@@ -5762,6 +5890,11 @@ export class P2pService {
     return sameQuoteOrConflict(row, input);
   }
 
+  /** P-ads-merchant-10: why the board's ranked order is as it is: the owner's weights (or none) and the order read. */
+  rankingPolicy(): { status: RankingPolicy['status']; weights: RankingPolicy['weights']; order: string[] } {
+    return { status: this.ranking.status, weights: this.ranking.weights, order: rankOrder(this.ranking) };
+  }
+
   async listOfferBoard(
     filter: {
       asset?: string;
@@ -5803,6 +5936,7 @@ export class P2pService {
         minFiat,
         fiatAmount,
         sort,
+        rankByCompletion: this.ranking.status === 'active',
         viewerId: filter.viewerId ?? null,
         limit,
         cursor: filter.cursor ?? null,

@@ -21,6 +21,10 @@ const en = {
   replyRetainedBody: 'The service replied to the original action, but this device kept the saved record. Retry only the local cleanup.',
   originalBody: 'A new action stays blocked until the original state can be checked.',
   ownerWindow: 'Your active offers on the board. Your paused offers are listed below them.',
+  pendingTitle: 'Waiting for review',
+  pendingNone: 'You have no ads waiting for review.',
+  pendingWaiting:
+    'Waiting for review. No reviewer approves ads here, so nothing can approve it: it stays off the board and nobody can see or take it. You can close it.',
   pausedTitle: 'Paused offers',
   pausedNone: 'You have no paused offers.',
   pausedByYou: 'Paused by you. Resume it to put it back on the board.',
@@ -72,6 +76,10 @@ const es = {
     'El servicio respondió a la acción original, pero este dispositivo conservó el registro guardado. Reintenta solo la limpieza local.',
   originalBody: 'Una nueva acción sigue bloqueada hasta que se pueda comprobar el estado original.',
   ownerWindow: 'Tus ofertas activas en el tablón. Tus ofertas en pausa aparecen debajo.',
+  pendingTitle: 'En revisión',
+  pendingNone: 'No tienes anuncios en revisión.',
+  pendingWaiting:
+    'En revisión. Aquí ningún revisor aprueba anuncios, así que nada puede aprobarlo: sigue fuera del tablón y nadie puede verlo ni tomarlo. Puedes cerrarlo.',
   pausedTitle: 'Ofertas en pausa',
   pausedNone: 'No tienes ofertas en pausa.',
   pausedByYou: 'La pausaste tú. Reanúdala para volver a mostrarla en el tablón.',
@@ -125,6 +133,10 @@ const fr = {
     'Le service a répondu à l’action d’origine, mais cet appareil a conservé l’enregistrement sauvegardé. Réessayez uniquement le nettoyage local.',
   originalBody: 'Toute nouvelle action reste bloquée jusqu’à la vérification de l’état initial.',
   ownerWindow: 'Vos offres actives sur le tableau. Vos offres en pause sont listées en dessous.',
+  pendingTitle: 'En attente de vérification',
+  pendingNone: 'Vous n’avez aucune annonce en attente de vérification.',
+  pendingWaiting:
+    'En attente de vérification. Ici, aucun vérificateur n’approuve les annonces, donc rien ne peut l’approuver : elle reste hors du tableau et personne ne peut la voir ni la prendre. Vous pouvez la fermer.',
   pausedTitle: 'Offres en pause',
   pausedNone: 'Vous n’avez aucune offre en pause.',
   pausedByYou: 'Mise en pause par vous. Reprenez-la pour la remettre sur le tableau.',

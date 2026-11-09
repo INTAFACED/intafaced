@@ -71,7 +71,7 @@ export const offerSchema = z.object({
   /** P-disputes-security-09: the seller accepted non-instant methods when posting. */
   acceptsNonInstant: z.boolean().optional(),
   terms: z.string(),
-  status: z.enum(['active', 'paused', 'closed']),
+  status: z.enum(['active', 'paused', 'closed', 'draft', 'pending']),
   /** P-ads-merchant-18: why the service paused the ad; null when it was not the service (or it is not paused). */
   pauseReason: z.enum(['method_removed']).nullable().optional(),
   /** P-ads-merchant-06: why the ad is closed (by the person, or sold out); null when not closed or closed before reasons. */
@@ -826,7 +826,7 @@ export const bulkOutcomeSchema = z.object({
     z.object({
       offerId: z.string(),
       ok: z.boolean(),
-      status: z.enum(['active', 'paused', 'closed']).nullable(),
+      status: z.enum(['active', 'paused', 'closed', 'draft', 'pending']).nullable(),
       code: z.string().nullable(),
     }),
   ),

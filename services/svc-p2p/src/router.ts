@@ -238,7 +238,7 @@ const offerOutput = z.object({
   /** P-trade-orders-15: the ad's own release window in seconds, or null when it keeps the published release clock. */
   releaseWindowSeconds: z.number().int().positive().nullable(),
   terms: z.string(),
-  status: z.enum(['active', 'paused', 'closed']),
+  status: z.enum(['active', 'paused', 'closed', 'draft', 'pending']),
   /** P-ads-merchant-18: why the service paused the ad (`method_removed`); null when active, closed or paused by hand. */
   pauseReason: z.enum(['method_removed']).nullable(),
   /** P-ads-merchant-06: why the ad is closed (`by_you`, `sold_out`); null when not closed or closed before reasons. */
@@ -788,6 +788,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.edit_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
       case 'p2p.offer_not_active':
+      case 'p2p.offer_never_listed':
       case 'p2p.offer_update_empty':
       case 'p2p.offer_cursor_invalid':
       case 'p2p.reason_required':
@@ -1416,6 +1417,66 @@ export function createP2pRouter(
         ),
 
       /**
+       * P-ads-merchant-06 part 2. Save an ad as a draft: the same fields and checks as `offers.create`, kept off the
+       * board and not takeable until `offers.submitForListing`. A retry with the same key returns the same draft.
+       */
+      saveDraft: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            side: z.enum(['buy', 'sell']),
+            asset: z.string().min(1).max(16),
+            fiatCurrency: z.string().length(3),
+            priceType: z.enum(['fixed', 'float']),
+            price: amountString,
+            minAmount: amountString,
+            maxAmount: amountString,
+            totalAmount: amountString.optional(),
+            methods: z.array(z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })])).min(1),
+            terms: z.string().max(4000).optional(),
+            acceptsNonInstant: z.boolean().optional(),
+            idempotencyKey: z.string().min(8).max(128),
+            releaseWindowSeconds: z.number().int().positive().optional(),
+          }),
+        )
+        .output(offerOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+            return presentOffer(
+              await p2p.createOffer({
+                makerId: ctx.principal.userId,
+                side: input.side,
+                asset: input.asset,
+                fiatCurrency: input.fiatCurrency,
+                priceType: input.priceType,
+                price: parseAmount(input.price),
+                minAmt: parseAmount(input.minAmount),
+                maxAmt: parseAmount(input.maxAmount),
+                ...(input.totalAmount === undefined ? {} : { totalAmt: parseAmount(input.totalAmount) }),
+                methods: input.methods,
+                ...(input.terms === undefined ? {} : { terms: input.terms }),
+                idempotencyKey: input.idempotencyKey,
+                makerTier: ctx.principal.tier,
+                ...(input.acceptsNonInstant === undefined ? {} : { acceptsNonInstant: input.acceptsNonInstant }),
+                ...(input.releaseWindowSeconds === undefined ? {} : { releaseWindowSeconds: input.releaseWindowSeconds }),
+                initialStatus: 'draft',
+              }),
+            );
+          }),
+        ),
+
+      /**
+       * P-ads-merchant-06 part 2. List a draft: it waits for review (`pending`) while the owner's review switch is
+       * `required`, or is listed (`active`) when it is `none`. A blank switch refuses `p2p.config_unset`.
+       */
+      submitForListing: merchantApiProcedure('p2p:write')
+        .input(z.object({ offerId: z.string().guid() }))
+        .output(offerOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => presentOffer(await p2p.submitForListing(input.offerId, ctx.principal.userId, ctx.principal.tier))),
+        ),
+
+      /**
        * P-ads-merchant-01: the caller's own free balance of a coin, which a new sell ad's total may not exceed. The
        * same ledger read the post check makes. Nothing is reserved at post.
        */
@@ -1435,6 +1496,24 @@ export function createP2pRouter(
         .output(z.array(offerOutput))
         .query(async ({ ctx, input }) => guard(async () => (await presentBoard(ctx.principal.userId, input, false)).offers)),
 
+      /**
+       * P-ads-merchant-10. Why the ranked board (`sort: 'rank'`) reads as it does: the owner's weights, or none ("rule
+       * off", the price order), and the order the board reads in. `invalid` is a set value that is not a full, known
+       * table, which also ranks by price alone.
+       */
+      rankingPolicy: merchantApiProcedure('p2p:read')
+        .output(
+          z.object({
+            status: z.enum(['off', 'invalid', 'active']),
+            weights: z.object({ completionRate30d: z.string() }).nullable(),
+            order: z.array(z.string()),
+          }),
+        )
+        .query(() => {
+          const policy = p2p.rankingPolicy();
+          return { status: policy.status, weights: policy.weights ? { ...policy.weights } : null, order: policy.order };
+        }),
+
       /** Cursor page: the customer board reads this, filtered and sorted here, and continues with `nextCursor`. */
       page: merchantApiProcedure('p2p:read')
         .input(z.object({ ...offerListShape, cursor: z.string().max(500).nullable().optional() }).optional())
@@ -1450,7 +1529,12 @@ export function createP2pRouter(
 
       /** P-ads-merchant-18: the caller's own ads in one status, newest first; the board lists active ads only. */
       mine: merchantApiProcedure('p2p:read')
-        .input(z.object({ status: z.enum(['active', 'paused', 'closed']), limit: z.number().int().min(1).max(200).optional() }))
+        .input(
+          z.object({
+            status: z.enum(['active', 'paused', 'closed', 'draft', 'pending']),
+            limit: z.number().int().min(1).max(200).optional(),
+          }),
+        )
         .output(z.array(offerOutput))
         .query(async ({ ctx, input }) =>
           guard(async () => {
@@ -1523,7 +1607,7 @@ export function createP2pRouter(
               z.object({
                 offerId: z.string(),
                 ok: z.boolean(),
-                status: z.enum(['active', 'paused', 'closed']).nullable(),
+                status: z.enum(['active', 'paused', 'closed', 'draft', 'pending']).nullable(),
                 code: z.string().nullable(),
               }),
             ),
@@ -3239,7 +3323,7 @@ export function createP2pRouter(
       offers: scopedProcedure('admin:compliance', { module: 'p2p' })
         .input(
           z.object({
-            status: z.enum(['active', 'paused', 'closed']),
+            status: z.enum(['active', 'paused', 'closed', 'draft', 'pending']),
             limit: z.number().int().min(1).max(200).optional(),
             cursor: z.string().max(500).nullable().optional(),
           }),
@@ -3258,7 +3342,7 @@ export function createP2pRouter(
                 maxAmount: z.string(),
                 totalAmount: z.string(),
                 remainingAmount: z.string(),
-                status: z.enum(['active', 'paused', 'closed']),
+                status: z.enum(['active', 'paused', 'closed', 'draft', 'pending']),
                 methodIds: z.array(z.string()),
                 createdAt: z.string(),
               }),

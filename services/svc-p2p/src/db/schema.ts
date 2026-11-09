@@ -45,7 +45,7 @@ export const priceTypeEnum = p2p.enum('price_type', ['fixed', 'float']);
  * `paused` is a distinct state, not a flag: a paused offer is invisible to
  * takers but its open trades continue, and a closed offer can never re-open.
  */
-export const offerStatusEnum = p2p.enum('offer_status', ['active', 'paused', 'closed']);
+export const offerStatusEnum = p2p.enum('offer_status', ['active', 'paused', 'closed', 'draft', 'pending']);
 
 /** §6.2, exactly: `created,escrowed,fiat_sent,released,cancelled,disputed`. */
 export const tradeStatusEnum = p2p.enum('trade_status', ['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']);

@@ -3,6 +3,15 @@ import { defineCopy } from '../../../shared/i18n';
 // P-ads-merchant-06 (J-p2p-05 #1, #2): My Ads beyond the board. Each ad's state with why and since when, the daily edit
 // cap with when it starts again, closed ads with relist, and closing refused while orders are open.
 const en = {
+  openDraft: 'Open the draft',
+  draftsTitle: 'Drafts',
+  draftsNone: 'You have no drafts.',
+  draftBody:
+    'A draft is off the board and nobody can see or take it. Submitting checks it as a new ad is checked, then it is listed or waits for review.',
+  submitForListing: 'Submit for listing',
+  submitting: 'Submitting…',
+  submittedPending: 'Submitted. It waits for review.',
+  submittedListed: 'Submitted. It is on the board.',
   editSaving: 'Saving…',
   editSaved: 'Saved. Orders already open keep the terms they were taken on.',
   editBack: 'Back to your ads',
@@ -11,6 +20,8 @@ const en = {
   listedSince: 'Listed since',
   pausedSince: 'Paused since',
   closedSince: 'Closed since',
+  waitingSince: 'Waiting since',
+  draftSince: 'Draft since',
   editsTitle: 'Ad edits today',
   editsUsed: 'You have made {used} of {limit} ad edits today. The count starts again at {time}.',
   editsSpent: 'You have made all {limit} ad edits for today. Editing opens again at {time}.',
@@ -30,6 +41,15 @@ const en = {
   closeHasOneOpenTrade: 'This ad has 1 open order. It can close once it finishes; closing never cancels an order.',
 } as const;
 const es = {
+  openDraft: 'Abrir el borrador',
+  draftsTitle: 'Borradores',
+  draftsNone: 'No tienes borradores.',
+  draftBody:
+    'Un borrador está fuera del tablón y nadie puede verlo ni tomarlo. Al enviarlo se comprueba como un anuncio nuevo y después se publica o queda en revisión.',
+  submitForListing: 'Enviar para publicar',
+  submitting: 'Enviando…',
+  submittedPending: 'Enviado. Queda en revisión.',
+  submittedListed: 'Enviado. Ya está en el tablón.',
   editSaving: 'Guardando…',
   editSaved: 'Guardado. Los pedidos ya abiertos conservan las condiciones con que se tomaron.',
   editBack: 'Volver a tus anuncios',
@@ -39,6 +59,8 @@ const es = {
   listedSince: 'Publicado desde',
   pausedSince: 'En pausa desde',
   closedSince: 'Cerrado desde',
+  waitingSince: 'En espera desde',
+  draftSince: 'Borrador desde',
   editsTitle: 'Ediciones de anuncios hoy',
   editsUsed: 'Has hecho {used} de {limit} ediciones de anuncios hoy. El recuento vuelve a empezar a las {time}.',
   editsSpent: 'Has hecho las {limit} ediciones de anuncios de hoy. Podrás editar de nuevo a las {time}.',
@@ -59,6 +81,15 @@ const es = {
   closeHasOneOpenTrade: 'Este anuncio tiene 1 pedido abierto. Podrá cerrarse cuando termine; cerrarlo nunca cancela un pedido.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
+  openDraft: 'Ouvrir le brouillon',
+  draftsTitle: 'Brouillons',
+  draftsNone: 'Vous n’avez aucun brouillon.',
+  draftBody:
+    'Un brouillon est hors du tableau et personne ne peut le voir ni le prendre. L’envoi le vérifie comme une nouvelle annonce, puis il est publié ou attend la vérification.',
+  submitForListing: 'Envoyer pour publication',
+  submitting: 'Envoi…',
+  submittedPending: 'Envoyé. Il attend la vérification.',
+  submittedListed: 'Envoyé. Il est sur le tableau.',
   editSaving: 'Enregistrement…',
   editSaved: 'Enregistré. Les commandes déjà ouvertes gardent les conditions auxquelles elles ont été prises.',
   editBack: 'Retour à vos annonces',
@@ -68,6 +99,8 @@ const fr = {
   listedSince: 'Publiée depuis',
   pausedSince: 'En pause depuis',
   closedSince: 'Fermée depuis',
+  waitingSince: 'En attente depuis',
+  draftSince: 'Brouillon depuis',
   editsTitle: 'Modifications d’annonces aujourd’hui',
   editsUsed: 'Vous avez fait {used} des {limit} modifications d’annonces d’aujourd’hui. Le compte repart à {time}.',
   editsSpent: 'Vous avez fait les {limit} modifications d’annonces d’aujourd’hui. Vous pourrez modifier à nouveau à {time}.',
