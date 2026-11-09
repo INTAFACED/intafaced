@@ -55,7 +55,13 @@ const payFromOutput = z.object({
 });
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
-import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
+import {
+  amountString,
+  partnerFiguresOutput,
+  partnerHoldReportOutput,
+  stepUpApprovalField,
+  refuseCardSecretWithoutStepUp,
+} from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 
@@ -474,7 +480,7 @@ export function createCardsRouter(c: BankRouterContext) {
      */
     reveal: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ cardId: z.string().guid(), revealId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
-      .output(z.object({ pan: z.string(), expiry: z.string(), cvv: z.string(), expiresAt: z.string() }))
+      .output(z.object({ pan: z.string(), expiry: z.string(), cvv: z.string(), expiresAt: z.string(), test: z.boolean() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
@@ -487,14 +493,16 @@ export function createCardsRouter(c: BankRouterContext) {
             input.stepUpApprovalId,
             false,
           );
-          return bank.cards.reveal({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+          // `test`: the TEST partner's stand-in details (J-bank-14 #3), so a screen labels them TEST.
+          const revealed = await bank.cards.reveal({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+          return { ...revealed, test: bank.cards.secretsAreTest() };
         }),
       ),
 
     pin: router({
       reveal: scopedProcedure('bank:read', { module: 'bank' })
         .input(z.object({ cardId: z.string().guid(), revealId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
-        .output(z.object({ pin: z.string(), expiresAt: z.string() }))
+        .output(z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() }))
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
             const card = await bank.cards.card(input.cardId);
@@ -507,7 +515,8 @@ export function createCardsRouter(c: BankRouterContext) {
               input.stepUpApprovalId,
               false,
             );
-            return bank.cards.revealPin({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+            const revealed = await bank.cards.revealPin({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+            return { ...revealed, test: bank.cards.secretsAreTest() };
           }),
         ),
       set: scopedProcedure('bank:write', { module: 'bank' })
@@ -542,7 +551,10 @@ export function createCardsRouter(c: BankRouterContext) {
         ),
     }),
 
-    /** Opaque push-provisioning payload. Refuses until socket.live-issuer can produce one. */
+    /**
+     * Opaque push-provisioning payload, and one wallet token row per card and wallet (J-bank-14 #4). Refuses until
+     * socket.live-issuer can produce one, except on the TEST partner adapter with `secrets: "test"`, whose payload says TEST.
+     */
     walletProvision: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
@@ -552,18 +564,51 @@ export function createCardsRouter(c: BankRouterContext) {
           nonce: z.string().min(1).max(4096),
         }),
       )
-      .output(z.object({ payload: z.string(), expiresAt: z.string() }))
+      .output(z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
           assertSelf(ctx.principal.userId, card.userId);
-          return bank.cards.walletProvision({
+          const provisioned = await bank.cards.walletProvision({
             cardId: input.cardId,
             userId: ctx.principal.userId,
             provisionId: input.provisionId,
             wallet: input.wallet,
             nonce: input.nonce,
           });
+          return { ...provisioned, test: bank.cards.secretsAreTest() };
+        }),
+      ),
+
+    /** Which of card details, PIN and phone wallets the issuer offers, and whether they are TEST (J-bank-14 #3, #4). */
+    secretsOffered: scopedProcedure('bank:read', { module: 'bank' })
+      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean() }))
+      .query(async () => guard(async () => bank.cards.secretsOffered())),
+
+    /** The phone wallets this card was added to: `added`, `paused` while the card is frozen, or `closed` (J-bank-14 #4). */
+    walletTokens: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid() }))
+      .output(
+        z.object({
+          test: z.boolean(),
+          tokens: z.array(
+            z.object({
+              id: z.string(),
+              wallet: z.enum(['apple', 'google']),
+              state: z.enum(['added', 'paused', 'closed']),
+              addedAt: z.string(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          return {
+            test: bank.cards.secretsAreTest(),
+            tokens: await bank.cards.walletTokens({ cardId: input.cardId, userId: ctx.principal.userId }),
+          };
         }),
       ),
 
@@ -904,6 +949,8 @@ export function createCardsRouter(c: BankRouterContext) {
             decision: z.enum(['approved', 'declined']),
             declineCode: z.string().nullable(),
             status: z.string(),
+            /** Whose book held it (OWNER 226): `ledger`, or `partner` (the card partner held it; our ledger posted nothing). */
+            heldBy: z.enum(['ledger', 'partner']),
             decidedAt: z.string(),
             /**
              * WHAT THE MERCHANT CHARGED, and the rate it converted at (§18).
@@ -946,6 +993,7 @@ export function createCardsRouter(c: BankRouterContext) {
             decision: a.decision,
             declineCode: a.declineCode,
             status: a.status,
+            heldBy: a.heldBy,
             decidedAt: a.decidedAt.toISOString(),
             conversion: a.conversion
               ? {
@@ -957,6 +1005,42 @@ export function createCardsRouter(c: BankRouterContext) {
                 }
               : null,
           }));
+        }),
+      ),
+
+    /**
+     * THE CARD PARTNER'S OWN REPORT FOR THIS CARD (OWNER 226; J-bank-14's hold, capture and release steps): whose book a
+     * new authorisation is held in now (`ledger`, `partner`, or `none`: no partner and the custodial layer off), the
+     * partner's figures for the card's asset, and each partner-held authorisation as the partner reports it now: held,
+     * captured, released, or given back by the partner on expiry. `test` is true on the TEST partner card. Every null is
+     * "not known", never 0. Reads only.
+     */
+    partnerHeld: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
+      .output(
+        z.object({
+          heldBy: z.enum(['ledger', 'partner', 'none']),
+          figures: partnerFiguresOutput.nullable(),
+          authorizations: z.array(
+            z.object({
+              authorizationId: z.string(),
+              authorizationRef: z.string(),
+              amount: amountString,
+              report: partnerHoldReportOutput.nullable(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          const held = await bank.cards.partnerHeld(input.cardId, input.limit);
+          return {
+            heldBy: held.heldBy,
+            figures: held.figures,
+            authorizations: held.authorizations.map((a) => ({ ...a, amount: formatAmount(a.amount) })),
+          };
         }),
       ),
   });
