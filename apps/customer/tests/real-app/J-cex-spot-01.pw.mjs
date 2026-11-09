@@ -1,31 +1,36 @@
-// World: book, gates, stack
+// World: book, restart, gates, stack
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
-import { TEST_DEPOSIT_TRAVEL_RULE } from '../../../../tooling/scripts/local-test-gates.mjs';
 import path from 'node:path';
-import {
-  api,
-  bestPrices,
-  fromUnits,
-  journeyState,
-  mailedLines,
-  otherTrader,
-  ROOT,
-  signUpInBrowser,
-  times,
-  toUnits,
-  tool,
-  signOutBrowser,
-} from './stack.mjs';
-import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
+import { api, bestPrices, fromUnits, journeyState, ROOT, signUpInBrowser, toUnits, signOutBrowser, restartWith } from './stack.mjs';
+import { confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
+import { CHAIN_ID, testChain } from './dex.mjs';
+import {
+  otherVenueTrader,
+  testVenue,
+  testVenueId,
+  venueBalance,
+  venueBook,
+  venueFills,
+  venueOff,
+  venueOn,
+  venueOpenOrders,
+  venueOrder,
+  venueRead,
+  venueStatus,
+  VENUE_SPOT,
+} from './venue.mjs';
 
 // J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
-// order on one TEST account. Every number here is a TEST number on the local stack; the ledger is read through the
-// customer's own API after each move.
+// order on one TEST account. Every number here is a TEST number on the local stack. The person's venue account (its
+// balances, locks, orders, fills and withdrawals) is read from the venue (venue.mjs), never from our ledger or engine;
+// the ledger is read only where a step says it posts nothing.
 const J = 'J-cex-spot-01';
 const DESK = '/trade/spot/BTC-USDT';
+/** The venue's TEST market the Starts line names, BTC/USDC, as the desk names it. */
+const DESK_SYMBOL = 'BTC/USDC';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /**
  * A dollar figure as the app writes one (fmtUsd in apps/customer/src/data/format.ts): two decimals; under $1 up to four,
@@ -34,6 +39,11 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const DOLLARS = String.raw`(?:\$[\d,]+\.\d{2}|\$0\.\d{3,4}|<\$0\.0001)`;
 
 test.describe.configure({ mode: 'default' });
+
+// The venue's own figures need the user-venue door on, in front of the LOCAL TEST venue (venue.mjs); it is put back
+// off after the file, as every other journey expects it.
+test.beforeAll(() => venueOn());
+test.afterAll(() => venueOff());
 
 function account() {
   const who = run.read().account;
@@ -70,27 +80,6 @@ function asShownUsd(value) {
   return units < 0n ? -rounded : rounded;
 }
 
-/** The value next to a review sheet label (its dt/dd pair). */
-function reviewValue(review, label) {
-  return review
-    .locator('div', { has: review.page().locator('dt', { hasText: label }) })
-    .locator('dd')
-    .first();
-}
-
-/**
- * One TEST chain delivery of `amount` USDT to a deposit address svc-pay issued, final at the published 6 confirmations, as
- * transfer `label`: the same label to the same address is the same transfer, so sending it again is a replay. Returns the
- * transaction hash, as Deposit's records show it.
- */
-function chainDeposit(address, amount, label) {
-  const out = tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', amount, '6', '--tx', label);
-  expect(out).toContain('"received":true');
-  const tx = /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
-  expect(tx, out).toBeTruthy();
-  return tx;
-}
-
 /**
  * A rate the service sends as a ratio ("0.0008"), as the percent the desk shows to two places ("0.08"), in units: rounded
  * half away from zero, so a rebate (a negative rate) rounds as its size does.
@@ -108,142 +97,12 @@ async function pointerOff(page) {
   await page.mouse.move(0, 600);
 }
 
-/** One order's fills as the service reports them. */
-async function fillsOf(who, orderId) {
-  const { status, body } = await (await api(who)).get(`/api/v1/orders/${orderId}/trades?symbol=BTC%2FUSDT&limit=50`);
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body;
-}
-
-/** One cent above the best bid: the order rests (it does not cross the ask) and is first in line for a crossing sell. */
-async function topBid() {
-  const { bid, ask } = await bestPrices();
-  const price = toUnits(bid) + toUnits('0.01');
-  if (price >= toUnits(ask)) throw new Error(`the book has no room between bid ${bid} and ask ${ask}`);
-  return fromUnits(price);
-}
-
 /** One percent under the best bid, to the cent: a limit sell there still fills at the bids' own prices when the
  * market maker requotes between the read and the order, which a sell at the old best bid would not. */
 async function underBid() {
   const { bid } = await bestPrices();
   const cent = toUnits('0.01');
   return fromUnits(((toUnits(bid) * 99n) / 100n / cent) * cent);
-}
-
-/** #6's buy, in the row's own words: TEST 0.1 BTC. */
-const BUY = '0.1';
-
-/**
- * The second TEST deposit #6 starts with. #4 funds 1000 USDT, but a 0.1 BTC buy that rests at the top of the book, where
- * #8's crossing sell can reach it inside the stack's 10% price band, sets aside about 6,500 USDT at the stack's TEST BTC
- * price (about 65,000). 7000 more covers the buy up to a TEST price of 80,000.
- */
-const TOP_UP = '7000';
-
-/** The desk's Assets row for each asset (Available, In orders, Total) equals the ledger, unit for unit. */
-async function deskEqualsLedger(page, client, assets) {
-  await page.locator('[role=tab]', { hasText: /^Assets$/ }).click();
-  const table = page.getByTestId('dk-table');
-  // The desk refreshes its balances on its own; it is read again until it shows the ledger, which nothing moves meanwhile.
-  const ledger = await client.balances();
-  await expect(async () => {
-    for (const asset of assets) {
-      const row = table.locator('tr', { has: page.locator('td', { hasText: new RegExp(`^${asset}$`) }) });
-      await expect(row).toHaveCount(1, { timeout: 2_000 });
-      const heads = (await table.locator('th').allInnerTexts()).map((h) => h.trim());
-      const cells = (await row.locator('td').allInnerTexts()).map((c) => c.trim());
-      expect(shownUnits(cells[heads.indexOf('Available')]), `${asset}: ${heads.join(' | ')}`).toBe(wireUnits(ledger[asset].free));
-      expect(shownUnits(cells[heads.indexOf('In orders')]), asset).toBe(wireUnits(ledger[asset].used));
-      expect(shownUnits(cells[heads.indexOf('Total')]), asset).toBe(wireUnits(ledger[asset].total));
-    }
-  }).toPass({ timeout: 20_000 });
-  expect(await client.balances()).toEqual(ledger);
-  return ledger;
-}
-
-/**
- * One TEST USDT deposit of `amount` (at or over the stack's TEST travel-rule threshold) the way #4's is made: Deposit
- * issues the address, the TEST chain delivers to it as transfer `label`, the deposit is held for the travel rule, the
- * person declares the sender, and a founder releases it once on the console. Returns the transaction hash once the
- * ledger's free USDT has risen by exactly `amount`.
- */
-async function depositReleased(page, browser, client, who, amount, label) {
-  expect(toUnits(amount) >= toUnits(TEST_DEPOSIT_TRAVEL_RULE.threshold), TEST_DEPOSIT_TRAVEL_RULE.threshold).toBe(true);
-  const usdtFree = async () => toUnits((await client.balances()).USDT?.free ?? '0');
-  const before = await usdtFree();
-  await page.goto('/uc/recharge');
-  await pointerOff(page);
-  await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption('USDT');
-  await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: 'TEST Ethereum' });
-  await page.getByRole('checkbox', { name: 'I will send only USDT on TEST Ethereum.' }).check();
-  await page.getByRole('button', { name: 'Show my deposit address' }).click();
-  const address = (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
-  expect(address.length).toBeGreaterThan(8);
-  const tx = chainDeposit(address, amount, label);
-  const records = page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
-  await expect(async () => {
-    await page.reload();
-    await pointerOff(page);
-    await expect(records.locator('tbody tr', { hasText: tx }).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule', {
-      timeout: 3_000,
-    });
-  }).toPass({ timeout: 30_000 });
-  expect(await usdtFree()).toBe(before);
-  const panel = records
-    .locator('tbody tr', { has: page.getByTestId('deposit-travel-rule') })
-    .filter({ has: page.locator(`xpath=preceding-sibling::tr[1][contains(., "${tx}")]`) })
-    .getByTestId('deposit-travel-rule');
-  const form = panel.getByTestId('deposit-travel-rule-form');
-  await form.getByRole('radio', { name: 'An exchange or other crypto platform' }).check();
-  await form.getByLabel('Sender’s full name').fill('TEST Sender Person');
-  await form.getByLabel('Sender’s address').fill('1 TEST Street, Testville');
-  await form.getByRole('button', { name: 'Send declaration' }).click();
-  await expect(panel).toHaveAttribute('data-state', 'under_review', { timeout: 30_000 });
-  const founderContext = await browser.newContext();
-  try {
-    const founder = await founderContext.newPage();
-    await founderSignIn(founder, 'a');
-    await founder.goto(`${ADMIN}/accounts/${client.userId}?tab=money`, { waitUntil: 'load' });
-    const holds = founder.getByTestId('read-money.deposit-travel-rule');
-    await expect(holds.getByRole('table')).toBeVisible({ timeout: 60_000 });
-    // This deposit's own hold, found by its transaction in each USDT hold's detail (#4's 1000 USDT hold is listed too).
-    const rows = holds.locator('tbody > tr', { hasText: 'USDT' }).filter({ has: founder.getByRole('button', { name: /^(Open|Close)$/ }) });
-    await expect(rows.first()).toBeVisible();
-    const detail = holds.getByTestId('row-detail');
-    /** Opens row `i` (a click before the console is ready to answer it opens nothing, so it is clicked until open). */
-    const openRow = async (i) => {
-      const toggle = rows.nth(i).getByRole('button', { name: /^(Open|Close)$/ });
-      await expect(async () => {
-        if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
-        await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 });
-      }).toPass({ timeout: 30_000 });
-      await expect(detail).toHaveCount(1);
-      return detail.innerText();
-    };
-    const seen = [];
-    const matches = [];
-    const n = await rows.count();
-    for (let i = 0; i < n; i += 1) {
-      const text = await openRow(i);
-      seen.push(text.replace(/\s+/g, ' '));
-      if (text.includes(tx)) matches.push(i);
-    }
-    // Exactly one hold names this transaction, and it holds this deposit's amount.
-    expect(matches, `USDT holds naming ${tx}: ${JSON.stringify(seen)}`).toHaveLength(1);
-    await openRow(matches[0]);
-    const holdAmount = detail.locator('.dk-kv-row', { has: founder.locator('dt', { hasText: /^Amount$/ }) }).locator('dd');
-    await expect(holdAmount).toHaveCount(1);
-    expect(shownUnits(await holdAmount.innerText())).toBe(toUnits(amount));
-    const review = detail.getByTestId('deposit-travel-rule-review');
-    await review.getByLabel(/^Why/).fill(`LOCAL TEST declaration checked for ${who.handle}`);
-    await review.getByRole('button', { name: 'Release and credit once' }).click();
-    await expect(detail.getByTestId('deposit-travel-rule-reply')).toContainText('credited it once', { timeout: 60_000 });
-  } finally {
-    await founderContext.close();
-  }
-  await expect.poll(usdtFree, { timeout: 30_000 }).toBe(before + toUnits(amount));
-  return tx;
 }
 
 test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
@@ -301,179 +160,205 @@ test(`${J} #2 tries a TEST limit buy before verifying and is refused in plain wo
   expect(held(balances, 'USDT')).toBe(0n);
 });
 
-test(`${J} #3 submits verification, two operators approve it, signs in again and the desk accepts orders`, async ({ page }) => {
+/** The stack's TEST sanctions list entry a trading check must hold (a TEST name only; never a real person). */
+const LISTED = { legalName: 'TEST Listed Person', dateOfBirth: '1970-01-01', country: 'DE' };
+
+/**
+ * The trading checks on /verification, as a person passes them: their legal name, and the country they live in
+ * confirmed. Nothing asks for an ID document, a selfie or an ID vendor. Returns the request the page sent.
+ */
+async function tradingChecks(page, { legalName, country }) {
+  await page.goto('/verification');
+  const checks = page.getByRole('form', { name: /trading checks/i });
+  await expect(checks).toBeVisible();
+  await checks.getByRole('textbox', { name: /legal name/i }).fill(legalName);
+  const where = checks.getByRole('combobox', { name: /country you live in/i });
+  await expect(where).toHaveValue(country);
+  await checks.getByRole('checkbox', { name: /I live in/i }).check();
+  // No ID document, selfie or ID vendor for trading.
+  await expect(page.locator('input[type=file]')).toHaveCount(0);
+  await expect(page.getByText(/selfie|passport|ID document|driving licen[cs]e|identity card/i)).toHaveCount(0);
+  await expect(page.locator('iframe')).toHaveCount(0);
+  await checks.getByRole('button', { name: /run the checks|submit|continue/i }).click();
+}
+
+test(`${J} #3 passes the trading checks (legal name, country confirmed, sanctions on name, date of birth and country, no ID document, selfie or vendor): verified for trading; a hit reads "under review"; a blank list refuses`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
   const who = account();
   await signIn(page, who);
-  await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Full' });
-  await page.getByLabel('Country code').fill('DE');
-  await page.getByRole('button', { name: 'Review request' }).click();
-  await page.getByRole('button', { name: 'Submit this request' }).click();
-  await expect(page.getByText('Your reviewed request')).toBeVisible();
-  // The two TEST operators of the stack approve it through identity's own two-person door.
-  tool('local-test-gates.mjs', 'verify');
-  const status = tool('local-test-gates.mjs', 'status');
-  const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
-  expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
-  // Signs in again, so the session carries the new level.
+  await tradingChecks(page, { legalName: `TEST Trader ${who.handle}`, country: 'DE' });
+  // Signs in again, so the session carries the new tier.
   await signOutBrowser(page.context());
   await signIn(page, who);
-  // The tier reads verified: on the Trade door, in the account menu and on Verification.
+  // The tier reads verified for trading: on the Trade door and in the account menu.
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Trade', exact: true }).click();
   await expect(page).toHaveURL(/\/trade$/);
   await pointerOff(page);
   const access = page.getByTestId('trade-access');
   await expect(access).toHaveAttribute('data-state', 'verified');
   await expect(access.getByText('Verified to trade', { exact: true })).toBeVisible();
-  await expect(access).toContainText('Your level: Full');
   await expect(access.getByText('Verify to trade')).toHaveCount(0);
   await page.getByRole('button', { name: 'Account menu' }).click();
-  await expect(page.getByTestId('account-summary')).toContainText('Verification: Full');
+  await expect(page.getByTestId('account-summary')).toContainText(/Verification: .*trading/i);
   await page.keyboard.press('Escape');
-  await page.goto('/verification');
-  await expect(page.getByTestId('verification__level-tag')).toContainText('Full');
-  await expect(page.getByTestId('verification__level-tag')).not.toContainText('Not verified');
-
-  // The desk accepts orders: the service's own order check passes a resting limit buy for this account with no refusal,
-  // and the order form's only remaining stop is money (#4 funds the account), never verification.
+  // The desk accepts orders: the venue's own order preview for this account is answered, with no refusal on
+  // verification (the person has not funded a venue account yet, so the venue's figures are all it can say).
+  await venueStatus(who);
   await desk(page);
-  const away = await awayBid(90);
-  // The check of this exact order: the price and amount typed below (a check sent before both were typed is not it).
-  const check = page.waitForResponse((r) => {
-    if (!r.url().includes('/api/v1/orders/preview') || r.request().method() !== 'POST') return false;
-    const sent = r.request().postDataJSON();
-    const same = (value, want) => typeof value === 'string' && /^\d+(\.\d+)?$/.test(value) && toUnits(value) === toUnits(want);
-    return sent?.side === 'buy' && same(sent?.amount, '0.001') && same(sent?.price, away);
-  });
-  await page.getByRole('textbox', { name: 'Price' }).first().fill(away);
+  await page.getByRole('textbox', { name: 'Price' }).first().fill('1000');
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
-  const answer = await check;
-  expect(answer.status()).toBe(200);
-  const preview = await answer.json();
-  expect(preview, JSON.stringify(preview).slice(0, 400)).toMatchObject({ orderable: true, refusals: [], holdAsset: 'USDT' });
-  expect(wireUnits(preview.holdAmount)).toBe(times(away, '0.001'));
   const reason = page.locator('#dk-reason-buy');
-  await expect(reason).toContainText('Not enough USDT');
   await expect(reason).not.toContainText('Verify your identity first');
   await expect(reason).not.toContainText('Verify now');
-  // The place door itself takes the same order past verification to the money check: it answers on funds (no USDT
-  // yet), not on permission, and nothing is held and no order rests.
-  const placed = await (
-    await api(who)
-  ).post('/api/v1/orders', {
-    symbol: 'BTC/USDT',
-    type: 'limit',
-    side: 'buy',
-    amount: '0.001',
-    price: away,
-    clientOrderId: `${J}-3-${who.handle}`,
-  });
-  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBe(400);
-  expect(placed.body.code, JSON.stringify(placed.body).slice(0, 300)).toBe('InsufficientFunds');
-  expect(await openOrders(who)).toHaveLength(0);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
+
+  // A sanctions hit: another TEST person whose name, date of birth and country are on the stack's TEST list passes the
+  // same checks and is held behind a neutral "under review" that never mentions screening; the desk keeps refusing.
+  const hitContext = await browser.newContext();
+  try {
+    const hitPage = await hitContext.newPage();
+    const handle = `jh${Date.now().toString(36)}`;
+    const listed = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+    await signUpInBrowser(hitPage, listed, { country: LISTED.country, dateOfBirth: LISTED.dateOfBirth });
+    await tradingChecks(hitPage, LISTED);
+    await signOutBrowser(hitContext);
+    await signIn(hitPage, listed);
+    await hitPage.goto('/verification');
+    await expect(hitPage.getByText(/under review/i).first()).toBeVisible();
+    await expect(hitPage.locator('main')).not.toContainText(/screen|sanction|watch ?list|list match/i);
+    await hitPage.goto('/trade');
+    await expect(hitPage.getByTestId('trade-access')).not.toHaveAttribute('data-state', 'verified');
+    await openDesk(hitPage, listed, DESK_SYMBOL);
+    await hitPage.getByRole('textbox', { name: 'Price' }).first().fill('1000');
+    await hitPage.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
+    await expect(hitPage.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+    await expect(hitPage.locator('#dk-reason-buy')).not.toContainText(/screen|sanction/i);
+  } finally {
+    await hitContext.close();
+  }
+
+  // With the owner's sanctions list blank, the check refuses kyc.screening_list_unset and clears nothing.
+  restartWith('identity', 'LOCAL_STACK_IDENTITY_SANCTIONS_LIST', false);
+  const blankContext = await browser.newContext();
+  try {
+    const blankPage = await blankContext.newPage();
+    const handle = `jb${Date.now().toString(36)}`;
+    const other = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+    await signUpInBrowser(blankPage, other);
+    const answered = blankPage.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/api\/identity\//.test(r.url()) && /kyc|verif|check/i.test(r.url()),
+    );
+    await tradingChecks(blankPage, { legalName: `TEST Trader ${handle}`, country: 'DE' });
+    const refused = await (await answered).json();
+    expect(JSON.stringify(refused), 'the check refuses with the typed code').toContain('kyc.screening_list_unset');
+    await expect(blankPage.locator('[data-code="kyc.screening_list_unset"]')).toBeVisible();
+    await signOutBrowser(blankContext);
+    await signIn(blankPage, other);
+    await blankPage.goto('/trade');
+    await expect(blankPage.getByTestId('trade-access')).toHaveAttribute('data-state', 'verify');
+  } finally {
+    await blankContext.close();
+    restartWith('identity', 'LOCAL_STACK_IDENTITY_SANCTIONS_LIST', true);
+  }
 });
 
-test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, async ({ page, browser }) => {
+/** The person's TEST wallet in `page`: one TEST key for the whole run, kept in the run file (mode 600), on the TEST chain. */
+async function personWallet(page) {
+  let { walletKey } = run.read();
+  if (!walletKey) {
+    walletKey = testWalletKey();
+    run.write({ walletKey });
+  }
+  return installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+}
+
+/** The venue desk for BTC/USDC with the person's TEST wallet connected; returns the wallet and the venue-account panel. */
+async function venueDesk(page) {
+  const wallet = await personWallet(page);
+  await openDesk(page, account(), DESK_SYMBOL);
+  const panel = venuePanel(page);
+  await expect(panel).toBeVisible();
+  const connect = panel.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  if (await connect.isVisible()) await connect.click();
+  await expect(panel).toContainText(`${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`);
+  return { wallet, owner: wallet.address.toLowerCase(), panel };
+}
+
+/** The desk's venue-account panel: the person's own venue balances, as the venue reports them. */
+const venuePanel = (page) => page.getByRole('region', { name: /venue account/i });
+
+/** The figure the panel lists next to `label` (its dt/dd pair). */
+const listed = (scope, label) =>
+  scope
+    .locator('div', { has: scope.page().locator('dt', { hasText: label }) })
+    .locator('dd')
+    .first();
+
+/**
+ * The panel shows the venue's own USDC figures for `owner`, unit for unit, with the venue's as-of time. Read again
+ * until it does (the panel refreshes on its own); returns the venue's read.
+ */
+async function panelEqualsVenue(page, who, owner) {
+  const panel = venuePanel(page);
+  let venue;
+  await expect(async () => {
+    venue = await venueBalance(who, owner, 'USDC');
+    expect(shownUnits(await listed(panel, /^Free$/).innerText()), 'free').toBe(wireUnits(venue.free));
+    expect(shownUnits(await listed(panel, /^Used$/).innerText()), 'used').toBe(wireUnits(venue.locked));
+    await expect(listed(panel, /^As of$/)).toHaveText(/\d{1,2}:\d{2}/, { timeout: 1_000 });
+  }).toPass({ timeout: 20_000 });
+  return venue;
+}
+
+/** Our ledger's view of this account, every asset, for the steps that say the ledger posts nothing. */
+async function ledgerOf(who) {
+  return (await api(who)).balances();
+}
+
+test(`${J} #4 connects a wallet and deposits TEST 1,000 USDC into the venue account, signing in the wallet; a replay adds nothing and the ledger posts nothing`, async ({
+  page,
+}) => {
   test.setTimeout(300_000);
   const who = account();
-  const client = await api(who);
-  const usdt = async () => (await client.balances()).USDT ?? { free: '0', used: '0', total: '0' };
-  expect(toUnits((await usdt()).total)).toBe(0n);
-  // Funds it as a person does: Deposit issues a USDT address on TEST Ethereum, and the stack's TEST chain sends 1000 USDT
-  // to it, final at the published 6 confirmations (svc-pay's chain webhook, signed as the watcher would deliver it). The
-  // test uses no direct ledger post.
-  await signIn(page, who);
-  await page.goto('/uc/recharge');
-  await pointerOff(page);
-  await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption('USDT');
-  await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: 'TEST Ethereum' });
-  await page.getByRole('checkbox', { name: 'I will send only USDT on TEST Ethereum.' }).check();
-  await page.getByRole('button', { name: 'Show my deposit address' }).click();
-  const address = (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
-  expect(address.length).toBeGreaterThan(8);
-  const label = `jcs01-${who.handle}-1000`;
-  const tx = chainDeposit(address, '1000', label);
-  // A deposit of 1000 or more waits for the depositor's travel-rule declaration (the stack's TEST rule, W-deposit-07):
-  // the person declares where it came from, and compliance releases it once on the founder console.
-  // 1000 is at or over the stack's TEST threshold, so this deposit is the held kind (read from the stack's own rule).
-  expect(toUnits('1000') >= toUnits(TEST_DEPOSIT_TRAVEL_RULE.threshold), TEST_DEPOSIT_TRAVEL_RULE.threshold).toBe(true);
-  const records = page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
-  // svc-pay may record the hold just after the delivery answers, so the room is read again until it shows it.
-  await expect(async () => {
-    await page.reload();
-    await pointerOff(page);
-    await expect(records.locator('tbody tr', { hasText: tx }).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule', {
-      timeout: 3_000,
-    });
-  }).toPass({ timeout: 30_000 });
-  expect(toUnits((await usdt()).total)).toBe(0n);
-  const panel = records
-    .locator('tbody tr', { has: page.getByTestId('deposit-travel-rule') })
-    .filter({ has: page.locator(`xpath=preceding-sibling::tr[1][contains(., "${tx}")]`) })
-    .getByTestId('deposit-travel-rule');
-  const form = panel.getByTestId('deposit-travel-rule-form');
-  await form.getByRole('radio', { name: 'An exchange or other crypto platform' }).check();
-  await form.getByLabel('Sender’s full name').fill('TEST Sender Person');
-  await form.getByLabel('Sender’s address').fill('1 TEST Street, Testville');
-  await form.getByRole('button', { name: 'Send declaration' }).click();
-  await expect(panel).toHaveAttribute('data-state', 'under_review', { timeout: 30_000 });
-  const founderContext = await browser.newContext();
-  try {
-    const founder = await founderContext.newPage();
-    await founderSignIn(founder, 'a');
-    await founder.goto(`${ADMIN}/accounts/${client.userId}?tab=money`, { waitUntil: 'load' });
-    const holds = founder.getByTestId('read-money.deposit-travel-rule');
-    await expect(holds.getByRole('table')).toBeVisible({ timeout: 60_000 });
-    // This new account has exactly one USDT hold, the deposit above, so the one row released is this deposit's.
-    const rows = holds.locator('tbody > tr', { hasText: 'USDT' });
-    await expect(rows).toHaveCount(1);
-    await rows.getByRole('button', { name: 'Open' }).click();
-    const detail = holds.getByTestId('row-detail');
-    const review = detail.getByTestId('deposit-travel-rule-review');
-    await review.getByLabel(/^Why/).fill(`LOCAL TEST declaration checked for ${who.handle}`);
-    await review.getByRole('button', { name: 'Release and credit once' }).click();
-    await expect(detail.getByTestId('deposit-travel-rule-reply')).toContainText('credited it once', { timeout: 60_000 });
-  } finally {
-    await founderContext.close();
-  }
-  await expect.poll(async () => (await usdt()).free, { timeout: 30_000 }).toMatch(/^1000(\.0+)?$/);
-  const credited = await usdt();
-  expect(credited).toMatchObject({ free: expect.stringMatching(/^1000(\.0+)?$/), used: expect.stringMatching(/^0(\.0+)?$/) });
-  // The same deposit is replayed (the chain delivers the same transfer again): the same transaction, and nothing added.
-  expect(chainDeposit(address, '1000', label)).toBe(tx);
-  // Read for longer than the first credit took to land, so a second credit that posts late is seen.
-  for (let i = 0; i < 10; i += 1) {
-    expect(await usdt()).toEqual(credited);
-    await page.waitForTimeout(1_000);
-  }
-  // Deposit's records hold the transfer once, credited, and the ledger's own history shows one 1000 USDT deposit.
+  await venueStatus(who);
+  const ledgerBefore = await ledgerOf(who);
+  const { wallet, owner, panel } = await venueDesk(page);
+  run.write({ owner });
+  expect(toUnits((await venueBalance(who, owner, 'USDC')).total)).toBe(0n);
+  // Deposits from the wallet into the venue account: the wallet is asked, and it signs.
+  const asked = wallet.requests.length + wallet.sends.length;
+  await panel.getByRole('button', { name: /^Deposit/ }).click();
+  const deposit = page.getByRole('dialog', { name: /deposit/i });
+  await deposit.getByRole('textbox', { name: /^Amount/ }).fill('1000');
+  await expect(deposit).toContainText('USDC');
+  await deposit
+    .getByRole('button', { name: /deposit|sign/i })
+    .last()
+    .click();
+  await expect.poll(() => wallet.requests.length + wallet.sends.length, { timeout: 30_000 }).toBeGreaterThan(asked);
+  // The venue credits 1,000 USDC: free 1,000, used 0, and the desk shows the venue's figures with its as-of time.
+  await expect.poll(async () => (await venueBalance(who, owner, 'USDC')).free, { timeout: 120_000 }).toMatch(/^1000(\.0+)?$/);
+  const venue = await panelEqualsVenue(page, who, owner);
+  expect(wireUnits(venue.free)).toBe(toUnits('1000'));
+  expect(wireUnits(venue.locked)).toBe(0n);
+  // The same deposit event replayed: the venue keys a deposit by its chain transfer, so it adds nothing.
+  const transfer = wallet.sends.at(-1)?.hash;
+  expect(transfer, 'the wallet sent the deposit as a chain transfer').toMatch(/^0x[0-9a-f]{64}$/);
+  const replay = await testVenue('/test/deposit', {
+    account: { venueId: (await venueStatus(who)).venue.id, owner, subAccount: null },
+    asset: 'USDC',
+    amount: '1000',
+    depositRef: transfer,
+  });
+  expect(replay.status, JSON.stringify(replay.body)).toBe(200);
+  expect(replay.body.credited, 'the replayed deposit is not credited again').toBe(false);
   await page.reload();
-  await pointerOff(page);
-  await expect(records.locator('tbody tr', { hasText: tx })).toHaveCount(1);
-  await expect(records.locator('tbody tr', { hasText: tx }).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
-  await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption('USDT');
-  const history = page.locator('section', { has: page.getByRole('heading', { name: 'Your deposits' }) });
-  await expect(history.locator('tbody tr')).toHaveCount(1);
-  await expect(history.locator('tbody tr')).toContainText(/1,?000 USDT/);
-  // The desk's balance equals the ledger exactly: its Assets row and the order form's Available, unit for unit.
-  await desk(page);
-  await page.locator('[role=tab]', { hasText: /^Assets$/ }).click();
-  const table = page.getByTestId('dk-table');
-  const heads = (await table.locator('th').allInnerTexts()).map((h) => h.trim());
-  const cells = (
-    await table
-      .locator('tr', { has: page.locator('td', { hasText: /^USDT$/ }) })
-      .locator('td')
-      .allInnerTexts()
-  ).map((c) => c.trim());
-  const ledger = await usdt();
-  expect(shownUnits(cells[heads.indexOf('Available')]), heads.join(' | ')).toBe(wireUnits(ledger.free));
-  expect(shownUnits(cells[heads.indexOf('In orders')])).toBe(wireUnits(ledger.used));
-  expect(shownUnits(cells[heads.indexOf('Total')])).toBe(wireUnits(ledger.total));
-  expect(wireUnits(ledger.free)).toBe(toUnits('1000'));
-  expect(wireUnits(ledger.used)).toBe(0n);
-  expect(shownUnits(await page.getByTestId('dk-avail').locator('dd').first().innerText())).toBe(wireUnits(ledger.free));
+  const after = await panelEqualsVenue(page, who, owner);
+  expect(wireUnits(after.free)).toBe(toUnits('1000'));
+  // The ledger posts nothing: INTAFACED holds none of it.
+  expect(await ledgerOf(who)).toEqual(ledgerBefore);
 });
 
 test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode and positions`, async ({ page }) => {
@@ -542,276 +427,255 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
   await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();
 });
 
-test(`${J} #6 reviews a TEST 0.1 BTC limit buy: hold in USDT, maker role and rate, time in force, client id held for retry`, async ({
+/** #6's buy, in the row's own words: TEST 0.1 BTC. */
+const VENUE_BUY = '0.1';
+
+/**
+ * A TEST top-up of the person's venue account through the venue's own TEST deposit control (never our ledger): a
+ * 0.1 BTC buy at the TEST venue's price (about 60,000) locks about 6,000 USDC, more than #4's 1,000.
+ */
+const VENUE_TOP_UP = '6000';
+
+/** One tick above the venue's best bid: a buy there rests, and is first in line for a crossing sell. */
+async function venueTopBid() {
+  const { body } = await testVenue('/markets', {});
+  const market = body.value.find((m) => m.symbol === VENUE_SPOT);
+  expect(market, JSON.stringify(body).slice(0, 300)).toBeTruthy();
+  const { bid, ask } = await venueBook(VENUE_SPOT);
+  const price = bid + toUnits(market.tickSize);
+  expect(price < ask, `no room between bid ${fromUnits(bid)} and ask ${fromUnits(ask)}`).toBe(true);
+  return fromUnits(price);
+}
+
+test(`${J} #6 types a limit buy of TEST 0.1 BTC and reviews: the venue's lock, the venue's fee, our builder fee as its own line reading none, maker, time in force, the client id held for retry, no builder-fee approval`, async ({
   page,
-  browser,
 }) => {
   test.setTimeout(300_000);
   const who = account();
-  const client = await api(who);
-  // It starts with a second TEST deposit through #4's own path (TOP_UP says why), and the desk's balance equals the
-  // ledger after it, before Review.
-  expect((await client.balances()).USDT).toMatchObject({
-    free: expect.stringMatching(/^1000(\.0+)?$/),
-    used: expect.stringMatching(/^0(\.0+)?$/),
+  const { owner } = run.read();
+  expect(owner, '#4 connected a wallet').toBeTruthy();
+  const top = await testVenue('/test/deposit', {
+    account: { venueId: await testVenueId(), owner, subAccount: null },
+    asset: 'USDC',
+    amount: VENUE_TOP_UP,
+    depositRef: `test-top-up:${owner}:${VENUE_TOP_UP}`,
   });
-  await signIn(page, who);
-  await depositReleased(page, browser, client, who, TOP_UP, `jcs01-${who.handle}-${TOP_UP}`);
-  await desk(page);
-  const funded = await deskEqualsLedger(page, client, ['USDT']);
-  expect(wireUnits(funded.USDT.free)).toBe(toUnits('1000') + toUnits(TOP_UP));
-  expect(wireUnits(funded.USDT.used)).toBe(0n);
-  expect(shownUnits(await page.getByTestId('dk-avail').locator('dd').first().innerText())).toBe(wireUnits(funded.USDT.free));
-  run.write({ fundedUsdt: funded.USDT.total });
-
-  // Types a limit buy of TEST 0.1 BTC at a TEST price, one cent above the best bid, and presses Review.
-  const price = await topBid();
-  expect(times(price, BUY)).toBeLessThanOrEqual(wireUnits(funded.USDT.free));
+  expect(top.status, JSON.stringify(top.body)).toBe(200);
+  const { wallet } = await venueDesk(page);
+  await panelEqualsVenue(page, who, owner);
+  const price = await venueTopBid();
   const previews = [];
-  const sent = (request) => {
-    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/orders/preview') previews.push(request.postDataJSON());
-  };
-  page.on('request', sent);
-  const review = await reviewLimit(page, 'buy', price, BUY);
-  // The order reviewed is the one typed: 0.1 BTC at that price.
-  await expect(reviewValue(review, 'Amount')).toContainText('BTC');
-  expect(shownUnits(await reviewValue(review, 'Amount').innerText())).toBe(toUnits(BUY));
-  // The amount set aside is price x amount, in USDT.
-  const hold = reviewValue(review, 'set aside');
-  await expect(hold).toContainText('USDT');
-  expect(shownUnits(await hold.innerText())).toBe(times(price, BUY));
-  // The fee role is maker, at this account's own maker rate for BTC/USDT as the service lists it (to the shown 0.01%).
-  await expect(reviewValue(review, 'Fee role')).toHaveText('Maker: the order rests on the book');
-  const { body: fees } = await client.get('/api/v1/account/fees');
-  const maker = fees['BTC/USDT']?.maker;
-  expect(maker, JSON.stringify(fees).slice(0, 300)).toBeTruthy();
-  const rate = /up to ([−-]?[\d.]+)%/.exec(await reviewValue(review, 'Estimated fee').innerText())?.[1];
-  expect(rate, 'the estimated fee names its rate').toBeTruthy();
-  expect(toUnits(rate.replace('−', '-'))).toBe(asPercent(maker));
-  await expect(reviewValue(review, 'Time in force')).toHaveText('Good till cancelled');
-  // The client id is shown with the promise that a retry sends it again, and it is the id this review's own check sent.
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/preview') previews.push(r.postDataJSON());
+  });
+  const asked = wallet.requests.length;
+  const review = await reviewLimit(page, 'buy', price, VENUE_BUY);
+  // The figures are the venue's own preview of this order, line for line.
+  expect(previews.length, 'the review asks the venue for its preview').toBeGreaterThan(0);
+  const sent = previews.at(-1);
+  expect(sent.owner).toBe(owner);
+  expect(sent.intent).toMatchObject({ kind: 'place_order', symbol: VENUE_SPOT, side: 'buy', type: 'limit', timeInForce: 'GTC' });
+  expect(toUnits(sent.intent.amount)).toBe(toUnits(VENUE_BUY));
+  expect(toUnits(sent.intent.price)).toBe(toUnits(price));
+  const { status, body: preview } = await (await api(who)).post('/api/v1/venue/preview', sent);
+  expect(status, JSON.stringify(preview).slice(0, 300)).toBe(200);
+  const lock = listed(review, /lock/i);
+  await expect(lock).toContainText(preview.value.lock.asset);
+  expect(shownUnits(await lock.innerText())).toBe(wireUnits(preview.value.lock.amount));
+  const venueFee = listed(review, /venue.?s fee/i);
+  expect(preview.value.venueFee.known).toBe(true);
+  expect(shownUnits(await venueFee.innerText())).toBe(wireUnits(preview.value.venueFee.value.amount));
+  // Our builder fee is its own line and reads none: the venue charges builder fees only in the quote asset.
+  expect(preview.value.builderFee).toMatchObject({ known: true });
+  expect(wireUnits(preview.value.builderFee.value.amount)).toBe(0n);
+  await expect(listed(review, /builder fee/i)).toHaveText(/none/i);
+  await expect(listed(review, 'Fee role')).toContainText('Maker');
+  expect(preview.value.role).toBe('maker');
+  await expect(listed(review, 'Time in force')).toHaveText('Good till cancelled');
+  // The client id, held for retry: the same id after the review is closed and the same order reviewed again.
   const id = (await review.getByTestId('client-order-id').innerText()).trim();
   expect(id).toMatch(/^\S+$/);
-  await expect(reviewValue(review, 'Client order ID')).toContainText('A retry sends this same ID, so it can’t become a second order.');
-  expect(
-    previews.some((body) => typeof body?.clientOrderId === 'string' && body.clientOrderId.endsWith(`:${id}`)),
-    JSON.stringify(previews.map((b) => b?.clientOrderId)),
-  ).toBe(true);
-  // Held for retry: the review is closed with nothing sent, the same order is reviewed again, and it keeps the same id.
+  expect(sent.intent.clientOrderKey.endsWith(id), `${sent.intent.clientOrderKey} names ${id}`).toBe(true);
   await review.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(reviewSheet(page)).toHaveCount(0);
   await page.getByRole('button', { name: 'Buy BTC' }).click();
-  await expect(reviewSheet(page)).toBeVisible();
   await expect(reviewSheet(page).getByTestId('client-order-id')).toHaveText(id);
+  // No builder-fee approval is asked for an order that carries no builder fee, and the review signs nothing.
+  await expect(page.getByText(/approve (our |the )?builder fee/i)).toHaveCount(0);
+  expect(wallet.requests.length).toBe(asked);
   await reviewSheet(page).getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(reviewSheet(page)).toHaveCount(0);
-  page.off('request', sent);
-  // A review sends nothing: no order exists and nothing is held.
-  expect(await openOrders(who)).toHaveLength(0);
-  expect(held(await client.balances(), 'USDT')).toBe(0n);
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  run.write({ venueBuy: { price, id } });
 });
 
-test(`${J} #7 confirms: the order is Open and the USDT hold equals the review`, async ({ page }) => {
+test(`${J} #7 confirms and signs: the order rests on the venue, shows Open, and the locked amount equals the venue's`, async ({ page }) => {
   const who = account();
-  await desk(page);
-  // The book has moved since the review in step 6, so the price is taken again now.
-  const price = await topBid();
-  const amount = BUY;
-  const review = await reviewLimit(page, 'buy', price, amount);
-  const reviewHold = shownUnits(await reviewValue(review, 'set aside').innerText());
+  const { owner, venueBuy } = run.read();
+  expect(venueBuy, '#6 reviewed the buy').toBeTruthy();
+  const { wallet } = await venueDesk(page);
+  const price = await venueTopBid();
+  await reviewLimit(page, 'buy', price, VENUE_BUY);
+  const asked = wallet.requests.length;
   await confirm(page, 'buy');
+  // The wallet signs the order once.
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
+  expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+  // It rests on the venue.
+  await expect.poll(async () => (await venueOpenOrders(who, owner)).length, { timeout: 20_000 }).toBe(1);
+  const [order] = await venueOpenOrders(who, owner);
+  expect(order).toMatchObject({ symbol: VENUE_SPOT, side: 'buy', type: 'limit', status: 'open' });
+  expect(toUnits(order.amount)).toBe(toUnits(VENUE_BUY));
+  expect(toUnits(order.price)).toBe(toUnits(price));
+  // Open in the Open orders tab, with the venue's lock.
   await page.locator('[role=tab]', { hasText: 'Open orders' }).click();
-  const row = page.locator('tr', { hasText: Number(price).toLocaleString('en-US', { minimumFractionDigits: 2 }) });
-  await expect(row).toBeVisible();
-  const orders = await openOrders(who);
-  expect(orders).toHaveLength(1);
-  expect(orders[0].status).toBe('open');
-  run.write({ limitBuy: { price, amount, id: orders[0].id } });
-  // The hold equals the review's, on the ledger and in the row's Held cell.
-  const balances = await (await api(who)).balances();
-  expect(held(balances, 'USDT')).toBe(reviewHold);
-  expect(reviewHold).toBe(times(price, amount));
-  const heldCol = await row.locator('xpath=ancestor::table//th').allInnerTexts();
+  const row = page.locator('tr', { hasText: Number(price).toLocaleString('en-US') });
+  await expect(row).toContainText('Open');
+  const heads = (await row.locator('xpath=ancestor::table//th').allInnerTexts()).map((h) => h.trim());
   const cells = await row.locator('td').allInnerTexts();
-  const heldAt = heldCol.findIndex((h) => h.trim() === 'Held');
-  expect(heldAt, heldCol.join(' | ')).toBeGreaterThanOrEqual(0);
-  expect(shownUnits(cells[heldAt])).toBe(reviewHold);
+  const at = heads.findIndex((h) => /^(Locked|Held)$/.test(h));
+  expect(at, heads.join(' | ')).toBeGreaterThanOrEqual(0);
+  expect(shownUnits(cells[at])).toBe(wireUnits(order.locked));
+  // The venue's used balance is that lock, and the panel shows it.
+  const venue = await panelEqualsVenue(page, who, owner);
+  expect(wireUnits(venue.locked)).toBe(wireUnits(order.locked));
+  run.write({ venueBuy: { price, clientOrderId: order.venueClientOrderId } });
 });
 
-test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price, amount, fee and maker role`, async ({ page }) => {
+test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, no builder fee, maker, read from the venue; the venue balances move by the fill`, async ({
+  page,
+}) => {
   const who = account();
-  const { price, amount, id } = run.read().limitBuy ?? {};
-  expect(id).toBeTruthy();
-  const other = await api(otherTrader());
-  // The other TEST trader is the stack's test_taker, which also crosses the best bid now and then on its own; the market
-  // maker's quotes are post-only and never cross. Either way the order fills as maker against the other trader's sell.
-  // An IOC sell takes the best bids first: if the market maker has bid above this order since, sell through those
-  // too, so the sell reaches this order at its price. The maker requotes every few seconds, so bids it adds between the
-  // book read and the sell can use the sell up first (run 1132, #7108): while the order is still open a few seconds
-  // after a sell, read the book again and send another.
-  let sells = 0;
-  let lastSell = 0;
-  const sellWhileOpen = async () => {
-    const open = await openOrders(who);
-    if (!open.some((o) => o.id === id) || Date.now() - lastSell < 3_000) return open.length;
-    const { body } = await bestPrices();
-    const ahead = body.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-    sells += 1;
-    const sell = await other.post('/api/v1/orders', {
-      symbol: 'BTC/USDT',
-      type: 'limit',
-      side: 'sell',
-      amount: fromUnits(ahead + toUnits(amount)),
-      price,
-      timeInForce: 'IOC',
-      clientOrderId: `${J}-8-${id}-${sells}`,
-    });
-    expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
-    lastSell = Date.now();
-    return open.length;
+  const { owner, venueBuy } = run.read();
+  expect(venueBuy?.clientOrderId, '#7 placed the buy').toBeTruthy();
+  const before = { usdc: await venueBalance(who, owner, 'USDC'), btc: await venueBalance(who, owner, 'BTC') };
+  const since = new Date(Date.now() - 1_000);
+  // Another TEST trader on the venue sells into the bid.
+  const seller = await otherVenueTrader({ BTC: VENUE_BUY });
+  await seller.place({
+    symbol: VENUE_SPOT,
+    side: 'sell',
+    amount: VENUE_BUY,
+    price: venueBuy.price,
+    timeInForce: 'IOC',
+    key: `order:test-seller:${owner}:8`,
+  });
+  await expect.poll(async () => (await venueOrder(who, owner, venueBuy.clientOrderId))?.status, { timeout: 20_000 }).toBe('filled');
+  const fills = (await venueFills(who, owner, since)).filter((f) => f.venueClientOrderId === venueBuy.clientOrderId);
+  expect(fills.length).toBeGreaterThan(0);
+  const filled = fills.reduce((s, f) => s + wireUnits(f.amount), 0n);
+  expect(filled).toBe(toUnits(VENUE_BUY));
+  for (const f of fills) {
+    expect(f).toMatchObject({ side: 'buy', role: 'maker' });
+    expect(wireUnits(f.price)).toBe(toUnits(venueBuy.price));
+    expect(wireUnits(f.builderFee), 'no builder fee on a spot buy').toBe(0n);
+  }
+  // The desk shows the fill as the venue reports it.
+  await venueDesk(page);
+  await page
+    .locator('[role=tab]', { hasText: /^(Order history|Trade history|Fills)$/ })
+    .first()
+    .click();
+  const row = page
+    .locator('tr', { hasText: Number(venueBuy.price).toLocaleString('en-US') })
+    .filter({ hasText: /Filled|Buy/ })
+    .first();
+  await expect(row).toContainText('Maker');
+  const heads = (await row.locator('xpath=ancestor::table//th').allInnerTexts()).map((h) => h.trim());
+  const cells = await row.locator('td').allInnerTexts();
+  const col = (name) => {
+    const i = heads.findIndex((h) => name.test(h));
+    expect(i, `${name} in ${heads.join(' | ')}`).toBeGreaterThanOrEqual(0);
+    return cells[i];
   };
-  await expect.poll(sellWhileOpen, { timeout: 30_000 }).toBe(0);
-  const client = await api(who);
-  // The service holds the order as filled: closed, its whole amount filled, nothing left.
-  const { status: read, body: order } = await client.get(`/api/v1/orders/${id}`);
-  expect(read, JSON.stringify(order).slice(0, 300)).toBe(200);
-  expect(order).toMatchObject({ id, status: 'closed' });
-  expect(wireUnits(order.filled)).toBe(toUnits(amount));
-  expect(wireUnits(order.remaining)).toBe(0n);
-  // The order's own fills, from the service: maker, at its price, for its whole amount, each with a fee and no rebate.
-  const fills = await fillsOf(who, id);
-  expect(fills.length).toBeGreaterThan(0);
-  expect(
-    fills.every((f) => f.takerOrMaker === 'maker' && wireUnits(f.price) === toUnits(price) && !f.rebate),
-    JSON.stringify(fills),
-  ).toBe(true);
-  expect(fills.reduce((sum, f) => sum + wireUnits(f.amount), 0n)).toBe(toUnits(amount));
-  // Every fill is another TEST trader's crossing sell: the other trader's own fills hold, for each, a taker sell at the
-  // same price, amount and moment (each of its fills used once).
-  const { status: theirsRead, body: theirs } = await other.get(
-    `/api/v1/account/trades?symbol=BTC%2FUSDT&limit=500&since=${Math.min(...fills.map((f) => Number(f.timestamp))) - 1_000}`,
-  );
-  expect(theirsRead, JSON.stringify(theirs).slice(0, 300)).toBe(200);
-  const crossings = theirs.filter((t) => t.side === 'sell' && t.takerOrMaker === 'taker');
-  for (const f of fills) {
-    const at = crossings.findIndex(
-      (t) =>
-        wireUnits(t.price) === wireUnits(f.price) &&
-        wireUnits(t.amount) === wireUnits(f.amount) &&
-        Math.abs(t.timestamp - f.timestamp) <= 1_000,
-    );
-    expect(at, `${JSON.stringify(f)} among the other trader's sells ${JSON.stringify(crossings).slice(0, 600)}`).toBeGreaterThanOrEqual(0);
-    crossings.splice(at, 1);
-  }
-  // BTC is credited and USDT debited to the ledger amount: the fills' amount less any fee taken in BTC, and their cost
-  // plus any fee taken in USDT. Before the fill the account held no BTC and the USDT #6 left it with, nothing held.
-  const feeIn = (asset) => fills.filter((f) => f.fee.currency === asset).reduce((sum, f) => sum + wireUnits(f.fee.cost), 0n);
-  expect(
-    fills.every((f) => f.fee.currency === 'BTC' || f.fee.currency === 'USDT'),
-    JSON.stringify(fills),
-  ).toBe(true);
-  const cost = fills.reduce((sum, f) => sum + wireUnits(f.cost), 0n);
-  expect(cost).toBe(times(price, amount));
-  const after = await client.balances();
-  expect(toUnits(after.BTC?.total ?? '0')).toBe(toUnits(amount) - feeIn('BTC'));
-  expect(toUnits(run.read().fundedUsdt) - toUnits(after.USDT.total)).toBe(cost + feeIn('USDT'));
-  expect(held(after, 'USDT')).toBe(0n);
-  expect(held(after, 'BTC')).toBe(0n);
-  await desk(page);
-  // The desk's balances equal the ledger's, BTC and USDT.
-  await deskEqualsLedger(page, client, ['BTC', 'USDT']);
-  // Order history shows the order filled: its row reads Filled, with its whole amount in the Filled column.
-  await page.locator('[role=tab]', { hasText: /^Order history$/ }).click();
-  const orderRow = page.locator('tr', { has: page.locator(`a[href="/trade/orders/${encodeURIComponent(id)}"]`) });
-  await expect(orderRow).toHaveCount(1);
-  const orderHeads = (await orderRow.locator('xpath=ancestor::table//th').allInnerTexts()).map((h) => h.trim());
-  const statusAt = orderHeads.indexOf('Status');
-  expect(statusAt, orderHeads.join(' | ')).toBeGreaterThanOrEqual(0);
-  // The Status cell holds one status tag (a link to the order's changes sits beside it): filled, reading Filled.
-  const tag = orderRow.locator('td').nth(statusAt).locator('[data-slot=status-tag]');
-  await expect(tag).toHaveCount(1);
-  await expect(tag).toHaveAttribute('data-status', 'filled');
-  await expect(tag).toHaveText('Filled');
-  const orderCells = (await orderRow.locator('td').allInnerTexts()).map((c) => c.trim());
-  expect(shownUnits(orderCells[orderHeads.indexOf('Filled')])).toBe(toUnits(amount));
-  await page.locator('[role=tab]', { hasText: 'Trade history' }).click();
-  // Each fill's row shows its price, amount, fee amount and asset, the fee rate and the maker role.
-  const makerRows = page
-    .locator('tr', { hasText: 'Maker' })
-    .filter({ hasText: Number(price).toLocaleString('en-US', { minimumFractionDigits: 2 }) });
-  await expect(makerRows).toHaveCount(fills.length);
-  const rows = [];
-  for (const row of await makerRows.all()) rows.push((await row.locator('td').allInnerTexts()).map((c) => c.trim()));
-  // Each fill is matched to its own row, by amount and fee, and no row is used twice.
-  for (const f of fills) {
-    const shown = (cells) => cells.some((c) => /^[\d,.]+$/.test(c) && shownUnits(c) === wireUnits(f.amount));
-    const feeOf = (cells) => cells.find((c) => c.includes(String(f.fee.currency)) && c.includes('%'));
-    const at = rows.findIndex((cells) => shown(cells) && feeOf(cells) && shownUnits(feeOf(cells)) === wireUnits(f.fee.cost));
-    expect(at, `${JSON.stringify(f)} in ${JSON.stringify(rows)}`).toBeGreaterThanOrEqual(0);
-    const [cells] = rows.splice(at, 1);
-    const fee = feeOf(cells);
-    expect(fee, cells.join(' | ')).toBeTruthy();
-    expect(shownUnits(fee)).toBe(wireUnits(f.fee.cost));
-    const shownRate = /([−-]?[\d.]+)%/.exec(fee)?.[1];
-    expect(shownRate, `the fee cell names its rate: ${fee}`).toBeTruthy();
-    expect(toUnits(shownRate.replace('−', '-'))).toBe(asPercent(f.fee.rate));
-  }
+  expect(shownUnits(col(/^Price$/))).toBe(toUnits(venueBuy.price));
+  expect(shownUnits(col(/^(Amount|Size|Filled)$/))).toBe(filled);
+  expect(shownUnits(col(/venue.?s fee|^Fee$/i))).toBe(fills.reduce((s, f) => s + wireUnits(f.venueFee), 0n));
+  expect(col(/builder fee/i)).toMatch(/none|^0(\.0+)?/i);
+  // The venue balances moved by the fill: BTC up by what was bought (less a fee taken in BTC), USDC's lock spent.
+  const after = { usdc: await venueBalance(who, owner, 'USDC'), btc: await venueBalance(who, owner, 'BTC') };
+  const feeIn = (asset) => fills.filter((f) => f.feeAsset === asset).reduce((s, f) => s + wireUnits(f.venueFee), 0n);
+  const cost = fills.reduce((s, f) => s + (wireUnits(f.price) * wireUnits(f.amount)) / toUnits('1'), 0n);
+  expect(wireUnits(after.btc.total) - wireUnits(before.btc.total)).toBe(filled - feeIn('BTC'));
+  expect(wireUnits(before.usdc.total) - wireUnits(after.usdc.total)).toBe(cost + feeIn('USDC'));
+  expect(wireUnits(after.usdc.locked)).toBe(0n);
+  await panelEqualsVenue(page, who, owner);
 });
 
-test(`${J} #9 places a market buy: it fills inside its protection price and leaves no hold`, async ({ page }) => {
+test(`${J} #9 places a market buy: it fills on the venue inside its slippage limit and nothing stays locked`, async ({ page }) => {
   const who = account();
-  const before = await (await api(who)).balances();
-  await desk(page);
+  const { owner } = run.read();
+  const since = new Date(Date.now() - 1_000);
+  const { wallet } = await venueDesk(page);
+  const prepares = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/prepare') prepares.push(r.postDataJSON());
+  });
   await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
-  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001'));
+  await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
   await page.getByRole('button', { name: 'Buy BTC' }).click();
-  const review = reviewSheet(page);
-  await expect(review).toBeVisible();
-  // A requote asks again with a new protection price: the bound is the one on the sheet that was last confirmed.
-  let protection;
-  for (let i = 0; i < 3 && (await review.count()); i++) {
-    protection = shownUnits(await reviewValue(review, 'Price protection').innerText());
-    await page.getByRole('button', { name: 'Confirm buy' }).click();
-    await page.waitForTimeout(1500);
-  }
-  await expect(review).toHaveCount(0);
-  await expect
-    .poll(async () => toUnits((await (await api(who)).balances()).BTC?.total ?? '0') - toUnits(before.BTC?.total ?? '0'), {
-      timeout: 20_000,
-    })
-    .toBeGreaterThan(0n);
-  const after = await (await api(who)).balances();
-  expect(held(after, 'USDT')).toBe(0n);
-  // Every fill of the market buy is inside its protection price.
-  const { body: recent } = await (await api(who)).get('/api/v1/orders/closed?symbol=BTC%2FUSDT&limit=5');
-  const market = recent.find((o) => o.type === 'market' && o.side === 'buy');
-  expect(market, JSON.stringify(recent).slice(0, 300)).toBeTruthy();
-  const fills = await fillsOf(who, market.id);
-  expect(fills.length).toBeGreaterThan(0);
-  for (const f of fills) expect(wireUnits(f.price)).toBeLessThanOrEqual(protection);
+  const asked = wallet.requests.length;
+  await confirm(page, 'buy');
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
+  const intent = prepares.at(-1)?.intent;
+  expect(intent, 'the market buy was prepared for the venue').toMatchObject({
+    kind: 'place_order',
+    symbol: VENUE_SPOT,
+    side: 'buy',
+    type: 'market',
+  });
+  // The slippage limit is the worst price the order accepts; every fill is at or inside it.
+  const limit = toUnits(intent.price);
+  const filledAmount = async () => (await venueFills(who, owner, since)).reduce((s, f) => s + wireUnits(f.amount), 0n);
+  await expect.poll(filledAmount, { timeout: 20_000 }).toBe(toUnits('0.001'));
+  const fills = await venueFills(who, owner, since);
+  for (const f of fills) expect(wireUnits(f.price) <= limit, `${f.price} within ${intent.price}`).toBe(true);
+  expect(fills.reduce((s, f) => s + wireUnits(f.amount), 0n)).toBe(toUnits('0.001'));
+  // Nothing stays locked on the venue.
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  const usdc = await panelEqualsVenue(page, who, owner);
+  expect(wireUnits(usdc.locked)).toBe(0n);
 });
 
-test(`${J} #10 rests a limit buy away from the market, cancels it, cancels it again`, async ({ page }) => {
+test(`${J} #10 rests a limit away from the market, cancels it, cancels it again: cancelled on the venue, the lock released, the repeat the same`, async ({
+  page,
+}) => {
   const who = account();
-  await desk(page);
-  const away = await awayBid(90); // 90% of the bid, whole USDT
+  const { owner } = run.read();
+  const { wallet } = await venueDesk(page);
+  const before = await venueBalance(who, owner, 'USDC');
+  const { bid } = await venueBook(VENUE_SPOT);
+  const away = fromUnits((bid / 2n / toUnits('1')) * toUnits('1'));
   await reviewLimit(page, 'buy', away, '0.001');
   await confirm(page, 'buy');
-  const [order] = await openOrders(who);
-  expect(order).toBeTruthy();
+  await expect.poll(async () => (await venueOpenOrders(who, owner)).length, { timeout: 20_000 }).toBe(1);
+  const [order] = await venueOpenOrders(who, owner);
+  expect(toUnits(order.price)).toBe(toUnits(away));
+  expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(wireUnits(before.locked) + wireUnits(order.locked));
+  // Cancels it from Open orders: the wallet signs the cancel, and the venue cancels the order.
+  const prepared = [];
+  page.on('response', async (r) => {
+    if (r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/prepare')
+      prepared.push({ sent: r.request().postDataJSON(), answer: await r.json().catch(() => null) });
+  });
   await page.locator('[role=tab]', { hasText: 'Open orders' }).click();
-  const row = page.locator('tr', { hasText: Number(away).toLocaleString('en-US', { minimumFractionDigits: 2 }) });
-  await row.getByRole('button', { name: 'Cancel' }).click();
-  // Only a confirm dialog's button: the desk's "Cancel orders…" control also reads "cancel order".
-  const sure = page.getByRole('dialog').getByRole('button', { name: /cancel order|yes|confirm/i });
-  if (await sure.count()) await sure.first().click();
-  await expect(row).toHaveCount(0);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
-  // The repeat is refused with the order's terminal state, and moves nothing.
-  const again = await (await api(who)).delete(`/api/v1/orders/${order.id}?symbol=BTC%2FUSDT`);
-  expect(again.status).toBe(409);
-  expect(JSON.stringify(again.body)).toMatch(/is cancelled/);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
+  const row = page.locator('tr', { hasText: Number(away).toLocaleString('en-US') });
+  const asked = wallet.requests.length;
+  await row.getByRole('button', { name: /^Cancel/ }).click();
+  await expect.poll(async () => (await venueOrder(who, owner, order.venueClientOrderId))?.status, { timeout: 20_000 }).toBe('cancelled');
+  expect(wallet.requests.length).toBe(asked + 1);
+  await expect(page.getByText(/cancelled/i).first()).toBeVisible();
+  // The lock is released on the venue, and the panel shows it.
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  expect(wireUnits((await panelEqualsVenue(page, who, owner)).locked)).toBe(wireUnits(before.locked));
+  // Cancels it again: the same cancel, by the same business key, is the same action with the same outcome; the venue's
+  // record and balances do not move.
+  const first = prepared.find((p) => p.sent?.intent?.kind === 'cancel_order');
+  expect(first, 'the cancel was prepared for the venue').toBeTruthy();
+  const repeat = await (await api(who)).post('/api/v1/venue/prepare', first.sent);
+  expect(repeat.status, JSON.stringify(repeat.body).slice(0, 300)).toBe(200);
+  expect(repeat.body.prepared?.digest ?? repeat.body.digest).toBe(first.answer?.prepared?.digest ?? first.answer?.digest);
+  expect((await venueOrder(who, owner, order.venueClientOrderId))?.status).toBe('cancelled');
+  expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(wireUnits(before.locked));
 });
 
 test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the realised result`, async ({ page }) => {
@@ -909,9 +773,6 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
 });
 
 /** #12's TEST wallet on TEST Base, where the stack connects no custody signer (no payout rail), saved in the address book. */
-const WALLET = '0xdd2fd4581271e230360230f9337d5c0430bf44c0';
-const WALLET_LABEL = 'TEST Base wallet';
-
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
 /** The next authenticator code after the last one this run used, so no code is used twice. */
@@ -931,144 +792,70 @@ async function confirmItsMe(page) {
   await dialog.getByRole('button', { name: 'Confirm' }).click();
 }
 
-/** Saves the TEST Base wallet for USDT, approves it by its emailed link in another browser, and ages it past its cooling-off. */
-async function saveWallet(page, browser, who) {
-  await page.goto('/uc/withdraw/address');
-  const add = page.getByRole('form', { name: 'Add an address' });
-  await add.getByRole('textbox', { name: /^Label/ }).fill(WALLET_LABEL);
-  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
-  await add.getByRole('combobox', { name: /^Network/ }).selectOption('base');
-  await add.getByRole('textbox', { name: /^Address/ }).fill(WALLET);
-  await add.getByRole('button', { name: 'Save address' }).click();
-  await confirmItsMe(page);
-  await expect(page.getByText(`${WALLET_LABEL} was saved to your address book.`)).toBeVisible();
-  const links = () =>
-    mailedLines(who.email, 'withdraw-address-approval').map((line) => `/${/link=(approveAddress\?token=\S+)/.exec(line)?.[1]}`);
-  const seen = links().length;
-  await page.locator('tbody tr', { hasText: WALLET_LABEL }).getByRole('button', { name: 'Withdraw to this address' }).click();
-  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
-  await expect.poll(() => links().length, { timeout: 20_000 }).toBeGreaterThan(seen);
-  const other = await browser.newContext();
-  try {
-    const away = await other.newPage();
-    await away.goto(links().at(-1));
-    await away.getByRole('link', { name: 'Sign in' }).last().click();
-    await away.fill('input[name=totp]', await freshCode());
-    await away.fill('input[name=identifier]', who.email);
-    await away.fill('input[name=password]', who.password);
-    await away.getByRole('button', { name: /^sign in$/i }).click();
-    await expect(away).toHaveURL(/\/approveAddress$/);
-    await away.getByTestId('approve-address').getByRole('button', { name: 'Approve' }).click();
-    await confirmItsMe(away);
-    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
-  } finally {
-    await other.close();
-  }
-  // The cooling-off runs from the approval; the LOCAL TEST clock moves it past its end.
-  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
-  await page.reload();
-  await expect(page.locator('tbody tr', { hasText: WALLET_LABEL })).toContainText('Ready to use');
-}
-
-test(`${J} #12 steps up and asks to withdraw TEST 10 USDT: refused with the named blocker, nothing held, no withdrawal; a session not stepped up is refused before that`, async ({
+test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet signs, pending then done with its fees or "not known"; a session not stepped up is refused before the wallet is asked`, async ({
   page,
-  browser,
 }) => {
   test.setTimeout(420_000);
   const who = account();
-  // The stack's TEST withdrawal terms (limits, fees, networks), as J-wallet-05 starts from.
-  tool('local-test-gates.mjs', 'withdraw-terms');
-  // A second factor to step up with, from Security, and a saved wallet on TEST Base to send to.
+  const { owner } = run.read();
+  // A second factor to step up with, from Security.
   await signIn(page, who);
   const { totp } = await totpLib();
   const { secret, step } = await addAuthenticator(page, totp);
   run.write({ secret, step });
-  await saveWallet(page, browser, who);
-
-  const client = await api(who, { totpCode: await freshCode() });
-  const before = await client.balances();
-  expect(wireUnits(before.USDT.free)).toBeGreaterThanOrEqual(toUnits('10'));
-  const withdrawals = async () => {
-    const { status, body } = await client.get(
-      `/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`,
-    );
-    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-    return body.result.data.items;
-  };
-  const unmoved = async () => {
-    const now = await client.balances();
-    expect(free(now, 'USDT')).toBe(free(before, 'USDT'));
-    expect(held(now, 'USDT')).toBe(held(before, 'USDT'));
-    expect(await withdrawals()).toEqual([]);
-  };
-  expect(await withdrawals()).toEqual([]);
-
-  // A session that has not stepped up is refused before the rail: the same send of TEST 10 USDT to the saved wallet, with
-  // a real fee quote, on the signed-in session's own token, is refused for the missing step-up, not for the rail.
-  const quoteRef = `${J}-12-${who.handle}`;
-  const quoted = await client.post('/api/pay/trpc/withdrawal.quote', { quoteRef, assetId: 'USDT', networkId: 'base', amount: '10' });
-  expect(quoted.status, JSON.stringify(quoted.body).slice(0, 400)).toBe(200);
-  const unstepped = await client.post('/api/pay/trpc/withdrawal.create', {
-    assetId: 'USDT',
-    amount: '10',
-    railId: 'crypto-native',
-    networkId: 'base',
-    quoteRef,
-    destination: { kind: 'crypto', ref: WALLET },
-    clientRef: `${J}-12-unstepped-${who.handle}`,
-  });
-  expect(unstepped.status, JSON.stringify(unstepped.body).slice(0, 400)).toBe(403);
-  expect(unstepped.body?.error?.data?.code).toBe('FORBIDDEN');
-  expect(unstepped.body?.error?.message).toContain('trade:withdraw');
-  expect(JSON.stringify(unstepped.body)).not.toContain('pay.wallet_withdraw_unavailable');
-  await unmoved();
-
-  // In the browser: Withdraw, TEST 10 USDT on TEST Base to the saved wallet, the fee, then Confirm and send.
-  await signOutBrowser(page.context());
-  await page.goto('/login');
-  await page.fill('input[name=totp]', await freshCode());
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: /^sign in$/i }).click();
-  await expect(page).not.toHaveURL(/\/login/);
-  await page.goto('/uc/withdraw');
-  await pointerOff(page);
-  const form = page.getByTestId('withdraw-form');
-  const pick = (name) => form.getByRole('combobox', { name: new RegExp(`^${name}`) });
-  await pick('Asset').selectOption('USDT');
-  await pick('Network').selectOption('base');
-  const ready = `${WALLET_LABEL} · ${WALLET.slice(0, 6)}…${WALLET.slice(-4)} · Ready to use`;
-  await expect(pick('Saved address').locator('option', { hasText: WALLET_LABEL })).toHaveText(ready);
-  await pick('Saved address').selectOption({ label: ready });
+  const before = await venueBalance(who, owner, 'USDC');
+  expect(wireUnits(before.free) >= toUnits('10')).toBe(true);
+  // A session that has not stepped up is refused before the wallet is asked: nothing to sign, nothing withdrawn.
+  const { wallet, panel } = await venueDesk(page);
+  const asked = wallet.requests.length;
+  await panel.getByRole('button', { name: /^Withdraw/ }).click();
+  const form = page.getByRole('dialog', { name: /withdraw/i });
   await form.getByRole('textbox', { name: /^Amount/ }).fill('10');
-  await page.getByRole('button', { name: 'Get the fee' }).click();
-  const creates = [];
-  const sent = (request) => {
-    if (request.url().includes('/api/pay/trpc/withdrawal.create')) creates.push(request.url());
-  };
-  page.on('request', sent);
-  await expect(page.getByRole('button', { name: 'Confirm and send' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Confirm and send' }).click();
-  // The send asks for a fresh step-up first: with no code, Confirm stays shut and nothing is sent.
+  await expect(form).toContainText(`${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`);
+  await form
+    .getByRole('button', { name: /withdraw|sign|confirm/i })
+    .last()
+    .click();
   const stepUp = page.getByRole('dialog', { name: 'Confirm it’s you' });
-  await expect(stepUp).toContainText('Sending money out needs a fresh confirmation.');
-  await expect(stepUp.getByRole('button', { name: 'Confirm' })).toBeDisabled();
-  expect(creates).toHaveLength(0);
-  // Steps up: the stepped-up send gets past the step-up check and is refused by the rail, by name.
-  const answered = page.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create'));
+  await expect(stepUp).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect(wallet.requests.length, 'the wallet is not asked before the step-up').toBe(asked);
+  const unstepped = await (
+    await api(who)
+  ).post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent: { kind: 'withdraw', asset: 'USDC', amount: '10', destination: owner, withdrawalKey: `withdraw:${owner}:${J}-12-unstepped` },
+  });
+  expect(unstepped.status, JSON.stringify(unstepped.body).slice(0, 300)).toBe(403);
+  expect(wireUnits((await venueBalance(who, owner, 'USDC')).free)).toBe(wireUnits(before.free));
+  // Steps up, and the wallet signs the withdrawal.
+  await form
+    .getByRole('button', { name: /withdraw|sign|confirm/i })
+    .last()
+    .click();
   await confirmItsMe(page);
-  const refused = await (await answered).json();
-  expect(refused?.error?.data?.cause?.code, JSON.stringify(refused).slice(0, 400)).toBe('pay.wallet_withdraw_unavailable');
-  page.off('request', sent);
-  expect(creates).toHaveLength(1);
-  const outcome = page.getByTestId('withdraw-outcome');
-  await expect(outcome).toContainText('Not sent');
-  await expect(outcome).toContainText(
-    'Sending to a wallet outside INTAFACED isn’t connected: no custody signer is set up, so this withdrawal was refused before anything was held.',
-  );
-  await expect(outcome).toContainText('Nothing was sent and nothing is held.');
-  // Nothing held and no withdrawal: the ledger and svc-pay agree, and the room's list is empty.
-  await unmoved();
-  await page.reload();
-  await expect(page.getByText('No withdrawals yet')).toBeVisible();
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
+  expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+  // The venue's withdrawal shows pending, then done, with its fee or "not known".
+  const shown = page.getByTestId('venue-withdrawal').first();
+  await expect(shown).toContainText(/pending/i, { timeout: 20_000 });
+  const fee = shown
+    .locator('div', { has: page.locator('dt', { hasText: /fee/i }) })
+    .locator('dd')
+    .first();
+  await expect(fee).toHaveText(/not known|\d/);
+  const settled = await testVenue('/test/settle-withdrawals', {});
+  expect(settled.status).toBe(200);
+  await expect(shown).toContainText(/done/i, { timeout: 30_000 });
+  const nonce = await shown.getAttribute('data-nonce');
+  expect(nonce, 'the withdrawal names the venue nonce it was signed with').toBeTruthy();
+  const record = (await venueRead(who, `withdrawals/${encodeURIComponent(nonce)}`, owner)).value;
+  expect(record).toMatchObject({ asset: 'USDC', status: 'done', destination: owner });
+  expect(wireUnits(record.amount)).toBe(toUnits('10'));
+  if (record.fee.known) expect(shownUnits(await fee.innerText())).toBe(wireUnits(record.fee.value));
+  else await expect(fee).toHaveText(/not known/i);
+  const after = await venueBalance(who, owner, 'USDC');
+  expect(wireUnits(before.total) - wireUnits(after.total)).toBe(toUnits('10') + (record.fee.known ? wireUnits(record.fee.value) : 0n));
+  await panelEqualsVenue(page, who, owner);
 });

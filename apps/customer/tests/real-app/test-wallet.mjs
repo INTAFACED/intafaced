@@ -93,7 +93,8 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   // A transaction the page asks to send is kept, so a test can read what was built. With no TEST chain it is never sent;
   // with one, an eth_sendTransaction on that chain is signed here (the key never enters the browser) and sent.
   await page.exposeFunction('__testWalletSend', async (onChain, method, params) => {
-    sends.push({ method, params });
+    const sent = { method, params };
+    sends.push(sent);
     if (!node || onChain !== chainId || method !== 'eth_sendTransaction') return { unanswered: true };
     const tx = params[0];
     if (tx.from && tx.from.toLowerCase() !== address)
@@ -110,6 +111,8 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
         gasPrice: tx.maxFeePerGas || tx.maxPriorityFeePerGas ? undefined : big(tx.gasPrice),
         nonce: tx.nonce === undefined ? undefined : Number(BigInt(tx.nonce)),
       });
+      // Kept on the record, so a test can name the chain transfer it made (J-cex-spot-01 #4 replays it by that hash).
+      sent.hash = hash;
       return { result: hash };
     } catch (err) {
       return { error: rpcError(err) };
@@ -202,7 +205,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     address,
     /** Every signature the page asked for, in order: `{ method, params }`. */
     requests,
-    /** Every transaction or call batch the page asked the wallet to send, in order: `{ method, params }`. Only with `rpcUrl` does one reach a chain. */
+    /** Every transaction or call batch the page asked the wallet to send, in order: `{ method, params }`, and `hash` once sent. Only with `rpcUrl` does one reach a chain. */
     sends,
     /** The next signature request is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
     rejectNext: () => {
