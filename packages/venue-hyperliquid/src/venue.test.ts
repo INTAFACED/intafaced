@@ -21,7 +21,16 @@ import {
   type L1TypedData,
   type UserSignedTypedData,
 } from './signing.js';
-import { HL_TESTNET_VENUE_ID, HyperliquidTestnetUserVenue, PERP_COLLATERAL_ASSET, mapOrderStatus, type FetchLike } from './venue.js';
+import {
+  FILLS_PAGE_CAP,
+  HL_TESTNET_VENUE_ID,
+  HyperliquidTestnetUserVenue,
+  InMemoryNonceSource,
+  PERP_COLLATERAL_ASSET,
+  mapOrderStatus,
+  type FetchLike,
+  type HyperliquidNonceSource,
+} from './venue.js';
 import type { MsgpackValue } from './msgpack.js';
 
 const a = parseAmount;
@@ -330,11 +339,11 @@ describe('prepare builds exactly what the wallet signs', () => {
     await refusedWith(venue.prepare(account, ownerSigner, lev('PURR-USDC', 20_000)), 'not_offered');
   });
 
-  it('withdraw3: user-signed on the testnet chain, USDC from the main account only', async () => {
+  it('withdraw3: user-signed on the testnet chain, the perp account USDC from the main account only', async () => {
     const venue = venueWith(fakeVenue());
     const withdraw = {
       kind: 'withdraw',
-      asset: 'USDC',
+      asset: PERP_COLLATERAL_ASSET,
       amount: a('12.5'),
       destination: OWNER,
       withdrawalKey: 'withdraw:test-user:2',
@@ -350,6 +359,8 @@ describe('prepare builds exactly what the wallet signs', () => {
       'not_offered',
     );
     await refusedWith(venue.prepare(account, ownerSigner, { ...withdraw, asset: 'PURR' }), 'not_offered');
+    // withdraw3 draws on the perp account: spot USDC (reported by balances() as `USDC`) is a different balance, refused.
+    await refusedWith(venue.prepare(account, ownerSigner, { ...withdraw, asset: 'USDC' }), 'not_offered');
     await refusedWith(venue.prepare(account, ownerSigner, { ...withdraw, amount: a('1.0000001') }), 'venue_rejected');
   });
 
@@ -408,7 +419,7 @@ describe('submit verifies before anything is sent', () => {
     await refusedWith(venue.submit(edited, await sign(ownerKey, prepared)), 'signature_mismatch');
     const withdraw = await venue.prepare(account, ownerSigner, {
       kind: 'withdraw',
-      asset: 'USDC',
+      asset: PERP_COLLATERAL_ASSET,
       amount: a('1'),
       destination: OWNER,
       withdrawalKey: 'withdraw:test-user:3',
@@ -454,10 +465,19 @@ describe('outcome classification', () => {
     expect(read.value?.status).toBe('open');
   });
 
-  it('a nonce complaint and a duplicate cloid are "already submitted", never a definite refusal', async () => {
-    expect((await submitWith(err('Invalid nonce: duplicate nonce'))).outcome).toEqual({ definite: false, reason: 'already_submitted' });
-    expect((await submitWith(err('Nonce too old'))).outcome).toEqual({ definite: false, reason: 'already_submitted' });
+  it('the duplicate-nonce answer and a duplicate cloid are "already submitted", never a definite refusal', async () => {
+    expect((await submitWith(err('Invalid nonce: duplicate nonce 1794182400000'))).outcome).toEqual({
+      definite: false,
+      reason: 'already_submitted',
+    });
     expect((await submitWith(orderStatus({ error: 'Duplicate cloid' }))).outcome).toEqual({ definite: false, reason: 'already_submitted' });
+  });
+
+  it('a nonce outside the window is a definite nonce_rejected: the venue did not apply it', async () => {
+    for (const text of ['Invalid nonce: nonce too low 1794000000000', 'Invalid nonce: nonce too high 1799999999999']) {
+      const { outcome } = await submitWith(err(text));
+      expect(outcome.definite && !outcome.accepted ? outcome.refusal : null).toMatchObject({ code: 'nonce_rejected', detail: text });
+    }
   });
 
   it('stated venue refusals map to typed codes and keep the venue words', async () => {
@@ -472,7 +492,13 @@ describe('outcome classification', () => {
     expect(await code(orderStatus({ error: 'Builder fee has not been approved.' }))).toBe('builder_fee_not_approved');
     expect(await code(err('User or API Wallet 0xabc does not exist.'))).toBe('signer_not_authorised');
     expect(await code(orderStatus({ error: 'Order must have minimum value of $10.' }))).toBe('venue_rejected');
-    expect(await code({ status: 422, body: 'Failed to deserialize the JSON body' })).toBe('venue_rejected');
+  });
+
+  it('a 4xx after the bytes went out is never a refusal: 403, 408, 409, 422 and 429 are read back', async () => {
+    for (const status of [400, 403, 408, 409, 422, 429]) {
+      const { outcome } = await submitWith({ status, body: status === 422 ? 'Failed to deserialize the JSON body' : 'proxy said no' });
+      expect(outcome).toEqual({ definite: false, reason: 'venue_error_after_send' });
+    }
   });
 
   it('a resting order is accepted with the venue oid and the order read back', async () => {
@@ -508,6 +534,25 @@ describe('outcome classification', () => {
     expect(!filled.definite || filled.accepted ? null : filled.refusal.code).toBe('order_final');
     const none = await withStatus(null);
     expect(!none.definite || none.accepted ? null : none.refusal.code).toBe('unknown_order');
+  });
+
+  it('a cancel the venue answered "success" is accepted, even when the read-back finds nothing yet', async () => {
+    const fake = fakeVenue();
+    fake.info.orderStatus = () => ({ status: 'unknownOid' });
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, {
+      kind: 'cancel_order',
+      symbol: 'ETH-PERP',
+      clientOrderKey: 'order:test-user:desk:1',
+    });
+    fake.exchange.push(ok({ type: 'cancel', data: { statuses: ['success'] } }));
+    expect(await venue.submit(prepared, await sign(ownerKey, prepared))).toEqual({
+      definite: true,
+      accepted: true,
+      venueRef: null,
+      order: null,
+      asOf: new Date(NOW),
+    });
   });
 });
 
@@ -661,9 +706,10 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     const w = (await venue.withdrawal(account, String(NOW))).value;
     expect(w).toEqual({
       nonce: String(NOW),
-      asset: 'USDC',
+      asset: PERP_COLLATERAL_ASSET,
       amount: a('12.5'),
-      destination: '',
+      // This instance never sent it, and the venue's ledger names no destination: honestly unknown.
+      destination: null,
       status: 'pending',
       fee: { known: true, value: a('1') },
     });
@@ -699,5 +745,225 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       { known: true, value: a('1') },
     ]);
     expect((await venue.markets(account)).value.find((m) => m.symbol === 'PURR-USDC')!.takerFeeBps).toEqual({ known: false });
+  });
+});
+
+describe('review fixes: nonces, listing, symbols, paging, marks, destinations', () => {
+  it('two instances sharing one nonce source never collide in the same millisecond', async () => {
+    const shared = new InMemoryNonceSource();
+    const fake = fakeVenue();
+    const one = new HyperliquidTestnetUserVenue({ appEnv: 'test', fetch: fake.fetch, clock: () => new Date(NOW), nonceSource: shared });
+    const two = new HyperliquidTestnetUserVenue({ appEnv: 'test', fetch: fake.fetch, clock: () => new Date(NOW), nonceSource: shared });
+    const nonces: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      nonces.push((await one.prepare(account, ownerSigner, order())).nonce);
+      nonces.push((await two.prepare(account, ownerSigner, order())).nonce);
+    }
+    expect(new Set(nonces).size).toBe(nonces.length);
+    // A caller-supplied source is used as given (for example one backed by a shared store).
+    const fixed: HyperliquidNonceSource = { next: async () => '1794182400123' };
+    const three = new HyperliquidTestnetUserVenue({ appEnv: 'test', fetch: fake.fetch, clock: () => new Date(NOW), nonceSource: fixed });
+    expect((await three.prepare(account, ownerSigner, order())).nonce).toBe('1794182400123');
+  });
+
+  it('the listing refreshes on a miss (bounded), on its TTL, and concurrent first reads share one fetch', async () => {
+    const fake = fakeVenue();
+    let now = NOW;
+    const venue = new HyperliquidTestnetUserVenue({ appEnv: 'test', fetch: fake.fetch, clock: () => new Date(now) });
+    const metaReads = () => fake.infoTypes.filter((t) => t === 'meta').length;
+    await Promise.all([venue.markets(null), venue.markets(null), venue.markets(null)]);
+    expect(metaReads()).toBe(1);
+    // A market listed after the first read is found on a miss.
+    fake.info.meta = () => ({ universe: [...META.universe, { name: 'DOGE', szDecimals: 0, maxLeverage: 5 }] });
+    const doge = await venue.prepare(account, ownerSigner, order({ symbol: 'DOGE-PERP', amount: a('100'), price: a('0.2') }));
+    expect((doge.typedData as L1TypedData).message.connectionId).toBe(
+      actionHash(
+        {
+          type: 'order',
+          orders: [{ a: 3, b: true, p: '0.2', s: '100', r: false, t: { limit: { tif: 'Gtc' } }, c: doge.venueClientOrderId! }],
+          grouping: 'na',
+        },
+        null,
+        BigInt(doge.nonce),
+      ),
+    );
+    expect(metaReads()).toBe(2);
+    // A second miss within the interval does not read again.
+    await refusedWith(venue.prepare(account, ownerSigner, order({ symbol: 'NOPE-PERP' })), 'unknown_market');
+    expect(metaReads()).toBe(2);
+    now += 11_000;
+    await refusedWith(venue.prepare(account, ownerSigner, order({ symbol: 'NOPE-PERP' })), 'unknown_market');
+    expect(metaReads()).toBe(3);
+    // A hit inside the TTL does not read; after the TTL it does.
+    await venue.markets(null);
+    expect(metaReads()).toBe(3);
+    now += 5 * 60_000;
+    await venue.markets(null);
+    expect(metaReads()).toBe(4);
+  });
+
+  it('a position in a newly listed market reads, with its own symbol, instead of failing the account', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    await venue.markets(null);
+    const universe = [...META.universe, { name: 'DOGE', szDecimals: 0, maxLeverage: 5 }];
+    fake.info.meta = () => ({ universe });
+    fake.info.clearinghouseState = () => ({
+      marginSummary: { accountValue: '0' },
+      withdrawable: '0',
+      assetPositions: [
+        {
+          position: {
+            coin: 'DOGE',
+            szi: '100',
+            entryPx: '0.2',
+            unrealizedPnl: '1',
+            marginUsed: '4',
+            liquidationPx: '0.1',
+            leverage: { type: 'cross', value: 5 },
+          },
+        },
+      ],
+    });
+    fake.info.metaAndAssetCtxs = () => [{ universe }, [{ markPx: '60000' }, { markPx: '2010' }, { markPx: '1' }, { markPx: '0.21' }]];
+    const [p] = (await venue.positions(account)).value;
+    expect([p!.symbol, p!.markPrice]).toEqual(['DOGE-PERP', a('0.21')]);
+  });
+
+  it('positions take the mark from the same answer universe, not from the cached listing order', async () => {
+    const fake = fakeVenue();
+    fake.info.clearinghouseState = () => ({
+      marginSummary: { accountValue: '0' },
+      withdrawable: '0',
+      assetPositions: [
+        {
+          position: {
+            coin: 'ETH',
+            szi: '1',
+            entryPx: '2000',
+            unrealizedPnl: '10',
+            marginUsed: '200',
+            liquidationPx: null,
+            leverage: { type: 'cross', value: 10 },
+          },
+        },
+      ],
+    });
+    // The contexts answer lists its universe in its own order.
+    fake.info.metaAndAssetCtxs = () => [{ universe: [{ name: 'ETH' }, { name: 'BTC' }] }, [{ markPx: '2010' }, { markPx: '60000' }]];
+    const [p] = (await venueWith(fake).positions(account)).value;
+    expect(p!.markPrice).toBe(a('2010'));
+  });
+
+  it('two spot pairs with one display name get distinct symbols; cancel and fills resolve to the right asset', async () => {
+    const fake = fakeVenue();
+    fake.info.spotMeta = () => ({
+      tokens: [
+        { name: 'USDC', szDecimals: 8, index: 0 },
+        { name: 'PURR', szDecimals: 0, index: 1 },
+        { name: 'TWIN', szDecimals: 0, index: 2 },
+        { name: 'TWIN', szDecimals: 1, index: 3 },
+      ],
+      universe: [
+        { name: 'PURR/USDC', tokens: [1, 0], index: 0, isCanonical: true },
+        { name: '@1', tokens: [2, 0], index: 1, isCanonical: false },
+        { name: '@2', tokens: [3, 0], index: 2, isCanonical: true },
+      ],
+    });
+    const venue = venueWith(fake);
+    const symbols = (await venue.markets(null)).value.map((m) => m.symbol).filter((s) => s.startsWith('TWIN'));
+    expect(symbols.sort()).toEqual(['TWIN-USDC', 'TWIN-USDC@1']);
+    const cancelOf = async (symbol: string) => {
+      const prepared = await venue.prepare(account, ownerSigner, {
+        kind: 'cancel_order',
+        symbol,
+        clientOrderKey: 'order:test-user:twin:1',
+      });
+      return (prepared.typedData as L1TypedData).message.connectionId;
+    };
+    const expected = (asset: number, cloid: string, nonce: string) =>
+      actionHash({ type: 'cancelByCloid', cancels: [{ asset, cloid }] }, null, BigInt(nonce));
+    const cloid = venueClientOrderId(HL_TESTNET_VENUE_ID, 'order:test-user:twin:1');
+    const p1 = await venue.prepare(account, ownerSigner, {
+      kind: 'cancel_order',
+      symbol: 'TWIN-USDC',
+      clientOrderKey: 'order:test-user:twin:1',
+    });
+    expect((p1.typedData as L1TypedData).message.connectionId).toBe(expected(10_002, cloid, p1.nonce));
+    const p2 = await venue.prepare(account, ownerSigner, {
+      kind: 'cancel_order',
+      symbol: 'TWIN-USDC@1',
+      clientOrderKey: 'order:test-user:twin:1',
+    });
+    expect((p2.typedData as L1TypedData).message.connectionId).toBe(expected(10_001, cloid, p2.nonce));
+    expect(await cancelOf('TWIN-USDC')).not.toBe(await cancelOf('TWIN-USDC@1'));
+    const fill = (coin: string, tid: number) => ({
+      coin,
+      px: '1',
+      sz: '1',
+      side: 'B',
+      time: NOW,
+      dir: 'Buy',
+      closedPnl: '0',
+      oid: 1,
+      crossed: true,
+      fee: '0',
+      tid,
+      feeToken: 'USDC',
+    });
+    fake.info.userFillsByTime = () => [fill('@1', 1), fill('@2', 2)];
+    const fills = (await venue.fills(account, new Date(NOW))).value;
+    expect(fills.map((f) => [f.fillId, f.symbol])).toEqual([
+      ['1', 'TWIN-USDC@1'],
+      ['2', 'TWIN-USDC'],
+    ]);
+  });
+
+  it('fills page past the venue cap without dropping or repeating fills that share a millisecond', async () => {
+    const fake = fakeVenue();
+    const fill = (tid: number, time: number) => ({
+      coin: 'ETH',
+      px: '2000',
+      sz: '0.01',
+      side: 'B',
+      time,
+      dir: 'Open Long',
+      closedPnl: '0',
+      oid: 1,
+      crossed: true,
+      fee: '0.01',
+      tid,
+      feeToken: 'USDC',
+    });
+    // 2050 fills: the last 10 of the first page and 50 more share one millisecond.
+    const all = Array.from({ length: 2050 }, (_, i) => fill(i + 1, i < 1990 ? NOW + i : NOW + 1990));
+    const starts: number[] = [];
+    fake.info.userFillsByTime = (b) => {
+      starts.push(Number(b.startTime));
+      return all.filter((f) => f.time >= Number(b.startTime)).slice(0, FILLS_PAGE_CAP);
+    };
+    const fills = (await venueWith(fake).fills(account, new Date(NOW))).value;
+    expect(fills.length).toBe(2050);
+    expect(new Set(fills.map((f) => f.fillId)).size).toBe(2050);
+    expect(fills.at(-1)!.fillId).toBe('2050');
+    expect(starts).toEqual([NOW, NOW + 1990]);
+  });
+
+  it('a withdrawal reports the destination this instance signed and sent, and USDC-PERP as its asset', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, {
+      kind: 'withdraw',
+      asset: PERP_COLLATERAL_ASSET,
+      amount: a('12.5'),
+      destination: OWNER,
+      withdrawalKey: 'withdraw:test-user:9',
+    });
+    await venue.submit(prepared, await sign(ownerKey, prepared));
+    fake.info.userNonFundingLedgerUpdates = () => [
+      { time: NOW + 9, hash: '0x02', delta: { type: 'withdraw', usdc: '12.5', nonce: Number(prepared.nonce), fee: '1' } },
+    ];
+    const w = (await venue.withdrawal(account, prepared.nonce)).value!;
+    expect([w.asset, w.destination]).toEqual([PERP_COLLATERAL_ASSET, OWNER]);
   });
 });

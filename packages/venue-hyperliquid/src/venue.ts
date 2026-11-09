@@ -71,16 +71,24 @@ import {
  * recovers the signer from the signature bytes, then posts.
  *
  * What the venue's answer means (`VenueSubmitOutcome`):
- *   · a timeout, a dropped connection, a 5xx, a 429 or an unreadable body
- *     after the bytes went out → `definite: false` (read back by cloid or
- *     nonce; never prepare again);
- *   · any nonce complaint, and a duplicate cloid → `definite: false,
- *     reason: 'already_submitted'`;
+ *   · a timeout, a dropped connection, any HTTP status other than 2xx, or an
+ *     unreadable body after the bytes went out → `definite: false` (read back
+ *     by `prepared.venueClientOrderId` or `prepared.nonce`; never prepare
+ *     again). The venue states its own refusals as HTTP 200 with
+ *     `status: "err"` or a per-order `error`; a 4xx or 5xx may come from a
+ *     proxy after the action was applied, so it is never read as a refusal;
+ *   · the venue's "duplicate nonce" answer, and a duplicate cloid →
+ *     `definite: false, reason: 'already_submitted'`;
+ *   · any other nonce answer (too low, outside the time window) → a definite
+ *     `nonce_rejected`: the venue did not apply this action;
  *   · a stated venue refusal → `definite: true, accepted: false` with a typed
  *     `VenueRefusalCode`.
  *
  * Symbols: a perpetual is `<COIN>-PERP` (quote USDC), a spot pair is
- * `<BASE>-<QUOTE>`, as the TEST simulator names them.
+ * `<BASE>-<QUOTE>`, as the TEST simulator names them. Two venue markets never
+ * share a symbol: when spot pairs share display names, the canonical pair (or
+ * else the lowest-numbered one) keeps `<BASE>-<QUOTE>` and every other one is
+ * `<BASE>-<QUOTE>@<pair index>`.
  */
 
 export const HL_TESTNET_VENUE_ID = 'hyperliquid-testnet';
@@ -89,13 +97,47 @@ export const HL_TESTNET_VENUE_ID = 'hyperliquid-testnet';
  * The perpetual account's USDC, reported apart from spot USDC: on this venue
  * they are two separate balances, and `UserVenueBalance` has no field for
  * which account a balance sits in (named as an interface gap in the PR).
+ * It is also the only asset a withdrawal takes: `withdraw3` draws on the
+ * perpetual account, so spot `USDC` is refused `not_offered`.
  */
 export const PERP_COLLATERAL_ASSET = 'USDC-PERP';
 
 const PERP_QUOTE = 'USDC';
-const WITHDRAW_ASSET = 'USDC';
 const WITHDRAW_DECIMALS = 6;
 const BPS_PER_X = 10_000;
+
+/** How long the venue's listing is trusted before it is read again. */
+const MARKETS_TTL_MS = 5 * 60_000;
+/** A symbol or coin we do not know reads the listing again at most this often. */
+const MARKETS_MISS_REFRESH_MS = 10_000;
+/** The venue's documented cap on one `userFillsByTime` answer ("at most 2000 fills per response"). */
+export const FILLS_PAGE_CAP = 2000;
+
+/**
+ * Where nonces come from. The venue keeps the 100 highest nonces per signer
+ * and refuses a used one, so every party that signs for one signer address
+ * must draw from one source. `next` returns a millisecond nonce, strictly
+ * greater than any it returned before for that signer, at or near `nowMs`.
+ */
+export interface HyperliquidNonceSource {
+  next(signer: string, nowMs: number): Promise<string> | string;
+}
+
+/**
+ * The default nonce source: a counter in this process's memory, per signer.
+ * It is for ONE process only. Two processes (or two machines) signing for the
+ * same wallet must share a source backed by something they both see, or
+ * their nonces can collide in the same millisecond.
+ */
+export class InMemoryNonceSource implements HyperliquidNonceSource {
+  private readonly last = new Map<string, number>();
+  next(signer: string, nowMs: number): string {
+    const key = signer.toLowerCase();
+    const nonce = Math.max((this.last.get(key) ?? 0) + 1, nowMs);
+    this.last.set(key, nonce);
+    return String(nonce);
+  }
+}
 
 export type FetchLike = (
   input: string,
@@ -115,6 +157,12 @@ export interface HyperliquidTestnetOptions {
   readonly clock?: () => Date;
   /** How long a request may take before it counts as a timeout. */
   readonly timeoutMs?: number;
+  /**
+   * Where nonces come from. Defaults to an `InMemoryNonceSource` of this
+   * instance's own, which is safe for one instance in one process only: pass
+   * one shared source to every instance that signs for the same wallet.
+   */
+  readonly nonceSource?: HyperliquidNonceSource;
 }
 
 interface HlMarket {
@@ -129,6 +177,11 @@ interface HlMarket {
   readonly szDecimals: number;
   readonly maxLeverage: number | null;
   readonly onlyIsolated: boolean;
+}
+
+interface MarketIndex {
+  readonly bySymbol: Map<string, HlMarket>;
+  readonly byCoin: Map<string, HlMarket>;
 }
 
 interface BuiltAction {
@@ -173,14 +226,27 @@ const TIF_WIRE: Record<VenueTimeInForce, 'Gtc' | 'Ioc' | 'Alo'> = { GTC: 'Gtc', 
 /**
  * Map a venue's error text to a typed outcome. Matched on the venue's words,
  * which it does not version; every unmatched text is `venue_rejected` with the
- * text kept, never dropped. Nonce and duplicate-cloid answers are never
- * definite refusals.
+ * text kept, never dropped.
+ *
+ * Nonces. The venue's documented rule (Hyperliquid docs, "Nonces and API
+ * wallets"): it keeps the 100 highest nonces per signer, a new one must be
+ * above the smallest of them and never used before, and within
+ * (T - 2 days, T + 1 day) of the block time. The docs give no error text.
+ * The wording below is what the venue has been seen to answer, from public
+ * user reports, not from Hyperliquid's own docs or SDK:
+ *   · "Invalid nonce: duplicate nonce <n>" — this nonce was already used, so
+ *     this exact action may have landed: `already_submitted`, never definite;
+ *   · "Invalid nonce: nonce too low ..." — below the kept set or the window.
+ * The wording for a nonce too far in the future was not found in any public
+ * source. Every nonce answer other than the duplicate one guarantees the
+ * action was not applied, so it is a definite `nonce_rejected`.
  */
 export function classifyVenueError(venueId: string, text: string, asOf: Date): VenueSubmitOutcome {
-  if (/nonce/i.test(text)) return { definite: false, reason: 'already_submitted' };
+  if (/invalid nonce:\s*duplicate nonce/i.test(text)) return { definite: false, reason: 'already_submitted' };
   if (/cloid|client order id/i.test(text) && /duplicate|already/i.test(text)) return { definite: false, reason: 'already_submitted' };
-  const code: VenueRefusalCode =
-    /builder/i.test(text) && /approv|max(imum)? ?fee|exceed/i.test(text)
+  const code: VenueRefusalCode = /\bnonce\b/i.test(text)
+    ? 'nonce_rejected'
+    : /builder/i.test(text) && /approv|max(imum)? ?fee|exceed/i.test(text)
       ? 'builder_fee_not_approved'
       : /insufficient|not enough/i.test(text) && /margin|balance|funds/i.test(text)
         ? 'insufficient_balance'
@@ -218,9 +284,16 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
   private readonly fetchImpl: FetchLike;
   private readonly clock: () => Date;
   private readonly timeoutMs: number;
-  private marketsCache: { bySymbol: Map<string, HlMarket>; byCoin: Map<string, HlMarket>; byAsset: Map<number, HlMarket> } | null = null;
-  private lastNonce = 0;
-  /** Destinations of withdrawals sent through this instance, by nonce: the venue's ledger read does not report one. */
+  private readonly nonceSource: HyperliquidNonceSource;
+  private marketsCache: { index: MarketIndex; loadedAtMs: number } | null = null;
+  /** One listing read at a time: concurrent callers share it. */
+  private marketsInFlight: Promise<MarketIndex> | null = null;
+  private lastMissRefreshMs = Number.NEGATIVE_INFINITY;
+  /**
+   * Destinations of withdrawals signed and sent through this instance, by
+   * nonce. The venue's ledger read does not report one; this is the
+   * destination in the signed bytes the venue ran under that nonce.
+   */
   private readonly withdrawalDestinations = new Map<string, string>();
 
   constructor(options: HyperliquidTestnetOptions) {
@@ -236,6 +309,7 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
     this.fetchImpl = options.fetch ?? (globalThis.fetch as unknown as FetchLike);
     this.clock = options.clock ?? (() => new Date());
     this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.nonceSource = options.nonceSource ?? new InMemoryNonceSource();
   }
 
   // ── transport ──────────────────────────────────────────────────────────
@@ -272,10 +346,39 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
 
   // ── markets ────────────────────────────────────────────────────────────
 
-  private async loadMarkets(): Promise<NonNullable<HyperliquidTestnetUserVenue['marketsCache']>> {
-    if (this.marketsCache) return this.marketsCache;
+  /**
+   * The venue's listing. Read again after `MARKETS_TTL_MS`, or sooner when a
+   * caller meets a symbol or coin it does not know (`onMiss`), at most once
+   * per `MARKETS_MISS_REFRESH_MS`. One read is in flight at a time.
+   */
+  private async loadMarkets(onMiss = false): Promise<MarketIndex> {
+    const now = this.clock().getTime();
+    const cached = this.marketsCache;
+    if (cached && !onMiss && now - cached.loadedAtMs < MARKETS_TTL_MS) return cached.index;
+    if (cached && onMiss) {
+      if (now - this.lastMissRefreshMs < MARKETS_MISS_REFRESH_MS) return cached.index;
+      this.lastMissRefreshMs = now;
+    }
+    if (!this.marketsInFlight) {
+      this.marketsInFlight = this.readMarkets()
+        .then((index) => {
+          this.marketsCache = { index, loadedAtMs: this.clock().getTime() };
+          return index;
+        })
+        .finally(() => {
+          this.marketsInFlight = null;
+        });
+    }
+    return this.marketsInFlight;
+  }
+
+  private async marketOfCoin(coin: string): Promise<HlMarket | undefined> {
+    return (await this.loadMarkets()).byCoin.get(coin) ?? (await this.loadMarkets(true)).byCoin.get(coin);
+  }
+
+  private async readMarkets(): Promise<MarketIndex> {
     const [meta, spotMeta] = await Promise.all([this.info({ type: 'meta' }), this.info({ type: 'spotMeta' })]);
-    const list: HlMarket[] = [];
+    const list: (HlMarket & { canonical: boolean })[] = [];
     arr(obj(meta, 'meta').universe, 'meta.universe').forEach((entry, index) => {
       const u = obj(entry, 'meta.universe[]');
       if (u.isDelisted === true) return;
@@ -290,6 +393,7 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
         szDecimals: int(u.szDecimals, 'szDecimals'),
         maxLeverage: int(u.maxLeverage, 'maxLeverage'),
         onlyIsolated: u.onlyIsolated === true,
+        canonical: true,
       });
     });
     const spot = obj(spotMeta, 'spotMeta');
@@ -317,29 +421,41 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
         szDecimals: base.szDecimals,
         maxLeverage: null,
         onlyIsolated: false,
+        canonical: pair.isCanonical === true,
       });
     }
+    // Two markets never share a symbol. Where display names collide, a perp,
+    // then a canonical pair, then the lowest asset number keeps the plain
+    // symbol; every other one is named by its own pair index.
+    const groups = new Map<string, (typeof list)[number][]>();
+    for (const m of list) groups.set(m.symbol, [...(groups.get(m.symbol) ?? []), m]);
     const bySymbol = new Map<string, HlMarket>();
     const byCoin = new Map<string, HlMarket>();
-    const byAsset = new Map<number, HlMarket>();
-    for (const m of list) {
-      // Two spot pairs can share display names (non-canonical tokens): the first listed keeps the symbol.
-      if (!bySymbol.has(m.symbol)) bySymbol.set(m.symbol, m);
-      byCoin.set(m.coin, m);
-      byAsset.set(m.asset, m);
+    for (const group of groups.values()) {
+      group.sort(
+        (x, y) =>
+          Number(y.kind === 'perpetual') - Number(x.kind === 'perpetual') || Number(y.canonical) - Number(x.canonical) || x.asset - y.asset,
+      );
+      group.forEach(({ canonical: _canonical, ...m }, i) => {
+        const market: HlMarket = i === 0 ? m : { ...m, symbol: `${m.symbol}@${m.asset - 10_000}` };
+        if (bySymbol.has(market.symbol) || byCoin.has(market.coin)) {
+          throw new Error(`venue listing: ${market.symbol} (${market.coin}) is not unique`);
+        }
+        bySymbol.set(market.symbol, market);
+        byCoin.set(market.coin, market);
+      });
     }
-    this.marketsCache = { bySymbol, byCoin, byAsset };
-    return this.marketsCache;
+    return { bySymbol, byCoin };
   }
 
   private async market(symbol: string): Promise<HlMarket> {
-    const m = (await this.loadMarkets()).bySymbol.get(symbol);
+    const m = (await this.loadMarkets()).bySymbol.get(symbol) ?? (await this.loadMarkets(true)).bySymbol.get(symbol);
     if (!m) throw refusal(this.venue.id, 'unknown_market', `${symbol} is not listed on this venue`);
     return m;
   }
 
   private async symbolOfCoin(coin: string): Promise<string> {
-    return (await this.loadMarkets()).byCoin.get(coin)?.symbol ?? coin;
+    return (await this.marketOfCoin(coin))?.symbol ?? coin;
   }
 
   async markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
@@ -390,9 +506,9 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
         throw refusal(this.venue.id, 'builder_fee_not_approved', 'this account has approved less for the builder than the order carries');
       }
     }
-    // Strictly increasing milliseconds near the clock: the venue keeps the highest nonces per signer and refuses a reused one.
-    this.lastNonce = Math.max(this.lastNonce + 1, this.clock().getTime());
-    const nonce = String(this.lastNonce);
+    // Strictly increasing milliseconds near the clock, per signer: the venue keeps the highest nonces per signer and refuses a reused one.
+    const nonce = await this.nonceSource.next(signer.address, this.clock().getTime());
+    if (!/^\d+$/.test(nonce)) throw new Error(`nonce source returned ${nonce}, not a millisecond nonce`);
     const built = await this.build(account, intent, nonce);
     return {
       venueId: this.venue.id,
@@ -480,8 +596,13 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       case 'withdraw': {
         if (account.subAccount !== null)
           throw refusal(venueId, 'not_offered', 'a withdrawal from a sub-account is not offered: move the funds to the main account first');
-        if (intent.asset !== WITHDRAW_ASSET && intent.asset !== PERP_COLLATERAL_ASSET) {
-          throw refusal(venueId, 'not_offered', `only ${WITHDRAW_ASSET} from the perpetual account can be withdrawn here`);
+        // withdraw3 draws on the perpetual account's USDC, which balances() reports as USDC-PERP. Spot USDC is a different balance.
+        if (intent.asset !== PERP_COLLATERAL_ASSET) {
+          throw refusal(
+            venueId,
+            'not_offered',
+            `only ${PERP_COLLATERAL_ASSET} (the perpetual account's USDC) can be withdrawn here; move spot funds to the perpetual account first`,
+          );
         }
         if (compare(intent.amount, ZERO) <= 0) throw refusal(venueId, 'venue_rejected', 'a withdrawal must be positive');
         const problem = sizeProblem(intent.amount, WITHDRAW_DECIMALS);
@@ -579,9 +700,6 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
     const sent = await this.post(body);
     if (sent.kind === 'unknown') return { definite: false, reason: sent.reason };
     const asOf = this.clock();
-    if (sent.kind === 'http_refused') {
-      return { definite: true, accepted: false, refusal: { venueId, code: 'venue_rejected', detail: sent.detail }, asOf };
-    }
     let line: StatusLine;
     try {
       const answer = obj(sent.json, 'exchange answer');
@@ -608,13 +726,16 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
           if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
           return { definite: true, accepted: false, refusal: { venueId, code: 'venue_rejected', detail: line.text }, asOf };
         }
-        if (order === null)
+        if (order === null) {
+          // The venue said success: that wins. A read that finds nothing yet is "not found yet", never a refusal.
+          if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
           return {
             definite: true,
             accepted: false,
             refusal: { venueId, code: 'unknown_order', detail: 'no order with this client id on the venue' },
             asOf,
           };
+        }
         if (order.status === 'canceled') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
         if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
         return {
@@ -640,11 +761,7 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
 
   private async post(
     body: string,
-  ): Promise<
-    | { kind: 'json'; json: Json }
-    | { kind: 'http_refused'; detail: string }
-    | { kind: 'unknown'; reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' }
-  > {
+  ): Promise<{ kind: 'json'; json: Json } | { kind: 'unknown'; reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -671,10 +788,10 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
           reason: controller.signal.aborted || (error as Error).name === 'AbortError' ? 'timeout' : 'connection_lost',
         };
       }
-      // 5xx: the venue may have applied it. 429: a gateway refusal we cannot tell from a lost answer, so read back.
-      if (res.status >= 500 || res.status === 429) return { kind: 'unknown', reason: 'venue_error_after_send' };
-      // Other 4xx: the request was refused as malformed before it was applied (e.g. a body that does not deserialise).
-      if (!res.ok) return { kind: 'http_refused', detail: `HTTP ${res.status}: ${text.slice(0, 300)}` };
+      // The venue states its refusals as HTTP 200 (`status: "err"`, or an `error` per order). Any other status after the bytes
+      // went out (a proxy's 403, 408 or 409, a 429, a 5xx) may follow an applied action, and nothing here proves a 429 came
+      // before the action reached the venue: never a refusal, always a read-back.
+      if (!res.ok) return { kind: 'unknown', reason: 'venue_error_after_send' };
       try {
         return { kind: 'json', json: JSON.parse(text) as Json };
       } catch {
@@ -719,7 +836,7 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
     leverageOf: (coin: string) => Promise<number | null>,
   ): Promise<UserVenueOrder> {
     const coin = str(raw.coin, 'order coin');
-    const m = (await this.loadMarkets()).byCoin.get(coin);
+    const m = await this.marketOfCoin(coin);
     const price = amt(raw.limitPx, 'limitPx');
     const remaining = amt(raw.sz, 'sz');
     const original = raw.origSz !== undefined ? amt(raw.origSz, 'origSz') : remaining;
@@ -801,21 +918,48 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
     return this.asOf(order, typeof wrapped.statusTimestamp === 'number' ? wrapped.statusTimestamp : undefined);
   }
 
+  /**
+   * Every fill since `since`. The venue caps one answer at `FILLS_PAGE_CAP`
+   * fills (and keeps only the 10000 most recent), so this pages: each next
+   * page starts at the last fill's millisecond, not after it, so fills that
+   * share that millisecond are neither dropped nor counted twice (deduped by
+   * the venue's `tid`). It stops on a short page, or a page that adds nothing.
+   * The docs' general pagination note says ranged answers return 500
+   * elements; the per-endpoint 2000 is the one used, and the "adds nothing"
+   * stop keeps a smaller cap from looping.
+   */
   async fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
-    const raw = arr(
-      await this.info({ type: 'userFillsByTime', user: this.user(account), startTime: since.getTime(), aggregateByTime: false }),
-      'fills',
-    );
-    const { byCoin } = await this.loadMarkets();
-    const list: UserVenueFill[] = raw.map((entry) => {
-      const f = obj(entry, 'fill');
+    const seen = new Map<string, { [key: string]: Json }>();
+    let startTime = since.getTime();
+    for (;;) {
+      const page = arr(await this.info({ type: 'userFillsByTime', user: this.user(account), startTime, aggregateByTime: false }), 'fills');
+      let added = 0;
+      let lastTime = startTime;
+      for (const entry of page) {
+        const f = obj(entry, 'fill');
+        const tid = String(int(f.tid, 'tid'));
+        lastTime = Math.max(lastTime, int(f.time, 'fill time'));
+        if (!seen.has(tid)) {
+          seen.set(tid, f);
+          added += 1;
+        }
+      }
+      if (page.length < FILLS_PAGE_CAP || added === 0) break;
+      if (lastTime === startTime) {
+        // A full page all in one millisecond: the next page would be the same one. Refuse loudly rather than drop fills.
+        throw refusal(this.venue.id, 'venue_rejected', `more than ${FILLS_PAGE_CAP} fills at ${startTime}: cannot page past them`);
+      }
+      startTime = lastTime;
+    }
+    const list: UserVenueFill[] = [];
+    for (const f of seen.values()) {
       const coin = str(f.coin, 'fill coin');
-      const m = byCoin.get(coin);
+      const m = await this.marketOfCoin(coin);
       const totalFee = amt(f.fee, 'fill fee');
       const builderFee = f.builderFee !== undefined ? amt(f.builderFee, 'fill builderFee') : ZERO;
       const dir = typeof f.dir === 'string' ? f.dir : '';
       const perp = m?.kind === 'perpetual';
-      return {
+      list.push({
         fillId: String(int(f.tid, 'tid')),
         venueClientOrderId: typeof f.cloid === 'string' ? f.cloid.toLowerCase() : null,
         symbol: m?.symbol ?? coin,
@@ -829,8 +973,9 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
         feeAsset: str(f.feeToken, 'feeToken'),
         realisedPnl: perp && !dir.startsWith('Open') ? amt(f.closedPnl, 'closedPnl') : null,
         filledAt: new Date(int(f.time, 'fill time')),
-      };
-    });
+      });
+    }
+    list.sort((x, y) => x.filledAt.getTime() - y.filledAt.getTime() || compareTid(x.fillId, y.fillId));
     return this.asOf(list);
   }
 
@@ -839,12 +984,15 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       this.info({ type: 'clearinghouseState', user: this.user(account) }),
       this.info({ type: 'metaAndAssetCtxs' }),
     ]);
-    const { byCoin } = await this.loadMarkets();
-    const assetCtxs = arr(arr(ctxs, 'metaAndAssetCtxs')[1], 'asset contexts');
+    // The mark comes from the same answer's own universe: its contexts are indexed by that list, not by a cached one.
+    const both = arr(ctxs, 'metaAndAssetCtxs');
+    const universe = arr(obj(both[0], 'metaAndAssetCtxs meta').universe, 'metaAndAssetCtxs universe');
+    const assetCtxs = arr(both[1], 'asset contexts');
+    const indexOfCoin = new Map<string, number>();
+    universe.forEach((u, i) => indexOfCoin.set(str(obj(u, 'universe entry').name, 'universe name'), i));
     const markOf = (coin: string): Amount | null => {
-      const m = byCoin.get(coin);
-      if (!m || m.kind !== 'perpetual') return null;
-      const ctx = assetCtxs[m.asset];
+      const i = indexOfCoin.get(coin);
+      const ctx = i === undefined ? undefined : assetCtxs[i];
       return ctx ? amt(obj(ctx, 'asset ctx').markPx, 'markPx') : null;
     };
     const s = obj(state, 'clearinghouseState');
@@ -886,10 +1034,12 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       return this.asOf(
         {
           nonce,
-          asset: WITHDRAW_ASSET,
+          // The asset the intent named: withdraw3 draws on the perpetual account's USDC.
+          asset: PERP_COLLATERAL_ASSET,
           amount: amt(delta.usdc, 'withdraw usdc'),
-          // The venue's ledger entry names no destination; we know it only for withdrawals this instance sent.
-          destination: this.withdrawalDestinations.get(nonce) ?? '',
+          // The venue's ledger entry names no destination: we know it only for withdrawals this instance signed and sent;
+          // otherwise it is honestly unknown (null), never a made-up value.
+          destination: this.withdrawalDestinations.get(nonce) ?? null,
           // The ledger shows the debit; it does not report when the bridge paid out.
           status: 'pending',
           fee: typeof delta.fee === 'string' ? { known: true, value: parseAmount(delta.fee) } : { known: false },
@@ -931,6 +1081,11 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       marginMode: lev.type === 'isolated' ? 'isolated' : 'cross',
     });
   }
+}
+
+/** Venue trade ids are whole numbers as decimal strings: order them as numbers, without a `number`. */
+function compareTid(x: string, y: string): number {
+  return x.length - y.length || (x < y ? -1 : x > y ? 1 : 0);
 }
 
 /** The venue's order status words to ours. An unknown word is loud, never guessed. */
