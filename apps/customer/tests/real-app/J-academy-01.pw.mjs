@@ -222,16 +222,16 @@ test(`${J} #7 Videos keeps its full layout and says video storage is not configu
   }
 });
 
-/** A course staff make: details, a one-lesson outline, and the state asked for, through the admin door. */
-async function staffCourse({ slug, title, pricing, publish }) {
+/** A course staff make: details (a TEST price if given), a one-lesson outline, and the state asked for, through the admin door. */
+async function staffCourse({ slug, title, pricing, price = null, priceAsset = null, publish }) {
   const created = await staff('mutate', 'admin.createCourse', {
     slug,
     title,
     summary: `TEST ${title}, made by staff for ${J}.`,
     thumbnailUrl: null,
     pricing,
-    price: null,
-    priceAsset: null,
+    price,
+    priceAsset,
   });
   expect(created.status, JSON.stringify(created.body).slice(0, 300)).toBe(200);
   const course = created.body.result.data;
@@ -241,16 +241,16 @@ async function staffCourse({ slug, title, pricing, publish }) {
     sections: [{ title: 'TEST Week one', items: [{ kind: 'lesson', title: `TEST First lesson of ${title}`, indent: 0, url: null }] }],
   });
   expect(outline.status, JSON.stringify(outline.body).slice(0, 300)).toBe(200);
-  if (!publish) return { slug, title };
+  const revision = outline.body.result.data.course.revision;
+  if (!publish) return { slug, title, id: course.id, revision };
   const published = await staff('mutate', 'admin.setCourseState', {
     courseId: course.id,
     to: 'published',
-    revision: outline.body.result.data.course.revision,
+    revision,
     reason: `TEST ${J}: publish ${slug}`,
   });
-  // The step's words: a paid course with no price shows the course without a price, so staff can put it before visitors.
   expect(published.status, `publishing ${pricing} course ${slug}: ${JSON.stringify(published.body).slice(0, 300)}`).toBe(200);
-  return { slug, title };
+  return { slug, title, id: course.id, revision: published.body.result.data.revision };
 }
 
 test(`${J} #5 a course card opens the public course page: summary, outcomes, syllabus, instructor and Enrol; a draft or unknown course is the same not-found; a paid course with no price shows without a price`, async ({
@@ -298,13 +298,39 @@ test(`${J} #5 a course card opens the public course page: summary, outcomes, syl
   await page.goto('/academy/learning');
   await expect(page.getByRole('link', { name: draft.title })).toHaveCount(0);
 
-  // A paid course with no price: its card and its page show the course, and no price figure anywhere.
+  // A paid course is never published without a price: staff are refused by name, and the course stays a draft.
+  const unpriced = await staffCourse({
+    slug: `test-ja1-unpriced-${RUN}`,
+    title: `TEST J-academy-01 unpriced course ${RUN}`,
+    pricing: 'paid',
+    publish: false,
+  });
+  const refused = await staff('mutate', 'admin.setCourseState', {
+    courseId: unpriced.id,
+    to: 'published',
+    revision: unpriced.revision,
+    reason: `TEST ${J}: publish ${unpriced.slug}`,
+  });
+  expect(refused.status, JSON.stringify(refused.body).slice(0, 300)).not.toBe(200);
+  expect(refused.body?.error?.data?.cause?.code).toBe('academy.price_unset');
+
+  // A published paid course whose price staff then withdraw: its card and its page show the course, and no price figure anywhere.
   const paid = await staffCourse({
     slug: `test-ja1-paid-${RUN}`,
     title: `TEST J-academy-01 paid course ${RUN}`,
     pricing: 'paid',
+    price: '25',
+    priceAsset: 'USDT',
     publish: true,
   });
+  expect((await door('publicAuthoredCourse', { slug: paid.slug })).price).toBe('25');
+  const withdrawn = await staff('mutate', 'admin.withdrawCoursePrice', {
+    courseId: paid.id,
+    revision: paid.revision,
+    reason: `TEST ${J}: withdraw the price of ${paid.slug}`,
+  });
+  expect(withdrawn.status, JSON.stringify(withdrawn.body).slice(0, 300)).toBe(200);
+  expect(withdrawn.body.result.data).toMatchObject({ state: 'published', pricing: 'paid', price: null, priceAsset: null });
   await page.goto('/academy/learning');
   const authored = page.getByRole('list', { name: 'Courses from the Academy team' }).getByRole('listitem').filter({ hasText: paid.title });
   await expect(authored).toHaveCount(1);

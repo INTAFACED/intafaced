@@ -466,7 +466,9 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
                             ? 'a lesson withdrawn from learners'
                             : e.kind === 'topics'
                               ? 'filed under topics'
-                              : `moved to ${e.toState}`}{' '}
+                              : e.kind === 'price_withdrawn'
+                                ? 'price withdrawn'
+                                : `moved to ${e.toState}`}{' '}
                   (revision {e.revision}) by <code>{e.actor}</code>
                   {e.reason ? `: ${e.reason}` : ''}
                 </li>
