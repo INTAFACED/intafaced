@@ -74,7 +74,7 @@ export function formatAmount(value: Amount): AmountString {
 
   if (frac === 0n) return `${negative ? '-' : ''}${whole}`;
 
-  const fracStr = frac.toString().padStart(DECIMALS, '0').replace(/0+$/, '');
+  const fracStr = frac.toString().padStart(DECIMALS, '0');
   return `${negative ? '-' : ''}${whole}.${fracStr}`;
 }
 
