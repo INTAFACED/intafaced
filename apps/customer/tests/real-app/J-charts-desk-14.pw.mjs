@@ -528,16 +528,32 @@ function cancels() {
   return sent;
 }
 
-/** The ladder row whose bucket holds `price` (single column, one tick). */
-async function rowAt(price) {
+/**
+ * Press one-click cancel on the ladder row whose bucket holds `price` (single column, one tick). The row is found and its
+ * button pressed in one browser task, so a requote that shifts the ladder cannot move the press onto a neighbouring row.
+ */
+async function pressRowCancel(price) {
+  const want = canon(price);
   await expect
-    .poll(async () => (await rows().evaluateAll((els) => els.map((el) => el.getAttribute('data-price')))).some((p) => same(p, price)), {
-      timeout: 20_000,
-      message: `a ladder row at ${price}`,
-    })
+    .poll(
+      () =>
+        dom().evaluate((region, target) => {
+          const canonical = (text) =>
+            String(text)
+              .replace(/[^\d.]/g, '')
+              .replace(/(\.\d*?)0+$/, '$1')
+              .replace(/\.$/, '');
+          const row = [...region.querySelectorAll('[data-testid="of-ladder-row"]')].find(
+            (el) => canonical(el.getAttribute('data-price') ?? '') === target,
+          );
+          const button = row?.querySelector('[data-testid="of-row-cancel"]');
+          if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
+          button.click();
+          return true;
+        }, want),
+      { timeout: 20_000, message: `one-click cancel on the ladder row at ${price}` },
+    )
     .toBe(true);
-  const prices = await rows().evaluateAll((els) => els.map((el) => el.getAttribute('data-price')));
-  return rows().nth(prices.findIndex((p) => same(p, price)));
 }
 
 /** A resting buy of mine, placed over the API, far under the touch. Returns its id and price. */
@@ -703,8 +719,7 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   // Reviewed (instant off). One-click cancel on my order's row: a review names it, nothing is cancelled until confirmed,
   // then exactly one cancel goes for exactly that order.
   const first = await restingBid('cancel-7a', 80);
-  const firstRow = await rowAt(first.price);
-  await firstRow.getByTestId('of-row-cancel').click();
+  await pressRowCancel(first.price);
   const cancelReview = page.getByTestId('of-cancel-review');
   await expect(cancelReview).toContainText('Cancel this order?');
   await expect(cancelReview.getByTestId('of-cancel-line')).toHaveCount(1);
@@ -733,8 +748,7 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   // Instant. One-click cancel acts at once: no review, one cancel for that order.
   await turnInstantOn();
   const second = await restingBid('cancel-7b', 81);
-  const secondRow = await rowAt(second.price);
-  await secondRow.getByTestId('of-row-cancel').click();
+  await pressRowCancel(second.price);
   await expect.poll(() => cancelled.length, { timeout: 15_000 }).toBe(2);
   await expect(cancelReview).toHaveCount(0);
   expect(cancelled[1]).toBe(second.id);
