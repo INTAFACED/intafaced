@@ -407,9 +407,7 @@ export async function ledgerTradeEscrow(sellerId, asset, tradeId) {
   if (res.status !== 200) throw new Error(`ledger accounts under ${prefix} refused (${res.status}): ${text.slice(0, 300)}`);
   const page = JSON.parse(text);
   if (page.nextCursor !== null) throw new Error(`more than one page of ledger accounts under ${prefix}`);
-  return (
-    page.accounts.find((row) => row.kind === 'escrow' && row.assetId === asset && row.purpose === `trade:${tradeId}`) ?? null
-  );
+  return page.accounts.find((row) => row.kind === 'escrow' && row.assetId === asset && row.purpose === `trade:${tradeId}`) ?? null;
 }
 
 /**

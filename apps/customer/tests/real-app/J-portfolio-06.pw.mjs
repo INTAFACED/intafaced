@@ -157,8 +157,7 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   // the savings, at par), and the coins add up to the total exactly.
   const coinValues = (answer) => {
     const values = new Map();
-    for (const row of answer.classes)
-      for (const a of row.assets) values.set(a.asset, (values.get(a.asset) ?? 0n) + toUnits(a.valueUsd));
+    for (const row of answer.classes) for (const a of row.assets) values.set(a.asset, (values.get(a.asset) ?? 0n) + toUnits(a.valueUsd));
     return values;
   };
   const byCoin = coinValues(allocation);
