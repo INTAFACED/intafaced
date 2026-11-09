@@ -114,6 +114,8 @@ describe('builder-fee versions (PG-hard, TEST venue over loopback)', () => {
       // The boot owner value (LOCAL TEST): used only when no version in force names builder fees for the venue.
       builder: { address: BUILDER, feeBps: a('0.5') },
       builderFeesAt: async (at) => (await builderFeesAt(db.sql, at)).book,
+      // The owner's market price protection is blank: these tests place limit orders only.
+      slippageCapBps: null,
       now: () => now,
     });
     const venueMarkets = async (): Promise<VenueMarketsRead | null> => {

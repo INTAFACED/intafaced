@@ -38,6 +38,7 @@ const MARKET: UserVenueMarket = {
   lotSize: a('0.0001'),
   makerFeeBps: { known: false },
   takerFeeBps: { known: false },
+  builderFeeCapBps: { known: false },
 };
 
 /** A TEST venue that records what it was asked to preview and prepare, with a book the test sets. */
