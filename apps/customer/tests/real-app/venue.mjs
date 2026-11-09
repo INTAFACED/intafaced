@@ -18,6 +18,8 @@ export const TEST_VENUE = 'http://127.0.0.1:14560';
 export const VENUE_SPOT = 'BTC-USDC';
 export const VENUE_PERP = 'BTC-PERP';
 
+/** Trade restarted with LOCAL_STACK_USER_VENUE set to `value` (or unset): `restartWith` can only blank a switch that
+ * is on by default, and this one is off by default. */
 function restartTrade(value) {
   const before = process.env.LOCAL_STACK_USER_VENUE;
   if (value === null) delete process.env.LOCAL_STACK_USER_VENUE;
@@ -162,16 +164,15 @@ export async function otherVenueTrader(funds) {
 
 /**
  * The venue's own best bid and ask on `symbol`: the TEST makers' resting ladder (packages/venue-sim http-server.ts
- * `seedTestVenue`, two TEST makers whose keys come from public names) and the person's own orders if `owner` is given,
- * read from the venue. Never our engine's book.
+ * `seedTestVenue`, two TEST makers whose keys come from public names), read from the venue. Never our engine's book.
  */
-export async function venueBook(symbol, owners = []) {
+export async function venueBook(symbol) {
   const venueId = await testVenueId();
   const makers = ['bid', 'ask'].map((name) =>
     privateKeyToAccount(keccak256(toHex(`intafaced TEST venue maker ${name}`))).address.toLowerCase(),
   );
   const orders = [];
-  for (const owner of [...makers, ...owners]) {
+  for (const owner of makers) {
     const { status, body } = await testVenue('/open-orders', { account: { venueId, owner, subAccount: null } });
     expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
     orders.push(...body.value.filter((o) => o.symbol === symbol));
@@ -181,6 +182,3 @@ export async function venueBook(symbol, owners = []) {
   expect(bids.length > 0 && asks.length > 0, `the TEST venue has a two-sided book on ${symbol}`).toBe(true);
   return { bid: bids.reduce((a, b) => (b > a ? b : a)), ask: asks.reduce((a, b) => (b < a ? b : a)) };
 }
-
-/** Two decimal strings are the same amount (the venue may write "1000" and the screen "1,000.00"). */
-export const sameAmount = (a, b) => toUnits(String(a).replace(/,/g, '')) === toUnits(String(b).replace(/,/g, ''));
