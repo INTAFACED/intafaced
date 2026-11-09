@@ -124,7 +124,7 @@ test("a pull request whose head moved is not re-sealed: a re-run would cancel th
   assert.deepEqual(posted, [], 'nothing re-run');
   // Planted: the same head still on the pull request is re-run.
   const same = async (method, path) =>
-    path.endsWith('/pulls/7') ? { status: 200, json: { state: 'open', head: { sha: old } } } : api(method, path);
+    path.endsWith('/pulls/7') ? { status: 200, json: { state: 'open', head: { sha: old }, auto_merge: {} } } : api(method, path);
   await rerunSeal('o/r', old, { api: same, number: 7, sleep: async () => {}, log: () => {} });
   assert.equal(posted.length, 1);
 });
@@ -138,7 +138,8 @@ test('review 7553-R1/R2: the head moving while a running seal is waited out, or 
     let reads = 0;
     const posted = [];
     const api = async (method, path) => {
-      if (path.endsWith('/pulls/7')) return { status: 200, json: reads++ === 0 ? { state: 'open', head: { sha: old } } : later };
+      if (path.endsWith('/pulls/7'))
+        return { status: 200, json: reads++ === 0 ? { state: 'open', head: { sha: old }, auto_merge: {} } : later };
       if (path.includes('/check-runs')) {
         const status = reads === 0 ? 'in_progress' : 'completed'; // the seal is running at first, then finishes red
         return {
@@ -168,4 +169,45 @@ test('review 7553-R1/R2: the head moving while a running seal is waited out, or 
     assert.match(msg, /^not re-run: #7 is /, msg);
     assert.deepEqual(posted, [], `${later.state}: nothing re-run`);
   }
+});
+
+// INTAFACED/project-state#1574 (9 Nov 2026): after the CI review passes, only an armed pull request's seal is re-run, and
+// ci.yml's seal only when it is red on the review step an older ci.yml runs; red on CI's own jobs, re-running its
+// failed jobs would re-run CI's red tests.
+test('#1574: the review re-runs only an armed pull request, and never a ci.yml seal red on CI jobs', async () => {
+  const sha = 'e'.repeat(40);
+  const make = ({ auto_merge = {}, path = '.github/workflows/merge-seal.yml', steps = [] } = {}) => {
+    const posted = [];
+    const api = async (method, p) => {
+      if (method === 'POST') return (posted.push(p), { status: 201 });
+      if (p.endsWith('/pulls/7')) return { status: 200, json: { state: 'open', head: { sha }, auto_merge } };
+      if (p.includes('/check-runs'))
+        return {
+          status: 200,
+          json: {
+            check_runs: [
+              { id: 1, name: 'CI merge seal', status: 'completed', conclusion: 'failure', details_url: 'https://x/actions/runs/9/job/1' },
+            ],
+          },
+        };
+      if (p.includes('/runs/9/jobs'))
+        return { status: 200, json: { jobs: [{ id: 1, name: 'CI merge seal', conclusion: 'failure', steps }] } };
+      return { status: 200, json: { status: 'completed', path } };
+    };
+    return { api, posted };
+  };
+  const run = (o) => rerunSeal('o/r', sha, { api: o.api, number: 7, sleep: async () => {}, log: () => {} });
+  let o = make({ auto_merge: null });
+  assert.match(await run(o), /^not re-run: #7 is not armed/);
+  assert.deepEqual(o.posted, []);
+  o = make({ path: '.github/workflows/ci.yml', steps: [{ name: 'Require needed jobs', conclusion: 'failure' }] });
+  assert.match(await run(o), /^not re-run: ci\.yml's seal in run 9 reads only CI's own jobs/);
+  assert.deepEqual(o.posted, []);
+  o = make({ path: '.github/workflows/ci.yml', steps: [{ name: 'Require the CI review on this exact head', conclusion: 'failure' }] });
+  await run(o);
+  assert.deepEqual(o.posted, ['/repos/o/r/actions/runs/9/rerun-failed-jobs'], 'an older ci.yml red on the review: re-run');
+  // Planted: merge-seal.yml's red seal on an armed pull request is re-run.
+  o = make();
+  await run(o);
+  assert.deepEqual(o.posted, ['/repos/o/r/actions/runs/9/rerun-failed-jobs']);
 });

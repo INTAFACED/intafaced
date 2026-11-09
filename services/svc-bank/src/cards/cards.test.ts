@@ -76,6 +76,8 @@ const CARD_CONTROLS = readFileSync(join(here, '..', '..', 'drizzle', '0035_card_
 const OPS_READS = readFileSync(join(here, '..', '..', 'drizzle', '0040_bank_ops_reads.sql'), 'utf8');
 const CARD_ORDERS = readFileSync(join(here, '..', '..', 'drizzle', '20261106013335_card_orders.sql'), 'utf8');
 const CARD_BLOCKS = readFileSync(join(here, '..', '..', 'drizzle', '20261108230236_card_blocks.sql'), 'utf8');
+// Partner-held authorisations (OWNER 226): the `money_book` columns every card read selects.
+const PARTNER_HELD = readFileSync(join(here, '..', '..', 'drizzle', '20261108231000_card_partner_held.sql'), 'utf8');
 
 const HOLDER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -420,6 +422,7 @@ describe('svc-bank cards PG-hard', () => {
         OPS_READS,
         CARD_ORDERS,
         CARD_BLOCKS,
+        PARTNER_HELD,
       ],
     });
     sql = db.sql;
@@ -1107,7 +1110,7 @@ describe('svc-bank cards PG-hard', () => {
 
       expect(reversed.ledgerTxId).not.toBe(captureLedgerTxId);
       expect(formatAmount(reversed.returned)).toBe('120');
-      const reversalTx = await ledger.getTx(reversed.ledgerTxId);
+      const reversalTx = await ledger.getTx(reversed.ledgerTxId!);
       expect(reversalTx?.idempotencyKey).toBe(`withdraw.reverse:${auth.id}`);
       expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.settle:${auth.id}`)).toHaveLength(0);
 

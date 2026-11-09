@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { PLAN_JOB } from './main-first.mjs';
+import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB } from './main-first.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -372,8 +372,12 @@ export function sealProblems(text) {
   if (pushed.group === at('ccc', { action: 'synchronize', number: 202 }).group) problems.push('two pull requests share a group');
   // Runs on the head being merged: an edit or a reopen joins the pull request's group (a newer one replaces it while it
   // waits, before it has a job) but never cancels a running seal; a re-run is in no group a push or an open cancels in.
+  // A title or body edit runs no seal (its job is skipped, INTAFACED/project-state#1574): in the pull request's group it
+  // could replace a push's waiting seal and leave the new head with none, so it keeps a group of its own.
+  const edit = at('bbb', { action: 'edited', changes: { title: { from: 'x' } } });
+  if (edit.cancel) problems.push('an edit cancels a running seal on the head being merged');
+  if (edit.group === pushed.group) problems.push("an edit shares the pull request's group, so it could replace a push's waiting seal");
   const onHead = {
-    'an edit': at('bbb', { action: 'edited', changes: { title: { from: 'x' } } }),
     'a base change': at('bbb', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
     'a reopen': at('bbb', { action: 'reopened' }),
   };
@@ -426,10 +430,71 @@ export function mainFirstProblems(text) {
   if (!/node "\$script"/.test(wait) || !/script=\.base\/tooling\/ci\/main-first\.mjs/.test(wait))
     problems.push("the main-first step does not run the default branch's main-first.mjs");
   if (!/\n {8}continue-on-error: true\n/.test(wait)) problems.push("the main-first step's wait can fail the run");
+  // It never holds a runner while it waits (the guide's CI audit, 9 Nov 2026): one read, then a deferred run runs nothing.
   const stepLimit = Number(/\n {8}timeout-minutes: (\d+)/.exec(wait)?.[1]);
   const jobLimit = Number(/\n {4}timeout-minutes: (\d+)/.exec(touch)?.[1]);
-  if (!(stepLimit >= 31 && jobLimit > stepLimit + 1))
-    problems.push(`the touch job's limit (${jobLimit} min) can end the run before the wait's own limit (${stepLimit} min)`);
+  if (!(stepLimit <= 5 && jobLimit <= 15))
+    problems.push(`the touch job's limit (${jobLimit} min) or the step's (${stepLimit} min) lets a wait hold a runner`);
+  if (!/\n {8}id: first\n/.test(wait)) problems.push('the main-first step has no id `first`, so its decision reaches nothing');
+  if (!/\n {6}mode: \$\{\{ steps\.first\.outputs\.deferred == 'true' && 'none' \|\| steps\.touch\.outputs\.mode \}\}\n/.test(touch))
+    problems.push("a deferred run's mode is not `none`, so it would still queue its shards ahead of main's");
+  const defer = step(touch, `"${DEFER_MARK}"`);
+  if (!defer || !/\n {8}if: steps\.first\.outputs\.deferred == 'true'\n/.test(defer))
+    problems.push(`the touch job has no step "${DEFER_MARK}" run exactly when deferred, so the release can't find deferred runs`);
+  // Main skips this job, so it queues twice, not three times.
+  const touchIf = /\n {4}if: (.*)\n/.exec(touch)?.[1] ?? '';
+  if (!touchIf || evaluate(touchIf, { github: { ref: MAIN } }) || !evaluate(touchIf, { github: { ref: 'refs/heads/b1' } }))
+    problems.push("the touch job runs on main, so main's run queues for runners three times");
+  for (const key of ['plan', 'build', 'journeys'])
+    if (!/\n {4}if: \$\{\{ !cancelled\(\) && /.test(job(text, key)))
+      problems.push(`the ${key} job doesn't run on a skipped touch job (\`!cancelled()\`), so main would run nothing`);
+  // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
+  const release = job(text, 'release');
+  const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
+  if (
+    !release ||
+    !/\n {4}needs: \[plan\]\n/.test(release) ||
+    !/\n {6}actions: write/.test(release) ||
+    !/main-first\.mjs --release/.test(release) ||
+    !relIf.includes("github.ref == 'refs/heads/main'")
+  )
+    problems.push('no `release` job lets deferred runs go on main once its shards are queued, so a deferred run never runs');
+  // A released re-run must not wait for main's queued shards again, or it defers every time.
+  if (!/\n {10}RUN_ATTEMPT: \$\{\{ github\.run_attempt \}\}/.test(step(touch, "Main's journeys first")))
+    problems.push("main-first doesn't get RUN_ATTEMPT, so a run the release let go defers again behind main's queued shards");
+  // After a hand-dispatched full run, release only from one that ran: deferred dispatch runs would re-run each other.
+  const after = job(text, 'release-after-dispatch');
+  if (!after || !/\n {4}needs: \[touch, journeys\]\n/.test(after) || !after.includes("needs.touch.outputs.mode != 'none'"))
+    problems.push('release-after-dispatch runs after a deferred run too, so deferred dispatch runs re-run each other');
+  // The cap on hand-dispatched full runs: the mark main-first.mjs counts, main's copy of the script, and the flag.
+  const mark = step(touch, DISPATCH_MARK);
+  const markIf = /\n {8}if: (.*)\n/.exec(mark)?.[1] ?? '';
+  const marks = (event, ref, target) =>
+    markIf && evaluate(markIf, { github: { event_name: event, ref }, env: { JOURNEYS_TARGET: target } });
+  if (
+    !mark ||
+    !marks('workflow_dispatch', 'refs/heads/b1', '') ||
+    marks('workflow_dispatch', 'refs/heads/b1', 'J-a.pw.mjs') ||
+    marks('workflow_dispatch', MAIN, '') ||
+    marks('pull_request', 'refs/pull/7/merge', '')
+  )
+    problems.push(
+      `the touch job's step "${DISPATCH_MARK}" doesn't mark exactly a hand-dispatched full run off main, so the cap can't count them`,
+    );
+  if (
+    !/\n {10}DISPATCH_FULL: \$\{\{ github\.event_name == 'workflow_dispatch' && env\.JOURNEYS_TARGET == '' \}\}\n/.test(wait) ||
+    !/\n {10}RUN_ID: \$\{\{ github\.run_id \}\}\n/.test(wait)
+  )
+    problems.push('the main-first step does not tell main-first.mjs a hand-dispatched full run from another, so the cap never applies');
+  const base = /- uses: actions\/checkout@[^\n]*\n {8}if: (.*)\n(?: {8}.*\n)*? {10}path: \.base\n/.exec(touch)?.[1] ?? '';
+  if (
+    !base ||
+    !evaluate(base, { github: { event_name: 'workflow_dispatch', ref: 'refs/heads/b1' } }) ||
+    !evaluate(base, { github: { event_name: 'pull_request', ref: 'refs/pull/7/merge' } })
+  )
+    problems.push(
+      "a manual run off main doesn't check out main's tooling (.base), so its branch's older main-first.mjs, without the cap, would run",
+    );
   if (!new RegExp(`name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
     problems.push(`no job is named "${PLAN_JOB}", the name main-first.mjs reads to know main's shards are queued`);
   return problems;
@@ -560,11 +625,15 @@ test("planted: yesterday's seal (never cancelled), and one where every run joins
     .replace(c.group, 'merge-seal-pr-${{ github.event.pull_request.number }}')
     .replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: true');
   const p = sealProblems(all);
-  for (const what of ['an edit', 'a reopen', "a push's re-run"])
+  for (const what of ['a base change', 'a reopen', "a push's re-run"])
     assert.ok(
       p.some((x) => x.startsWith(`${what} `)),
       `${what}: ${p}`,
     );
+  assert.ok(
+    p.some((x) => x.startsWith('an edit shares')),
+    `an edit in the group: ${p}`,
+  );
   // Keyed on the event alone (no run_attempt), a re-run of an old head's push joins the group and cancels the new head's seal.
   const noAttempt = t.replaceAll("github.run_attempt == '1' && ", '');
   assert.notEqual(noAttempt, t);
@@ -582,9 +651,55 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   const hard = t.replace(/(- name: Main's journeys first\n(?: {8}.*\n)*?) {8}continue-on-error: true\n/, '$1');
   assert.notEqual(hard, t);
   assert.ok(mainFirstProblems(hard).some((p) => /can fail the run/.test(p)));
-  const short = t.replace(/(\n  touch:\n(?: {4}.*\n)*? {4})timeout-minutes: \d+/, '$1timeout-minutes: 5');
-  assert.notEqual(short, t);
-  assert.ok(mainFirstProblems(short).some((p) => /can end the run/.test(p)));
+  // A wait that holds a runner (the old 30- or 175-minute step) fails: main-first reads once and defers.
+  const holds = t.replace(/(- name: Main's journeys first\n(?: {8}.*\n)*? {8})timeout-minutes: \d+/, '$1timeout-minutes: 175');
+  assert.notEqual(holds, t);
+  assert.ok(mainFirstProblems(holds).some((p) => /lets a wait hold a runner/.test(p)));
+  const longJob = t.replace(/(\n  touch:\n(?: {4}.*\n)*? {4})timeout-minutes: \d+/, '$1timeout-minutes: 180');
+  assert.notEqual(longJob, t);
+  assert.ok(mainFirstProblems(longJob).some((p) => /lets a wait hold a runner/.test(p)));
+  const runsDeferred = t.replace(
+    "mode: ${{ steps.first.outputs.deferred == 'true' && 'none' || steps.touch.outputs.mode }}",
+    'mode: ${{ steps.touch.outputs.mode }}',
+  );
+  assert.notEqual(runsDeferred, t);
+  assert.ok(mainFirstProblems(runsDeferred).some((p) => /still queue its shards/.test(p)));
+  const noDefer = t.replace(`- name: "${DEFER_MARK}"`, '- name: Something');
+  assert.notEqual(noDefer, t);
+  assert.ok(mainFirstProblems(noDefer).some((p) => /release can't find/.test(p)));
+  const touchOnMain = t.replace(
+    "    name: What this run runs\n    if: github.ref != 'refs/heads/main'\n",
+    '    name: What this run runs\n',
+  );
+  assert.notEqual(touchOnMain, t);
+  assert.ok(mainFirstProblems(touchOnMain).some((p) => /three times/.test(p)));
+  const noRelease = t.replace('run: node .base/tooling/ci/main-first.mjs --release', 'run: node .base/tooling/ci/main-first.mjs');
+  assert.notEqual(noRelease, t);
+  assert.ok(mainFirstProblems(noRelease).some((p) => /never runs/.test(p)));
+  const noAttempt = t.replace(/\n {10}RUN_ATTEMPT: .*/, '');
+  assert.notEqual(noAttempt, t);
+  assert.ok(mainFirstProblems(noAttempt).some((p) => /defers again/.test(p)));
+  const afterDeferred = t.replace(" && needs.touch.outputs.mode != 'none' }}", ' }}');
+  assert.notEqual(afterDeferred, t);
+  assert.ok(mainFirstProblems(afterDeferred).some((p) => /re-run each other/.test(p)));
+  const noMark = t.replace(`- name: ${DISPATCH_MARK}\n`, '- name: Something\n');
+  assert.notEqual(noMark, t);
+  assert.ok(mainFirstProblems(noMark).some((p) => /can't count them/.test(p)));
+  const anyDispatch = t.replace(
+    "github.ref != 'refs/heads/main' && env.JOURNEYS_TARGET == ''\n        run: echo",
+    "github.ref != 'refs/heads/main'\n        run: echo",
+  );
+  assert.notEqual(anyDispatch, t);
+  assert.ok(mainFirstProblems(anyDispatch).some((p) => /can't count them/.test(p)));
+  const noFlag = t.replace(/\n {10}DISPATCH_FULL: .*\n/, '\n');
+  assert.notEqual(noFlag, t);
+  assert.ok(mainFirstProblems(noFlag).some((p) => /cap never applies/.test(p)));
+  const prBase = t.replace(
+    "if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')",
+    "if: github.event_name == 'pull_request'",
+  );
+  assert.notEqual(prBase, t);
+  assert.ok(mainFirstProblems(prBase).some((p) => /\.base/.test(p)));
   const renamed = t.replace('name: Plan the shards\n', 'name: Plan shards\n');
   assert.notEqual(renamed, t);
   assert.ok(mainFirstProblems(renamed).some((p) => /Plan the shards/.test(p)));

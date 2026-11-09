@@ -22,6 +22,7 @@ import {
   p2pEscrowReleased,
   p2pOfferPaused,
   p2pRemarkCaseOpened,
+  p2pTraderPosted,
   p2pTradeDisputed,
   p2pTradeFiatSent,
   positionUpdated,
@@ -572,6 +573,32 @@ export async function subscribeNotificationEvents(
           severity: 'action',
           sourceSubject: p2pOfferPaused.subject,
           sourceIdempotencyKey: `${payload.instrumentId}:maker`,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'p2pTraderPosted', p2pTraderPosted.subject, 'notify-p2p-trader-posted', async (payload) => {
+      // P-ads-merchant-22: a trader this person follows posted a new public ad. One notice per (ad, follower): svc-p2p
+      // writes one outbox row per follower when the ad is posted and none on an edit, so the pair is the business key.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.followerId,
+          kind: 'p2p.trader.posted',
+          titleKey: 'notify.p2p.trader.posted.title',
+          bodyKey: 'notify.p2p.trader.posted.body',
+          params: {
+            offerId: payload.offerId,
+            traderId: payload.traderId,
+            side: payload.side,
+            asset: payload.asset,
+            fiatCurrency: payload.fiatCurrency,
+          },
+          href: `/p2p?makerId=${encodeURIComponent(payload.traderId)}`,
+          severity: 'info',
+          sourceSubject: p2pTraderPosted.subject,
+          sourceIdempotencyKey: `${payload.offerId}:${payload.followerId}`,
         }),
       );
     }),
