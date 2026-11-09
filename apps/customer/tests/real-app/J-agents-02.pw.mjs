@@ -49,8 +49,12 @@ async function stillCalls(engineCalls, expected) {
 }
 
 const J = 'J-agents-02';
-/** The stack's TEST chain, read straight through its gate: the figure a refusal names is checked against it. */
-const chain = createPublicClient({ transport: http(GATE_URL) });
+/**
+ * The stack's TEST chain, read straight through its gate: the figure a refusal names is checked against it. Uncached
+ * (`cacheTime: 0`): viem otherwise answers `getBlockNumber` from a 4 s cache, so the block read after a refusal could be
+ * the one read before it while the service already saw a newer block.
+ */
+const chain = createPublicClient({ cacheTime: 0, transport: http(GATE_URL) });
 /** The seeded TEST USD token (services/svc-protocol/scripts/seed-test-chain.ts), 6 decimals: the wallet's payment token. */
 const TEST_USD = '0x000000000000000000000000000000000000d011';
 const agents = agentsRun(J);
