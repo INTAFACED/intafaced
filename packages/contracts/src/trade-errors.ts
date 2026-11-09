@@ -13,6 +13,18 @@ export const TRADE_ERRORS_PATH = '/developers/errors' as const;
 
 export type TradeErrorCause = 'fields' | 'tag' | 'posting_frozen' | 'settlement_pending';
 
+/**
+ * How a client should treat an error, the same scale for every catalogue (J-cex-spot-15 #2): `error`, the request
+ * fails as sent and must change; `temporary`, the same request may succeed later; `uncertain`, the outcome is not
+ * known, so read the state before sending again.
+ */
+export const ERROR_SEVERITIES = ['error', 'temporary', 'uncertain'] as const;
+export type ErrorSeverity = (typeof ERROR_SEVERITIES)[number];
+
+/** What an error is about, the same list for every catalogue. */
+export const ERROR_CATEGORIES = ['request', 'authentication', 'signature', 'permission', 'account', 'platform'] as const;
+export type ErrorCategory = (typeof ERROR_CATEGORIES)[number];
+
 export interface TradeErrorEntry {
   readonly cause: TradeErrorCause;
   /** The body `code`, what a client branches on. */
@@ -20,22 +32,27 @@ export interface TradeErrorEntry {
   readonly status: 400 | 503;
   /** The decision behind the code, sent beside it as `intafacedCode`. */
   readonly intafacedCode: string;
+  readonly severity: ErrorSeverity;
+  readonly category: ErrorCategory;
   readonly anchor: string;
 }
 
-const entry = (cause: TradeErrorCause, code: string, status: TradeErrorEntry['status'], intafacedCode: string): TradeErrorEntry => ({
-  cause,
-  code,
-  status,
-  intafacedCode,
-  anchor: intafacedCode,
-});
+const entry = (
+  cause: TradeErrorCause,
+  code: string,
+  status: TradeErrorEntry['status'],
+  intafacedCode: string,
+  severity: ErrorSeverity,
+  category: ErrorCategory,
+): TradeErrorEntry => ({ cause, code, status, intafacedCode, severity, category, anchor: intafacedCode });
 
 export const TRADE_ERROR_CATALOGUE: readonly TradeErrorEntry[] = [
-  entry('fields', 'InvalidOrder', 400, 'trade.validation_failed'),
-  entry('tag', 'InvalidOrder', 400, 'trade.invalid_tag'),
-  entry('posting_frozen', 'OnMaintenance', 400, 'posting_frozen'),
-  entry('settlement_pending', 'ExchangeNotAvailable', 503, 'trade.settlement_pending'),
+  entry('fields', 'InvalidOrder', 400, 'trade.validation_failed', 'error', 'request'),
+  entry('tag', 'InvalidOrder', 400, 'trade.invalid_tag', 'error', 'request'),
+  // Nothing was placed or held: the same order, with the same client order id, may be sent again after the pause.
+  entry('posting_frozen', 'OnMaintenance', 400, 'posting_frozen', 'temporary', 'platform'),
+  // The order exists and its settlement is unconfirmed: read it before sending again.
+  entry('settlement_pending', 'ExchangeNotAvailable', 503, 'trade.settlement_pending', 'uncertain', 'platform'),
 ];
 
 /** Where a refusal with this `intafacedCode` is explained: its entry's anchor on the page. */

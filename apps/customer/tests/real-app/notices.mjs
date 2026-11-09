@@ -46,6 +46,8 @@ export async function draftNotice({
   asset = null,
   network = null,
   phase = null,
+  translations = null,
+  changelog = null,
 }) {
   // A fee change names the time it takes effect and has no end; every other notice gets a short window.
   const feeChange = kind === 'fee_change';
@@ -71,11 +73,18 @@ export async function draftNotice({
       ...(audience ? { audience } : {}),
       ...(asset ? { asset, network } : {}),
       ...(phase ? { phase } : {}),
+      ...(translations ? { translations } : {}),
+      ...(changelog ? { changelog } : {}),
       clientRequestId: `journey:notice-draft:${key}`,
     },
     await pair.a.tradeOpsToken(),
   );
-  return { ...data(res, 'notify.draftNotice'), statusFields: { impact, components, parentId, resolves } };
+  // The draft's answer leaves its other-language text out; the hash needs it as sent (already trimmed by the caller).
+  return {
+    ...data(res, 'notify.draftNotice'),
+    statusFields: { impact, components, parentId, resolves },
+    ...(translations ? { translations } : {}),
+  };
 }
 
 /** Four-eyes publish of a draft: A proposes, B approves, A publishes. Returns the published row. */

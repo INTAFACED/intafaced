@@ -94,6 +94,8 @@ export const entrySchema = z.object({
   changelog: changelogSchema.nullable(),
   /** The founders' category an announcement is filed under, as filed (SP-status-03). Absent from an older svc-notify. */
   category: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
+  /** A changelog read in a chosen language: the language this entry's title and body are in. Absent on other reads. */
+  language: z.string().optional(),
 });
 export type ChangelogEntry = z.infer<typeof entrySchema>;
 
@@ -106,18 +108,20 @@ export type UpcomingChanges = z.infer<typeof upcomingSchema>;
 export const readStatusFeed = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<StatusFeed>> =>
   api.query('notify', 'notify.statusFeed', { days: 30 }, statusFeedSchema, { signal });
 
+/** The changelog in the reader's chosen language (`language`, the app's locale code): each entry names the language it is in. */
 export const readChangelog = (
   api: ApiClient,
   filter: { area: ChangelogAreaId | null; breaking: boolean },
+  language: string,
   signal?: AbortSignal,
 ): Promise<ApiResult<ChangelogEntry[]>> =>
   api.query(
     'notify',
     'notify.changelog',
-    { limit: 50, ...(filter.area ? { area: filter.area } : {}), ...(filter.breaking ? { breaking: true } : {}) },
+    { limit: 50, language, ...(filter.area ? { area: filter.area } : {}), ...(filter.breaking ? { breaking: true } : {}) },
     z.array(entrySchema).max(50),
     { signal },
   );
 
-export const readUpcomingChanges = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<UpcomingChanges>> =>
-  api.query('notify', 'notify.upcomingChanges', undefined, upcomingSchema, { signal });
+export const readUpcomingChanges = (api: ApiClient, language: string, signal?: AbortSignal): Promise<ApiResult<UpcomingChanges>> =>
+  api.query('notify', 'notify.upcomingChanges', { language }, upcomingSchema, { signal });

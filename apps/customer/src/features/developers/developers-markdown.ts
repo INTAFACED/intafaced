@@ -15,6 +15,7 @@ import { developersCopy } from './developers-copy';
 import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
 import { docsCopy } from './developers-docs-copy';
 import { causeKey, fixKey, tradeErrorsCopy } from './errors/trade-errors-copy';
+import { categoryKey, errorClassCopy, severityKey } from './errors/error-class-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
 import { AUDIENCES, DATA_PRODUCTS, DATA_TERMS, SECTIONS, connectivityOptions, hostRows, type Section } from './developers-model';
 import {
@@ -34,6 +35,7 @@ const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
 const limits = rateLimitsCopy.forLocale('en').t;
 const tradeErrors = tradeErrorsCopy.forLocale('en').t;
+const errorClass = errorClassCopy.forLocale('en').t;
 const trading = tradingApiCopy.forLocale('en').t;
 const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
@@ -254,11 +256,21 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         tradeErrors('lead'),
         `## ${tradeErrors('tableTitle')}`,
         table(
-          [tradeErrors('colCode'), tradeErrors('colStatus'), tradeErrors('colDetail'), tradeErrors('colCause'), tradeErrors('colFix')],
+          [
+            tradeErrors('colCode'),
+            tradeErrors('colStatus'),
+            tradeErrors('colDetail'),
+            errorClass('colSeverity'),
+            errorClass('colCategory'),
+            tradeErrors('colCause'),
+            tradeErrors('colFix'),
+          ],
           TRADE_ERROR_CATALOGUE.map((entry) => [
             code(entry.code),
             String(entry.status),
             code(entry.intafacedCode),
+            errorClass(severityKey(entry.severity)),
+            errorClass(categoryKey(entry.category)),
             tradeErrors(causeKey(entry.cause)),
             tradeErrors(fixKey(entry.cause)),
           ]),

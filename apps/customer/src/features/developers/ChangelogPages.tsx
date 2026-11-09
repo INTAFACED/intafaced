@@ -15,11 +15,15 @@ import '../public/public-pages.css';
 
 /** /developers/changelog: published entries newest first, filtered by area and by the breaking flag. */
 export function ChangelogPage() {
-  const { t } = liveCopy.useCopy();
+  const { t, requestedLocale } = liveCopy.useCopy();
   const { api } = useSession();
   const [area, setArea] = useState<ChangelogAreaId | null>(null);
   const [breaking, setBreaking] = useState(false);
-  const { read, reload } = useRead((signal) => readChangelog(api, { area, breaking }, signal), [api, area, breaking]);
+  // Read again when the reader picks another language: each entry comes in it when the operator wrote it.
+  const { read, reload } = useRead(
+    (signal) => readChangelog(api, { area, breaking }, requestedLocale, signal),
+    [api, area, breaking, requestedLocale],
+  );
   return (
     <div className="pub-page" data-testid="developers-changelog">
       <header className="pub-heading">
@@ -53,7 +57,7 @@ export function ChangelogPage() {
       ) : read.status === 'failed' ? (
         <StateBlock kind="error" title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
       ) : (
-        <ChangelogList entries={read.data} />
+        <ChangelogList entries={read.data} language={requestedLocale} />
       )}
       <a className="text-link" href="/developers">
         ← {t('back')}
@@ -77,7 +81,11 @@ function Items({ title, items }: { title: string; items: readonly string[] }) {
   );
 }
 
-export function ChangelogList({ entries }: { entries: readonly ChangelogEntry[] }) {
+/**
+ * The entries, each marked with the language its text is in (`lang`). An entry with no text in the reader's language
+ * shows its English source and says so, rather than passing it off as a translation.
+ */
+export function ChangelogList({ entries, language }: { entries: readonly ChangelogEntry[]; language?: string }) {
   const { t } = liveCopy.useCopy();
   if (entries.length === 0)
     return (
@@ -90,8 +98,18 @@ export function ChangelogList({ entries }: { entries: readonly ChangelogEntry[] 
       {entries.map((entry) => {
         const log = entry.changelog;
         return (
-          <article className="pub-card" key={entry.id} data-breaking={log?.breaking ? 'true' : 'false'}>
+          <article
+            className="pub-card"
+            key={entry.id}
+            data-breaking={log?.breaking ? 'true' : 'false'}
+            {...(entry.language ? { lang: entry.language, 'data-language': entry.language } : {})}
+          >
             <h2>{entry.title}</h2>
+            {language && entry.language && entry.language !== language ? (
+              <p className="muted" lang={language} data-testid="changelog-not-in-language">
+                {t('notInLanguage')}
+              </p>
+            ) : null}
             <p className="muted">
               {log ? t(`area_${log.area}` as const) : t('areaNotSet')}
               {log?.breaking ? ` · ${t('breaking')}` : ''}
@@ -130,9 +148,9 @@ export function ChangelogList({ entries }: { entries: readonly ChangelogEntry[] 
 
 /** /developers/changelog/upcoming: breaking changes not yet in effect, and every retired endpoint. */
 export function UpcomingPage() {
-  const { t } = liveCopy.useCopy();
+  const { t, requestedLocale } = liveCopy.useCopy();
   const { api } = useSession();
-  const { read, reload } = useRead((signal) => readUpcomingChanges(api, signal), [api]);
+  const { read, reload } = useRead((signal) => readUpcomingChanges(api, requestedLocale, signal), [api, requestedLocale]);
   return (
     <div className="pub-page" data-testid="developers-upcoming">
       <header className="pub-heading">
@@ -144,7 +162,7 @@ export function UpcomingPage() {
       ) : read.status === 'failed' ? (
         <StateBlock kind="error" title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
       ) : (
-        <UpcomingView data={read.data} />
+        <UpcomingView data={read.data} language={requestedLocale} />
       )}
       <a className="text-link" href="/developers/changelog">
         ← {t('changelogBack')}
@@ -153,7 +171,7 @@ export function UpcomingPage() {
   );
 }
 
-export function UpcomingView({ data }: { data: UpcomingChanges }) {
+export function UpcomingView({ data, language }: { data: UpcomingChanges; language?: string }) {
   const { t } = liveCopy.useCopy();
   return (
     <>
@@ -162,7 +180,7 @@ export function UpcomingView({ data }: { data: UpcomingChanges }) {
           <p>{t('upcomingNone')}</p>
         </section>
       ) : (
-        <ChangelogList entries={data.upcoming} />
+        <ChangelogList entries={data.upcoming} language={language} />
       )}
       <section className="pub-card" aria-labelledby="up-retired">
         <h2 id="up-retired">{t('retiredListTitle')}</h2>
