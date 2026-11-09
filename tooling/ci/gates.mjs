@@ -64,6 +64,18 @@ export const GATES = [
       'those tests, and deleting it has to be a visible act. About 40 seconds, no network.',
   },
   {
+    id: 'reachability',
+    script: 'tooling/ci/reachability-scan.mjs',
+    doctrine: 'L3 slice factory law, Reachability law',
+    why:
+      'a module that imports nothing and is imported by nothing is not shipped work. Between #905 and #946 the ' +
+      'slice factory produced 151 such modules - each re-declaring a constant that already existed and testing ' +
+      'the copy against a literal - and every one passed this gate list, format, typecheck, tests and CI. The ' +
+      'stamp-mill gate led with docsOnly (#884) so it never looked. This is the gate that would have caught it ' +
+      'on the first wave instead of the two hundredth. Modules built but not yet wired are PARKED by name with a ' +
+      'reason, and that list may only shrink.',
+  },
+  {
     id: 'brand',
     script: 'tooling/ci/brand-scan.mjs',
     doctrine: '§0.7',
@@ -231,6 +243,28 @@ export const GATES = [
       'mulBps that ignores the caller, a parseAmount that truncates over-precision, and a proRata that pays the ' +
       'SMALLEST remainders all survived eighteen green properties. 6 planted defects, all must die.',
   },
+  {
+    id: 'empty-denominator',
+    script: 'tooling/ci/empty-denominator-gate.mjs',
+    doctrine: '§14 / empty-denominator law',
+    why:
+      'a check that reports on nothing and gets read as evidence is this repo’s single most repeated defect, and until ' +
+      'this entry NOTHING enforced the rule against it. Seven gates had each learned it separately and hand-rolled a ' +
+      'guard — brand-scan’s `scanned === 0`, i18n-scan, i18n-bypass-scan ("walked zero un-allowlisted files and ' +
+      'printed"), wallet-rpc-mainnet-scan’s "every denominator non-zero", event-wiring, shell-brand-scan, ' +
+      'vendor-java-money-scan — which meant the EIGHTH gate anyone wrote would not have it, because nothing would ask. ' +
+      'This asks: it runs every gate in this list against a tree where its denominator is genuinely zero and asserts ' +
+      'what it actually did, rather than grepping for a guard’s source text — which would prove a string exists, not ' +
+      'that a gate refuses. Measured on arrival: 22 gates refuse, 3 are exempt because their subject travels with them ' +
+      'in fixtures, and 7 print CLEAN over nothing and are frozen as debt that may only shrink. The loudest of the ' +
+      'seven was fabricated-money (retired 2026-10-13 with the Vue customer site), which printed "NOTHING WAS SCANNED … ' +
+      'discovery is broken" and then exited 0 — while shell-brand-scan prints that same sentence and exits 1. Ordered last because it is the most expensive gate here ' +
+      '(~5s, it spawns every other gate once) and because it depends on nothing above it. It classifies ITSELF, and ' +
+      'since it cannot run inside its own fixture without recursing, a self-proof runs on every invocation instead: ' +
+      'handed a substitute list of zero gates, or one unclassified gate, it must refuse. That is the worktree-gc ' +
+      '--self-test and RULE_PROBES precedent, and it is not optional here — a meta-gate about empty denominators is the ' +
+      'most obvious candidate in this repo to BE one.',
+  },
 ];
 
 /**
@@ -311,7 +345,7 @@ export const NOT_GATES = {
     'not a gate: the node:test file of factory-builder.mjs and builder.yml, with planted faults in the workflow and an end-to-end run against a fake CLI and a local switch. tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
-    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI no longer runs it: its reported, non-blocking step left the `gates` job in U4 (2026-11-09), because it could not block anything.',
+    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI no longer runs it: its reported, non-blocking step left the `gates` job in U4 (2026-11-09, OWNER 251 (2)), because it could not block anything.',
 
   'verify.mjs':
     'the verify runner itself — it CALLS this list. Listing it as a gate would make it invoke itself. It exists so the infrastructure verdict prints even when turbo halts early, which a `&&` chain cannot do.',
@@ -378,8 +412,16 @@ function manifestCheck() {
 
 // ── Run ────────────────────────────────────────────────────────────────────
 /**
- * Guarded so this file can be IMPORTED as data (`GATES`, `NOT_GATES`) without
- * the import running every gate as a side effect.
+ * Guarded so this file can be IMPORTED as data without the import running 32
+ * gates as a side effect.
+ *
+ * `empty-denominator-gate.mjs` has to read the REAL `GATES` array to classify
+ * every entry in it and to assert its own classified count against
+ * `GATES.length`. Its alternative was to parse this file's source text — and a
+ * meta-gate whose census comes from a regex over source is the same species of
+ * defect it exists to police: it would prove a string appears in a file, not
+ * that a gate is in the list. So the array is the interface, and this guard is
+ * what makes reading it free.
  *
  * Behaviour when run directly (`node tooling/ci/gates.mjs`, `pnpm gates`, the
  * `gates` job in ci.yml) is unchanged — `main()` is called immediately below.

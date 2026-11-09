@@ -81,6 +81,7 @@ export const GATE_PATHS = [
   ['tooling/scripts/tooling-tests.mjs', 'which tooling tests the Doctrine gates run'],
   ['docs/runbooks/journey-baseline.json', "the steps the Real-app journeys run on main may fail, which decide that run's verdict"],
   ['docs/roadmap/journeys.json', 'the journey steps the journeys run, its verdict and the money rule read'],
+  ['tooling/coverage-law-index.json', "the private law's structure, which decides coverage-check's chapter spans and blank-line refusals"],
 ];
 
 function globToRegExp(glob) {

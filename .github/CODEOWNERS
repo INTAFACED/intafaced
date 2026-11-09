@@ -53,6 +53,7 @@
 /tooling/pay-sim/                    @Phantom-X-007 @ZenYoda3
 
 # ── The rules themselves. Changing these changes what "done" means. ──────────
+/tooling/coverage-law-index.json     @Phantom-X-007 @ZenYoda3
 /tooling/agent-protocol/             @Phantom-X-007 @ZenYoda3
 /tooling/ci/                         @Phantom-X-007 @ZenYoda3
 /.github/                            @Phantom-X-007 @ZenYoda3
