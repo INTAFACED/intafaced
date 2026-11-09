@@ -515,6 +515,19 @@ const schema = serviceEnvSchema
       BANK_CARD_SPEND_ASSETS: z.string().optional(),
 
       /**
+       * The owner's count of wrong PIN tries in a row that block a card's PIN (J-bank-14 #3), a whole number from 1 to 10.
+       * NO DEFAULT. Blank or malformed → an authorisation that carries a PIN declines `bank.card_pin_try_limit_unset`.
+       */
+      BANK_CARD_PIN_TRY_LIMIT: z.string().optional(),
+
+      /**
+       * The owner's card dispute cap per asset as JSON (J-bank-27 #4): `{ "USDC": "100.00" }`, the most one dispute may be
+       * provisionally credited or decided for the cardholder. NO DEFAULT. Blank, or an asset it leaves out, refuses
+       * `bank.card_dispute_cap_unset`; a malformed value refuses to start.
+       */
+      BANK_CARD_DISPUTE_CAP_JSON: z.string().optional(),
+
+      /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
        * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.

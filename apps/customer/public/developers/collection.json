@@ -71,6 +71,27 @@
           }
         },
         {
+          "name": "fetchSpreads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/spreads", "host": ["{{baseUrl}}"], "path": ["api", "v1", "spreads"] }
+          }
+        },
+        {
+          "name": "fetchMarketAnalytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/:symbol",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", ":symbol"],
+              "variable": [{ "key": "symbol", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "fetchOrderBook",
           "request": {
             "method": "GET",

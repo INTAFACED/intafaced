@@ -148,3 +148,20 @@ test('switchProblem: only a readable `run` is no problem; a refused, unreadable 
   });
   assert.equal(badBody?.title, 'Factory switch unreadable');
 });
+
+// INTAFACED/project-state#1574: a merge seal still waiting for its inputs has no verdict on the head; the sweep leaves it
+// (the re-check starts it, and it reads the switch then) instead of polling until its bound.
+test('sweepHead leaves a seal that still waits for its inputs, and re-runs nothing', async () => {
+  const waiting = {
+    id: 8,
+    name: "${{ (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') && 'CI merge seal' || 'x' }}",
+    status: 'completed',
+    conclusion: 'skipped',
+  };
+  const a = fakeApi({ job: waiting });
+  let slept = 0;
+  const msg = await sweepHead({ repo: 'o/r', sha: 'a', paused: true, ...a, sleep: async () => slept++ });
+  assert.match(msg, /^no verdict yet/);
+  assert.deepEqual(a.posted, []);
+  assert.equal(slept, 0, 'never polled');
+});

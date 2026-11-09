@@ -216,7 +216,13 @@ jobs:
             ln -s "$GITHUB_WORKSPACE/node_modules" "$RUNNER_TEMP/list-base/node_modules"
             guard="$RUNNER_TEMP/list-base/$guard"
           fi
-          node "$guard" --base-ref origin/main
+          # The list is judged against the base this checkout's merge commit was built on (its first parent), not a newer
+          # origin/main: a job that waits for a runner while main adds journeys would otherwise read them as removed by
+          # this pull request (#7680 and #7613 on 9 Nov 2026, 7 journeys main added after their merge refs were built). The
+          # rules still come from origin/main, above. A checkout that is not a merge keeps origin/main.
+          base=origin/main
+          if git rev-parse --verify -q 'HEAD^2' >/dev/null; then base='HEAD^1'; fi
+          node "$guard" --base-ref "$base"
 
       # The redesign's drift lint, from main like the guard above: changed lines in apps/customer and packages/ui/src/lit take
       # their look from role tokens (no raw colours, pixel sizes or left/right sides). It ratchets: lines already on
@@ -553,7 +559,10 @@ jobs:
         run: node tooling/ci/infra-verdict.mjs
 
   merge-seal:
-    name: CI merge seal
+    # `CI jobs` on a pull request: there the seal is merge-seal.yml's alone, which waits for its inputs with no check on
+    # the head, so a job of this name here would pass the required check in its place (journey-seal.mjs CI_JOBS_NAME,
+    # sealNow). `CI merge seal` on a merge queue's commit, which merge-seal.yml never reaches.
+    name: ${{ github.event_name == 'merge_group' && 'CI merge seal' || 'CI jobs' }}
     runs-on: ubuntu-latest
     # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25
@@ -589,15 +598,19 @@ jobs:
       # A pull request whose title names journey steps (`J-bank-13 #1 #2`): each one passing in a finished Real-app
       # journeys run on its exact head, or exempted on a body line `Left-or-replaced: J-bank-13 #1` (owner decision
       # 2026-11-06; #7202 merged with its named steps red in its own run). On a merge queue's commit, every queued pull
-      # request on its own head. journey-seal-recheck.yml re-runs this job when a journeys run finishes or a title or body
-      # is edited. The default branch's copy decides, as for the review below.
+      # request on its own head. The default branch's copy decides, as for the review below.
       # A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP in journey-seal.mjs), whatever its
       # title, also needs the newest finished full journeys run on its exact head clean by the journeys verdict, judged with
       # the default branch's baseline (the pilot lead's rule of 7 Nov 2026, moved from a message into CI).
       # A pull request that changes a journey test (apps/customer/tests/real-app/J-*.pw.mjs) names, for each changed file,
       # a step it holds, in the title or on a Left-or-replaced line; otherwise it fails and prints them (#1249 seal gap).
+      # On a pull request this step and the CI review below are merge-seal.yml's alone (the default branch's copy, on
+      # every pull request into main), so this job's verdict there is CI's own jobs and the switch, which change only when
+      # CI runs again: a finished journeys run, an edit or a review never re-runs this job, and so never starts a new CI
+      # attempt that starts another re-check (INTAFACED/project-state#1574, 9 Nov 2026). A pull request's own copy of
+      # these steps could be edited out by that pull request anyway; merge-seal.yml's can't.
       - name: Require the named journey steps on this exact head
-        if: steps.base.outcome == 'success'
+        if: github.event_name == 'merge_group' && steps.base.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -615,11 +628,11 @@ jobs:
             echo "::notice::the default branch has no tooling/ci/journey-seal.mjs yet; this pull request's copy reads the steps"
           fi
           node "$seal"
-      # On a pull request: its head. On a merge queue's commit (merge_group): every pull request in the group, each on its
-      # own head, without waiting, since the queue only took pull requests whose seal had passed.
+      # Only on a merge queue's commit (merge_group): every pull request in the group, each on its own head, without
+      # waiting, since the queue only took pull requests whose seal had passed. A pull request's is merge-seal.yml's.
       # It runs when the journey steps above are red too, so both verdicts show on one seal run.
       - name: Require the CI review on this exact head
-        if: ${{ !cancelled() && steps.needed.outcome == 'success' && steps.base.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'merge_group' && steps.needed.outcome == 'success' && steps.base.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
