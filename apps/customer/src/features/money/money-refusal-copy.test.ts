@@ -115,6 +115,8 @@ describe('reading a refusal that has come back', () => {
       'business.removeMember',
       'business.runPayroll',
       'business.setMemberRole',
+      'cards.controls.block',
+      'cards.controls.lift',
       'cards.issue',
       'cards.setChannels',
       'cards.setLimits',

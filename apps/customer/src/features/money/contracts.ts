@@ -1015,6 +1015,26 @@ const payFromSchema = z.object({
   notUsedForCards: z.array(z.enum(['trading', 'agent'])),
 });
 
+/**
+ * svc-bank `cards.controls.*` (J-bank-14 #1, BK-cctl-01): the categories a card can block, its live blocks of a
+ * category, a merchant or a country, and the history of its temporary lock, newest first.
+ */
+export const cardControlsSchema = z.object({
+  categories: z.array(z.string()),
+  controls: z.array(
+    z.object({ id: z.string(), kind: z.enum(['category', 'merchant', 'country']), value: z.string(), createdAt: z.string() }),
+  ),
+  history: z.array(
+    z.object({
+      id: z.string(),
+      status: z.enum(['active', 'frozen', 'closed']),
+      actor: z.enum(['owner', 'holder', 'operator', 'system']),
+      at: z.string(),
+    }),
+  ),
+});
+export type CardControls = z.infer<typeof cardControlsSchema>;
+
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -1115,12 +1135,16 @@ export const bankReads = {
   }),
   'cards.uses': z.object({ cardId: z.string(), usesAllowed: z.number().int().nullable(), usesMade: z.number().int() }),
   'cards.list': z.array(cardSchema),
+  'cards.controls.get': cardControlsSchema,
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
       authorizationRef: z.string(),
       amount: money,
       merchantCategory: z.string().nullable(),
+      /** The merchant and its country as the issuer named them (J-bank-14 #1); null when it named none. */
+      merchant: z.string().nullable().default(null),
+      merchantCountry: z.string().nullable().default(null),
       decision: z.enum(['approved', 'declined']),
       declineCode: z.string().nullable(),
       status: z.string(),
@@ -1217,6 +1241,8 @@ export const bankWrites = {
   'cards.replace': cardSchema,
   'cards.setLimits': cardSchema,
   'cards.setChannels': cardSchema,
+  'cards.controls.block': cardControlsSchema,
+  'cards.controls.lift': cardControlsSchema,
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,

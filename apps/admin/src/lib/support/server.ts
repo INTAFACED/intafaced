@@ -28,6 +28,16 @@ import { readMergePreview } from './merge';
 import { readRatingSummary } from './ratings';
 import { readDeskScope, readGroup, readGroups } from './groups';
 import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
+import {
+  readAvailabilityLog,
+  readGroupLog,
+  readRequiredSkillResult,
+  readRoutingOverview,
+  readRoutingWaiting,
+  readSetModeResult,
+  readStaffRouting,
+  readTicketRouting,
+} from './routing';
 import type {
   SupportKbView,
   SupportLifecycleView,
@@ -38,7 +48,10 @@ import type {
   SupportBulkPolicyView,
   SupportQueueView,
   SupportGroupsView,
+  SupportGroupLogView,
+  SupportRoutingWaitingView,
   SupportStaffView,
+  SupportTicketRoutingView,
   SupportTicketView,
   SupportViewsView,
   TicketExtrasView,
@@ -231,17 +244,54 @@ export async function loadRatingSummary(
   return { asOf: now.toISOString(), summary: partFrom(result, (r) => r, LABELS) };
 }
 
-/** Who is on the support staff and whether automatic offline is set. Two reads, each its own part. */
+/**
+ * Who is on the support staff (with their groups), whether automatic offline is set, each person's capacity and skills, and
+ * the availability log. Four reads, each its own part.
+ */
 export async function loadStaff(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportStaffView> {
-  const [roster, policy] = await Promise.all([
+  const [roster, policy, routing, log] = await Promise.all([
     founderCall(ctx, 'support', 'staffList', 'GET', {}, readStaffRoster),
     founderCall(ctx, 'support', 'staffAvailabilityPolicy', 'GET', {}, readStaffPolicy),
+    founderCall(ctx, 'support', 'routingOverview', 'GET', {}, readRoutingOverview),
+    founderCall(ctx, 'support', 'staffAvailabilityLog', 'GET', {}, readAvailabilityLog),
   ]);
   return {
     asOf: now.toISOString(),
     meId: ctx.session.userId,
     roster: partFrom(roster, (r) => r, LABELS),
     policy: partFrom(policy, (p) => p, LABELS),
+    routing: partFrom(routing, (r) => r, LABELS),
+    log: partFrom(log, (l) => l, LABELS),
+  };
+}
+
+/** One group's log, oldest first. */
+export async function loadGroupLog(ctx: FounderCallContext, groupId: string, now: Date = new Date()): Promise<SupportGroupLogView> {
+  const result = await founderCall(ctx, 'support', 'groupsLog', 'GET', { groupId }, readGroupLog);
+  return { asOf: now.toISOString(), groupId, log: partFrom(result, (l) => l, LABELS) };
+}
+
+/** Requests in a routed group that no agent could take, as svc-support lists them for this person. */
+export async function loadRoutingWaiting(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportRoutingWaitingView> {
+  const result = await founderCall(ctx, 'support', 'routingWaiting', 'GET', {}, readRoutingWaiting);
+  return { asOf: now.toISOString(), waiting: partFrom(result, (w) => w, LABELS) };
+}
+
+/** One request's routing and the roster (to say whether this person is a lead). Two reads, each its own part. */
+export async function loadTicketRouting(
+  ctx: FounderCallContext,
+  ticketId: string,
+  now: Date = new Date(),
+): Promise<SupportTicketRoutingView> {
+  const [routing, roster] = await Promise.all([
+    founderCall(ctx, 'support', 'ticketRouting', 'GET', { ticketId }, readTicketRouting),
+    founderCall(ctx, 'support', 'staffList', 'GET', {}, readStaffRoster),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    meId: ctx.session.userId,
+    routing: partFrom(routing, (r) => r, LABELS),
+    roster: partFrom(roster, (r) => r, LABELS),
   };
 }
 
@@ -263,12 +313,13 @@ export function applyMacro(ctx: FounderCallContext, ticketId: string, macroId: s
   return founderCall(ctx, 'support', 'macroApply', 'GET', { ticketId, macroId }, parseWith(supportMacroAppliedSchema));
 }
 
-/** Desk groups, this person's own scope and the roster. Three reads, each its own part. */
+/** Desk groups, this person's own scope, the roster and each group's routing. Four reads, each its own part. */
 export async function loadGroups(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportGroupsView> {
-  const [groups, scope, roster] = await Promise.all([
+  const [groups, scope, roster, routing] = await Promise.all([
     founderCall(ctx, 'support', 'groupsList', 'GET', {}, readGroups),
     founderCall(ctx, 'support', 'deskScope', 'GET', {}, readDeskScope),
     founderCall(ctx, 'support', 'staffList', 'GET', {}, readStaffRoster),
+    founderCall(ctx, 'support', 'routingOverview', 'GET', {}, readRoutingOverview),
   ]);
   return {
     asOf: now.toISOString(),
@@ -276,6 +327,7 @@ export async function loadGroups(ctx: FounderCallContext, now: Date = new Date()
     groups: partFrom(groups, (g) => g, LABELS),
     scope: partFrom(scope, (x) => x, LABELS),
     roster: partFrom(roster, (r) => r, LABELS),
+    routing: partFrom(routing, (r) => r, LABELS),
   };
 }
 
@@ -441,6 +493,26 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.reason ? { reason: request.reason } : {}),
         },
         readStaffMember,
+      );
+    case 'routing_mode':
+      return founderCall(ctx, 'support', 'routingSetMode', 'POST', { groupId: request.groupId, mode: request.mode }, readSetModeResult);
+    case 'staff_routing':
+      return founderCall(
+        ctx,
+        'support',
+        'staffSetRouting',
+        'POST',
+        { userId: request.userId, capacity: request.capacity, skills: [...request.skills] },
+        readStaffRouting,
+      );
+    case 'ticket_skill':
+      return founderCall(
+        ctx,
+        'support',
+        'ticketSetRequiredSkill',
+        'POST',
+        { ticketId: request.ticketId, skill: request.skill },
+        readRequiredSkillResult,
       );
     case 'properties':
       return founderCall(
