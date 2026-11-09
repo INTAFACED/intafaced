@@ -92,17 +92,20 @@ test('pathKind: what needs the full run, what touches only its own journey file,
   assert.equal(pathKind('apps/customer/tests/real-app/registry-blockers.pw.mjs').kind, 'full');
 });
 
-test('a path with a control character is full and is printed without it (no workflow command from a file name)', () => {
+test('a path with a control character is printed without it (no workflow command from a file name)', () => {
   const evil = 'apps/customer/tests/real-app/J-a-01\n::error::x.pw.mjs';
   assert.equal(pathKind(evil).kind, 'full');
   const t = journeyTouch([evil]);
-  assert.equal(t.mode, 'full');
-  assert.equal(t.full[0].path.includes('\n'), false);
+  assert.equal(t.mode, 'none', 'not shared setup, so it runs only what the title names');
+  assert.equal(t.unplaced[0].path.includes('\n'), false);
+  const shared = journeyTouch(['tooling/scripts/local-test-a\n::error::.mjs']);
+  assert.equal(shared.mode, 'full');
+  assert.equal(shared.full[0].path.includes('\n'), false);
 });
 
-test('journeyTouch: the most demanding path decides; a removed journey file runs nothing', () => {
-  assert.deepEqual(journeyTouch(['.github/workflows/ci.yml']), { mode: 'none', full: [], files: [] });
-  assert.deepEqual(journeyTouch([]), { mode: 'none', full: [], files: [] });
+test('journeyTouch: only shared setup runs the full suite; a removed journey file runs nothing', () => {
+  assert.deepEqual(journeyTouch(['.github/workflows/ci.yml']), { mode: 'none', full: [], files: [], unplaced: [] });
+  assert.deepEqual(journeyTouch([]), { mode: 'none', full: [], files: [], unplaced: [] });
   const two = journeyTouch([
     'apps/customer/tests/real-app/J-bank-14.pw.mjs',
     'apps/customer/tests/real-app/J-bank-13.pw.mjs',
@@ -110,13 +113,36 @@ test('journeyTouch: the most demanding path decides; a removed journey file runs
   ]);
   assert.deepEqual([two.mode, two.files], ['files', ['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']]);
   const mixed = journeyTouch(['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'services/svc-bank/src/cards.ts']);
-  assert.equal(mixed.mode, 'full', 'a journey test with the product code it proves needs the full run');
+  assert.equal(mixed.mode, 'files', 'product code no map places runs its own journey file, not the full suite (OWNER 249 (3))');
+  assert.deepEqual(mixed.files, ['J-bank-13.pw.mjs']);
   assert.deepEqual(
-    mixed.full.map((x) => x.path),
+    mixed.unplaced.map((x) => x.path),
     ['services/svc-bank/src/cards.ts'],
   );
+  // Every path that used to force the full run, other than shared setup, now runs none of its own.
+  const was = [
+    'services/svc-bank/src/cards.ts',
+    'tooling/scripts/roadmap.mjs',
+    '.github/workflows/real-app-journeys.yml',
+    '.github/actions/test-infra/action.yml',
+    'tooling/ci/journey-touch.mjs',
+    'pnpm-lock.yaml',
+    'docs/runbooks/journey-baseline.json',
+    'tooling/profiles/test.env',
+    'somewhere/new.txt',
+  ];
+  const narrowed = journeyTouch(was);
+  assert.deepEqual([narrowed.mode, narrowed.full, narrowed.files], ['none', [], []]);
+  assert.equal(narrowed.unplaced.length, was.length, 'each is named as unplaced, so the log says why');
+  // Planted: one shared-setup path among them still runs the full suite.
+  const withShared = journeyTouch([...was, 'tooling/scripts/local-test-stack.mjs']);
+  assert.equal(withShared.mode, 'full');
+  assert.deepEqual(
+    withShared.full.map((x) => x.path),
+    ['tooling/scripts/local-test-stack.mjs'],
+  );
   const gone = journeyTouch(['apps/customer/tests/real-app/J-old-01.pw.mjs'], () => false);
-  assert.deepEqual(gone, { mode: 'none', full: [], files: [] }, 'a file the head removed has nothing to run');
+  assert.deepEqual(gone, { mode: 'none', full: [], files: [], unplaced: [] }, 'a file the head removed has nothing to run');
   // A rename counts by both names (pullFilePaths): the old one is gone at the head, the new one runs.
   const renamed = journeyTouch(['apps/customer/tests/real-app/J-a-01.pw.mjs', 'apps/customer/tests/real-app/J-a-01-x.pw.mjs'], (f) =>
     f.endsWith('-x.pw.mjs'),
@@ -263,26 +289,24 @@ test('planted 1: a shared-setup pull request with only a partial run fails the s
   assert.equal(good.ok, true, good.lines.join('\n'));
 });
 
-test('planted 2: a product pull request whose run misses a journey it touches fails the seal; with every one run it passes', async () => {
-  // Product code: no map says which journeys reach it, so it touches every journey and needs the full run.
+test('planted 2: a product pull request is held to its named steps, not the full run; a run that misses a journey it touches fails', async () => {
+  // Product code no map places: its title's steps decide (OWNER 249 (3)); main's full run and the revert catch the rest.
   const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
-  const bad = await seal({
+  const good = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
     files: product,
     runs: [run(1)],
     reports: { 1: { ...partial, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } },
   });
-  assert.equal(bad.ok, false, 'green named steps in a targeted run do not cover the journeys product code can reach');
-  assert.equal(bad.stepsOk, true);
-  assert.equal(bad.fullOk, false);
-  assert.match(bad.lines.join('\n'), /it changes what can reach any journey/);
-  const good = await seal({
+  assert.equal(good.ok, true, `green named steps in a targeted run are enough: ${good.lines.join('\n')}`);
+  assert.doesNotMatch(good.lines.join('\n'), /it changes what can reach any journey/);
+  const red = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
     files: product,
     runs: [run(1)],
-    reports: { 1: { ...fullRun, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } },
+    reports: { 1: { ...partial, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'failed' } } },
   });
-  assert.equal(good.ok, true, good.lines.join('\n'));
+  assert.equal(red.ok, false, 'a named step red still fails');
   // Journey test files only: the run must hold each changed file.
   const tests = ['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'apps/customer/tests/real-app/J-bank-14.pw.mjs'];
   const states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-14#1': 'passed' };
@@ -325,8 +349,13 @@ test("GitHub's Revert form of a product change needs no run; a revert of shared 
   );
   assert.equal(
     (await seal({ title: 'Revert "svc-bank: cards"', body: 'undo', files: ['services/svc-bank/src/cards.ts'], runs: [], reports: {} })).ok,
+    true,
+    'product code no map places, with no steps in its title, needs no run before merge (OWNER 249 (3)), revert or not',
+  );
+  assert.equal(
+    (await seal({ title: 'Revert "stack: x"', body: 'undo', files: ['tooling/scripts/local-test-market.mjs'], runs: [], reports: {} })).ok,
     false,
-    'a Revert title without GitHub’s body line is no revert',
+    'a Revert title without GitHub’s body line is no revert, so its shared setup still needs the full run',
   );
 });
 
@@ -341,7 +370,13 @@ test('--json --files-from: a pull request file list, judged against this checkou
       execFileSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', f], { cwd: ROOT, encoding: 'utf8' }),
     );
   };
-  assert.equal(run(['services/svc-bank/src/a.ts']).mode, 'full', 'product code: the full suite');
+  const product = run(['services/svc-bank/src/a.ts']);
+  assert.deepEqual(
+    [product.mode, product.unplaced.length],
+    ['none', 1],
+    "product code no map places: the title's journeys, never the full suite",
+  );
+  assert.equal(run(['tooling/scripts/local-test-stack.mjs']).mode, 'full', 'shared setup: the full suite');
   const files = run(['.github/workflows/ci.yml', 'apps/customer/tests/real-app/J-bank-13.pw.mjs']);
   assert.deepEqual([files.mode, files.files], ['files', ['J-bank-13.pw.mjs']], 'a journey test file: only it');
   assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
@@ -615,7 +650,15 @@ test('planted: a doc named in product code outside DOCS_READ is caught, and in a
   for (const p of ['docs/ARCHITECTURE.md', 'docs/adr/2026-08-04-pay-rails-and-psp-socket.md', 'docs/agents/build-slice.md'])
     assert.equal(pathKind(p).kind, 'none', p);
   for (const d of DOCS_READ) assert.equal(pathKind(d.endsWith('/') ? `${d}x.json` : d).kind, 'full', d);
-  // A docs-only pull request runs nothing; a doc beside a read doc still runs the full suite.
-  assert.equal(journeyTouch(['docs/adr/a.md', 'docs/ARCHITECTURE.md', 'README.md']).mode, 'none');
-  assert.equal(journeyTouch(['docs/adr/a.md', 'docs/runbooks/journey-baseline.json']).mode, 'full');
+  // A docs-only pull request runs nothing and names nothing unplaced; a doc the run reads is unplaced, not the full suite.
+  assert.deepEqual(journeyTouch(['docs/adr/a.md', 'docs/ARCHITECTURE.md', 'README.md']), {
+    mode: 'none',
+    full: [],
+    files: [],
+    unplaced: [],
+  });
+  assert.deepEqual(
+    journeyTouch(['docs/adr/a.md', 'docs/runbooks/journey-baseline.json']).unplaced.map((x) => x.path),
+    ['docs/runbooks/journey-baseline.json'],
+  );
 });

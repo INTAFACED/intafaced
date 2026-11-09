@@ -6,8 +6,10 @@
  * and broke another journey's step, J-copy-bots-otc-01 #1, on main; builders then dispatched the full suite, 36
  * shards, on nearly every branch to be safe, and runners became the factory's binding constraint.)
  *
- * Each changed path is one of three kinds, and the most demanding kind among a pull request's paths decides:
- *   - full: the pull request needs a clean full run on its exact head. The journey stack's shared setup (SHARED_SETUP in
+ * Each changed path is one of the kinds below (pathKind), and journeyTouch turns them into what the pull request runs:
+ * only shared setup (SHARED_SETUP) needs the full run before merge; every other `full` path is `unplaced` and runs the
+ * journeys the title names (OWNER 249 (3); journeyTouch says why). pathKind's kinds:
+ *   - full: a path that can reach any journey. The journey stack's shared setup (SHARED_SETUP in
  *     journey-seal.mjs), every script under tooling/scripts (the stack, the TEST market maker, the seed, world-restore,
  *     the shard planner and the scripts journeys import), the journeys workflow and its actions, the seal and this file,
  *     the journeys verdict and the baseline, build and environment files, the docs the run or the stack reads
@@ -139,40 +141,56 @@ export function pathKind(path) {
 /**
  * What a pull request with these changed paths must run. `atHead(file)`: whether a journey test file still exists at
  * the head (a removed file runs nothing). `reach`: what the touched-journeys map needs (journey-reach-map.mjs
- * reachSelect: { map, behind, journeyFiles, subscribes }), or null: then every product path is full. With it, product
- * paths run only the journeys whose recorded reach touches them, when every other path allows it and the map can speak
- * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
+ * reachSelect: { map, behind, journeyFiles, subscribes }), or null.
+ *
+ * Only the journey stack's shared setup (SHARED_SETUP) needs the full run before merge (OWNER 249 (3), 8 Nov 2026: "a PR
+ * runs only the journeys it touches, the full suite runs on main after a merge, a red main is reverted"; REVIEW.md's
+ * 2026-11-09 entry). A journey test file runs itself. A product path runs the journeys the map places for it. Every
+ * other path that can reach a journey (one the map can't place, a script, the workflow, a check the run uses, a build
+ * file, a doc the run reads) is `unplaced`: it adds no journey here, the journeys the title names run beside it (the
+ * workflow's and the seal's titleSteps), and main's full run after the merge, with the journeys revert
+ * (journeys-revert.mjs), catches the rest. (Failure it prevents: between 06:58 and 10:00 UTC on 9 Nov, 22 of 36 pull
+ * request runs ran the 45-shard suite, which proves nothing, since proof counts main's runs only, and main's own run
+ * waited for runners behind them.)
+ *
+ * Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names], unplaced: [{ path, why }],
  * reach?: [lines] }.
  */
 export function journeyTouch(paths, atHead = () => true, reach = null) {
   const full = [];
+  const unplaced = [];
   const product = [];
   const files = new Set();
   for (const p of [...new Set(paths ?? [])].sort()) {
     const k = pathKind(p);
     if (k.kind === 'full' && k.product) product.push(p);
-    else if (k.kind === 'full') full.push({ path: printable(p), why: k.why });
+    else if (k.kind === 'full' && isSharedSetup(p)) full.push({ path: printable(p), why: k.why });
+    else if (k.kind === 'full') unplaced.push({ path: printable(p), why: k.why });
     else if (k.kind === 'file' && atHead(p)) files.add(k.file);
   }
-  let because;
-  if (product.length && !full.length && reach) {
-    const sel = reachSelect({
-      map: reach.map,
-      paths: product,
-      behind: reach.behind,
-      atHead: reach.journeyFiles,
-      subscribes: reach.subscribes,
-      ...(reach.mode ? { mode: reach.mode } : {}),
-    });
+  const because = [];
+  for (const p of product) {
+    const sel = reach
+      ? reachSelect({
+          map: reach.map,
+          paths: [p],
+          behind: reach.behind,
+          atHead: reach.journeyFiles,
+          subscribes: reach.subscribes,
+          ...(reach.mode ? { mode: reach.mode } : {}),
+        })
+      : { mode: 'full', why: PRODUCT };
     if (sel.mode === 'files') {
       for (const f of sel.files) files.add(f);
-      because = sel.because.map(printable);
-    } else for (const p of product) full.push({ path: printable(p), why: printable(sel.why) });
-  } else for (const p of product) full.push({ path: printable(p), why: PRODUCT });
-  full.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+      because.push(...sel.because.map(printable));
+    } else unplaced.push({ path: printable(p), why: printable(sel.why) });
+  }
+  const byPath = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  full.sort(byPath);
+  unplaced.sort(byPath);
   const list = [...files].sort();
-  const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
-  return because && !full.length ? { ...out, reach: because } : out;
+  const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list, unplaced };
+  return because.length && !full.length ? { ...out, reach: [...new Set(because)] } : out;
 }
 
 /** The journey files in a checkout's real-app folder, or null when it can't be listed. */
@@ -250,7 +268,12 @@ function main() {
   } else if (t.mode === 'files') {
     for (const l of t.reach ?? []) console.log(`  reach: ${l}`);
     console.log(`files: gh workflow run real-app-journeys.yml -R INTAFACED/intafaced --ref <branch> -f journeys="${t.files.join(' ')}"`);
-  } else console.log('none: no journeys run executes or reads what this change touches');
+  } else console.log('none: no journeys run executes or reads what this change touches, beyond what its title names');
+  if (t.unplaced.length) {
+    console.log("unplaced: no map places these, so the title's journeys run beside them, and main's full run catches the rest:");
+    for (const x of t.unplaced.slice(0, 20)) console.log(`  ${x.path}: ${x.why}`);
+    if (t.unplaced.length > 20) console.log(`  … ${t.unplaced.length - 20} more`);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();

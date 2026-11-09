@@ -107,6 +107,8 @@ export function parseSteps(text) {
 export function commitReaches(paths, failingFiles, reach, atHead) {
   const t = journeyTouch(paths, atHead, reach);
   if (t.mode === 'full') return { reaches: true, why: t.full[0] ? `${t.full[0].path}: ${t.full[0].why}` : 'full' };
+  // A path no map places can reach any journey: a pull request no longer runs them all for it, so the revert keeps it.
+  if (t.unplaced?.length) return { reaches: true, why: `${t.unplaced[0].path}: ${t.unplaced[0].why}` };
   const hit = t.files.filter((f) => failingFiles.includes(f));
   return hit.length
     ? { reaches: true, why: `reaches ${hit.join(', ')}` }
@@ -545,6 +547,11 @@ function selfTest() {
   const atHead = () => true;
   eq(commitReaches(['tooling/ci/gates.mjs'], ['J-a-01.pw.mjs'], null, atHead).reaches, false, 'a CI-only commit cannot reach a journey');
   eq(commitReaches(['services/svc-x/src/a.ts'], ['J-a-01.pw.mjs'], null, atHead).reaches, true, 'product code without a map reaches all');
+  // A pull request no longer runs every journey for a path no map places (journey-touch.mjs unplaced), so the revert
+  // keeps every such commit: a script, the journeys workflow, a doc the run reads.
+  for (const p of ['tooling/scripts/roadmap.mjs', '.github/workflows/real-app-journeys.yml', 'docs/runbooks/journey-baseline.json'])
+    eq(commitReaches([p], ['J-a-01.pw.mjs'], null, atHead).reaches, true, `${p} reaches every journey`);
+  eq(commitReaches(['docs/adr/a.md'], ['J-a-01.pw.mjs'], null, atHead).reaches, false, 'a doc no journey reads does not');
   eq(commitReaches([`${REAL_APP}J-a-01.pw.mjs`], ['J-a-01.pw.mjs'], null, atHead).reaches, true, "a failing journey's own file reaches it");
   eq(commitReaches([`${REAL_APP}J-b-02.pw.mjs`], ['J-a-01.pw.mjs'], null, atHead).reaches, false, "another journey's file does not");
   eq(subjectPr('feat: x (#7602)'), 7602, 'squash subject names its pull request');
