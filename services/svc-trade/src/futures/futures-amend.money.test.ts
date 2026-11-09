@@ -208,6 +208,56 @@ describe('svc-trade futures amend: a reviewed cancel-and-replace (PG-backed)', (
     expect(await free(ALICE)).toBe(A('1000') - replacementHeld);
   });
 
+  it('sent again after a stop between the cancel and the place, the amend finishes: one replacement, holds once', async () => {
+    const svc = build();
+    const original = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    // As the first try left it: the original cancelled through the book and marked as amended, nothing placed yet.
+    await svc.cancel(principal(ALICE), original.orderId);
+    await sql`UPDATE trade.futures_orders SET refusal_code = 'trade.futures_order_amended' WHERE id = ${original.orderId}`;
+    expect(await free(ALICE)).toBe(A('1000'));
+    const out = await svc.replace(principal(ALICE), original.orderId, { limitPrice: A('98') });
+    expect(out.replacement).toMatchObject({ status: 'open', limitPrice: '98', clientOrderId: `replace:${original.orderId}` });
+    const again = await svc.replace(principal(ALICE), original.orderId, { limitPrice: A('98') });
+    expect(again.replacement.orderId).toBe(out.replacement.orderId);
+    expect(await free(ALICE)).toBe(A('1000') - (await held(ALICE, out.replacement.orderId)));
+    // A cancel the trader made themselves is not an amend to finish.
+    const own = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    await svc.cancel(principal(ALICE), own.orderId);
+    await expect(svc.replace(principal(ALICE), own.orderId, { limitPrice: A('98') })).rejects.toMatchObject({
+      code: 'trade.futures_order_not_amendable',
+    });
+  });
+
+  it('every opening check runs before the cancel: a leverage the position no longer has is refused with the original resting', async () => {
+    const svc = build();
+    const buy = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    const sell = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('1') }));
+    await svc.settleFill({ marketId: MARKET, makerOrderId: buy.orderId, takerOrderId: sell.orderId, price: '100', qty: '1', sequence: 1 });
+    const resting = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('99') }));
+    await sql`UPDATE trade.positions SET leverage = '5' WHERE user_id = ${ALICE} AND status = 'open'`;
+    const cancels = engine.cancels.length;
+    await expect(svc.replace(principal(ALICE), resting.orderId, { limitPrice: A('98') })).rejects.toMatchObject({
+      code: 'trade.futures_leverage_mismatch',
+    });
+    expect(await statusOf(resting.orderId)).toBe('open');
+    expect(engine.cancels).toHaveLength(cancels);
+  });
+
+  it('a reduce-only order is not amended: a close is cancelled and placed again', async () => {
+    const svc = build();
+    const buy = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    const sell = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('1') }));
+    await svc.settleFill({ marketId: MARKET, makerOrderId: buy.orderId, takerOrderId: sell.orderId, price: '100', qty: '1', sequence: 1 });
+    const close = await svc.place(
+      principal(ALICE),
+      order({ userId: ALICE, side: 'sell', qty: A('1'), limitPrice: A('101'), reduceOnly: true }),
+    );
+    await expect(svc.replace(principal(ALICE), close.orderId, { limitPrice: A('102') })).rejects.toMatchObject({
+      code: 'trade.futures_order_not_amendable',
+    });
+    expect(await statusOf(close.orderId)).toBe('open');
+  });
+
   it('a new size, and the replacement can itself be amended', async () => {
     const svc = build();
     const original = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));

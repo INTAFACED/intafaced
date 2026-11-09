@@ -109,6 +109,35 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'The book cannot be read right now',
     body: 'Opening, adding size and raising leverage need a readable order book to rate the margin tier. Nothing was held or changed. Lowering leverage adds margin and still works.',
   },
+  'trade.futures_order_not_amendable': {
+    title: 'This order can’t be amended',
+    body: 'Only your own resting opening limit order, with nothing filled and no take profit or stop loss, can be amended. Cancel it and place a new one.',
+    retryable: false,
+  },
+  'trade.futures_amend_invalid': {
+    title: 'Nothing to amend',
+    body: 'Enter a new price or size above zero that differs from the order as it stands.',
+    retryable: false,
+  },
+  'trade.futures_amend_partly_filled': {
+    title: 'This order has partly filled',
+    body: 'A partly filled order can’t be amended. Cancel what is left and place a new order.',
+    retryable: false,
+  },
+  'trade.futures_amend_not_confirmed': {
+    title: 'The book hasn’t confirmed the cancel yet',
+    body: 'Nothing new was placed. Refresh, and amend again once the order shows its final state.',
+  },
+  'trade.futures_amend_replacement_refused': {
+    title: 'Cancelled, but the new order was refused',
+    body: 'Your original order was cancelled and its hold released, and the new one couldn’t be placed, so nothing rests. Amend again once the reason is resolved, or place a new order.',
+    retryable: false,
+  },
+  'trade.futures_order_amended': {
+    title: 'Amended: replaced by a new order',
+    body: 'This order was cancelled by an amend, and a new order took its place.',
+    retryable: false,
+  },
   'trade.risk_limit_confirm_required': {
     title: 'This order moves into a higher margin tier',
     body: 'The tier changed since your review, or it was not confirmed. Nothing was held. Review again, read the new tier and confirm it.',

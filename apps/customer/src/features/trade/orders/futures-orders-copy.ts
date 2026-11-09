@@ -84,6 +84,8 @@ const messages = {
   amendRefused: 'Not amended. {reason}',
   amendedLabel: 'Amended',
   amendedNote: 'Amended: your order now rests as {id}.',
+  amendedNotResting: 'Your order was cancelled, and its replacement {id} is {status}, not resting. Check Order history.',
+  amendTier: 'I accept margin tier {tier} for this size',
   kindOpen: 'Open',
   kindClose: 'Close',
   kindLiquidation: 'Liquidation',

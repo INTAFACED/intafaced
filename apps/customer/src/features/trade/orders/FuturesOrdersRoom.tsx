@@ -110,7 +110,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [cancelFailure, setCancelFailure] = useState<string | null>(null);
   const [amending, setAmending] = useState<FuturesOrder | null>(null);
-  const [amended, setAmended] = useState<string | null>(null);
+  const [amended, setAmended] = useState<{ id: string; status: string } | null>(null);
   const [revision, setRevision] = useState(0);
   const reads = useRef(0);
 
@@ -429,14 +429,16 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
             onClose={() => setAmending(null)}
             onDone={(answer) => {
               setAmending(null);
-              setAmended(answer.replacement.orderId);
+              setAmended({ id: answer.replacement.orderId, status: answer.replacement.status });
               setRevision((n) => n + 1);
             }}
           />
         ) : null}
         {amended ? (
           <p className="orders-note" role="status" aria-label={t('amendedLabel')}>
-            {t('amendedNote', { id: amended })}
+            {amended.status === 'open' || amended.status === 'filled'
+              ? t('amendedNote', { id: amended.id })
+              : t('amendedNotResting', { id: amended.id, status: amended.status })}
           </p>
         ) : null}
         {cancelFailure ? (

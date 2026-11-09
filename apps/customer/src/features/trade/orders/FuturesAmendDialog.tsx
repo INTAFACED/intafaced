@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -23,7 +24,13 @@ export function amendable(order: FuturesOrder): boolean {
 }
 
 const positive = (raw: string) => /^\d+(\.\d+)?$/.test(raw.trim()) && /[1-9]/.test(raw);
-const same = (a: string, b: string) => Number(a) === Number(b) && a.replace(/\.?0+$/, '') === b.replace(/\.?0+$/, '');
+/** The same decimal written two ways ('65000' and '65000.00000000'): trailing zeros only after the point. */
+const norm = (raw: string) => {
+  const [whole = '', fraction = ''] = raw.trim().split('.');
+  const f = fraction.replace(/0+$/, '');
+  return `${whole.replace(/^0+(?=\d)/, '')}${f ? `.${f}` : ''}`;
+};
+const same = (a: string, b: string) => norm(a) === norm(b);
 
 /**
  * Amend a resting futures order (J-derivatives-04 step 3). The book can't amend a futures order in place, so this is a
@@ -46,25 +53,36 @@ export function FuturesAmendDialog({
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // A size that moves the position into a higher margin tier is refused until the trader accepts that tier.
+  const [tierAsked, setTierAsked] = useState<number | null>(null);
+  const [tierAccepted, setTierAccepted] = useState(false);
 
   const priceOk = positive(price);
   const sizeOk = positive(size);
-  const changed = !same(price.trim(), order.limitPrice) || !same(size.trim(), order.qty);
+  const changed = !same(price, order.limitPrice) || !same(size, order.qty);
 
   async function confirm() {
     setBusy(true);
     setRefusal(null);
     const result = await api.amendOrder(order.orderId, {
-      ...(!same(price.trim(), order.limitPrice) ? { price: price.trim() } : {}),
-      ...(!same(size.trim(), order.qty) ? { amount: size.trim() } : {}),
+      ...(!same(price, order.limitPrice) ? { price: price.trim() } : {}),
+      ...(!same(size, order.qty) ? { amount: size.trim() } : {}),
+      ...(tierAsked !== null && tierAccepted ? { confirmTier: tierAsked } : {}),
     });
     setBusy(false);
-    if (result.ok) onDone(result.data);
-    else {
-      const words = futuresRefusal(result);
-      setRefusal(`${words.title}. ${words.body}`);
-      setReviewing(false);
+    if (result.ok) {
+      onDone(result.data);
+      return;
     }
+    const tier = result.code === 'trade.risk_limit_confirm_required' ? /confirmTier (\d+)/.exec(result.message)?.[1] : undefined;
+    if (tier) {
+      setTierAsked(Number(tier));
+      setTierAccepted(false);
+    }
+    const words = futuresRefusal(result);
+    setRefusal(`${words.title}. ${words.body}`);
+    // A refusal before the cancel changed nothing: back to the figures. One after it is kept on screen as it stands.
+    if (result.code !== 'trade.futures_amend_replacement_refused') setReviewing(Boolean(tier));
   }
 
   return (
@@ -90,6 +108,12 @@ export function FuturesAmendDialog({
                 ]}
               />
               <p role="note">{t('amendHow')}</p>
+              {tierAsked !== null ? (
+                <label className="flex items-center gap-2">
+                  <Checkbox checked={tierAccepted} onCheckedChange={(on) => setTierAccepted(on === true)} />
+                  <span>{t('amendTier', { tier: String(tierAsked) })}</span>
+                </label>
+              ) : null}
             </section>
           ) : (
             <>
@@ -113,7 +137,13 @@ export function FuturesAmendDialog({
               <Button variant="secondary" size={40} onClick={() => setReviewing(false)} disabled={busy}>
                 {t('amendBack')}
               </Button>
-              <Button variant="primary" size={40} loading={busy} onClick={() => void confirm()}>
+              <Button
+                variant="primary"
+                size={40}
+                loading={busy}
+                disabled={tierAsked !== null && !tierAccepted}
+                onClick={() => void confirm()}
+              >
                 {t('amendConfirm')}
               </Button>
             </>
