@@ -173,6 +173,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.onramp_fee_not_known': 'PRECONDITION_FAILED',
   'bank.test_partner_off': 'PRECONDITION_FAILED',
   'bank.no_partner_bank': 'PRECONDITION_FAILED',
+  'bank.posting_frozen': 'SERVICE_UNAVAILABLE',
   'bank.partner_balance_not_known': 'PRECONDITION_FAILED',
   'bank.partner_custody_mismatch': 'PRECONDITION_FAILED',
   'bank.partner_move_conflict': 'CONFLICT',

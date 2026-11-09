@@ -1049,6 +1049,8 @@ export type BankErrorCode =
   // ── Partner-held bank money (OWNER 226; `partner/partner-bank.ts`) ─────
   /** The custodial layer is off and no partner bank holds this money, so no customer balance is posted. */
   | 'bank.no_partner_bank'
+  /** svc-ledger's platform posting freeze is on, or could not be read: the partner is asked to move nothing. */
+  | 'bank.posting_frozen'
   /** The partner has not reported this balance: "not known", never 0. */
   | 'bank.partner_balance_not_known'
   /** One side of a move is held at the partner and the other is not; no single partner move can make it. */

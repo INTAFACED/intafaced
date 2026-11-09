@@ -1,5 +1,5 @@
 import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
-import { bankCustodyLayer, custodyGuardedLedger } from './partner/partner-bank.js';
+import { bankCustodyLayer, custodyGuardedLedger, freezeGuardedCustody, type PostingFreeze } from './partner/partner-bank.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
 import type { CustodyLayerState, LedgerClient } from '@intafaced/ledger-client';
@@ -176,6 +176,8 @@ export interface BankServiceOptions {
    * live env, where unset is off. Off: every customer-balance post refuses `bank.no_partner_bank` before svc-ledger.
    */
   custodyLayer?: CustodyLayerState;
+  /** svc-ledger's platform posting freeze, asked before every partner move (`ledgerPostingFreeze`). */
+  postingFreeze?: PostingFreeze;
   /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
   refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
@@ -308,6 +310,13 @@ export interface BankServiceOptions {
   proofLimits?: string | undefined;
 }
 
+/** No posting freeze wired: every partner move refuses `bank.posting_frozen`. */
+const FREEZE_NOT_WIRED: PostingFreeze = Object.freeze({
+  postingEnabled: async (): Promise<boolean> => {
+    throw new Error('no posting freeze is wired');
+  },
+});
+
 export function createBankServices(
   sql: Sql,
   bookLedger: LedgerClient,
@@ -317,7 +326,9 @@ export function createBankServices(
   // With the custodial layer off no customer balance is posted from here: refused by name before svc-ledger is asked.
   const ledger = custodyGuardedLedger(bookLedger, bankCustodyLayer(options.custodyLayer));
   // A person the TEST partner holds money for (`custody: 'off'`) reads and moves it at the partner; everyone else, as before.
-  const custody = testPartnerCustody(options.testPartner);
+  // Every partner move first asks svc-ledger's posting freeze (floor 4). No freeze wired reads as frozen: a partner move
+  // is refused, never made unguarded.
+  const custody = freezeGuardedCustody(testPartnerCustody(options.testPartner), options.postingFreeze ?? FREEZE_NOT_WIRED);
   const spaces = new SpaceService(sql, ledger, options.recipients, {
     spaceLimit: () => options.spaceLimit,
     unlockWaitHours: () => options.spaceUnlockWaitHours,

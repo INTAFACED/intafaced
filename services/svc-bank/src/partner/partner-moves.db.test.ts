@@ -51,6 +51,14 @@ describe('partner-held bank moves (OWNER 226)', () => {
   let sql!: TestDatabase['sql'];
   let ledger: MemoryLedger;
   let partner: TestPartner;
+  /** svc-ledger's posting freeze as the test sets it: true is posting enabled; 'unreadable' is a failed read. */
+  let posting: boolean | 'unreadable';
+  const freeze = {
+    postingEnabled: async () => {
+      if (posting === 'unreadable') throw new Error('svc-ledger /health did not answer');
+      return posting;
+    },
+  };
 
   beforeAll(async () => {
     const raw = process.env.TEST_DATABASE_URL?.trim();
@@ -69,6 +77,7 @@ describe('partner-held bank moves (OWNER 226)', () => {
     await sql`TRUNCATE bank.spaces RESTART IDENTITY CASCADE`;
     ledger = new MemoryLedger();
     partner = testPartner();
+    posting = true;
   });
 
   function as(userId: string, options: BankServiceOptions = {}) {
@@ -79,6 +88,7 @@ describe('partner-held bank moves (OWNER 226)', () => {
       scheduleEditCutoffMinutes: '60',
       spaceUnlockWaitHours: '24',
       testPartner: partner,
+      postingFreeze: freeze,
       ...options,
     });
     const raw = encodePrincipal(principal(userId));
@@ -213,6 +223,49 @@ describe('partner-held bank moves (OWNER 226)', () => {
     const feed = await after.activity.list({ limit: 50 });
     expect(feed.items).toHaveLength(2);
     for (const line of feed.items) expect(line.note).toBeUndefined();
+  });
+
+  it('with posting frozen on svc-ledger, or the freeze unreadable or not wired, a move refuses bank.posting_frozen and the partner moves nothing', async () => {
+    const { api, trip, mainSpace } = await partnerHeld(ADA);
+    for (const state of [false, 'unreadable'] as const) {
+      posting = state;
+      await expect(
+        api.transfers.create({ transferId: `move-frozen-${String(state)}`, fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '20' }),
+      ).rejects.toSatisfy((err) => codeOf(err) === 'bank.posting_frozen');
+    }
+    posting = true;
+    const { api: unwired } = as(ADA, { postingFreeze: undefined });
+    await expect(
+      unwired.transfers.create({ transferId: 'move-frozen-unwired', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '20' }),
+    ).rejects.toSatisfy((err) => codeOf(err) === 'bank.posting_frozen');
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
+    expect((await mainOf(api)).balance).toBe('100');
+    // Reads stay open while frozen, as on the ledger.
+    posting = false;
+    expect((await byName(api, 'Trip TEST')).balance).toBe('0');
+  });
+
+  it('a standing order due while posting is frozen moves nothing and is not refused; the first pass after the freeze lifts moves it once', async () => {
+    const { bank, trip, mainSpace } = await partnerHeld(ADA);
+    const startsAt = new Date(Date.now() + DAY);
+    const order = await bank.transfers.schedule({
+      userId: ADA,
+      fromSpaceId: mainSpace.id,
+      toSpaceId: trip.id,
+      amount: parseAmount('15'),
+      cadence: 'once',
+      startsAt,
+      scheduleId: randomUUID(),
+    });
+    const due = new Date(startsAt.getTime() + 60_000);
+    posting = false;
+    await bank.transfers.runDueTransfers({ now: due, limit: 10 }).catch(() => undefined);
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
+    expect((await bank.transfers.executions(order.id, 10)).filter((e) => e.status !== 'pending')).toEqual([]);
+    posting = true;
+    const run = await bank.transfers.runDueTransfers({ now: new Date(due.getTime() + 60_000), limit: 10 });
+    expect(run, JSON.stringify(run)).toMatchObject({ settled: 1, rejected: 0 });
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toHaveLength(1);
   });
 
   it('a retry after a lost partner reply makes one move, never two', async () => {

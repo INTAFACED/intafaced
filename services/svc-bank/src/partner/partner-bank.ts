@@ -97,6 +97,65 @@ export interface PartnerCustody {
   bankFor(userId: string): PartnerBank | null;
 }
 
+/**
+ * svc-ledger's platform posting freeze, as svc-bank reads it (`${LEDGER_URL}/health`). The freeze belongs to svc-ledger
+ * (AGENTS.md floor 4); a partner move posts nothing there, so svc-bank asks before every partner move.
+ */
+export interface PostingFreeze {
+  /** True when posting is enabled. Throws when the freeze cannot be read. */
+  postingEnabled(): Promise<boolean>;
+}
+
+/** The freeze read from svc-ledger's `/health`. Anything but an exact `postingEnabled: true` reads as frozen. */
+export function ledgerPostingFreeze(ledgerUrl: string, fetcher: typeof fetch = fetch): PostingFreeze {
+  return {
+    async postingEnabled() {
+      const res = await fetcher(new URL('/health', ledgerUrl), { signal: AbortSignal.timeout(2_000) });
+      if (!res.ok) throw new Error(`svc-ledger /health answered ${res.status}`);
+      const body = (await res.json()) as { postingEnabled?: unknown };
+      return body.postingEnabled === true;
+    },
+  };
+}
+
+function postingFrozen(): BankError {
+  return new BankError('Money moves are paused across the platform right now. Nothing was sent or changed.', 'bank.posting_frozen');
+}
+
+/**
+ * Every partner move asks the posting freeze first: frozen, or a freeze that cannot be read, refuses
+ * `bank.posting_frozen` before the partner is asked. Reads stay open, as they do on the ledger while it is frozen.
+ */
+export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFreeze): PartnerCustody {
+  const guarded = new WeakMap<PartnerBank, PartnerBank>();
+  const guard = (bank: PartnerBank): PartnerBank => {
+    let wrapped = guarded.get(bank);
+    if (!wrapped) {
+      // One wrapper per partner, so two sides of one move still compare as the same partner.
+      wrapped = Object.freeze({
+        label: bank.label,
+        balance: (account: PartnerAccountRef) => bank.balance(account),
+        balances: (userId: string) => bank.balances(userId),
+        moveByKey: (key: string) => bank.moveByKey(key),
+        moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
+        move: async (request: PartnerMoveRequest) => {
+          const enabled = await freeze.postingEnabled().catch(() => false);
+          if (!enabled) throw postingFrozen();
+          return bank.move(request);
+        },
+      });
+      guarded.set(bank, wrapped);
+    }
+    return wrapped;
+  };
+  return {
+    bankFor: (userId) => {
+      const bank = custody.bankFor(userId);
+      return bank ? guard(bank) : null;
+    },
+  };
+}
+
 /** No partner holds anyone's money here: every person is on the custodial layer, exactly as before. */
 export const custodialOnly: PartnerCustody = Object.freeze({ bankFor: () => null });
 
