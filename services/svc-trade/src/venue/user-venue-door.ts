@@ -151,6 +151,27 @@ function invalid(message: string): never {
   throw new UserVenueDoorError(message, 'trade.venue_request_invalid', 400);
 }
 
+const SIDES: ReadonlySet<unknown> = new Set(['buy', 'sell']);
+const ORDER_TYPES: ReadonlySet<unknown> = new Set(['limit', 'market']);
+const TIMES_IN_FORCE: ReadonlySet<unknown> = new Set(['GTC', 'IOC', 'ALO']);
+const positive = (v: unknown): boolean => typeof v === 'bigint' && v > 0n;
+
+/**
+ * An order intent's own fields, checked before any listing, venue or store read: a malformed one is this door's typed
+ * `trade.venue_request_invalid`, never an error thrown deeper in.
+ */
+function assertPlaceIntent(intent: PlaceUserOrderIntent): void {
+  const i = intent as unknown as Record<string, unknown>;
+  if (typeof i.symbol !== 'string' || !/^\S{1,64}$/.test(i.symbol)) invalid('symbol must be a venue market symbol');
+  if (!SIDES.has(i.side)) invalid('side must be buy or sell');
+  if (!ORDER_TYPES.has(i.type)) invalid('type must be limit or market');
+  if (!positive(i.amount)) invalid('amount must be a positive decimal string');
+  if (!positive(i.price)) invalid('price must be a positive decimal string (on a market order, the worst price accepted)');
+  if (!TIMES_IN_FORCE.has(i.timeInForce)) invalid('timeInForce must be GTC, IOC or ALO');
+  if (typeof i.reduceOnly !== 'boolean') invalid('reduceOnly must be true or false');
+  if (typeof i.clientOrderKey !== 'string') invalid('clientOrderKey must be the business key of this order');
+}
+
 /** The wire form with every object's keys sorted: jsonb does not keep key order, so equality never depends on it. */
 function canonical(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
@@ -272,6 +293,7 @@ export class UserVenueDoor {
 
   async preview(_principal: Principal, owner: string, intent: VenueIntent) {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
+    assertPlaceIntent(intent);
     const venue = await this.venue();
     await this.admitPlace(venue.venue.id, intent);
     const account = await this.account(owner);
@@ -307,6 +329,7 @@ export class UserVenueDoor {
       invalid('signer must be { role: owner|agent, address: 0x... }');
     }
     assertInteractive(principal, intent.kind);
+    if (intent.kind === 'place_order') assertPlaceIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.

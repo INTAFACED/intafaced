@@ -349,6 +349,41 @@ describe('venue markets desk (J-cex-spot-16)', () => {
     ).toBe('approval_reused');
   });
 
+  it('a malformed order intent is refused trade.venue_request_invalid (400) at preview and prepare, before the listing gate', async () => {
+    await list();
+    const malformed: Array<Record<string, unknown>> = [
+      { symbol: undefined },
+      { symbol: 42 },
+      { symbol: '' },
+      { side: 'long' },
+      { side: undefined },
+      { type: 'stop' },
+      { amount: undefined },
+      { amount: '1' },
+      { amount: 0n },
+      { price: undefined },
+      { price: -1n },
+      { timeInForce: 'FOK' },
+      { reduceOnly: 'no' },
+      { clientOrderKey: 7 },
+    ];
+    for (const over of malformed) {
+      const intent = { ...order(), ...over } as unknown as PlaceUserOrderIntent;
+      for (const call of [door.preview(customer, owner, intent), door.prepare(customer, { owner, signer, intent })]) {
+        const err = await call.then(
+          () => null,
+          (e: unknown) => e as { code?: string; status?: number },
+        );
+        expect([JSON.stringify(over, (_k, v) => (typeof v === 'bigint' ? `${v}n` : v)), err?.code, err?.status]).toEqual([
+          JSON.stringify(over, (_k, v) => (typeof v === 'bigint' ? `${v}n` : v)),
+          'trade.venue_request_invalid',
+          400,
+        ]);
+      }
+    }
+    expect(await openOrders()).toEqual([]);
+  });
+
   it('#1 a market opening later shows, and refuses orders until it opens', async () => {
     await list('ETH-USDC', '2026-11-10T00:00:00.000Z');
     expect((await door.markets()).value[0]!.listing).toMatchObject({ open: false });
