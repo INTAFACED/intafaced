@@ -887,3 +887,30 @@ describe('TEST venue simulator: council round 2 regressions (every check runs ag
     expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
   });
 });
+
+describe('TEST venue simulator: council round 3 follow-ups', () => {
+  it('a re-send of a live order after the builder approval was lowered answers with the order, not a refusal', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r3');
+    await w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('5') });
+    const intent = order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:r3', { builderFee: { builder: '0xb11de4', feeBps: a('5') } });
+    const first = await w.run(w.wallet, w.trader, intent);
+    await w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') });
+    const typedData = buildTypedData(w.sim.venue.id, w.trader, w.wallet.signer, intent, `${first.prepared.nonce}9`);
+    const resend = { ...first.prepared, nonce: `${first.prepared.nonce}9`, typedData, digest: digestOf(typedData) };
+    const again = await w.sim.submit(resend, await w.wallet.sign(resend));
+    expect(again.definite && again.accepted && again.order?.status).toBe('open');
+    expect((await w.sim.openOrders(w.trader)).value.length).toBe(1);
+  });
+
+  it('the venue throws rather than ever report a balance below zero', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100'), 'chain:t:neg');
+    // Reach past the venue's own checks, as only a bug could, and let the next action find it.
+    const state = (w.sim as unknown as { accounts: Map<string, { balances: Map<string, { free: Amount }> }> }).accounts;
+    for (const s2 of state.values()) s2.balances.get('USDC')!.free = a('-1');
+    await expect(w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') })).rejects.toThrow(
+      /TEST simulator invariant/,
+    );
+  });
+});
