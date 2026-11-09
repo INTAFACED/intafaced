@@ -10,16 +10,21 @@ name: CI merge seal
 # adds this file is sealed too (main had no merge-seal.yml to run for it), and so is the merge queue's commit, which
 # pull_request_target never reaches: its required check is ci.yml's, on a commit holding only pull requests this passed.
 #
-# A head can hold several runs of this seal (a push, a reopen, each edit), and an older red run blocks until re-run, so
-# every red one is re-run in place: journey-seal-recheck.yml when CI or a Real-app journeys run on the head finishes, or
-# the title or body is edited (otherSeals); the CI review job when its verdict lands (seal-rerun.mjs sealsByRun); the
-# factory switch on a flip.
+# One seal run per head: a push or an open starts it, a reopen or a retarget to main starts another. An edit of the title
+# or body starts no new seal: its run is skipped under a name that is not `CI merge seal` (below), and
+# journey-seal-recheck.yml re-runs the head's existing seal in place instead, for an armed pull request. Before 9 Nov
+# 2026 every edit added a seal run on the head, each older red one blocked until re-run, and each was re-run on every
+# finished CI and journeys run (INTAFACED/project-state#1574: 7 attempts on one run; 375 of 510 seal runs red in 24 h).
+# An older red run that is left (a reopen) is re-run in place: journey-seal-recheck.yml (otherSeals), the CI review job
+# when its verdict lands (seal-rerun.mjs sealsByRun), the factory switch on a flip.
 on:
   pull_request_target:
     branches: [main]
     # `edited`: a pull request retargeted to main gets this seal too, so its own ci.yml seal never decides alone (review
-    # 7552-R1). Every edit runs the whole seal, never a skipped job: GitHub counts a skipped job as passing a required
-    # check, so a skipped seal could stand in for one that never judged the head (review 7552-R6). Fails closed.
+    # 7552-R1). Only a retarget (`changes.base`) runs the seal; any other edit skips the job, and a skipped job counts as
+    # passing a required check (review 7552-R6), so the job's name is an expression: GitHub names a skipped job's check
+    # run with the expression's raw text, never `CI merge seal` (probe intafaced#7679, 9 Nov 2026), so a skipped edit run
+    # can never stand in for a seal. A run that runs is named `CI merge seal`. Fails closed.
     types: [opened, synchronize, reopened, edited]
 
 permissions: {}
@@ -39,12 +44,16 @@ permissions: {}
 #     seal-rerun.mjs moved), and re-running the newest seal and then an older red one on one head cancels neither.
 # Main is never touched: this runs on pull requests only. workflow-concurrency.test.mjs holds this.
 concurrency:
-  group: ${{ github.run_attempt == '1' && format('merge-seal-pr-{0}', github.event.pull_request.number) || format('merge-seal-{0}', github.run_id) }}
+  # An edit that is not a retarget (its job is skipped) keeps a group of its own: in the pull request's group it could
+  # replace a waiting push's seal and leave the new head with none.
+  group: ${{ github.run_attempt == '1' && (github.event.action != 'edited' || github.event.changes.base) && format('merge-seal-pr-{0}', github.event.pull_request.number) || format('merge-seal-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.run_attempt == '1' && (github.event.action == 'synchronize' || github.event.action == 'opened') }}
 
 jobs:
   seal:
-    name: CI merge seal
+    # `CI merge seal` whenever the job runs; a skipped edit's check run carries this expression's raw text (see `on:`).
+    name: ${{ (github.event.action != 'edited' || github.event.changes.base) && 'CI merge seal' || 'Seal (an edit, re-checked in place)' }}
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25

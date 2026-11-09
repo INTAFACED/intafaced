@@ -1159,6 +1159,22 @@ export const SEAL_WORKFLOWS = [
 ];
 
 /**
+ * ci.yml's seal steps that read what a re-check or the CI review changes (the named steps, the review). Since 9 Nov 2026
+ * ci.yml runs them only on a merge queue's commit; on a pull request they are merge-seal.yml's alone, the default
+ * branch's copy (INTAFACED/project-state#1574). A head whose own ci.yml predates that still runs them in ci.yml's seal.
+ */
+export const PR_READ_STEPS = new Set(['Require the named journey steps on this exact head', 'Require the CI review on this exact head']);
+
+/**
+ * Whether a re-check or the CI review re-runs ci.yml's seal job `job` (its jobs-API object, with `steps`): only when it
+ * is red on a PR_READ_STEPS step, which only an older ci.yml on the head runs. Red on CI's own jobs, a re-run reads the
+ * same jobs, and as a new attempt of the CI run it would start another re-check when it ends (the loop of #1574). Green,
+ * merge-seal.yml's re-run decides: every `CI merge seal` on the head must pass (probe #7547). Pure.
+ */
+export const ciSealReads = (job) =>
+  job?.conclusion !== 'success' && (job?.steps ?? []).some((s) => PR_READ_STEPS.has(s?.name) && s?.conclusion === 'failure');
+
+/**
  * What to do about a head's seal once its steps' inputs changed (a journeys run finished, a title or body was edited):
  * re-run it whatever its colour, since a newer run or an edit can turn a green seal red as well as a red one green.
  * Read through the Actions API with the workflow's own GITHUB_TOKEN (`actions: read` and `write`), not the Checks API:
@@ -1265,6 +1281,11 @@ export async function rerunSealJob({
     }
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);
+    if (step.act === 'rerun' && workflow === CI_WORKFLOW) {
+      const job = (jobsByRun.get(step.runId) ?? []).find((j) => String(j?.id) === step.jobId);
+      if (!ciSealReads(job))
+        return `not re-run: ci.yml's seal job ${step.jobId} reads only CI's own jobs on this head (${job?.conclusion}); merge-seal.yml's reads the steps and the review`;
+    }
     if (step.act === 'rerun') {
       const held = await blocker();
       if (held?.act === 'skip') return `not re-run: ${held.msg}`;
@@ -1278,6 +1299,7 @@ export async function rerunSealJob({
       let said2 = `re-ran the seal job ${step.jobId} of run ${step.runId}`;
       for (const o of await otherSeals({ repo, runs, skip: step.runId, event, get })) {
         if (o.seal.conclusion === 'success') continue;
+        if (workflow === CI_WORKFLOW && !ciSealReads(o.seal)) continue;
         const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
         if (r.status === 403 && /already running/i.test(r.message ?? '')) continue;
         if (r.status !== 201)
