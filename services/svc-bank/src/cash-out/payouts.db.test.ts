@@ -565,7 +565,12 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       const posts = ledger.journal().length;
       const requestId = randomUUID();
       const first = await start(id, '20', requestId);
-      expect(first).toMatchObject({ status: 'processing', heldAt: TEST_PARTNER_LABEL, ledgerTxId: null, payoutRef: `TEST-PAYOUT-${requestId}` });
+      expect(first).toMatchObject({
+        status: 'processing',
+        heldAt: TEST_PARTNER_LABEL,
+        ledgerTxId: null,
+        payoutRef: `TEST-PAYOUT-${requestId}`,
+      });
       expect(first.partnerMoveId).toMatch(/^test-partner-move-/);
       expect(await atPartner()).toBe(parseAmount('30'));
       expect((await partnerBank!.bank.balance(partnerPayoutsAccount('USDT'))).amount).toBe(parseAmount('20'));
@@ -626,7 +631,11 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       await services().cashOut.fail(failing.requestId, 'bank.payout_account_closed');
       expect(await atPartner()).toBe(parseAmount('35'));
       const cancelled = await services().cashOut.cancel(cancelling.requestId, 'bank.payout_cancelled_by_bank');
-      expect(cancelled).toMatchObject({ status: 'cancelled', failureCode: 'bank.payout_cancelled_by_bank', cancelledAt: expect.any(String) });
+      expect(cancelled).toMatchObject({
+        status: 'cancelled',
+        failureCode: 'bank.payout_cancelled_by_bank',
+        cancelledAt: expect.any(String),
+      });
       expect(await services().cashOut.cancel(cancelling.requestId, 'bank.payout_cancelled_by_bank')).toEqual(cancelled);
       expect(await atPartner()).toBe(parseAmount('50'));
       expect(await refused(as(ADA).cashOut.receipt({ requestId: cancelling.requestId }))).toBe('bank.cash_out_receipt_not_ready');
@@ -641,7 +650,9 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       const posts = ledger.journal().length;
       const back = await services().cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' });
       expect(back).toMatchObject({ status: 'returned', returnedAmount: '5', remainsPaidOut: '15' });
-      expect(await services().cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' })).toEqual(back);
+      expect(
+        await services().cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' }),
+      ).toEqual(back);
       expect(await atPartner()).toBe(parseAmount('35'));
       expect(ledger.journal()).toHaveLength(posts);
       const receipt = await as(ADA).cashOut.receipt({ requestId });

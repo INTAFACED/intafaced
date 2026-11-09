@@ -37,7 +37,14 @@ import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
-import { payoutCancelledBody, payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
+import {
+  payoutCancelledBody,
+  payoutFailedBody,
+  payoutPaidBody,
+  payoutReturnedBody,
+  payoutVerifyBody,
+  redriveBody,
+} from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';

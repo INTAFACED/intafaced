@@ -177,7 +177,15 @@ describe('cash out to a linked bank account', () => {
     expect(renderToStaticMarkup(<QuoteView quote={quote({ heldAt: at })} />)).toContain('Available now at TEST partner bank');
     const failed = renderToStaticMarkup(
       <RequestRows
-        rows={[request({ status: 'failed', heldAt: at, refusalCode: null, failureCode: 'bank.payout_account_closed', failedAt: '2026-10-23T05:00:00.000Z' })]}
+        rows={[
+          request({
+            status: 'failed',
+            heldAt: at,
+            refusalCode: null,
+            failureCode: 'bank.payout_account_closed',
+            failedAt: '2026-10-23T05:00:00.000Z',
+          }),
+        ]}
       />,
     );
     expect(failed).toContain('20 USDT is back in your balance at TEST partner bank, once.');

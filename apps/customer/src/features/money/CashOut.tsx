@@ -192,7 +192,11 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
   return (
     <>
       {!failed && !cancelled && (
-        <ol className="bd-steps" data-testid="cash-out-steps" aria-label={t('step', { status: t(STATUS_KEYS[row.status]), n: step, of: 2 })}>
+        <ol
+          className="bd-steps"
+          data-testid="cash-out-steps"
+          aria-label={t('step', { status: t(STATUS_KEYS[row.status]), n: step, of: 2 })}
+        >
           {steps.map((name, i) => (
             <li key={name} aria-current={i === step - 1 ? 'step' : undefined} data-off={i >= step ? 'true' : undefined}>
               <span className="bd-steps__n">{i + 1}</span>

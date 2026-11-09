@@ -480,7 +480,11 @@ export class CashOutService {
   async receipt(userId: string, id: string): Promise<CashOutReceipt> {
     const row = await this.row(id);
     if (!row || row.user_id !== userId) throw new BankError('No cash-out with this id', 'bank.cash_out_not_found');
-    if ((row.status !== 'completed' && row.status !== 'returned') || !(row.settle_ledger_tx_id ?? row.partner_move_id) || !row.completed_at) {
+    if (
+      (row.status !== 'completed' && row.status !== 'returned') ||
+      !(row.settle_ledger_tx_id ?? row.partner_move_id) ||
+      !row.completed_at
+    ) {
       throw new BankError('This cash-out was not paid out, so it has no receipt', 'bank.cash_out_receipt_not_ready');
     }
     const secret = this.options.receiptSecret?.trim();
