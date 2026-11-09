@@ -510,6 +510,15 @@ jobs:
           cp "$RUNNER_TEMP/stack-build/build-stamp.json" "$LOCAL_STACK_STATE/"
           rm -f "$RUNNER_TEMP/stack-build/outputs.tar"
 
+      # The build job's kept JDK and Maven archives, read only: a shard without the run's build builds svc-fix itself and
+      # fetched the JDK from the same release host (run 42568666064, 9 Nov: the build and 20 shards failed on its 504s).
+      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
+            ${{ runner.temp }}/stack-state/java-tools/maven.tgz
+          key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
+
       - name: Start the local test stack (TEST funds only)
         run: |
           df -h /
