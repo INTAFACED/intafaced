@@ -396,6 +396,12 @@ export interface MatchingClient {
    */
   listOrders(marketId: string, orderId?: string): Promise<EngineLiveOrders>;
   /**
+   * Native L3 queue — GET /markets/:marketId/depth/l3?limit=. Per-order rows (id, remaining, sequence) at each price,
+   * never L2 sizes. Matching 404 throws MatchingNoBookError; a refused L3 (`accepted: false`) or transport failure
+   * throws MatchingUnavailableError with code `trade.queue_unavailable`. Optional so a partial fake need not carry it.
+   */
+  l3Queue?(marketId: string, limit: number): Promise<EngineL3Queue>;
+  /**
    * Whole-engine market id set — GET /markets.
    * Used for market-id drift alarm vs trade.markets (handoff §4.5).
    * Never mutates books; empty list is honest.
@@ -420,6 +426,24 @@ export function publishedMatchingDepthLimit(value: number | undefined | null): n
   }
   return value;
 }
+
+/** One resting order in the native L3 queue. Other makers' rows reach svc-trade only to be counted, never returned. */
+export interface EngineL3Order {
+  readonly orderId: string;
+  readonly remaining: string;
+  readonly sequence: number;
+}
+
+export interface EngineL3Queue {
+  readonly level: 'L3';
+  readonly marketId: string;
+  /** The book sequence the queue was read at. */
+  readonly sequence: number;
+  readonly bids: ReadonlyArray<{ readonly price: string; readonly orders: readonly EngineL3Order[] }>;
+  readonly asks: ReadonlyArray<{ readonly price: string; readonly orders: readonly EngineL3Order[] }>;
+}
+
+export const TRADE_QUEUE_UNAVAILABLE = 'trade.queue_unavailable' as const;
 
 export class MatchingUnavailableError extends Error {
   constructor(
@@ -653,6 +677,42 @@ export function createMatchingClient(
       } catch (err) {
         throw new MatchingUnavailableError(`svc-matching ${path} returned a body that is not JSON: ${(err as Error).message}`);
       }
+    },
+
+    async l3Queue(marketId, limit) {
+      const published = publishedMatchingDepthLimit(limit);
+      const path = `/markets/${encodeURIComponent(marketId)}/depth/l3?limit=${published}`;
+      let response: Response;
+      try {
+        response = await send(`${url}${path}`, { method: 'GET', headers: authHeaders('GET', path) });
+      } catch (err) {
+        throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`, TRADE_QUEUE_UNAVAILABLE);
+      }
+      if (response.status === 404) throw new MatchingNoBookError(marketId);
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new MatchingUnavailableError(`svc-matching ${path} failed (${response.status}): ${detail}`, TRADE_QUEUE_UNAVAILABLE);
+      }
+      let body: Partial<EngineL3Queue> & { accepted?: boolean; rejected?: { code?: string } };
+      try {
+        body = (await response.json()) as typeof body;
+      } catch (err) {
+        throw new MatchingUnavailableError(
+          `svc-matching ${path} returned a body that is not JSON: ${(err as Error).message}`,
+          TRADE_QUEUE_UNAVAILABLE,
+        );
+      }
+      // Matching refused the native queue (no L3 hitch): never fall back to the L2 ladder.
+      if (body.accepted === false || body.level !== 'L3' || !Array.isArray(body.bids) || !Array.isArray(body.asks)) {
+        throw new MatchingUnavailableError(
+          `svc-matching ${path} did not answer the native L3 queue (${body.rejected?.code ?? 'no level'})`,
+          TRADE_QUEUE_UNAVAILABLE,
+        );
+      }
+      if (typeof body.sequence !== 'number') {
+        throw new MatchingUnavailableError(`svc-matching ${path} answered no book sequence`, TRADE_QUEUE_UNAVAILABLE);
+      }
+      return body as EngineL3Queue;
     },
 
     /**
