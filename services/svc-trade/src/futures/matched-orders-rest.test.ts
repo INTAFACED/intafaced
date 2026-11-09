@@ -497,6 +497,11 @@ describe('futures batch cancel: REST (J-derivatives-04 step 4)', () => {
     expect(readCancelManyBody({ orderIds: [' a ', 'b'] })).toEqual({ ok: true, input: { orderIds: ['a', 'b'] } });
     expect(readCancelManyBody({ symbol: 'BTC/USDT:USDT' })).toEqual({ ok: true, input: { symbol: 'BTC/USDT:USDT', label: null } });
     expect(readCancelManyBody({ label: 'grid-7' })).toEqual({ ok: true, input: { symbol: null, label: 'grid-7' } });
+    // A blank filter is no filter.
+    expect(readCancelManyBody({ symbol: 'BTC/USDT:USDT', label: ' ' })).toEqual({
+      ok: true,
+      input: { symbol: 'BTC/USDT:USDT', label: null },
+    });
     for (const bad of [
       {},
       null,

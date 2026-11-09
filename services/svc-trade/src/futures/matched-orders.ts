@@ -251,6 +251,8 @@ export type FuturesOrderListed = MatchedOrderView & { readonly symbol: string; r
 /** The most orders one cancel request answers (`cancelMany`); a filter that matches more says so and stops there. */
 export const FUTURES_CANCEL_BATCH_MAX = 100;
 export const FUTURES_CANCEL_BATCH_INVALID = 'trade.futures_cancel_batch_invalid';
+/** One order in a batch hit a fault that is not a refusal (the engine or ledger did not answer). */
+export const FUTURES_CANCEL_FAILED = 'trade.futures_cancel_failed';
 
 /** A batch cancel: named ids, or a contract, a label or both (`cancelMany`). */
 export type FuturesCancelManyInput =
@@ -2873,7 +2875,7 @@ export class MatchedFuturesOrders {
   }
 
   /**
-   * Cancel several of the caller's own orders in one request (J-derivatives-04 step 4): named by id, or every open order
+   * Cancel several of the caller's own orders in one request (J-derivatives-04 step 4): named by id, or every live order
    * on one contract, with one label, or both. Each order is cancelled exactly as `cancel` does it, one after another, so
    * each releases its own unused hold once; one that can't be cancelled is answered on its own line and the rest go on.
    * A liquidation's order is never chosen by a filter, and is refused when named, since it is the venue's. Named ids are
@@ -2898,7 +2900,7 @@ export class MatchedFuturesOrders {
       const rows = await sql<{ id: string }[]>`
         SELECT o.id FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
          WHERE o.user_id = ${principal.userId}
-           AND o.status IN ${sql(['pending', ...LIVE_OR_UNKNOWN])}
+           AND o.status IN ${sql(LIVE_OR_UNKNOWN)}
            AND o.origin <> 'liquidation'
            ${symbol !== null ? sql`AND m.symbol = ${symbol}` : sql``}
            ${label !== null ? sql`AND o.order_label = ${label}` : sql``}
@@ -2914,12 +2916,14 @@ export class MatchedFuturesOrders {
         const view = await this.cancel(principal, orderId);
         results.push({ orderId, outcome: view.status === 'cancelled' ? 'cancelled' : 'not_cancelled', status: view.status });
       } catch (err) {
-        if (!(err instanceof MatchedOrderError)) throw err;
+        // Any failure is this order's alone: an engine or ledger fault on one never stops the rest, and the order is
+        // answered as not cancelled. A cancel sent again finishes the release it left (`releaseWhenDone` is idempotent).
+        const typed = err instanceof MatchedOrderError;
         results.push({
           orderId,
-          outcome: err.code === 'trade.futures_order_not_found' ? 'not_found' : 'refused',
-          error: err.code,
-          message: err.message,
+          outcome: typed && err.code === 'trade.futures_order_not_found' ? 'not_found' : 'refused',
+          error: typed ? err.code : FUTURES_CANCEL_FAILED,
+          message: typed ? err.message : 'this order could not be cancelled just now; send the cancel again',
         });
       }
     }

@@ -118,7 +118,16 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
 
   useEffect(() => setLabelDraft(params.label), [params.label]);
   // A selection belongs to the list it was made on: another view or filter starts it again.
-  useEffect(() => setSelected(new Set()), [search]);
+  useEffect(() => {
+    setSelected(new Set());
+    setBatchAnswer(null);
+  }, [search]);
+  // Only orders still listed and still cancellable stay ticked once the list is read again.
+  useEffect(() => {
+    if (orderState.status !== 'ready') return;
+    const live = new Set(orderState.rows.filter(cancellable).map((o) => o.orderId));
+    setSelected((now) => ([...now].every((id) => live.has(id)) ? now : new Set([...now].filter((id) => live.has(id)))));
+  }, [orderState]);
   useEffect(() => setSymbolDraft(params.symbol), [params.symbol]);
 
   const key = `${writeFuturesParams(params)}:${revision}:${userId ?? 'out'}`;

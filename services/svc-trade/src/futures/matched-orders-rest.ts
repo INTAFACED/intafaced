@@ -130,7 +130,8 @@ export function readCancelManyBody(
 ): { ok: true; input: FuturesCancelManyInput } | { ok: false; code: string; message: string } {
   const body = (raw ?? {}) as Record<string, unknown>;
   const invalid = (message: string) => ({ ok: false as const, code: FUTURES_CANCEL_BATCH_INVALID, message });
-  const text = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : v === undefined || v === null ? null : undefined);
+  // An absent, null or blank filter is no filter; anything but a string refuses.
+  const text = (v: unknown) => (v === undefined || v === null ? null : typeof v === 'string' ? v.trim() || null : undefined);
   if (body.orderIds !== undefined) {
     if (body.symbol !== undefined || body.label !== undefined) return invalid('name order ids, or a contract and label, not both');
     const ids = body.orderIds;

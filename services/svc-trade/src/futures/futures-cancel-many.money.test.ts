@@ -208,6 +208,38 @@ describe('svc-trade futures batch cancel (PG-backed)', () => {
     expect(engine.cancels).toHaveLength(3);
   });
 
+  it('an engine fault on one order is answered on its line, and the rest still cancel and release', async () => {
+    const svc = build();
+    const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    const b = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    const c = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    const bHeld = await held(ALICE, b.orderId);
+    const real = engine.cancel.bind(engine);
+    engine.cancel = async (marketId, orderId) => {
+      if (orderId === b.orderId) throw new Error('engine timed out');
+      return real(marketId, orderId);
+    };
+    const out = await svc.cancelMany(principal(ALICE), { orderIds: [a.orderId, b.orderId, c.orderId] });
+    expect(out.results.map((r) => [r.orderId, r.outcome])).toEqual([
+      [a.orderId, 'cancelled'],
+      [b.orderId, 'refused'],
+      [c.orderId, 'cancelled'],
+    ]);
+    expect(out.results[1]).toMatchObject({ error: 'trade.futures_cancel_failed' });
+    expect(await statusOf(b.orderId)).toBe('open');
+    expect(await held(ALICE, b.orderId)).toBe(bHeld);
+    expect(await free(ALICE)).toBe(A('1000') - bHeld);
+  });
+
+  it('a filter takes only orders that can still leave the book, never a pending one', async () => {
+    const svc = build();
+    const open = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    const parked = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    await sql`UPDATE trade.futures_orders SET status = 'pending' WHERE id = ${parked.orderId}`;
+    const out = await svc.cancelMany(principal(ALICE), { symbol: SYMBOL });
+    expect(out.results.map((r) => r.orderId)).toEqual([open.orderId]);
+  });
+
   it('a single id is a batch of one', async () => {
     const svc = build();
     const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
