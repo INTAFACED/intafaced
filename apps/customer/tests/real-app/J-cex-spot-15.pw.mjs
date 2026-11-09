@@ -1,10 +1,12 @@
 // World: book
 import { test, expect } from './journey.mjs';
 import { openDesk, signUp, verify } from './desk.mjs';
+import { draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-15, in the running app (docs/roadmap/journeys.json): a developer builds a trading bot against the API.
 // One test per step, titled "J-cex-spot-15 #<n>", checking what the step's words say. The steps here read the portal,
-// the bot policy and the order types the API publishes; nothing places an order or moves money.
+// the error catalogues, the changelog, the bot policy and the order types the API publishes; nothing places an order or
+// moves money. #2 publishes two TEST changelog entries through the founders' four-eyes desk, as an operator would.
 const J = 'J-cex-spot-15';
 
 test.describe.configure({ mode: 'default' });
@@ -42,6 +44,83 @@ test(`${J} #1 opens /developers: each listed surface links to a real route, and 
     await expect(link).toBeVisible();
     await expect(link.locator('xpath=..')).toContainText('Page in this portal');
   }
+});
+
+test(`${J} #2 reads the error format and the changelog: each code with its severity and category, and changelog notices in the chosen language`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  // Each error code, in both catalogues, names its severity and its category, in columns of its own.
+  for (const [path, id] of [
+    ['/developers/errors', 'trade-errors-catalogue'],
+    ['/developers/errors/auth', 'auth-errors-catalogue'],
+  ]) {
+    await page.goto(path);
+    const table = page.getByTestId(id);
+    const head = (await table.locator('thead th').allInnerTexts()).map((text) => text.trim());
+    expect(head.slice(3, 5), `${path} has severity and category columns`).toEqual(['Severity', 'Category']);
+    const rows = table.locator('tbody tr');
+    expect(await rows.count()).toBeGreaterThan(0);
+    for (const row of await rows.all()) {
+      await expect(row).toHaveAttribute('data-severity', /^(error|temporary|uncertain)$/);
+      await expect(row).toHaveAttribute('data-category', /^(request|authentication|signature|permission|account|platform)$/);
+      await expect(row.locator('td').nth(2)).toHaveText(/^(Error|Temporary|Uncertain): \S/);
+      await expect(row.locator('td').nth(3)).toHaveText(/^(Request|Authentication|Signature|Permission|Account|Platform)$/);
+    }
+  }
+  // An order body refusal and the posting freeze differ in severity: one is fixed, the other waits.
+  await page.goto('/developers/errors');
+  await expect(page.locator('#trade\\.validation_failed')).toHaveAttribute('data-severity', 'error');
+  await expect(page.locator('#posting_frozen')).toHaveAttribute('data-severity', 'temporary');
+
+  // Two TEST changelog entries, published as founders publish them: one the operator also wrote in Spanish, one only in
+  // English. Each run's titles are its own, so an earlier run's entries never stand in for these.
+  const run = Date.now().toString(36);
+  const es = { title: `TEST ${run}: nuevo campo en las órdenes`, body: `TEST ${run}: envía el campo nuevo con cada orden.` };
+  const translated = { title: `TEST ${run}: a new order field`, body: `TEST ${run}: send the new field with each order.` };
+  const englishOnly = { title: `TEST ${run}: a new market data stream`, body: `TEST ${run}: subscribe to the new stream.` };
+  for (const [key, text, translations] of [
+    [`${run}-es`, translated, { es }],
+    [`${run}-en`, englishOnly, null],
+  ]) {
+    const draft = await draftNotice({
+      kind: 'changelog',
+      ...text,
+      minutes: 10,
+      key: `${J}-${key}`,
+      changelog: { area: 'trading', breaking: false },
+      ...(translations ? { translations } : {}),
+    });
+    expect((await publishNotice(draft, `${J}-${key}`)).status).toBe('published');
+  }
+
+  // A developer who chose Spanish (on the sign-in page's language menu, kept in this browser) reads the changelog.
+  await page.goto('/login');
+  await page.getByLabel('Language').selectOption('es');
+  await page.goto('/developers/changelog');
+  await expect(page.getByRole('heading', { name: 'Registro de cambios', level: 1 })).toBeVisible();
+  const inSpanish = page.locator('article').filter({ has: page.getByRole('heading', { name: es.title, exact: true }) });
+  await expect(inSpanish).toHaveCount(1);
+  await expect(inSpanish).toHaveAttribute('lang', 'es');
+  await expect(inSpanish).toContainText(es.body);
+  await expect(inSpanish.getByTestId('changelog-not-in-language')).toHaveCount(0);
+  // The entry with no Spanish text shows its English source, marked as English, and says so in Spanish.
+  const notTranslated = page.locator('article').filter({ has: page.getByRole('heading', { name: englishOnly.title, exact: true }) });
+  await expect(notTranslated).toHaveCount(1);
+  await expect(notTranslated).toHaveAttribute('lang', 'en');
+  await expect(notTranslated.getByTestId('changelog-not-in-language')).toHaveText(
+    'Esta entrada no tiene texto en tu idioma, así que se muestra en inglés.',
+  );
+
+  // Back in English, the same entry reads in English, with no note.
+  await page.goto('/login');
+  await page.getByLabel('Idioma').selectOption('en');
+  await page.goto('/developers/changelog');
+  await expect(page.getByRole('heading', { name: 'Changelog', level: 1 })).toBeVisible();
+  const inEnglish = page.locator('article').filter({ has: page.getByRole('heading', { name: translated.title, exact: true }) });
+  await expect(inEnglish).toHaveAttribute('lang', 'en');
+  await expect(inEnglish).toContainText(translated.body);
+  await expect(page.getByRole('heading', { name: es.title })).toHaveCount(0);
 });
 
 test(`${J} #3 reads the bot policy: "Bot policy: not yet published" until it is, and nothing claims permission`, async ({ page }) => {

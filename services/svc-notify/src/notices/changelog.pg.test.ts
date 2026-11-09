@@ -105,6 +105,32 @@ describe.skipIf(!URL || !available)('changelog on the shared test database', () 
     await expect(db()`UPDATE notify.notices SET changelog = '{}'::jsonb WHERE id = ${draft.id}`).rejects.toMatchObject({ code: '23514' });
   });
 
+  it('stores an entry’s Spanish text, reads it in Spanish and the source in a language it lacks, and freezes it once published', async () => {
+    const now = new Date('2026-10-17T10:00:00.000Z');
+    const board = new NoticeBoard(new PostgresNoticeStore(db()), new Approvals(), new PostgresCommandLog(db()), () => now);
+    const draft = await board.draft(AUTHOR, {
+      kind: 'changelog',
+      title: 'TEST: a new order field',
+      body: 'TEST: send the new field.',
+      changelog: { area: 'trading', breaking: false },
+      translations: { es: { title: 'TEST: nuevo campo', body: 'TEST: envía el campo nuevo.' } },
+      clientRequestId: 'pg-cl-tr-1',
+    });
+    await board.publish(AUTHOR, {
+      id: draft.id,
+      clientRequestId: 'pg-cl-tr-1-pub',
+      approvalId: 'pg-cl-appr-tr-1',
+      operationId: 'pg-cl-op-tr-1',
+    });
+    const es = (await board.changelog({ limit: 50, language: 'es' })).find((e) => e.id === draft.id);
+    expect(es).toMatchObject({ title: 'TEST: nuevo campo', body: 'TEST: envía el campo nuevo.', language: 'es' });
+    const de = (await board.changelog({ limit: 50, language: 'de' })).find((e) => e.id === draft.id);
+    expect(de).toMatchObject({ title: 'TEST: a new order field', language: 'en' });
+    await expect(db()`UPDATE notify.notices SET translations = '{}'::jsonb WHERE id = ${draft.id}`).rejects.toMatchObject({
+      code: '23514',
+    });
+  });
+
   it('rejects changelog fields on the wrong kind at the table', async () => {
     await expect(
       db()`INSERT INTO notify.notices (kind, title, body, status, author_id, client_request_id, changelog)
