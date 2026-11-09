@@ -21,7 +21,7 @@ name: Journey seal re-check
 # runs code from a pull request: the script reads the pull request, and CI's runs and jobs on the head, through the API.
 on:
   workflow_run:
-    workflows: [Real-app journeys, CI]
+    workflows: [Real-app journeys, CI, CI review]
     types: [completed]
   pull_request_target:
     types: [edited, auto_merge_enabled]
@@ -53,17 +53,15 @@ jobs:
     # the default branch, and this job only reads and re-runs the default branch's jobs, never the fork's code.
     # One re-check per finished run that can change a seal (INTAFACED/project-state#1574, 9 Nov 2026; before it, about
     # 1,400 re-checks a day, 28 of 40 sampled doing nothing):
-    #   - CI only when it succeeded. A failed or cancelled CI run leaves merge-seal.yml red (it reads CI's jobs) and
-    #     ci.yml's own seal red in that run, so a re-run could only be red again. A later attempt that succeeds (a re-run
-    #     of a failed job) is a new completion and re-checks then.
-    #   - A journeys run unless it was cancelled or skipped: the seal reads only finished runs that were neither
-    #     (journey-seal.mjs), so such a run changes no verdict, and the run that replaced it re-checks when it finishes.
+    #   - CI, the CI review or a journeys run, unless it was cancelled or skipped: a cancelled run was replaced, and the
+    #     run that replaced it re-checks when it finishes; the seal reads neither (journey-seal.mjs). The script then
+    #     starts or re-runs the seal only once every input on the head has finished (readGoing), so one verdict.
+    #   - CI on a pull request only; the CI review and journeys off main, in this repository.
     if: >-
       (github.event_name == 'workflow_run' &&
-       ((github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'pull_request' &&
-         github.event.workflow_run.conclusion == 'success') ||
+       github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.conclusion != 'skipped' &&
+       ((github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'pull_request') ||
         (github.event.workflow_run.name != 'CI' &&
-         github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.conclusion != 'skipped' &&
          github.event.workflow_run.head_branch != 'main' &&
          github.event.workflow_run.head_repository.full_name == github.repository))) ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.auto_merge &&

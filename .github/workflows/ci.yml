@@ -553,7 +553,10 @@ jobs:
         run: node tooling/ci/infra-verdict.mjs
 
   merge-seal:
-    name: CI merge seal
+    # `CI jobs` on a pull request: there the seal is merge-seal.yml's alone, which waits for its inputs with no check on
+    # the head, so a job of this name here would pass the required check in its place (journey-seal.mjs CI_JOBS_NAME,
+    # sealNow). `CI merge seal` on a merge queue's commit, which merge-seal.yml never reaches.
+    name: ${{ github.event_name == 'merge_group' && 'CI merge seal' || 'CI jobs' }}
     runs-on: ubuntu-latest
     # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25
