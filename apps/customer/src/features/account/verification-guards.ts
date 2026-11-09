@@ -29,16 +29,19 @@ export const verificationRecord = z.object({
 });
 export type VerificationRecord = z.infer<typeof verificationRecord>;
 export function verificationStatus(owner: string, limit: number) {
-  return z
-    .object({ tier: verificationTier, records: z.array(verificationRecord).max(limit) })
-    .refine(
-      (value) =>
-        new Set(value.records.map((row) => row.id)).size === value.records.length &&
-        value.records.every(
-          (row, index) =>
-            row.userId === owner && (index === 0 || Date.parse(value.records[index - 1]!.createdAt) >= Date.parse(row.createdAt)),
-        ),
-    );
+  return (
+    z
+      // `tradingOnly`: the level was cleared by the trading checks alone (J-cex-spot-01 #3), so it is for trading.
+      .object({ tier: verificationTier, tradingOnly: z.boolean().optional(), records: z.array(verificationRecord).max(limit) })
+      .refine(
+        (value) =>
+          new Set(value.records.map((row) => row.id)).size === value.records.length &&
+          value.records.every(
+            (row, index) =>
+              row.userId === owner && (index === 0 || Date.parse(value.records[index - 1]!.createdAt) >= Date.parse(row.createdAt)),
+          ),
+      )
+  );
 }
 /** submitKyc can return an existing record from ANY jurisdiction. */
 export function verificationReply(owner: string, tier: RequestedTier) {

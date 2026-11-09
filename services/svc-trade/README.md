@@ -158,7 +158,9 @@ reads, `POST /api/v1/venue/preview`, `/prepare` and `/submit` (`src/venue/`). Th
 signs, svc-trade submits. Each prepared action and its first signature are stored under the intent's business key in
 `trade.user_venue_actions` before anything is sent, so a second prepare returns the stored action and a re-submit re-sends
 the same bytes; a submit whose answer is lost after send is `definite: false` with where to read it back. A withdrawal
-spends identity's step-up (`trade.step_up.venue.withdraw`) before it is prepared. Our builder fee comes from
+spends identity's step-up (`trade.step_up.venue.withdraw`) before it is prepared. A new or amended order needs level
+`basic` (the trading checks grant it, J-cex-spot-01 #3), refused `tier.insufficient` before anything is stored; a cancel
+and a withdrawal stay open below it, so a held account never strands its own funds on the venue. Our builder fee comes from
 `TRADE_USER_VENUE_BUILDER_ADDRESS` / `TRADE_USER_VENUE_BUILDER_FEE_BPS` (owner values); blank, orders refuse
 `builder_fee_not_published`. A TEST venue is refused unless the raw APP_ENV is dev or test. The ledger posts nothing and
 no event is sent: the venue is the record of balances, locks, fills and withdrawals.

@@ -23,6 +23,7 @@ import {
 } from '../kyc/capabilities.js';
 import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/identity-kyc-capabilities';
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
+import { tradingOnly } from '../kyc/trading-checks.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
 import type { SelfFreezeState } from '@intafaced/contracts/identity';
@@ -3446,6 +3447,16 @@ export class AuthService {
       await releaseOnReject(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, caseId, by: input.reviewerId, at });
       return record;
     });
+  }
+
+  /** True when the level held was cleared by the trading checks alone (J-cex-spot-01 #3): it reads "for trading". */
+  async kycTradingOnly(userId: string): Promise<boolean> {
+    return tradingOnly(this.sql, userId);
+  }
+
+  /** A level the trading checks cleared is announced as an operator's approval is (J-cex-spot-01 #3). */
+  async announceTradingClear(record: { userId: string; tier: KycTier; jurisdiction: string }): Promise<void> {
+    await this.announceKycApproval(record);
   }
 
   private async announceKycApproval(record: { userId: string; tier: KycTier; jurisdiction: string }): Promise<void> {
