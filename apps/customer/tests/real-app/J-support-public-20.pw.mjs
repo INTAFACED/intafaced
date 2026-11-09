@@ -78,6 +78,55 @@ async function restingOrder(who) {
   return res.body.id;
 }
 
+/**
+ * One TEST withdrawal of `who`'s, written by the stack's tool as svc-pay's `withdraw` leaves a requested one: a row in
+ * svc-pay and nothing posted (local-test-stack.mjs seed-withdrawal). Its id.
+ */
+function withdrawalOf(who, tag) {
+  const out = tool(
+    'local-test-stack.mjs',
+    'seed-withdrawal',
+    who.email,
+    'USDT',
+    '5',
+    '--state',
+    'requested',
+    '--ref',
+    `${J}-${RUN}-${tag}`,
+  );
+  const id = /^\s*withdrawal\s+([0-9a-f-]{36})$/m.exec(out)?.[1];
+  expect(id, out).toMatch(/^[0-9a-f-]{36}$/);
+  return id;
+}
+
+/**
+ * One TEST chain deposit of 20 USDT (above the stack's TEST minimum of 10) to `who`'s own deposit address on TEST
+ * Ethereum, delivered to svc-pay's chain webhook (local-test-stack.mjs chain-deposit). Its id, as svc-pay records it
+ * and the customer's own deposit list shows it.
+ */
+async function depositOf(who, tag) {
+  const client = await api(who);
+  const asked = await client.post('/api/bank/trpc/deposits.address', { assetId: 'USDT', networkId: 'ethereum' });
+  const address = asked.body?.result?.data?.address;
+  expect(address, `deposits.address: ${asked.status} ${JSON.stringify(asked.body).slice(0, 300)}`).toBeTruthy();
+  const out = tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', '20', '6', '--tx', `${J}-${RUN}-${tag}`);
+  expect(out).toContain('"received":true');
+  const tx = /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
+  expect(tx, out).toBeTruthy();
+  let id;
+  await expect
+    .poll(
+      async () => {
+        const listed = await client.get(`/api/bank/trpc/deposits.list?input=${encodeURIComponent(JSON.stringify({ txId: tx }))}`);
+        id = listed.body?.result?.data?.items?.[0]?.id;
+        return id;
+      },
+      { timeout: 30_000 },
+    )
+    .toMatch(/^[0-9a-f-]{36}$/);
+  return id;
+}
+
 test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it, and a request linked to a recovery-required order ranks above a withdrawal request of the same age`, async ({
   browser,
 }) => {
@@ -92,13 +141,28 @@ test(`${J} #1 only a record that already belongs to the ticket's customer can be
   expect(linked.json.result.data).toMatchObject({ ticketId: ticket.id, kind: 'order', recordId: own, recoveryRequired: false });
   expect((await link('order', own)).json.result.data).toEqual(linked.json.result.data);
 
-  // Another customer's order, and records that don't exist, are refused the same way; nothing is linked for them.
+  // The customer's own withdrawal and deposit link too, as svc-pay reports them, never marked recovery-required.
+  const mine = [linked.json.result.data];
+  for (const [kind, recordId] of [
+    ['withdrawal', withdrawalOf(who, 'w')],
+    ['deposit', await depositOf(who, 'd')],
+  ]) {
+    const res = await link(kind, recordId);
+    expect(res.status, `linkRecord ${kind}: ${res.text.slice(0, 300)}`).toBe(200);
+    expect(res.json.result.data).toMatchObject({ ticketId: ticket.id, kind, recordId, recoveryRequired: false });
+    mine.push(res.json.result.data);
+  }
+
+  // Another customer's real order, withdrawal and deposit, and records that don't exist, are refused the same way;
+  // nothing is linked for them.
   const page = await visitor(browser);
   const stranger = await fundedTrader(page, 'j20o', '20');
   await page.context().close();
   const theirs = await restingOrder(stranger);
   for (const [kind, recordId] of [
     ['order', theirs],
+    ['withdrawal', withdrawalOf(stranger, 'ow')],
+    ['deposit', await depositOf(stranger, 'od')],
     ['order', '00000000-0000-4000-8000-000000000000'],
     ['withdrawal', '00000000-0000-4000-8000-000000000000'],
     ['deposit', '00000000-0000-4000-8000-000000000001'],
@@ -109,7 +173,8 @@ test(`${J} #1 only a record that already belongs to the ticket's customer can be
     expect(res.text).toContain('support.link_record_not_owned');
   }
   const links = await asDesk('lead', 'query', 'ticketLinks', { ticketId: ticket.id });
-  expect(links.json?.result?.data, links.text.slice(0, 300)).toEqual([linked.json.result.data]);
+  expect(links.json?.result?.data, links.text.slice(0, 300)).toHaveLength(mine.length);
+  expect(links.json.result.data).toEqual(expect.arrayContaining(mine));
   // The ranking half. Two unclaimed withdrawal requests from the customer, the plain one made first: on age alone it is
   // read first. The later one is linked to an order whose hold has an unknown outcome, made for real: the order rests,
   // the stack's matching engine stops, and the cancel sent then cannot learn whether the engine took the order off, so
