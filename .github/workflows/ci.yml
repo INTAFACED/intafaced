@@ -17,9 +17,6 @@ on:
   # reports. A path filter that skipped docs/** and **/*.md left that check
   # missing, and a required check that never reports cannot merge. Test shards
   # still skip docs and markdown: tooling/ci/ci-affected.mjs ignores them.
-  # The founding document coverage-check reads moved to the private
-  # INTAFACED/project-state repo (product/INTAFACED_DEFINITIVE_BUILD.md); the
-  # gate reads its structure from tooling/coverage-law-index.json, which `**` covers.
   # Agent-rule markdown stays listed so a rules-only change cannot be treated
   # as docs-only. No script mirrors this list (tooling/scripts/merge-gate.mjs,
   # which once did, is gone). The last matching pattern wins.
@@ -125,17 +122,26 @@ jobs:
       - name: Doctrine gates (the same list `pnpm verify` runs)
         run: pnpm gates
 
-      # Runs main's copy of the guard, never the PR's, so a PR cannot loosen
-      # the rules it is judged by. Falls back to the PR copy only while main
-      # has none (the PR that introduces it).
-      - name: Test-diff guard (rules from main)
-        if: github.event_name == 'pull_request'
+      # Two guards in one step (U4, 2026-11-09: the journey baseline guard was its own step), each main's copy, never the
+      # PR's, so a PR cannot loosen the rules it is judged by; each falls back to the PR copy only while main has none (the
+      # PR that introduces it). Both always run, so one run names both kinds of finding, and the step fails if either does.
+      #
+      # 1. The test-diff guard. Its imports, look-baselines.mjs (what a look baseline is) and judged-paths.mjs (what the
+      #    test judge rules on), come from main the same way.
+      # 2. The journeys baseline's rules (docs/runbooks/regression-issue-state.md): a step that passed on main is never
+      #    added as unbuilt, only a pass on main takes a step off, and the file is rewritten only from a finished run on
+      #    main it names (tooling/ci/journey-baseline-guard.mjs). It does nothing when the PR leaves the baseline alone;
+      #    otherwise it reads the reports of the runs on main from the base's named run (to the newest when a step is added
+      #    as unbuilt), a minute or two. Main's copy runs in a worktree of main, so its imports are main's too.
+      - name: Test-diff and journey baseline guards (rules from main)
+        if: github.event_name == 'pull_request' && !cancelled()
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }} # the test judge runs only for this repository's own
-        # Its imports, look-baselines.mjs (what a look baseline is) and judged-paths.mjs (what the test judge rules on), come
-        # from main the same way.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
+          status=0
           for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs; do
             if git cat-file -e "origin/main:tooling/ci/$f" 2>/dev/null; then
               git show "origin/main:tooling/ci/$f" > "$RUNNER_TEMP/$f"
@@ -143,26 +149,15 @@ jobs:
               cp "tooling/ci/$f" "$RUNNER_TEMP/$f"
             fi
           done
-          node "$RUNNER_TEMP/test-diff-guard.mjs"
+          node "$RUNNER_TEMP/test-diff-guard.mjs" || status=1
 
-      # The journeys baseline's rules (docs/runbooks/regression-issue-state.md), from main like the guard above: a step
-      # that passed on main is never added as unbuilt, only a pass on main takes a step off, and the file is rewritten
-      # only from a finished run on main it names (tooling/ci/journey-baseline-guard.mjs). It does nothing when the PR
-      # leaves the baseline alone; otherwise it reads the reports of the runs on main from the base's named run (to the
-      # newest when a step is added as unbuilt), a minute or two. Main's copy runs in a worktree of main, so its imports are main's too. Falls back to the PR copy
-      # only while main has none (the PR that introduces it). It runs when the guards above fail too.
-      - name: Journey baseline guard (rules from main)
-        if: github.event_name == 'pull_request' && !cancelled()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
           guard=tooling/ci/journey-baseline-guard.mjs
           if git cat-file -e "origin/main:$guard" 2>/dev/null; then
             git worktree add --detach "$RUNNER_TEMP/main" origin/main
             guard="$RUNNER_TEMP/main/$guard"
           fi
-          node "$guard" --repo "$REPO" --base-ref origin/main
+          node "$guard" --repo "$REPO" --base-ref origin/main || status=1
+          exit "$status"
 
       # The touched-journeys map is only what main's builder builds (review 7561-R1 #2): a pull request that changes
       # tooling/ci/journey-reach-map.json has it rebuilt from main's Real-app journeys runs up to the newest run it names,
@@ -225,16 +220,6 @@ jobs:
           fi
           node "$RUNNER_TEMP/look-drift.mjs"
 
-      # The per-service Definition of Done (`pnpm gate`) used to be its own
-      # `dod` job: a second runner and a second install for a two-second
-      # script. It never blocked a merge (it ran after the seal and was not
-      # required), and it has been red on main. It runs here now, reported
-      # but not blocking, so its findings stay visible without the extra job.
-      - name: Definition of Done (reported, not blocking)
-        if: always()
-        continue-on-error: true
-        run: pnpm gate
-
   changes:
     name: Affected tests
     runs-on: ubuntu-latest
@@ -282,6 +267,8 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Every PR, docs-only ones too, and Markdown included (format:check covers **/*.md): the separate Prettier (docs)
+      # job in docs-format.yml ran this same command on docs PRs and was folded in here (U4, 2026-11-09).
       - name: format:check
         run: pnpm format:check
 

@@ -9,7 +9,7 @@
  * to update. The one file that needs a build first runs in CI's build job instead (NEEDS_BUILD).
  *
  * It is a gate in tooling/ci/gates.mjs (`tooling-tests`), so `pnpm verify` runs what CI runs. A tree with no test
- * files refuses by name instead of reporting zero failures over nothing (tooling/ci/empty-denominator-gate.mjs).
+ * files refuses by name instead of reporting zero failures over nothing.
  *
  * Usage: node tooling/scripts/tooling-tests.mjs   (from the repo root)
  */

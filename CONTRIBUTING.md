@@ -39,7 +39,6 @@ CI job names, so you can find a failure fast:
 | `Typecheck & build`                          | the whole monorepo compiles                                                                                      |
 | `Tests (changed)` / `Tests (1/8)` to `(8/8)` | the changed packages, their dependents and readers; a run-everything change runs the whole suite in eight shards |
 | `CI merge seal`                              | one result for the checks the changed paths call for                                                             |
-| `Definition of Done`                         | the per-service gate (`pnpm gate`)                                                                               |
 | `Gitleaks` / `Dependency audit`              | secrets and known vulnerabilities                                                                                |
 
 Which checks a change needs, and what to do with a red, is in AGENTS.md.
