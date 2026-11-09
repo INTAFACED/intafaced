@@ -14,6 +14,7 @@ const quote = (patch: Partial<CashOutQuote> = {}): CashOutQuote => ({
   assetId: 'USDT',
   amount: '20',
   available: '50',
+  heldAt: null,
   account: {
     accountId: '0f4a2b8e-1c3d-4e5f-8a9b-0c1d2e3f4a5b',
     label: 'TEST salary account',
@@ -50,12 +51,15 @@ const request = (patch: Partial<CashOutRequest> = {}): CashOutRequest => ({
   receiveCurrency: null,
   payoutRef: null,
   ledgerTxId: null,
+  heldAt: null,
+  partnerMoveId: null,
   failureCode: null,
   returnedAmount: null,
   remainsPaidOut: null,
   createdAt: '2026-10-23T04:00:00.000Z',
   completedAt: null,
   failedAt: null,
+  cancelledAt: null,
   returnedAt: null,
   ...patch,
 });
@@ -166,6 +170,56 @@ describe('cash out to a linked bank account', () => {
     );
     expect(all).toContain('The receiving bank sent it back: the account is closed.');
     expect(all).toMatch(/All 20.*USDT came back/);
+  });
+
+  it('names the partner bank that holds the balance, and gives money back to it, once (J-bank-03 adapted)', () => {
+    const at = 'TEST partner bank';
+    expect(renderToStaticMarkup(<QuoteView quote={quote({ heldAt: at })} />)).toContain('Available now at TEST partner bank');
+    const failed = renderToStaticMarkup(
+      <RequestRows
+        rows={[request({ status: 'failed', heldAt: at, refusalCode: null, failureCode: 'bank.payout_account_closed', failedAt: '2026-10-23T05:00:00.000Z' })]}
+      />,
+    );
+    expect(failed).toContain('20 USDT is back in your balance at TEST partner bank, once.');
+    const back = renderToStaticMarkup(
+      <RequestRows
+        rows={[
+          request({
+            status: 'returned',
+            heldAt: at,
+            refusalCode: null,
+            failureCode: 'bank.payout_returned_by_bank',
+            returnedAmount: '5',
+            remainsPaidOut: '15',
+            completedAt: '2026-10-23T05:00:00.000Z',
+            returnedAt: '2026-10-23T06:00:00.000Z',
+          }),
+        ]}
+      />,
+    );
+    expect(back).toContain('5 USDT of 20 USDT came back to your balance at TEST partner bank, once. The other 15 USDT stays paid out.');
+  });
+
+  it('a cancelled cash-out says the bank cancelled it, with the money back once, and has no receipt or cancel to offer', () => {
+    const html = renderToStaticMarkup(
+      <RequestRows
+        rows={[
+          request({
+            status: 'cancelled',
+            refusalCode: null,
+            payoutRef: 'TEST-PAYOUT-1',
+            failureCode: 'bank.payout_cancelled_by_bank',
+            cancelledAt: '2026-10-23T05:00:00.000Z',
+          }),
+        ]}
+      />,
+    );
+    expect(html).toContain('Cancelled');
+    expect(html).toContain('The bank cancelled this cash-out before paying it out.');
+    expect(html).toContain('20 USDT is back in your available balance, once.');
+    expect(html).toContain('No receipt and nothing to cancel: the bank cancelled this cash-out before paying it out.');
+    expect(html).not.toContain('Download receipt');
+    expect(html).not.toContain('cash-out-steps');
   });
 
   it('parses the bank’s answers, and refuses a fee that is not a decimal string', () => {

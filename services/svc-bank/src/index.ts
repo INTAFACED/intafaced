@@ -37,7 +37,7 @@ import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
-import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
+import { payoutCancelledBody, payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
@@ -759,6 +759,7 @@ function jobDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Promise
 jobDoor('/internal/jobs/payout-sim/verify', payoutVerifyBody, (b) => bank.cashOut.verifyAccount(b.accountId));
 jobDoor('/internal/jobs/payout-sim/paid', payoutPaidBody, (b) => bank.cashOut.complete(b.cashOutId));
 jobDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOut.fail(b.cashOutId, b.reason));
+jobDoor('/internal/jobs/payout-sim/cancelled', payoutCancelledBody, (b) => bank.cashOut.cancel(b.cashOutId, b.reason));
 jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );

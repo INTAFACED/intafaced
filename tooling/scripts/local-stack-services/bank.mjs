@@ -20,6 +20,17 @@ function earnRiskWording() {
   throw new Error(`LOCAL_STACK_BANK_EARN_RISK_WORDING is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
 }
 
+/**
+ * The owner's cooling-off for a new bank destination (J-bank-03 #2): the stack's TEST 24 hours, or blank when the stack is
+ * asked to show it unset, so a cash-out to any account refuses `bank.offramp_cooling_unset`.
+ */
+function offrampCooling() {
+  const asked = process.env.LOCAL_STACK_BANK_OFFRAMP_COOLING;
+  if (asked === undefined || asked === '') return { BANK_OFFRAMP_COOLING_HOURS: '24' };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_OFFRAMP_COOLING is "${asked}"; leave it unset for the TEST 24 hours, or set it to off.`);
+}
+
 /** The lending policy (BK-loan-01, J-bank-09 #1): new loans open, or switched off when the stack is asked to show it. */
 function lendingPolicy() {
   const asked = process.env.LOCAL_STACK_BANK_LOANS;
@@ -199,7 +210,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
     BANK_CARD_SIM_CASHBACK: 'test',
     BANK_ADDRESS_BOOK_CAP: '10',
-    BANK_OFFRAMP_COOLING_HOURS: '24',
+    ...offrampCooling(),
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a
     // listed address refused by name (bank.destination_sanctions_listed). Set only here, never in a deploy; unset, every
     // address save refuses bank.destination_sanctions_unset.

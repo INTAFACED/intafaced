@@ -46,12 +46,15 @@ const request = z
     receiveCurrency: z.string().nullable(),
     payoutRef: z.string().nullable(),
     ledgerTxId: z.string().nullable(),
+    heldAt: z.string().nullable(),
+    partnerMoveId: z.string().nullable(),
     failureCode: z.string().nullable(),
     returnedAmount: z.string().nullable(),
     remainsPaidOut: z.string().nullable(),
     createdAt: z.string(),
     completedAt: z.string().nullable(),
     failedAt: z.string().nullable(),
+    cancelledAt: z.string().nullable(),
     returnedAt: z.string().nullable(),
   })
   .strict();
@@ -67,6 +70,7 @@ export function createCashOutRouter(bank: Pick<BankServices, 'cashOut'>, guard: 
             assetId: z.string(),
             amount: z.string(),
             available: z.string(),
+            heldAt: z.string().nullable(),
             account,
             rail: z.literal('rail.bank'),
             fee: z.string().nullable(),
@@ -91,11 +95,21 @@ export function createCashOutRouter(bank: Pick<BankServices, 'cashOut'>, guard: 
       .output(z.array(request))
       .query(({ ctx, input }) => guard(async () => bank.cashOut.list(ctx.principal.userId, input.limit))),
 
-    /** The signed receipt of a cash-out that was paid out: its text, SHA-256, signature and ledger transaction id. */
+    /** The signed receipt of a cash-out that was paid out: its text, SHA-256, signature, and the ledger
+     * transaction or (partner-held) the partner's move that paid it. */
     receipt: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ requestId: z.string().guid() }).strict())
       .output(
-        z.object({ fileName: z.string(), text: z.string(), ledgerTxId: z.string(), sha256: z.string(), signature: z.string() }).strict(),
+        z
+          .object({
+            fileName: z.string(),
+            text: z.string(),
+            ledgerTxId: z.string().nullable(),
+            partnerMoveId: z.string().nullable(),
+            sha256: z.string(),
+            signature: z.string(),
+          })
+          .strict(),
       )
       .query(({ ctx, input }) => guard(async () => bank.cashOut.receipt(ctx.principal.userId, input.requestId))),
   });

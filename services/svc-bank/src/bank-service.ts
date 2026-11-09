@@ -499,7 +499,12 @@ export function createBankServices(
       sql,
       ledger,
       { available: (userId, assetId) => ramps.availableOf(userId, assetId), linked: linkedAccounts },
-      { partner: options.cashOutPartner ?? null, receiptSecret: options.receiptSecret, securityLock: options.ramps?.securityLock },
+      {
+        partner: options.cashOutPartner ?? null,
+        receiptSecret: options.receiptSecret,
+        securityLock: options.ramps?.securityLock,
+        custody,
+      },
     ),
     railSends: new RailSendService(sql, spaces, railPayees),
     railPayees,

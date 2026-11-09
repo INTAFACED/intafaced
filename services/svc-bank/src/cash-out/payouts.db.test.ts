@@ -4,7 +4,7 @@
  * it once each, and a paid cash-out has a signed receipt. Funds are TEST deposits on a MemoryLedger. Uses
  * TEST_DATABASE_URL. Does not start Docker.
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, hkdfSync, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -30,6 +30,8 @@ import { createBankRouter } from '../router.js';
 import type { SecurityLockPort } from '../security-lock.js';
 import { CashOutService, cashOutWithdrawalId } from './cash-out.js';
 import { PAYOUT_SIM_RAIL, payoutSim, type CashOutPartner } from './payout-sim.js';
+import { partnerPayoutsAccount } from '../partner/partner-bank.js';
+import { TEST_PARTNER_LABEL, testPartner, type TestPartner } from '../partner/test-partner.js';
 
 const SECRET = 'bank-cash-out-payout-edge-secret-long-enough';
 const RECEIPTS = 'bank-cash-out-receipt-secret-long-enough';
@@ -58,6 +60,8 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
   let ledger: MemoryLedger;
+  /** The TEST partner bank, for the partner-held cases only; null elsewhere, so every other case is the ledger path. */
+  let partnerBank: TestPartner | null = null;
   const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
 
   beforeAll(async () => {
@@ -76,6 +80,7 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
   beforeEach(async () => {
     await sql`TRUNCATE bank.cash_out_requests, bank.linked_bank_accounts`;
     ledger = new MemoryLedger();
+    partnerBank = null;
     await ledger.post(
       recipes.deposit({ userId: ADA, assetId: 'USDT', amount: parseAmount('50'), rail: 'test', railRef: 'cash-out-fund-ada' }),
     );
@@ -86,6 +91,7 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       ramps: { addressBookCap: '10', offrampCoolingHours: '24', securityLock },
       cashOutPartner: partner,
       receiptSecret: RECEIPTS,
+      testPartner: partnerBank,
     });
   }
 
@@ -527,6 +533,130 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
 
     it('an answer for no cash-out is not found', async () => {
       expect(await refused(services().cashOut.complete(randomUUID()))).toBe('bank.cash_out_not_found');
+    });
+  });
+
+  describe('partner-held: the partner bank holds the money and the ledger posts nothing (OWNER 226, J-bank-03 adapted)', () => {
+    const main = { userId: ADA, assetId: 'USDT', spaceId: null };
+    const atPartner = async () => (await partnerBank!.bank.balance(main)).amount;
+    beforeEach(() => {
+      partnerBank = testPartner();
+      partnerBank.set(ADA, { custody: 'off' });
+      partnerBank.fund(ADA, { fundId: 'cash-out-partner-fund-ada', assetId: 'USDT', amount: parseAmount('50') });
+    });
+
+    it('quotes against the partner balance, named, and refuses more than it holds', async () => {
+      const id = await usable();
+      partnerBank!.fund(ADA, { fundId: 'cash-out-partner-fund-ada-2', assetId: 'USDT', amount: parseAmount('7') });
+      expect(await as(ADA).cashOut.quote({ assetId: 'USDT', amount: '20', linkedAccountId: id })).toMatchObject({
+        available: '57',
+        heldAt: TEST_PARTNER_LABEL,
+        fee: '1.5',
+        receiveAmount: '16.5',
+        blocker: null,
+      });
+      expect(await refused(as(ADA).cashOut.quote({ assetId: 'USDT', amount: '58', linkedAccountId: id }))).toBe(
+        'bank.cash_out_over_available',
+      );
+    });
+
+    it('confirming is one partner move under the order key; the same client reference returns the first order', async () => {
+      const id = await usable();
+      const posts = ledger.journal().length;
+      const requestId = randomUUID();
+      const first = await start(id, '20', requestId);
+      expect(first).toMatchObject({ status: 'processing', heldAt: TEST_PARTNER_LABEL, ledgerTxId: null, payoutRef: `TEST-PAYOUT-${requestId}` });
+      expect(first.partnerMoveId).toMatch(/^test-partner-move-/);
+      expect(await atPartner()).toBe(parseAmount('30'));
+      expect((await partnerBank!.bank.balance(partnerPayoutsAccount('USDT'))).amount).toBe(parseAmount('20'));
+      expect(await start(id, '20', requestId)).toEqual(first);
+      expect(await atPartner()).toBe(parseAmount('30'));
+      expect((await partnerBank!.bank.moveByKey(`bank.cash-out:${requestId}`))?.id).toBe(first.partnerMoveId);
+      // The ledger posts nothing for it, and the customer's ledger balance is untouched.
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(await available()).toBe(parseAmount('50'));
+    });
+
+    it('a partner balance that moved after the quote keeps the request refused, nothing taken', async () => {
+      const id = await usable();
+      const partner = partnerBank!;
+      await partner.bank.move({ key: 'TEST-drain', from: main, to: { ...main, spaceId: 'TEST-space' }, amount: parseAmount('45') });
+      // A quote read before the drain (here: one priced for what the balance held then) passes; the move itself refuses.
+      const svc = services();
+      const realQuote = svc.cashOut.quote.bind(svc.cashOut);
+      svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
+      const kept = await svc.cashOut.start(ADA, { requestId: randomUUID(), assetId: 'USDT', amount: '20', linkedAccountId: id });
+      expect(kept).toMatchObject({ status: 'refused', refusalCode: 'bank.cash_out_over_available', partnerMoveId: null });
+      expect(await atPartner()).toBe(parseAmount('5'));
+    });
+
+    it('paid closes it with no ledger post; the receipt names the partner payout and its signature verifies', async () => {
+      const id = await usable();
+      const { requestId, partnerMoveId } = await start(id, '20');
+      const posts = ledger.journal().length;
+      const paid = await services().cashOut.complete(requestId);
+      expect(paid).toMatchObject({ status: 'completed', ledgerTxId: null, partnerMoveId, remainsPaidOut: '20' });
+      expect(await services().cashOut.complete(requestId)).toEqual(paid);
+      expect(await atPartner()).toBe(parseAmount('30'));
+      expect(ledger.journal()).toHaveLength(posts);
+      const receipt = await as(ADA).cashOut.receipt({ requestId });
+      expect(receipt).toMatchObject({ ledgerTxId: null, partnerMoveId });
+      expect(receipt.text).toContain(`Payout reference: TEST-PAYOUT-${requestId}`);
+      expect(receipt.text).toContain(`Partner payout: ${partnerMoveId}`);
+      expect(receipt.text).toContain(`Held at: ${TEST_PARTNER_LABEL}`);
+      expect(receipt.text).not.toContain('Ledger transaction');
+      const key = Buffer.from(hkdfSync('sha256', RECEIPTS, Buffer.alloc(0), 'bank.cash-out.receipt.v1', 32));
+      expect(receipt.signature).toBe(createHmac('sha256', key).update(receipt.text, 'utf8').digest('hex'));
+      // Once paid there is nothing to cancel or fail.
+      expect(await refused(services().cashOut.cancel(requestId, 'bank.payout_cancelled_by_bank'))).toBe('bank.ramp_conflict');
+      expect(await refused(services().cashOut.fail(requestId, 'bank.payout_rejected'))).toBe('bank.ramp_conflict');
+      expect(await atPartner()).toBe(parseAmount('30'));
+    });
+
+    it('failed and cancelled each give the amount back to the partner balance once, however often the partner says so', async () => {
+      const id = await usable();
+      const failing = await start(id, '10');
+      const cancelling = await start(id, '15');
+      expect(await atPartner()).toBe(parseAmount('25'));
+      const posts = ledger.journal().length;
+      expect(await services().cashOut.fail(failing.requestId, 'bank.payout_account_closed')).toMatchObject({
+        status: 'failed',
+        failureCode: 'bank.payout_account_closed',
+      });
+      await services().cashOut.fail(failing.requestId, 'bank.payout_account_closed');
+      expect(await atPartner()).toBe(parseAmount('35'));
+      const cancelled = await services().cashOut.cancel(cancelling.requestId, 'bank.payout_cancelled_by_bank');
+      expect(cancelled).toMatchObject({ status: 'cancelled', failureCode: 'bank.payout_cancelled_by_bank', cancelledAt: expect.any(String) });
+      expect(await services().cashOut.cancel(cancelling.requestId, 'bank.payout_cancelled_by_bank')).toEqual(cancelled);
+      expect(await atPartner()).toBe(parseAmount('50'));
+      expect(await refused(as(ADA).cashOut.receipt({ requestId: cancelling.requestId }))).toBe('bank.cash_out_receipt_not_ready');
+      expect(await refused(services().cashOut.complete(cancelling.requestId))).toBe('bank.ramp_conflict');
+      expect(ledger.journal()).toHaveLength(posts);
+    });
+
+    it('a return credits what came back to the partner balance once, and the rest stays paid out', async () => {
+      const id = await usable();
+      const { requestId } = await start(id, '20');
+      await services().cashOut.complete(requestId);
+      const posts = ledger.journal().length;
+      const back = await services().cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' });
+      expect(back).toMatchObject({ status: 'returned', returnedAmount: '5', remainsPaidOut: '15' });
+      expect(await services().cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' })).toEqual(back);
+      expect(await atPartner()).toBe(parseAmount('35'));
+      expect(ledger.journal()).toHaveLength(posts);
+      const receipt = await as(ADA).cashOut.receipt({ requestId });
+      expect(receipt.text).toContain('Stays paid out: 15 USDT');
+      expect(receipt.text).toMatch(/Partner return: test-partner-move-/);
+    });
+
+    it('with the partner gone, an answer for a partner-held cash-out refuses and nothing moves', async () => {
+      const id = await usable();
+      const { requestId } = await start(id, '20');
+      partnerBank!.set(ADA, { custody: 'on' });
+      expect(await refused(services().cashOut.fail(requestId, 'bank.payout_rejected'))).toBe('bank.partner_unavailable');
+      expect((await services().cashOut.list(ADA, 10))[0]).toMatchObject({ status: 'processing' });
+      partnerBank!.set(ADA, { custody: 'off' });
+      expect(await atPartner()).toBe(parseAmount('30'));
     });
   });
 });

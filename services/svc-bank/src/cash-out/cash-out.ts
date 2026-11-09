@@ -19,7 +19,17 @@
  * - not paid: `failed` with the partner's reason, the hold given back once (`withdraw.reverse:cash-out:<id>`);
  * - paid and later sent back by the receiving bank, in full or in part: `returned`, what came back credited once from the
  *   partner's rail (`deposit:<rail>:cash-out-return:<id>`), and what did not come back stays paid out.
- * There is no cancel once the partner has the payout: only the partner's answer closes it.
+ * - cancelled by the partner before it paid (`cancelled`, with its reason): the amount given back once, as for a failure.
+ * There is no cancel door for the customer once the partner has the payout: only the partner's answer closes it.
+ *
+ * PARTNER-HELD (OWNER 226; CUSTODY-DELTA §3, J-bank-03 adapted). For a person whose bank money the partner holds
+ * (`PartnerCustody.bankFor`), the same request runs at the partner and the ledger posts nothing: the available balance is
+ * the partner's figure for their main balance ("not known" refuses, never 0); confirming makes ONE partner move of the
+ * amount from it into the partner's outbound-payments account under the order key (`bank.cash-out:<id>`); paid only
+ * marks it completed (the money already left once); failed or cancelled gives it back once (`bank.cash-out-back:<id>`);
+ * a return credits what came back once (`bank.cash-out-return:<id>`). Each partner move is deduplicated by the partner on
+ * its key, so a retry after a lost answer is the same move. Which path a request runs is fixed when it is taken
+ * (`custodian`), so a later switch never moves it to the other book.
  *
  * If this crashes exactly here, whose funds are stranded? A request written `processing` before its hold, or held
  * before the partner was asked, is picked up by the same request id again (the customer's retry) or by the re-drive job,
@@ -32,11 +42,19 @@
 import type { PendingQuery, Row, Sql } from 'postgres';
 import { InsufficientFundsError, formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { BankError, type BankErrorCode } from '../errors.js';
+import {
+  custodialOnly,
+  partnerPayoutsAccount,
+  reportedAmount,
+  type PartnerAccountRef,
+  type PartnerBank,
+  type PartnerCustody,
+} from '../partner/partner-bank.js';
 import type { LinkedAccountService, LinkedAccountView } from '../linked-accounts/linked-accounts.js';
 import { oneLine, signReceipt } from '../receipt-signing.js';
 import { assertHoldsOpen, assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 import { withSessionAdvisoryLock } from '../session-lock.js';
-import type { CashOutPartner, PayoutFailure, PayoutReturn } from './payout-sim.js';
+import type { CashOutPartner, PayoutCancel, PayoutFailure, PayoutReturn } from './payout-sim.js';
 import { RailRecordError, type RailMovement } from './rail-records.js';
 
 export interface CashOutAsk {
@@ -48,8 +66,10 @@ export interface CashOutAsk {
 export interface CashOutQuoteView {
   readonly assetId: string;
   readonly amount: string;
-  /** The ledger's available balance for the asset, as read for this quote. */
+  /** The available balance for the asset, as read for this quote: the ledger's, or the partner's when it holds it. */
   readonly available: string;
+  /** Who holds the balance read: the partner's label when it holds this person's money, else null (the ledger). */
+  readonly heldAt: string | null;
   readonly account: LinkedAccountView;
   readonly rail: 'rail.bank';
   /** The partner's fee and the amount that arrives, in the currency it pays. Null while something stands in the way. */
@@ -62,7 +82,7 @@ export interface CashOutQuoteView {
   readonly standIn: string | null;
 }
 
-export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'returned'] as const;
+export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'cancelled', 'returned'] as const;
 export type CashOutStatus = (typeof CASH_OUT_STATUSES)[number];
 
 export interface CashOutRequestView {
@@ -79,9 +99,13 @@ export interface CashOutRequestView {
   readonly receiveCurrency: string | null;
   /** The partner's reference for the payout, once it has one. */
   readonly payoutRef: string | null;
-  /** The ledger transaction that paid it out, once completed. */
+  /** The ledger transaction that paid it out, once completed. Null for a partner-held cash-out: the ledger posts nothing. */
   readonly ledgerTxId: string | null;
-  /** The partner's reason: why it failed, or why it came back. */
+  /** Who holds the money it moves: the partner's label for a partner-held cash-out, else null (the ledger). */
+  readonly heldAt: string | null;
+  /** The partner's move that took the amount from the balance, for a partner-held cash-out once it is taken. */
+  readonly partnerMoveId: string | null;
+  /** The partner's reason: why it failed or was cancelled, or why it came back. */
   readonly failureCode: string | null;
   /** What came back to the balance, once returned. */
   readonly returnedAmount: string | null;
@@ -90,6 +114,7 @@ export interface CashOutRequestView {
   readonly createdAt: string;
   readonly completedAt: string | null;
   readonly failedAt: string | null;
+  readonly cancelledAt: string | null;
   readonly returnedAt: string | null;
 }
 
@@ -97,7 +122,10 @@ export interface CashOutRequestView {
 export interface CashOutReceipt {
   readonly fileName: string;
   readonly text: string;
-  readonly ledgerTxId: string;
+  /** The ledger transaction that paid it out; null for a partner-held cash-out, which the ledger never posted. */
+  readonly ledgerTxId: string | null;
+  /** The partner's move that paid it out, for a partner-held cash-out; else null. */
+  readonly partnerMoveId: string | null;
   readonly sha256: string;
   readonly signature: string;
 }
@@ -122,9 +150,14 @@ interface RequestRow {
   failure_code: string | null;
   returned_amount: string | null;
   return_ledger_tx_id: string | null;
+  custodian: string | null;
+  partner_move_id: string | null;
+  partner_back_move_id: string | null;
+  partner_return_move_id: string | null;
   created_at: Date;
   completed_at: Date | null;
   failed_at: Date | null;
+  cancelled_at: Date | null;
   returned_at: Date | null;
 }
 
@@ -140,6 +173,8 @@ export interface CashOutOptions {
   readonly receiptSecret?: string;
   /** The owner's security lock (W-withdraw-09), asked of identity. Unset: every cash-out the partner could take refuses. */
   readonly securityLock?: SecurityLockPort;
+  /** Whose bank money the partner holds (OWNER 226). Unset: everyone's is on the ledger, as before. */
+  readonly custody?: PartnerCustody;
 }
 
 const ASSET_RE = /^[A-Z0-9]{1,16}$/;
@@ -153,9 +188,21 @@ export const cashOutWithdrawalId = (id: string) => `cash-out:${id}`;
 /** The business key of a TEST stand-in's record that it paid a cash-out out. */
 const paidKey = (id: string) => `${cashOutWithdrawalId(id)}:paid`;
 
+/** The partner-move keys of one partner-held cash-out: the payout, the amount given back, and what came back. */
+export const cashOutMoveKey = (id: string) => `bank.cash-out:${id}`;
+export const cashOutBackKey = (id: string) => `bank.cash-out-back:${id}`;
+export const cashOutReturnKey = (id: string) => `bank.cash-out-return:${id}`;
+
+const mainAccount = (userId: string, assetId: string): PartnerAccountRef => ({ userId, assetId, spaceId: null });
+
+function partnerGone(): BankError {
+  return new BankError('The partner bank that holds this cash-out is not answering. Nothing was changed.', 'bank.partner_unavailable');
+}
+
 export class CashOutService {
   private readonly partner: CashOutPartner | null;
   private readonly securityLock: SecurityLockPort;
+  private readonly custody: PartnerCustody;
 
   constructor(
     private readonly sql: Sql,
@@ -165,12 +212,14 @@ export class CashOutService {
   ) {
     this.partner = options.partner ?? null;
     this.securityLock = options.securityLock ?? unconfiguredSecurityLock();
+    this.custody = options.custody ?? custodialOnly;
   }
 
   /** The entry checks, then the account, then what stands in the way. Reads only. */
   async quote(userId: string, ask: CashOutAsk): Promise<CashOutQuoteView> {
     const { assetId, amount } = entry(ask);
-    const available = await this.reads.available(userId, assetId);
+    const held = this.custody.bankFor(userId);
+    const available = held ? reportedAmount(await held.balance(mainAccount(userId, assetId))) : await this.reads.available(userId, assetId);
     if (amount > available) {
       throw new BankError(
         `You can cash out up to ${formatAmount(available)} ${assetId}, the balance available now`,
@@ -183,6 +232,7 @@ export class CashOutService {
       assetId,
       amount: formatAmount(amount),
       available: formatAmount(available),
+      heldAt: held?.label ?? null,
       account,
       rail: 'rail.bank',
       fee: price?.fee ?? null,
@@ -207,11 +257,12 @@ export class CashOutService {
     const rows = await this.sql<RequestRow[]>`
       INSERT INTO bank.cash_out_requests (
         id, user_id, asset_id, amount, linked_account_id, status, refusal_code,
-        payout_rail, fee, receive_amount, receive_currency
+        payout_rail, fee, receive_amount, receive_currency, custodian
       ) VALUES (
         ${input.requestId}::uuid, ${userId}, ${assetId}, ${formatAmount(amount)}::numeric, ${asked.linkedAccountId}::uuid,
         ${taken ? 'processing' : 'refused'}, ${taken ? null : quote.blocker},
-        ${taken ? this.partner!.rail : null}, ${quote.fee}::numeric, ${quote.receiveAmount}::numeric, ${quote.receiveCurrency}
+        ${taken ? this.partner!.rail : null}, ${quote.fee}::numeric, ${quote.receiveAmount}::numeric, ${quote.receiveCurrency},
+        ${taken ? quote.heldAt : null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *
@@ -242,9 +293,12 @@ export class CashOutService {
   async complete(id: string): Promise<CashOutRequestView> {
     return this.answer(id, async (row) => {
       if (row.status === 'completed') return row;
-      if (row.status !== 'processing' || !row.hold_ledger_tx_id || !row.payout_ref || !row.payout_rail) {
+      if (row.status !== 'processing' || !isTaken(row) || !row.payout_ref || !row.payout_rail) {
         throw new BankError(`This cash-out is ${row.status} and cannot be marked paid`, 'bank.ramp_conflict');
       }
+      // Partner-held: the amount already left the partner balance once, when it was taken. Paid closes it; the ledger
+      // posts nothing, and the partner's own book is the record of what it paid.
+      if (row.custodian !== null) return this.moved(row.id, 'processing', this.sql`status = 'completed', completed_at = now()`);
       // A TEST stand-in records what it paid in its own words first: if the post then fails, the rail shows the gap.
       await this.onRail({
         key: paidKey(row.id),
@@ -266,10 +320,44 @@ export class CashOutService {
 
   /** The partner did not pay it: the hold comes back to the available balance, once, with the partner's reason. */
   async fail(id: string, reason: PayoutFailure): Promise<CashOutRequestView> {
+    return this.unpaid(id, 'failed', reason);
+  }
+
+  /**
+   * The partner cancelled it before paying it out, with its reason: the amount comes back once, as for a failure. The
+   * customer has no cancel door; this is the partner's answer alone.
+   */
+  async cancel(id: string, reason: PayoutCancel): Promise<CashOutRequestView> {
+    return this.unpaid(id, 'cancelled', reason);
+  }
+
+  private async unpaid(id: string, status: 'failed' | 'cancelled', reason: PayoutFailure | PayoutCancel): Promise<CashOutRequestView> {
+    const at = status === 'failed' ? this.sql`failed_at = now()` : this.sql`cancelled_at = now()`;
     return this.answer(id, async (row) => {
-      if (row.status === 'failed' && row.failure_code === reason) return row;
+      if (row.status === status && row.failure_code === reason) return row;
       if (row.status !== 'processing' || !row.payout_rail) {
-        throw new BankError(`This cash-out is ${row.status} and cannot be marked failed`, 'bank.ramp_conflict');
+        throw new BankError(`This cash-out is ${row.status} and cannot be marked ${status}`, 'bank.ramp_conflict');
+      }
+      if (row.custodian !== null) {
+        // Partner-held: what the partner took under the order key comes back once, under its own key. Asked of the
+        // partner, not the row, so a move whose answer was lost is given back too.
+        const bank = this.heldBank(row);
+        const took = row.partner_move_id ?? (await bank.moveByKey(cashOutMoveKey(row.id)))?.id ?? null;
+        const back = took
+          ? await bank.move({
+              key: cashOutBackKey(row.id),
+              from: partnerPayoutsAccount(row.asset_id),
+              to: mainAccount(row.user_id, row.asset_id),
+              amount: parseAmount(row.amount),
+            })
+          : null;
+        return this.moved(
+          row.id,
+          'processing',
+          this.sql`
+          status = ${status}, failure_code = ${reason}, partner_move_id = ${took}, partner_back_move_id = ${back?.id ?? null}, ${at}
+        `,
+        );
       }
       // A TEST stand-in that already recorded this payout as paid cannot also say it failed: the settle is retried instead.
       if (await this.partner!.records?.has(paidKey(row.id))) {
@@ -281,7 +369,7 @@ export class CashOutService {
         row.id,
         'processing',
         this.sql`
-        status = 'failed', failure_code = ${reason}, reverse_ledger_tx_id = ${reversed?.id ?? null}, failed_at = now()
+        status = ${status}, failure_code = ${reason}, reverse_ledger_tx_id = ${reversed?.id ?? null}, ${at}
       `,
       );
     });
@@ -312,6 +400,23 @@ export class CashOutService {
       }
       if (back <= 0n || back > parseAmount(row.amount)) {
         throw new BankError('What came back must be above zero and no more than was paid out', 'bank.ramp_invalid_amount');
+      }
+      if (row.custodian !== null) {
+        // Partner-held: what came back is credited to the partner balance once, under the return's own key.
+        const credited = await this.heldBank(row).move({
+          key: cashOutReturnKey(row.id),
+          from: partnerPayoutsAccount(row.asset_id),
+          to: mainAccount(row.user_id, row.asset_id),
+          amount: back,
+        });
+        return this.moved(
+          row.id,
+          'completed',
+          this.sql`
+          status = 'returned', returned_amount = ${formatAmount(back)}::numeric, failure_code = ${input.reason},
+          partner_return_move_id = ${credited.id}, returned_at = now()
+        `,
+        );
       }
       await this.onRail({
         key: `${cashOutWithdrawalId(row.id)}:returned`,
@@ -346,7 +451,8 @@ export class CashOutService {
   async redrive(limit: number): Promise<{ id: string; outcome: 'completed' | 'failed'; reason?: string }[]> {
     const rows = await this.sql<RequestRow[]>`
       SELECT * FROM bank.cash_out_requests
-       WHERE status = 'processing' AND (hold_ledger_tx_id IS NULL OR payout_ref IS NULL)
+       WHERE status = 'processing'
+         AND (payout_ref IS NULL OR (custodian IS NULL AND hold_ledger_tx_id IS NULL) OR (custodian IS NOT NULL AND partner_move_id IS NULL))
          AND created_at < now() - interval '1 minute'
        ORDER BY created_at ASC LIMIT ${limit}
     `;
@@ -374,7 +480,7 @@ export class CashOutService {
   async receipt(userId: string, id: string): Promise<CashOutReceipt> {
     const row = await this.row(id);
     if (!row || row.user_id !== userId) throw new BankError('No cash-out with this id', 'bank.cash_out_not_found');
-    if ((row.status !== 'completed' && row.status !== 'returned') || !row.settle_ledger_tx_id || !row.completed_at) {
+    if ((row.status !== 'completed' && row.status !== 'returned') || !(row.settle_ledger_tx_id ?? row.partner_move_id) || !row.completed_at) {
       throw new BankError('This cash-out was not paid out, so it has no receipt', 'bank.cash_out_receipt_not_ready');
     }
     const secret = this.options.receiptSecret?.trim();
@@ -393,14 +499,18 @@ export class CashOutService {
       `Arrives: ${row.receive_amount === null ? '' : formatAmount(parseAmount(row.receive_amount))} ${oneLine(row.receive_currency)}`,
       `To: ${oneLine(account.holderName)} · ${oneLine(account.ibanMasked)}`,
       `Payout reference: ${oneLine(row.payout_ref)}`,
-      `Ledger transaction: ${row.settle_ledger_tx_id}`,
+      ...(row.custodian === null
+        ? [`Ledger transaction: ${row.settle_ledger_tx_id}`]
+        : [`Held at: ${oneLine(row.custodian)}`, `Partner payout: ${oneLine(row.partner_move_id)}`]),
       ...(back === null || !row.returned_at
         ? []
         : [
             `Came back (UTC): ${row.returned_at.toISOString()}`,
             `Came back: ${formatAmount(back)} ${row.asset_id} (${oneLine(row.failure_code)})`,
             `Stays paid out: ${formatAmount(sent - back)} ${row.asset_id}`,
-            `Return ledger transaction: ${oneLine(row.return_ledger_tx_id)}`,
+            row.custodian === null
+              ? `Return ledger transaction: ${oneLine(row.return_ledger_tx_id)}`
+              : `Partner return: ${oneLine(row.partner_return_move_id)}`,
           ]),
       '',
     ].join('\n');
@@ -408,6 +518,7 @@ export class CashOutService {
       fileName: `receipt-${row.id}.txt`,
       text,
       ledgerTxId: row.settle_ledger_tx_id,
+      partnerMoveId: row.partner_move_id,
       ...signReceipt(text, secret, CASH_OUT_RECEIPT_INFO),
     };
   }
@@ -417,7 +528,7 @@ export class CashOutService {
    * the request, so driving it again posts nothing twice. Refused and answered requests come back unchanged.
    */
   private async drive(row: RequestRow): Promise<RequestRow> {
-    if (row.status !== 'processing' || (row.hold_ledger_tx_id && row.payout_ref)) return row;
+    if (row.status !== 'processing' || (isTaken(row) && row.payout_ref)) return row;
     return withSessionAdvisoryLock(this.sql, LOCK, row.id, async () => {
       let now = (await this.row(row.id))!;
       if (now.status !== 'processing') return now;
@@ -431,7 +542,33 @@ export class CashOutService {
         if (hold.selfFrozen) assertHoldsOpen(hold, 'a cash-out');
         frozenChecked = true;
       };
-      if (!now.hold_ledger_tx_id) {
+      if (now.custodian !== null && !now.partner_move_id) {
+        if (!this.partner || this.partner.rail !== now.payout_rail) return now;
+        await assertNotSelfFrozen();
+        let moveId: string;
+        try {
+          moveId = (
+            await this.heldBank(now).move({
+              key: cashOutMoveKey(now.id),
+              from: mainAccount(now.user_id, now.asset_id),
+              to: partnerPayoutsAccount(now.asset_id),
+              amount: parseAmount(now.amount),
+            })
+          ).id;
+        } catch (err) {
+          if (!(err instanceof BankError) || err.code !== 'bank.partner_insufficient_funds') throw err;
+          // The partner balance moved since the quote: kept refused, nothing taken.
+          return this.moved(
+            now.id,
+            'processing',
+            this.sql`
+            status = 'refused', refusal_code = 'bank.cash_out_over_available', payout_rail = NULL
+          `,
+          );
+        }
+        now = await this.moved(now.id, 'processing', this.sql`partner_move_id = ${moveId}`);
+      }
+      if (now.custodian === null && !now.hold_ledger_tx_id) {
         const booked = await this.bookedHold(now);
         if (booked) {
           // Held before, and the answer was lost: stamp that hold, never post another.
@@ -443,7 +580,7 @@ export class CashOutService {
           return now;
         }
       }
-      if (!now.hold_ledger_tx_id) {
+      if (now.custodian === null && !now.hold_ledger_tx_id) {
         await assertNotSelfFrozen();
         let holdId: string;
         try {
@@ -476,6 +613,13 @@ export class CashOutService {
       }
       return now;
     });
+  }
+
+  /** The partner bank that holds a partner-held request's money; not answering refuses, nothing changed. */
+  private heldBank(row: RequestRow): PartnerBank {
+    const bank = this.custody.bankFor(row.user_id);
+    if (!bank || bank.label !== row.custodian) throw partnerGone();
+    return bank;
   }
 
   /** One partner answer on one request, under the request's lock. */
@@ -533,6 +677,11 @@ export class CashOutService {
   }
 }
 
+/** Whether the amount was taken from the balance: the partner's move for a partner-held request, else the ledger hold. */
+function isTaken(row: RequestRow): boolean {
+  return row.custodian === null ? !!row.hold_ledger_tx_id : !!row.partner_move_id;
+}
+
 /** The amount above zero and the asset as a ledger symbol. */
 function entry(ask: { assetId: string; amount: string }): { assetId: string; amount: Amount } {
   const assetId = ask.assetId.trim().toUpperCase();
@@ -564,6 +713,8 @@ function view(row: RequestRow): CashOutRequestView {
     receiveCurrency: row.receive_currency,
     payoutRef: row.payout_ref,
     ledgerTxId: row.settle_ledger_tx_id,
+    heldAt: row.custodian,
+    partnerMoveId: row.partner_move_id,
     failureCode: row.failure_code,
     returnedAmount: decimalOrNull(row.returned_amount),
     remainsPaidOut:
@@ -575,6 +726,7 @@ function view(row: RequestRow): CashOutRequestView {
     createdAt: row.created_at.toISOString(),
     completedAt: isoOrNull(row.completed_at),
     failedAt: isoOrNull(row.failed_at),
+    cancelledAt: isoOrNull(row.cancelled_at),
     returnedAt: isoOrNull(row.returned_at),
   };
 }
