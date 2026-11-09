@@ -9,6 +9,7 @@ import {
   otelEnvSchema,
   s2sEnvSchema,
 } from '@intafaced/config';
+import { OPS_TEST_VENUE_SETTINGS } from './capital/test-venue.js';
 
 /**
  * svc-ops — durable outreach CRM / team / revenue / projects. No payroll, no
@@ -90,6 +91,16 @@ export const opsEnvSchema = baseEnvSchema
       /** svc-bank and svc-pay base URLs for the joint-restore watermark reads. Blank → that service reads as unavailable. */
       BANK_URL: blankAsAbsent(z.string().url().optional()),
       PAY_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * The capital monitor's TEST venues (J-ops-console-24 #1): `off` (default) none, `test` they answer, `down` they refuse
+       * every read. `test` and `down` refuse to boot outside APP_ENV dev or test (`capital/test-venue.ts`).
+       */
+      OPS_TEST_VENUE: z.enum(OPS_TEST_VENUE_SETTINGS).default('off'),
+      /**
+       * INTAFACED's builder account the TEST venues report. Owner value, never invented: blank with a TEST venue chosen,
+       * svc-ops refuses to start with ops.capital.builder_account_unset.
+       */
+      OPS_TEST_VENUE_BUILDER_ACCOUNT: blankAsAbsent(z.string().trim().min(1).max(128).optional()),
       /**
        * How often a still-failing reconciliation alert may notify again, in seconds (OPS-reconciliation-03).
        * Blank → nothing is re-sent and each repeat names ops.alert_repeat_unset; the alert still counts. Never invented.

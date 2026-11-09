@@ -102,14 +102,20 @@ function Venues({ part }: { part: OpsCapitalSnapshot['venues'] }) {
       </thead>
       <tbody>
         {part.venues.map((v) => (
-          <tr key={v.venueId}>
+          <tr key={v.venueId} data-testid={`venue-${v.venueId}`} data-state={v.balance.status}>
             <th scope="row">
               {v.displayName}
               {v.test ? ' (TEST)' : ''}
             </th>
             <td>{v.balance.status === 'read' ? `${v.balance.amount} ${v.balance.assetId}` : `unknown (${v.balance.code})`}</td>
             <td>{v.balance.status === 'read' ? formatWhen(v.balance.asOf) : 'unknown'}</td>
-            <td>{v.minimum.status === 'published' ? `${v.minimum.amount} ${v.minimum.assetId}` : 'not published'}</td>
+            <td>
+              {v.minimum.status === 'published'
+                ? `${v.minimum.amount} ${v.minimum.assetId}`
+                : v.minimum.status === 'unknown'
+                  ? `unknown (${v.minimum.code})`
+                  : 'not published'}
+            </td>
             <td>The venue’s own record for {v.builderAccount}</td>
           </tr>
         ))}

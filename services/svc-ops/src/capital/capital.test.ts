@@ -17,6 +17,8 @@ import { OpsService } from '../ops-service.js';
 import { createOpsRouter } from '../router.js';
 import { createCapitalSources, type CapitalSources, type SourceRead } from './sources.js';
 import { MemoryCapitalStore, SqlCapitalStore, type CapitalStore } from './store.js';
+import { testVenuesFor } from './test-venue.js';
+import { createVenueReader } from './venues.js';
 import type { BankPartnerReserves, LedgerOwnFunds } from '@intafaced/contracts';
 
 const SECRET = 'a-ops-mount-test-edge-secret-long-enough';
@@ -166,6 +168,44 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
     expect(snap.reserves).toEqual({ status: 'read', asOf: LEDGER_AT, partners: RESERVES.partners });
     expect(snap.venues).toMatchObject({ status: 'not_connected', code: 'ops.capital.venue_not_connected' });
     expect(snap.period).toBe('2026-10-24');
+  });
+
+  it('shows the builder account at each TEST venue through the venue port; a venue read that fails is unknown and leaves own funds read', async () => {
+    const at = new Date('2026-10-24T07:59:30.000Z');
+    for (const setting of ['test', 'down'] as const) {
+      const router = createOpsRouter(new OpsService(), undefined, {
+        approvals: identity(),
+        now: () => NOW,
+        capital: new MemoryCapitalStore(),
+        capitalSources: sources({ ledger: true, bank: true }),
+        capitalVenues: createVenueReader(testVenuesFor(setting, 'TEST-builder', { APP_ENV: 'test' }, () => at)),
+      });
+      const caller = router.createCaller(await signed(['admin:read']));
+      const out = await caller.capital.snapshot();
+      expect(out.ownFunds.status).toBe('read');
+      expect(out.venues.status).toBe('read');
+      if (out.venues.status !== 'read') continue;
+      expect(out.venues.venues.map((v) => [v.venueId, v.test, v.builderAccount])).toEqual([
+        ['test-perp', true, 'TEST-builder'],
+        ['test-spot', true, 'TEST-builder'],
+      ]);
+      if (setting === 'test') {
+        expect(out.venues.venues.map((v) => [v.balance, v.minimum])).toEqual([
+          [
+            { status: 'read', assetId: 'USDC', amount: '125.5', asOf: at.toISOString() },
+            { status: 'published', assetId: 'USDC', amount: '100' },
+          ],
+          [{ status: 'read', assetId: 'USDC', amount: '0.25', asOf: at.toISOString() }, { status: 'not_published' }],
+        ]);
+      } else {
+        for (const v of out.venues.venues) {
+          expect(v.balance).toMatchObject({ status: 'unknown', code: 'ops.capital.source_unavailable' });
+          expect(v.minimum).toMatchObject({ status: 'unknown', code: 'ops.capital.source_unavailable' });
+        }
+      }
+      // The venues' figures are never summed into INTAFACED's own funds from the ledger.
+      expect(out.ownFunds.status === 'read' && out.ownFunds.assets.map((a) => a.assetId)).toEqual(['BTC', 'USDT']);
+    }
   });
 
   it('a blank threshold is ops.capital.threshold_unset and not monitored, never ok, and opens no alert', async () => {

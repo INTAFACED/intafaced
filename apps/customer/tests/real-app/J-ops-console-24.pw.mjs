@@ -1,14 +1,16 @@
 // World: restart
 import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { fund, tool } from './stack.mjs';
+import { fund, restartWith, tool } from './stack.mjs';
 
 // J-ops-console-24: watch capital and counterparties. #1 opens the capital monitor (/more-ops/capital, svc-ops
 // `capital.snapshot`, RC-ops-console-06) with the buffer threshold blank. INTAFACED's own funds come from svc-ledger's
 // `ownFunds` read (house and module accounts; customer money never counted), any reserve a partner holds of ours comes from
 // svc-bank's TEST partner bank and TEST card partner (each "not known" on this stack), and the founders set a threshold with
 // two founders to see one breach alert per asset and day, escalated to the named contact. With the ledger stopped, that part
-// reads unknown and no scenario runs. The builder account at each venue is its own test: no venue adapter reports one yet.
+// reads unknown and no scenario runs. The builder account at each venue is its own test: svc-ops reads it through its venue
+// port from the stack's TEST venues (`OPS_TEST_VENUE`), and with them switched down (`LOCAL_STACK_OPS_TEST_VENUE_READ=off`,
+// svc-ops restarted) each venue reads unknown, never 0.
 // The test always leaves the ETH threshold blank again, so the step starts blank on the next run.
 
 const J = 'J-ops-console-24';
@@ -197,10 +199,10 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   await expect(bufferRow(a)).toHaveAttribute('data-state', 'not_monitored');
 });
 
-test(`${J} #1 the builder account's balance at each venue as the venue reports it with its as-of time, beside the venue's published minimum for collecting builder fees or "not published", each naming its source`, async ({
+test(`${J} #1 the builder account's balance at each venue as the venue reports it with its as-of time, beside the venue's published minimum for collecting builder fees or "not published", each naming its source; a failed venue read reads unknown`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
   await founderSignIn(page, 'a');
   await openMonitor(page);
   const venues = page.getByRole('table', { name: 'Builder account at each venue' });
@@ -222,5 +224,27 @@ test(`${J} #1 the builder account's balance at each venue as the venue reports i
     expect(asOf).not.toBe('unknown');
     expect(minimum === 'not published' || /^\d+(\.\d+)? [A-Z0-9]+$/.test(minimum), minimum).toBe(true);
     expect(source).toMatch(/^The venue’s own record for /);
+  }
+  const venueCount = await rows.count();
+
+  // A venue read that fails: that part reads unknown (balance, as-of time and minimum), never 0 and never "not published",
+  // while own funds still come from the ledger.
+  restartWith('ops', 'LOCAL_STACK_OPS_TEST_VENUE_READ', false);
+  try {
+    await openMonitor(page);
+    await expect(venues).toBeVisible();
+    await expect(rows).toHaveCount(venueCount);
+    for (const row of await rows.all()) {
+      await expect(row).toHaveAttribute('data-state', 'unknown');
+      const [balance, asOf, minimum, source] = (await row.getByRole('cell').allInnerTexts()).map((c) => c.trim());
+      expect(balance).toBe('unknown (ops.capital.source_unavailable)');
+      expect(asOf).toBe('unknown');
+      expect(minimum).toBe('unknown (ops.capital.source_unavailable)');
+      expect(source).toMatch(/^The venue’s own record for /);
+    }
+    await expect(venues).not.toContainText('not published');
+    await expect(page.getByTestId('own-funds-source')).toContainText('Source: the ledger (svc-ledger)');
+  } finally {
+    restartWith('ops', 'LOCAL_STACK_OPS_TEST_VENUE_READ', true);
   }
 });

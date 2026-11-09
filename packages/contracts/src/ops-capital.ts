@@ -10,7 +10,8 @@ import { z } from 'zod';
  *     money outside that split (a confirmed staff hold, a locked campaign reward, the futures clearing pot). Treasury
  *     boundary accounts are the outside world's side of a rail, not funds, and the burn account holds tokens out of supply.
  *   · The builder account at each venue, as the venue reports it with its as-of time, beside the venue's published minimum
- *     for collecting builder fees, or "not published". Until a venue adapter reports one to svc-ops, the part says
+ *     for collecting builder fees, or "not published", read through svc-ops' venue port (`capital/venues.ts`). A venue read
+ *     that fails reads "unknown", its balance and its minimum both, never 0. With no venue adapter at all, the part says
  *     `ops.capital.venue_not_connected`.
  *   · Any reserve a partner holds of ours, as svc-bank's partner adapters report it: an amount, none, or "not known",
  *     never zero.
@@ -90,9 +91,11 @@ export const opsCapitalVenueSchema = z.object({
     z.object({ status: z.literal('read'), assetId: z.string(), amount: z.string().regex(decimal), asOf: z.string() }),
     unknownPart,
   ]),
+  /** The venue's published minimum, that it publishes none, or "unknown" when the venue could not be read. */
   minimum: z.discriminatedUnion('status', [
     z.object({ status: z.literal('published'), assetId: z.string(), amount: z.string().regex(decimal) }),
     z.object({ status: z.literal('not_published') }),
+    unknownPart,
   ]),
 });
 export type OpsCapitalVenue = z.infer<typeof opsCapitalVenueSchema>;

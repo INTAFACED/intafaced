@@ -73,6 +73,25 @@ describe('CapitalMonitor (J-ops-console-24 #1)', () => {
     expect(html).toContain('not published');
   });
 
+  it('reads a venue it could not read as unknown, its balance, as-of and minimum, never 0 or not published', () => {
+    const unknown = { status: 'unknown' as const, code: 'ops.capital.source_unavailable', message: 'TEST venue: did not answer.' };
+    const html = renderToStaticMarkup(
+      <CapitalMonitor
+        snapshot={{
+          ...base,
+          venues: {
+            status: 'read',
+            venues: [{ venueId: 'sim', displayName: 'TEST venue', test: true, builderAccount: '0xb0', balance: unknown, minimum: unknown }],
+          },
+        }}
+      />,
+    );
+    expect(html).toContain('data-state="unknown"');
+    expect(html.match(/unknown \(ops\.capital\.source_unavailable\)/g)).toHaveLength(2);
+    expect(html).not.toContain('not published');
+    expect(html).not.toMatch(/>0 /);
+  });
+
   it('reads a ledger it could not read as unknown, never zero, and a set threshold as unknown', () => {
     const html = renderToStaticMarkup(
       <CapitalMonitor

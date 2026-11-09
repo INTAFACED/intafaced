@@ -49,6 +49,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     // Reconciliation alerts (OPS-reconciliation-03, J-ops-console-07 #8): the TEST repeat interval for in-console notices.
     // Unset, a repeat failure still counts and its notice reads ops.alert_repeat_unset. The ledger feed uses LEDGER_URL above.
     OPS_RECON_ALERT_REPEAT_SECONDS: testValue('OPS_RECON_ALERT_REPEAT_SECONDS'),
+    // The capital monitor's TEST venues (J-ops-console-24 #1): INTAFACED's builder account as two TEST venues report it, and
+    // the TEST builder account from the ops profile. `LOCAL_STACK_OPS_TEST_VENUE_READ=off` on a start or restart switches the
+    // venues down, so the monitor's "unknown" for a failed venue read can be seen.
+    OPS_TEST_VENUE: process.env.LOCAL_STACK_OPS_TEST_VENUE_READ === 'off' ? 'down' : 'test',
+    OPS_TEST_VENUE_BUILDER_ACCOUNT: testValue('OPS_TEST_VENUE_BUILDER_ACCOUNT'),
     ...restoreDesk(urlOf),
     ...opsOutreachEnv(),
   }),

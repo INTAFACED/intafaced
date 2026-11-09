@@ -18,6 +18,8 @@ import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createCapitalSources } from './capital/sources.js';
 import { SqlCapitalStore } from './capital/store.js';
 import { CAPITAL_EVALUATE_MS, CapitalDesk } from './capital/desk.js';
+import { testVenuesFor } from './capital/test-venue.js';
+import { createVenueReader } from './capital/venues.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
@@ -178,6 +180,11 @@ const capitalSources = createCapitalSources({
   secret: env.INTERNAL_SERVICE_SECRET,
   ...(s2sKey ? { s2s: s2sKey } : {}),
 });
+// The builder account at each venue. Only TEST venues exist yet; chosen outside dev/test, or with no builder account set,
+// this throws and svc-ops does not start. None chosen: the monitor says ops.capital.venue_not_connected.
+const capitalVenues = createVenueReader(
+  testVenuesFor(env.OPS_TEST_VENUE, env.OPS_TEST_VENUE_BUILDER_ACCOUNT, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+);
 const appRouter = createOpsRouter(
   ops,
   {
@@ -222,6 +229,7 @@ const appRouter = createOpsRouter(
     consoleMode: crmSql ? new SqlConsoleModeStore(crmSql) : undefined,
     capital: capitalStore,
     capitalSources,
+    ...(capitalVenues ? { capitalVenues } : {}),
     announcements: crmSql ? new SqlAnnouncementStore(crmSql) : undefined,
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
