@@ -5,12 +5,15 @@
 
 /**
  * The gate reports and never blocks for two weeks from the day it lands (lane B0, 2026-10-26). From this date on, a
- * failing run blocks only a pull request that changes a path below.
+ * failing row blocks only a pull request that changes what that row draws (`owns` below).
  */
 export const BLOCKING_FROM = '2026-11-09';
 
+/** The kit itself: its components and tokens, and the gallery that draws them. A change here answers for every row. */
+export const KIT_PATHS = [/^packages\/ui\/src\/lit\//, /^packages\/ui\/gallery\//];
+
 /** Paths whose change makes a failing look gate block, once BLOCKING_FROM has passed. */
-export const BLOCKING_PATHS = [/^packages\/ui\/src\/lit\//, /(?:^|\/)look-baselines\//];
+export const BLOCKING_PATHS = [...KIT_PATHS, /(?:^|\/)look-baselines\//];
 
 /** A migrated room is a folder under apps/customer/src/{screens,features}/ whose files import the lit kit. */
 export function migratedRoomOf(path, importsLit) {
@@ -18,22 +21,68 @@ export function migratedRoomOf(path, importsLit) {
   return m && importsLit(m[1]) ? m[1] : null;
 }
 
+/** The baseline room name of a route: `/` is `root`, `/trade/spot/BTC-USDT` is `trade-spot-btc-usdt`. */
+export function roomName(route) {
+  return route === '/'
+    ? 'root'
+    : route
+        .replace(/^\/+/, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/-$/, '');
+}
+
 /**
- * Whether this run's failures block. `failures` counts only blockable ones: those on the kit gallery and on pages that
- * render the new look (`[data-look="lit"]`), so an old room's known debt never blocks a kit change.
- * 'report' before BLOCKING_FROM, or when the pull request changes no blocking path.
+ * Where a report row's page lives, from its target name: the kit gallery (`kit table`), the founder console
+ * (`admin /x`) or a Customer room (`/status`); with its baseline folder and room, as the runner names them.
  */
-export function verdict({ failures, changed, today, importsLit = () => false }) {
-  if (failures === 0) return { mode: 'pass', blocking: [] };
+export function placeOf(target) {
+  if (target.startsWith('kit ')) return { surface: 'kit', baselines: 'packages/ui/look-baselines', room: `kit-${target.slice(4)}` };
+  if (target.startsWith('admin /'))
+    return { surface: 'admin', baselines: 'apps/admin/look-baselines', room: `admin-${roomName(target.slice(6))}` };
+  if (target.startsWith('/')) return { surface: 'customer', baselines: 'apps/customer/look-baselines', room: roomName(target) };
+  return { surface: 'other', baselines: null, room: null };
+}
+
+/**
+ * Whether a changed path answers for a failing row:
+ * - the kit (`KIT_PATHS`) answers for every row: it draws the gallery and every new-look page;
+ * - a baseline file answers for its own room's rows, and a file loose in a baseline folder for every row there;
+ * - a migrated room answers for every new-look Customer page: nothing records which room folder draws which route,
+ *   and room folders import each other, so a room change is held to all of them, never to the kit gallery.
+ */
+export function owns(path, target, importsLit) {
+  if (KIT_PATHS.some((re) => re.test(path))) return true;
+  const place = placeOf(target);
+  const base = /^(.*?look-baselines)\/(?:([^/]+)\/)?/.exec(path);
+  if (base) return base[1] === place.baselines && (base[2] === undefined || base[2] === place.room);
+  return place.surface === 'customer' && migratedRoomOf(path, importsLit) !== null;
+}
+
+/**
+ * Whether this run's failures block. `failing` lists the blockable failing rows (`{ target }`): those on the kit
+ * gallery and on pages that render the new look (`[data-look="lit"]`), so an old room's known debt never blocks a kit
+ * change. A row blocks only a pull request that changes what it draws (`owns`); every row still shows in the report.
+ * 'report' before BLOCKING_FROM, when the pull request changes no blocking path, or when no failing row is its own.
+ */
+export function verdict({ failing, changed, today, importsLit = () => false }) {
+  if (failing.length === 0) return { mode: 'pass', blocking: [], rows: [] };
   // The changed paths could not be read (no base to diff against): never a silent pass once the gate blocks.
   if (changed === null)
     return today < BLOCKING_FROM
-      ? { mode: 'report', why: `report-only until ${BLOCKING_FROM}; the changed paths could not be read`, blocking: [] }
-      : { mode: 'block', why: 'the changed paths could not be read, so every failure counts', blocking: [] };
+      ? { mode: 'report', why: `report-only until ${BLOCKING_FROM}; the changed paths could not be read`, blocking: [], rows: [] }
+      : {
+          mode: 'block',
+          why: 'the changed paths could not be read, so every failure counts',
+          blocking: [],
+          rows: [...new Set(failing.map((r) => r.target))],
+        };
   const blocking = changed.filter((f) => BLOCKING_PATHS.some((re) => re.test(f)) || migratedRoomOf(f, importsLit));
-  if (today < BLOCKING_FROM) return { mode: 'report', why: `report-only until ${BLOCKING_FROM}`, blocking };
-  if (blocking.length === 0) return { mode: 'report', why: 'no blocking path changed', blocking };
-  return { mode: 'block', blocking };
+  const rows = [...new Set(failing.filter((r) => blocking.some((f) => owns(f, r.target, importsLit))).map((r) => r.target))];
+  if (today < BLOCKING_FROM) return { mode: 'report', why: `report-only until ${BLOCKING_FROM}`, blocking, rows };
+  if (blocking.length === 0) return { mode: 'report', why: 'no blocking path changed', blocking, rows };
+  if (rows.length === 0) return { mode: 'report', why: 'no failing row is on a room this pull request changes', blocking, rows };
+  return { mode: 'block', blocking, rows };
 }
 
 /** WCAG relative luminance of an sRGB colour given as 0-255 channels. */

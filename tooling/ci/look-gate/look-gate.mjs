@@ -103,16 +103,8 @@ function args(argv) {
 /** Every route the Customer app's navigation and menus name: the room report's own list. */
 export const customerRoutes = sweepRoutes;
 
-/** The baseline room name of a route: `/` is `root`, `/trade/spot/BTC-USDT` is `trade-spot-btc-usdt`. */
-export function roomName(route) {
-  return route === '/'
-    ? 'root'
-    : route
-        .replace(/^\/+/, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/-$/, '');
-}
+/** The baseline room name of a route (policy.mjs, where a row's room decides what blocks). */
+export const roomName = policy.roomName;
 
 /** A static server for a built folder, with the production headers and a report endpoint. SPA fallback to index.html. */
 function serve(dir, reports, port) {
@@ -860,7 +852,7 @@ function report(rows, opts) {
   const kinds = {};
   for (const r of failing) for (const k of Object.keys(r.findings)) kinds[k] = (kinds[k] ?? 0) + 1;
   const changed = opts.changedFrom ? changedFiles(opts.changedFrom) : [];
-  const v = policy.verdict({ failures: blockable.length, changed, today: new Date().toISOString().slice(0, 10), importsLit });
+  const v = policy.verdict({ failing: blockable, changed, today: new Date().toISOString().slice(0, 10), importsLit });
   const lines = [
     `# Look gate (shard ${opts.shard.join('/')})`,
     '',
@@ -871,6 +863,8 @@ function report(rows, opts) {
     }). Blockable (kit gallery or new-look pages): ${blockable.length}.`,
     '',
     `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}${v.blocking?.length ? `; blocking paths changed: ${v.blocking.slice(0, 5).join(', ')}` : ''}.`,
+    '',
+    `Rows on what this pull request changes, which decide the verdict: ${v.rows.length ? v.rows.join(', ') : 'none'}.`,
     '',
     `Not checked yet: rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state.`,
     '',
@@ -892,7 +886,7 @@ function report(rows, opts) {
   writeFileSync(join(opts.out, `report-${opts.shard.join('-of-')}.md`), md + '\n');
   writeFileSync(join(opts.out, `report-${opts.shard.join('-of-')}.json`), JSON.stringify({ verdict: v, rows }, null, 2) + '\n');
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.slice(0, 900_000) + '\n');
-  console.log(lines.slice(0, 6).join('\n'));
+  console.log(lines.slice(0, 8).join('\n'));
   for (const r of failing.slice(0, 40)) console.log(`  ${r.target} ${r.viewport}: ${Object.keys(r.findings).join(', ')}`);
   return v;
 }
@@ -1104,34 +1098,117 @@ async function selfTest() {
   eq([back.width, back.height, [...back.data]], [3, 2, [...img.data]], 'PNG round trip');
   eq([...crop(img, { x: 1, y: 1, width: 1, height: 1 })], [...img.data.slice(16, 20)], 'crop one pixel');
   // policy
+  const kitRow = [{ target: 'kit table' }];
+  const statusRow = [{ target: '/status' }];
+  const lit = () => true;
   eq(
-    policy.verdict({ failures: 3, changed: ['packages/ui/src/lit/x.css'], today: '2026-11-01' }).mode,
+    policy.verdict({ failing: kitRow, changed: ['packages/ui/src/lit/x.css'], today: '2026-11-01' }).mode,
     'report',
     'report-only for two weeks',
   );
   eq(
-    policy.verdict({ failures: 3, changed: ['packages/ui/src/lit/x.css'], today: '2026-11-09' }).mode,
+    policy.verdict({ failing: kitRow, changed: ['packages/ui/src/lit/x.css'], today: '2026-11-09' }).mode,
     'block',
-    'then a kit change blocks',
+    'then a kit change blocks on a failing kit row',
   );
   eq(
-    policy.verdict({ failures: 3, changed: ['apps/customer/src/screens/home/x.tsx'], today: '2026-12-01' }).mode,
+    policy.verdict({ failing: kitRow, changed: ['packages/ui/gallery/sections.tsx'], today: '2026-11-09' }).mode,
+    'block',
+    'a kit gallery change blocks on a failing kit row',
+  );
+  eq(
+    policy.verdict({ failing: statusRow, changed: ['packages/ui/src/lit/x.css'], today: '2026-11-09' }).mode,
+    'block',
+    'a kit change blocks on a failing new-look room too: the kit draws it',
+  );
+  eq(
+    policy.verdict({ failing: statusRow, changed: ['apps/customer/src/screens/home/x.tsx'], today: '2026-12-01' }).mode,
     'report',
     'an unmigrated room never blocks',
   );
   eq(
-    policy.verdict({ failures: 3, changed: ['apps/customer/src/screens/home/x.tsx'], today: '2026-12-01', importsLit: () => true }).mode,
-    'block',
-    'a migrated room blocks',
+    policy.verdict({
+      failing: statusRow,
+      changed: ['apps/customer/src/features/public/StatusPage.tsx'],
+      today: '2026-12-01',
+      importsLit: lit,
+    }),
+    { mode: 'block', blocking: ['apps/customer/src/features/public/StatusPage.tsx'], rows: ['/status'] },
+    'a migrated room blocks on a failing row of its own',
   );
   eq(
-    policy.verdict({ failures: 1, changed: ['apps/customer/look-baselines/home/phone.png'], today: '2026-12-01' }).mode,
-    'block',
-    'a baseline change blocks',
+    policy.verdict({
+      failing: kitRow,
+      changed: ['apps/customer/src/features/public/StatusPage.tsx'],
+      today: '2026-12-01',
+      importsLit: lit,
+    }),
+    {
+      mode: 'report',
+      why: 'no failing row is on a room this pull request changes',
+      blocking: ['apps/customer/src/features/public/StatusPage.tsx'],
+      rows: [],
+    },
+    'a migrated room does not block on a failing kit gallery row',
   );
-  eq(policy.verdict({ failures: 0, changed: ['packages/ui/src/lit/x.css'], today: '2026-12-01' }).mode, 'pass', 'nothing failing passes');
-  eq(policy.verdict({ failures: 2, changed: null, today: '2026-12-01' }).mode, 'block', 'unreadable changed paths never pass silently');
-  eq(policy.verdict({ failures: 2, changed: null, today: '2026-11-01' }).mode, 'report', 'but only report while report-only');
+  eq(
+    policy.verdict({
+      failing: [...kitRow, ...statusRow],
+      changed: ['apps/customer/src/features/public/StatusPage.tsx'],
+      today: '2026-12-01',
+      importsLit: lit,
+    }).rows,
+    ['/status'],
+    'with both failing, only its own row decides',
+  );
+  eq(
+    policy.verdict({
+      failing: [{ target: 'admin /academy-ops' }],
+      changed: ['apps/customer/src/features/public/StatusPage.tsx'],
+      today: '2026-12-01',
+      importsLit: lit,
+    }).mode,
+    'report',
+    'a Customer room does not block on a founder console row',
+  );
+  eq(
+    policy.verdict({ failing: [{ target: '/' }], changed: ['apps/customer/look-baselines/root/phone.png'], today: '2026-12-01' }).mode,
+    'block',
+    'a baseline change blocks on its own room',
+  );
+  eq(
+    policy.verdict({ failing: statusRow, changed: ['apps/customer/look-baselines/root/phone.png'], today: '2026-12-01' }).mode,
+    'report',
+    'but not on another room',
+  );
+  eq(
+    policy.verdict({ failing: kitRow, changed: ['packages/ui/look-baselines/kit-table/phone.png'], today: '2026-12-01' }).mode,
+    'block',
+    'a kit baseline change blocks on its own kit row',
+  );
+  eq(
+    policy.verdict({ failing: kitRow, changed: ['apps/customer/look-baselines/root/phone.png'], today: '2026-12-01' }).mode,
+    'report',
+    'a Customer baseline does not block on a kit row',
+  );
+  eq(
+    policy.verdict({ failing: [{ target: 'admin /academy-ops' }], changed: ['apps/admin/look-baselines/README.md'], today: '2026-12-01' })
+      .mode,
+    'block',
+    'a file loose in a baseline folder answers for every row there',
+  );
+  eq(policy.verdict({ failing: [], changed: ['packages/ui/src/lit/x.css'], today: '2026-12-01' }).mode, 'pass', 'nothing failing passes');
+  eq(
+    policy.verdict({ failing: kitRow, changed: null, today: '2026-12-01' }),
+    { mode: 'block', why: 'the changed paths could not be read, so every failure counts', blocking: [], rows: ['kit table'] },
+    'unreadable changed paths never pass silently',
+  );
+  eq(policy.verdict({ failing: kitRow, changed: null, today: '2026-11-01' }).mode, 'report', 'but only report while report-only');
+  eq(
+    [policy.placeOf('kit table').room, policy.placeOf('admin /a/b').room, policy.placeOf('/trade/spot/BTC-USDT').room],
+    ['kit-table', 'admin-a-b', 'trade-spot-btc-usdt'],
+    'a row names its room as the runner names its baselines',
+  );
   eq(roomName('/'), 'root', 'root room');
   // The TEST account: signed in, its fixtures wrapped as tRPC results, at the frozen time, and nothing it has no fixture for.
   const api = (path, method = 'GET', body = null, signedIn = true) => fixtureAnswer('http://x' + path, method, body, { signedIn });
