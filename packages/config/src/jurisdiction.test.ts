@@ -6,8 +6,12 @@ import {
   UNRESOLVED_REGION,
   assertReviewed,
   businessBlockFor,
+  activeBusinessBlocks,
   businessBlocksFrom,
   checkAccess,
+  testBusinessBlocksFromEnv,
+  TEST_BUSINESS_BLOCK_REASON,
+  TEST_BUSINESS_BLOCKS_ENV,
   isRegionBlocked,
   isRegionResolved,
   regionFailClosedFromEnv,
@@ -280,5 +284,52 @@ describe('counsel review gate', () => {
       expect(e).toBeInstanceOf(UnreviewedJurisdictionError);
       expect((e as UnreviewedJurisdictionError).regions).toEqual(['GB', 'US']);
     }
+  });
+});
+
+// LOCAL TEST only (J-wallet-09 #1): a test stack blocks the TEST region AA so a journey can play a visitor from a blocked
+// region without the screening list. It goes through checkAccess's own region branch, so removing that branch fails here.
+describe('TEST business blocks (INTAFACED_TEST_BUSINESS_BLOCKS)', () => {
+  const LISTED_NONE: ScreeningList = { regions: [], declaration: 'reviewed-empty', configured: true, source: 'TEST fixture' };
+  const saved = { blocks: process.env[TEST_BUSINESS_BLOCKS_ENV], appEnv: process.env.APP_ENV };
+  afterEach(() => {
+    for (const [k, v] of [
+      [TEST_BUSINESS_BLOCKS_ENV, saved.blocks],
+      ['APP_ENV', saved.appEnv],
+    ] as const)
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+  });
+
+  it('reads TEST:<user-assigned code> entries in dev or test only', () => {
+    expect(testBusinessBlocksFromEnv({ APP_ENV: 'dev', [TEST_BUSINESS_BLOCKS_ENV]: 'TEST:AA, TEST:qm' })).toEqual([
+      { region: 'AA', reason: TEST_BUSINESS_BLOCK_REASON, source: `TEST:${TEST_BUSINESS_BLOCKS_ENV}`, authority: 'business' },
+      { region: 'QM', reason: TEST_BUSINESS_BLOCK_REASON, source: `TEST:${TEST_BUSINESS_BLOCKS_ENV}`, authority: 'business' },
+    ]);
+    for (const appEnv of ['prod', 'staging', undefined, 'DEV'])
+      expect(testBusinessBlocksFromEnv({ APP_ENV: appEnv, [TEST_BUSINESS_BLOCKS_ENV]: 'TEST:AA' })).toEqual([]);
+    expect(testBusinessBlocksFromEnv({ APP_ENV: 'dev' })).toEqual([]);
+  });
+
+  it('never blocks a real country: a code a country holds, or an unlabelled entry, throws', () => {
+    for (const bad of ['TEST:US', 'TEST:XK', 'AA', 'TEST:AA:reason', 'TEST:AAA'])
+      expect(() => testBusinessBlocksFromEnv({ APP_ENV: 'dev', [TEST_BUSINESS_BLOCKS_ENV]: bad })).toThrow(/value not shown/);
+  });
+
+  it('refuses a protocol-plane visitor from the TEST region with its reason, and serves everyone else', () => {
+    process.env.APP_ENV = 'test';
+    process.env[TEST_BUSINESS_BLOCKS_ENV] = 'TEST:AA';
+    const q = { module: 'protocol', plane: 'protocol', kycTier: 'none', screening: LISTED_NONE, screeningFailClosed: false } as const;
+    expect(checkAccess({ ...q, region: 'AA' })).toMatchObject({
+      allowed: false,
+      code: 'denied.region_blocked',
+      reason: TEST_BUSINESS_BLOCK_REASON,
+      blockedBy: 'business',
+    });
+    expect(isRegionBlocked('AA', LISTED_NONE)).toBe(true);
+    expect(checkAccess({ ...q, region: 'DE' }).allowed).toBe(true);
+    delete process.env[TEST_BUSINESS_BLOCKS_ENV];
+    expect(checkAccess({ ...q, region: 'AA' }).allowed).toBe(true);
+    expect(activeBusinessBlocks()).toEqual(businessBlocksFrom([]));
   });
 });

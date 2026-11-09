@@ -50,6 +50,20 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_WALLET_SESSION_SECRET: `TEST-${createHash('sha256').update(`protocol wallet session\0${secrets.internal}`).digest('hex')}`,
       PROTOCOL_WALLET_SESSION_TTL_SECONDS: '3600',
       PROTOCOL_WALLET_SESSION_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
+      // LOCAL TEST only (same profile): the venue wallet connection (J-wallet-09). A one-minute lifetime, so the journey's
+      // expiry step waits a minute, and a wallet sanctions list of one TEST address the journey derives from a TEST seed.
+      // Production stays blank and connecting refuses protocol.venue_connection_ttl_unset / protocol.wallet_sanctions_unset.
+      // `LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS=off` on a start or restart leaves the list blank instead, so the blank-list
+      // refusal can be seen too (J-wallet-09 #1).
+      PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: 'TEST:60',
+      // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart adds a TEST business block for the TEST region
+      // AA (a user-assigned ISO code, no country; packages/config jurisdiction.ts testBusinessBlocksFromEnv), and edge.mjs
+      // then stamps every request from AA, so the venue wallet's jurisdiction guard refuses denied.region_blocked with its
+      // reason (J-wallet-09 #1, OWNER 237). The sanctions list is never touched.
+      ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' } : {}),
+      ...(process.env.LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS === 'off'
+        ? {}
+        : { PROTOCOL_WALLET_SANCTIONS: 'TEST:0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83' }),
       PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
       PROTOCOL_WALLET_GROUPS_MAX: '10',
       // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for
