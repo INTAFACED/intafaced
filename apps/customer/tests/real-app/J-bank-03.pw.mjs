@@ -76,7 +76,13 @@ async function bank() {
   const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
   const answer = async (res) => {
     const body = await res.json();
-    if (!res.ok) return { ok: false, status: res.status, code: body?.error?.data?.intafacedCode ?? body?.error?.data?.code, body };
+    if (!res.ok)
+      return {
+        ok: false,
+        status: res.status,
+        code: body?.error?.data?.intafacedCode ?? body?.error?.data?.cause?.code ?? body?.error?.data?.code,
+        body,
+      };
     return { ok: true, data: body.result.data };
   };
   return {
@@ -303,7 +309,7 @@ test(`${J} #3 confirms with step-up: the cash-out needs a second-factor session,
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('Cashing out sends money out of your account, so it needs a fresh confirmation.');
   await expect(dialog.getByLabel('Authenticator code or recovery code')).toBeVisible();
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await dialog.getByRole('button', { name: 'Not now' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId('cash-out-sent')).toHaveCount(0);
 
