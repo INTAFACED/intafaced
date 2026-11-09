@@ -1826,11 +1826,34 @@ export class SupportService implements SupportContract {
     return this.staff.availabilityHistory(input.userId);
   }
 
-  /** One group's log, oldest first: every change to it, its members and its requests, with who made it. Staff only. */
+  /**
+   * One group's log, oldest first: every change to it, its members and its requests, with who made it. Staff only. A row
+   * that names a request (grouped or ungrouped) is left out unless the caller can see that request on the desk, so the log
+   * never names a request outside the caller's groups (the same scope as `get`).
+   */
   async groupHistory(input: { actorId: string; groupId: string }): Promise<GroupLogEntry[]> {
     if (!(await this.staff.get(input.actorId))) throw new SupportError('only staff can read a group log', 'support.not_staff');
     if (!(await this.groups.get(input.groupId))) throw new SupportError('that group does not exist', 'support.group_unknown');
-    return this.groups.history(input.groupId);
+    const out: GroupLogEntry[] = [];
+    for (const row of await this.groups.history(input.groupId)) {
+      if ((row.action === 'ticket_grouped' || row.action === 'ticket_ungrouped') && row.subject !== null) {
+        if (!(await this.deskSees(input.actorId, row.subject))) continue;
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  /** Whether a desk member can see one request (the desk's group scope). Any other failure is thrown, never read as hidden. */
+  async deskSees(viewerId: string, ticketId: string): Promise<boolean> {
+    const hidden = new Error('hidden');
+    try {
+      await this.assertDeskVisible(viewerId, ticketId, () => hidden);
+      return true;
+    } catch (err) {
+      if (err === hidden) return false;
+      throw err;
+    }
   }
 
   /** Own heartbeat. Refuses while the owner has not set the window. */

@@ -414,7 +414,7 @@ export class DeskRouting {
     private readonly book: RoutingBook,
     private readonly staff: StaffBook,
     private readonly groups: GroupBook,
-    private readonly desk: { assertDeskVisible(viewerId: string, ticketId: string): Promise<void> },
+    private readonly desk: { assertDeskVisible(viewerId: string, ticketId: string, hidden?: () => Error): Promise<void> },
     /** The owner's heartbeat window (seconds); blank folds nothing in, as the directory does. */
     private readonly heartbeatWindowSeconds: number | null = null,
     /** The owner's sweep interval (seconds); blank means no sweep runs and routing happens on desk actions only. */
@@ -562,9 +562,23 @@ export class DeskRouting {
     return this.route(ticketId);
   }
 
+  /** The routing log. A row naming a request (its required skill) is left out unless the caller can see that request. */
   async log(actorId: string, subject?: string): Promise<RoutingLogEntry[]> {
     await this.member(actorId);
-    return this.book.log(subject);
+    const out: RoutingLogEntry[] = [];
+    for (const row of await this.book.log(subject)) {
+      if (row.action === 'required_skill_set') {
+        const hidden = new Error('hidden');
+        try {
+          await this.desk.assertDeskVisible(actorId, row.subject, () => hidden);
+        } catch (err) {
+          if (err === hidden) continue;
+          throw err;
+        }
+      }
+      out.push(row);
+    }
+    return out;
   }
 
   /** The worker's pass: one request, one transaction. Used after a desk action and by the sweep. */
