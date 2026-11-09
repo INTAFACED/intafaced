@@ -10,8 +10,8 @@
  *   - full: the pull request needs a clean full run on its exact head. The journey stack's shared setup (SHARED_SETUP in
  *     journey-seal.mjs), every script under tooling/scripts (the stack, the TEST market maker, the seed, world-restore,
  *     the shard planner and the scripts journeys import), the journeys workflow and its actions, the seal and this file,
- *     the journeys verdict and the baseline, build and environment files, every doc (journeys read docs/roadmap and
- *     docs/runbooks), and every product path (apps/, services/, packages/) other than a unit test, unless the next
+ *     the journeys verdict and the baseline, build and environment files, the docs the run or the stack reads
+ *     (DOCS_READ), and every product path (apps/, services/, packages/) other than a unit test, unless the next
  *     kind takes it. A static guess at which journeys reach which code would miss journeys (a journey runs through the
  *     customer app, svc-edge and whatever services they call and the events those raise), so only evidence narrows it;
  *   - reach (the touched-journeys map, journey-reach-map.mjs, with --reach): a product path runs only the journeys main's
@@ -23,7 +23,7 @@
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
  *     file (real-app-journeys.yml splits shards by file on that basis), and a helper they share is shared setup, so
  *     full. A file the head removed runs nothing and needs nothing.
- *   - none: a path no journeys run executes or reads: another workflow under .github (not real-app-journeys.yml, not
+ *   - none: a path no journeys run executes or reads: every other doc under docs/, Markdown at the root, another workflow under .github (not real-app-journeys.yml, not
  *     .github/actions), a CI check under tooling/ci that the journeys run does not use (JOURNEY_CI lists the ones it
  *     does; journey-touch.test.mjs fails when an import or a reference from the journeys run reaches one not listed),
  *     and a unit test (`*.test.*`, `*.spec.*`).
@@ -71,6 +71,19 @@ export const JOURNEY_CI = [
   'tooling/ci/test-judge/JUDGE.md',
 ];
 
+/** The docs the journeys run or the stack's own code reads (journey-touch.test.mjs finds each one): a change to one needs
+ *  the full run (FULL_RULES below). Every other path under docs/ runs no journeys. The journeys read docs/roadmap and
+ *  docs/runbooks (the verdict reads the baseline there), svc-protocol's audit registry docs/audits, svc-blueprint its
+ *  threat model, and roadmap.mjs and owner-settings.mjs (both run by the journeys run) open the two generated pages. */
+export const DOCS_READ = [
+  'docs/roadmap/',
+  'docs/runbooks/',
+  'docs/audits/',
+  'docs/THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md',
+  'docs/ROADMAP.md',
+  'docs/OWNER-SETTINGS.md',
+];
+
 const FULL_RULES = [
   [
     /^tooling\/scripts\//,
@@ -78,7 +91,10 @@ const FULL_RULES = [
   ],
   [/^\.github\/workflows\/real-app-journeys\.yml$/, 'the journeys workflow'],
   [/^\.github\/actions\//, 'an action the journeys workflow uses'],
-  [/^docs\//, 'a doc (journeys read docs/roadmap and docs/runbooks, and the verdict reads the baseline)'],
+  [
+    new RegExp(`^(${DOCS_READ.map((d) => d.replace(/[.]/g, '\\.') + (d.endsWith('/') ? '' : '$')).join('|')})`),
+    'a doc the journeys run or the stack reads (DOCS_READ)',
+  ],
   [/^tooling\/(profiles|infra)\//, 'the stack’s environment (tooling/profiles, tooling/infra)'],
   [
     /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|tsconfig[^/]*\.json|\.npmrc|\.nvmrc|\.node-version|\.env\.example|docker-compose[^/]*\.ya?ml)$/,
@@ -90,9 +106,13 @@ const NONE_RULES = [
   (p) => p.startsWith('.github/') && !/^\.github\/(workflows\/real-app-journeys\.yml|actions\/)/.test(p),
   (p) => p.startsWith('tooling/ci/') && !JOURNEY_CI.includes(p),
   (p) => /^(apps|services|packages)\//.test(p) && /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) && !p.startsWith('apps/customer/tests/real-app/'),
+  // Every other doc (OWNER 249 (3), 8 Nov 2026: "a PR runs only the journeys it touches"; docs-only #7653 ran 48 jobs
+  // on 9 Nov): nothing the journeys run or the stack's code reads it. DOCS_READ lists what is read, and
+  // journey-touch.test.mjs fails when product code or a file the journeys run executes names a doc it doesn't cover.
+  (p) => p.startsWith('docs/'),
   // Markdown at the repository root (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md): no journey, stack script or
-  // harness file reads it (U6 on project-state#1574: an AGENTS.md-only PR paid for a full run, 42547155694). docs/ stays
-  // full: journeys read docs/roadmap and docs/runbooks.
+  // harness file reads it (U6 on project-state#1574: an AGENTS.md-only PR paid for a full run, 42547155694). The docs
+  // in DOCS_READ stay full.
   (p) => /^[^/]+\.md$/.test(p),
 ];
 

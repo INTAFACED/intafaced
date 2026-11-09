@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
+import { DOCS_READ, JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -504,4 +504,118 @@ test('root Markdown runs no journeys because nothing the journeys run executes r
   }
   assert.ok(seen.size > 50, `followed the journeys run's files (${seen.size})`);
   assert.deepEqual(named, [], 'nothing the journeys run executes reads a root Markdown file');
+});
+
+/** The docs a set of files reads in code (not in a comment): a `docs/…` literal (any leading `../` dropped) on a line
+ *  that reads, imports or fetches, or on any code line of a file `strict(file)` holds (the stack's own code, where a
+ *  literal can travel to a read elsewhere, as svc-protocol's audit `packagePath` does), and every path a `join(…)` or `resolve(…)` builds from a `'docs'` part, whatever the
+ *  line does (`docs/<computed>` when a part isn't a literal, which only a DOCS_READ folder above it covers). A doc
+ *  named in a message, a link or a list is not read. Pure, so the planted case below runs without the tree. */
+export function docsRead(files, strict = () => false) {
+  const out = [];
+  const reads =
+    /\b(readFile|readFileSync|readdirSync|createReadStream|existsSync|statSync|openSync|import|require|fetch)\b|\bfrom\s+['"`]|(^|[;&|]|\$\(|run:)\s*(cat|cp|head|tail|grep|sed|jq|git show)\s|(?:^|\s)<\s*(?:\.\.\/)*docs\//;
+  for (const [f, text] of files) {
+    const lines = text.split('\n').map((line) => line.replace(/^\s*(\/\/|\*|\/\*|#|--).*$/, '').replace(/\s\/\/.*$/, ''));
+    lines.forEach((code, i) => {
+      if (!strict(f) && !reads.test(code)) return;
+      for (const m of code.matchAll(/(?:^|[^\w.-])(?:\.\.\/)*(docs\/[\w./@-]*)/g))
+        out.push({ at: `${f}:${i + 1}`, doc: m[1].replace(/\.$/, '') });
+    });
+    const code = lines.join('\n');
+    for (const m of code.matchAll(/\b(?:join|resolve)\(([^()]*)\)/g)) {
+      const parts = m[1]
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const at = parts.findIndex((x) => /^['"`]docs['"`]$/.test(x));
+      if (at < 0) continue;
+      const rest = parts.slice(at + 1).map((x) => (/^['"`][\w.@-]+['"`]$/.test(x) ? x.slice(1, -1) : '<computed>'));
+      const cut = rest.indexOf('<computed>');
+      const doc = ['docs', ...(cut < 0 ? rest : rest.slice(0, cut + 1))].join('/');
+      out.push({ at: `${f}:${code.slice(0, m.index).split('\n').length}`, doc: cut < 0 && !rest.length ? 'docs/' : doc });
+    }
+  }
+  return out;
+}
+const covered = (doc) => DOCS_READ.some((d) => (d.endsWith('/') ? doc.startsWith(d) : doc === d));
+const PRODUCT_CODE = (f) => /^(apps|services|packages)\//.test(f) && !f.startsWith('apps/customer/tests/');
+/** Docs the stack's code names only in text shown to a person (a message, a footnote, an API description), never reads;
+ *  each checked by hand on 9 Nov 2026. A new one fails the test until it is added here or to DOCS_READ. */
+const NAMED_ONLY = new Set([
+  'apps/admin/src/components/kill-switch-board.tsx docs/OPS-KILL-SWITCH-RUNBOOK.md', // a footnote
+  'packages/config/src/production-posture.ts docs/decisions/s2s-body-bind.md', // a refusal message
+  'packages/i18n/src/catalog.ts docs/OWNER-OPS-CHECKLIST-2026-07-31.md', // a banner string
+  'packages/sdk-ts/openapi/payments.openapi.json docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md', // the API description
+  'services/svc-pay/src/public-rest.ts docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md', // the same description's source
+  'services/svc-trade/drizzle/0016_positions_open_unique_predicate_scope.sql docs/adr/2026-08-07-futures-exit-when-the-feed-is-dark.md', // a RAISE NOTICE
+]);
+
+test("a doc outside DOCS_READ runs no journeys because neither the journeys run nor the stack's code names one (OWNER 249 (3))", () => {
+  // What the journeys run executes (its workflow, actions, the scripts it runs and their relative imports, the journey
+  // files) and every source file of the code the stack runs (apps, services, packages, not their unit tests). A doc any
+  // of them names in code could change what a journey sees, so it must be in DOCS_READ, which keeps it full.
+  const git = (...a) =>
+    execFileSync('git', a, { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 28 })
+      .split('\n')
+      .filter(Boolean);
+  const WORKFLOW = '.github/workflows/real-app-journeys.yml';
+  const workflow = readFileSync(join(ROOT, WORKFLOW), 'utf8');
+  const scripts = [...workflow.matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts))\b/g)].map((m) => m[1]);
+  const product = git('ls-files', 'apps', 'services', 'packages').filter(
+    (f) =>
+      /\.(?:[cm]?[jt]sx?|vue|json|ya?ml|sql|html)$/.test(f) &&
+      !/\.(test|spec)\.[cm]?[jt]sx?$/.test(f) &&
+      !/(^|\/)(__tests__|node_modules|dist|look-baselines)\//.test(f) &&
+      (!f.startsWith('apps/customer/tests/') || f.startsWith('apps/customer/tests/real-app/')),
+  );
+  const queue = [WORKFLOW, ...git('ls-files', '.github/actions'), ...scripts, ...product];
+  const seen = new Map();
+  while (queue.length) {
+    const f = normalize(queue.shift());
+    if (seen.has(f) || !existsSync(join(ROOT, f))) continue;
+    const text = readFileSync(join(ROOT, f), 'utf8');
+    seen.set(f, text);
+    if (f.startsWith('tooling/') || f.startsWith('.github/'))
+      for (const m of text.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
+        queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
+  }
+  assert.ok(seen.size > 1000, `read the journeys run's files and the stack's code (${seen.size})`);
+  const named = docsRead(seen, PRODUCT_CODE);
+  assert.ok(
+    named.some((n) => n.doc.startsWith('docs/roadmap/')),
+    'the scan sees the roadmap the journeys read',
+  );
+  assert.deepEqual(
+    named.filter((n) => !covered(n.doc) && !NAMED_ONLY.has(`${n.at.replace(/:\d+$/, '')} ${n.doc}`)).map((n) => `${n.at} ${n.doc}`),
+    [],
+    'every doc the journeys run or the stack names is in DOCS_READ',
+  );
+});
+
+test('planted: a doc named in product code outside DOCS_READ is caught, and in a comment or under DOCS_READ it is not', () => {
+  const planted = new Map([
+    ['services/svc-x/src/a.ts', "const terms = readFileSync(join(root, 'docs/legal/terms.md'), 'utf8');"],
+    ['services/svc-x/src/b.ts', "const p = join(\n  repoRoot,\n  'docs',\n  'x.md',\n);"],
+    ['services/svc-x/src/c.ts', "const d = resolve(root, 'docs', name);\nconst e = join(root, 'docs', 'audits', name);"],
+    ['services/svc-x/src/e.ts', "import guide from '../../../docs/pay/GUIDE.md?raw';"],
+    ['services/svc-x/src/f.ts', "// readFileSync('docs/LOCAL-TEST-STACK.md')\nconst a = readFileSync('../../docs/audits/p.md');"],
+    ['tooling/scripts/g.mjs', "log('see docs/RUNNING.md');\nconst j = readFileSync('docs/roadmap/journeys.json');"],
+    ['apps/admin/src/h.tsx', 'Operator runbook: <code>docs/OPS-KILL-SWITCH-RUNBOOK.md</code>'],
+  ]);
+  const bad = docsRead(planted, PRODUCT_CODE).filter((n) => !covered(n.doc) && !n.at.startsWith('apps/admin/src/h.tsx'));
+  assert.ok(
+    docsRead(planted).every((n) => !n.at.startsWith('services/svc-x/src/i.ts')),
+    'outside the strict files, a name with no read is not a read',
+  );
+  assert.deepEqual(
+    bad.map((n) => n.doc),
+    ['docs/legal/terms.md', 'docs/x.md', 'docs/<computed>', 'docs/pay/GUIDE.md?raw'.replace('?raw', '')],
+  );
+  for (const p of ['docs/ARCHITECTURE.md', 'docs/adr/2026-08-04-pay-rails-and-psp-socket.md', 'docs/agents/build-slice.md'])
+    assert.equal(pathKind(p).kind, 'none', p);
+  for (const d of DOCS_READ) assert.equal(pathKind(d.endsWith('/') ? `${d}x.json` : d).kind, 'full', d);
+  // A docs-only pull request runs nothing; a doc beside a read doc still runs the full suite.
+  assert.equal(journeyTouch(['docs/adr/a.md', 'docs/ARCHITECTURE.md', 'README.md']).mode, 'none');
+  assert.equal(journeyTouch(['docs/adr/a.md', 'docs/runbooks/journey-baseline.json']).mode, 'full');
 });
