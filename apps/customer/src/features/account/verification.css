@@ -393,3 +393,12 @@
   align-items: center;
   gap: var(--if-space-3);
 }
+/* The base reset draws no native checkbox; the confirmation is a control the person must see and press. */
+.verification__trading-confirm input[type='checkbox'] {
+  appearance: auto;
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  accent-color: var(--if-lime);
+  cursor: pointer;
+}

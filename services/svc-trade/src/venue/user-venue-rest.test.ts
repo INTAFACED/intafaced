@@ -3,9 +3,10 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { parseAmount } from '@intafaced/ledger-client/money';
 import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError } from '@intafaced/contracts';
-import { startTestVenueServer, type TestVenueTypedData } from '@intafaced/venue-sim';
+import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
@@ -18,24 +19,30 @@ const owner = key.address.toLowerCase();
 let app: FastifyInstance;
 let server: http.Server;
 let url: string;
+let sim: TestVenueSimulator;
 beforeAll(async () => {
-  ({ server, url } = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532 }));
+  ({ server, url, sim } = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532 }));
 });
 afterAll(async () => new Promise<void>((r) => server.close(() => r())));
 afterEach(async () => app?.close());
 
-async function mount(door: UserVenueDoor | null, slippageCapBps: number | null = null) {
+async function mount(door: UserVenueDoor | null, slippageCapBps: number | null = null, verified = true) {
   app = Fastify();
   attachUserVenueRoutes(app, door, {
     requirePrincipal: () => USER,
-    requireTradeJurisdiction: () => true,
+    // Unverified: the trade jurisdiction refuses as private-rest's does (denied.kyc_required, 403).
+    requireTradeJurisdiction: (_req, reply) => {
+      if (verified) return true;
+      void reply.code(403).send({ code: 'PermissionDenied', message: 'TEST not verified', intafacedCode: 'denied.kyc_required' });
+      return false;
+    },
     slippageCapBps,
   });
   await app.ready();
   return app;
 }
 
-function door(withdrawStepUp: 'approve' | 'required' = 'approve') {
+function door(withdrawStepUp: 'approve' | 'required' = 'approve', slippageCapBps: number | null = null) {
   return new UserVenueDoor({
     connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
     appEnv: 'test',
@@ -47,12 +54,28 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve') {
       },
     },
     builder: null,
-    slippageCapBps: null,
+    slippageCapBps,
     now: () => new Date(),
   });
 }
 
 describe('/api/v1/venue/*', () => {
+  it('unverified: the venue market data answers, so the desk opens and refuses in plain words; account reads and writes refuse', async () => {
+    await mount(door(), 50, false);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/markets' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' })).statusCode).toBe(200);
+    const balances = await app.inject({ method: 'GET', url: `/api/v1/venue/balances?owner=${owner}` });
+    expect(balances.statusCode).toBe(403);
+    expect(balances.json().intafacedCode).toBe('denied.kyc_required');
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/preview',
+      payload: { owner, intent: { kind: 'place_order', symbol: 'BTC-USDC', side: 'buy', type: 'limit', size: '0.001', price: '1000' } },
+    });
+    expect(preview.statusCode).toBe(403);
+    expect(preview.json().intafacedCode).toBe('denied.kyc_required');
+  });
+
   it('off: status is { enabled: false } and every other route refuses trade.user_venue_off', async () => {
     await mount(null);
     expect((await app.inject({ method: 'GET', url: '/api/v1/venue/status' })).json()).toEqual({ enabled: false });
@@ -102,6 +125,49 @@ describe('/api/v1/venue/*', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices' })).statusCode).toBe(400);
     // The owner's price protection is blank here: not known, never a default.
     expect(body.slippageCapBps).toEqual({ known: false });
+  });
+
+  it('a market buy is bounded over the wire: the best ask reaches the price protection as an Amount, not a string', async () => {
+    // Another TEST trader rests an ask on the venue itself, so the book has the side a market buy meets.
+    const maker = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue rest maker')));
+    const account = { venueId: sim.venue.id, owner: maker.address.toLowerCase(), subAccount: null };
+    sim.deposit(account, 'BTC', parseAmount('1'), 'chain:rest-maker:1');
+    const ask = {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'sell',
+      type: 'limit',
+      amount: parseAmount('0.1'),
+      price: parseAmount('60000'),
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: 'order:rest-maker:1',
+      builderFee: null,
+    } as const;
+    const prepared = await sim.prepare(account, { role: 'owner', address: account.owner }, ask);
+    const t = prepared.typedData as TestVenueTypedData;
+    const signature = await maker.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+    expect(await sim.submit(prepared, { digest: prepared.digest, signature, signedBy: account.owner })).toMatchObject({ accepted: true });
+
+    await mount(door('approve', 50), 50);
+    const buy = (worst: string) => ({
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'market',
+      amount: '0.01',
+      price: worst,
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${USER.userId}:rest:market`,
+      builderFee: null,
+    });
+    // 50 bps over the 60000 ask is 60300: at the bound the preview answers; past it, the typed refusal.
+    const inside = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: buy('60300') } });
+    expect(inside.statusCode, inside.body).toBe(200);
+    const outside = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: buy('60301') } });
+    expect(outside.statusCode, outside.body).toBe(422);
+    expect(outside.json().intafacedCode).toBe('trade.venue.price_outside_protection');
   });
 
   it("best-prices carries the owner's market price protection as svc-trade holds it", async () => {
