@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Amount } from '@intafaced/ledger-client/money';
+import { compare, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import type { VenueDescriptor } from './adapter.js';
 import type { VenueOrderStatus, VenueOrderType } from './account.js';
 
@@ -192,6 +192,51 @@ export interface RevokeAgentIntent {
   readonly agentAddress: string;
 }
 
+/**
+ * Open a sub-account under the owner's main account: the agent account's home
+ * (J-agents-21). Signed by the owner's wallet on the MAIN account. The venue
+ * names the sub-account; its id comes back as the accepted answer's
+ * `venueRef`, and `subAccounts()` lists it. A sub-account has no key of its
+ * own: its funds move only by the owner's `sub_account_transfer`, and an
+ * agent approved on it (`approve_agent` on the sub-account) can trade it and
+ * nothing else.
+ */
+export interface CreateSubAccountIntent {
+  readonly kind: 'create_sub_account';
+  /** For humans and the venue's own list; the venue may require it unique per owner. Never parsed. */
+  readonly name: string;
+  /**
+   * The business key of this sub-account (AGENTS.md floor 3), e.g.
+   * `agent:account:<agentAccountId>`: what the caller stores the prepared,
+   * signed action under, so a double press opens one sub-account.
+   */
+  readonly subAccountKey: string;
+}
+
+/**
+ * Move funds between the owner's main account and one of its sub-accounts,
+ * signed by the owner's wallet on the MAIN account. Only free balance moves:
+ * what is locked by orders or held as margin stays where it is, and the venue
+ * refuses `insufficient_balance` for more. Moves value only between two
+ * accounts the same wallet owns; nothing leaves the venue.
+ */
+export interface SubAccountTransferIntent {
+  readonly kind: 'sub_account_transfer';
+  /** The sub-account's venue id, as `create_sub_account` returned it. */
+  readonly subAccount: string;
+  /** `into_sub_account`: main → sub. `out_of_sub_account`: sub → main. */
+  readonly direction: 'into_sub_account' | 'out_of_sub_account';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /**
+   * The business key of this move, e.g. `agent:move:<moveId>`: stored with the
+   * prepared, signed action before submit, so a retry re-sends the same bytes
+   * and the money moves once.
+   */
+  readonly moveKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
   | UpdateLeverageIntent
@@ -200,7 +245,9 @@ export type VenueIntent =
   | WithdrawIntent
   | ApproveBuilderFeeIntent
   | ApproveAgentIntent
-  | RevokeAgentIntent;
+  | RevokeAgentIntent
+  | CreateSubAccountIntent
+  | SubAccountTransferIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -210,6 +257,14 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'approve_builder_fee',
   'approve_agent',
   'revoke_agent',
+  'create_sub_account',
+  'sub_account_transfer',
+]);
+
+/** Actions signed on the owner's MAIN account only, never on a sub-account. */
+export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueIntentKind>([
+  'create_sub_account',
+  'sub_account_transfer',
 ]);
 
 export type VenueMarginMode = 'cross' | 'isolated';
@@ -338,6 +393,8 @@ export type VenueRefusalCode =
   | 'nonce_rejected'
   /** The venue refused for its own stated reason; the text is in `detail`. */
   | 'venue_rejected'
+  /** No sub-account with that id under this owner on the venue. */
+  | 'unknown_sub_account'
   /** An agent order would commit more than the room left under the person's cap (agent-cap.ts). Nothing signed. */
   | 'agent_cap_exceeded'
   /** The agent's cap is revoked or expired: only cancels are signed. */
@@ -460,6 +517,26 @@ export interface UserVenueAgent {
   readonly validUntil: Date | null;
 }
 
+/** A sub-account under an owner, as the venue lists it. */
+export interface UserVenueSubAccount {
+  /** The venue's own id for it: what `UserVenueAccount.subAccount` holds. */
+  readonly subAccount: string;
+  readonly name: string;
+}
+
+/** A move between the main account and a sub-account, as the venue records it. */
+export interface UserVenueTransfer {
+  /** The nonce of the signed transfer, the only id the venue knows it by. */
+  readonly nonce: string;
+  readonly subAccount: string;
+  readonly direction: SubAccountTransferIntent['direction'];
+  readonly asset: string;
+  /** What the venue moved. */
+  readonly amount: Amount;
+  /** A move between one owner's own accounts settles at once, or the venue refuses it. */
+  readonly status: 'done';
+}
+
 /** Every read is a snapshot of the venue's record at the venue's own time. */
 export interface AsOf<T> {
   readonly venueId: string;
@@ -522,7 +599,8 @@ export interface UserVenue {
    * agent the venue's `agents()` record does not hold), `builder_fee_not_approved`
    * (the venue's `builderFeeApproval()` is below the order's fee), and
    * `not_offered` for a withdrawal from a sub-account (a venue sub-account has
-   * no key of its own; moving its funds back is a later intent). Balance
+   * no key of its own; its funds come back by `sub_account_transfer`), and
+   * `not_offered` for a sub-account intent on a venue that offers none. Balance
    * checks are the venue's, at submit.
    *
    * ONE PREPARED ACTION PER BUSINESS KEY. The nonce is fixed here, so two
@@ -569,6 +647,24 @@ export interface UserVenue {
    * that is not definite is read back by.
    */
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>>;
+}
+
+/**
+ * The sub-account reads, for a venue that offers sub-accounts. Separate from
+ * `UserVenue` so a venue (or a transport) that has not built them yet is not
+ * made to pretend: its `prepare` refuses the two sub-account intents
+ * `not_offered`, and a caller needing these reads checks `hasSubAccountReads`.
+ */
+export interface UserVenueSubAccountReads {
+  /** The owner's sub-accounts. `account` is the main account (`subAccount: null`). */
+  subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>>;
+  /** A transfer by its signed nonce, on the main account that signed it. `null` is a confirmed miss. */
+  transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>>;
+}
+
+export function hasSubAccountReads(venue: UserVenue): venue is UserVenue & UserVenueSubAccountReads {
+  const v = venue as Partial<UserVenueSubAccountReads>;
+  return typeof v.subAccounts === 'function' && typeof v.transfer === 'function';
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -623,6 +719,26 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
       code: 'agent_not_permitted',
       detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
     });
+  }
+  if (account.subAccount !== null && MAIN_ACCOUNT_ONLY_INTENTS.has(intent.kind)) {
+    throw new VenueRefusalError({
+      venueId,
+      code: 'not_offered',
+      detail: `${intent.kind} is signed on the owner's main account, not on a sub-account`,
+    });
+  }
+  if (intent.kind === 'sub_account_transfer' && compare(intent.amount, ZERO) <= 0) {
+    throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a transfer must be positive' });
+  }
+  if (intent.kind === 'create_sub_account' || intent.kind === 'sub_account_transfer') {
+    const key = intent.kind === 'create_sub_account' ? intent.subAccountKey : intent.moveKey;
+    if (UUID_RE.test(key.trim()) || !BUSINESS_KEY_RE.test(key.trim())) {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'invalid_client_order_key',
+        detail: `key "${key}" is not a business key (expected "<kind>:<intent>", never a random id)`,
+      });
+    }
   }
 }
 

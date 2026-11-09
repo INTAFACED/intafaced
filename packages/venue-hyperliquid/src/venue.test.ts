@@ -396,6 +396,21 @@ describe('prepare builds exactly what the wallet signs', () => {
     );
     await refusedWith(venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT }), 'not_offered');
     await refusedWith(
+      venue.prepare(account, ownerSigner, { kind: 'create_sub_account', name: 'TEST agent', subAccountKey: 'agent:account:a-1' }),
+      'not_offered',
+    );
+    await refusedWith(
+      venue.prepare(account, ownerSigner, {
+        kind: 'sub_account_transfer',
+        subAccount: '0x1719884eb866cb12b2287399b15f7db5e7d775ea',
+        direction: 'into_sub_account',
+        asset: 'USDC-PERP',
+        amount: a('150'),
+        moveKey: 'agent:move:m-1',
+      }),
+      'not_offered',
+    );
+    await refusedWith(
       venue.prepare(account, ownerSigner, {
         kind: 'amend_order',
         symbol: 'ETH-PERP',

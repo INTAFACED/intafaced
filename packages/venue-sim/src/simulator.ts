@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { add, compare, div, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
@@ -18,6 +19,9 @@ import {
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenuePosition,
+  type UserVenueSubAccount,
+  type UserVenueSubAccountReads,
+  type UserVenueTransfer,
   type UserVenueWithdrawal,
   type VenueIntent,
   type VenueMarginMode,
@@ -51,7 +55,23 @@ import { buildTypedData, digestOf, recoverSigner } from './signing.js';
  *   · an agent key is always refused a withdrawal (`agent_not_permitted`);
  *   · `loseAnswers` — the next N submits are applied and then answered
  *     `definite: false`, so a caller's read-back is exercised.
+ *
+ * Sub-accounts and agents, as a real venue keeps them (Hyperliquid's rules,
+ * read 2026-11-09): the owner opens a sub-account and moves free balance in
+ * and out of it, both signed on the main account; a sub-account has no key,
+ * so it is never withdrawn from. An agent is approved per account (main or
+ * sub) and trades that account only. At most `MAX_NAMED_AGENTS_MAIN` named
+ * agents on a main account and `MAX_NAMED_AGENTS_SUB` on a sub-account (one
+ * unnamed agent besides); approving a new key under a name already in use
+ * replaces the old key. An expiry is at most `MAX_AGENT_VALIDITY_MS` ahead.
+ * An agent address once revoked or replaced on an account is never approved
+ * there again (a venue that prunes old nonces could accept a replay of its
+ * old signed actions).
  */
+
+export const MAX_NAMED_AGENTS_MAIN = 3;
+export const MAX_NAMED_AGENTS_SUB = 2;
+export const MAX_AGENT_VALIDITY_MS = 180 * 24 * 60 * 60 * 1000;
 
 const BPS = parseAmount('10000');
 const QUOTE_ROUND = 'ceil' as const;
@@ -106,6 +126,12 @@ interface AccountState {
   readonly agents: Map<string, UserVenueAgent>;
   readonly deposits: Set<string>;
   readonly leverage: Map<string, { leverageBps: number; marginMode: VenueMarginMode }>;
+  /** Main account only: its sub-accounts, by venue id. */
+  readonly subAccounts: Map<string, UserVenueSubAccount>;
+  /** Main account only: moves to and from its sub-accounts, by signed nonce. */
+  readonly transfers: Map<string, UserVenueTransfer>;
+  /** Agent addresses revoked or replaced on this account: never approved here again. */
+  readonly retiredAgents: Set<string>;
 }
 
 interface OrderState {
@@ -138,10 +164,10 @@ function refuse(venueId: string, code: VenueRefusalCode, detail: string): never 
 }
 
 function accountKey(account: UserVenueAccount): string {
-  return `${account.owner.toLowerCase()}/${account.subAccount ?? ''}`;
+  return `${account.owner.toLowerCase()}/${account.subAccount?.toLowerCase() ?? ''}`;
 }
 
-export class TestVenueSimulator implements UserVenue {
+export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   readonly venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
   private readonly clock: () => Date;
@@ -289,6 +315,9 @@ export class TestVenueSimulator implements UserVenue {
     if (signer.role === 'agent' && !this.agentLive(state, signer.address)) {
       refuse(this.venue.id, 'signer_not_authorised', `${signer.address.toLowerCase()} is not an approved, unexpired agent on this account`);
     }
+    // An action on a sub-account needs the sub-account to exist under this owner. A withdrawal from one is refused
+    // `not_offered` below whatever its state, so it keeps that one answer.
+    if (account.subAccount !== null && intent.kind !== 'withdraw') this.subAccountOf(account.owner, account.subAccount);
     switch (intent.kind) {
       case 'place_order': {
         this.checkOrderOnItsFace(state, intent);
@@ -326,8 +355,62 @@ export class TestVenueSimulator implements UserVenue {
         venueClientOrderId(this.venue.id, intent.clientOrderKey);
         return;
       case 'approve_agent':
+        this.checkAgentApproval(account, state, intent.agentAddress, intent.agentName, intent.validUntil);
+        return;
       case 'revoke_agent':
         return;
+      case 'create_sub_account': {
+        const name = intent.name.trim();
+        if (name === '') refuse(this.venue.id, 'venue_rejected', 'a sub-account needs a name');
+        for (const existing of state.subAccounts.values()) {
+          if (existing.name === name) refuse(this.venue.id, 'venue_rejected', `this owner already has a sub-account named "${name}"`);
+        }
+        return;
+      }
+      case 'sub_account_transfer':
+        this.subAccountOf(account.owner, intent.subAccount);
+        return;
+    }
+  }
+
+  /** The owner's sub-account `id`, or `unknown_sub_account`. */
+  private subAccountOf(owner: string, id: string): UserVenueSubAccount {
+    const main = this.account({ venueId: this.venue.id, owner, subAccount: null });
+    const sub = main.subAccounts.get(id.toLowerCase());
+    if (!sub) refuse(this.venue.id, 'unknown_sub_account', `no sub-account ${id.toLowerCase()} under ${owner.toLowerCase()}`);
+    return sub;
+  }
+
+  private checkAgentApproval(
+    account: UserVenueAccount,
+    state: AccountState,
+    agentAddress: string,
+    agentName: string,
+    validUntil: Date | null,
+  ): void {
+    const address = agentAddress.toLowerCase();
+    if (state.retiredAgents.has(address)) {
+      refuse(
+        this.venue.id,
+        'venue_rejected',
+        `agent ${address} was revoked or replaced on this account and is never approved again: use a new key`,
+      );
+    }
+    if (address === state.owner) refuse(this.venue.id, 'venue_rejected', 'the owner wallet cannot be its own agent');
+    if (validUntil !== null) {
+      const now = this.clock().getTime();
+      if (validUntil.getTime() <= now) refuse(this.venue.id, 'venue_rejected', 'an agent expiry must be in the future');
+      if (validUntil.getTime() > now + MAX_AGENT_VALIDITY_MS) {
+        refuse(this.venue.id, 'venue_rejected', 'an agent expiry is at most 180 days ahead');
+      }
+    }
+    const name = agentName.trim();
+    if (name === '') return; // the one unnamed agent: a new one replaces it
+    const named = [...state.agents.values()].filter((a) => a.name.trim() !== '' && a.address !== address);
+    if (named.some((a) => a.name.trim() === name)) return; // replaces the key under that name
+    const limit = account.subAccount === null ? MAX_NAMED_AGENTS_MAIN : MAX_NAMED_AGENTS_SUB;
+    if (named.length >= limit) {
+      refuse(this.venue.id, 'venue_rejected', `at most ${limit} named agents on this account: revoke one first`);
     }
   }
 
@@ -446,6 +529,24 @@ export class TestVenueSimulator implements UserVenue {
     return this.asOf([...this.account(account).agents.values()]);
   }
 
+  // ── UserVenueSubAccountReads ───────────────────────────────────────────
+
+  async subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>> {
+    this.up();
+    this.mainOnly(account);
+    return this.asOf([...this.account(account).subAccounts.values()]);
+  }
+
+  async transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>> {
+    this.up();
+    this.mainOnly(account);
+    return this.asOf(this.account(account).transfers.get(nonce) ?? null);
+  }
+
+  private mainOnly(account: UserVenueAccount): void {
+    if (account.subAccount !== null) refuse(this.venue.id, 'not_offered', 'sub-accounts and transfers are read on the main account');
+  }
+
   // ── internals ──────────────────────────────────────────────────────────
 
   /** A balance below zero is money the venue made up: fail loudly, never report it. */
@@ -495,6 +596,9 @@ export class TestVenueSimulator implements UserVenue {
         agents: new Map(),
         deposits: new Set(),
         leverage: new Map(),
+        subAccounts: new Map(),
+        transfers: new Map(),
+        retiredAgents: new Set(),
       };
       this.accounts.set(key, state);
     }
@@ -650,16 +754,55 @@ export class TestVenueSimulator implements UserVenue {
       case 'approve_builder_fee':
         state.builderApprovals.set(intent.builder.toLowerCase(), intent.maxFeeBps);
         return accepted(null, null);
-      case 'approve_agent':
-        state.agents.set(intent.agentAddress.toLowerCase(), {
-          address: intent.agentAddress.toLowerCase(),
-          name: intent.agentName,
-          validUntil: intent.validUntil,
+      case 'approve_agent': {
+        const address = intent.agentAddress.toLowerCase();
+        const name = intent.agentName.trim();
+        // A new key under a name in use (or a second unnamed key) replaces the old one, which is retired for good.
+        for (const existing of [...state.agents.values()]) {
+          if (existing.address !== address && existing.name.trim() === name) {
+            state.agents.delete(existing.address);
+            state.retiredAgents.add(existing.address);
+          }
+        }
+        state.agents.set(address, { address, name: intent.agentName, validUntil: intent.validUntil });
+        return accepted(null, null);
+      }
+      case 'revoke_agent': {
+        const address = intent.agentAddress.toLowerCase();
+        state.agents.delete(address);
+        state.retiredAgents.add(address);
+        return accepted(null, null);
+      }
+      case 'create_sub_account': {
+        // The venue names it: deterministic from the owner and the signed nonce, so a replayed run names the same one.
+        const id = `0x${createHash('sha256').update(`${this.venue.id}\u0000${state.owner}\u0000${prepared.nonce}`).digest('hex').slice(0, 40)}`;
+        state.subAccounts.set(id, { subAccount: id, name: intent.name.trim() });
+        this.account({ venueId: this.venue.id, owner: state.owner, subAccount: id });
+        return accepted(id, null);
+      }
+      case 'sub_account_transfer': {
+        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount.toLowerCase() });
+        const into = intent.direction === 'into_sub_account';
+        const from = this.balance(into ? state : subState, intent.asset);
+        const to = this.balance(into ? subState : state, intent.asset);
+        if (compare(from.free, intent.amount) < 0) {
+          return refused(
+            'insufficient_balance',
+            `free ${intent.asset} on the ${into ? 'main account' : 'sub-account'} does not cover the move (what is locked or held as margin stays)`,
+          );
+        }
+        from.free = sub(from.free, intent.amount);
+        to.free = add(to.free, intent.amount);
+        state.transfers.set(prepared.nonce, {
+          nonce: prepared.nonce,
+          subAccount: intent.subAccount.toLowerCase(),
+          direction: intent.direction,
+          asset: intent.asset,
+          amount: intent.amount,
+          status: 'done',
         });
-        return accepted(null, null);
-      case 'revoke_agent':
-        state.agents.delete(intent.agentAddress.toLowerCase());
-        return accepted(null, null);
+        return accepted(prepared.nonce, null);
+      }
     }
   }
 
