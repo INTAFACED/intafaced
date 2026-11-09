@@ -245,8 +245,10 @@ await app.register(fastifyTRPCPlugin, {
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 
 /**
- * AC-certificates-02: the issue sweep issues delayed certificates once due. One sweep at a time: a slow one is never
- * stacked under the next. Blank interval, no sweep, and delayed issue rules refuse `academy.cert_sweep_unset`.
+ * AC-certificates-02: the issue sweep issues delayed certificates once due, and settles the XP of every revoked
+ * certificate whose reversal has not gone out yet (`settleRevokedCertXp`). One sweep at a time: a slow one is never
+ * stacked under the next. Blank interval, no sweep: delayed issue rules refuse `academy.cert_sweep_unset`, and an
+ * unsettled reversal waits for a repeat revoke.
  */
 let sweeping: Promise<void> | null = null;
 const certSweep =
@@ -254,12 +256,15 @@ const certSweep =
     ? null
     : setInterval(() => {
         if (sweeping) return;
-        sweeping = academy
-          .issueDueCertificates()
-          .then(
-            () => undefined,
-            (err: unknown) => app.log.error({ err }, 'certificate issue sweep failed; the next one retries'),
-          )
+        sweeping = Promise.all([
+          academy
+            .issueDueCertificates()
+            .catch((err: unknown) => app.log.error({ err }, 'certificate issue sweep failed; the next one retries')),
+          academy
+            .settleRevokedCertXp()
+            .catch((err: unknown) => app.log.error({ err }, 'certificate XP sweep failed; the next one retries')),
+        ])
+          .then(() => undefined)
           .finally(() => {
             sweeping = null;
           });

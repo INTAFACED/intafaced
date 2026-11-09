@@ -179,15 +179,32 @@ describe('academy certificate revoke', () => {
     const none = await opsExecute(ctx)(revoke, ids);
     expect(none.ok && none.detail).toContain('It carried no XP, so there was none to take back.');
   });
-  it('an unknown code is refused in words, with the approval unspent', async () => {
+  it('an unknown code (svc-academy academy.cert_not_found) is refused in words, with the approval unspent', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => err(404, 'We could not find that.')),
+      vi.fn(async () => err(404, 'We could not find that.', 'academy.cert_not_found')),
     );
     expect(await opsExecute(ctx)(revoke, ids)).toMatchObject({
       ok: false,
       refusal: { title: 'No issued certificate has this code', code: 'academy.cert_not_found', changed: 'no' },
     });
+  });
+  it('a 404 without that code is not read as an unknown certificate', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => err(404, 'Some other refusal', 'academy.other')),
+    );
+    const reply = await opsExecute(ctx)(revoke, ids);
+    expect(reply.ok).toBe(false);
+    expect(!reply.ok && reply.refusal.title).not.toBe('No issued certificate has this code');
+  });
+  it('a grant that recorded no XP says nothing was taken back rather than guess', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(record({ emitted: false, reason: 'award_unrecorded' }))),
+    );
+    const reply = await opsExecute(ctx)(revoke, ids);
+    expect(reply.ok && reply.detail).toContain('took none back rather than guess an amount');
   });
   it('an answer for another code, or with no XP outcome, is unknown, not success', async () => {
     vi.stubGlobal(

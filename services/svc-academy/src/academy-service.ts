@@ -132,11 +132,14 @@ import {
   type ItemCompletionRecord,
   type ProgressReport,
 } from './certs/progress.js';
+import { xpPolicyFor } from './certs/xp-policy.js';
 import {
+  certXpIntentFor,
   certXpPlaneStatus,
   NullCertXpPublisher,
   type CertXpEmitResult,
   type CertXpPlaneStatus,
+  type CertXpReversalResult,
   type CertXpPublisher,
 } from './certs/xp-publish.js';
 import {
@@ -2962,9 +2965,12 @@ export class AcademyService {
 
   /** The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. */
   private insertCertGrant(grant: CertGrantRecord) {
+    // The XP its award is worth now, recorded with the grant, so a revoke later takes back exactly that (AC-certificates-02).
+    const award = certXpIntentFor(grant);
+    const xpAwarded = award.ok ? award.intent.payload.xpDelta : null;
     return this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
-      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()})
+      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id, xp_awarded)
+      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()}, ${xpAwarded})
       ON CONFLICT (user_id, cert_id) DO NOTHING
       RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
     `;
@@ -3059,22 +3065,30 @@ export class AcademyService {
       `;
       return revocationRecord(rows[0]!);
     });
-    return { ...revocation, xpReversal: await this.reverseCertXp(input.publicId) };
+    return { ...revocation, xpReversal: await this.reverseCertXp(input.publicId, input.now ?? new Date()) };
   }
 
   /**
    * AC-certificates-02: take back the XP one revoked certificate's grant was worth, so the rank it lifted, and the perks
-   * that rank gave, fall back. Writes nothing here; identity is the only rank writer. The award is published again first,
-   * under its own key: identity drops it when it already landed, and when it never did (the bus was down at the grant)
-   * the pair nets to nothing instead of taking XP the learner never got. The reversal goes out only once the award did,
-   * since a revoked grant is never claimed again and could not re-publish its award later. An unpriced certificate gave
-   * nothing and reverses nothing (`no_policy`). A failure is reported, never thrown: the revoke stands, and a repeat
-   * revoke publishes again under the same keys. Only a revoked certificate is reversed; anything else refuses.
+   * that rank gave, fall back. Identity is the only rank writer; this publishes and records only whether it is settled.
+   *
+   * The amount is what the grant recorded it awarded (`xp_awarded`), never today's policy. The publisher re-sends the
+   * award under its own key, then the reversal: identity drops the award when it already landed, and when it never did
+   * (the bus was down at the grant) the pair still nets to nothing, instead of taking XP the learner never got.
+   *
+   * The outcome is recorded on the revocation once it is final: `reversed`, `no_policy` (an unpriced certificate gave
+   * nothing), `award_unrecorded` (a priced grant issued before grants recorded their XP: what identity holds is not known
+   * here, so nothing is taken back rather than a guessed amount) or `not_reversible`. A failed or unavailable publish is
+   * reported, never thrown, and stays unsettled: a repeat revoke or the sweep (`settleRevokedCertXp`) sends both again
+   * under the same keys, so a publish that failed after the award landed, or a crash after the revoke committed, still
+   * comes back to net zero. Only a revoked certificate is reversed; anything else refuses.
    */
-  async reverseCertXp(publicId: string): Promise<CertXpEmitResult> {
+  async reverseCertXp(publicId: string, now: Date = new Date()): Promise<CertXpReversalResult> {
     if (!isPublicId(publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; status: string }>>`
-      SELECT user_id, cert_id, granted_at, idempotency_key, status FROM academy.cert_grants WHERE public_id = ${publicId}
+    const rows = await this.sql<
+      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; status: string; xp_awarded: number | null }>
+    >`
+      SELECT user_id, cert_id, granted_at, idempotency_key, status, xp_awarded FROM academy.cert_grants WHERE public_id = ${publicId}
     `;
     const row = rows[0];
     if (!row) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
@@ -3085,9 +3099,51 @@ export class AcademyService {
       grantedAt: row.granted_at,
       idempotencyKey: row.idempotency_key,
     };
-    const award = await this.certXp.publishCertXp(grant);
-    if (!award.emitted) return award;
-    return this.certXp.publishCertXpReversal(grant);
+    const result: CertXpReversalResult =
+      row.xp_awarded !== null
+        ? await this.certXp.publishCertXpReversal(grant, row.xp_awarded)
+        : { emitted: false, reason: xpPolicyFor(row.cert_id) === null ? 'no_policy' : 'award_unrecorded' };
+    const settled = result.emitted
+      ? 'reversed'
+      : result.reason === 'publisher_unavailable' || result.reason === 'publish_failed'
+        ? null
+        : result.reason === 'no_policy' || result.reason === 'award_unrecorded'
+          ? result.reason
+          : 'not_reversible';
+    if (settled !== null) {
+      await this.sql`
+        UPDATE academy.cert_revocations SET xp_settled = ${settled}, xp_settled_at = ${now}
+         WHERE public_id = ${publicId} AND xp_settled IS NULL
+      `;
+    }
+    return result;
+  }
+
+  /**
+   * AC-certificates-02: the XP sweep, run with the issue sweep. For every revocation whose XP is not settled (a publish
+   * that failed, a bus that was down, or a crash after the revoke committed) it sends the award and its reversal again
+   * (`reverseCertXp`), oldest first, in batches. The first failure ends the pass and the rest waits for the next one, so
+   * a bus that is down costs one attempt per pass. Answers how many it settled.
+   */
+  async settleRevokedCertXp(now: Date = new Date()): Promise<number> {
+    let settled = 0;
+    for (;;) {
+      const rows = await this.sql<Array<{ public_id: string }>>`
+        SELECT public_id FROM academy.cert_revocations WHERE xp_settled IS NULL ORDER BY revoked_at, public_id LIMIT ${CERT_ISSUE_SWEEP_BATCH}
+      `;
+      for (const row of rows) {
+        let result: CertXpReversalResult;
+        try {
+          result = await this.reverseCertXp(row.public_id, now);
+        } catch (err) {
+          console.error({ err, publicId: row.public_id }, 'certificate XP sweep: one revocation failed; the next sweep retries it');
+          return settled;
+        }
+        if (!result.emitted && (result.reason === 'publisher_unavailable' || result.reason === 'publish_failed')) return settled;
+        settled += 1;
+      }
+      if (rows.length < CERT_ISSUE_SWEEP_BATCH) return settled;
+    }
   }
 
   /** The stored issue rule of one certificate, or null when staff have set none. */

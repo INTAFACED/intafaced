@@ -8,7 +8,7 @@ import {
   CERT_XP_SOURCE_MODULE,
   certXpDeltaToInt,
   certXpIntentFor,
-  certXpReversalIntentFor,
+  certXpReversalIntentsFor,
   certXpPlaneStatus,
   NullCertXpPublisher,
 } from './xp-publish.js';
@@ -185,37 +185,34 @@ describe('BusCertXpPublisher — one award reaches the one XP graph', () => {
   });
 });
 
-describe('the reversal of a revoked grant (AC-certificates-02) — takes back exactly what the award gave', () => {
-  const unpriced = () => {
-    const store = new MemoryCertStore();
-    store.registerCert({ id: 'not-in-policy-v1', title: 'Unpriced', requiredItemSlugs: ['a'] });
-    store.markComplete(USER, 'a', NOW);
-    return store.grant(USER, 'not-in-policy-v1', NOW);
-  };
-
-  it('negates the award under its own business key, one per grant', () => {
-    const award = certXpIntentFor(grantOf());
-    const reversal = certXpReversalIntentFor(grantOf(USER, LATER));
-    if (!award.ok || !reversal.ok) throw new Error('expected publishable intents');
-    expect(reversal.intent).toEqual({
-      idempotencyKey: `academy.cert-revoke:cert:${USER}:foundations-v1`,
-      payload: { ...award.intent.payload, action: CERT_XP_REVOKE_ACTION, xpDelta: -award.intent.payload.xpDelta },
+describe('the reversal of a revoked grant (AC-certificates-02) — takes back exactly what the grant recorded it gave', () => {
+  it("re-sends the award and negates it, both keyed on the grant's stored key, at the recorded amount", () => {
+    const grant = grantOf();
+    const decided = certXpReversalIntentsFor(grant, 70);
+    if (!decided.ok) throw new Error('expected publishable intents');
+    expect(decided.intents.award.idempotencyKey).toBe(`academy.cert:${grant.idempotencyKey}`);
+    // The award key is the same one the grant first published under, so identity keeps one award.
+    const original = certXpIntentFor(grant);
+    if (!original.ok) throw new Error('expected an award');
+    expect(decided.intents.award.idempotencyKey).toBe(original.intent.idempotencyKey);
+    expect(decided.intents.reversal).toEqual({
+      idempotencyKey: `academy.cert-revoke:${grant.idempotencyKey}`,
+      payload: { userId: USER, sourceModule: 'academy', action: CERT_XP_REVOKE_ACTION, xpDelta: -70, meta: { certId: 'foundations-v1' } },
     });
-    expect(reversal.intent.payload.xpDelta).toBe(-100);
-    const theirs = certXpReversalIntentFor(grantOf(OTHER));
-    if (!theirs.ok) throw new Error('expected a publishable intent');
-    expect(theirs.intent.idempotencyKey).not.toBe(reversal.intent.idempotencyKey);
+    // 70, not today's policy of 100: the amount is what the grant recorded.
+    expect(decided.intents.award.payload.xpDelta).toBe(70);
+    const theirs = certXpReversalIntentsFor(grantOf(OTHER), 70);
+    if (!theirs.ok) throw new Error('expected publishable intents');
+    expect(theirs.intents.reversal.idempotencyKey).not.toBe(decided.intents.reversal.idempotencyKey);
   });
 
-  it('an unpriced certificate gave nothing, so it has nothing to reverse', async () => {
-    expect(certXpReversalIntentFor(unpriced())).toEqual({ ok: false, reason: 'no_policy' });
-    const bus = new MemoryEventBus('svc-academy');
-    await expect(new BusCertXpPublisher(bus).publishCertXpReversal(unpriced())).resolves.toEqual({ emitted: false, reason: 'no_policy' });
-    expect(bus.emitted('xpEarned')).toHaveLength(0);
-    await expect(new NullCertXpPublisher().publishCertXpReversal(unpriced())).resolves.toEqual({ emitted: false, reason: 'no_policy' });
+  it('refuses an amount that is not a positive safe integer instead of guessing', () => {
+    for (const bad of [0, -100, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN]) {
+      expect(certXpReversalIntentsFor(grantOf(), bad)).toEqual({ ok: false, reason: 'delta_unrepresentable' });
+    }
   });
 
-  it('publishes one xpEarned with the negative delta, and a repeat lands once at the identity dedupe', async () => {
+  it('publishes the award then the reversal, and repeats land once at the identity dedupe: net zero', async () => {
     const bus = new MemoryEventBus('svc-academy');
     const seen = new MemorySeenStore();
     const applied: number[] = [];
@@ -226,32 +223,49 @@ describe('the reversal of a revoked grant (AC-certificates-02) — takes back ex
     );
     const publisher = new BusCertXpPublisher(bus);
     await publisher.publishCertXp(grantOf());
-    const first = await publisher.publishCertXpReversal(grantOf());
-    const repeat = await publisher.publishCertXpReversal(grantOf(USER, LATER));
+    const first = await publisher.publishCertXpReversal(grantOf(), 100);
+    const repeat = await publisher.publishCertXpReversal(grantOf(USER, LATER), 100);
     expect(first).toEqual({ emitted: true, idempotencyKey: `academy.cert-revoke:cert:${USER}:foundations-v1`, xpDelta: -100 });
     expect(repeat).toEqual(first);
-    const reversals = bus.emitted('xpEarned').filter((e) => e.payload.action === CERT_XP_REVOKE_ACTION);
-    expect(reversals).toHaveLength(2);
-    expect(reversals[0]?.payload).toEqual({
-      userId: USER,
-      sourceModule: 'academy',
-      action: 'cert.revoked',
-      xpDelta: -100,
-      meta: { certId: 'foundations-v1' },
-    });
-    // The award and its reversal net to nothing on the ladder, whatever the repeats.
+    expect(bus.emitted('xpEarned').map((e) => e.payload.action)).toEqual([
+      'cert.granted',
+      'cert.granted',
+      'cert.revoked',
+      'cert.granted',
+      'cert.revoked',
+    ]);
     expect(applied).toEqual([100, -100]);
   });
 
-  it('reports a failed or unavailable reversal instead of throwing', async () => {
+  it('when the award never landed, the pair still nets to zero', async () => {
+    const bus = new MemoryEventBus('svc-academy');
+    const seen = new MemorySeenStore();
+    const applied: number[] = [];
+    await bus.subscribe(
+      'xpEarned',
+      idempotent(async (payload) => void applied.push(payload.xpDelta), seen, 'svc-identity-xp'),
+      { durable: 'identity-xp-earned' },
+    );
+    await new BusCertXpPublisher(bus).publishCertXpReversal(grantOf(), 100);
+    expect(applied).toEqual([100, -100]);
+  });
+
+  it('reports a failed or unavailable reversal instead of throwing, and a failed award sends no reversal', async () => {
     const onError = vi.fn();
-    const broken = { publish: vi.fn(async () => Promise.reject(new Error('nats is gone'))) };
-    await expect(new BusCertXpPublisher(broken as never, onError).publishCertXpReversal(grantOf())).resolves.toEqual({
+    const sent: string[] = [];
+    const broken = {
+      publish: vi.fn(async (_e: string, payload: { action: string }) => {
+        sent.push(payload.action);
+        throw new Error('nats is gone');
+      }),
+    };
+    await expect(new BusCertXpPublisher(broken as never, onError).publishCertXpReversal(grantOf(), 100)).resolves.toEqual({
       emitted: false,
       reason: 'publish_failed',
     });
+    expect(sent).toEqual(['cert.granted']);
     expect(onError).toHaveBeenCalledOnce();
-    await expect(new NullCertXpPublisher().publishCertXpReversal(grantOf())).resolves.toEqual({
+    await expect(new NullCertXpPublisher().publishCertXpReversal(grantOf(), 100)).resolves.toEqual({
       emitted: false,
       reason: 'publisher_unavailable',
     });

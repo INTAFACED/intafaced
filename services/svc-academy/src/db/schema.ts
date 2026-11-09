@@ -381,6 +381,8 @@ export const certGrants = academy.table(
     status: text('status').notNull().default('valid'),
     holderName: text('holder_name'),
     holderConsentAt: tstz('holder_consent_at'),
+    /** The XP the grant's award was worth when issued (an integer, not money); null when unpriced or issued before it was recorded. */
+    xpAwarded: integer('xp_awarded'),
   },
   (t) => [
     uniqueIndex('cert_grants_pk').on(t.userId, t.certId),

@@ -79,14 +79,22 @@ export type AcademyCertRevocation = z.infer<typeof academyCertRevocationSchema>;
 /**
  * AC-certificates-02: whether the XP a revoked certificate's grant was worth went back out to the rank ladder. `emitted`
  * names the reversal's business key and its (negative) XP delta; otherwise the reason: `no_policy` (the certificate
- * carried no XP, so nothing to take back), or `publisher_unavailable` / `publish_failed` (recoverable: revoke again and
- * it is published under the same key). XP is an integer and not money.
+ * carried no XP, so nothing to take back), `award_unrecorded` (granted before grants recorded their XP, so nothing is
+ * taken back rather than a guessed amount), or `publisher_unavailable` / `publish_failed` (recoverable: the sweep or a
+ * repeat revoke publishes it under the same key). XP is an integer and not money.
  */
 export const academyCertXpReversalSchema = z.discriminatedUnion('emitted', [
   z.object({ emitted: z.literal(true), idempotencyKey: z.string(), xpDelta: z.number().int() }),
   z.object({
     emitted: z.literal(false),
-    reason: z.enum(['no_policy', 'not_publishable', 'delta_unrepresentable', 'publisher_unavailable', 'publish_failed']),
+    reason: z.enum([
+      'no_policy',
+      'not_publishable',
+      'delta_unrepresentable',
+      'publisher_unavailable',
+      'publish_failed',
+      'award_unrecorded',
+    ]),
   }),
 ]);
 export type AcademyCertXpReversal = z.infer<typeof academyCertXpReversalSchema>;

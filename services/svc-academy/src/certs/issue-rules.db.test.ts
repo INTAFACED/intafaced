@@ -47,7 +47,7 @@ class CountingXp implements CertXpPublisher {
     this.published.push(`${grant.userId}:${grant.certId}`);
     return { emitted: false, reason: 'publisher_unavailable' };
   }
-  async publishCertXpReversal(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+  async publishCertXpReversal(grant: CertGrantRecord, _awardedXp: number): Promise<CertXpEmitResult> {
     this.published.push(`reversal:${grant.userId}:${grant.certId}`);
     return { emitted: false, reason: 'publisher_unavailable' };
   }

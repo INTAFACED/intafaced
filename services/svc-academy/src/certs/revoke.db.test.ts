@@ -42,13 +42,22 @@ function recordingBus() {
   const sent: Array<{ payload: { action: string; xpDelta: number; userId: string }; idempotencyKey: string }> = [];
   const bus = {
     down: false,
+    /** Refuse only this action (a bus that took the award and then dropped the reversal). */
+    refuse: null as string | null,
     sent,
     async publish(_event: string, payload: unknown, opts: { idempotencyKey: string }) {
-      if (bus.down) throw new Error('TEST bus refused');
-      sent.push({ payload: payload as (typeof sent)[number]['payload'], idempotencyKey: opts.idempotencyKey });
+      const event = payload as (typeof sent)[number]['payload'];
+      if (bus.down || bus.refuse === event.action) throw new Error('TEST bus refused');
+      sent.push({ payload: event, idempotencyKey: opts.idempotencyKey });
     },
   };
   return bus;
+}
+
+/** What identity's rank holds from these events: each business key counts once (`ON CONFLICT DO NOTHING`). */
+function identityNet(bus: ReturnType<typeof recordingBus>): number {
+  const once = new Map(bus.sent.map((e) => [e.idempotencyKey, e.payload.xpDelta]));
+  return [...once.values()].reduce((a, b) => a + b, 0);
 }
 
 /** The real publisher over that bus: the publish half is all it takes (the bus records the payload as it was given). */
@@ -135,44 +144,98 @@ describe('certificate revocation', () => {
     const bus = recordingBus();
     const academy = service(publisherOver(bus));
     const publicId = await issued(academy);
-    expect(bus.sent.map((e) => [e.payload.action, e.payload.xpDelta, e.idempotencyKey])).toEqual([
-      ['cert.granted', 100, `academy.cert:cert:${USER}:${CERT}`],
-    ]);
+    const awardKey = `academy.cert:cert:${USER}:${CERT}`;
+    expect(bus.sent.map((e) => [e.payload.action, e.payload.xpDelta, e.idempotencyKey])).toEqual([['cert.granted', 100, awardKey]]);
+    expect(identityNet(bus)).toBe(100);
     const first = await revoke(academy, publicId);
     const reversalKey = `academy.cert-revoke:cert:${USER}:${CERT}`;
     expect(first.xpReversal).toEqual({ emitted: true, idempotencyKey: reversalKey, xpDelta: -100 });
-    const reversals = bus.sent.filter((e) => e.payload.action === 'cert.revoked');
-    expect(reversals).toEqual([
-      {
-        payload: { userId: USER, sourceModule: 'academy', action: 'cert.revoked', xpDelta: -100, meta: { certId: CERT } },
-        idempotencyKey: reversalKey,
-      },
+    // The award went out again first under its own key (identity drops it when it already landed), then the reversal.
+    expect(bus.sent.slice(1).map((e) => [e.payload.action, e.payload.xpDelta, e.idempotencyKey])).toEqual([
+      ['cert.granted', 100, awardKey],
+      ['cert.revoked', -100, reversalKey],
     ]);
-    // The award went out again first under its own key (identity drops it when it already landed).
-    expect(bus.sent.at(-2)).toMatchObject({ idempotencyKey: `academy.cert:cert:${USER}:${CERT}`, payload: { xpDelta: 100 } });
-    // A repeat answers the first record and publishes the reversal again under the same key: one reversal at identity.
+    expect(bus.sent.at(-1)?.payload).toEqual({
+      userId: USER,
+      sourceModule: 'academy',
+      action: 'cert.revoked',
+      xpDelta: -100,
+      meta: { certId: CERT },
+    });
+    expect(identityNet(bus)).toBe(0);
+    expect(await sql`SELECT xp_settled FROM academy.cert_revocations`).toEqual([{ xp_settled: 'reversed' }]);
+    // A repeat answers the first record and publishes both again under the same keys: still net zero.
     expect((await revoke(academy, publicId, 'TEST another reason')).xpReversal).toEqual(first.xpReversal);
-    const again = bus.sent.filter((e) => e.payload.action === 'cert.revoked');
-    expect(again).toHaveLength(2);
-    expect(new Set(again.map((e) => e.idempotencyKey))).toEqual(new Set([reversalKey]));
+    expect(new Set(bus.sent.filter((e) => e.payload.action === 'cert.revoked').map((e) => e.idempotencyKey))).toEqual(
+      new Set([reversalKey]),
+    );
+    expect(identityNet(bus)).toBe(0);
     expect(await sql`SELECT 1 FROM academy.cert_revocations`).toHaveLength(1);
+    // Settled: the sweep has nothing left to send.
+    const before = bus.sent.length;
+    expect(await academy.settleRevokedCertXp()).toBe(0);
+    expect(bus.sent).toHaveLength(before);
   });
 
-  it('a failed publish leaves the revoke durable and says so; the next revoke publishes the reversal', async () => {
+  it('a reversal that fails after the award landed leaves the revoke durable and unsettled; the sweep restores net zero', async () => {
     const bus = recordingBus();
     const academy = service(publisherOver(bus));
     const publicId = await issued(academy);
-    bus.down = true;
+    bus.refuse = 'cert.revoked';
     const first = await revoke(academy, publicId);
     expect(first.xpReversal).toEqual({ emitted: false, reason: 'publish_failed' });
     expect((await academy.certVerify(publicId)).status).toBe('revoked');
-    expect(await sql`SELECT 1 FROM academy.cert_revocations`).toHaveLength(1);
-    expect(bus.sent.filter((e) => e.payload.action === 'cert.revoked')).toHaveLength(0);
+    // The award was re-sent and the reversal dropped: the learner still holds the XP, and the revocation is unsettled.
+    expect(identityNet(bus)).toBe(100);
+    expect(await sql`SELECT xp_settled FROM academy.cert_revocations`).toEqual([{ xp_settled: null }]);
+    // The sweep tries again each pass; while the bus refuses it settles nothing.
+    expect(await academy.settleRevokedCertXp()).toBe(0);
+    expect(identityNet(bus)).toBe(100);
+    bus.refuse = null;
+    expect(await academy.settleRevokedCertXp()).toBe(1);
+    expect(identityNet(bus)).toBe(0);
+    expect(await sql`SELECT xp_settled FROM academy.cert_revocations`).toEqual([{ xp_settled: 'reversed' }]);
+    expect(await academy.settleRevokedCertXp()).toBe(0);
+    expect(identityNet(bus)).toBe(0);
+  });
+
+  it('a revoke whose award never landed and whose publish failed (or crashed) still converges to zero by the sweep', async () => {
+    const bus = recordingBus();
+    bus.down = true;
+    const academy = service(publisherOver(bus));
+    const publicId = await issued(academy);
+    expect((await revoke(academy, publicId)).xpReversal).toEqual({ emitted: false, reason: 'publish_failed' });
+    expect(bus.sent).toHaveLength(0);
+    // Nothing reached identity yet; a crash right after the revoke committed leaves this same unsettled row.
     bus.down = false;
-    const healed = await revoke(academy, publicId);
-    expect(healed.xpReversal).toEqual({ emitted: true, idempotencyKey: `academy.cert-revoke:cert:${USER}:${CERT}`, xpDelta: -100 });
-    expect(healed.revokedAt).toEqual(first.revokedAt);
-    expect(bus.sent.filter((e) => e.payload.action === 'cert.revoked')).toHaveLength(1);
+    expect(await academy.settleRevokedCertXp()).toBe(1);
+    expect(bus.sent.map((e) => e.payload.action)).toEqual(['cert.granted', 'cert.revoked']);
+    expect(identityNet(bus)).toBe(0);
+  });
+
+  it('takes back the amount the grant recorded, not a later policy, and refuses a guess when none was recorded', async () => {
+    const bus = recordingBus();
+    const academy = service(publisherOver(bus));
+    const publicId = await issued(academy);
+    expect(await sql`SELECT xp_awarded FROM academy.cert_grants WHERE public_id = ${publicId}`).toEqual([{ xp_awarded: 100 }]);
+    // A grant that recorded 70 (the policy was 70 then) gives back 70, whatever the policy says now.
+    await sql`UPDATE academy.cert_grants SET xp_awarded = 70 WHERE public_id = ${publicId}`;
+    expect((await revoke(academy, publicId)).xpReversal).toEqual({
+      emitted: true,
+      idempotencyKey: `academy.cert-revoke:cert:${USER}:${CERT}`,
+      xpDelta: -70,
+    });
+    expect(bus.sent.slice(-2).map((e) => e.payload.xpDelta)).toEqual([70, -70]);
+
+    // A priced grant issued before grants recorded their XP: nothing is taken back, and the answer says why.
+    await db.truncateAll();
+    const legacy = await issued(academy);
+    await sql`UPDATE academy.cert_grants SET xp_awarded = NULL WHERE public_id = ${legacy}`;
+    const sentBefore = bus.sent.length;
+    expect((await revoke(academy, legacy)).xpReversal).toEqual({ emitted: false, reason: 'award_unrecorded' });
+    expect(bus.sent).toHaveLength(sentBefore);
+    expect(await sql`SELECT xp_settled FROM academy.cert_revocations`).toEqual([{ xp_settled: 'award_unrecorded' }]);
+    expect(await academy.settleRevokedCertXp()).toBe(0);
   });
 
   it('never reverses a certificate that still stands, and refuses an unknown code', async () => {
@@ -184,25 +247,15 @@ describe('certificate revocation', () => {
     expect(bus.sent.filter((e) => e.payload.action === 'cert.revoked')).toHaveLength(0);
   });
 
-  it('an unpriced certificate gave no XP, so its revoke publishes nothing and says no_policy', async () => {
-    // The only catalog certificate is priced; the publisher's own policy refusal is what an unpriced one answers.
-    const calls: string[] = [];
-    const unpriced: CertXpPublisher = {
-      id: 'unpriced',
-      usable: true,
-      async publishCertXp() {
-        calls.push('award');
-        return { emitted: false, reason: 'no_policy' };
-      },
-      async publishCertXpReversal() {
-        calls.push('reversal');
-        return { emitted: false, reason: 'no_policy' };
-      },
-    };
-    const academy = service(unpriced);
+  it('an unpriced grant recorded no XP, so its revoke publishes nothing and says no_policy', async () => {
+    // The only catalog certificate is priced, so an unpriced grant is one that recorded no award and has no policy.
+    const bus = recordingBus();
+    const academy = service(publisherOver(bus));
     const publicId = await issued(academy);
-    calls.length = 0;
+    await sql`UPDATE academy.cert_grants SET xp_awarded = NULL, cert_id = 'not-in-policy-v1' WHERE public_id = ${publicId}`;
+    const sentBefore = bus.sent.length;
     expect((await revoke(academy, publicId)).xpReversal).toEqual({ emitted: false, reason: 'no_policy' });
-    expect(calls).toEqual(['award']);
+    expect(bus.sent).toHaveLength(sentBefore);
+    expect(await sql`SELECT xp_settled FROM academy.cert_revocations`).toEqual([{ xp_settled: 'no_policy' }]);
   });
 });

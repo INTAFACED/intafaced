@@ -69,8 +69,10 @@ export function readCertRevokeAnswer(raw: unknown): CertRevokeAnswer | null {
 function certXpWords(xp: CertRevokeAnswer['xpReversal']): string {
   if (xp.emitted) return `The ${-xp.xpDelta} XP it gave was sent back to the rank ladder.`;
   if (xp.reason === 'no_policy') return 'It carried no XP, so there was none to take back.';
+  if (xp.reason === 'award_unrecorded')
+    return 'It was issued before certificates recorded the XP they gave, so svc-academy took none back rather than guess an amount.';
   if (xp.reason === 'publisher_unavailable' || xp.reason === 'publish_failed')
-    return 'The XP it gave could not be sent back yet (svc-academy could not publish it). Revoking it again sends it under the same key, and it is taken once.';
+    return 'The XP it gave could not be sent back yet (svc-academy could not publish it). The certificate sweep, or revoking it again, sends it under the same key, and it is taken once.';
   return `svc-academy did not send its XP back (${xp.reason}).`;
 }
 
@@ -345,7 +347,7 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
         readCertRevokeAnswer,
       );
       // svc-academy looks the code up before it spends the approval, so an unknown one leaves the approval unspent.
-      if (result.kind === 'refused' && result.refusal.status === 404) {
+      if (result.kind === 'refused' && result.refusal.code === 'academy.cert_not_found') {
         return {
           ok: false,
           refusal: {

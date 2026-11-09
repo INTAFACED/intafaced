@@ -266,7 +266,7 @@ export function RevokeCertificateAction({ userId, onChanged }: { userId: string;
           value={target}
           autoComplete="off"
           spellCheck={false}
-          placeholder="32 letters and digits, from the holder’s verify link"
+          placeholder="32 characters, digits 0 to 9 and letters a to f, from the holder’s verify link"
           onChange={(e) => setTarget(e.target.value)}
         />
       </div>
@@ -280,7 +280,7 @@ export function RevokeCertificateAction({ userId, onChanged }: { userId: string;
             ? null
             : code === ''
               ? 'Enter the certificate’s public code above first (the end of its verify link, /academy/certificates/verify/<code>).'
-              : 'That is not a certificate code: it is 32 letters a to f and digits, the end of the holder’s verify link.'
+              : 'That is not a certificate code: it is 32 characters, digits 0 to 9 and letters a to f, the end of the holder’s verify link.'
         }
         action={action}
         consequence={`The certificate's public verify page says revoked, and the revoke is in the grant audit with who did it and why. The XP the certificate gave is taken back from the holder's rank, so a perk that rank gave stops. It cannot be undone, and the holder cannot claim it again. ${TWO_PEOPLE}`}
