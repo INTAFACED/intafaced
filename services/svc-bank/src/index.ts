@@ -28,7 +28,7 @@ import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { parseDisputeCap } from './cards/card-disputes.js';
-import { cardSimPartnerFor, parseSpendAssets } from './cards/partner-terms.js';
+import { cardSimPartnerFor, parsePinTryLimit, parseSpendAssets } from './cards/partner-terms.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
@@ -157,6 +157,9 @@ const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env
 
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // The custody switch, as svc-ledger reads it (OWNER 226): off, a card authorisation no partner holds refuses
+  // `bank.partner_unset` rather than meeting the ledger's raw refusal.
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
@@ -254,6 +257,8 @@ const bank = createBankServices(sql, ledger, history, {
     ),
     /** The owner's list of assets a card may pay from (BK-ccrypto-01). Blank refuses `bank.card_spend_assets_unset`. */
     spendAssets: parseSpendAssets(env.BANK_CARD_SPEND_ASSETS),
+    /** The owner's count of wrong PIN tries that block a card's PIN (J-bank-14 #3). Blank declines a PIN by name. */
+    pinTryLimit: parsePinTryLimit(env.BANK_CARD_PIN_TRY_LIMIT),
     /** The owner's card programme terms (BK-cissue-01): eligibility, count limits, terms, designs, speeds. Blank refuses. */
     programmeTerms: parseCardProgramme(env.BANK_CARD_PROGRAMME_JSON),
     /** Cashback by rank card tier (RC-bank-02): the owner's rates, identity's rank door, and the simulator's TEST stand-in. */

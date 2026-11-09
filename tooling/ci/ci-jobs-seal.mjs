@@ -60,7 +60,7 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
   const id = `CI run ${run.id} (attempt ${run.run_attempt ?? 1})`;
   // A run is judged once every job but ci.yml's own seal has finished: a re-run of that seal alone puts the run back in
   // progress, and must not turn this seal red (the CI review on 7a7eb9a0, 8 Nov 2026).
-  const pending = (jobs ?? []).filter((j) => j?.name !== 'CI merge seal' && j?.status !== 'completed');
+  const pending = (jobs ?? []).filter((j) => j?.name !== 'CI merge seal' && j?.name !== 'CI jobs' && j?.status !== 'completed');
   if (run.status !== 'completed' && (pending.length || !(jobs ?? []).length))
     return { ok: false, wait: true, lines: [`${id} on this head is ${run.status}; the seal re-runs when it finishes`] };
   const flags = files === null ? { full: true, affected: false } : classify(files, { forceFull });

@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { createIdentityWithdrawalFreezeClient, WithdrawalFreezes } from './withdrawal-freeze.js';
 import { createPayOwnershipClient, SqlLinkBook, TicketLinks } from './ticket-links.js';
 import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
@@ -303,6 +304,8 @@ const appRouter = createSupportRouter(
   ),
   chat,
   routing,
+  // Withdrawal freezes (J-support-public-20 #7): svc-identity records each one.
+  new WithdrawalFreezes(support, createIdentityWithdrawalFreezeClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)),
   links,
 );
 const edgeContext = createEdgeContext({
