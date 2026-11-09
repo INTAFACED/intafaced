@@ -210,6 +210,38 @@ jobs:
             *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
           esac
 
+  # Main first (INTAFACED/project-state#1574 item 3, tooling/ci/main-first.mjs): a run off main that has journeys to
+  # run waits here, before its planner, build and shards queue, while a main run still has jobs waiting for a runner,
+  # checking once a minute for at most 30 minutes, then goes on. Runners go to the jobs queued first, and on 9 Nov 2026
+  # main's 44 shards waited 23 to 42 minutes for runners behind branch runs. It never fails the run (plan and build run
+  # on `!cancelled()`, and the script goes on whatever it reads) and it never runs on main, so a main run is never held
+  # or touched. It runs the default branch's copy of the script.
+  main-first:
+    name: Main's journeys first
+    needs: [touch]
+    if: ${{ !cancelled() && github.ref != 'refs/heads/main' && needs.touch.outputs.mode != 'none' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35 # 30 minutes of waiting at most, then it goes on
+    permissions:
+      contents: read
+      actions: read # main's Real-app journeys runs and their jobs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .base
+          sparse-checkout: tooling/ci
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      - name: Wait while main's journeys wait for runners
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: node .base/tooling/ci/main-first.mjs
+
   # Splits the journey files across the shards by their times in the last finished runs on main, so the shards end
   # together (tooling/scripts/journey-shards.mjs; Playwright's own --shard split by count left one shard 33 minutes
   # behind the shortest in run 338), and picks how many shards keep each near the longest journey file's time less the
@@ -221,7 +253,7 @@ jobs:
   # falls back: a name that is not a journey file fails this job, and no shard runs.
   plan:
     name: Plan the shards
-    needs: [touch]
+    needs: [touch, main-first]
     if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -308,7 +340,7 @@ jobs:
   # else, or nothing, builds it itself as before (local-test-stack.mjs buildStillFresh).
   build:
     name: Build the stack once
-    needs: [touch]
+    needs: [touch, main-first]
     if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20 # healthy run: about 3 minutes

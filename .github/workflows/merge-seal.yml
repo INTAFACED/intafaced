@@ -24,12 +24,22 @@ on:
 
 permissions: {}
 
-# A group of its own per run, never cancelled: a cancelled seal is a red required check that would block its head until
-# re-run, and GitHub cancels a pending run whenever a newer one queues in the same group. An older head's seal finishes
-# on its own head and never blocks the newer one (workflow-concurrency.test.mjs PR_EXCEPTIONS).
+# A new head stops the seal of the head it replaced (INTAFACED/project-state#1574 item 2): the first attempt of a run
+# started by a push (`synchronize`) or by opening the pull request (`opened`) joins one group per pull request, and
+# cancels the run there, which is always an older head's: every `synchronize` is a new head, and `opened` is the first
+# run. That seal's verdict is on a head nobody can merge any more, so nobody reads it (an older head's seal may wait 20
+# minutes for its CI review). Every other run has a group of its own and is never cancelled and cancels nothing: a
+# cancelled seal on the head being merged is a red required check that blocks it until re-run, and every `CI merge seal`
+# on a head must pass (probe #7547). So:
+#   - a re-run (run_attempt above 1: journey-seal-recheck.yml, the CI review's seal re-run, the factory switch) keeps its
+#     run's own group, so re-running an old head's seal never cancels the new head's seal, and nothing cancels a re-run;
+#     a re-run is posted only while the pull request is still on that head (journey-seal.mjs rerunBlocker, seal-rerun.mjs
+#     moved), and re-running the newest seal and then an older red one on the same head (otherSeals) cancels neither;
+#   - `edited` and `reopened` run on the head being merged, beside the push's seal, and are never cancelled.
+# workflow-concurrency.test.mjs holds this.
 concurrency:
-  group: merge-seal-${{ github.run_id }}
-  cancel-in-progress: false
+  group: ${{ (github.run_attempt == '1' && (github.event.action == 'synchronize' || github.event.action == 'opened')) && format('merge-seal-pr-{0}', github.event.pull_request.number) || format('merge-seal-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.run_attempt == '1' && (github.event.action == 'synchronize' || github.event.action == 'opened') }}
 
 jobs:
   seal:

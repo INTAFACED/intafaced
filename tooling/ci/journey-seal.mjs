@@ -1327,14 +1327,32 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
 export const sealsToRecheck = (finished) => SEAL_WORKFLOWS.filter((w) => finished !== 'CI' || w.workflow !== CI_WORKFLOW);
 
 /**
- * The open pull requests a re-check re-seals: after CI finished (`finished` = 'CI'), every open pull request into this
- * repository on `sha`, since the default branch's seal reads CI's jobs; otherwise those recheckPulls takes (named steps,
- * an exemption line, or a change the journeys run judges).
+ * `finished` when auto-merge was just armed on the pull request (journey-seal-recheck.yml, `auto_merge_enabled`): its
+ * seals are re-run whatever its title names, since no re-check touched them while it was not armed (armed).
+ */
+export const ARMED = 'armed';
+
+/**
+ * Whether a re-check touches this pull request: only one with auto-merge armed (GitHub's `auto_merge`, set on the pull
+ * request objects both the commit's pull request list and the pull request read return). Only an armed pull request
+ * merges on its seal, so only its seal is read when it turns; one that is not armed is re-sealed when it is armed
+ * (ARMED), and every push and edit still runs a fresh seal (merge-seal.yml). (Failure it prevents: at 02:45 UTC on
+ * 9 Nov 2026, 29 re-checks were queued, each of which can hold a runner up to 25 minutes waiting out a running seal,
+ * for pull requests that no merge was waiting on; INTAFACED/project-state#1574 item 4.)
+ */
+export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefined;
+
+/**
+ * The open pull requests a re-check re-seals, of those with auto-merge armed (armed): after CI finished (`finished` =
+ * 'CI') or on arming (`finished` = ARMED), every open pull request into this repository on `sha`, since the default
+ * branch's seal reads CI's jobs; otherwise those recheckPulls takes (named steps, an exemption line, or a change the
+ * journeys run judges).
  */
 export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = '', oldBody = '', filesOf }) {
-  if (finished === 'CI')
-    return (pulls ?? []).filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo);
-  return recheckPulls({ pulls, sha, repo, oldTitle, oldBody, shared: await sharedPulls({ pulls, sha, repo, filesOf }) });
+  const live = (pulls ?? []).filter(armed);
+  if (finished === 'CI' || finished === ARMED)
+    return live.filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo);
+  return recheckPulls({ pulls: live, sha, repo, oldTitle, oldBody, shared: await sharedPulls({ pulls: live, sha, repo, filesOf }) });
 }
 
 /**
@@ -1372,7 +1390,9 @@ async function recheck({ repo, token }) {
     filesOf: (n) => pullFiles(get, repo, n),
   });
   if (!named.length)
-    return console.log(`no open pull request on ${SHA} needs its seal re-run (${FINISHED || 'an edit'}); the seal is left as it is`);
+    return console.log(
+      `no open pull request with auto-merge armed on ${SHA} needs its seal re-run (${FINISHED || 'an edit'}); the seal is left as it is`,
+    );
   // Each seal on the head, ci.yml's and the default branch's (SEAL_WORKFLOWS); every one must pass, so each is re-run.
   // Read again just before a re-run: the head may have moved while a running seal was waited out (rerunBlocker).
   const outcomes = [];

@@ -7,9 +7,15 @@ name: Journey seal re-check
 #   - CI on a branch finished (workflow_run): the seal's first step reads CI's jobs on the head (ci-jobs-seal.mjs), so
 #     every open pull request on that head is re-sealed, whatever its title (merge-seal.yml, R3 C3 piece 2);
 #   - a pull request's title or body was edited (pull_request_target): the seal reads the new title and "Left or
-#     replaced" list. CI runs on pushes, not on edits, so without this an edit after a green seal would never be read.
+#     replaced" list. CI runs on pushes, not on edits, so without this an edit after a green seal would never be read;
+#   - auto-merge was armed on a pull request (pull_request_target, `auto_merge_enabled`): every seal on its head is
+#     re-run, whatever its title names, since no re-check touched it while it was not armed.
+# Only pull requests with auto-merge armed are touched (journey-seal.mjs `armed`): only they merge on their seal, so a
+# re-check for one nobody is merging only held a runner (29 re-checks queued at 02:45 UTC on 9 Nov 2026, each able to
+# wait out a running seal for up to 25 minutes; INTAFACED/project-state#1574 item 4). An edit of a pull request that is
+# not armed is skipped before it takes a runner; a finished run's re-check reads which pull requests on its head are armed.
 # After a journeys run or an edit, only open pull requests whose title names journey steps (or named them before the
-# edit), or whose change the journeys run judges, are touched; after CI, every open pull request on the head.
+# edit), or whose change the journeys run judges, are touched; after CI or on arming, every open pull request on the head.
 #
 # Both triggers run the copy of this file and of the script on the default branch. Nothing here checks out, builds or
 # runs code from a pull request: the script reads the pull request, and CI's runs and jobs on the head, through the API.
@@ -18,7 +24,7 @@ on:
     workflows: [Real-app journeys, CI]
     types: [completed]
   pull_request_target:
-    types: [edited]
+    types: [edited, auto_merge_enabled]
 
 permissions: {}
 
@@ -47,7 +53,8 @@ jobs:
        ((github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'pull_request') ||
         (github.event.workflow_run.head_branch != 'main' &&
          github.event.workflow_run.head_repository.full_name == github.repository))) ||
-      (github.event_name == 'pull_request_target' && (github.event.changes.title || github.event.changes.body))
+      (github.event_name == 'pull_request_target' && github.event.pull_request.auto_merge &&
+       (github.event.action == 'auto_merge_enabled' || github.event.changes.title || github.event.changes.body))
     runs-on: ubuntu-latest
     timeout-minutes: 30 # healthy run: seconds; waiting out a running seal takes up to 25 minutes (SEAL_POLLS in the script)
     permissions:
@@ -67,5 +74,6 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OLD_TITLE: ${{ github.event.changes.title.from }}
           OLD_BODY: ${{ github.event.changes.body.from }} # an env value, never part of the script text
-          FINISHED: ${{ github.event.workflow_run.name }} # `CI` re-seals every open pull request on the head
+          # `CI` re-seals every armed open pull request on the head; `armed` (journey-seal.mjs ARMED) re-seals the one armed.
+          FINISHED: ${{ github.event.workflow_run.name || (github.event.action == 'auto_merge_enabled' && 'armed') || '' }}
         run: node tooling/ci/journey-seal.mjs --recheck
