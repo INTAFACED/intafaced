@@ -310,11 +310,7 @@ async function venueReviewLimit(page, side, price, amount) {
 const venuePanel = (page) => page.getByRole('region', { name: /venue account/i });
 
 /** The figure the panel lists next to `label` (its dt/dd pair). */
-const listed = (scope, label) =>
-  scope
-    .locator('div', { has: scope.page().locator('dt', { hasText: label }) })
-    .locator('dd')
-    .first();
+const listed = (scope, label) => scope.locator('dt', { hasText: label }).first().locator('xpath=following-sibling::dd[1]');
 
 /**
  * The panel shows the venue's own USDC figures for `owner`, unit for unit, with the venue's as-of time. Read again
