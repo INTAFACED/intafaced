@@ -94,10 +94,11 @@ describe('/api/v1/venue/*', () => {
 
   it('orders refuse builder_fee_not_published (422); a withdrawal without its step-up refuses 403; a money number refuses 400', async () => {
     await mount(door('required'));
+    // A spot sell: a spot buy carries no builder fee, so a blank one never refuses it (project-state #1888).
     const order = {
       kind: 'place_order',
       symbol: 'BTC-USDC',
-      side: 'buy',
+      side: 'sell',
       type: 'limit',
       amount: '0.1',
       price: '60000',
