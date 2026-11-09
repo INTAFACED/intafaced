@@ -406,6 +406,8 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
   const { who, address, credential } = s0;
   // Trading on the venue needs a verified account (the trade jurisdiction's tier); the journey's person verifies once.
   if (!s0.verified) {
+    // verify() acts as the signed-in person, so this fresh page signs in first (it signs out again after).
+    await signIn(page, who);
     await verify(page, who);
     run.write({ verified: true });
   }
