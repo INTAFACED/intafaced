@@ -2,9 +2,17 @@
  * LIVE TESTNET CONFORMANCE — run by hand, never in CI.
  *
  *   APP_ENV=test HL_TESTNET_KEY_FILE=/path/to/keys.json \
- *   HL_SPOT_SYMBOL=PURR-USDC HL_SPOT_PRICE=<a price near the book> HL_SPOT_SIZE=<size> \
- *   HL_PROBE_SYMBOL=ETH-PERP HL_PROBE_PRICE=<a price far from the book> HL_PROBE_SIZE=<size> \
  *     pnpm --filter @intafaced/venue-hyperliquid conformance:live
+ *
+ * Optional settings, each worked out from the live testnet when unset (`live-settings.ts`) and printed with
+ * "(derived)" or "(set)":
+ *   HL_SPOT_SYMBOL  the first USDC spot pair whose mid is above 100 with room inside its spread;
+ *   HL_SPOT_PRICE   a price strictly inside that pair's spread (`l2Book`), with price ± 100 valid too;
+ *   HL_SPOT_SIZE    the smallest lot (`szDecimals`) worth 11 USDC at that price;
+ *   HL_PROBE_SYMBOL ETH-PERP;
+ *   HL_PROBE_PRICE  60 percent of the best bid (`l2Book`), a valid price far from any fill;
+ *   HL_PROBE_SIZE   the smallest lot worth 11 USDC at that price.
+ * `testnet:setup` (testnet-setup.ts) adds the "agent", "other" and "third" keys and funds them first.
  *
  * Runs the shared `UserVenue` conformance suite (`@intafaced/venue-sim`, conformance.ts)
  * against the Hyperliquid TESTNET, then a duplicate-cloid probe: the same order
@@ -27,12 +35,11 @@
 import { readFileSync } from 'node:fs';
 import { deepStrictEqual } from 'node:assert/strict';
 import { privateKeyToAccount } from 'viem/accounts';
-import { compare, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { compare, formatAmount, type Amount } from '@intafaced/ledger-client/money';
 import type { PlaceUserOrderIntent, PreparedVenueAction, UserVenueAccount } from '@intafaced/venue-contracts';
 import { defineUserVenueConformance, type ConformanceWallet } from '@intafaced/venue-sim';
 import { HL_TESTNET_VENUE_ID, HyperliquidTestnetUserVenue, typedDataDigest, type HlTypedData, type L1TypedData } from '../src/index.js';
-
-type KeyName = 'trader' | 'agent' | 'other' | 'third';
+import { KEY_NAMES, LIVE_PERP, SettingError, isHexKey, resolveProbe, resolveSpot, type KeyName, type Resolved } from './live-settings.js';
 
 function fail(message: string): never {
   process.stderr.write(`${message}\n`);
@@ -50,12 +57,11 @@ function readKeys(): Partial<Record<KeyName, `0x${string}`>> {
     fail('HL_TESTNET_KEY_FILE could not be read as JSON.');
   }
   const out: Partial<Record<KeyName, `0x${string}`>> = {};
-  for (const name of ['trader', 'agent', 'other', 'third'] as const) {
+  for (const name of KEY_NAMES) {
     const value = (parsed as Record<string, unknown>)[name];
     if (value === undefined) continue;
-    if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value))
-      fail(`key "${name}" is not a 32-byte hex key (its value is not shown).`);
-    out[name] = value as `0x${string}`;
+    if (!isHexKey(value)) fail(`key "${name}" is not a 32-byte hex key (its value is not shown).`);
+    out[name] = value;
   }
   if (!out.trader) fail('the key file has no "trader" key.');
   return out;
@@ -77,10 +83,15 @@ function wallet(key: `0x${string}`, role: 'owner' | 'agent'): ConformanceWallet 
   };
 }
 
-function env(name: string): string {
-  const v = process.env[name];
-  if (!v) fail(`${name} is not set.`);
-  return v;
+const said = (r: Resolved<unknown>) => `${typeof r.value === 'bigint' ? formatAmount(r.value) : String(r.value)} (${r.source})`;
+
+async function settings<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof SettingError) fail(`settings: ${error.message}`);
+    throw error;
+  }
 }
 
 // ── a tiny describe / it / expect, so the shared suite runs without a test runner ──
@@ -134,14 +145,18 @@ async function main(): Promise<void> {
   process.stdout.write(`venue: ${venue.venue.displayName} (${venue.venue.id}); trader ${traderAccount.owner}\n`);
 
   // ── the duplicate-cloid probe ──
-  const probeSymbol = env('HL_PROBE_SYMBOL');
+  const probeSettings = await settings(() => resolveProbe(venue, process.env));
+  const probeSymbol = probeSettings.symbol.value;
+  process.stdout.write(
+    `probe settings: HL_PROBE_SYMBOL ${said(probeSettings.symbol)}, HL_PROBE_PRICE ${said(probeSettings.price)}, HL_PROBE_SIZE ${said(probeSettings.size)}\n`,
+  );
   const probe: PlaceUserOrderIntent = {
     kind: 'place_order',
     symbol: probeSymbol,
     side: 'buy',
     type: 'limit',
-    amount: parseAmount(env('HL_PROBE_SIZE')),
-    price: parseAmount(env('HL_PROBE_PRICE')),
+    amount: probeSettings.size.value,
+    price: probeSettings.price.value,
     timeInForce: 'GTC',
     reduceOnly: false,
     clientOrderKey: `order:live-probe:${traderAccount.owner}:${new Date().toISOString().slice(0, 10)}:dup`,
@@ -168,22 +183,24 @@ async function main(): Promise<void> {
     process.stdout.write('conformance suite: SKIPPED (the key file needs "agent", "other" and "third" too)\n');
     process.exit(probePassed ? 0 : 1);
   }
-  const spot = { symbol: env('HL_SPOT_SYMBOL'), price: parseAmount(env('HL_SPOT_PRICE')), size: parseAmount(env('HL_SPOT_SIZE')) };
-  const spotMarket = (await venue.markets(null)).value.find((m) => m.symbol === spot.symbol);
-  if (!spotMarket) fail(`${spot.symbol} is not listed on the testnet`);
+  const spotSettings = await settings(() => resolveSpot(venue, process.env));
+  process.stdout.write(
+    `spot settings: HL_SPOT_SYMBOL ${said(spotSettings.symbol)}, HL_SPOT_PRICE ${said(spotSettings.price)}, HL_SPOT_SIZE ${said(spotSettings.size)}\n`,
+  );
+  const spot = { symbol: spotSettings.symbol.value, price: spotSettings.price.value, size: spotSettings.size.value };
   defineUserVenueConformance(
     {
       canLoseAnswers: false,
       dedupesClientIds: true,
       canSettleWithdrawals: false,
-      perp: null,
+      perp: LIVE_PERP,
       async setup() {
         return {
           venue,
           trader: { account: traderAccount, wallet: trader, agent: wallet(keys.agent!, 'agent') },
           other: { account: acct(keys.other!), wallet: wallet(keys.other!, 'owner') },
           third: { account: acct(keys.third!), wallet: wallet(keys.third!, 'owner') },
-          spot: { ...spot, base: spotMarket.baseAsset, quote: spotMarket.quoteAsset },
+          spot: { ...spot, base: spotSettings.base, quote: spotSettings.quote },
           async fund(account: UserVenueAccount, asset: string, amount: Amount) {
             const have = (await venue.balances(account)).value.find((b) => b.asset === asset)?.free ?? 0n;
             if (compare(have, amount) < 0) {

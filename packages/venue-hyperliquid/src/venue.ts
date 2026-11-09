@@ -165,6 +165,17 @@ export interface HyperliquidTestnetOptions {
   readonly nonceSource?: HyperliquidNonceSource;
 }
 
+export interface HlBookLevel {
+  readonly price: Amount;
+  readonly size: Amount;
+}
+
+export interface HlBook {
+  readonly symbol: string;
+  readonly bids: readonly HlBookLevel[];
+  readonly asks: readonly HlBookLevel[];
+}
+
 interface HlMarket {
   readonly symbol: string;
   readonly kind: 'spot' | 'perpetual';
@@ -480,6 +491,37 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
     }));
     return this.asOf(list);
+  }
+
+  /**
+   * The venue's top-of-book levels for `symbol` (`l2Book`), best first: bids high to low, asks low to high.
+   * A read for hand-run tools (the live conformance runner picks prices from it); not part of `UserVenue`.
+   */
+  async l2Book(symbol: string): Promise<AsOf<HlBook>> {
+    const m = await this.market(symbol);
+    const book = obj(await this.info({ type: 'l2Book', coin: m.coin }), 'l2Book');
+    const [bids, asks] = arr(book.levels, 'l2Book levels');
+    const side = (levels: Json | undefined, what: string): HlBookLevel[] =>
+      arr(levels, what).map((l) => {
+        const level = obj(l, `${what}[]`);
+        return { price: amt(level.px, 'px'), size: amt(level.sz, 'sz') };
+      });
+    return this.asOf(
+      { symbol: m.symbol, bids: side(bids, 'bids'), asks: side(asks, 'asks') },
+      typeof book.time === 'number' ? book.time : undefined,
+    );
+  }
+
+  /** The venue's mid price of every listed market (`allMids`), by our symbol. A coin we do not list is left out. */
+  async mids(): Promise<AsOf<ReadonlyMap<string, Amount>>> {
+    const { byCoin } = await this.loadMarkets();
+    const answer = obj(await this.info({ type: 'allMids' }), 'allMids');
+    const out = new Map<string, Amount>();
+    for (const [coin, px] of Object.entries(answer)) {
+      const m = byCoin.get(coin);
+      if (m) out.set(m.symbol, amt(px, `mid of ${coin}`));
+    }
+    return this.asOf(out);
   }
 
   // ── prepare ────────────────────────────────────────────────────────────

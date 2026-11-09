@@ -14,6 +14,8 @@ import {
   splitSignature,
   flatTypedDataDigest,
   userSignedTypedData,
+  usdSendAction,
+  USER_SIGNED_TYPES,
   type Eip712Field,
   type HlTypedData,
 } from './signing.js';
@@ -103,6 +105,29 @@ describe('Hyperliquid signing vectors (official Python SDK)', () => {
       await expectSdkSigned(typed, v.signature);
     });
   }
+
+  it('usdSendAction builds the bytes the SDK signed for test_sign_usd_transfer_action (testnet, Arbitrum Sepolia)', async () => {
+    const v = vectors.userSigned.find((u) => u.test === 'test_sign_usd_transfer_action')!;
+    const { action, typedData } = usdSendAction(String(v.message.destination), String(v.message.amount), BigInt(v.message.time!));
+    expect(typedData.message.hyperliquidChain).toBe('Testnet');
+    expect(typedData.domain.chainId).toBe(421614);
+    expect(typedData.types[typedData.primaryType]).toEqual(USER_SIGNED_TYPES['HyperliquidTransaction:UsdSend']);
+    expect(action).toEqual({
+      type: 'usdSend',
+      signatureChainId: '0x66eee',
+      hyperliquidChain: 'Testnet',
+      destination: v.message.destination,
+      amount: '1',
+      time: v.message.time,
+    });
+    await expectSdkSigned(typedData, v.signature);
+  });
+
+  it('usdSendAction refuses a zero or malformed amount and a bad destination', () => {
+    expect(() => usdSendAction('0x5e9ee1089755c3435139848e47e6635505d5a13a', '0', 1n)).toThrow(/positive/);
+    expect(() => usdSendAction('0x5e9ee1089755c3435139848e47e6635505d5a13a', '1e3', 1n)).toThrow(/positive/);
+    expect(() => usdSendAction('0x5e9e', '1', 1n)).toThrow(/not an address/);
+  });
 
   it('a vector checked against the wrong digest does not recover the SDK key (the check can fail)', async () => {
     const v = vectors.l1[0]!;

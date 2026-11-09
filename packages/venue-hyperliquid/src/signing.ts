@@ -10,7 +10,7 @@ import { encodeMsgpack, type MsgpackValue } from './msgpack.js';
  *    EIP-712 `Agent { source, connectionId }` in the `Exchange` domain
  *    (chain id 1337). `source` is "b" on testnet ("a" is mainnet and is refused
  *    here).
- * 2. User-signed actions (withdraw3, approveAgent, approveBuilderFee): EIP-712
+ * 2. User-signed actions (withdraw3, usdSend, approveAgent, approveBuilderFee): EIP-712
  *    `HyperliquidTransaction:<Name>` in the `HyperliquidSignTransaction`
  *    domain, whose chain id is `signatureChainId`; the message carries
  *    `hyperliquidChain: "Testnet"` ("Mainnet" is refused here).
@@ -96,6 +96,12 @@ export const USER_SIGNED_TYPES = {
     { name: 'amount', type: 'string' },
     { name: 'time', type: 'uint64' },
   ],
+  'HyperliquidTransaction:UsdSend': [
+    { name: 'hyperliquidChain', type: 'string' },
+    { name: 'destination', type: 'string' },
+    { name: 'amount', type: 'string' },
+    { name: 'time', type: 'uint64' },
+  ],
   'HyperliquidTransaction:ApproveAgent': [
     { name: 'hyperliquidChain', type: 'string' },
     { name: 'agentAddress', type: 'address' },
@@ -153,6 +159,34 @@ export function userSignedTypedData(
 }
 
 export type HlTypedData = L1TypedData | UserSignedTypedData;
+
+/**
+ * The SDK's `usd_transfer`: move perpetual-account USDC to another address on the TESTNET. `amount` is the
+ * venue's decimal string; `time` is the nonce. Returns the wire action and what the wallet signs.
+ */
+export function usdSendAction(
+  destination: string,
+  amount: string,
+  nonce: bigint,
+): { readonly action: Record<string, MsgpackValue>; readonly typedData: UserSignedTypedData } {
+  const to = addressBytes(destination);
+  if (!/^\d+(\.\d+)?$/.test(amount) || /^0+(\.0+)?$/.test(amount)) throw new Error(`usdSend: ${amount} is not a positive decimal`);
+  const typedData = userSignedTypedData('HyperliquidTransaction:UsdSend', USER_SIGNED_TYPES['HyperliquidTransaction:UsdSend'], {
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    destination: to,
+    amount,
+    time: nonce,
+  });
+  const action: Record<string, MsgpackValue> = {
+    type: 'usdSend',
+    signatureChainId: HL_SIGNATURE_CHAIN_ID,
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    destination: to,
+    amount,
+    time: Number(nonce),
+  };
+  return { action, typedData };
+}
 
 const EIP712_DOMAIN_TYPE = 'EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)';
 

@@ -967,3 +967,49 @@ describe('review fixes: nonces, listing, symbols, paging, marks, destinations', 
     expect([w.asset, w.destination]).toEqual([PERP_COLLATERAL_ASSET, OWNER]);
   });
 });
+
+describe('book reads for the hand-run tools', () => {
+  it('l2Book reads the market by its venue coin and returns scaled bigints, best first', async () => {
+    const fake = fakeVenue();
+    let asked: unknown;
+    fake.info.l2Book = (b) => {
+      asked = b.coin;
+      return {
+        coin: 'PURR/USDC',
+        time: NOW,
+        levels: [
+          [
+            { px: '0.2001', sz: '100', n: 1 },
+            { px: '0.2', sz: '5', n: 2 },
+          ],
+          [{ px: '0.2005', sz: '7', n: 1 }],
+        ],
+      };
+    };
+    const book = await venueWith(fake).l2Book('PURR-USDC');
+    expect(asked).toBe('PURR/USDC');
+    expect(book.value).toEqual({
+      symbol: 'PURR-USDC',
+      bids: [
+        { price: a('0.2001'), size: a('100') },
+        { price: a('0.2'), size: a('5') },
+      ],
+      asks: [{ price: a('0.2005'), size: a('7') }],
+    });
+    expect(book.asOf.getTime()).toBe(NOW);
+  });
+
+  it('l2Book of an unknown symbol is refused unknown_market', async () => {
+    await expect(venueWith(fakeVenue()).l2Book('NOPE-USDC')).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
+  });
+
+  it('mids maps coins to our symbols and leaves out coins we do not list', async () => {
+    const fake = fakeVenue();
+    fake.info.allMids = () => ({ ETH: '2000.5', 'PURR/USDC': '0.2003', '@999': '1' });
+    const mids = (await venueWith(fake).mids()).value;
+    expect([...mids.entries()].sort()).toEqual([
+      ['ETH-PERP', a('2000.5')],
+      ['PURR-USDC', a('0.2003')],
+    ]);
+  });
+});

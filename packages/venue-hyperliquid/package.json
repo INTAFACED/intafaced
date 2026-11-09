@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "conformance:live": "tsx scripts/live-conformance.ts",
+    "testnet:setup": "tsx scripts/testnet-setup.ts",
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
