@@ -296,34 +296,42 @@ export class SafetyCases {
     };
     const fingerprint = fingerprintOf('scam', fields);
     // One report per transfer (BK-safe-02's key `scam-report:<userId>:<transferId>`; the book keys by person already).
-    const requestKey = `scam-report:${input.transferId}`;
+    // Before any money moved there is no transfer: one report per set of words.
+    const transferId = input.when === 'after_sending' ? input.transferId : undefined;
+    const requestKey = transferId ? `scam-report:${transferId}` : `scam-report:before:${fingerprint.slice(0, 40)}`;
     const first = async () => {
       const prior = await this.book.find(userId, 'scam', requestKey);
       return prior ? acknowledgementOf(prior) : null;
     };
     const prior = await first();
     if (prior) return prior;
-    const answer = await this.transfers.check({ userId, transferId: input.transferId });
-    if (answer.state === 'unavailable')
-      throw new SupportError(
-        'the bank could not say whether this transfer is yours, so the report was not taken',
-        SUPPORT_SCAM_TRANSFER_UNCHECKED,
-      );
-    if (!answer.sent) throw new SupportError('this transfer is not one you sent', SUPPORT_SCAM_TRANSFER_NOT_YOURS);
-    const when = input.when === 'after_sending' ? 'after sending money' : 'before sending any money';
+    if (transferId) {
+      const answer = await this.transfers.check({ userId, transferId });
+      if (answer.state === 'unavailable')
+        throw new SupportError(
+          'the bank could not say whether this transfer is yours, so the report was not taken',
+          SUPPORT_SCAM_TRANSFER_UNCHECKED,
+        );
+      if (!answer.sent) throw new SupportError('this transfer is not one you sent', SUPPORT_SCAM_TRANSFER_NOT_YOURS);
+    }
     const how = SCAM_CONTACT_WORDS[input.contactedBy];
     const body = [
-      `A scam is reported, ${when}.`,
+      `A scam is reported, ${transferId ? 'after sending money' : 'before sending any money'}.`,
       '',
       `Amount: ${input.amount} ${input.assetId}`,
-      `Transfer: ${input.transferId}`,
+      ...(transferId ? [`Transfer: ${transferId}`] : []),
       `Contacted by: ${how}`,
       ...(details ? ['', details] : []),
     ].join('\n');
+    // The case note is read by the person as well as the desk: facts and what happens next, no internal handling.
     const caseNote = [
-      `Scam report, ${when}: ${input.amount} ${input.assetId} on transfer ${input.transferId}, which the bank confirms this customer sent.`,
+      transferId
+        ? `Scam report after sending money: ${input.amount} ${input.assetId} on transfer ${transferId}, which the bank confirms was sent from this account.`
+        : `Scam report before sending any money: ${input.amount} ${input.assetId} asked for, and no transfer made.`,
       `Contacted by ${how}.`,
-      "Next steps for the desk: ask the customer not to send more, ask for the scammer's details, and decide whether to freeze the account and ask for a recall.",
+      transferId
+        ? 'Next: the support team reviews the transfer and contacts you about asking for the money back.'
+        : 'Next: the support team reviews the report and contacts you.',
     ].join(' ');
     try {
       return await this.acknowledge(userId, 'scam', requestKey, fingerprint, 'Scam report', body, caseNote);

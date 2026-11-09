@@ -22,7 +22,8 @@ export interface RegionNotice {
   readonly wording: string | null;
 }
 
-const REGION_CODES: ReadonlySet<string> = new Set(['denied.region_blocked', 'denied.region_unknown']);
+/** Every refusal of where the person is: all but the KYC tier's, which is about the person, not the place. */
+const NOT_REGION: ReadonlySet<string> = new Set(['denied.kyc_required']);
 
 /** The owner's wording as published: trimmed, or null when blank. */
 export function publishedWording(raw: string | undefined): string | null {
@@ -32,7 +33,7 @@ export function publishedWording(raw: string | undefined): string | null {
 
 export function regionNotice(input: { region: string; kycTier: KycTier; wording: string | undefined }): RegionNotice {
   const decision = checkAccess({ module: 'bank', plane: 'fiat', region: input.region, kycTier: input.kycTier });
-  const blocked = !decision.allowed && REGION_CODES.has(decision.code);
+  const blocked = !decision.allowed && !NOT_REGION.has(decision.code);
   return {
     region: input.region,
     blocked,

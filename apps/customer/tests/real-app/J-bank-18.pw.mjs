@@ -280,7 +280,7 @@ test(`${J} #3 reports a scam with an amount and a transfer id: a ticket in the s
   const reference = await ack.getByTestId('safety-ack-reference').innerText();
   expect(reference).toMatch(/^SC-[0-9A-F]{8}$/);
   const note = ack.getByTestId('safety-ack-case-note');
-  await expect(note).toContainText(`5 USDT on transfer ${transferId}, which the bank confirms this customer sent`);
+  await expect(note).toContainText(`5 USDT on transfer ${transferId}, which the bank confirms was sent from this account`);
   await expect(note).toContainText('Contacted by a phone call.');
 
   // The record behind it: one scam acknowledgement on one request in the scam category, naming the amount and transfer.
@@ -293,7 +293,7 @@ test(`${J} #3 reports a scam with an amount and a transfer id: a ticket in the s
 
   // One report per transfer: the same transfer reported again, in other words, answers with the first acknowledgement.
   const again = await desk.post('safety.reportScam', {
-    when: 'before_sending',
+    when: 'after_sending',
     amount: '7',
     assetId: 'USDT',
     transferId,

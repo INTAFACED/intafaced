@@ -11,6 +11,7 @@
  * deadline reads `not_set`: no limit is ever made up.
  */
 import { z } from 'zod';
+import { bankTransferIdSchema } from './bank-scam-transfer.js';
 
 /** What a complaint is about. */
 export const supportComplaintTopicSchema = z.enum(['account', 'cards', 'payments', 'trading', 'support', 'other']);
@@ -80,38 +81,38 @@ export const supportScamContactSchema = z.enum([
 export type SupportScamContact = z.infer<typeof supportScamContactSchema>;
 
 /**
- * A scam report (BK-safe-02, J-bank-18 #3): the amount, the transfer it went out on, when and how the person was
- * contacted. The transfer is one the person sent from their bank (`bank.transfers`); svc-support asks svc-bank before it
- * takes the report (`bank-scam-transfer.ts`), and a transfer that is not theirs is refused.
+ * A scam report (BK-safe-02, J-bank-18 #3): when (before or after sending money), the amount, how the person was contacted
+ * and, once money went out, the transfer it went out on. That transfer is one the person sent from their bank; svc-support
+ * asks svc-bank before it takes the report (`bank-scam-transfer.ts`), and a transfer that is not theirs is refused. Before
+ * any money moved there is no transfer to name. Its business key: one report per transfer
+ * (`scam-report:<transferId>`, under the person); before sending, one per set of words. A double submit, or the same
+ * transfer reported again, answers with the first report's acknowledgement.
  */
-/**
- * A scam report (BK-safe-02, J-bank-18 #3). Its business key is the transfer: one report per transfer the person sent
- * (`scam-report:<transferId>`, under the person), so a double submit, or the same transfer reported again, answers with the
- * first report's acknowledgement.
- */
-export const supportScamReportInputSchema = z.object({
-  when: supportScamWhenSchema,
-  /** The amount the scam was about, a decimal string greater than zero. */
-  amount: z
-    .string()
-    .trim()
-    .regex(/^\d{1,18}(\.\d{1,18})?$/, 'an amount is a decimal number')
-    .refine((v) => /[1-9]/.test(v), 'an amount is greater than zero'),
-  assetId: z
-    .string()
-    .trim()
-    .regex(/^[A-Z0-9]{2,16}$/),
-  /** svc-bank's id of the transfer the money went out on, from the person's transfer record. */
-  transferId: z
-    .string()
-    .trim()
-    .min(8)
-    .max(64)
-    .regex(/^[A-Za-z0-9._:-]+$/),
-  contactedBy: supportScamContactSchema,
-  /** What happened, in the person's words. */
-  details: z.string().trim().max(5000).optional(),
-});
+export const supportScamReportInputSchema = z
+  .object({
+    when: supportScamWhenSchema,
+    /** The amount the scam was about, a decimal string greater than zero. */
+    amount: z
+      .string()
+      .trim()
+      .regex(/^\d{1,18}(\.\d{1,18})?$/, 'an amount is a decimal number')
+      .refine((v) => /[1-9]/.test(v), 'an amount is greater than zero'),
+    assetId: z
+      .string()
+      .trim()
+      .regex(/^[A-Z0-9]{2,16}$/),
+    /** svc-bank's id of the transfer the money went out on, from the person's transfer record; only after sending. */
+    transferId: bankTransferIdSchema.optional(),
+    contactedBy: supportScamContactSchema,
+    /** What happened, in the person's words. */
+    details: z.string().trim().max(5000).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.when === 'after_sending' && !v.transferId)
+      ctx.addIssue({ code: 'custom', path: ['transferId'], message: 'a report after sending money names the transfer' });
+    if (v.when === 'before_sending' && v.transferId)
+      ctx.addIssue({ code: 'custom', path: ['transferId'], message: 'before sending money there is no transfer to name' });
+  });
 export type SupportScamReportInput = z.infer<typeof supportScamReportInputSchema>;
 
 /**

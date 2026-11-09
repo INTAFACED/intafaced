@@ -8,7 +8,7 @@ import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledge
 
 /**
  * Report a scam (BK-safe-02, J-bank-18 #3), on the flow template. `support.safety.reportScam` checks with the bank that
- * the person sent the transfer named, then makes one request in the scam category with a case note for the desk, and
+ * the person sent the transfer named (after sending money; before, there is none to name), then makes one request in the scam category with a case note for the desk, and
  * acknowledges it once. The transfer is the report's key: the same transfer reported again shows the same
  * acknowledgement. A transfer link can open the form on that transfer (`?transfer=<id>`).
  */
@@ -46,7 +46,12 @@ export function ScamReportRoom() {
   const { send, busy, sent, refusal } = useSafetySend<SupportScamReportInput>('scam', 'safety.reportScam');
   const earlier = useMyAcknowledgements('scam', sent?.id ?? null);
   const asset = assetId.trim().toUpperCase();
-  const ready = AMOUNT.test(amount.trim()) && /[1-9]/.test(amount) && /^[A-Z0-9]{2,16}$/.test(asset) && TRANSFER.test(transferId.trim());
+  const sentMoney = when === 'after_sending';
+  const ready =
+    AMOUNT.test(amount.trim()) &&
+    /[1-9]/.test(amount) &&
+    /^[A-Z0-9]{2,16}$/.test(asset) &&
+    (!sentMoney || TRANSFER.test(transferId.trim()));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -55,7 +60,7 @@ export function ScamReportRoom() {
       when,
       amount: amount.trim(),
       assetId: asset,
-      transferId: transferId.trim(),
+      ...(sentMoney ? { transferId: transferId.trim() } : {}),
       contactedBy,
       ...(details.trim() ? { details: details.trim() } : {}),
     });
@@ -89,18 +94,20 @@ export function ScamReportRoom() {
               <span>{t('scamAssetLabel')}</span>
               <input name="asset" autoComplete="off" maxLength={16} value={assetId} onChange={(e) => setAssetId(e.target.value)} />
             </label>
-            <label className="field">
-              <span>{t('scamTransferLabel')}</span>
-              <input
-                name="transfer"
-                autoComplete="off"
-                maxLength={64}
-                value={transferId}
-                onChange={(e) => setTransferId(e.target.value)}
-                aria-describedby="scam-transfer-hint"
-              />
-              <small id="scam-transfer-hint">{t('scamTransferHint')}</small>
-            </label>
+            {sentMoney ? (
+              <label className="field">
+                <span>{t('scamTransferLabel')}</span>
+                <input
+                  name="transfer"
+                  autoComplete="off"
+                  maxLength={64}
+                  value={transferId}
+                  onChange={(e) => setTransferId(e.target.value)}
+                  aria-describedby="scam-transfer-hint"
+                />
+                <small id="scam-transfer-hint">{t('scamTransferHint')}</small>
+              </label>
+            ) : null}
             <label className="field">
               <span>{t('scamContactLabel')}</span>
               <select name="contactedBy" value={contactedBy} onChange={(e) => setContactedBy(e.target.value as SupportScamContact)}>

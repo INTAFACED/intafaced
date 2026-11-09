@@ -90,7 +90,8 @@ describe('a scam report (J-bank-18 #3)', () => {
     const ack = await ann.safety.reportScam(REPORT);
     expect(ack).toMatchObject({ kind: 'scam', responseDeadline: null, acknowledgedAt: NOW.toISOString() });
     expect(ack.reference).toMatch(/^SC-[0-9A-F]{8}$/);
-    expect(ack.caseNote).toContain('25.5 USDT on transfer tr-ann-00000001, which the bank confirms this customer sent');
+    expect(ack.caseNote).toContain('25.5 USDT on transfer tr-ann-00000001, which the bank confirms was sent from this account');
+    expect(ack.caseNote).not.toMatch(/freeze|desk/i);
     expect(ack.caseNote).toContain('Contacted by a phone call.');
     expect(asked).toEqual([{ userId: ANN, transferId: ANNS_TRANSFER }]);
     const tickets = await support.listMyTickets({ userId: ANN, limit: 50 });
@@ -117,6 +118,24 @@ describe('a scam report (J-bank-18 #3)', () => {
     const down = desk('down');
     expect(await codeOf((await down.as(ANN)).safety.reportScam(REPORT))).toBe('support.scam_transfer_unchecked');
     expect(await down.support.listMyTickets({ userId: ANN, limit: 50 })).toEqual([]);
+  });
+
+  it('takes a report before any money moved, with no transfer and no bank check, once per set of words', async () => {
+    const { support, asked, as } = desk('down');
+    const ann = await as(ANN);
+    const before = { when: 'before_sending', amount: '900', assetId: 'USDT', contactedBy: 'messaging_app' } as const;
+    const ack = await ann.safety.reportScam(before);
+    expect(ack.reference).toMatch(/^SC-[0-9A-F]{8}$/);
+    expect(ack.caseNote).toBe(
+      'Scam report before sending any money: 900 USDT asked for, and no transfer made. Contacted by a messaging app. Next: the support team reviews the report and contacts you.',
+    );
+    expect(asked).toEqual([]);
+    expect(await ann.safety.reportScam(before)).toEqual(ack);
+    expect((await support.listMyTickets({ userId: ANN, limit: 50 })).map((t) => t.body.includes('Transfer:'))).toEqual([false]);
+    // A transfer only after sending; after sending, always one.
+    expect(await codeOf(ann.safety.reportScam({ ...before, transferId: ANNS_TRANSFER }))).toBe('BAD_REQUEST');
+    const { transferId: _drop, ...noTransfer } = REPORT;
+    expect(await codeOf(ann.safety.reportScam(noTransfer))).toBe('BAD_REQUEST');
   });
 
   it('refuses the scam category on the general request form, and a zero amount', async () => {

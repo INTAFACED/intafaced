@@ -660,13 +660,13 @@ export class PersonalPayService {
   }
 
   /**
-   * Whether `userId` sent the posted transfer `transferId` (J-bank-18 #3, asked by svc-support for a scam report). One
+   * Whether `userId` sent the transfer `transferId`, posted or still in flight (reserved, or held for review) (J-bank-18 #3, asked by svc-support for a scam report). One
    * boolean: missing, someone else's and received-only all read false the same way.
    */
   async sentBy(userId: string, transferId: string): Promise<boolean> {
     const rows = await this.sql<{ one: number }[]>`
       SELECT 1 AS one FROM bank.personal_transfers
-       WHERE transfer_id = ${transferId} AND from_user_id = ${userId} AND status = 'posted'
+       WHERE transfer_id = ${transferId} AND from_user_id = ${userId} AND status IN ('posted', 'reserved')
        LIMIT 1
     `;
     return rows.length > 0;
