@@ -39,6 +39,7 @@ import { JOURNEYS_ARTIFACT, JOURNEYS_WORKFLOW, confirmedBreaks, stepStates } fro
 import { journeyTouch } from './journey-touch.mjs';
 import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
 import { evaluateGateFileRule } from '../scripts/gate-file-guard.mjs';
+import { parseJobs, parseTests } from './bisect-main.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -150,18 +151,18 @@ export function refuseRevert({ subject, parents, files, pr }) {
 export const revertBranch = (sha) => `${BRANCH_PREFIX}${sha.slice(0, 10)}`;
 
 /** The revert pull request's title: no journey steps in it (the seal would hold the revert to steps the culprit added). */
-export function revertTitle({ prNumber, sha, files, redRun }) {
+export function revertTitle({ prNumber, sha, files, redRun, kind = 'journeys' }) {
   const what = prNumber ? `#${prNumber}` : `\`${sha.slice(0, 10)}\``;
-  const base = `Revert ${what}, which turned the Real-app journeys red (run ${redRun})`;
+  const base = `Revert ${what}, which turned ${kind === 'ci' ? "main's CI" : 'the Real-app journeys'} red (run ${redRun})`;
   return evaluateGateFileRule('', files).gateFiles.length ? `ci: ${base.charAt(0).toLowerCase()}${base.slice(1)}` : base;
 }
 
-export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base }) {
+export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, failing }) {
   return [
-    `Automatic revert by the journeys revert (tooling/ci/journeys-revert.mjs, OWNER 249 (3): "a red main is reverted").`,
+    `Automatic revert by the revert on main (tooling/ci/journeys-revert.mjs, OWNER 249 (3): "a red main is reverted").`,
     '',
     `- Red run: https://github.com/${repo}/actions/runs/${redRun} on \`${base}\``,
-    `- Failing steps: ${steps.map((s) => `\`${s.replace('#', ' #')}\``).join(', ')}`,
+    `- Failing: ${failing ?? steps.map((s) => `\`${s.replace('#', ' #')}\``).join(', ')}`,
     `- Culprit: ${prNumber ? `#${prNumber}` : 'no pull request found'}, commit \`${sha.slice(0, 10)}\` ${subject}`,
     '',
     `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other. To keep the change instead, fix it forward and close this.`,
@@ -382,12 +383,23 @@ async function find(env) {
 
 // ── open ───────────────────────────────────────────────────────────────────
 
+/** What failed, as the revert's comments and body say it: journey steps, or a CI run's test files and jobs. Pure. */
+export function failingText({ kind, steps = [], tests = [], jobs = [] }) {
+  if (kind !== 'ci') return steps.map((s) => `\`${s.replace('#', ' #')}\``).join(', ');
+  return [...tests.map((t) => `\`${t}\``), ...jobs.map((j) => `the ${j} job`)].join(', ');
+}
+
 async function open(env) {
-  need(env, 'GITHUB_REPOSITORY', 'CULPRIT', 'BASE', 'RED_RUN', 'STEPS');
+  const kind = env.KIND === 'ci' ? 'ci' : 'journeys';
+  need(env, 'GITHUB_REPOSITORY', 'CULPRIT', 'BASE', 'RED_RUN', ...(kind === 'ci' ? [] : ['STEPS']));
   const repo = env.GITHUB_REPOSITORY;
   if (!SHA.test(env.CULPRIT)) throw new Error('CULPRIT must be a full commit sha');
   if (!BASE.test(env.BASE) || !/^\d+$/.test(env.RED_RUN)) throw new Error('BASE or RED_RUN is malformed');
-  const steps = parseSteps(env.STEPS);
+  const steps = kind === 'ci' ? [] : parseSteps(env.STEPS);
+  const tests = kind === 'ci' ? parseTests(env.TESTS) : [];
+  const jobs = kind === 'ci' ? parseJobs(env.JOBS) : [];
+  if (kind === 'ci' && !tests.length && !jobs.length) throw new Error('a CI revert needs the failing TESTS or JOBS');
+  const what = kind === 'ci' ? 'CI' : 'Real-app journeys';
   const sha = env.CULPRIT;
   const branch = revertBranch(sha);
   git('fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${env.BASE}:refs/remotes/origin/${env.BASE}`);
@@ -420,12 +432,12 @@ async function open(env) {
     }
     const comment = async (body) => pr && (await gh('POST', `/repos/${repo}/issues/${pr.number}/comments`, { body }));
     const runUrl = `https://github.com/${repo}/actions/runs/${env.RED_RUN}`;
-    const stepText = steps.map((s) => `\`${s.replace('#', ' #')}\``).join(', ');
+    const stepText = failingText({ kind, steps, tests, jobs });
 
     const refused = refuseRevert({ subject, parents, files, pr });
     if (refused) {
       await comment(
-        `The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. It opened no revert: ${refused}. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+        `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. It opened no revert: ${refused}. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
       );
       return summary([`Journeys revert: no revert of \`${sha.slice(0, 10)}\`: ${refused}.`]);
     }
@@ -451,7 +463,7 @@ async function open(env) {
     } catch {
       execFileSync('git', ['revert', '--abort'], { stdio: 'ignore' });
       await comment(
-        `The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert doesn't apply cleanly on \`${env.BASE}\`, so no revert was opened. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+        `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert doesn't apply cleanly on \`${env.BASE}\`, so no revert was opened. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
       );
       return summary([`Journeys revert: \`git revert ${sha.slice(0, 10)}\` doesn't apply cleanly; commented instead.`]);
     }
@@ -469,12 +481,12 @@ async function open(env) {
         },
       });
     }
-    const title = revertTitle({ prNumber: pr?.number, sha, files, redRun: env.RED_RUN });
+    const title = revertTitle({ prNumber: pr?.number, sha, files, redRun: env.RED_RUN, kind });
     const made = await gh('POST', `/repos/${repo}/pulls`, {
       title,
       head: branch,
       base: env.BASE,
-      body: revertBody({ repo, sha, subject, prNumber: pr?.number, redRun: env.RED_RUN, steps, base: env.BASE }),
+      body: revertBody({ repo, sha, subject, prNumber: pr?.number, redRun: env.RED_RUN, steps, base: env.BASE, failing: stepText }),
     });
     if (!dry && made.status !== 201) throw new Error(`could not open the revert pull request: HTTP ${made.status}`);
     const number = made.json?.number;
@@ -487,7 +499,7 @@ async function open(env) {
       armed = q.json?.errors?.length ? `not armed: ${String(q.json.errors[0].message).slice(0, 200)}` : 'armed (squash)';
     }
     await comment(
-      `The Real-app journeys [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the journeys revert found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. To keep this change, fix it forward and close the revert.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. To keep this change, fix it forward and close the revert.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
     );
     summary([
       `### Journeys revert`,
@@ -580,7 +592,22 @@ function selfTest() {
     true,
     'body names the red run, the steps and the culprit',
   );
-  console.log('✓ journeys-revert --self-test OK (31 fixtures)');
+  // One revert for both reds: a CI red names its run, its test files and its probed jobs, and its title says CI.
+  eq(
+    revertTitle({ prNumber: 7, sha: A, files: ['apps/x.ts'], redRun: 9, kind: 'ci' }),
+    "Revert #7, which turned main's CI red (run 9)",
+    'a CI revert title',
+  );
+  const ciText = failingText({ kind: 'ci', tests: ['tooling/ci/journey-reach-map.test.mjs'], jobs: ['Doctrine gates'] });
+  eq(ciText, '`tooling/ci/journey-reach-map.test.mjs`, the Doctrine gates job', 'a CI red names its files and jobs');
+  const ciBody = revertBody({ repo: 'o/r', sha: A, subject: 's (#7)', prNumber: 7, redRun: 9, steps: [], base: 'main', failing: ciText });
+  eq(
+    ['actions/runs/9', 'the Doctrine gates job', '#7'].every((t) => ciBody.includes(t)),
+    true,
+    'a CI body names the run, the job and the culprit',
+  );
+  eq(failingText({ kind: 'journeys', steps: ['J-a-01#2'] }), '`J-a-01 #2`', 'a journeys red names its steps');
+  console.log('✓ journeys-revert --self-test OK (35 fixtures)');
 }
 
 const COMMANDS = { trigger, find, open };
