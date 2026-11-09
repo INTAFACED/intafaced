@@ -83,6 +83,9 @@ export function TradingSession(props: {
   const [placed, setPlaced] = useState<{ key: string; status: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  // The key this tab just made for a session it is starting: kept while the read still names the session before it, and
+  // judged like any other key once a read names it (or the start was refused).
+  const starting = useRef<string | null>(null);
   const [order, setOrder] = useState({ symbol: '', side: 'buy', amount: '0.001', price: '1000' });
 
   const read = session.resource.status === 'ready' ? session.resource.data : null;
@@ -90,10 +93,11 @@ export function TradingSession(props: {
   // Judged only against a real read of this sign-in's session: never while the door or the read is still loading.
   const use = read ? keyFor(current, held) : 'none';
   useEffect(() => {
-    if (use !== 'drop') return;
+    if (starting.current && current?.agentAddress.toLowerCase() === starting.current) starting.current = null;
+    if (use !== 'drop' || (held && held.address === starting.current)) return;
     dropKey(userId);
     setHeld(null);
-  }, [use, userId]);
+  }, [use, userId, held, current]);
 
   const venueName = doorReady?.venue.displayName ?? '';
   const spot =
@@ -162,11 +166,18 @@ export function TradingSession(props: {
 
   const start = () =>
     once(async () => {
-      // The key for an approval still out is the same key, so a retry is the same approval; otherwise a new one.
-      const key = use === 'pending' && held ? held : freshKey(userId);
-      setHeld(key);
-      const started = await venue.start(owner, key.address);
+      // The key for an approval still out is the same key, so a retry is the same approval. An approval that was sent
+      // with no answer, whose key this tab does not hold (a closed tab), is read back by sending the stored approval
+      // again, with no new prompt; the venue's answer then decides. Otherwise a new key.
+      const readBack = use !== 'pending' && current?.state === 'approving';
+      const key = use === 'pending' && held ? held : readBack ? null : freshKey(userId);
+      if (key) {
+        starting.current = key.address;
+        setHeld(key);
+      }
+      const started = await venue.start(owner, key?.address ?? current!.agentAddress);
       if (!started.ok) {
+        starting.current = null;
         if (started.code === 'trade.venue_session_key_reused') {
           dropKey(userId);
           setHeld(null);
@@ -223,7 +234,9 @@ export function TradingSession(props: {
       if (!prepared.ok) {
         // Nothing was stored under the key when the venue refused to prepare it: the same ticket serves the next order.
         if (prepared.reason !== 'uncertain') keep({ ...key, pendingOrder: null });
-        if (prepared.code === 'trade.venue_action_key_reused') settled();
+        // The ticket's key already holds another order (or one stored under the old builder fee): the next order takes
+        // the next ticket, never this one again.
+        if (prepared.code === 'trade.venue_action_key_reused' || prepared.code === 'trade.venue_builder_fee_changed') settled();
         if (prepared.code === 'trade.venue.signer_not_authorised') {
           setSaid({ tone: 'alert', text: t('orderKeyEnded'), code: prepared.code });
           return reread();
@@ -233,7 +246,12 @@ export function TradingSession(props: {
       // The session key signs it here: no passkey, no provider.
       const signature = await signWithSessionKey(key, prepared.data.prepared);
       const sent = await venue.submit(prepared.data.actionKey, signature);
-      if (!sent.ok) return refused(sent);
+      if (!sent.ok) {
+        // A definite refusal of the send (a 4xx): this order is never sent again; the next press is a new order. With no
+        // definite answer (no answer, a 5xx), the same order is sent again.
+        if (sent.reason === 'error' || sent.reason === 'not_mounted') settled();
+        return refused(sent);
+      }
       const outcome = sent.data.outcome;
       if (!outcome.definite) return setSaid({ tone: 'status', text: t('orderUncertain') });
       settled();

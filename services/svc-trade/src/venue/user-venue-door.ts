@@ -423,14 +423,20 @@ export class UserVenueDoor {
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertInteractive(principal, row.prepared.intent.kind);
-    // A trading session's approval that was never signed, and that a later session of the same sign-in has replaced,
-    // is abandoned: it is never signed and sent later (a stale tab), where it would take the newer session's slot.
+    // A trading session's approval that was never signed, and that a later session of the same sign-in on the same venue
+    // account has replaced, is abandoned: it is never signed and sent later (a stale tab), where it would take the newer
+    // session's slot. A later session on another wallet takes no slot of this one's.
     if (!row.signature && key.startsWith(SESSION_KEY_PREFIX)) {
       const m = /^(.*\.)(\d+)$/.exec(key);
       const later = m
         ? (await this.deps.store.listByPrefix(principal.userId, m[1]!)).some((r) => {
             const n = /\.(\d+)$/.exec(r.businessKey)?.[1];
-            return n !== undefined && r.businessKey.slice(0, -n.length) === m[1] && Number(n) > Number(m[2]);
+            return (
+              n !== undefined &&
+              r.businessKey.slice(0, -n.length) === m[1] &&
+              Number(n) > Number(m[2]) &&
+              r.prepared.account.owner.toLowerCase() === row.prepared.account.owner.toLowerCase()
+            );
           })
         : false;
       if (later) {

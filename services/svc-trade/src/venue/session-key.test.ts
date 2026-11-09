@@ -409,6 +409,44 @@ describe('J-wallet-22 #8: one approval per trading session for a fresh key that 
     expect((await w.sessions.status(p, owner)).current).toMatchObject({ state: 'live', sessionId: `${SIGN_IN_A}.2` });
   });
 
+  it('a newer session on ANOTHER wallet does not abandon this wallet’s unsigned approval: it is signed and sent, and goes live', async () => {
+    const w = world();
+    const p = person(SIGN_IN_A);
+    const key = privateKeyToAccount(generatePrivateKey());
+    const here = await w.sessions.start(p, owner, key.address);
+    const second = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade session key, second wallet')));
+    w.sim.deposit({ venueId: w.sim.venue.id, owner: second.address.toLowerCase(), subAccount: null }, 'USDC', a('1'), 'test:second');
+    const there = await w.sessions.start(p, second.address, privateKeyToAccount(generatePrivateKey()).address);
+    expect(there.sessionId).toBe(`${SIGN_IN_A}.2`);
+    const sent = await w.door.submit(p, here.actionKey, await w.ownerSign(here.prepared));
+    expect(sent.outcome).toMatchObject({ definite: true, accepted: true });
+    expect((await w.sessions.status(p, owner)).current).toMatchObject({ state: 'live', agentAddress: key.address.toLowerCase() });
+  });
+
+  it('a newer session left unsigned does not hide the live one: End still revokes the key the venue lists', async () => {
+    const w = world();
+    const { key, p } = await startSession(w);
+    const cancelled = await w.sessions.start(p, owner, privateKeyToAccount(generatePrivateKey()).address);
+    expect(cancelled.sessionId).toBe(`${SIGN_IN_A}.2`);
+    const end = await w.sessions.end(p, owner);
+    expect(end.sessionId).toBe(`${SIGN_IN_A}.1`);
+    expect(end.prepared.intent).toEqual({ kind: 'revoke_agent', agentAddress: key.address.toLowerCase() });
+    expect((await w.door.submit(p, end.actionKey, await w.ownerSign(end.prepared))).outcome).toMatchObject({ accepted: true });
+    expect((await w.sim.agents(w.account)).value).toEqual([]);
+  });
+
+  it('a key the venue lists reads live even when a re-send of its approval was refused', async () => {
+    const w = world();
+    const { key, p, started } = await startSession(w);
+    await w.store.recordOutcome(
+      USER,
+      started.actionKey,
+      { definite: true, accepted: false, refusal: { venueId: w.sim.venue.id, code: 'nonce_reused', detail: 'TEST: duplicate' } } as never,
+      new Date('2026-11-09T10:00:01.000Z'),
+    );
+    expect((await w.sessions.status(p, owner)).current).toMatchObject({ state: 'live', agentAddress: key.address.toLowerCase() });
+  });
+
   it('an approval whose answer was lost and that the venue no longer lists past its expiry reads expired, and a new session may start', async () => {
     const w = world();
     const key = privateKeyToAccount(generatePrivateKey());

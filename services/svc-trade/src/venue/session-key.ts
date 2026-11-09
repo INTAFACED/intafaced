@@ -196,8 +196,9 @@ export class SessionKeys {
     const endAnswer = end?.lastOutcome;
     if (endAnswer?.definite && endAnswer.accepted && !onVenue) return { ...base, state: 'ended' };
     if (!p.row.signature) return { ...base, state: 'awaiting_signature' };
-    if (answer?.definite && !answer.accepted) return { ...base, state: 'refused', refusal: answer.refusal };
+    // The venue's own list first: a key it lists is on, whatever a later re-send of its approval was answered.
     if (onVenue) return { ...base, state: expiredBy(base.validUntil) ? 'expired' : 'live' };
+    if (answer?.definite && !answer.accepted) return { ...base, state: 'refused', refusal: answer.refusal };
     // Not on the venue, and past its expiry: whatever became of the approval, it can sign nothing now.
     if (expiredBy(base.validUntil)) return { ...base, state: 'expired' };
     // Not on the venue. If it never landed, the approval is still out: re-send the stored bytes and read back.
@@ -309,10 +310,17 @@ export class SessionKeys {
     return { ...answer, sessionId: `${sid}.${n}` };
   }
 
-  /** Prepare the owner's `revoke_agent` for this sign-in's session key. Ending a session that is not on the venue is refused. */
+  /**
+   * Prepare the owner's `revoke_agent` for this sign-in's session key on the venue: the latest one the venue lists (a
+   * newer session whose approval was never signed does not hide it). Ending when none is on the venue is refused.
+   */
   async end(principal: Principal, owner: string): Promise<PreparedAnswer & { sessionId: string }> {
-    const status = await this.status(principal, owner);
-    const current = status.current;
+    const sid = this.sid(principal);
+    const { account, all, ends, agents } = await this.read(principal, owner);
+    const status = { owner: account.owner };
+    const listed = new Set(agents.value.map((a) => a.address.toLowerCase()));
+    const mine = all.filter((p) => p.sid === sid && listed.has(p.agentAddress)).sort((a, b) => b.n - a.n)[0];
+    const current = mine ? this.view(mine, all, ends, agents) : null;
     if (!current || !current.onVenue) {
       throw new UserVenueDoorError('this sign-in has no trading session on the venue to end', 'trade.venue_session_none', 409);
     }
