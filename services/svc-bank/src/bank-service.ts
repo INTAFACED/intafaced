@@ -1,9 +1,11 @@
-import { moneyHeldBy, type TestPartner } from './partner/test-partner.js';
+import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
+import { bankCustodyLayer, custodyGuardedLedger, freezeGuardedCustody, type PostingFreeze } from './partner/partner-bank.js';
+import { moneyHeldBy } from './partner/test-partner.js';
 import { testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
-import type { LedgerClient } from '@intafaced/ledger-client';
+import type { CustodyLayerState, LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
@@ -177,11 +179,13 @@ export interface BankServiceOptions {
   /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
   testPartner?: TestPartner | null;
   /**
-   * THE CUSTODY SWITCH as svc-ledger reads it (`LEDGER_CUSTODY_LAYER`, `parseCustodyLayer`; OWNER 226). With it `off`, a
-   * person whose money no partner holds is refused `bank.partner_unset` on the card path rather than meeting the ledger's
-   * raw `ledger.custody_layer_off`. Absent: `on`, the custodial layer as before (the composition root passes the env).
+   * The custody switch as svc-bank reads it (`LEDGER_CUSTODY_LAYER`, OWNER 226). A value passed in wins; otherwise the
+   * live env, where unset is off. Off: every customer-balance post refuses `bank.no_partner_bank` before svc-ledger,
+   * and a card authorisation for a person whose money no partner holds refuses `bank.partner_unset`.
    */
-  custodyLayer?: 'on' | 'off';
+  custodyLayer?: CustodyLayerState;
+  /** svc-ledger's platform posting freeze, asked before every partner move (`ledgerPostingFreeze`). */
+  postingFreeze?: PostingFreeze;
   /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
   refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
@@ -316,10 +320,29 @@ export interface BankServiceOptions {
   proofLimits?: string | undefined;
 }
 
-export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
+/** No posting freeze wired: every partner move refuses `bank.posting_frozen`. */
+const FREEZE_NOT_WIRED: PostingFreeze = Object.freeze({
+  postingEnabled: async (): Promise<boolean> => {
+    throw new Error('no posting freeze is wired');
+  },
+});
+
+export function createBankServices(
+  sql: Sql,
+  bookLedger: LedgerClient,
+  history: LedgerHistory,
+  options: BankServiceOptions = {},
+): BankServices {
+  // With the custodial layer off no customer balance is posted from here: refused by name before svc-ledger is asked.
+  const ledger = custodyGuardedLedger(bookLedger, bankCustodyLayer(options.custodyLayer));
+  // A person the TEST partner holds money for (`custody: 'off'`) reads and moves it at the partner; everyone else, as before.
+  // Every partner move first asks svc-ledger's posting freeze (floor 4). No freeze wired reads as frozen: a partner move
+  // is refused, never made unguarded.
+  const custody = freezeGuardedCustody(testPartnerCustody(options.testPartner), options.postingFreeze ?? FREEZE_NOT_WIRED);
   const spaces = new SpaceService(sql, ledger, options.recipients, {
     spaceLimit: () => options.spaceLimit,
     unlockWaitHours: () => options.spaceUnlockWaitHours,
+    custody,
   });
   const billsPots = new BillsPotService(sql, spaces);
   const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes }, billsPots);
@@ -366,6 +389,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const activityRecords = new ActivityRecordService(sql);
   const activity = new ActivityService(spaces, {
     ...(options.activity ?? {}),
+    custody,
     records: activityRecords,
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
   });
@@ -394,7 +418,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   // WHOSE BOOK HOLDS A PERSON'S CARD MONEY (OWNER 226): the TEST partner's per-person custody switch, else the custody
   // switch. The TEST partner card holds partner-held authorisations, only on the TEST stack (card-sim and the TEST partner
   // both chosen, each refused at boot outside dev/test).
-  const custodyLayer = options.custodyLayer ?? 'on';
+  const custodyLayer = bankCustodyLayer(options.custodyLayer);
   const cardIssuer = options.cards?.issuer;
   const partnerHolds =
     options.cards?.partnerHolds ??
