@@ -2,6 +2,7 @@ import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import {
   protocolVenueWalletAddressInputSchema,
   protocolVenueWalletAuthorizeInputSchema,
+  protocolVenueWalletAuthorizedOutputSchema,
   protocolVenueWalletChallengeInputSchema,
   protocolVenueWalletChallengeOutputSchema,
   protocolVenueWalletConnectionSchema,
@@ -16,7 +17,6 @@ import {
   VENUE_CONNECTION_EXPIRED,
   VENUE_CONNECTION_NONE,
   VENUE_CONNECTION_TTL_UNSET,
-  VENUE_UNWIRED,
   VenueConnectionRefusedError,
   WALLET_SANCTIONED,
   WALLET_SANCTIONS_UNSET,
@@ -50,7 +50,6 @@ const HTTP_CODE: Partial<Record<VenueConnectionRefusalCode, TRPCError['code']>> 
   [WALLET_SANCTIONS_UNSET]: 'PRECONDITION_FAILED',
   [VENUE_CONNECTION_NONE]: 'PRECONDITION_FAILED',
   [VENUE_CONNECTION_EXPIRED]: 'PRECONDITION_FAILED',
-  [VENUE_UNWIRED]: 'PRECONDITION_FAILED',
   [WALLET_SANCTIONED]: 'FORBIDDEN',
   [WALLET_SIGNATURE_NOT_OWNER]: 'FORBIDDEN',
   [VENUE_CHALLENGE_USED]: 'CONFLICT',
@@ -125,6 +124,7 @@ export function createVenueWalletRouter(deps: VenueWalletRouterDeps) {
       ),
     authorize: scopedProcedure('protocol:read', guard)
       .input(protocolVenueWalletAuthorizeInputSchema)
+      .output(protocolVenueWalletAuthorizedOutputSchema)
       .mutation(({ ctx, input }) => guarded(() => authorizeVenueAction(deps, { userId: ctx.principal.userId, ...input }, now()))),
   });
 }

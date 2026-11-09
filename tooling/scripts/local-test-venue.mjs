@@ -9,10 +9,16 @@
  * customer's wallet signs on the network it is already on. Routes: packages/venue-sim/src/http-server.ts. A `seed` is
  * run at start, so a taker always meets a two-sided ladder.
  *
+ * Deposits and withdrawals (J-wallet-09 #3 and #5): with `TEST_VENUE_RPC_URL` (the stack's LOCAL TEST anvil) and
+ * `TEST_VENUE_DEPOSIT_TOKEN` (its TEST USD token) set, the venue takes deposits of that token at its TEST deposit address
+ * and credits the sender's account as USDC, and pays withdrawals back on that chain (packages/venue-sim
+ * src/chain-deposits.ts). Either blank, `GET /venue` names no deposit route and nothing watches a chain.
+ *
  * It refuses to start unless APP_ENV is exactly `dev` or `test` (`refuseTestVenueOutsideTest`). Never part of a real
  * environment.
  *
- *   node tooling/scripts/local-test-venue.mjs   (TEST_VENUE_HOST, TEST_VENUE_PORT, TEST_VENUE_CHAIN_ID, APP_ENV)
+ *   node tooling/scripts/local-test-venue.mjs   (TEST_VENUE_HOST, TEST_VENUE_PORT, TEST_VENUE_CHAIN_ID, APP_ENV,
+ *                                                TEST_VENUE_RPC_URL, TEST_VENUE_DEPOSIT_TOKEN)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,17 +51,36 @@ export function userVenueSwitchOn(raw) {
   return true;
 }
 
-/** Start the TEST venue and seed it. Resolves with the server and its URL. */
-export async function serveTestVenue({ host, port, appEnv, chainId }) {
+/**
+ * The TEST venue's deposit address on the stack's TEST chain. It has no key: the venue pays withdrawals from it by
+ * impersonating it on that anvil only (as the stack's TEST fee relayer is), so nothing can sign for it anywhere else.
+ */
+export const TEST_VENUE_DEPOSIT_ADDRESS = '0x00000000000000000000000000000000de905170';
+/** The venue asset a deposit of the TEST chain's TEST USD (6 decimals) is credited as. TEST. */
+export const TEST_VENUE_DEPOSIT_ASSET = 'USDC';
+const TEST_USD_DECIMALS = 6;
+
+/** The deposit route for this venue, or null when the TEST chain or its token is not given. */
+export function testVenueDepositRoute({ rpcUrl, token, chainId }) {
+  const r = (rpcUrl ?? '').trim();
+  const t = (token ?? '').trim().toLowerCase();
+  if (r === '' || t === '') return null;
+  if (!/^0x[0-9a-f]{40}$/.test(t)) throw new Error(`TEST_VENUE_DEPOSIT_TOKEN must be a 0x address, got ${JSON.stringify(token)}`);
+  return { chainId, token: t, tokenDecimals: TEST_USD_DECIMALS, address: TEST_VENUE_DEPOSIT_ADDRESS, asset: TEST_VENUE_DEPOSIT_ASSET };
+}
+
+/** Start the TEST venue and seed it, and, with a TEST chain, its deposit watcher. Resolves with the server and its URL. */
+export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '', depositToken = '' }) {
   if (!fs.existsSync(VENUE_SIM_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
   const sim = await import(pathToFileURL(VENUE_SIM_DIST).href);
-  const started = await sim.startTestVenueServer({ host, port, appEnv, chainId });
+  const deposit = testVenueDepositRoute({ rpcUrl, token: depositToken, chainId });
+  const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit });
   const seeded = await sim.seedTestVenue(started.sim);
-  process.stdout.write(
-    `${JSON.stringify({ msg: 'test-venue.listening', label: 'TEST', url: started.url, chainId: started.sim.chainId, seeded: seeded.orders })}\n`,
-  );
+  const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
+  if (deposit) await sim.startChainDeposits({ sim: started.sim, route: deposit, rpcUrl, log });
+  log({ msg: 'test-venue.listening', label: 'TEST', url: started.url, chainId: started.sim.chainId, seeded: seeded.orders, deposit });
   return started;
 }
 
@@ -66,6 +91,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     // The RAW value: unset, blank and anything but dev or test refuse.
     appEnv: process.env.APP_ENV,
     chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+    rpcUrl: process.env.TEST_VENUE_RPC_URL,
+    depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
   }).catch((err) => {
     process.stderr.write(`test-venue: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
