@@ -113,6 +113,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
   // Spot: public
   { name: 'fetchMarkets', method: 'GET', path: '/api/v1/markets', product: 'spot', access: 'public', summary: 'Listed markets' },
   {
+    name: 'fetchOrderTypes',
+    method: 'GET',
+    path: '/api/v1/order-types',
+    product: 'spot',
+    access: 'public',
+    summary: 'The spot order types the ticket shows, how each is sent and its times in force, then each type refused',
+  },
+  {
     name: 'fetchTicker',
     method: 'GET',
     path: '/api/v1/ticker/:symbol',

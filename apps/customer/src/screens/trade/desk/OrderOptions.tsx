@@ -4,6 +4,17 @@ import { Menu, MenuContent, MenuItem, MenuTrigger, Select, SelectContent, Select
 import type { OrderType } from './order-math';
 import { tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey, type UnsupportedType } from './tif';
 
+/** The ticket's name for each type tab, in the shared list's order (`SPOT_TICKET_ORDER_TYPES`). */
+export const TYPE_TAB_KEY = {
+  limit: 'Limit',
+  stop_limit: 'Order type stopLimit',
+  stop_market: 'Order type stopMarket',
+  oco: 'Order type oco',
+  bracket: 'Order type bracket',
+  oto: 'Order type oto',
+  market: 'Market',
+} as const satisfies Record<OrderType, string>;
+
 const TYPE_KEY = {
   trailingStop: 'Order type trailingStop',
 } as const satisfies Record<UnsupportedType, string>;

@@ -16,6 +16,8 @@
 - [Errors](/developers/errors.md): Every error the trading REST API (/api/v1) links here: a refused order body, and an order call during the platform posting freeze. Branch on the code; the detail code names the decision behind it.
 - [Connectivity](/developers/connectivity.md): How to reach the API, and how to keep your clock in step with it.
 - [Market data terms](/developers/data-terms.md): Which market data products you may use, and on what terms.
+- [Order types](/developers/order-types.md): The spot order types the API accepts: the same list the trading ticket shows, in its order. Each row says how to send it to POST /api/v1/orders.
+- [Bot policy](/developers/bot-policy.md): What automated trading through the API is permitted, and on what terms. The owner publishes it.
 
 ## Live pages
 

@@ -1,0 +1,75 @@
+import { defineCopy } from '../../../shared/i18n';
+
+// The bot policy and order types pages' words (J-cex-spot-15 #3, #4). The policy text is the owner's, and the type
+// list, its fields and its codes come from svc-trade's GET /api/v1/order-types.
+export const tradingApiCopy = defineCopy(
+  'developers-trading-api',
+  {
+    botLead: 'What automated trading through the API is permitted, and on what terms. The owner publishes it.',
+    botStaticNote:
+      'This file is static. The page /developers/bot-policy reads the policy live from GET /api/trade/developer-portal/bot-policy, which answers trade.developer_bot_policy_unset while no policy is published.',
+    typesStaticNote: 'The same list is served live at GET /api/v1/order-types.',
+    botUnpublished: 'Bot policy: not yet published',
+    botUnpublishedBody: 'Nothing on this site grants permission to run a bot. A key does only what its permissions allow.',
+    typesLead:
+      'The spot order types the API accepts: the same list the trading ticket shows, in its order. Each row says how to send it to POST /api/v1/orders.',
+    typesTitle: 'Accepted order types',
+    colType: 'Order type',
+    colBodyType: 'Body type',
+    colFields: 'Fields that make it this type',
+    colTif: 'Time in force',
+    noFields: 'none',
+    refusedTitle: 'Listed but refused',
+    refusedLead: 'The ticket lists these, disabled. The API refuses them with the code shown.',
+    colCode: 'Refusal code',
+    refused_trailing_stop: 'Trailing stop',
+    loading: 'Loading…',
+    loadFailed: 'This could not be read just now.',
+    tryAgain: 'Try again',
+    back: 'Developer home',
+  },
+  {
+    es: {
+      botLead: 'Qué trading automatizado a través de la API está permitido y en qué condiciones. Lo publica el propietario.',
+      botUnpublished: 'Política de bots: sin publicar',
+      botUnpublishedBody: 'Nada en este sitio concede permiso para usar un bot. Una clave solo hace lo que permiten sus permisos.',
+      typesLead:
+        'Los tipos de orden spot que acepta la API: la misma lista que muestra el ticket de trading, en su orden. Cada fila dice cómo enviarlo a POST /api/v1/orders.',
+      typesTitle: 'Tipos de orden aceptados',
+      colType: 'Tipo de orden',
+      colBodyType: 'Tipo en el cuerpo',
+      colFields: 'Campos que lo hacen de este tipo',
+      colTif: 'Vigencia',
+      noFields: 'ninguno',
+      refusedTitle: 'Listados pero rechazados',
+      refusedLead: 'El ticket los lista desactivados. La API los rechaza con el código indicado.',
+      colCode: 'Código de rechazo',
+      refused_trailing_stop: 'Stop dinámico',
+      loading: 'Cargando…',
+      loadFailed: 'No se pudo leer ahora mismo.',
+      tryAgain: 'Reintentar',
+      back: 'Inicio para desarrolladores',
+    },
+    fr: {
+      botLead: 'Quel trading automatisé via l’API est autorisé, et à quelles conditions. Le propriétaire le publie.',
+      botUnpublished: 'Politique des bots : non publiée',
+      botUnpublishedBody: 'Rien sur ce site n’autorise à faire tourner un bot. Une clé ne fait que ce que ses autorisations permettent.',
+      typesLead:
+        'Les types d’ordre spot que l’API accepte : la même liste que le ticket de trading, dans son ordre. Chaque ligne dit comment l’envoyer à POST /api/v1/orders.',
+      typesTitle: 'Types d’ordre acceptés',
+      colType: 'Type d’ordre',
+      colBodyType: 'Type dans le corps',
+      colFields: 'Champs qui en font ce type',
+      colTif: 'Durée de validité',
+      noFields: 'aucun',
+      refusedTitle: 'Listés mais refusés',
+      refusedLead: 'Le ticket les liste, désactivés. L’API les refuse avec le code indiqué.',
+      colCode: 'Code de refus',
+      refused_trailing_stop: 'Stop suiveur',
+      loading: 'Chargement…',
+      loadFailed: 'Lecture impossible pour le moment.',
+      tryAgain: 'Réessayer',
+      back: 'Accueil développeurs',
+    },
+  },
+);

@@ -15,6 +15,7 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | Route                                               | Name                    | Permission                    |
 | --------------------------------------------------- | ----------------------- | ----------------------------- |
 | `GET /api/v1/markets`                               | `fetchMarkets`          | public; with a key trade:read |
+| `GET /api/v1/order-types`                           | `fetchOrderTypes`       | public; with a key trade:read |
 | `GET /api/v1/ticker/:symbol`                        | `fetchTicker`           | public; with a key trade:read |
 | `GET /api/v1/tickers`                               | `fetchTickers`          | public; with a key trade:read |
 | `GET /api/v1/orderbook/:symbol`                     | `fetchOrderBook`        | public; with a key trade:read |

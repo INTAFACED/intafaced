@@ -342,6 +342,10 @@
       "types": "./dist/trade-errors.d.ts",
       "default": "./dist/trade-errors.js"
     },
+    "./spot-order-types": {
+      "types": "./dist/spot-order-types.d.ts",
+      "default": "./dist/spot-order-types.js"
+    },
     "./auth-errors": {
       "types": "./dist/auth-errors.d.ts",
       "default": "./dist/auth-errors.js"

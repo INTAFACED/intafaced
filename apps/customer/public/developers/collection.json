@@ -50,6 +50,14 @@
           }
         },
         {
+          "name": "fetchOrderTypes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/order-types", "host": ["{{baseUrl}}"], "path": ["api", "v1", "order-types"] }
+          }
+        },
+        {
           "name": "fetchTicker",
           "request": {
             "method": "GET",

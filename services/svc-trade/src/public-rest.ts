@@ -1,3 +1,4 @@
+import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES, type TradingSchedule } from '@intafaced/contracts';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
@@ -705,6 +706,13 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       },
     });
   });
+
+  /**
+   * Spot order types (SP-order-entry-01; J-cex-spot-15 #4): every type the spot ticket offers and how `POST
+   * /api/v1/orders` takes it, then each listed type the create door refuses, with its code. The one list in
+   * `@intafaced/contracts/spot-order-types` also draws the ticket's tabs, so a bot reads exactly what the ticket shows.
+   */
+  app.get('/api/v1/order-types', publicRead, async (_req, reply) => reply.code(200).send(spotOrderTypes()));
 
   /**
    * Futures order-type catalogue (D-orders-01): every type, time in force and

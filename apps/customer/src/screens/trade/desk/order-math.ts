@@ -8,6 +8,7 @@
 import { div, mul } from '@intafaced/money-math';
 import { baseQuantityForValue, exactValue, portionInLots } from '../../../features/trade/trade-api';
 import { formatAmount, parseAmount } from '../../../shared/money';
+import type { SpotTicketOrderType } from '@intafaced/contracts/spot-order-types';
 import type { DeskMarket } from './market';
 
 export type Side = 'buy' | 'sell';
@@ -15,7 +16,7 @@ export type Side = 'buy' | 'sell';
  * `oco`, `bracket` (buy) and `oto` (buy) are desk tabs, not service order types: the order the service takes is a limit
  * (OCO: priced at the take-profit; OTO: the entry), or a market/limit entry (bracket), with the exit prices riding beside it.
  */
-export type OrderType = 'limit' | 'market' | 'stop_limit' | 'stop_market' | 'oco' | 'bracket' | 'oto';
+export type OrderType = SpotTicketOrderType;
 
 /** The two tabs that wait off the book for a trigger: stop-limit and stop-market. */
 export const isStopTab = (type: OrderType): boolean => type === 'stop_limit' || type === 'stop_market';
