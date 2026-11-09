@@ -71,7 +71,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_session_key_reused'
   | 'trade.venue_session_pending'
   | 'trade.venue_session_none'
-  | 'trade.venue_session_unavailable';
+  | 'trade.venue_session_unavailable'
+  | 'trade.venue_session_superseded';
 
 /**
  * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
@@ -318,13 +319,15 @@ export class UserVenueDoor {
         detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
       });
     }
-    // A key once approved as a trading session's key is never approved again, by any route (user-venue.ts:177-180).
-    if (!opts.sessionKey && intent.kind === 'approve_agent') {
+    // An agent key is approved once, under one business key, and never again, on any venue account and by any route,
+    // the session routes included (user-venue.ts:177-180: a venue that prunes nonces could accept a replay of an old
+    // key's actions). The same key asked again is the same stored approval (`reuse` below), never a second one.
+    if (intent.kind === 'approve_agent') {
       const address = (intent.agentAddress ?? '').toLowerCase();
-      const used = await this.deps.store.listByPrefix(principal.userId, `${SESSION_KEY_PREFIX}${principal.userId}:`);
-      if (used.some((row) => row.prepared.intent.kind === 'approve_agent' && row.prepared.intent.agentAddress.toLowerCase() === address)) {
+      const earlier = await this.deps.store.agentApprovals(principal.userId, address);
+      if (earlier.some((row) => row.businessKey !== key)) {
         throw new UserVenueDoorError(
-          `${address} was a trading session's key; a key is approved once and never again`,
+          `${address} was approved as an agent before; a key is approved once and never again`,
           'trade.venue_session_key_reused',
           409,
         );
@@ -420,6 +423,24 @@ export class UserVenueDoor {
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertInteractive(principal, row.prepared.intent.kind);
+    // A trading session's approval that was never signed, and that a later session of the same sign-in has replaced,
+    // is abandoned: it is never signed and sent later (a stale tab), where it would take the newer session's slot.
+    if (!row.signature && key.startsWith(SESSION_KEY_PREFIX)) {
+      const m = /^(.*\.)(\d+)$/.exec(key);
+      const later = m
+        ? (await this.deps.store.listByPrefix(principal.userId, m[1]!)).some((r) => {
+            const n = /\.(\d+)$/.exec(r.businessKey)?.[1];
+            return n !== undefined && r.businessKey.slice(0, -n.length) === m[1] && Number(n) > Number(m[2]);
+          })
+        : false;
+      if (later) {
+        throw new UserVenueDoorError(
+          'a newer trading session was started in this sign-in, so this approval is no longer asked for; nothing was sent',
+          'trade.venue_session_superseded',
+          409,
+        );
+      }
+    }
     if (
       !signature ||
       typeof signature.signature !== 'string' ||

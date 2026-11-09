@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { hashTypedData, recoverTypedDataAddress } from 'viem';
 import { decimalAtLeast } from './TradingSession';
 import { testProviderClient } from './provider-client';
-import { dropKey, freshKey, heldKey, keyFor, orderKey, signWithSessionKey, type SessionView } from './trading-session';
+import { dropKey, freshKey, heldKey, keepKey, keyFor, orderKey, signWithSessionKey, type SessionView } from './trading-session';
 
 // J-wallet-22 #8 on the page: the session key is made here and kept in this tab; it is used only for this sign-in's live
 // session; it signs orders itself with no passkey; the owner's approval goes to the provider as typed data.
@@ -50,8 +50,28 @@ describe('the trading session key, on this device only', () => {
     expect(heldKey('user-1', store)).toBeNull();
   });
 
+  it('the ticket count and an order still waiting for its answer are kept with the key, so a reload never reuses an order key', () => {
+    const store = memoryStorage();
+    const key = freshKey('user-1', store);
+    expect(key).toMatchObject({ nextTicket: 1, pendingOrder: null });
+    const pendingOrder = {
+      key: orderKey('user-1', 'fam.1', 1),
+      intent: { kind: 'place_order', clientOrderKey: orderKey('user-1', 'fam.1', 1) },
+    };
+    keepKey('user-1', { ...key, pendingOrder }, store);
+    // A reload reads the same pending order back: the next press re-sends it, not a new one.
+    expect(heldKey('user-1', store)).toEqual({ ...key, pendingOrder });
+    keepKey('user-1', { ...key, pendingOrder: null, nextTicket: 2 }, store);
+    expect(heldKey('user-1', store)).toMatchObject({ nextTicket: 2, pendingOrder: null });
+  });
+
   it('the held key is used only for this sign-in’s live session; an approval still out keeps it; anything else drops it', () => {
-    const held = { address: '0x00000000000000000000000000000000000000a1', privateKey: `0x${'1'.repeat(64)}` as const };
+    const held = {
+      address: '0x00000000000000000000000000000000000000a1',
+      privateKey: `0x${'1'.repeat(64)}` as const,
+      nextTicket: 1,
+      pendingOrder: null,
+    };
     expect(keyFor(view(held.address, 'live'), held)).toBe('use');
     expect(keyFor(view(held.address, 'awaiting_signature'), held)).toBe('pending');
     expect(keyFor(view(held.address, 'approving'), held)).toBe('pending');

@@ -105,14 +105,31 @@ export type TradingSessionApi = ReturnType<typeof createTradingSessionApi>;
 
 // ── the session key, on this device only ────────────────────────────────────────────────────────────────────────────
 
+/** An order sent with no definite answer yet: the next press re-sends this same order, whatever the form now says. */
+export interface PendingOrder {
+  readonly key: string;
+  readonly intent: Record<string, unknown>;
+}
+
 export interface HeldKey {
   readonly address: string;
   readonly privateKey: `0x${string}`;
+  /** The session ticket's next order count: kept with the key, so a reload never reuses an order's business key. */
+  readonly nextTicket: number;
+  readonly pendingOrder: PendingOrder | null;
 }
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
 const storeKey = (userId: string) => `intafaced.venue-session-key:${userId}`;
-const heldSchema = z.object({ address: z.string().regex(/^0x[0-9a-f]{40}$/), privateKey: z.string().regex(/^0x[0-9a-f]{64}$/) });
+const heldSchema = z.object({
+  address: z.string().regex(/^0x[0-9a-f]{40}$/),
+  privateKey: z.string().regex(/^0x[0-9a-f]{64}$/),
+  nextTicket: z.number().int().positive().default(1),
+  pendingOrder: z
+    .object({ key: z.string(), intent: z.record(z.string(), z.unknown()) })
+    .nullable()
+    .default(null),
+});
 
 function storage(): Storage | null {
   try {
@@ -127,7 +144,7 @@ export function heldKey(userId: string, store: Storage | null = storage()): Held
   try {
     const raw = store?.getItem(storeKey(userId));
     const parsed = raw ? heldSchema.safeParse(JSON.parse(raw)) : null;
-    return parsed?.success ? { address: parsed.data.address, privateKey: parsed.data.privateKey as `0x${string}` } : null;
+    return parsed?.success ? { ...parsed.data, privateKey: parsed.data.privateKey as `0x${string}` } : null;
   } catch {
     return null;
   }
@@ -136,7 +153,15 @@ export function heldKey(userId: string, store: Storage | null = storage()): Held
 /** A fresh key, made here and kept in this tab. Never sent anywhere; its address is what svc-trade is told. */
 export function freshKey(userId: string, store: Storage | null = storage(), make: () => `0x${string}` = generatePrivateKey): HeldKey {
   const privateKey = make();
-  const key = { address: privateKeyToAccount(privateKey).address.toLowerCase(), privateKey };
+  return keepKey(
+    userId,
+    { address: privateKeyToAccount(privateKey).address.toLowerCase(), privateKey, nextTicket: 1, pendingOrder: null },
+    store,
+  );
+}
+
+/** Keep the key's ticket state in this tab. */
+export function keepKey(userId: string, key: HeldKey, store: Storage | null = storage()): HeldKey {
   try {
     store?.setItem(storeKey(userId), JSON.stringify(key));
   } catch {

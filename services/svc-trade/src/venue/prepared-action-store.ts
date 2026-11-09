@@ -31,8 +31,10 @@ export interface PreparedActionStore {
    * outcome now stored (the earlier definite one when it was kept).
    */
   recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
-  /** Every action of this person whose business key starts with `prefix` (the session keys of one venue account, say), oldest first. */
+  /** Every action of this person whose business key starts with `prefix` (the session keys of one venue account, say). Unordered. */
   listByPrefix(userId: string, prefix: string): Promise<readonly StoredVenueAction[]>;
+  /** Every `approve_agent` this person ever prepared for `agentAddress`, under any key, on any venue account. */
+  agentApprovals(userId: string, agentAddress: string): Promise<readonly StoredVenueAction[]>;
 }
 
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
@@ -81,9 +83,14 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
   }
 
   async listByPrefix(userId: string, prefix: string) {
-    return [...this.rows.values()]
-      .filter((r) => r.userId === userId && r.businessKey.startsWith(prefix))
-      .sort((a, b) => a.prepared.preparedAt.getTime() - b.prepared.preparedAt.getTime());
+    return [...this.rows.values()].filter((r) => r.userId === userId && r.businessKey.startsWith(prefix));
+  }
+
+  async agentApprovals(userId: string, agentAddress: string) {
+    const address = agentAddress.toLowerCase();
+    return [...this.rows.values()].filter(
+      (r) => r.userId === userId && r.prepared.intent.kind === 'approve_agent' && r.prepared.intent.agentAddress.toLowerCase() === address,
+    );
   }
 }
 
@@ -152,6 +159,15 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     const rows = await this.sql<Row[]>`
       SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND starts_with(business_key, ${prefix})
+      ORDER BY created_at, business_key`;
+    return rows.map(fromRow);
+  }
+
+  async agentApprovals(userId: string, agentAddress: string) {
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE user_id = ${userId} AND kind = 'approve_agent'
+        AND lower(prepared #>> '{intent,agentAddress}') = ${agentAddress.toLowerCase()}
       ORDER BY created_at, business_key`;
     return rows.map(fromRow);
   }

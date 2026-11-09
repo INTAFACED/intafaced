@@ -12,6 +12,7 @@ import {
   dropKey,
   freshKey,
   heldKey,
+  keepKey,
   keyFor,
   orderKey,
   signWithSessionKey,
@@ -82,7 +83,6 @@ export function TradingSession(props: {
   const [placed, setPlaced] = useState<{ key: string; status: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
-  const ticket = useRef(1);
   const [order, setOrder] = useState({ symbol: '', side: 'buy', amount: '0.001', price: '1000' });
 
   const read = session.resource.status === 'ready' ? session.resource.data : null;
@@ -176,7 +176,6 @@ export function TradingSession(props: {
       await ownerSigns(started.data);
       // A refusal, or an answer that is not definite, is read back from the venue by the re-read below: the session's
       // own state says it (refused, approving, or live when the venue lists the key).
-      ticket.current = 1;
       reread();
     });
 
@@ -195,10 +194,11 @@ export function TradingSession(props: {
   const place = () =>
     once(async () => {
       if (!current || !held || use !== 'use') return;
-      const key = orderKey(userId, current.sessionId, ticket.current);
-      const prepared = await venue.prepare({
-        owner,
-        signer: { role: 'agent', address: held.address },
+      let key = held;
+      // An order sent with no definite answer is re-sent as that same order (one business key, one venue order); a new
+      // order takes the next ticket, kept with the key so a reload never reuses one.
+      const pending = key.pendingOrder ?? {
+        key: orderKey(userId, current.sessionId, key.nextTicket),
         intent: {
           kind: 'place_order',
           symbol,
@@ -208,11 +208,22 @@ export function TradingSession(props: {
           price: order.price.trim(),
           timeInForce: 'GTC',
           reduceOnly: false,
-          clientOrderKey: key,
+          clientOrderKey: orderKey(userId, current.sessionId, key.nextTicket),
           builderFee: null,
         },
-      });
+      };
+      const keep = (next: HeldKey) => {
+        key = keepKey(userId, next);
+        setHeld(key);
+      };
+      /** A definite answer for this ticket: the next order takes the next one. */
+      const settled = () => keep({ ...key, pendingOrder: null, nextTicket: key.nextTicket + 1 });
+      keep({ ...key, pendingOrder: pending });
+      const prepared = await venue.prepare({ owner, signer: { role: 'agent', address: key.address }, intent: pending.intent });
       if (!prepared.ok) {
+        // Nothing was stored under the key when the venue refused to prepare it: the same ticket serves the next order.
+        if (prepared.reason !== 'uncertain') keep({ ...key, pendingOrder: null });
+        if (prepared.code === 'trade.venue_action_key_reused') settled();
         if (prepared.code === 'trade.venue.signer_not_authorised') {
           setSaid({ tone: 'alert', text: t('orderKeyEnded'), code: prepared.code });
           return reread();
@@ -220,12 +231,12 @@ export function TradingSession(props: {
         return refused(prepared);
       }
       // The session key signs it here: no passkey, no provider.
-      const signature = await signWithSessionKey(held, prepared.data.prepared);
+      const signature = await signWithSessionKey(key, prepared.data.prepared);
       const sent = await venue.submit(prepared.data.actionKey, signature);
       if (!sent.ok) return refused(sent);
       const outcome = sent.data.outcome;
       if (!outcome.definite) return setSaid({ tone: 'status', text: t('orderUncertain') });
-      ticket.current += 1;
+      settled();
       if (!outcome.accepted) {
         if (outcome.refusal.code === 'signer_not_authorised') {
           setSaid({ tone: 'alert', text: t('orderKeyEnded'), code: `trade.venue.${outcome.refusal.code}` });
@@ -238,7 +249,7 @@ export function TradingSession(props: {
         });
       }
       const status = outcome.order?.status ?? 'accepted';
-      setPlaced((list) => [...list, { key, status }]);
+      setPlaced((list) => [...list, { key: pending.key, status }]);
       setSaid({ tone: 'status', text: t('orderPlaced', { venue: venueName, status }) });
     });
 

@@ -368,21 +368,84 @@ describe('J-wallet-22 #8: one approval per trading session for a fresh key that 
     expect(await refusal(w.sessions.start(person(SIGN_IN_A), owner, 'not-an-address'))).toBe('trade.venue_request_invalid');
   });
 
-  it('planted fault: blind our history check and the old key reaches the venue, whose retired-agent rule is all that stops it', async () => {
+  it('a key approved before is refused for good: on another venue account, and after a plain-door approval and revoke', async () => {
     const w = world();
     const { key, p } = await startSession(w);
     const end = await w.sessions.end(p, owner);
     await w.door.submit(p, end.actionKey, await w.ownerSign(end.prepared));
-    // The real check refuses the old key before the owner is asked anything.
-    expect(await refusal(w.sessions.start(person(SIGN_IN_B), owner, key.address))).toBe('trade.venue_session_key_reused');
-    // The planted fault: the same routes with the history hidden from them. The old key now gets past our check, and
-    // only the venue's own rule (a revoked agent is never approved again) refuses it, at prepare, with nothing signed.
-    const blind = new SessionKeys({
-      door: w.door,
-      store: { listByPrefix: async () => [] },
-      now: () => new Date('2026-11-09T10:00:00.000Z'),
+    // The same key on another of the person's venue accounts (another wallet they own).
+    const otherOwner = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade session key, second wallet')));
+    expect(await refusal(w.sessions.start(p, otherOwner.address, key.address))).toBe('trade.venue_session_key_reused');
+
+    // A key approved through the plain door, then revoked, never becomes a session key.
+    const plain = privateKeyToAccount(generatePrivateKey());
+    const approve = await w.door.prepare(p, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_agent', agentAddress: plain.address.toLowerCase(), agentName: 'tool', validUntil: null },
+      actionKey: `agent-approve:${USER}:tool`,
     });
-    expect(await refusal(blind.start(person(SIGN_IN_B), owner, key.address))).toBe('venue_rejected');
-    expect(w.ownerPrompts()).toBe(2);
+    await w.door.submit(p, approve.actionKey, await signWith(ownerKey, approve.prepared));
+    const revoke = await w.door.prepare(p, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'revoke_agent', agentAddress: plain.address.toLowerCase() },
+      actionKey: `agent-revoke:${USER}:tool`,
+    });
+    await w.door.submit(p, revoke.actionKey, await signWith(ownerKey, revoke.prepared));
+    expect(await refusal(w.sessions.start(person(SIGN_IN_B), owner, plain.address))).toBe('trade.venue_session_key_reused');
+  });
+
+  it('an approval left unsigned is abandoned when a newer session starts: it can never be signed and sent later', async () => {
+    const w = world();
+    const p = person(SIGN_IN_A);
+    const stale = await w.sessions.start(p, owner, privateKeyToAccount(generatePrivateKey()).address);
+    const fresh = await startSession(w);
+    expect(fresh.started.sessionId).toBe(`${SIGN_IN_A}.2`);
+    expect(await refusal(w.door.submit(p, stale.actionKey, await signWith(ownerKey, stale.prepared)))).toBe(
+      'trade.venue_session_superseded',
+    );
+    expect((await w.sim.agents(w.account)).value.map((x) => x.address)).toEqual([fresh.key.address.toLowerCase()]);
+    expect((await w.sessions.status(p, owner)).current).toMatchObject({ state: 'live', sessionId: `${SIGN_IN_A}.2` });
+  });
+
+  it('an approval whose answer was lost and that the venue no longer lists past its expiry reads expired, and a new session may start', async () => {
+    const w = world();
+    const key = privateKeyToAccount(generatePrivateKey());
+    const p = person(SIGN_IN_A);
+    const started = await w.sessions.start(p, owner, key.address);
+    const signature = await w.ownerSign(started.prepared);
+    w.sim.switches.venueDown = true;
+    await expect(w.door.submit(p, started.actionKey, signature)).rejects.toThrow();
+    w.sim.switches.venueDown = false;
+    expect((await w.sessions.status(p, owner)).current?.state).toBe('approving');
+    w.advance(SESSION_KEY_TTL_MS + 1);
+    expect((await w.sessions.status(p, owner)).current?.state).toBe('expired');
+    const next = await startSession(w);
+    expect(next.started.sessionId).toBe(`${SIGN_IN_A}.2`);
+  });
+
+  it('planted fault: blind the door’s one never-again check and the old key reaches the venue, whose retired-agent rule is all that stops it', async () => {
+    // The planted fault: a store whose agent-approval history is empty, so the door's check sees no earlier approval.
+    class Blind extends InMemoryPreparedActionStore {
+      override async agentApprovals() {
+        return [];
+      }
+    }
+    const blind = world({ store: new Blind() });
+    const { key, p } = await startSession(blind);
+    const end = await blind.sessions.end(p, owner);
+    await blind.door.submit(p, end.actionKey, await blind.ownerSign(end.prepared));
+    // The old key gets past our check; only the venue's own rule (a revoked agent is never approved again) refuses it,
+    // at prepare, with nothing signed.
+    expect(await refusal(blind.sessions.start(person(SIGN_IN_B), owner, key.address))).toBe('venue_rejected');
+    expect(blind.ownerPrompts()).toBe(2);
+
+    // Without the fault, our check refuses first, before the venue or the owner is asked anything.
+    const w = world();
+    const real = await startSession(w);
+    const realEnd = await w.sessions.end(real.p, owner);
+    await w.door.submit(real.p, realEnd.actionKey, await w.ownerSign(realEnd.prepared));
+    expect(await refusal(w.sessions.start(person(SIGN_IN_B), owner, real.key.address))).toBe('trade.venue_session_key_reused');
   });
 });

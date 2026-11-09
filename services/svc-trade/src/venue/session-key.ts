@@ -94,6 +94,8 @@ export interface SessionKeysDeps {
 
 interface Parsed {
   readonly row: StoredVenueAction;
+  /** The venue account (owner wallet) it approves a key on. */
+  readonly owner: string;
   readonly sid: string;
   readonly n: number;
   readonly agentAddress: string;
@@ -124,19 +126,39 @@ export class SessionKeys {
     return `${end ? SESSION_KEY_END_PREFIX : SESSION_KEY_PREFIX}${principal.userId}:${venueId}:`;
   }
 
-  /** This person's session-key approvals on this venue account, oldest first. */
-  private async approvals(principal: Principal, venueId: string, owner: string): Promise<Parsed[]> {
+  /** This person's session-key approvals on this venue, on every venue account (wallet) they own, oldest first. */
+  private async approvals(principal: Principal, venueId: string): Promise<Parsed[]> {
     const prefix = this.prefix(principal, venueId);
     const rows = await this.deps.store.listByPrefix(principal.userId, prefix);
     const out: Parsed[] = [];
     for (const row of rows) {
       const intent = row.prepared.intent;
-      if (intent.kind !== 'approve_agent' || !sameAddress(row.prepared.account.owner, owner)) continue;
+      if (intent.kind !== 'approve_agent') continue;
       const m = /^(.+)\.(\d+)$/.exec(row.businessKey.slice(prefix.length));
       if (!m) continue;
-      out.push({ row, sid: m[1]!, n: Number(m[2]), agentAddress: intent.agentAddress.toLowerCase(), validUntil: intent.validUntil });
+      out.push({
+        row,
+        owner: row.prepared.account.owner.toLowerCase(),
+        sid: m[1]!,
+        n: Number(m[2]),
+        agentAddress: intent.agentAddress.toLowerCase(),
+        validUntil: intent.validUntil,
+      });
     }
-    return out;
+    // Oldest first, by when the venue prepared each one, then by sign-in and count: the same order from every store.
+    return out.sort(
+      (a, b) =>
+        a.row.prepared.preparedAt.getTime() - b.row.prepared.preparedAt.getTime() ||
+        (a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0) ||
+        a.n - b.n,
+    );
+  }
+
+  /** This sign-in's latest trading session, or `null`. */
+  private latestOf(all: readonly Parsed[], sid: string): Parsed | null {
+    let latest: Parsed | null = null;
+    for (const p of all) if (p.sid === sid && (!latest || p.n > latest.n)) latest = p;
+    return latest;
   }
 
   /** Whether the venue took this approval: a definite yes, or the venue lists the key now. */
@@ -156,6 +178,7 @@ export class SessionKeys {
     const sessionId = `${p.sid}.${p.n}`;
     const tail = p.row.businessKey.slice(SESSION_KEY_PREFIX.length);
     const answer = p.row.lastOutcome;
+    const expiredBy = (until: Date | null) => until !== null && until.getTime() <= agents.asOf.getTime();
     const base = {
       sessionId,
       actionKey: p.row.businessKey,
@@ -169,16 +192,16 @@ export class SessionKeys {
       venueAnswer: answer,
       onVenue,
     } satisfies Omit<SessionKeyView, 'state'>;
-    const end = ends.get(tail);
+    const end = ends.get(sessionId);
     const endAnswer = end?.lastOutcome;
     if (endAnswer?.definite && endAnswer.accepted && !onVenue) return { ...base, state: 'ended' };
     if (!p.row.signature) return { ...base, state: 'awaiting_signature' };
     if (answer?.definite && !answer.accepted) return { ...base, state: 'refused', refusal: answer.refusal };
-    const until = base.validUntil;
-    if (onVenue) return { ...base, state: until !== null && until.getTime() <= agents.asOf.getTime() ? 'expired' : 'live' };
+    if (onVenue) return { ...base, state: expiredBy(base.validUntil) ? 'expired' : 'live' };
+    // Not on the venue, and past its expiry: whatever became of the approval, it can sign nothing now.
+    if (expiredBy(base.validUntil)) return { ...base, state: 'expired' };
     // Not on the venue. If it never landed, the approval is still out: re-send the stored bytes and read back.
     if (!this.landed(p, listed)) return { ...base, state: 'approving' };
-    if (until !== null && until.getTime() <= agents.asOf.getTime()) return { ...base, state: 'expired' };
     // It landed and is gone. A later session's key that landed explains it: the venue keeps one unnamed agent. `all` is
     // oldest first (the store's order), so "later" is a later place in it.
     const later = all.slice(all.indexOf(p) + 1).find((q) => this.landed(q, listed));
@@ -189,24 +212,25 @@ export class SessionKeys {
   private async read(principal: Principal, ownerAddress: string) {
     const venue = await this.deps.door.venue();
     const account = await this.deps.door.account(ownerAddress);
-    const all = await this.approvals(principal, venue.venue.id, account.owner);
     const endPrefix = this.prefix(principal, venue.venue.id, true);
-    const ends = new Map(
-      (await this.deps.store.listByPrefix(principal.userId, endPrefix)).map((row) => [
-        `${principal.userId}:${venue.venue.id}:${row.businessKey.slice(endPrefix.length)}`,
-        row,
-      ]),
-    );
-    const agents = await venue.agents(account);
-    return { venue, account, all, ends, agents };
+    const [every, endRows, agents] = await Promise.all([
+      this.approvals(principal, venue.venue.id),
+      this.deps.store.listByPrefix(principal.userId, endPrefix),
+      venue.agents(account),
+    ]);
+    // Each revoke by the session it ends (`<sid>.<n>`, the tail both keys share).
+    const ends = new Map(endRows.map((row) => [row.businessKey.slice(endPrefix.length), row]));
+    // `all`: this venue account's sessions. `every`: the person's on every account, which numbers a new session, since
+    // one sign-in's sessions share one count whichever wallet they are on.
+    const all = every.filter((p) => p.owner === account.owner);
+    return { venue, account, all, every, ends, agents };
   }
 
   /** The latest trading session of this sign-in, read against the venue's agent list now. */
   async status(principal: Principal, owner: string): Promise<SessionStatus> {
     const sid = this.sid(principal);
     const { venue, account, all, ends, agents } = await this.read(principal, owner);
-    const mine = all.filter((p) => p.sid === sid);
-    const latest = mine.length ? mine.reduce((a, b) => (b.n > a.n ? b : a)) : null;
+    const latest = this.latestOf(all, sid);
     return {
       venueId: venue.venue.id,
       owner: account.owner,
@@ -226,12 +250,11 @@ export class SessionKeys {
     if (!ADDRESS_RE.test(address)) {
       throw new UserVenueDoorError('agentAddress must be the session key’s address (0x and 40 hex)', 'trade.venue_request_invalid', 400);
     }
-    const { venue, account, all, ends, agents } = await this.read(principal, owner);
+    const { venue, account, all, every, ends, agents } = await this.read(principal, owner);
     if (sameAddress(address, account.owner)) {
       throw new UserVenueDoorError('the owner wallet cannot be its own session key', 'trade.venue_request_invalid', 400);
     }
-    const mine = all.filter((p) => p.sid === sid);
-    const latest = mine.length ? mine.reduce((a, b) => (b.n > a.n ? b : a)) : null;
+    const latest = this.latestOf(all, sid);
     const latestView = latest ? this.view(latest, all, ends, agents) : null;
     const signer = { role: 'owner' as const, address: account.owner };
     const again = (p: Parsed) =>
@@ -254,9 +277,11 @@ export class SessionKeys {
     ) {
       return { ...(await again(latest)), sessionId: `${latest.sid}.${latest.n}` };
     }
-    if (all.some((p) => p.agentAddress === address) || agents.value.some((a) => sameAddress(a.address, address))) {
+    // A key approved before under any key, on any account, is refused by the door's one check (user-venue-door.ts
+    // `prepare`). A key the venue already lists here (approved outside INTAFACED) is refused here.
+    if (agents.value.some((a) => sameAddress(a.address, address))) {
       throw new UserVenueDoorError(
-        `${address} was approved before on this account; a new session needs a new key, never one used before`,
+        `${address} is already an agent on this account; a new session needs a new key, never one used before`,
         'trade.venue_session_key_reused',
         409,
       );
@@ -268,7 +293,7 @@ export class SessionKeys {
         409,
       );
     }
-    const n = mine.reduce((m, p) => Math.max(m, p.n), 0) + 1;
+    const n = (this.latestOf(every, sid)?.n ?? 0) + 1;
     const key = `${this.prefix(principal, venue.venue.id)}${sid}.${n}`;
     const validUntil = new Date(this.deps.now().getTime() + SESSION_KEY_TTL_MS);
     const answer = await this.deps.door.prepare(
