@@ -1070,7 +1070,12 @@ export type BankErrorCode =
   /** A refund needs a settled capture first. */
   | 'bank.card_refund_nothing_captured'
   /** This authorisation's one refund was asked for a different amount. */
-  | 'bank.card_refund_amount_conflict';
+  | 'bank.card_refund_amount_conflict'
+  // ── Card controls (BK-cctl-01, J-bank-14 #1) ───────
+  /** A card control names a category the programme doesn't list, an empty merchant, or a country that isn't two letters. */
+  | 'bank.card_control_invalid'
+  /** The control to lift is not a live control of this card. */
+  | 'bank.card_control_not_found';
 
 export class BankError extends Error {
   constructor(

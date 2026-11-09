@@ -67,6 +67,7 @@ const MIGRATIONS = [
   '0035_card_controls.sql',
   '0040_bank_ops_reads.sql',
   '20261106013335_card_orders.sql',
+  '20261108230236_card_blocks.sql',
   // Partner-held authorisations (OWNER 226): the `money_book` columns every card read selects.
   '20261108231000_card_partner_held.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));

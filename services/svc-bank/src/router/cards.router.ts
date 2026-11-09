@@ -16,12 +16,27 @@ import {
 import { cardInactive } from '../cards/card-service.js';
 import { cardOutput, presentCard } from '../cards/card-view.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
+import { CARD_CATEGORIES, CARD_CONTROL_KINDS } from '../cards/card-controls.js';
 import { CARD_CUSTODY_MODES, NOT_USED_FOR_CARDS } from '../cards/partner-terms.js';
 
 const decimalOrNull = z
   .string()
   .regex(/^\d+(\.\d{1,18})?$/)
   .nullable();
+/** `cards.controls.*`: the card's live controls, the categories it can block, and its lock history (J-bank-14 #1). */
+const cardControlsOutput = z.object({
+  categories: z.array(z.enum(CARD_CATEGORIES)),
+  controls: z.array(z.object({ id: z.string(), kind: z.enum(CARD_CONTROL_KINDS), value: z.string(), createdAt: z.string() })),
+  history: z.array(
+    z.object({
+      id: z.string(),
+      status: z.enum(['active', 'frozen', 'closed']),
+      actor: z.enum(['owner', 'holder', 'operator', 'system']),
+      at: z.string(),
+    }),
+  ),
+});
+
 const payFromOutput = z.object({
   test: z.boolean(),
   custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
@@ -417,6 +432,46 @@ export function createCardsRouter(c: BankRouterContext) {
           return presentCard(updated);
         }),
       ),
+
+    /**
+     * The card's controls (J-bank-14 #1, BK-cctl-01): the merchant categories, merchants and countries the person blocked,
+     * the categories they can block, and the history of the card's temporary lock. A purchase that names a blocked one
+     * declines before anything is held.
+     */
+    controls: router({
+      get: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid() }))
+        .output(cardControlsOutput)
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+      block: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid(), kind: z.enum(CARD_CONTROL_KINDS), value: z.string().min(1).max(64) }))
+        .output(cardControlsOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            await bank.cards.blockControl(card.id, input.kind, input.value);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+      lift: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid(), controlId: z.string().guid() }))
+        .output(cardControlsOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            await bank.cards.liftControl(card.id, input.controlId);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+    }),
 
     /**
      * PAN, expiry and CVV from a live issuer. Step-up every time. Not stored.
@@ -848,6 +903,9 @@ export function createCardsRouter(c: BankRouterContext) {
             /** WHAT MOVED, in the card's funding asset. */
             amount: amountString,
             merchantCategory: z.string().nullable(),
+            /** The merchant and its country as the issuer named them; null when it named none. */
+            merchant: z.string().nullable(),
+            merchantCountry: z.string().nullable(),
             channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']),
             decision: z.enum(['approved', 'declined']),
             declineCode: z.string().nullable(),
@@ -890,6 +948,8 @@ export function createCardsRouter(c: BankRouterContext) {
             authorizationRef: a.authorizationRef,
             amount: formatAmount(a.amount),
             merchantCategory: a.merchantCategory,
+            merchant: a.merchant,
+            merchantCountry: a.merchantCountry,
             channel: a.channel,
             decision: a.decision,
             declineCode: a.declineCode,

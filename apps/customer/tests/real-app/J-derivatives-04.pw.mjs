@@ -136,9 +136,7 @@ async function moveQuoted(symbol, percent) {
 
 /** Returns once the maker has quoted `symbol`'s shift `percent` at or after `since`. */
 async function shiftQuoted(symbol, percent, since) {
-  await makerShiftQuoted(symbol, parseShift(percent), since).catch(() => {
-    throw new Error(`the TEST market maker never quoted ${symbol} ${percent} within 120 s of the move`);
-  });
+  await makerShiftQuoted(symbol, parseShift(percent), since, { what: percent });
 }
 
 function shiftPercent(from, to) {

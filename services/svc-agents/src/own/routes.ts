@@ -28,6 +28,8 @@ import {
   ownAgentToolCallSchema,
   ownAgentCatalogueSchema,
   ownAgentLimitsSchema,
+  ownAgentPaymentMethodInputSchema,
+  ownAgentPaymentMethodSchema,
   ownAgentRunResultSchema,
   ownAgentInboxRowSchema,
   ownAgentRunRowSchema,
@@ -81,6 +83,7 @@ import {
 } from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
+import { OwnPaymentMethodStore, type LinkedWalletsPort } from './payment-method.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
 import { checkCoOwner, checkSurfaces, OwnPublishingStore, type OwnAccountDirectory } from './publishing.js';
 import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
@@ -252,6 +255,16 @@ function owner(run: OwnRunDeps | undefined): { overageGrace: string | null; asse
 
 const idInput = z.object({ id: z.string().min(1).max(64) });
 
+/** An action row's stored words' parameters, strings and numbers only; anything else is left out. */
+function messageParamsOf(raw: unknown): Record<string, string | number> {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      (entry): entry is [string, string | number] => typeof entry[1] === 'string' || typeof entry[1] === 'number',
+    ),
+  );
+}
+
 /**
  * What the own agent's tool gates and doors need: the owner's baseline (blank refuses), and the doors of the tools
  * that are wired. Today that is the support desk's help search, read with the person's own forwarded principal.
@@ -272,6 +285,8 @@ export interface OwnToolDeps {
   readonly reviewerModel?: string | null;
   /** The owner's values for background test runs (AG-control-02); blank refuses agents.background_unset. */
   readonly background?: BackgroundSettings | null;
+  /** Identity's list of the person's linked wallets, for the agent's payment method (J-agents-02 #4); absent reads unread. */
+  readonly linkedWallets?: LinkedWalletsPort | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
 
@@ -1313,6 +1328,30 @@ export function ownRouter(
         }),
     }),
 
+    /**
+     * The payment method the person chose for this agent's runs, and their linked wallets to choose from (J-agents-02
+     * #4). Choosing checks through identity that the wallet is linked now; `address: null` clears the choice.
+     */
+    paymentMethod: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentPaymentMethodSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(() => new OwnPaymentMethodStore(sqlOf(sql), tooling.linkedWallets ?? null).get(ctx.principal.userId, input.id));
+        }),
+      set: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentPaymentMethodInputSchema)
+        .output(ownAgentPaymentMethodSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(
+            () => new OwnPaymentMethodStore(sqlOf(sql), tooling.linkedWallets ?? null).set(ctx.principal.userId, input.id, input.address),
+            (code) => (code === 'agents.payment_method.wallets_unread' ? 'SERVICE_UNAVAILABLE' : null),
+          );
+        }),
+    }),
+
     session: router({
       /**
        * Opens a session of the person's own agent. Refused `agents.spend.cap_unset`, with no session made, until the
@@ -1421,9 +1460,11 @@ export function ownRouter(
               refusal_code: string | null;
               cost: string;
               occurred_at: Date;
+              user_message_params: Record<string, string | number> | null;
             }>
           >`
-            SELECT a.session_id::text, a.sequence, a.status, a.task, a.refusal_code, a.cost::text, a.occurred_at
+            SELECT a.session_id::text, a.sequence, a.status, a.task, a.refusal_code, a.cost::text, a.occurred_at,
+                   a.user_message_params
               FROM agents.agent_actions a
              WHERE a.user_id = ${ctx.principal.userId}
                AND a.agent_id = ${ownSessionAgentId(agent.id)}
@@ -1442,6 +1483,8 @@ export function ownRouter(
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,
             occurredAt: row.occurred_at.toISOString(),
+            // A refusal's words name what it was refused on (a funds refusal: the method, figure, source and as-of time).
+            messageParams: row.status === 'refused' ? messageParamsOf(row.user_message_params) : {},
           }));
           // The tool calls a rule holds for the person (AG-approvals-01): a held call has not run, so it has no action of
           // its own and cost nothing.
@@ -1458,6 +1501,7 @@ export function ownRouter(
             cost: '0',
             assetId: feeAssetId,
             occurredAt: request.createdAt,
+            messageParams: {},
           }));
           // Newest first; at one instant a held call (made after the engine call it followed) comes first.
           return [...completions, ...held]
