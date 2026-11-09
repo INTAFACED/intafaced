@@ -109,6 +109,8 @@ async function setup() {
     sign: raw,
     venue: sim,
     marks: (asset) => (asset === 'BTC' ? { known: true, value: a('60000') } : { known: false }),
+    // Wide enough that only the cap decides here; the bounds' own tests are in venue-contracts agent-cap.test.ts.
+    bounds: { maxOrderNotional: a('1000000000'), worstPriceBps: a('10000'), markets: ['BTC-USDC', 'BTC-PERP'] },
     now: () => new Date(now),
   });
   const cap: AgentCap = { account, agentAddress: agent.address, asset: 'USDC', cap: a('200'), validUntil: null, revokedAt: null };

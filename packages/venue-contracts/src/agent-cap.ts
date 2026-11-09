@@ -92,7 +92,19 @@ export type AgentCapErrorCode =
   /** A move into the agent account would take the person's net funding past the cap. */
   | 'agents.account_cap_exceeded'
   /** A cap or move that is zero or negative. */
-  | 'agents.account_cap_invalid';
+  | 'agents.account_cap_invalid'
+  /** The owner has published no largest agent order (floor 8): every agent order refuses. */
+  | 'agents.order_bound_unset'
+  /** The owner has published no worst price against the mark: every agent order refuses. */
+  | 'agents.price_bound_unset'
+  /** The owner has published no list of markets the assistant may trade: every agent order refuses. */
+  | 'agents.markets_unset'
+  /** An agent order larger than the owner's largest order. */
+  | 'agents.order_above_bound'
+  /** An agent order priced past the owner's worst price against the mark. */
+  | 'agents.price_past_bound'
+  /** An agent action on a market outside the owner's list. */
+  | 'agents.market_not_allowed';
 
 export class AgentCapError extends Error {
   constructor(
@@ -418,6 +430,98 @@ export function checkAgentOrderWithinCap(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// THE DRAIN BOUNDS — the owner's limits on any one agent order
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The owner's bounds on every agent order, on top of the person's cap. The cap bounds how much the assistant can put at
+ * risk; these bound how fast and how badly it can lose it: a key that leaked can't empty the account in one oversized
+ * order, at a price far from the mark against a waiting counterparty, or on a thin market (the Phantom desk's ask,
+ * J-agents-21). Each is an owner value; `null` is blank, and a blank bound refuses every agent order (floor 8).
+ * Checked before the agent key signs, with the cap (`CappedAgentSigner.sign`).
+ */
+export interface AgentDrainBounds {
+  /** The largest notional (amount × price, as signed) of one agent order, in the cap's asset. */
+  readonly maxOrderNotional: Amount | null;
+  /**
+   * The worst price an agent order may name against the mark, in basis points of the mark: a buy at most
+   * mark × (1 + bps/10000), a sell at least mark × (1 − bps/10000). On a market order the price is its worst price.
+   */
+  readonly worstPriceBps: Amount | null;
+  /** The markets (venue symbols) the assistant may trade. */
+  readonly markets: readonly string[] | null;
+}
+
+const TEN_THOUSAND = parseAmount('10000');
+
+/**
+ * Refuse, before the agent key signs, an agent action past the owner's drain bounds. A cancel always passes (it only
+ * lowers what is at risk). A leverage change is held to the market list. An order or amend is held to all three; the
+ * side of an amend is its resting order's. Throws `AgentCapError`; a mark that is not known refuses
+ * `agent_cap_unmeasured`, since the price bound can't be judged without it.
+ */
+export function checkAgentOrderWithinBounds(
+  prepared: PreparedVenueAction,
+  bounds: AgentDrainBounds,
+  markets: readonly UserVenueMarket[],
+  marks: AgentCapMarks,
+  side: 'buy' | 'sell' | null,
+): void {
+  const { intent, account } = prepared;
+  if (intent.kind === 'cancel_order') return;
+  if (intent.kind !== 'place_order' && intent.kind !== 'amend_order' && intent.kind !== 'update_leverage') return;
+  if (bounds.markets === null) {
+    throw new AgentCapError(
+      'agents.markets_unset',
+      'the owner has published no markets an assistant may trade, so no agent order is signed',
+    );
+  }
+  if (!bounds.markets.includes(intent.symbol)) {
+    throw new AgentCapError(
+      'agents.market_not_allowed',
+      `an assistant may trade ${bounds.markets.length ? bounds.markets.join(', ') : 'no market'}, not ${intent.symbol}`,
+    );
+  }
+  if (intent.kind === 'update_leverage') return;
+  if (bounds.maxOrderNotional === null) {
+    throw new AgentCapError('agents.order_bound_unset', 'the owner has published no largest agent order, so no agent order is signed');
+  }
+  if (bounds.worstPriceBps === null) {
+    throw new AgentCapError(
+      'agents.price_bound_unset',
+      'the owner has published no worst price against the mark for agent orders, so no agent order is signed',
+    );
+  }
+  const market = markets.find((m) => m.symbol === intent.symbol);
+  if (!market) refuse(account, 'unknown_market', `${intent.symbol} is not listed for this account`);
+  const notional = mul(intent.amount, intent.price, 'ceil');
+  if (compare(notional, bounds.maxOrderNotional) > 0) {
+    throw new AgentCapError(
+      'agents.order_above_bound',
+      `this order is ${formatAmount(notional)} ${market.quoteAsset}; an assistant's largest order is ${formatAmount(bounds.maxOrderNotional)} ${market.quoteAsset}`,
+      bounds.maxOrderNotional,
+    );
+  }
+  if (side === null) refuse(account, 'unknown_order', `no resting order to amend on ${intent.symbol}`);
+  const mark = marks(market.baseAsset);
+  if (!mark.known) {
+    refuse(account, 'agent_cap_unmeasured', `the mark of ${market.baseAsset} is not known, so the price bound can't be judged`);
+  }
+  const worst =
+    side === 'buy'
+      ? div(mul(mark.value, add(TEN_THOUSAND, bounds.worstPriceBps), 'floor'), TEN_THOUSAND, 'floor')
+      : div(mul(mark.value, sub(TEN_THOUSAND, bounds.worstPriceBps), 'ceil'), TEN_THOUSAND, 'ceil');
+  const past = side === 'buy' ? compare(intent.price, worst) > 0 : compare(intent.price, worst) < 0;
+  if (past) {
+    throw new AgentCapError(
+      'agents.price_past_bound',
+      `a ${side} at ${formatAmount(intent.price)} is past the worst price an assistant may take, ${formatAmount(worst)} (${formatAmount(bounds.worstPriceBps)} bps from the mark ${formatAmount(mark.value)})`,
+      worst,
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // THE SIGNER — the only way the agent key signs
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -441,6 +545,8 @@ export class CappedAgentSigner {
   readonly #signRaw: AgentKeySign;
   readonly #venue: AgentCapVenue;
   readonly #marks: AgentCapMarks;
+  readonly #bounds: AgentDrainBounds;
+  readonly #priceMarks: AgentCapMarks;
   readonly #now: () => Date;
   /** Signed orders not yet settled, by venue client order id. */
   readonly #orders = new Map<string, PendingAgentOrder[]>();
@@ -452,11 +558,20 @@ export class CappedAgentSigner {
     readonly sign: AgentKeySign;
     readonly venue: AgentCapVenue;
     readonly marks: AgentCapMarks;
+    /** The owner's drain bounds, held to every order with the cap. A blank bound refuses every order. */
+    readonly bounds: AgentDrainBounds;
+    /**
+     * The mark an order's price is held against, by the market's base asset. Defaults to `marks`, which values what the
+     * account holds; a venue that reports a separate order mark (a perpetual's mark price) passes it here.
+     */
+    readonly priceMarks?: AgentCapMarks;
     readonly now?: () => Date;
   }) {
     this.#signRaw = opts.sign;
     this.#venue = opts.venue;
     this.#marks = opts.marks;
+    this.#bounds = opts.bounds;
+    this.#priceMarks = opts.priceMarks ?? opts.marks;
     this.#now = opts.now ?? (() => new Date());
   }
 
@@ -519,6 +634,17 @@ export class CappedAgentSigner {
     };
     const pending: AgentCapPending = { orders: this.#orders, leverage: [...this.#leverage.values()] };
     const check = checkAgentOrderWithinCap(prepared, cap, snapshot, this.#marks, pending, this.#now());
+    const restingSide =
+      intent.kind === 'amend_order'
+        ? (openOrders.value.find((o) => o.venueClientOrderId === prepared.venueClientOrderId)?.side ?? null)
+        : null;
+    checkAgentOrderWithinBounds(
+      prepared,
+      this.#bounds,
+      markets.value,
+      this.#priceMarks,
+      intent.kind === 'place_order' ? intent.side : restingSide,
+    );
     const signature = await this.#signRaw(prepared);
     assertSignatureMatches(prepared, signature);
     if (intent.kind === 'update_leverage') {
