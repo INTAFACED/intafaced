@@ -129,7 +129,7 @@ describe("withdrawing a published course's price (J-academy-01 #5)", () => {
   const LESSON = [{ title: 'Week one', items: [{ kind: 'lesson' as const, title: 'First lesson', indent: 0, url: null }] }];
 
   /** A course with a one-lesson outline, published: revision 3. */
-  async function published(details: typeof free) {
+  async function published(details: Omit<Parameters<CourseRecords['create']>[0], 'operatorId' | 'now'>) {
     const course = await withLimits().create({ ...details, operatorId: A, now: NOW });
     const outlined = await withLimits().saveOutline({ courseId: course.id, revision: 1, sections: LESSON, operatorId: A, now: NOW });
     return withLimits().setState({
