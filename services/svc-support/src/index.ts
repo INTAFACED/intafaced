@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { createPayOwnershipClient, SqlLinkBook, TicketLinks } from './ticket-links.js';
 import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
 import { officialChannelsFromEnv } from './official-channels.js';
@@ -248,6 +249,15 @@ const chat = new SupportChat(
   async () => (await contactBook.get()).chatHours,
 );
 const loop = createTicketKbLoopObserver();
+// A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay whose
+// a withdrawal or deposit is. An owner with no URL leaves its links refused as unverifiable.
+const links = new TicketLinks(
+  new SqlLinkBook(sql),
+  support,
+  env.TRADE_URL ? orders : null,
+  env.PAY_URL ? createPayOwnershipClient(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null,
+);
+support.useRecoveryLinks(() => links.recoveryTickets());
 const appRouter = createSupportRouter(
   support,
   loop,
@@ -271,6 +281,7 @@ const appRouter = createSupportRouter(
   // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
   new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
   chat,
+  links,
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

@@ -68,16 +68,24 @@ export function assertOperatorQueueLimit(limit: number | undefined): number {
   return Math.min(QUEUE_LIST_LIMIT_MAX, n);
 }
 
+/**
+ * A request linked to an order svc-trade reports as `recovery_required` (J-support-public-20 #1): its hold is still
+ * encumbered with an unknown outcome, so it is read before a withdrawal request of the same age.
+ */
+export const RECOVERY_LINK_WEIGHT = 80;
+
 /** Category weight plus age band. The same number the queue sorts by. Not a promise. */
-export function ticketQueueScore(ticket: SupportTicket, now: Date): number {
+export function ticketQueueScore(ticket: SupportTicket, now: Date, recovery: ReadonlySet<string> = NO_RECOVERY): number {
   const createdMs = Date.parse(ticket.createdAt);
   const ageMs = Number.isFinite(createdMs) ? Math.max(0, now.getTime() - createdMs) : 0;
   const ageHours = Math.floor(ageMs / 3_600_000);
-  const cat = CATEGORY_WEIGHT[ticket.category] ?? CATEGORY_WEIGHT.other ?? 10;
+  const category = CATEGORY_WEIGHT[ticket.category] ?? CATEGORY_WEIGHT.other ?? 10;
+  const cat = recovery.has(ticket.id) ? Math.max(category, RECOVERY_LINK_WEIGHT) : category;
   return cat + Math.min(ageHours, 72);
 }
+const NO_RECOVERY: ReadonlySet<string> = new Set();
 
-export function rankOperatorQueue(tickets: readonly SupportTicket[], now: Date): QueueEntry[] {
+export function rankOperatorQueue(tickets: readonly SupportTicket[], now: Date, recovery: ReadonlySet<string> = NO_RECOVERY): QueueEntry[] {
   const nowMs = now.getTime();
   const entries: QueueEntry[] = [];
 
@@ -87,7 +95,7 @@ export function rankOperatorQueue(tickets: readonly SupportTicket[], now: Date):
     if (t.assigneeId) continue;
     const createdMs = Date.parse(t.createdAt);
     const ageMs = Number.isFinite(createdMs) ? Math.max(0, nowMs - createdMs) : 0;
-    const score = ticketQueueScore(t, now);
+    const score = ticketQueueScore(t, now, recovery);
     entries.push({
       ticketId: t.id,
       userId: t.userId,
@@ -119,9 +127,12 @@ export function rankOperatorQueue(tickets: readonly SupportTicket[], now: Date):
  *
  * Page size is refuse-closed. Omit is not 100; pass 100 explicitly when that is the page.
  */
-export function buildOperatorQueue(tickets: readonly SupportTicket[], options: { now?: Date; limit?: number } = {}): QueueResult {
+export function buildOperatorQueue(
+  tickets: readonly SupportTicket[],
+  options: { now?: Date; limit?: number; recovery?: ReadonlySet<string> } = {},
+): QueueResult {
   const limit = assertOperatorQueueLimit(options.limit);
-  const entries = rankOperatorQueue(tickets, options.now ?? new Date());
+  const entries = rankOperatorQueue(tickets, options.now ?? new Date(), options.recovery);
   if (entries.length === 0) return { status: 'empty' };
   return { status: 'ok', entries: entries.slice(0, limit) };
 }
@@ -133,9 +144,9 @@ export function buildOperatorQueue(tickets: readonly SupportTicket[], options: {
  */
 export function assignNext(
   tickets: readonly SupportTicket[],
-  options: { now?: Date; excludeTicketIds?: ReadonlySet<string> } = {},
+  options: { now?: Date; excludeTicketIds?: ReadonlySet<string>; recovery?: ReadonlySet<string> } = {},
 ): QueueEntry | null {
-  const entries = rankOperatorQueue(tickets, options.now ?? new Date());
+  const entries = rankOperatorQueue(tickets, options.now ?? new Date(), options.recovery);
   const exclude = options.excludeTicketIds;
   for (const e of entries) {
     if (exclude && exclude.has(e.ticketId)) continue;

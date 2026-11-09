@@ -50,7 +50,11 @@ export type SupportOrderSnapshot = z.infer<typeof supportOrderSnapshotSchema>;
 
 export type TicketOrderUnknownReason = 'trade_silent' | 'matcher_down';
 
-export type TicketOrderReadResult = { kind: 'order'; order: SupportOrderSnapshot } | { kind: 'unknown'; reason: TicketOrderUnknownReason };
+export type TicketOrderReadResult =
+  | { kind: 'order'; order: SupportOrderSnapshot }
+  | { kind: 'unknown'; reason: TicketOrderUnknownReason }
+  /** svc-trade answered, signed, that it holds no order with this id (404 `trade.order_not_found`). */
+  | { kind: 'missing' };
 
 export interface TicketOrderSource {
   read(orderId: string): Promise<TicketOrderReadResult>;
@@ -138,6 +142,7 @@ export function createTicketOrderClient(
       if (!response.ok) {
         const code = typeof body === 'object' && body !== null && 'code' in body ? (body as { code?: unknown }).code : undefined;
         if (code === 'matcher_down') return { kind: 'unknown', reason: 'matcher_down' };
+        if (response.status === 404 && code === 'trade.order_not_found') return { kind: 'missing' };
         return { kind: 'unknown', reason: 'trade_silent' };
       }
 
