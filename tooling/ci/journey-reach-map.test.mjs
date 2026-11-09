@@ -104,6 +104,55 @@ const run = (id, created, recs = records(), files = FILES, failing = new Set()) 
   files,
 });
 const RUNS = [run(3, '2026-11-08T15:00:00Z'), run(2, '2026-11-08T14:00:00Z'), run(1, '2026-11-08T13:00:00Z')];
+/**
+ * A run whose journeys have several tests (`#1`, `#2`, `#3`, an unnumbered `starts:` setup test): `over[file]` names
+ * the tests that fail (`fail`) and the file's records (`recs`, each attached to the test of the same index, or to the
+ * afterAll hook's last test). Files not named pass whole with records().
+ */
+const STEPS = ['starts: the stack', '#1 step', '#2 step', '#3 step'];
+const stepsRun = (id, over = {}, files = FILES) => {
+  const base = records();
+  return {
+    id,
+    head: HEAD,
+    created: `2026-11-08T1${id + 2}:00:00Z`,
+    files,
+    report: {
+      suites: [...files].map((f) => {
+        const o = over[f] ?? {};
+        const recs = o.recs ?? base.filter((r) => r.file === f);
+        return {
+          title: f,
+          file: f,
+          suites: [
+            {
+              title: f.replace('.pw.mjs', ''),
+              file: f,
+              specs: STEPS.map((title, i) => ({
+                title,
+                file: f,
+                tests: [
+                  {
+                    projectName: 'chromium',
+                    results: [
+                      {
+                        status: (o.fail ?? []).some((x) => title.startsWith(x)) ? 'failed' : 'passed',
+                        attachments: recs
+                          .filter((_, j) => j === i || (i === STEPS.length - 1 && j >= STEPS.length))
+                          .map((r) => ({ name: 'journey-reach', contentType: 'application/json', body: b64(r) })),
+                      },
+                    ],
+                  },
+                ],
+              })),
+            },
+          ],
+        };
+      }),
+    },
+  };
+};
+const reachOf = (map, key, dir) => (map[key][dir] ?? []).map((i) => map.journeys[i]).sort();
 const CONSUMERS = {
   'packages/ui': ['apps/admin', 'apps/customer'],
   'packages/market-data': ['apps/customer', 'services/svc-bank'],
@@ -195,13 +244,9 @@ test('planted: reach is taken only from runs where the journey passed whole (rev
     [TAX],
     'from the clean runs',
   );
-  // Planted: TAX fails in every run, so no run speaks for it, and it runs with every change.
-  const allFailed = build(
-    [3, 2, 1].map((id) =>
-      run(id, `2026-11-08T1${id + 2}:00:00Z`, [...records().filter((r) => r.file !== TAX), short], FILES, new Set([TAX])),
-    ),
-  );
-  assert.match(allFailed.full[TAX], /no run the map is built from passed every one of its tests/);
+  // Planted: TAX fails a different step in each run, so no run speaks for it, and it runs with every change.
+  const allFailed = build([3, 2, 1].map((id) => stepsRun(id, { [TAX]: { fail: [`#${id}`], recs: [short] } })));
+  assert.match(allFailed.full[TAX], /no run the map is built from speaks for it/);
   const sel = reachSelect({ map: allFailed, paths: ['services/svc-support/src/x.ts'], behind: 0, atHead: FILES, mode: 'reach' });
   assert.deepEqual(sel.files, [BOTH, POPUP, TAX], 'an unproven journey joins every selection');
   // A test with no result, or whose last result is skipped or timedOut, is not clean.
@@ -209,6 +254,73 @@ test('planted: reach is taken only from runs where the journey passed whole (rev
   r.suites[0].specs[0].tests[0].results[0].status = 'timedOut';
   r.suites[1].specs[0].tests[0].results = [];
   assert.deepEqual([...reportUnclean(r)].sort(), [BANK, TAX].sort());
+});
+
+test('planted: a journey red in the same tests in every run takes its recorded reach and is not full (project-state#1574)', () => {
+  // TAX's #3 is unbuilt (red in every run) and its setup test never passes: what the green steps recorded is its reach.
+  const map = build([3, 2, 1].map((id) => stepsRun(id, { [TAX]: { fail: ['#3', 'starts:'] } })));
+  assert.equal(map.mode, 'reach');
+  assert.equal(map.full[TAX], undefined, 'a persistently red step does not make it full');
+  assert.deepEqual(reachOf(map, 'services', 'services/svc-tax'), [TAX]);
+  assert.deepEqual(reachOf(map, 'customer', 'apps/customer/src/features/tax/TaxRoom.tsx'), [TAX]);
+  const sel = reachSelect({ map, paths: ['services/svc-support/src/x.ts'], behind: 0, atHead: FILES, mode: 'reach' });
+  assert.deepEqual(sel.files, [BOTH, POPUP], 'it no longer joins every selection');
+});
+
+test('planted: a test that fails in one run and passes in another disqualifies the run where it failed (review 7561-R1)', () => {
+  // TAX's #2 fails only in run 3, whose record stops short at svc-edge; runs 2 and 1 passed whole and speak for it.
+  const short = rec(TAX, { served: ['edge GET /api/tax'], active: ['edge'], sources: { 'apps/customer/src/x.tsx': [[1, 2]] } });
+  const once = build([stepsRun(3, { [TAX]: { fail: ['#2'], recs: [short] } }), stepsRun(2), stepsRun(1)]);
+  assert.equal(once.full[TAX], undefined);
+  assert.deepEqual(reachOf(once, 'services', 'services/svc-tax'), [TAX], 'from the clean runs');
+  assert.deepEqual(reachOf(once, 'customer', 'apps/customer/src/x.tsx'), [], 'run 3 adds nothing');
+  // #3 red in every run is persistent, but #2 red only in run 3 still disqualifies run 3.
+  const mixed = build([
+    stepsRun(3, { [TAX]: { fail: ['#2', '#3'], recs: [short] } }),
+    stepsRun(2, { [TAX]: { fail: ['#3'] } }),
+    stepsRun(1, { [TAX]: { fail: ['#3'] } }),
+  ]);
+  assert.deepEqual(reachOf(mixed, 'customer', 'apps/customer/src/x.tsx'), [], 'the flaky step still disqualifies run 3');
+  assert.deepEqual(reachOf(mixed, 'services', 'services/svc-tax'), [TAX]);
+  // No run clean: #1 fails in run 3 only, #2 in runs 2 and 1 only. Neither is red in every run, so TAX is full.
+  const none = build([
+    stepsRun(3, { [TAX]: { fail: ['#1'] } }),
+    stepsRun(2, { [TAX]: { fail: ['#2'] } }),
+    stepsRun(1, { [TAX]: { fail: ['#2'] } }),
+  ]);
+  assert.match(none.full[TAX], /no run the map is built from speaks for it/);
+  // A red test only run 3 holds (a step added since) is not red in every run, so run 3 doesn't count.
+  const added = stepsRun(3, { [TAX]: { recs: [short] } });
+  const spec = added.report.suites[0].suites[0];
+  spec.specs.push({ ...spec.specs[1], title: '#4 step', tests: [{ projectName: 'chromium', results: [{ status: 'failed' }] }] });
+  const fresh = build([added, stepsRun(2), stepsRun(1)]);
+  assert.deepEqual(reachOf(fresh, 'customer', 'apps/customer/src/x.tsx'), [], 'a red test the other runs lack disqualifies the run');
+});
+
+test('planted: a persistently red journey whose afterAll record never came stays full (project-state#1574)', () => {
+  const due = records()
+    .filter((r) => r.file === TAX)
+    .map((r) => ({ ...r, afterAllDue: true }));
+  const map = build([3, 2, 1].map((id) => stepsRun(id, { [TAX]: { fail: ['#3'], recs: due } })));
+  assert.match(map.full[TAX], /afterAll record never came/);
+  // And one whose record is incomplete (a popup) stays full though its red step is persistent.
+  const pop = build([3, 2, 1].map((id) => stepsRun(id, { [POPUP]: { fail: ['#3'] } })));
+  assert.match(pop.full[POPUP], /incomplete \(popup\)/);
+});
+
+test('planted: the reach of a persistently red journey holds what only its failing test’s record carried', () => {
+  // Each record holds only what its worker had not sent yet: #3 (red in every run) is the only one reaching svc-support.
+  const recs = [
+    rec(TAX, { served: ['edge GET /api/tax'], active: ['edge'] }),
+    rec(TAX, { served: ['tax GET'], active: ['tax'] }),
+    rec(TAX, { served: [], active: [] }),
+    rec(TAX, { served: ['support GET'], active: ['support'], sources: { 'packages/market-data/dist/y.js': [[1, 2]] } }),
+  ];
+  const map = build([3, 2, 1].map((id) => stepsRun(id, { [TAX]: { fail: ['#3'], recs } })));
+  assert.equal(map.full[TAX], undefined);
+  assert.deepEqual(reachOf(map, 'services', 'services/svc-support'), [BOTH, TAX], 'the red step’s record counts');
+  assert.deepEqual(reachOf(map, 'packages', 'packages/market-data'), [BANK, TAX]);
+  assert.deepEqual(reachOf(map, 'services', 'services/svc-tax'), [TAX]);
 });
 
 test('planted: money code narrows like any path (REVIEW.md C4 entry, OWNER 249)', () => {

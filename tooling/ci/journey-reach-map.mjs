@@ -16,8 +16,9 @@
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
  * MIN_RUNS whole runs the builder refuses: it writes a map whose mode is 'full', and nothing narrows.
- * A journey's reach comes only from the runs where every one of its tests passed (a failed step stops it short); with
- * no such run it reaches everything. Open edge, not covered: a service that publishes an event from background work
+ * A journey's reach comes only from the runs where every test that didn't pass is red in every run the map is built from
+ * (a step that fails in one run and passes in another stopped it short there; see buildMap); with no such run it
+ * reaches everything. Open edge, not covered: a service that publishes an event from background work
  * without logging while a journey runs is not tied to the journey that sees the subscriber's effect (review 7561-R1 #3;
  * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
  * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
@@ -149,26 +150,70 @@ export function reportFiles(report) {
 }
 
 /**
- * The journey files a report ran that did not pass whole: a test with no result, or whose last result is not `passed`
- * (failed, timedOut, interrupted, skipped). A failed step stops its journey, so its record holds less than the journey
- * reaches (review 7561-R1): buildMap takes a file's reach only from runs where it passed whole. Returns a Set of names.
+ * Each journey file's tests in a report: Map(file -> { broken, tests: Map(test key -> passed) }). A test's key is its
+ * title path (describe titles and the spec's title) and project; it passed when its last result is `passed` (a test
+ * with no result, or whose last result is failed, timedOut, interrupted or skipped, did not). `broken`: a spec of the
+ * file holds no test, so what ran can't be told.
  */
-export function reportUnclean(report) {
-  const bad = new Set();
-  const walk = (s, file) => {
+export function reportTests(report) {
+  const out = new Map();
+  const walk = (s, file, titles) => {
     const here = s.file ?? file;
+    const path = s.title && !JOURNEY_FILE.test(String(s.title).split('/').pop()) ? [...titles, s.title] : titles;
     for (const sp of s.specs ?? []) {
       const f = String(sp.file ?? here ?? '')
         .split('/')
         .pop();
       if (!JOURNEY_FILE.test(f)) continue;
+      const o = out.get(f) ?? out.set(f, { broken: false, tests: new Map() }).get(f);
       const tests = sp.tests ?? [];
-      if (!tests.length || tests.some((t) => (t.results ?? []).at(-1)?.status !== 'passed')) bad.add(f);
+      if (!tests.length) o.broken = true;
+      for (const t of tests) {
+        const key = JSON.stringify([...path, sp.title ?? '', t.projectName ?? '']);
+        const passed = (t.results ?? []).at(-1)?.status === 'passed';
+        o.tests.set(key, (o.tests.get(key) ?? true) && passed);
+      }
     }
-    for (const c of s.suites ?? []) walk(c, here);
+    for (const c of s.suites ?? []) walk(c, here, path);
   };
-  for (const s of report?.suites ?? []) walk(s, s.file);
+  for (const s of report?.suites ?? []) walk(s, s.file, []);
+  return out;
+}
+
+/**
+ * The journey files a report ran that did not pass whole: a spec with no test, or a test that did not pass
+ * (reportTests). Returns a Set of names.
+ */
+export function reportUnclean(report) {
+  const bad = new Set();
+  for (const [f, o] of reportTests(report)) if (o.broken || [...o.tests.values()].some((p) => !p)) bad.add(f);
   return bad;
+}
+
+/**
+ * Whether each whole run can speak for a journey file: an array of booleans, one per run in `whole` (false where the run
+ * doesn't hold the file). A run counts when the file is not broken in it and every test of it that didn't pass there
+ * also didn't pass in every whole run holding the file: a persistently red test (an `unbuilt` step, the tests skipped
+ * after it, a setup test that never passes). A test that passes in any run and fails in another stopped the journey
+ * short where it failed, so that run doesn't count, as before (review 7561-R1).
+ *
+ * Why a persistently red test leaves the run's reach sound (project-state#1574): the reach taken is still every record
+ * of the file in that run (runReach), never only the passing tests' records, since each record holds only what its
+ * worker hadn't sent yet (journey-reach.mjs take()).
+ *   - A pull request can't make a red test redder: the journey's verdict on that step is already red on main.
+ *   - The green tests ran whole, and everything they reached is recorded, so a change they can see selects them.
+ *   - A red step that turns green on main can reach code the map doesn't know until the map is rebuilt from runs where
+ *     it passed; from then on it is red in only some of the runs, so only the runs where it passed count, and a map
+ *     older than STALE_RUNS main runs is not used at all.
+ *   - The pull request that builds the step runs its journey anyway: a journey named in the pull request's title always
+ *     runs (real-app-journeys.yml, the plan step's `named` list from the title's steps, joined to the map's files and
+ *     run when the map selects none, about lines 203-209).
+ *   - Main's full run after every merge runs every journey, and is the backstop.
+ */
+export function speaksFor(whole, f) {
+  const held = whole.map((r) => (r.files.has(f) ? (r.tests?.get(f) ?? { broken: true, tests: new Map() }) : null));
+  const persistent = (key) => held.every((o) => !o || o.tests.get(key) === false);
+  return held.map((o) => !!o && !o.broken && [...o.tests].every(([key, passed]) => passed || persistent(key)));
 }
 
 /**
@@ -349,7 +394,7 @@ export function buildMap({ runs, services, consumers, dependents = {}, harness, 
     const lost = [...r.files].filter((f) => !ran.has(f));
     if (!records.length) skipped.push(`${r.id}: no journey-reach records (before the recorder)`);
     else if (lost.length) skipped.push(`${r.id}: its report lacks ${lost.length} journey file(s) at its head (a lost shard)`);
-    else whole.push({ ...r, ran, records, unclean: reportUnclean(r.report) });
+    else whole.push({ ...r, ran, records, tests: reportTests(r.report) });
     if (whole.length === minRuns) break;
   }
   const base = { v: MAP_VERSION, runs: whole.map(({ id, head, created }) => ({ id, head, created })), skipped };
@@ -370,19 +415,22 @@ export function buildMap({ runs, services, consumers, dependents = {}, harness, 
     let why = null;
     let clean = 0;
     const union = { services: new Set(), packages: new Set(), customer: new Set() };
+    const counts = speaksFor(whole, f);
     whole.forEach((r, i) => {
       if (why || !r.files.has(f)) return;
       const x = reach[i][f];
       if (!x) why = `run ${r.id} holds no record of it`;
       else if (x.full) why = `run ${r.id}: ${x.full}`;
-      else if (r.unclean.has(f))
-        return; // a step that didn't pass stopped the journey short: this run can't speak for it
+      else if (!counts[i])
+        return; // a step that didn't pass here passed elsewhere: it stopped the journey short, so this run can't speak for it
       else {
         clean += 1;
         for (const k of Object.keys(union)) for (const v of x[k]) union[k].add(v);
       }
     });
-    if (!why && !clean) why = 'no run the map is built from passed every one of its tests';
+    if (!why && !clean)
+      why =
+        "no run the map is built from speaks for it: in each, a test of it that didn't pass there passed in another, or a spec held no test";
     if (why) {
       full[f] = why;
       continue;
