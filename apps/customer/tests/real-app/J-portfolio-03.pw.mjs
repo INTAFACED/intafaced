@@ -152,7 +152,7 @@ async function restBuy(page, who, percent, amount) {
   return order;
 }
 
-test(`${J} #1 opens /money/activity: every kind of movement in one list, in plain words, with signed amounts and local time`, async ({
+test(`${J} #1 opens /money/activity: every movement from the wallet, venues and partner in one list, each labelled with its source, in plain words, with signed amounts and local time`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -245,7 +245,27 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   await expect(list.filter({ hasText: /^Convert/ }).getByTestId('money-act__time')).toHaveText(local(converted[0].postedAt));
   await expect(list.filter({ hasText: 'Set aside for an order' })).toHaveCount(1);
   await expect(list.filter({ hasText: 'Order cancelled · nothing spent' })).toHaveCount(1);
-  await expect(list.filter({ hasText: /Transfer|Moved/ })).not.toHaveCount(0);
+  // The move to the space: the bank's two lines (out of the main account, into the space), each its own row in the
+  // same words with its signed amount, the space's named on it.
+  const moves = lines.filter((l) => l.kind === 'space_move');
+  expect(moves.map((l) => [l.direction, l.amount, l.asset, l.spaceName ?? null]).sort()).toEqual([
+    ['in', '20', 'USDT', SPACE],
+    ['out', '20', 'USDT', null],
+  ]);
+  const moved = list.filter({ hasText: 'Moved between your accounts' });
+  await expect(moved).toHaveCount(2);
+  await expect(
+    moved
+      .filter({ hasText: `In account ${SPACE}` })
+      .locator('td')
+      .nth(2),
+  ).toHaveText('+20 USDT');
+  await expect(
+    moved
+      .filter({ hasNotText: `In account ${SPACE}` })
+      .locator('td')
+      .nth(2),
+  ).toHaveText('−20 USDT');
   // Earn and withdrawal, each in its own words with its signed amount, as the bank's lines hold them.
   const earned = lines.filter((l) => l.kind === 'earn');
   expect(earned.map((l) => [l.direction, l.amount, l.asset])).toEqual([['out', SAVED, 'USDT']]);
@@ -274,6 +294,22 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   ).toHaveText(`+${trade.amount} BTC`);
   await expect(list.filter({ hasText: 'Set aside for an order' }).getByTestId('money-act__status')).toHaveText('Set aside');
   await expect(fundsRow.getByTestId('money-act__status')).toHaveText('Completed');
+
+  // Each labelled with its source: every line the bank has names where it came from (the wallet, a venue or the
+  // partner) in plain words, and every row shows its source. Each kind's row shows the source its own line names.
+  for (const line of lines) {
+    expect(['wallet', 'venue', 'partner'], `${line.kind} ${line.id}: ${JSON.stringify(line.source)}`).toContain(line.source?.kind);
+    expect(line.source.name, `${line.kind} ${line.id}`).toMatch(/\S/);
+  }
+  const sources = list.getByTestId('money-act__source');
+  await expect(sources).toHaveCount(await list.count());
+  for (const text of await sources.allInnerTexts()) expect(text.trim()).not.toBe('');
+  const sourceOf = (kind, direction) => lines.find((l) => l.kind === kind && (!direction || l.direction === direction)).source.name;
+  await expect(fundsRow.getByTestId('money-act__source')).toHaveText(sourceOf('welcome_funds'));
+  await expect(list.filter({ hasText: /^Trade/ }).getByTestId('money-act__source')).toHaveText(sourceOf('trade', 'in'));
+  await expect(list.filter({ hasText: /^Convert/ }).getByTestId('money-act__source')).toHaveText(sourceOf('convert'));
+  await expect(list.filter({ hasText: 'Moved to savings' }).getByTestId('money-act__source')).toHaveText(sourceOf('earn'));
+  await expect(list.filter({ hasText: /^Withdrawal/ }).getByTestId('money-act__source')).toHaveText(sourceOf('withdrawal'));
 });
 
 // #1's convert part: a conversion settles as a house fill, the reason a desk order filled by the house also posts
@@ -591,19 +627,41 @@ test(`${J} #6 adds a note to an entry and presses save twice: one note, shown on
   await expect(rows(page).first()).toContainText('Welcome test funds');
 });
 
-test(`${J} #7 groups activity by tax effect: refused in words while the owner has not set what each type means`, async ({ page }) => {
+test(`${J} #7 groups activity by tax effect: types grouped by whether they are income, disposal or neutral`, async ({ page }) => {
   const who = account();
   await signIn(page, who);
-  const refused = await bankRead(who, 'activity.taxEffects');
-  expect(refused.status).toBe(412);
-  expect(JSON.stringify(refused.body)).toContain('portfolio.tax_effect_map_unset');
+  // The bank answers with an effect for every kind, each one of income, disposal or neutral.
+  const answer = await bankRead(who, 'activity.taxEffects');
+  expect(answer.status, JSON.stringify(answer.body).slice(0, 300)).toBe(200);
+  const effects = answer.data.effects;
+  const kinds = [...new Set((await allLines(who)).map((l) => l.kind))];
+  expect(kinds.length).toBeGreaterThan(4);
+  for (const kind of kinds) expect(['income', 'disposal', 'neutral'], `${kind}: ${effects[kind]}`).toContain(effects[kind]);
+  for (const [kind, effect] of Object.entries(effects)) expect(['income', 'disposal', 'neutral'], kind).toContain(effect);
+
+  // On the screen: the types grouped under Income, Disposal and Neutral, each type in exactly the group the bank named,
+  // and none left without a group.
   await openActivity(page);
   await page.getByRole('button', { name: 'Group by tax effect' }).click();
-  const block = page.locator('[data-slot="state-block"][data-kind="refused"]');
-  await expect(block).toBeVisible();
-  await expect(block).not.toContainText('portfolio.tax_effect_map_unset');
-  // Nothing is shown as taxable while the map is blank, and the list stays.
-  await expect(page.getByText(/taxable/i)).toHaveCount(0);
+  const groups = page.locator('[data-label="tax-effects"]');
+  await expect(groups).toBeVisible();
+  await expect(groups.locator('[data-effect="unset"]')).toHaveCount(0);
+  const named = { income: 'Income', disposal: 'Disposal', neutral: 'Neutral' };
+  for (const [effect, word] of Object.entries(named)) {
+    const group = groups.locator(`[data-effect="${effect}"]`);
+    await expect(group).toHaveCount(1);
+    await expect(group.locator('dt')).toHaveText(word);
+  }
+  // A few kinds the person has, by their row words, each in its bank-named group and in no other.
+  const words = { welcome_funds: 'Welcome test funds', trade: 'Trade', convert: 'Convert', withdrawal: 'Withdrawal' };
+  for (const [kind, word] of Object.entries(words)) {
+    if (!kinds.includes(kind)) continue;
+    await expect(groups.locator(`[data-effect="${effects[kind]}"] dd`)).toContainText(word);
+    for (const other of Object.keys(named).filter((e) => e !== effects[kind])) {
+      expect((await groups.locator(`[data-effect="${other}"] dd`).innerText()).split(', ')).not.toContain(word);
+    }
+  }
+  // The list stays below the groups.
   await expect(rows(page)).not.toHaveCount(0);
 });
 
