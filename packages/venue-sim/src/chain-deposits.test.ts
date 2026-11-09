@@ -9,6 +9,8 @@ import {
   amountToTokenUnits,
   creditDepositLogs,
   payPendingWithdrawals,
+  completeLogs,
+  LOST_PAYMENT_AFTER_MS,
   tokenUnitsToAmount,
   type DepositLog,
   type WithdrawalPayer,
@@ -72,15 +74,22 @@ function world() {
 function fakePayer() {
   const sent: Array<{ to: string; units: bigint; hash: string }> = [];
   const receipts = new Map<string, boolean | null>();
-  let throwNext = false;
+  const loseAnswerOf = new Set<number>();
+  let rejectNext = false;
+  let sends = 0;
   const payer: WithdrawalPayer = {
     head: async () => 7n,
     async send(to, units) {
+      sends += 1;
+      if (rejectNext) {
+        rejectNext = false;
+        // The node never took the transfer, and said nothing.
+        throw new Error('connection reset');
+      }
       const h = hash(1000 + sent.length);
       sent.push({ to, units, hash: h });
       receipts.set(h, null);
-      if (throwNext) {
-        throwNext = false;
+      if (loseAnswerOf.delete(sent.length - 1)) {
         // The node took the transfer, and the answer was lost.
         throw new Error('timeout');
       }
@@ -91,15 +100,23 @@ function fakePayer() {
     },
     async find(to, units, fromBlock) {
       expect(fromBlock).toBe(7n);
-      return sent.find((p) => p.to === to && p.units === units)?.hash ?? null;
+      return sent.filter((p) => p.to === to && p.units === units).map((p) => p.hash);
     },
   };
   return {
     payer,
     sent,
+    sends: () => sends,
+    rejectNext: () => {
+      rejectNext = true;
+    },
     mine: (h: string, ok = true) => receipts.set(h, ok),
     loseNextAnswer: () => {
-      throwNext = true;
+      loseAnswerOf.add(sent.length);
+    },
+    /** The answer to the n-th transfer the node takes (0-based) is lost. */
+    loseAnswerOf: (n: number) => {
+      loseAnswerOf.add(n);
     },
   };
 }
@@ -181,10 +198,85 @@ describe('TEST venue withdrawals paid on the chain (J-wallet-09 #5)', () => {
     const paid = new Map<string, WithdrawalPayment>();
     w.advance(5000);
     chain.loseNextAnswer();
-    await expect(payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).rejects.toThrow('timeout');
+    const errors: string[] = [];
+    await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000, (n, err) => errors.push(`${n}: ${(err as Error).message}`));
+    expect(errors).toEqual([`${nonce}: timeout`]);
     chain.mine(hash(1000));
     expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [nonce], failed: [] });
     expect(chain.sent).toHaveLength(1);
+  });
+
+  it('two withdrawals to the same wallet for the same amount are settled by two transfers, never one', async () => {
+    const w = world();
+    creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
+    const first = await w.withdraw('5', 6);
+    const second = await w.withdraw('5', 7);
+    const chain = fakePayer();
+    const paid = new Map<string, WithdrawalPayment>();
+    w.advance(5000);
+    // The first send is answered and not mined yet; the second is taken by the node and its answer is lost.
+    chain.loseAnswerOf(1);
+    await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000);
+    expect(chain.sent).toHaveLength(2);
+    // Only the first transfer is mined: the second withdrawal may not claim it, so it waits for its own.
+    chain.mine(hash(1000));
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [first], failed: [] });
+    expect((await w.sim.withdrawal(w.account, second)).value?.status).toBe('pending');
+    chain.mine(hash(1001));
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [second], failed: [] });
+    expect(chain.sent).toHaveLength(2);
+  });
+
+  it('a send the node never took settles failed after LOST_PAYMENT_AFTER_MS, returns the funds, and is never sent again', async () => {
+    const w = world();
+    creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
+    const nonce = await w.withdraw('10', 8);
+    const chain = fakePayer();
+    const paid = new Map<string, WithdrawalPayment>();
+    w.advance(5000);
+    chain.rejectNext();
+    await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000);
+    // Not found yet, and not long enough to give up: still pending, nothing sent again.
+    w.advance(LOST_PAYMENT_AFTER_MS - 1);
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [], failed: [] });
+    expect((await w.sim.withdrawal(w.account, nonce)).value?.status).toBe('pending');
+    w.advance(1);
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [], failed: [nonce] });
+    expect(await w.free()).toBe(a('25'));
+    expect(chain.sends()).toBe(1);
+    expect(chain.sent).toEqual([]);
+  });
+
+  it("one withdrawal's chain error does not stop the others in the same pass", async () => {
+    const w = world();
+    creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
+    const first = await w.withdraw('5', 9);
+    const second = await w.withdraw('6', 10);
+    const chain = fakePayer();
+    const paid = new Map<string, WithdrawalPayment>();
+    w.advance(5000);
+    chain.rejectNext();
+    const errors: string[] = [];
+    await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000, (n) => errors.push(n));
+    expect(errors).toEqual([first]);
+    // The second was still paid in the same pass.
+    expect(chain.sent).toEqual([{ to: owner, units: 5_750_000n, hash: hash(1000) }]);
+    chain.mine(hash(1000));
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [second], failed: [] });
+  });
+
+  it('a log without its transfer id is not credited, and the next read starts again from its block', () => {
+    const logs = [
+      { transactionHash: hash(1), logIndex: 0, blockNumber: 5n },
+      { transactionHash: null, logIndex: null, blockNumber: 8n },
+      { transactionHash: hash(2), logIndex: null, blockNumber: 7n },
+      { transactionHash: hash(3), logIndex: 1, blockNumber: 9n },
+    ];
+    expect(completeLogs(logs, 3n, 10n)).toEqual({ complete: [logs[0], logs[3]], nextFromBlock: 7n });
+    // One with no block either: read again from where this read started.
+    expect(completeLogs([{ transactionHash: null, logIndex: 0, blockNumber: null }], 3n, 10n).nextFromBlock).toBe(3n);
+    // All complete: the next read starts after the head.
+    expect(completeLogs([logs[0]!], 3n, 10n)).toEqual({ complete: [logs[0]], nextFromBlock: 11n });
   });
 
   it('a withdrawal settled elsewhere meanwhile is not reported again', async () => {
