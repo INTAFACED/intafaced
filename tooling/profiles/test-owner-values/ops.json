@@ -50,6 +50,11 @@
       "service": "ops",
       "value": "5",
       "note": "TEST seconds before a repeat reconciliation failure sends another in-console notice. Not an owner decision; short so J-ops-console-07 #8 can see a repeat land inside a snooze on the test stack."
+    },
+    "OPS_TEST_VENUE_BUILDER_ACCOUNT": {
+      "service": "ops",
+      "value": "TEST-builder-account",
+      "note": "TEST builder account the capital monitor's TEST venues report (J-ops-console-24 #1). Not INTAFACED's real builder account at any venue, and not a key."
     }
   }
 }

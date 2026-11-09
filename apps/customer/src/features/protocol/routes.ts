@@ -23,6 +23,8 @@ export const WALLET_SECTIONS = {
   sessionKeys: '/wallet/session-keys',
   accounts: '/wallet/accounts',
   safety: '/wallet/safety',
+  /** The person's own wallet connected to their account for venue trading (J-wallet-09). */
+  venue: '/wallet/venue',
 } as const;
 export type WalletSection = keyof typeof WALLET_SECTIONS;
 
