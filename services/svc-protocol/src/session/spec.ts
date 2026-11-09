@@ -92,6 +92,8 @@ export const FORBIDDEN_SIGNATURES = [
   'exactOut((address[],address[],uint256,uint256,uint256[],address,uint256,uint8,bool))', // SovereignRouterV2
   'selfPermit(address,uint256,uint256,uint8,bytes32,bytes32,bool)', // SovereignRouterV2
   'standingPermit(address,uint160,uint48,uint48,uint256,bytes)', // SovereignRouterV2
+  // delegatecalls any router v2 function, exactIn and exactOut included, so it would reach them past this list
+  'multicall(bytes[])', // SovereignRouterV2
   'permit(address,address,address,uint160,uint48,uint48,uint256,bytes)', // SovereignPermit standing allowance
   'permitTransferFrom(address,uint256,uint256,uint256,address,address,uint256,bytes)', // SovereignPermit
   // Permit2-style `transferFrom(owner, to, amount, token)`: pulls under an allowance to a caller-named recipient.
