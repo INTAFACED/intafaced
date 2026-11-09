@@ -140,6 +140,16 @@ export function assertAgentCapWithinCeiling(cap: Amount, ceiling: Amount | null,
 }
 
 /**
+ * The person's net funding (moves in less moves out) and the room left under `cap`, each floored at zero: taking profits
+ * out never makes room past the cap itself. The one formula the funding check and every view of the room use.
+ */
+export function agentFundingRoom(cap: Amount, movedIn: Amount, movedOut: Amount): { readonly net: Amount; readonly room: Amount } {
+  const net = isNegative(sub(movedIn, movedOut)) ? ZERO : sub(movedIn, movedOut);
+  const room = isNegative(sub(cap, net)) ? ZERO : sub(cap, net);
+  return { net, room };
+}
+
+/**
  * Refuse a move into the agent account that would take the person's net
  * funding (moves in, less moves out) past the cap. Called before the person's
  * wallet is asked to sign the move. `movedIn` and `movedOut` are the person's
@@ -150,9 +160,7 @@ export function assertAgentFundingWithinCap(cap: AgentCap, movedIn: Amount, move
   if (compare(move, ZERO) <= 0) {
     throw new AgentCapError('agents.account_cap_invalid', `a move must be above zero, got ${formatAmount(move)} ${cap.asset}`);
   }
-  // Net funding is floored at zero: taking profits out never makes room past the cap itself.
-  const net = isNegative(sub(movedIn, movedOut)) ? ZERO : sub(movedIn, movedOut);
-  const room = isNegative(sub(cap.cap, net)) ? ZERO : sub(cap.cap, net);
+  const { room } = agentFundingRoom(cap.cap, movedIn, movedOut);
   if (compare(move, room) > 0) {
     throw new AgentCapError(
       'agents.account_cap_exceeded',
@@ -492,8 +500,16 @@ export function checkAgentOrderWithinBounds(
       'the owner has published no worst price against the mark for agent orders, so no agent order is signed',
     );
   }
+  // The cap check runs first in `CappedAgentSigner` and refuses any market not quoted in the cap's asset, so the
+  // notional below is in the cap's asset, the unit the bound is published in.
   const market = markets.find((m) => m.symbol === intent.symbol);
   if (!market) refuse(account, 'unknown_market', `${intent.symbol} is not listed for this account`);
+  if (compare(bounds.worstPriceBps, TEN_THOUSAND) >= 0) {
+    throw new AgentCapError(
+      'agents.price_bound_unset',
+      'the worst price bound must be below 10000 bps, or a sell could name no price at all',
+    );
+  }
   const notional = mul(intent.amount, intent.price, 'ceil');
   if (compare(notional, bounds.maxOrderNotional) > 0) {
     throw new AgentCapError(

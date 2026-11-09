@@ -307,6 +307,11 @@ export class UserVenueDoor {
     }
     assertInteractive(principal, intent.kind);
     const key = this.businessKey(intent, req.actionKey);
+    // The agent account's keys (`agent:account:...`, `agent:move:...`) are its own: the plain door never stores an action
+    // under one, so the agent account reads back only what it prepared.
+    if (key.startsWith('agent:') && !caller?.agentAccount) {
+      throw new UserVenueDoorError(`the key ${key} belongs to the agent account`, 'trade.venue_agent_account_only', 403);
+    }
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
     if (intent.kind === 'withdraw') {

@@ -115,7 +115,13 @@ describe('the agent account on the TEST venue', () => {
     });
     accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values, now: () => new Date() });
   }
-  beforeEach(() => build());
+  let topUps = 0;
+  beforeEach(() => {
+    build();
+    // Every test funds its own accounts from the same TEST wallet: a fresh TEST 1000 USDC each time.
+    topUps += 1;
+    sim.deposit(main(), 'USDC', a('1000'), `deposit:test:agent-account:top-up:${topUps}`);
+  });
 
   /** Sign and send every action the account asks for, as the person's wallet, until nothing is next. */
   async function signAll(view: AgentAccountView): Promise<AgentAccountView> {
@@ -356,6 +362,42 @@ describe('the agent account on the TEST venue', () => {
     });
   });
 
+  it("the plain door never stores an action under the agent account's keys", async () => {
+    await expect(
+      door.prepare(principal, {
+        owner,
+        signer: { role: 'owner', address: owner },
+        intent: { kind: 'approve_agent', agentAddress: '0x00000000000000000000000000000000000000e1', agentName: 'x', validUntil: null },
+        actionKey: `agent:account:${id()}:approve`,
+      }),
+    ).rejects.toMatchObject({ code: 'trade.venue_agent_account_only' });
+  });
+
+  it('an open whose answer was lost is read back from the venue by its name, and the account goes on', async () => {
+    let v = await create200();
+    sim.switches.loseAnswers = 1;
+    v = await accounts.submit(principal, v.accountId, v.next!.actionKey, await sign(v.next!.prepared));
+    expect(v.subAccount).not.toBeNull();
+    expect(v.next?.step).toBe('approve_agent');
+    v = await signAll(v);
+    expect(v.status).toBe('open');
+  });
+
+  it('a close and a move asked at once: the close is judged under the same lock, so a move is never left on a closed account', async () => {
+    const v = await signAll(await create200());
+    // Empty it first, so the close could pass.
+    let back = await accounts.withdraw(principal, v.accountId, { moveId: id(), amount: '150' });
+    back = await accounts.submit(principal, v.accountId, back.next!.actionKey, await sign(back.next!.prepared));
+    const [fund, close] = await Promise.allSettled([
+      accounts.fund(principal, v.accountId, { moveId: id(), amount: '10' }),
+      accounts.close(principal, v.accountId),
+    ]);
+    const after = await accounts.advance(principal, v.accountId);
+    if (after.status === 'closed') expect(after.moves.filter((m) => m.state === 'pending')).toEqual([]);
+    else expect(fund.status).toBe('fulfilled');
+    expect([fund.status, close.status]).toContain('fulfilled');
+  });
+
   it("an API key (the assistant's) can't make, fund or close an agent account", async () => {
     const keyPrincipal = { ...principal, kid: 'key-1' } as Principal;
     await expect(
@@ -407,5 +449,6 @@ describe('parseAgentAccountValues: blank is null, malformed stops the boot', () 
     expect(() => parseAgentAccountValues({ TRADE_AGENT_ACCOUNT_CEILING: '-1' })).toThrow();
     expect(() => parseAgentAccountValues({ TRADE_AGENT_ACCOUNT_CEILING: '0' })).toThrow();
     expect(() => parseAgentAccountValues({ TRADE_AGENT_MARKETS: 'btc usdc' })).toThrow();
+    expect(() => parseAgentAccountValues({ TRADE_AGENT_WORST_PRICE_BPS: '10000' })).toThrow(/below 10000/);
   });
 });

@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { add, formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 
 /**
@@ -67,6 +67,18 @@ export interface AgentAccountStore {
   insertOnce(account: AgentAccountRecord, firstMove: AgentMoveRecord): Promise<AgentAccountRecord>;
   update(userId: string, accountId: string, patch: AccountPatch): Promise<AgentAccountRecord>;
   moves(userId: string, accountId: string): Promise<readonly AgentMoveRecord[]>;
+  /** A move by its id, on any of the person's accounts (move ids are unique per person), or `null`. */
+  findMove(userId: string, moveId: string): Promise<AgentMoveRecord | null>;
+  /**
+   * Under the account's row lock (the same lock `reserveMove` takes): run `decide` on the account and its moves and write
+   * the patch it returns, if any. No move can be reserved while it runs, so a close or a cap change is judged on the moves
+   * that are there when it writes.
+   */
+  lockedUpdate(
+    userId: string,
+    accountId: string,
+    decide: (account: AgentAccountRecord, moves: readonly AgentMoveRecord[]) => Promise<AccountPatch | null>,
+  ): Promise<AgentAccountRecord>;
   /**
    * Under the account's row lock: return the move if its id is stored, else run `check` on the account and its moves
    * (it throws to refuse) and store the move. The lock is held from the read to the write, so the room `check` judged is
@@ -101,6 +113,7 @@ export class InMemoryAgentAccountStore implements AgentAccountStore {
     const id = this.id(account.userId, account.accountId);
     const existing = this.accounts.get(id);
     if (existing) return existing;
+    if (this.moveRows.has(this.id(firstMove.userId, firstMove.moveId))) throw new Error(`move ${firstMove.moveId} is already stored`);
     this.accounts.set(id, account);
     this.moveRows.set(this.id(firstMove.userId, firstMove.moveId), firstMove);
     return account;
@@ -119,6 +132,25 @@ export class InMemoryAgentAccountStore implements AgentAccountStore {
     return [...this.moveRows.values()]
       .filter((m) => m.userId === userId && m.accountId === accountId)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async findMove(userId: string, moveId: string) {
+    return this.moveRows.get(this.id(userId, moveId)) ?? null;
+  }
+
+  lockedUpdate(
+    userId: string,
+    accountId: string,
+    decide: (account: AgentAccountRecord, moves: readonly AgentMoveRecord[]) => Promise<AccountPatch | null>,
+  ) {
+    const run = this.lock.then(async () => {
+      const account = await this.find(userId, accountId);
+      if (!account) throw new Error(`no agent account ${accountId}`);
+      const patch = await decide(account, await this.moves(userId, accountId));
+      return patch ? this.update(userId, accountId, patch) : account;
+    });
+    this.lock = run.catch(() => undefined);
+    return run;
   }
 
   reserveMove(move: AgentMoveRecord, check: (account: AgentAccountRecord, moves: readonly AgentMoveRecord[]) => void) {
@@ -237,15 +269,53 @@ export class SqlAgentAccountStore implements AgentAccountStore {
   }
 
   async update(userId: string, accountId: string, patch: AccountPatch) {
+    await this.write(this.sql, userId, accountId, patch);
     const row = await this.find(userId, accountId);
     if (!row) throw new Error(`no agent account ${accountId}`);
-    const next = { ...row, ...patch };
-    await this.sql`
-      UPDATE trade.user_venue_agent_accounts
-      SET sub_account = ${next.subAccount}, status = ${next.status}, opened_at = ${next.openedAt}, closed_at = ${next.closedAt},
-        cap = ${formatAmount(next.cap)}
+    return row;
+  }
+
+  /** Only the patched columns are written, so two updates of different fields never undo each other. */
+  private async write(sql: Sql | TransactionSql, userId: string, accountId: string, patch: AccountPatch) {
+    const columns: Record<string, unknown> = {};
+    if ('subAccount' in patch) columns.sub_account = patch.subAccount;
+    if ('status' in patch) columns.status = patch.status;
+    if ('openedAt' in patch) columns.opened_at = patch.openedAt;
+    if ('closedAt' in patch) columns.closed_at = patch.closedAt;
+    if (patch.cap !== undefined) columns.cap = formatAmount(patch.cap);
+    const names = Object.keys(columns);
+    if (names.length === 0) return;
+    const updated = await sql`
+      UPDATE trade.user_venue_agent_accounts SET ${sql(columns as Record<string, string>, names)}
       WHERE user_id = ${userId} AND account_id = ${accountId}`;
-    return next;
+    if (updated.count === 0) throw new Error(`no agent account ${accountId}`);
+  }
+
+  async findMove(userId: string, moveId: string) {
+    const rows = await this.sql<MoveRow[]>`
+      SELECT ${this.sql.unsafe(MOVE_COLUMNS)} FROM trade.user_venue_agent_moves WHERE user_id = ${userId} AND move_id = ${moveId}`;
+    return rows[0] ? moveOf(rows[0]) : null;
+  }
+
+  async lockedUpdate(
+    userId: string,
+    accountId: string,
+    decide: (account: AgentAccountRecord, moves: readonly AgentMoveRecord[]) => Promise<AccountPatch | null>,
+  ) {
+    await this.sql.begin(async (tx) => {
+      const locked = await tx<AccountRow[]>`
+        SELECT ${tx.unsafe(ACCOUNT_COLUMNS)} FROM trade.user_venue_agent_accounts
+        WHERE user_id = ${userId} AND account_id = ${accountId} FOR UPDATE`;
+      if (!locked[0]) throw new Error(`no agent account ${accountId}`);
+      const rows = await tx<MoveRow[]>`
+        SELECT ${tx.unsafe(MOVE_COLUMNS)} FROM trade.user_venue_agent_moves
+        WHERE user_id = ${userId} AND account_id = ${accountId} ORDER BY created_at, move_id`;
+      const patch = await decide(accountOf(locked[0]), rows.map(moveOf));
+      if (patch) await this.write(tx, userId, accountId, patch);
+    });
+    const row = await this.find(userId, accountId);
+    if (!row) throw new Error(`no agent account ${accountId}`);
+    return row;
   }
 
   async moves(userId: string, accountId: string) {

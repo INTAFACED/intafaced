@@ -31,7 +31,7 @@ const cap: AgentCap = { account: sub, agentAddress: '0xagent', asset: 'USDC', ca
 /** Bounds wide enough that only the cap decides, for the cap's own tests; the bounds have their own tests below. */
 const OPEN_BOUNDS: AgentDrainBounds = {
   maxOrderNotional: A('1000000000'),
-  worstPriceBps: A('10000'),
+  worstPriceBps: A('9999'),
   markets: ['ETH-USDC', 'BTC-PERP', 'SOL-USDT'],
 };
 /** The order marks those bounds are judged against: every price these tests sign is within them. */

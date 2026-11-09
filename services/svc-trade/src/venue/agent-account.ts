@@ -1,9 +1,10 @@
-import { compare, formatAmount, isNegative, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { compare, formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
   AgentCapError,
   assertAgentCapWithinCeiling,
+  agentFundingRoom,
   assertAgentFundingWithinCap,
   hasSubAccountReads,
   isTestVenue,
@@ -322,6 +323,15 @@ export class AgentAccounts {
       }
       return this.advance(principal, accountId);
     }
+    // The first move's id is the account's: an id the person already used for a move is a reused key, refused before
+    // step-up is spent.
+    if (await this.deps.store.findMove(principal.userId, accountId)) {
+      throw new AgentAccountError(
+        'agents.account_key_reused',
+        `${accountId} was already used for a move; a new account needs a new id`,
+        409,
+      );
+    }
     await this.deps.stepUp.require({
       scope: AGENT_ACCOUNT_STEP_UP_SCOPE,
       userId: principal.userId,
@@ -409,13 +419,15 @@ export class AgentAccounts {
         const stored = await this.deps.door.stored(principal, createKey(a.accountId));
         const o = stored?.lastOutcome ?? null;
         if (o?.definite && o.accepted && o.venueRef) a = await this.deps.store.update(a.userId, a.accountId, { subAccount: o.venueRef });
-        else if (o?.definite && !o.accepted) {
-          refusal = o.refusal;
-          a = await this.abandoned(a);
-        } else if (o && !o.definite) {
-          // Sent, answer lost: the venue's list says whether it opened (the name is unique per owner).
+        else if (o) {
+          // Any other answer to a sent open (accepted without the venue's id, lost, or refused after an earlier send may
+          // have landed): the venue's own list says whether it opened, by the name, which is unique per owner.
           const found = (await venue.subAccounts(main)).value.find((s) => s.name === a.name);
           if (found) a = await this.deps.store.update(a.userId, a.accountId, { subAccount: found.subAccount });
+          else if (o.definite && !o.accepted) {
+            refusal = o.refusal;
+            a = await this.abandoned(a);
+          }
         }
         if (a.status === 'opening' && a.subAccount === null) {
           next = await this.nextFor(
@@ -522,8 +534,7 @@ export class AgentAccounts {
     balances: AsOf<readonly UserVenueBalance[]> | null,
   ): AgentAccountView {
     const { movedIn, movedOut } = netFunding(moves);
-    const net = isNegative(sub(movedIn, movedOut)) ? ZERO : sub(movedIn, movedOut);
-    const left = sub(a.cap, net);
+    const { net, room } = agentFundingRoom(a.cap, movedIn, movedOut);
     return {
       accountId: a.accountId,
       status: a.status,
@@ -534,7 +545,7 @@ export class AgentAccounts {
       cap: a.cap,
       agentAddress: a.agentAddress,
       netFunding: net,
-      room: isNegative(left) ? ZERO : left,
+      room,
       moves: moves.map((m) => ({
         moveId: m.moveId,
         actionKey: moveKey(m.moveId),
@@ -624,6 +635,9 @@ export class AgentAccounts {
     const a = await this.account(principal, accountId);
     const moveId = uuid(req.moveId, 'moveId');
     const amount = positive(req.amount, 'amount');
+    if (await this.deps.store.find(principal.userId, moveId)) {
+      throw new AgentAccountError('agents.account_key_reused', `${moveId} is an agent account's id; a move needs its own id`, 409);
+    }
     const record: AgentMoveRecord = {
       userId: a.userId,
       accountId: a.accountId,
@@ -675,8 +689,12 @@ export class AgentAccounts {
     } catch (error) {
       capErrorAs(error);
     }
-    if (a.status !== 'open') throw new AgentAccountError('agents.account_not_open', `agent account ${a.accountId} is ${a.status}`, 409);
-    await this.deps.store.update(a.userId, a.accountId, { cap });
+    await this.deps.store.lockedUpdate(a.userId, a.accountId, async (locked) => {
+      if (locked.status !== 'open') {
+        throw new AgentAccountError('agents.account_not_open', `agent account ${locked.accountId} is ${locked.status}`, 409);
+      }
+      return { cap };
+    });
     return this.advance(principal, accountId);
   }
 
@@ -688,52 +706,58 @@ export class AgentAccounts {
     assertPerson(principal);
     const a = await this.account(principal, accountId);
     if (a.status !== 'open') throw new AgentAccountError('agents.account_not_open', `agent account ${a.accountId} is ${a.status}`, 409);
-    const current = await this.advance(principal, accountId);
-    if (current.moves.some((m) => m.state === 'pending')) {
-      throw new AgentAccountError(
-        'agents.account_close_move_pending',
-        'a move of this account is still waiting for the wallet or the venue',
-        409,
-      );
-    }
+    // Settle every move from the venue's record first, then judge and write under the account's row lock, which
+    // `reserveMove` also takes: no move can be asked for between the check and the close.
+    await this.advance(principal, accountId);
     const venue = await this.venue();
     const sub = this.subOf(a);
-    const [positions, orders, balances] = await Promise.all([venue.positions(sub), venue.openOrders(sub), venue.balances(sub)]);
-    const position = positions.value.find((p) => compare(p.size, ZERO) !== 0);
-    if (position) {
-      throw new AgentAccountError(
-        'agents.account_close_open_position',
-        `close the open ${position.side} of ${formatAmount(position.size)} on ${position.symbol} first`,
-        409,
-        { symbol: position.symbol, side: position.side, size: formatAmount(position.size) },
-      );
-    }
-    const order = orders.value[0];
-    if (order) {
-      throw new AgentAccountError(
-        'agents.account_close_open_order',
-        `cancel the resting ${order.side} order on ${order.symbol} first`,
-        409,
-        {
-          symbol: order.symbol,
-          side: order.side,
-          venueClientOrderId: order.venueClientOrderId,
-        },
-      );
-    }
-    const held = balances.value.find((b) => compare(b.total, ZERO) !== 0);
-    if (held) {
-      throw new AgentAccountError(
-        'agents.account_close_balance',
-        `move the ${formatAmount(held.total)} ${held.asset} back to your main account first`,
-        409,
-        {
-          asset: held.asset,
-          total: formatAmount(held.total),
-        },
-      );
-    }
-    await this.deps.store.update(a.userId, a.accountId, { status: 'closed', closedAt: this.deps.now() });
+    await this.deps.store.lockedUpdate(a.userId, a.accountId, async (locked, moves) => {
+      if (locked.status !== 'open')
+        throw new AgentAccountError('agents.account_not_open', `agent account ${locked.accountId} is ${locked.status}`, 409);
+      if (moves.some((m) => m.state === 'pending')) {
+        throw new AgentAccountError(
+          'agents.account_close_move_pending',
+          'a move of this account is still waiting for the wallet or the venue',
+          409,
+        );
+      }
+      const [positions, orders, balances] = await Promise.all([venue.positions(sub), venue.openOrders(sub), venue.balances(sub)]);
+      const position = positions.value.find((p) => compare(p.size, ZERO) !== 0);
+      if (position) {
+        throw new AgentAccountError(
+          'agents.account_close_open_position',
+          `close the open ${position.side} of ${formatAmount(position.size)} on ${position.symbol} first`,
+          409,
+          { symbol: position.symbol, side: position.side, size: formatAmount(position.size) },
+        );
+      }
+      const order = orders.value[0];
+      if (order) {
+        throw new AgentAccountError(
+          'agents.account_close_open_order',
+          `cancel the resting ${order.side} order on ${order.symbol} first`,
+          409,
+          {
+            symbol: order.symbol,
+            side: order.side,
+            venueClientOrderId: order.venueClientOrderId,
+          },
+        );
+      }
+      const held = balances.value.find((b) => compare(b.total, ZERO) !== 0);
+      if (held) {
+        throw new AgentAccountError(
+          'agents.account_close_balance',
+          `move the ${formatAmount(held.total)} ${held.asset} back to your main account first`,
+          409,
+          {
+            asset: held.asset,
+            total: formatAmount(held.total),
+          },
+        );
+      }
+      return { status: 'closed', closedAt: this.deps.now() };
+    });
     return this.advance(principal, accountId);
   }
 }
@@ -766,13 +790,18 @@ export function parseAgentAccountValues(env: {
   if (list?.some((m) => !/^[A-Z0-9]+-[A-Z0-9]+$/.test(m)))
     throw new Error(`TRADE_AGENT_MARKETS must be comma-separated venue symbols, got ${JSON.stringify(markets)}`);
   const seed = env.TRADE_AGENT_KEY_SEED ?? '';
+  // 10000 bps or more would let a sell name a price of zero: the bound would bound nothing.
+  const belowWholeMark = (bps: Amount | null) => {
+    if (bps !== null && compare(bps, parseAmount('10000')) >= 0) throw new Error('TRADE_AGENT_WORST_PRICE_BPS must be below 10000');
+    return bps;
+  };
   return {
     ceiling: amount('TRADE_AGENT_ACCOUNT_CEILING', env.TRADE_AGENT_ACCOUNT_CEILING),
     asset: asset === '' ? null : asset,
     keySeed: seed.trim() === '' ? null : seed,
     bounds: {
       maxOrderNotional: amount('TRADE_AGENT_MAX_ORDER_NOTIONAL', env.TRADE_AGENT_MAX_ORDER_NOTIONAL),
-      worstPriceBps: amount('TRADE_AGENT_WORST_PRICE_BPS', env.TRADE_AGENT_WORST_PRICE_BPS),
+      worstPriceBps: belowWholeMark(amount('TRADE_AGENT_WORST_PRICE_BPS', env.TRADE_AGENT_WORST_PRICE_BPS)),
       markets: list,
     },
   };
