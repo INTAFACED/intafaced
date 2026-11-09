@@ -14,6 +14,7 @@ import {
   keepParkedNeeds,
   laneFor,
   liveJourneys,
+  isLaterStep,
   parkedJourneys,
   parseJourneys,
   sliceIdCandidates,
@@ -517,6 +518,52 @@ test('a Later: custody line marks the journey later; it stays live and its slice
   assert.equal(order.get('W-deposit-01'), 4, 'a slice only a later journey needs comes after Orders 1 to 3');
   assert.equal(order.get('W-activity-01'), 2);
   assert.equal(order.get('W-balances-01'), 1);
+});
+
+const laterStepMap = (does = 'Later (OWNER 226): Proposes a trade bust') =>
+  [
+    '## J-cex-spot-18: I look up a routed order',
+    '- Persona: operator:support',
+    '- Tier: core',
+    '- Order: 1',
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Looks up an order | The order | SP-ops-01 | none |',
+    `| 2 | ${does} | The bust | SP-ops-03 | none |`,
+    '| 3 | Exports | A file that says Later (OWNER 226): further on | SP-ops-01 | none |',
+  ].join('\n');
+
+test('a step whose cell starts "Later (OWNER 226):" is a later step: live, out of the open count, its slices queued later', () => {
+  const [j] = parseJourneys(laterStepMap(), 'cex-spot');
+  assert.deepEqual(
+    j.steps.map((st) => [st.n, st.later]),
+    [
+      [1, undefined],
+      [2, 'custody'],
+      [3, undefined],
+    ],
+  );
+  assert.equal(isLaterStep(j.steps[1]), true);
+  assert.deepEqual(finishLineProblems([j]), [], 'a later step at Order 1 is fine: the journey launches without it');
+  assert.deepEqual(
+    liveJourneys([j])[0].steps.map((st) => st.n),
+    [1, 2, 3],
+    'a later step stays live and in "finished"',
+  );
+  assert.equal(finishLine([j])[0].open, 2, 'the later step is not launch work');
+  const order = journeyOrder([j]);
+  assert.equal(order.get('SP-ops-03'), 4, 'a slice only a later step needs is queued with the later journeys');
+  assert.equal(order.get('SP-ops-01'), 1);
+});
+
+test('planted: a step that starts with "Later" in any other form is refused', () => {
+  for (const does of ['Later: Proposes a trade bust', 'later (OWNER 226): Proposes', 'Later (OWNER 223): Proposes'])
+    assert.throws(
+      () => parseJourneys(laterStepMap(does), 'cex-spot'),
+      /J-cex-spot-18 #2 starts with "Later" but not "Later \(OWNER 226\):"/,
+      does,
+    );
 });
 
 test('planted: a later journey at Order 1, or a later reason other than custody, is refused', () => {

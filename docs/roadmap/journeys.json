@@ -1406,7 +1406,7 @@
       { "n": 1, "slices": ["BK-bexp-03"], "noSlice": false },
       { "n": 2, "slices": ["BK-bexp-04"], "noSlice": false },
       { "n": 3, "slices": ["BK-bexp-05"], "noSlice": false },
-      { "n": 4, "slices": ["BK-pots-04"], "noSlice": false }
+      { "n": 4, "slices": ["BK-pots-04"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -1483,8 +1483,8 @@
     "tier": "advanced",
     "order": 3,
     "steps": [
-      { "n": 1, "slices": ["BK-earn-02"], "noSlice": false },
-      { "n": 2, "slices": ["BK-earn-04"], "noSlice": false },
+      { "n": 1, "slices": ["BK-earn-02"], "noSlice": false, "later": "custody" },
+      { "n": 2, "slices": ["BK-earn-04"], "noSlice": false, "later": "custody" },
       { "n": 3, "slices": ["BK-ord-01"], "noSlice": false },
       { "n": 4, "slices": ["BK-xfer-11"], "noSlice": false }
     ]
@@ -1573,7 +1573,7 @@
       { "n": 3, "slices": ["CM-payouts-ledger-01"], "noSlice": false },
       { "n": 4, "slices": ["CM-payouts-ledger-01"], "noSlice": false },
       { "n": 5, "slices": ["CM-rewards-hub-02"], "noSlice": false },
-      { "n": 6, "slices": ["CM-rewards-hub-02"], "noSlice": false },
+      { "n": 6, "slices": ["CM-rewards-hub-02"], "noSlice": false, "later": "custody" },
       { "n": 7, "slices": ["CM-rewards-hub-01"], "noSlice": false }
     ]
   },
@@ -2052,7 +2052,7 @@
       { "n": 6, "slices": ["SP-convert-buy-01"], "noSlice": false },
       { "n": 7, "slices": ["SP-convert-buy-02"], "noSlice": false },
       { "n": 8, "slices": ["SP-convert-buy-01"], "noSlice": false },
-      { "n": 9, "slices": ["SP-convert-buy-01"], "noSlice": false },
+      { "n": 9, "slices": ["SP-convert-buy-01"], "noSlice": false, "later": "custody" },
       { "n": 10, "slices": ["SP-convert-buy-03"], "noSlice": false },
       { "n": 11, "slices": ["SP-convert-buy-03"], "noSlice": false },
       { "n": 12, "slices": ["SP-convert-buy-03"], "noSlice": false }
@@ -2146,9 +2146,9 @@
       { "n": 2, "slices": ["SP-ops-01"], "noSlice": false },
       { "n": 3, "slices": ["SP-ops-01"], "noSlice": false },
       { "n": 4, "slices": ["SP-ops-01"], "noSlice": false },
-      { "n": 5, "slices": ["SP-ops-01"], "noSlice": false },
+      { "n": 5, "slices": ["SP-ops-01"], "noSlice": false, "later": "custody" },
       { "n": 6, "slices": ["SP-ops-02"], "noSlice": false },
-      { "n": 7, "slices": ["RC-cex-spot-01"], "noSlice": false },
+      { "n": 7, "slices": ["RC-cex-spot-01"], "noSlice": false, "later": "custody" },
       { "n": 8, "slices": ["SP-markets-data-02"], "noSlice": false }
     ]
   },
@@ -2180,8 +2180,8 @@
     "steps": [
       { "n": 1, "slices": ["SP-ops-03"], "noSlice": false },
       { "n": 2, "slices": ["SP-ops-03"], "noSlice": false },
-      { "n": 3, "slices": ["SP-ops-03"], "noSlice": false },
-      { "n": 4, "slices": ["SP-ops-03"], "noSlice": false },
+      { "n": 3, "slices": ["SP-ops-03"], "noSlice": false, "later": "custody" },
+      { "n": 4, "slices": ["SP-ops-03"], "noSlice": false, "later": "custody" },
       { "n": 5, "slices": ["SP-ops-03"], "noSlice": false }
     ]
   },
@@ -2778,7 +2778,7 @@
       { "n": 2, "slices": ["CB-bots-04"], "noSlice": false },
       { "n": 3, "slices": ["CB-bots-03"], "noSlice": false },
       { "n": 4, "slices": ["CB-bots-03"], "noSlice": false },
-      { "n": 5, "slices": ["CB-bots-06"], "noSlice": false },
+      { "n": 5, "slices": ["CB-bots-06"], "noSlice": false, "later": "custody" },
       { "n": 6, "slices": ["CB-bots-06"], "noSlice": false },
       { "n": 7, "slices": ["CB-bots-09", "CB-copy-20"], "noSlice": false },
       { "n": 8, "slices": ["CB-copy-20"], "noSlice": false }
@@ -2794,7 +2794,7 @@
     "steps": [
       { "n": 1, "slices": ["CB-bots-11"], "noSlice": false },
       { "n": 2, "slices": ["CB-bots-11"], "noSlice": false },
-      { "n": 3, "slices": ["CB-bots-11"], "noSlice": false },
+      { "n": 3, "slices": ["CB-bots-11"], "noSlice": false, "later": "custody" },
       { "n": 4, "slices": ["CB-bots-11"], "noSlice": false },
       { "n": 5, "slices": ["CB-bots-12"], "noSlice": false },
       { "n": 6, "slices": ["CB-bots-12"], "noSlice": false },
@@ -3293,8 +3293,8 @@
       { "n": 6, "slices": ["D-data-06"], "noSlice": false },
       { "n": 7, "slices": ["D-orders-07"], "noSlice": false },
       { "n": 8, "slices": ["D-orders-08"], "noSlice": false },
-      { "n": 9, "slices": ["D-margin-11"], "noSlice": false },
-      { "n": 10, "slices": ["D-ops-08"], "noSlice": false }
+      { "n": 9, "slices": ["D-margin-11"], "noSlice": false, "later": "custody" },
+      { "n": 10, "slices": ["D-ops-08"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -3498,7 +3498,7 @@
       { "n": 6, "slices": ["D-cross-04", "D-margin-08"], "noSlice": false },
       { "n": 7, "slices": ["D-cross-05"], "noSlice": false },
       { "n": 8, "slices": ["D-cross-05"], "noSlice": false },
-      { "n": 9, "slices": ["D-cross-05"], "noSlice": false }
+      { "n": 9, "slices": ["D-cross-05"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -3525,13 +3525,14 @@
     "tier": "core",
     "order": 1,
     "steps": [
-      { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true },
-      { "n": 5, "slices": [], "noSlice": true },
-      { "n": 6, "slices": [], "noSlice": true },
-      { "n": 7, "slices": [], "noSlice": true }
+      { "n": 1, "slices": ["D-venue-01"], "noSlice": false },
+      { "n": 2, "slices": ["D-venue-02"], "noSlice": false },
+      { "n": 3, "slices": ["D-venue-03", "D-venue-07"], "noSlice": false },
+      { "n": 4, "slices": ["D-venue-04"], "noSlice": false },
+      { "n": 5, "slices": ["D-venue-03"], "noSlice": false },
+      { "n": 6, "slices": ["D-venue-05", "D-venue-07"], "noSlice": false },
+      { "n": 7, "slices": ["D-venue-08"], "noSlice": false, "later": "custody" },
+      { "n": 8, "slices": ["D-venue-06"], "noSlice": false }
     ]
   },
   {
@@ -4149,9 +4150,9 @@
       { "n": 4, "slices": ["D-swap-06", "D-fees-governance-03"], "noSlice": false },
       { "n": 5, "slices": ["D-fees-governance-02"], "noSlice": false },
       { "n": 6, "slices": ["D-fees-governance-03"], "noSlice": false },
-      { "n": 7, "slices": ["RC-dex-protocol-20"], "noSlice": false },
+      { "n": 7, "slices": ["RC-dex-protocol-20"], "noSlice": false, "later": "custody" },
       { "n": 8, "slices": ["D-fees-governance-05"], "noSlice": false },
-      { "n": 9, "slices": ["RC-dex-protocol-13"], "noSlice": false }
+      { "n": 9, "slices": ["RC-dex-protocol-13"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -4473,9 +4474,9 @@
     "tier": "core",
     "order": 2,
     "steps": [
-      { "n": 1, "slices": ["D-perps-04"], "noSlice": false },
-      { "n": 2, "slices": ["D-perps-04"], "noSlice": false },
-      { "n": 3, "slices": ["D-perps-04"], "noSlice": false },
+      { "n": 1, "slices": ["D-perps-04"], "noSlice": false, "later": "custody" },
+      { "n": 2, "slices": ["D-perps-04"], "noSlice": false, "later": "custody" },
+      { "n": 3, "slices": ["D-perps-04"], "noSlice": false, "later": "custody" },
       { "n": 4, "slices": ["D-perps-06"], "noSlice": false },
       { "n": 5, "slices": ["D-lend-earn-04"], "noSlice": false },
       { "n": 6, "slices": ["D-lend-earn-03"], "noSlice": false },
@@ -4504,6 +4505,7 @@
         "n": 8,
         "slices": ["RC-dex-protocol-13"],
         "noSlice": false,
+        "later": "custody",
         "parked": true,
         "parkedUntil": "after launch (OWNER 183 (2): own-chain extras, buyback)"
       },
@@ -6119,13 +6121,13 @@
     "order": 2,
     "steps": [
       { "n": 1, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
-      { "n": 2, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
-      { "n": 3, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
-      { "n": 4, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
-      { "n": 5, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
+      { "n": 2, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
+      { "n": 3, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
+      { "n": 4, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
       { "n": 6, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 7, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
-      { "n": 8, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
+      { "n": 8, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
       { "n": 9, "slices": ["OPS-accounts-desk-02"], "noSlice": false, "deferred": true },
       { "n": 10, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 11, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
@@ -6146,10 +6148,10 @@
       { "n": 4, "slices": ["OPS-ledger-desk-02"], "noSlice": false },
       { "n": 5, "slices": ["OPS-ledger-desk-02"], "noSlice": false },
       { "n": 6, "slices": ["OPS-ledger-desk-02"], "noSlice": false },
-      { "n": 7, "slices": ["OPS-ledger-desk-03"], "noSlice": false },
-      { "n": 8, "slices": ["OPS-ledger-desk-03"], "noSlice": false },
-      { "n": 9, "slices": ["OPS-ledger-desk-03"], "noSlice": false },
-      { "n": 10, "slices": ["OPS-ledger-desk-03"], "noSlice": false }
+      { "n": 7, "slices": ["OPS-ledger-desk-03"], "noSlice": false, "later": "custody" },
+      { "n": 8, "slices": ["OPS-ledger-desk-03"], "noSlice": false, "later": "custody" },
+      { "n": 9, "slices": ["OPS-ledger-desk-03"], "noSlice": false, "later": "custody" },
+      { "n": 10, "slices": ["OPS-ledger-desk-03"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -6525,6 +6527,7 @@
         "n": 4,
         "slices": ["RC-ops-console-08"],
         "noSlice": false,
+        "later": "custody",
         "parked": true,
         "parkedUntil": "after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)"
       },
@@ -6824,7 +6827,7 @@
       { "n": 3, "slices": ["P-ads-merchant-17"], "noSlice": false },
       { "n": 4, "slices": ["P-disputes-security-15"], "noSlice": false },
       { "n": 5, "slices": ["P-disputes-security-16"], "noSlice": false },
-      { "n": 6, "slices": ["P-disputes-security-17"], "noSlice": false },
+      { "n": 6, "slices": ["P-disputes-security-17"], "noSlice": false, "later": "custody" },
       { "n": 7, "slices": ["P-disputes-security-18"], "noSlice": false }
     ]
   },
@@ -6838,8 +6841,8 @@
     "steps": [
       { "n": 1, "slices": ["P-disputes-security-11"], "noSlice": false },
       { "n": 2, "slices": ["P-disputes-security-11"], "noSlice": false },
-      { "n": 3, "slices": ["P-disputes-security-10"], "noSlice": false },
-      { "n": 4, "slices": ["P-disputes-security-10"], "noSlice": false },
+      { "n": 3, "slices": ["P-disputes-security-10"], "noSlice": false, "later": "custody" },
+      { "n": 4, "slices": ["P-disputes-security-10"], "noSlice": false, "later": "custody" },
       { "n": 5, "slices": ["P-disputes-security-12"], "noSlice": false },
       { "n": 6, "slices": ["P-disputes-security-08"], "noSlice": false }
     ]
@@ -6914,7 +6917,7 @@
       { "n": 3, "slices": ["P-disputes-security-13", "P-ads-merchant-17"], "noSlice": false },
       { "n": 4, "slices": ["P-disputes-security-12"], "noSlice": false },
       { "n": 5, "slices": ["P-disputes-security-16"], "noSlice": false },
-      { "n": 6, "slices": ["P-ads-merchant-14", "P-ads-merchant-16", "P-ads-merchant-15"], "noSlice": false }
+      { "n": 6, "slices": ["P-ads-merchant-14", "P-ads-merchant-16", "P-ads-merchant-15"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -7072,7 +7075,7 @@
       { "n": 2, "slices": ["PP-send-request-11"], "noSlice": false },
       { "n": 3, "slices": ["PP-send-request-23"], "noSlice": false },
       { "n": 4, "slices": ["PP-send-request-23"], "noSlice": false },
-      { "n": 5, "slices": ["PP-send-request-23"], "noSlice": false }
+      { "n": 5, "slices": ["PP-send-request-23"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -7209,10 +7212,10 @@
     "order": 2,
     "steps": [
       { "n": 1, "slices": ["PP-disputes-safety-11"], "noSlice": false },
-      { "n": 2, "slices": ["PP-disputes-safety-07"], "noSlice": false },
+      { "n": 2, "slices": ["PP-disputes-safety-07"], "noSlice": false, "later": "custody" },
       { "n": 3, "slices": ["PP-disputes-safety-12"], "noSlice": false },
-      { "n": 4, "slices": ["PP-money-balance-02", "PP-disputes-safety-07"], "noSlice": false },
-      { "n": 5, "slices": ["PP-money-balance-02"], "noSlice": false }
+      { "n": 4, "slices": ["PP-money-balance-02", "PP-disputes-safety-07"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["PP-money-balance-02"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -7226,9 +7229,9 @@
       { "n": 1, "slices": ["PP-disputes-safety-08"], "noSlice": false },
       { "n": 2, "slices": ["PP-disputes-safety-08", "PP-disputes-safety-02"], "noSlice": false },
       { "n": 3, "slices": ["PP-disputes-safety-08", "PP-disputes-safety-04"], "noSlice": false },
-      { "n": 4, "slices": ["PP-disputes-safety-08"], "noSlice": false },
-      { "n": 5, "slices": ["PP-disputes-safety-05", "PP-disputes-safety-08"], "noSlice": false },
-      { "n": 6, "slices": ["PP-disputes-safety-07"], "noSlice": false }
+      { "n": 4, "slices": ["PP-disputes-safety-08"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["PP-disputes-safety-05", "PP-disputes-safety-08"], "noSlice": false, "later": "custody" },
+      { "n": 6, "slices": ["PP-disputes-safety-07"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -7908,11 +7911,11 @@
     "order": 3,
     "steps": [
       { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true },
-      { "n": 5, "slices": [], "noSlice": true },
-      { "n": 6, "slices": [], "noSlice": true }
+      { "n": 2, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 3, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 4, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 5, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 6, "slices": [], "noSlice": true, "later": "custody" }
     ],
     "later": "custody"
   },
@@ -7926,8 +7929,8 @@
     "steps": [
       { "n": 1, "slices": [], "noSlice": true },
       { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true }
+      { "n": 3, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 4, "slices": [], "noSlice": true, "later": "custody" }
     ]
   },
   {
@@ -8152,8 +8155,8 @@
     "order": 3,
     "steps": [
       { "n": 1, "slices": ["W-balances-09"], "noSlice": false },
-      { "n": 2, "slices": ["W-balances-08"], "noSlice": false },
-      { "n": 3, "slices": ["W-balances-08"], "noSlice": false }
+      { "n": 2, "slices": ["W-balances-08"], "noSlice": false, "later": "custody" },
+      { "n": 3, "slices": ["W-balances-08"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -8254,7 +8257,7 @@
     "steps": [
       { "n": 1, "slices": ["W-compliance-notices-01"], "noSlice": false },
       { "n": 2, "slices": ["W-deposit-04"], "noSlice": false },
-      { "n": 3, "slices": ["W-deposit-08"], "noSlice": false },
+      { "n": 3, "slices": ["W-deposit-08"], "noSlice": false, "later": "custody" },
       { "n": 4, "slices": ["W-balances-05"], "noSlice": false },
       { "n": 5, "slices": ["W-security-accounts-02"], "noSlice": false }
     ]
@@ -8273,5 +8276,22 @@
       { "n": 4, "slices": ["W-withdraw-13"], "noSlice": false }
     ],
     "later": "custody"
+  },
+  {
+    "id": "J-wallet-22",
+    "title": "I get my own wallet when I sign up, without a seed phrase",
+    "module": "wallet",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true }
+    ]
   }
 ]

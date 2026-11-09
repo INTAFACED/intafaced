@@ -28,6 +28,10 @@
  *      A `Later: custody` line marks a journey that works only while INTAFACED holds customer money (OWNER 226): it
  *      stays live and in "finished", ranks after every launch journey, and is never Order 1, the launch wedge
  *      (customer-first order, OWNER 223 (3)); `--index` refuses a list that breaks this (finishLineProblems).
+ *      A step whose "The person does" cell starts `Later (OWNER 226):` is a later step (`"later": "custody"` on the
+ *      step): the custodial branch of a launch journey. It stays live and in "finished", but the launch count skips it
+ *      (project-state tooling/truth/finish-line.mjs), the finish line's open count leaves it out, and a slice only later
+ *      steps need is queued with the later journeys. A cell that starts with "Later" in any other form is refused.
  *   1. `modules/<module>/specs/*.md` and `specs/merchant-*.md` in the Operation Zero folder: each `### <ID>. <title>`
  *      heading and its `| IDs |`, `| Module |`, `| Split |`, `| Depends |`, `| NotConnected |`, `| Size |` rows.
  *      The folder lives in the project's shared files, not in this repo, so `--index` is run by whoever has it and
@@ -196,9 +200,12 @@ export function parseJourneys(text, module, known = null) {
     if (row) {
       const cells = line.split('|').map((c) => c.trim());
       const sliceCell = cells[4] ?? '';
+      const does = cells[2] ?? '';
       const slices = known ? sliceIdCandidates(sliceCell).filter((id) => known.has(id)) : sliceIdCandidates(sliceCell, { longest: true });
       // An empty cell names nothing to build either, so it counts as a step no slice covers yet.
       const step = { n: Number(row[1]), slices, noSlice: /\bNO-SLICE\b/.test(sliceCell) || !slices.length };
+      if (LATER_STEP.test(does)) step.later = 'custody';
+      else if (/^later\b/i.test(does)) throw new Error(`roadmap: ${cur.id} #${row[1]} starts with "Later" but not "Later (OWNER 226):"`);
       if (/\bDEFERRED\b/.test(sliceCell)) step.deferred = true;
       if (/\bPARKED\b/.test(sliceCell)) {
         if (!/\bPARKED until\s+\S/.test(sliceCell)) throw new Error(`roadmap: ${cur.id} #${row[1]} says PARKED with no "until <when>"`);
@@ -238,6 +245,10 @@ export const LATER_REASONS = ['custody'];
 /** The Order a later journey takes in the slice order: after Orders 1 to 3, so lane queues reach it last. */
 export const LATER_ORDER = 4;
 export const isLater = (j) => LATER_REASONS.includes(j.later);
+/** The one way a step is marked later, at the start of its "The person does" cell (OWNER 226; #1865 A4). */
+export const LATER_STEP = /^Later \(OWNER 226\):/;
+/** A later step: the custodial branch inside a launch journey. Live and in "finished", never in the launch count. */
+export const isLaterStep = (st) => LATER_REASONS.includes(st.later);
 
 /**
  * Why the finish line's order is wrong: a `later` that isn't a known reason, or a later journey at Order 1. Order 1 is
@@ -275,7 +286,8 @@ export function finishLine(journeys, passed = null) {
     for (const id of new Set(j.steps.flatMap((st) => st.slices))) for (const o of users.get(id) ?? []) if (o !== j.id) others.add(o);
     return others.size;
   };
-  const open = (j) => j.steps.filter((st) => !passed?.has(`${j.id}#${st.n}`)).length;
+  // A launch journey's later steps aren't its launch work, so they don't count as open.
+  const open = (j) => j.steps.filter((st) => (isLater(j) || !isLaterStep(st)) && !passed?.has(`${j.id}#${st.n}`)).length;
   const operator = (j) => (String(j.persona).startsWith('operator') ? 1 : 0);
   return live
     .map((j) => ({ j, later: isLater(j), unblocks: unblocks(j), open: open(j) }))
@@ -348,7 +360,11 @@ export function journeyOrder(journeys) {
     if (!j.order) continue;
     // A later journey (OWNER 226) ranks after every launch journey, so a slice only it needs is queued last.
     const o = isLater(j) ? LATER_ORDER : j.order;
-    for (const step of j.steps) for (const id of step.slices) order.set(id, Math.min(order.get(id) ?? 9, o));
+    for (const step of j.steps) {
+      // A later step's slices are queued like a later journey's, unless a launch step also needs them.
+      const so = isLaterStep(step) ? LATER_ORDER : o;
+      for (const id of step.slices) order.set(id, Math.min(order.get(id) ?? 9, so));
+    }
   }
   return order;
 }

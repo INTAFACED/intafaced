@@ -46,11 +46,11 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1519 slices left in 21 modules. 272 need no other slice. 47 sit in a dependency loop that the lane untangles first. 363 end in a refusal that names an outside service (built, switched on later). Size: 714 L, 699 M, 106 S.
+1527 slices left in 21 modules. 273 need no other slice. 47 sit in a dependency loop that the lane untangles first. 364 end in a refusal that names an outside service (built, switched on later). Size: 716 L, 704 M, 107 S.
 
 ### Journey map
 
-Done is defined by 448 journeys (2952 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 46 steps still need a capability no slice covers yet.
+Done is defined by 449 journeys (2960 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 46 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -58,13 +58,13 @@ Done is defined by 448 journeys (2952 steps) in `modules/<module>/acceptance/jou
 | bank           | 30       | 4       | 17      | 9       | 180   | 0                   |
 | copy-bots-otc  | 30       | 0       | 18      | 12      | 205   | 1                   |
 | dex-protocol   | 30       | 0       | 19      | 11      | 250   | 0                   |
-| derivatives    | 28       | 15      | 5       | 8       | 199   | 10                  |
+| derivatives    | 28       | 15      | 5       | 8       | 200   | 3                   |
 | support-public | 22       | 1       | 15      | 6       | 171   | 14                  |
+| wallet         | 22       | 4       | 11      | 7       | 117   | 7                   |
 | agents         | 21       | 4       | 9       | 8       | 134   | 3                   |
 | identity       | 21       | 7       | 9       | 5       | 133   | 1                   |
 | p2p            | 21       | 0       | 16      | 5       | 117   | 0                   |
 | pay            | 21       | 0       | 14      | 7       | 121   | 1                   |
-| wallet         | 21       | 3       | 11      | 7       | 110   | 0                   |
 | campaigns      | 20       | 0       | 13      | 7       | 123   | 0                   |
 | cex-spot       | 20       | 9       | 7       | 4       | 169   | 0                   |
 | ops-console    | 20       | 3       | 16      | 1       | 175   | 0                   |
@@ -126,8 +126,8 @@ Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built
 | dex-protocol   | 111    | 4            | 102                           | 40    |
 | bank           | 105    | 28           | 12                            | 59    |
 | identity       | 90     | 17           | 30                            | 27    |
+| derivatives    | 81     | 14           | 21                            | 37    |
 | wallet         | 77     | 25           | 27                            | 26    |
-| derivatives    | 73     | 13           | 20                            | 35    |
 | p2p            | 70     | 12           | 2                             | 40    |
 | academy        | 60     | 3            | 14                            | 34    |
 | cex-spot       | 53     | 4            | 13                            | 33    |
@@ -153,8 +153,8 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-trade spot                | 164    | 41           | 42                    | 33                    | 17            |
 | svc-identity                  | 136    | 29           | 68                    | 46                    | 11            |
 | svc-protocol                  | 75     | 4            | 1                     | 0                     | 7             |
+| svc-trade futures             | 68     | 12           | 0                     | 45                    | 0             |
 | svc-p2p                       | 62     | 10           | 0                     | 0                     | 1             |
-| svc-trade futures             | 62     | 11           | 0                     | 39                    | 0             |
 | svc-academy                   | 60     | 3            | 0                     | 0                     | 15            |
 | svc-agents                    | 52     | 2            | 0                     | 16                    | 4             |
 | svc-ops                       | 42     | 10           | 4                     | 1                     | 11            |
@@ -162,8 +162,8 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-support                   | 36     | 7            | 2                     | 6                     | 3             |
 | svc-pay wallet                | 32     | 9            | 14                    | 4                     | 6             |
 | svc-quant                     | 31     | 4            | 0                     | 0                     | 0             |
-| ledger                        | 25     | 9            | 7                     | 4                     | 3             |
-| svc-matching                  | 21     | 2            | 4                     | 5                     | 3             |
+| ledger                        | 26     | 9            | 7                     | 5                     | 3             |
+| svc-matching                  | 22     | 2            | 4                     | 5                     | 3             |
 | svc-execution                 | 20     | 3            | 5                     | 0                     | 13            |
 | customer: trade               | 19     | 1            | 3                     | 1                     | 1             |
 | svc-edge                      | 19     | 1            | 2                     | 2                     | 5             |
@@ -249,7 +249,6 @@ First milestone. Lanes take these before their other slices.
 - `I-account-lifecycle-13` Staff freeze, suspension and closure with customer-visible reason (L, depth 1, journey order 2)
 - `I-kyc-compliance-20` Business verification entry, entity types and requirements per type (L, depth 1, journey order 2)
 - `I-signin-sessions-31` Auth secret and signing-key rotation with overlap (M, depth 1, journey order 2)
-- `OPS-accounts-desk-01` Staff holds on funds and the closure balance sweep (L, depth 1, journey order 2, refuses for an outside service)
 - `OPS-accounts-desk-03` Account product tiers and account limits with overrides (L, depth 1, journey order 2, refuses for an outside service)
 - `OPS-ledger-desk-01` Ledger read desk: transaction browser, account browser, business-key trace, statistics (L, depth 1, journey order 2)
 - `OPS-ledger-desk-04` Ledger integrity check, response runbook and typed write-block reasons (M, depth 1, journey order 2)
@@ -258,13 +257,14 @@ First milestone. Lanes take these before their other slices.
 - `PF-overview-03` Display currency, account selector and cash by currency with in-place convert (M, depth 1, journey order 2)
 - `W-balances-02` Small-balance (dust) conversion and its record (M, depth 1, journey order 2)
 - `W-balances-07` Founder ledger inspection, manual adjustments and reconciliation (M, depth 1, journey order 2)
-- `W-deposit-08` Misrouted and unsupported deposit recovery desk (M, depth 1, journey order 2)
 - `I-account-lifecycle-05` Organisation account: create, members, roles, segregated accounts, lifecycle (L, depth 1, journey order 3)
 - `PF-balances-03` Hide small balances with an owner-set threshold and convert them in bulk (L, depth 1, journey order 3)
 - `W-security-accounts-06` Sub-accounts: lifecycle, trading features, balances (M, depth 1, journey order 3)
 - `W-security-accounts-07` Transfers between master, sub and organisation accounts, and sub-account wallets (M, depth 1, journey order 3)
+- `OPS-accounts-desk-01` Staff holds on funds and the closure balance sweep (L, depth 1, journey order 4, refuses for an outside service)
 - `W-balances-03` Transfers between own wallets and accounts with history (S, depth 1, journey order 4)
 - `W-deposit-01` Custody deposit port adapter, address issue and memo/tag display (L, depth 1, journey order 4, refuses for an outside service)
+- `W-deposit-08` Misrouted and unsupported deposit recovery desk (M, depth 1, journey order 4)
 - `W-security-accounts-01` API key fund-movement permissions and leak protection (M, depth 1, journey order 4)
 - `W-security-accounts-04` Custody roles and separation of duties (M, depth 1, journey order 4)
 - `W-security-accounts-05` Audit log of wallet and custody events (M, depth 1, journey order 4)
@@ -362,7 +362,6 @@ First milestone. Lanes take these before their other slices.
 - `I-kyc-compliance-03` Request for information (RFI) with deadline (M, depth 3, journey order 2, refuses for an outside service) · needs I-kyc-compliance-01, I-kyc-compliance-02
 - `I-kyc-compliance-22` Business document checklist and upload rules (M, depth 3, journey order 2, refuses for an outside service) · needs I-kyc-compliance-20, I-kyc-compliance-21
 - `I-kyc-compliance-25` Business status lifecycle and rejection feedback with in-place correction (M, depth 3, journey order 2, refuses for an outside service) · needs I-kyc-compliance-20, I-kyc-compliance-21
-- `OPS-ledger-desk-03` Unidentified deposits in suspense and the in-flight money view (L, depth 3, journey order 2, refuses for an outside service) · needs OPS-accounts-desk-01, OPS-ledger-desk-02
 - `PF-cost-basis-03` Cost basis method per account or asset, and specific-lot matching per sale (L, depth 3, journey order 2) · needs PF-cost-basis-01, PF-cost-basis-02
 - `PF-cost-basis-04` Customer-entered entry price, and the missing-basis warning with a guided fix (M, depth 3, journey order 2) · needs PF-cost-basis-01, PF-cost-basis-02
 - `PF-overview-02` Value over time and holdings on a past date (valuation history foundation) (L, depth 3, journey order 2) · needs PF-balances-02, PF-cost-basis-02, PF-statements-01
@@ -370,7 +369,6 @@ First milestone. Lanes take these before their other slices.
 - `I-account-lifecycle-11` Re-registration block after closure (M, depth 4, journey order 2) · needs I-account-lifecycle-10, I-account-lifecycle-14
 - `I-kyc-compliance-13` Enhanced due diligence and source-of-funds tasks (L, depth 4, journey order 2) · needs I-kyc-compliance-01, I-kyc-compliance-02, I-kyc-compliance-03
 - `I-kyc-compliance-23` Beneficial owners, authorised persons and attestations (L, depth 4, journey order 2, refuses for an outside service) · needs I-kyc-compliance-19, I-kyc-compliance-20, I-kyc-compliance-21
-- `RC-cex-spot-01` Firm and session pre-trade credit on the spot door (L, depth 5, journey order 2) · needs SP-ops-01, SP-ops-02
 - `SP-convert-buy-01` Convert quote, limit mode and large-order OTC routing (L, depth 5, journey order 2) · needs SP-ops-02, SP-order-entry-04
 - `SP-convert-buy-02` Convert source account, asset rules and maintenance (M, depth 5, journey order 2) · needs SP-ops-02
 - `SP-lifecycle-history-03` Dead-man switch, statement exports and ledger history (L, depth 5, journey order 2) · needs SP-ops-03, SP-order-entry-04
@@ -412,12 +410,14 @@ First milestone. Lanes take these before their other slices.
 - `W-withdraw-12` Create a withdrawal through a scoped API key (D-167) (M, depth 2, journey order 4) · needs W-security-accounts-01, W-withdraw-05
 - `W-withdraw-14` Internal off-chain settlement between platform accounts (M, depth 2, journey order 4) · needs W-withdraw-05
 - `RC-cex-spot-07` Venue unit economics report (M, depth 3, journey order 4) · needs OPS-ORD-01
+- `OPS-ledger-desk-03` Unidentified deposits in suspense and the in-flight money view (L, depth 3, journey order 4, refuses for an outside service) · needs OPS-accounts-desk-01, OPS-ledger-desk-02
 - `W-deposit-03` Deposit entry, method chooser, network picker and wrong-network guard (M, depth 3, journey order 4, refuses for an outside service) · needs W-deposit-01, W-deposit-04
 - `W-deposit-06` Deposit holds, returns, release and reorg reversal (L, depth 3, journey order 4) · needs W-deposit-05
 - `W-deposit-09` Deposit notifications, webhooks and sandbox simulated deposit (M, depth 3, journey order 4, refuses for an outside service) · needs W-deposit-05
 - `W-deposit-10` Lightning deposit by invoice (M, depth 3, journey order 4, refuses for an outside service) · needs W-deposit-05
 - `W-withdraw-02` Withdrawal network catalogue, default network, tag rules, minimum, maximum and step (L, depth 3, journey order 4) · needs W-balances-05, W-deposit-04
 - `RC-cex-spot-08` Published trading rulebook versions (M, depth 4, journey order 4) · needs SP-developer-status-02, SP-ops-01
+- `RC-cex-spot-01` Firm and session pre-trade credit on the spot door (L, depth 5, journey order 4) · needs SP-ops-01, SP-ops-02
 - `W-deposit-11` Custody-refuse-then-full deposit journey and unhidden Deposit room (M, depth 5, journey order 4, refuses for an outside service) · needs W-deposit-01, W-withdraw-01
 - `W-withdraw-15` Lightning invoice withdrawal (M, depth 5, journey order 4, refuses for an outside service) · needs W-withdraw-01
 - `RC-cex-spot-06` Maker incentive programme: tiers, obligations, monitoring and clawback (L, depth 6, journey order 4) · needs SP-fees-vip-01, SP-markets-data-03, SP-ops-02, SP-ops-04
