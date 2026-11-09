@@ -86,7 +86,9 @@ export function embeddedWalletFromSetting(
   }
   if (value === 'privy' || value === 'turnkey') return { kind: 'unwired', id: value };
   if (value === 'test')
-    throw new Error('PROTOCOL_EMBEDDED_WALLET_PROVIDER=test must be written TEST:test, and only on the local test stack. Refusing to boot.');
+    throw new Error(
+      'PROTOCOL_EMBEDDED_WALLET_PROVIDER=test must be written TEST:test, and only on the local test stack. Refusing to boot.',
+    );
   throw new Error(`PROTOCOL_EMBEDDED_WALLET_PROVIDER="${value}" is not a provider this build knows (privy, turnkey). Refusing to boot.`);
 }
 
@@ -99,7 +101,9 @@ function requireLoopbackUrl(raw: string | undefined): string {
     throw new Error('PROTOCOL_EMBEDDED_WALLET_TEST_URL must be the TEST provider’s URL when the provider is TEST:test. Refusing to boot.');
   }
   if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))
-    throw new Error('PROTOCOL_EMBEDDED_WALLET_TEST_URL must be a loopback http URL: the TEST provider is never reached over a network. Refusing to boot.');
+    throw new Error(
+      'PROTOCOL_EMBEDDED_WALLET_TEST_URL must be a loopback http URL: the TEST provider is never reached over a network. Refusing to boot.',
+    );
   return url.origin;
 }
 

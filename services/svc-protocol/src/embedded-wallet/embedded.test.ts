@@ -5,12 +5,7 @@ import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV } from '@intafaced/config';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { embeddedWalletKey, type EmbeddedWalletPasskey } from '@intafaced/contracts/protocol-embedded-wallet';
 import { createProtocolRouter, type ProtocolRouterDeps } from '../router.js';
-import {
-  EmbeddedWalletRefusedError,
-  MemoryEmbeddedWalletStore,
-  createEmbeddedWallet,
-  type EmbeddedWalletDeps,
-} from './embedded.js';
+import { EmbeddedWalletRefusedError, MemoryEmbeddedWalletStore, createEmbeddedWallet, type EmbeddedWalletDeps } from './embedded.js';
 import {
   ProviderUnavailableError,
   TEST_PROVIDER_DISPLAY_NAME,
@@ -47,7 +42,10 @@ function fakeProvider(over: Partial<EmbeddedWalletProviderAdapter> = {}) {
   return { adapter, calls };
 }
 
-function deps(setting: EmbeddedWalletSetting, store = new MemoryEmbeddedWalletStore()): EmbeddedWalletDeps & { store: MemoryEmbeddedWalletStore } {
+function deps(
+  setting: EmbeddedWalletSetting,
+  store = new MemoryEmbeddedWalletStore(),
+): EmbeddedWalletDeps & { store: MemoryEmbeddedWalletStore } {
   return { store, setting: () => setting };
 }
 
@@ -167,7 +165,10 @@ describe('the TEST provider adapter over HTTP', () => {
   const answer = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status });
 
   it('keeps only the wallet id, the address and the person from the provider’s answer', async () => {
-    const adapter = testProviderAdapter(URL, answer(200, { walletId: 'testw_1', address: ADDRESS.toLowerCase(), ownerRef: ALICE, privateKey: '0xdead' }));
+    const adapter = testProviderAdapter(
+      URL,
+      answer(200, { walletId: 'testw_1', address: ADDRESS.toLowerCase(), ownerRef: ALICE, privateKey: '0xdead' }),
+    );
     const wallet = await adapter.createWallet({ ownerRef: ALICE, idempotencyKey: embeddedWalletKey(ALICE), passkey: PASSKEY });
     expect(wallet).toEqual({ walletId: 'testw_1', address: ADDRESS, ownerRef: ALICE });
   });
@@ -184,7 +185,9 @@ describe('the TEST provider adapter over HTTP', () => {
     ];
     for (const fetcher of down) {
       const adapter = testProviderAdapter(URL, fetcher);
-      await expect(adapter.createWallet({ ownerRef: ALICE, idempotencyKey: embeddedWalletKey(ALICE), passkey: PASSKEY })).rejects.toMatchObject({
+      await expect(
+        adapter.createWallet({ ownerRef: ALICE, idempotencyKey: embeddedWalletKey(ALICE), passkey: PASSKEY }),
+      ).rejects.toMatchObject({
         name: 'ProviderUnavailableError',
         providerName: 'TEST wallet provider',
       });
@@ -288,7 +291,9 @@ describe('embeddedWallet.* mounted', () => {
   it('refuses a passkey that is not ES256 or not base64url before the provider is asked', async () => {
     const { adapter, calls } = fakeProvider();
     const alice = caller(deps({ kind: 'ready', adapter }));
-    await expect(alice.embeddedWallet.create({ passkey: { ...PASSKEY, algorithm: -257 as -7 } })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(alice.embeddedWallet.create({ passkey: { ...PASSKEY, algorithm: -257 as -7 } })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
     await expect(alice.embeddedWallet.create({ passkey: { ...PASSKEY, publicKey: 'not base64url!' } })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });

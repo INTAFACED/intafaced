@@ -46,6 +46,11 @@
       "value": "TEST:0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83",
       "note": "TEST wallet sanctions list: one TEST address, derived from the TEST seed 'INTAFACED LOCAL TEST sanctioned wallet (J-wallet-09)', so the journey can show a listed wallet refused. Not a real sanctions list. Blank in production refuses every connect with protocol.wallet_sanctions_unset."
     },
+    "PROTOCOL_EMBEDDED_WALLET_PROVIDER": {
+      "service": "protocol",
+      "value": "TEST:test",
+      "note": "TEST embedded-wallet provider (J-wallet-22): the labelled TEST provider the local stack runs (tooling/scripts/local-test-wallet-provider.mjs), which keeps its TEST keys in its own memory. Not the owner's pick (OWNER 237: Turnkey or Privy after the testnet trial). Refused at boot outside APP_ENV dev or test. Blank in production refuses wallet.embedded_provider_unset."
+    },
     "PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS": {
       "service": "protocol",
       "value": "50",

@@ -27,6 +27,8 @@ export const TEST_WALLET_PROVIDER_LABEL = 'TEST wallet provider';
 /** How long a client challenge can be answered. */
 export const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const ACTIONS = new Set(['sign', 'export', 'recovery']);
+/** Where the TEST stack's Customer site passes the provider's client routes, on the page's own origin. */
+export const TEST_WALLET_PROVIDER_CLIENT_PATH = '/__test-wallet-provider';
 
 /** viem's account helpers, from svc-protocol's own install (the repo root has no viem of its own). */
 export async function loadViemAccounts() {
@@ -59,8 +61,7 @@ export function createTestWalletProvider({ origins, accounts, now = () => Date.n
   const publicWallet = (w) => ({ walletId: w.walletId, address: w.address, ownerRef: w.ownerRef, label: 'TEST' });
 
   function importPasskey(passkey) {
-    if (!passkey || passkey.algorithm !== -7 || !isB64url(passkey.credentialId, 1400) || !isB64url(passkey.publicKey, 400))
-      return null;
+    if (!passkey || passkey.algorithm !== -7 || !isB64url(passkey.credentialId, 1400) || !isB64url(passkey.publicKey, 400)) return null;
     try {
       const key = createPublicKey({ key: Buffer.from(passkey.publicKey, 'base64url'), format: 'der', type: 'spki' });
       if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') return null;
