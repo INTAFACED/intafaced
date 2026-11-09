@@ -24,6 +24,14 @@ const messages = {
   codeOnItsWay: 'If an account uses this email, a code is on its way. It can take a few minutes to arrive.',
   invalidEmail: 'Enter the email address on your account.',
   codeMissing: 'Enter the code from the email.',
+  mailOff:
+    'Email delivery is switched off in this build (vendor.email), so no code can be sent. Contact Support and a person will help you back in.',
+  limitHour: 'You can ask for up to {max} codes an hour for one address.',
+  limitWindow: 'You can ask for up to {max} codes every {minutes} minutes for one address.',
+  requestLimitHour: 'You have asked for {max} codes this hour, the most allowed for one address. Wait, then ask again. No mail was sent.',
+  requestLimitWindow:
+    'You have asked for {max} codes in {minutes} minutes, the most allowed for one address. Wait, then ask again. No mail was sent.',
+  requestLimit: 'You have asked for the most codes allowed for one address. Wait, then ask again. No mail was sent.',
   doneBody:
     "Your password has been changed and every device that was signed in has been signed out. Sign in with the new password. API keys you created keep working; remove any you don't recognise in Security.",
   signIn: 'Go to sign in',
@@ -56,6 +64,15 @@ export const recoveryCopy = defineCopy('public-password-recovery', messages, {
     saving: 'Guardando…',
     askAgain: 'Pedir un código nuevo',
     codeOnItsWay: 'Si una cuenta usa este correo, el código va en camino. Puede tardar unos minutos en llegar.',
+    mailOff:
+      'El envío de correos está desactivado en esta versión (vendor.email), así que no se puede enviar ningún código. Contacta con Soporte y una persona te ayudará a entrar.',
+    limitHour: 'Puedes pedir hasta {max} códigos por hora para una misma dirección.',
+    limitWindow: 'Puedes pedir hasta {max} códigos cada {minutes} minutos para una misma dirección.',
+    requestLimitHour:
+      'Ya pediste {max} códigos en esta hora, el máximo para una dirección. Espera y vuelve a pedirlo. No se envió ningún correo.',
+    requestLimitWindow:
+      'Ya pediste {max} códigos en {minutes} minutos, el máximo para una dirección. Espera y vuelve a pedirlo. No se envió ningún correo.',
+    requestLimit: 'Ya pediste el máximo de códigos para una dirección. Espera y vuelve a pedirlo. No se envió ningún correo.',
     invalidEmail: 'Escribe el correo electrónico de tu cuenta.',
     codeMissing: 'Introduce el código del correo.',
     doneBody:
@@ -88,6 +105,15 @@ export const recoveryCopy = defineCopy('public-password-recovery', messages, {
     saving: 'Enregistrement…',
     askAgain: 'Demander un nouveau code',
     codeOnItsWay: 'Si un compte utilise cette adresse, un code est en route. Il peut mettre quelques minutes à arriver.',
+    mailOff:
+      'L’envoi d’e-mails est désactivé dans cette version (vendor.email) : aucun code ne peut être envoyé. Contactez le Support, une personne vous aidera à revenir.',
+    limitHour: 'Vous pouvez demander jusqu’à {max} codes par heure pour une même adresse.',
+    limitWindow: 'Vous pouvez demander jusqu’à {max} codes toutes les {minutes} minutes pour une même adresse.',
+    requestLimitHour:
+      'Vous avez demandé {max} codes cette heure-ci, le maximum pour une adresse. Attendez, puis redemandez. Aucun e-mail n’a été envoyé.',
+    requestLimitWindow:
+      'Vous avez demandé {max} codes en {minutes} minutes, le maximum pour une adresse. Attendez, puis redemandez. Aucun e-mail n’a été envoyé.',
+    requestLimit: 'Vous avez demandé le maximum de codes pour une adresse. Attendez, puis redemandez. Aucun e-mail n’a été envoyé.',
     invalidEmail: 'Saisissez l’adresse e-mail de votre compte.',
     codeMissing: 'Saisissez le code reçu par e-mail.',
     doneBody:

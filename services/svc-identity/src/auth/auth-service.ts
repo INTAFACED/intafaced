@@ -140,6 +140,7 @@ import {
   requestHandleRecovery,
   requestPasswordReset,
   type PasswordResetMail,
+  type RecoveryAccepted,
 } from './password-reset.js';
 import type { MerchantEmailInviteClaimer } from './merchant-email-invite-claim.js';
 
@@ -243,6 +244,7 @@ export class AuthError extends Error {
       | 'auth.password_breached'
       | 'auth.reset_proof_invalid'
       | 'auth.reset_unwired'
+      | 'auth.reset_rate_limited'
       | 'auth.email_confirm_invalid'
       | 'auth.email_confirm_unwired'
       | 'auth.email_confirm_rate_limited'
@@ -2326,12 +2328,12 @@ export class AuthService {
    * Signed-out reset, step 1. Same answer for every address. No session, no hash change.
    * The one-time code goes to the mail port only.
    */
-  async requestPasswordReset(input: { email: string }): Promise<{ accepted: true }> {
+  async requestPasswordReset(input: { email: string }): Promise<RecoveryAccepted> {
     return requestPasswordReset(this.resetDeps(), input);
   }
 
   /** Same shape as `requestPasswordReset`: the username goes to a known address, a notice (if on) to any other. */
-  async requestHandleRecovery(input: { email: string }): Promise<{ accepted: true }> {
+  async requestHandleRecovery(input: { email: string }): Promise<RecoveryAccepted> {
     return requestHandleRecovery(this.resetDeps(), input);
   }
 

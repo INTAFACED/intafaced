@@ -6,7 +6,9 @@ import {
   clearsCode,
   completedSchema,
   initialRecovery,
+  linkOf,
   recoveryReducer,
+  requestProblem,
   requestedSchema,
   stepStates,
   validEmail,
@@ -116,10 +118,40 @@ describe('finishing the reset', () => {
 
   it('keeps no password or code anywhere in its state', () => {
     const states = [asked(), atReset(), recoveryReducer(atReset(), { type: 'reset', issue: null })];
-    for (const state of states) expect(Object.keys(state).sort()).toEqual(['busy', 'codeAsked', 'email', 'problem', 'step']);
+    for (const state of states) expect(Object.keys(state).sort()).toEqual(['busy', 'codeAsked', 'email', 'limit', 'problem', 'step']);
   });
 
   it('lets the person ask for a new code, keeping the address', () => {
     expect(recoveryReducer(atReset(), { type: 'restart' })).toEqual({ ...initialRecovery, email: 'a@b.co' });
+  });
+});
+
+describe('mail off, the request budget and the mailed link (J-identity-03 #1 #2)', () => {
+  const asking = (): RecoveryState => ({ ...initialRecovery, email: 'a@b.co', busy: true });
+  const refused = (code: string, status = 412): ApiResult<unknown> =>
+    ({ ok: false, code, status, reason: 'refused', message: code }) as unknown as ApiResult<unknown>;
+
+  it('names switched-off mail and a spent budget, and opens no code step for either', () => {
+    expect(requestProblem(refused('vendor.email'))).toBe('mailOff');
+    expect(requestProblem(refused('auth.reset_rate_limited', 429))).toBe('requestLimit');
+    for (const code of ['vendor.email', 'auth.reset_rate_limited']) {
+      const next = recoveryReducer(asking(), { type: 'codeAnswered', result: refused(code) });
+      expect(next.step).toBe('request');
+      expect(next.codeAsked).toBe(false);
+    }
+  });
+
+  it('keeps the budget an accepted answer names, through asking again', () => {
+    const accepted = { ok: true, data: { accepted: true, requestMax: 10, requestWindowSeconds: 3600 } } as ApiResult<unknown>;
+    const atCode = recoveryReducer(asking(), { type: 'codeAnswered', result: accepted });
+    expect(atCode.limit).toEqual({ max: 10, windowSeconds: 3600 });
+    expect(recoveryReducer(atCode, { type: 'restart' }).limit).toEqual({ max: 10, windowSeconds: 3600 });
+  });
+
+  it('reads the mailed link from its fragment only when it names an address and a code', () => {
+    expect(linkOf('#email=a%40b.co&code=xyz')).toEqual({ email: 'a@b.co', code: 'xyz' });
+    expect(linkOf('#code=xyz')).toBeNull();
+    expect(linkOf('#email=not-an-address&code=xyz')).toBeNull();
+    expect(recoveryReducer(initialRecovery, { type: 'openLink', email: 'a@b.co' })).toMatchObject({ step: 'reset', email: 'a@b.co' });
   });
 });

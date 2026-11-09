@@ -111,6 +111,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <HelpLibrary at={library} />
         ) : path === '/findPwd' ? (
           <PasswordRecovery />
+        ) : path === '/completePasswordReset' ? (
+          <PasswordRecovery fromLink />
         ) : path === '/about-us' ? (
           <AboutPage />
         ) : path === '/developers' || path.startsWith('/developers/') ? (

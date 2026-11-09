@@ -149,7 +149,7 @@ if (!available) {
 
       const accepted = await anon().auth.requestPasswordReset({ email: user.email });
 
-      expect(accepted).toEqual({ accepted: true });
+      expect(accepted).toEqual({ accepted: true, requestMax: POLICY.requestMax, requestWindowSeconds: POLICY.requestWindowSeconds });
       expect(JSON.stringify(accepted)).not.toContain('accessToken');
       expect(await hashOf(user.userId)).toBe(before);
       expect(await liveSessions(user.userId)).toBe(live);
@@ -263,7 +263,7 @@ if (!available) {
       const unknown = await anon().auth.requestPasswordReset({ email: 'missing@example.com' });
 
       expect(unknown).toEqual(known);
-      expect(unknown).toEqual({ accepted: true });
+      expect(unknown).toEqual({ accepted: true, requestMax: POLICY.requestMax, requestWindowSeconds: POLICY.requestWindowSeconds });
       expect(sent.map((message) => message.email)).toEqual([user.email]);
       expect(await hashOf(user.userId)).toBe(before);
 
@@ -304,26 +304,26 @@ if (!available) {
 
       const accepted = await anon().auth.requestPasswordReset({ email: user.email });
 
-      expect(accepted).toEqual({ accepted: true });
+      expect(accepted).toEqual({ accepted: true, requestMax: POLICY.requestMax, requestWindowSeconds: POLICY.requestWindowSeconds });
       expect(accepted).not.toHaveProperty('accessToken');
       expect(await hashOf(user.userId)).toBe(before);
       expect(await liveSessions(user.userId)).toBe(live);
       await expect(anon().auth.refresh({ refreshToken: user.refreshToken })).resolves.toMatchObject({ userId: user.userId });
     });
 
-    it('accepts a known and an unknown email the same way with no mail transport, and marks the jobs undeliverable', async () => {
+    it('refuses a known and an unknown email the same way with no mail transport, naming it, and writes nothing (J-identity-03 #1)', async () => {
       const user = await register();
       const before = await hashOf(user.userId);
       auth.usePasswordResetMail(undefined);
 
-      const known = await anon().auth.requestPasswordReset({ email: user.email });
-      const missing = await anon().auth.requestPasswordReset({ email: 'missing@example.com' });
+      const known = await refusal(anon().auth.requestPasswordReset({ email: user.email }));
+      const missing = await refusal(anon().auth.requestPasswordReset({ email: 'missing@example.com' }));
 
       expect(known).toEqual(missing);
-      expect(known).toEqual({ accepted: true });
+      expect(known.code).toBe('vendor.email');
       expect(sent).toHaveLength(0);
       const jobs = await db.sql<Array<{ status: string }>>`SELECT status FROM mail_outbox ORDER BY created_at`;
-      expect(jobs.map((job) => job.status)).toEqual(['undeliverable', 'suppressed']);
+      expect(jobs).toEqual([]);
       expect(await hashOf(user.userId)).toBe(before);
       await expect(anon().auth.passwordResetChannel()).resolves.toEqual({ emailDelivery: 'off' });
     });

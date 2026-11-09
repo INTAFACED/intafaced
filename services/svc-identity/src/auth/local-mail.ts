@@ -115,7 +115,8 @@ function localMailBody(message: LocalMailMessage): string {
       ? `confirm-email?token=${encodeURIComponent(message.code)}`
       : purpose === 'email-change'
         ? `changeEmail?code=${encodeURIComponent(message.code)}`
-        : `completePasswordReset?code=${encodeURIComponent(message.code)}`;
+        : // The reset link carries the address and the code in its fragment, which never reaches a server (J-identity-03 #2).
+          `completePasswordReset#email=${encodeURIComponent(email)}&code=${encodeURIComponent(message.code)}`;
   // The confirmation mail carries a six-digit code to type on Account beside its link.
   const pin = purpose === 'email-confirm' && message.pin ? ` code=${message.pin.replace(/\D/g, '')}` : '';
   return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()}${pin} link=${link}\n`;

@@ -479,6 +479,9 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.too_many_attempts':
       // Per-account lockout (attempt-lockout.ts): retrying now cannot help, retrying later can.
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
+    case 'auth.reset_rate_limited':
+      // The per-address mail budget (password-reset.ts): the message names the limit, the same for every address.
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
     case 'auth.privileged_enrolment_requires_invite':
       // Retrying cannot help: this identity's first factor needs an invite.
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
@@ -596,6 +599,16 @@ export function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
   }
 }
+
+/**
+ * A recovery request taken: the same for every address. It names the owner's per-address budget (mails per window),
+ * so the code page can say how many codes may be asked for before the limit is reached (J-identity-03 #2).
+ */
+const recoveryAccepted = z.object({
+  accepted: z.literal(true),
+  requestMax: z.number().int().positive(),
+  requestWindowSeconds: z.number().int().positive(),
+});
 
 const signUpAccepted = z.object({
   accepted: z.literal(true),
@@ -1963,7 +1976,7 @@ export function createIdentityRouter(
        */
       requestPasswordReset: publicProcedure
         .input(z.object({ email: z.string().trim().email().max(320) }))
-        .output(z.object({ accepted: z.literal(true) }))
+        .output(recoveryAccepted)
         .mutation(async ({ input }) => {
           try {
             return await auth.requestPasswordReset({ email: input.email });
@@ -1978,7 +1991,7 @@ export function createIdentityRouter(
        */
       requestHandleRecovery: publicProcedure
         .input(z.object({ email: z.string().trim().email().max(320) }))
-        .output(z.object({ accepted: z.literal(true) }))
+        .output(recoveryAccepted)
         .mutation(async ({ input }) => {
           try {
             return await auth.requestHandleRecovery({ email: input.email });

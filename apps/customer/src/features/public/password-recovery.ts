@@ -10,7 +10,15 @@ import { passwordProblem, type PasswordIssue, type PasswordProblem } from '../..
 export const RECOVERY_STEPS = ['request', 'reset', 'done'] as const;
 export type RecoveryStep = (typeof RECOVERY_STEPS)[number];
 
-export const requestedSchema = z.object({ accepted: z.literal(true) });
+/** A request taken. It names the per-address budget (J-identity-03 #2); an older identity answers without it. */
+export const requestedSchema = z.object({
+  accepted: z.literal(true),
+  requestMax: z.number().int().positive().optional(),
+  requestWindowSeconds: z.number().int().positive().optional(),
+});
+
+/** The owner's per-address budget for recovery mails, as the service named it. */
+export type RequestLimit = { readonly max: number; readonly windowSeconds: number };
 export const completedSchema = z.object({ ok: z.literal(true) });
 
 export type StepState = 'current' | 'upcoming' | 'done';
@@ -23,7 +31,15 @@ export function stepStates(current: RecoveryStep): Record<RecoveryStep, StepStat
   ) as Record<RecoveryStep, StepState>;
 }
 
-export type RecoveryProblem = PasswordProblem | PasswordIssue | 'invalidEmail' | 'codeMissing';
+export type RecoveryProblem =
+  | PasswordProblem
+  | PasswordIssue
+  | 'invalidEmail'
+  | 'codeMissing'
+  /** No mail transport in this build (`vendor.email`): nothing can be sent, so nothing is promised. */
+  | 'mailOff'
+  /** The per-address budget is spent (`auth.reset_rate_limited`): no mail was sent. */
+  | 'requestLimit';
 export interface RecoveryState {
   step: RecoveryStep;
   /** The address the code was asked for. An email address is not a secret; it is needed again to finish. */
@@ -33,15 +49,29 @@ export interface RecoveryState {
   /** The "if an account uses this email" notice, shown on the reset step. */
   codeAsked: boolean;
   problem: RecoveryProblem | null;
+  /** The budget the last accepted request named; null until one did. */
+  limit: RequestLimit | null;
 }
-export const initialRecovery: RecoveryState = { step: 'request', email: '', busy: false, codeAsked: false, problem: null };
+export const initialRecovery: RecoveryState = { step: 'request', email: '', busy: false, codeAsked: false, problem: null, limit: null };
+
+/**
+ * The mailed reset link: `/completePasswordReset#email=…&code=…`. The fragment never reaches a server or its logs. It
+ * opens the code step for that address with the code filled in; null when the fragment does not name both.
+ */
+export function linkOf(hash: string): { email: string; code: string } | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const email = params.get('email')?.trim() ?? '';
+  const code = params.get('code')?.trim() ?? '';
+  return validEmail(email) && code ? { email, code } : null;
+}
 
 export type RecoveryEvent =
   | { type: 'askCode'; email: string }
   | { type: 'codeAnswered'; result: ApiResult<unknown> }
   | { type: 'reset'; issue: PasswordIssue | 'codeMissing' | null }
   | { type: 'resetAnswered'; result: ApiResult<unknown> }
-  | { type: 'restart' };
+  | { type: 'restart' }
+  | { type: 'openLink'; email: string };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 export function validEmail(email: string): boolean {
@@ -60,6 +90,8 @@ const ENUMERATING = new Set(['auth.not_found', 'auth.account_frozen', 'auth.emai
  */
 export function requestProblem(result: ApiResult<unknown>): RecoveryProblem | null {
   if (result.ok || (result.code && ENUMERATING.has(result.code))) return null;
+  if (result.code === 'vendor.email') return 'mailOff';
+  if (result.code === 'auth.reset_rate_limited') return 'requestLimit';
   const problem = passwordProblem(result);
   return problem === 'invalidInput' ? 'invalidEmail' : problem === 'unconfirmed' ? 'requestUnconfirmed' : problem;
 }
@@ -75,7 +107,8 @@ export function recoveryReducer(state: RecoveryState, event: RecoveryEvent): Rec
     case 'codeAnswered': {
       if (!state.busy || state.step !== 'request') return state;
       const problem = requestProblem(event.result);
-      if (problem === null) return { ...state, step: 'reset', busy: false, codeAsked: true, problem: null };
+      if (problem === null)
+        return { ...state, step: 'reset', busy: false, codeAsked: true, problem: null, limit: limitOf(event.result) ?? state.limit };
       return { ...state, busy: false, problem };
     }
     case 'reset': {
@@ -90,8 +123,18 @@ export function recoveryReducer(state: RecoveryState, event: RecoveryEvent): Rec
     }
     case 'restart':
       if (state.busy) return state;
-      return { ...initialRecovery, email: state.email };
+      return { ...initialRecovery, email: state.email, limit: state.limit };
+    case 'openLink':
+      if (state.busy || !validEmail(event.email)) return state;
+      return { ...initialRecovery, step: 'reset', email: event.email.trim() };
   }
+}
+
+/** The budget an accepted answer named, or null when it named none. */
+function limitOf(result: ApiResult<unknown>): RequestLimit | null {
+  if (!result.ok) return null;
+  const data = result.data as { requestMax?: number; requestWindowSeconds?: number } | undefined;
+  return data?.requestMax && data.requestWindowSeconds ? { max: data.requestMax, windowSeconds: data.requestWindowSeconds } : null;
 }
 
 /** Problems after which the typed code is no use and should be wiped from its field. */

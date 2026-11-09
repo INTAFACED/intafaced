@@ -5,6 +5,7 @@ import { passwordCopy } from '../../shared/password-copy';
 import { useSession } from '../session/session';
 import { requestProblem, requestedSchema, validEmail, type RecoveryProblem } from './password-recovery';
 import { handleRecoveryCopy } from './handle-recovery-copy';
+import { recoveryCopy } from './password-recovery-copy';
 
 /**
  * "I forgot my handle" on /findPwd (I-signin-sessions-03). The service mails the handle to the address when an account
@@ -14,6 +15,7 @@ import { handleRecoveryCopy } from './handle-recovery-copy';
 export function HandleRecovery() {
   const { t } = handleRecoveryCopy.useCopy();
   const { t: pw } = passwordCopy.useCopy();
+  const { t: recovery } = recoveryCopy.useCopy();
   const { api } = useSession();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,7 +75,9 @@ export function HandleRecovery() {
       ? t('invalidEmail')
       : problem === 'resetOff'
         ? t('off')
-        : pw(problem);
+        : problem === 'mailOff' || problem === 'requestLimit'
+          ? recovery(problem)
+          : pw(problem);
   return (
     <section className="pub-step" aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{t('title')}</h2>

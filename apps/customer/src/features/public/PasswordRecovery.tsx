@@ -13,9 +13,11 @@ import {
   initialRecovery,
   recoveryReducer,
   requestedSchema,
+  linkOf,
   stepStates,
   validEmail,
   type RecoveryStep,
+  type RequestLimit,
 } from './password-recovery';
 import { recoveryCopy } from './password-recovery-copy';
 import './public-pages.css';
@@ -29,11 +31,17 @@ const BODY = { request: 'step1Body', reset: 'step2Body', done: 'step3Body' } as 
  * switched off on the server the page says so and sends nothing further. Passwords and codes are read from the
  * form when it is sent and cleared; they are never kept in state, storage or logs.
  */
-export function PasswordRecovery() {
+export function PasswordRecovery({ fromLink = false }: { fromLink?: boolean } = {}) {
   const copy = recoveryCopy.useCopy();
   const { t: pw } = passwordCopy.useCopy();
   const { api } = useSession();
-  const [state, dispatch] = useReducer(recoveryReducer, initialRecovery);
+  // The mailed link (/completePasswordReset#email=…&code=…) opens the code step with its code; read once, then the
+  // fragment is cleared from the address bar so the secret does not stay in history.
+  const link = useRef(fromLink && typeof window !== 'undefined' ? linkOf(window.location.hash) : null).current;
+  const [state, dispatch] = useReducer(
+    recoveryReducer,
+    link ? { ...initialRecovery, step: 'reset' as const, email: link.email } : initialRecovery,
+  );
   const flight = useRef(singleFlight()).current;
   const form = useRef<HTMLFormElement | null>(null);
   const mounted = useRef(true);
@@ -41,6 +49,9 @@ export function PasswordRecovery() {
   const states = stepStates(state.step);
   const problemId = useId();
 
+  useEffect(() => {
+    if (link && typeof window !== 'undefined') window.history.replaceState(null, '', window.location.pathname);
+  }, [link]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -111,7 +122,13 @@ export function PasswordRecovery() {
   }
 
   const problem = state.problem;
-  const problemText = problem ? (problem === 'invalidEmail' || problem === 'codeMissing' ? copy.t(problem) : pw(problem)) : null;
+  const problemText = problem
+    ? problem === 'invalidEmail' || problem === 'codeMissing' || problem === 'mailOff'
+      ? copy.t(problem)
+      : problem === 'requestLimit'
+        ? limitText(copy.t, state.limit, 'request')
+        : pw(problem)
+    : null;
   return (
     <div className="pub-page">
       <a className="text-link" href="/login">
@@ -134,6 +151,8 @@ export function PasswordRecovery() {
                 busy={state.busy}
                 email={state.email}
                 codeAsked={state.codeAsked}
+                limit={state.limit}
+                linkCode={link?.code}
                 onAsk={askCode}
                 onFinish={finish}
                 describedBy={problemText ? problemId : undefined}
@@ -163,6 +182,8 @@ function StepBody({
   busy,
   email,
   codeAsked,
+  limit,
+  linkCode,
   onAsk,
   onFinish,
   onRestart,
@@ -173,6 +194,8 @@ function StepBody({
   busy: boolean;
   email: string;
   codeAsked: boolean;
+  limit: RequestLimit | null;
+  linkCode: string | undefined;
   onAsk: (event: FormEvent<HTMLFormElement>) => void;
   onFinish: (event: FormEvent<HTMLFormElement>) => void;
   onRestart: () => void;
@@ -215,9 +238,11 @@ function StepBody({
           {copy.t('codeOnItsWay')}
         </p>
       )}
+      {limit && <p className="muted">{limitText(copy.t, limit, 'note')}</p>}
       <Field
         label={copy.t('codeField')}
         name="code"
+        defaultValue={linkCode}
         autoComplete="one-time-code"
         autoCapitalize="none"
         spellCheck={false}
@@ -253,4 +278,15 @@ function StepBody({
       </Button>
     </form>
   );
+}
+
+type RecoveryT = ReturnType<typeof recoveryCopy.useCopy>['t'];
+
+/** The per-address budget in words: the note on the code step, or the refusal past it. Unknown reads without a number. */
+function limitText(t: RecoveryT, limit: RequestLimit | null, kind: 'note' | 'request'): string {
+  if (!limit) return t('requestLimit');
+  const hour = limit.windowSeconds === 3600;
+  const minutes = Math.ceil(limit.windowSeconds / 60);
+  if (kind === 'note') return hour ? t('limitHour', { max: limit.max }) : t('limitWindow', { max: limit.max, minutes });
+  return hour ? t('requestLimitHour', { max: limit.max }) : t('requestLimitWindow', { max: limit.max, minutes });
 }

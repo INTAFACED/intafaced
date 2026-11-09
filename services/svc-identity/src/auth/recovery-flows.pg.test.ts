@@ -168,12 +168,23 @@ if (!available) {
     it('counts the request cap per address for a known and an unknown address alike, and answers the same past it', async () => {
       const user = await register();
       const emails = [user.email, 'missing@example.com'];
+      const ACCEPTED = { accepted: true, requestMax: 2, requestWindowSeconds: POLICY.requestWindowSeconds };
+      const past: string[] = [];
       for (const email of emails) {
-        for (const variant of [email, email.toUpperCase(), ` ${email} `, email]) {
-          await expect(anon().auth.requestPasswordReset({ email: variant })).resolves.toEqual({ accepted: true });
+        const variants = [email, email.toUpperCase(), ` ${email} `, email];
+        for (const [i, variant] of variants.entries()) {
+          const answer = anon().auth.requestPasswordReset({ email: variant });
+          if (i < 2) await expect(answer).resolves.toEqual(ACCEPTED);
+          else {
+            const refused = await refusal(answer);
+            past.push(`${refused.trpc} ${refused.code} ${refused.message}`);
+          }
         }
       }
-      // Two per address got through; the other two each were answered and wrote nothing.
+      // Past the cap both addresses get the one refusal naming the budget (J-identity-03 #2): it says nothing about an account.
+      expect(new Set(past).size).toBe(1);
+      expect(past[0]).toMatch(/^TOO_MANY_REQUESTS auth\.reset_rate_limited .*\b2 per hour\b/);
+      // Two per address got through; the other two each were refused and wrote nothing.
       expect(await counts()).toEqual({ flows: 4, jobs: 4 });
       expect(sent).toHaveLength(2);
       nowMs += 3601 * 1000;
@@ -223,7 +234,7 @@ if (!available) {
       const known = await anon().auth.requestHandleRecovery({ email: user.email });
       const unknown = await anon().auth.requestHandleRecovery({ email: 'missing@example.com' });
       expect(unknown).toEqual(known);
-      expect(known).toEqual({ accepted: true });
+      expect(known).toEqual({ accepted: true, requestMax: POLICY.requestMax, requestWindowSeconds: POLICY.requestWindowSeconds });
       expect(sent.map((m) => [m.email, m.purpose, m.handle])).toEqual([
         [user.email, 'handle-recovery', user.handle],
         ['missing@example.com', 'handle-recovery-no-account', undefined],

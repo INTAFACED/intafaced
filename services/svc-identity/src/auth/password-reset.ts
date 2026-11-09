@@ -30,8 +30,10 @@ import {
  * The code is high-entropy and only the SHA-256 is stored on the flow. It is handed to the
  * mail relay and must not be logged. There is no git-default number: an unset lifetime,
  * attempt cap, request cap or window, or identifier key refuses every address the same way
- * (`auth.reset_unwired`). A missing mail transport does not refuse: the job is marked
- * `undeliverable` and the request still answers `accepted`.
+ * (`auth.reset_unwired`). A missing mail transport refuses every address the same way (`vendor.email`, J-identity-03 #1):
+ * nothing could be sent, so nothing is promised. Past the per-address budget the request refuses
+ * `auth.reset_rate_limited`, naming the budget (J-identity-03 #2); the budget counts unknown addresses too, so the
+ * refusal says nothing about whether an account exists. An accepted request names the budget.
  *
  * Equal work (FLW-3). Every request that is under the cap, for a known address or not, locks the
  * same identifier, counts the same rows, inserts one `auth_flows` row and one `mail_outbox` row.
@@ -127,6 +129,21 @@ export function publishedPasswordResetTtlSeconds(value: number | undefined): num
 const INVALID_PROOF = 'That reset code is not valid. Request a new one.';
 const LOCKED = 'Too many wrong codes. Try again later.';
 const UNWIRED = 'Password reset is not available yet';
+const MAIL_OFF = 'Email delivery is switched off in this build (vendor.email), so no code can be sent.';
+
+/** The budget in words: "10 per hour", "5 per 30 minutes". */
+function budgetWords(max: number, windowSeconds: number): string {
+  const per =
+    windowSeconds % 3600 === 0
+      ? windowSeconds === 3600
+        ? 'hour'
+        : `${windowSeconds / 3600} hours`
+      : `${Math.ceil(windowSeconds / 60)} minutes`;
+  return `${max} per ${per}`;
+}
+
+/** What an accepted recovery request answers: the same for every address, with the owner's budget. */
+export type RecoveryAccepted = { accepted: true; requestMax: number; requestWindowSeconds: number };
 
 function normalizeEmail(email: string): string {
   return email.trim();
@@ -190,8 +207,10 @@ type FlowKind = 'password_reset' | 'handle_recovery';
  * handle (recovery). Anything else: a `suppressed` flow and, only when the owner turned notices on, a
  * "no account" mail. Either way the same statements run. Over the cap nothing is written for either.
  */
-async function openFlow(deps: PasswordResetDeps, kind: FlowKind, email: string): Promise<void> {
+async function openFlow(deps: PasswordResetDeps, kind: FlowKind, email: string): Promise<RecoveryAccepted> {
   const budget = requireBudget(deps);
+  // Nothing can leave without a transport: refuse before any address is looked up, so every address gets this answer.
+  if (!deps.mail) throw new AuthError(MAIL_OFF, 'vendor.email');
   const address = normalizeEmail(email);
   const subjectHash = flowSubjectHash(budget.subjectKey, address);
   const users = await deps.sql<Array<{ id: string; status: string; email: string; handle: string }>>`
@@ -214,7 +233,7 @@ async function openFlow(deps: PasswordResetDeps, kind: FlowKind, email: string):
         SELECT count(*)::int AS n FROM auth_flows
         WHERE subject_hash = ${subjectHash} AND kind = ${kind} AND created_at > ${since}
       `;
-      if ((recent[0]?.n ?? 0) >= budget.requestMax) return false;
+      if ((recent[0]?.n ?? 0) >= budget.requestMax) return 'over' as const;
       const flow = await tx<Array<{ id: string }>>`
         INSERT INTO auth_flows (kind, subject_hash, user_id, code_hash, status, expires_at, created_at)
         VALUES (
@@ -235,18 +254,24 @@ async function openFlow(deps: PasswordResetDeps, kind: FlowKind, email: string):
     },
     { isolation: 'read committed' },
   );
+  if (written === 'over') {
+    const words = budgetWords(budget.requestMax, budget.requestWindowSeconds);
+    throw new AuthError(
+      `You have asked for the most codes allowed: ${words} for one address. Wait, then ask again; no mail was sent.`,
+      'auth.reset_rate_limited',
+    );
+  }
   if (written) await deps.afterCommit?.();
+  return { accepted: true, requestMax: budget.requestMax, requestWindowSeconds: budget.requestWindowSeconds };
 }
 
-export async function requestPasswordReset(deps: PasswordResetDeps, input: { email: string }): Promise<{ accepted: true }> {
-  await openFlow(deps, 'password_reset', input.email);
-  return { accepted: true };
+export async function requestPasswordReset(deps: PasswordResetDeps, input: { email: string }): Promise<RecoveryAccepted> {
+  return openFlow(deps, 'password_reset', input.email);
 }
 
 /** Same shape as the reset request: mail the username to a known address, a notice (if on) otherwise. */
-export async function requestHandleRecovery(deps: PasswordResetDeps, input: { email: string }): Promise<{ accepted: true }> {
-  await openFlow(deps, 'handle_recovery', input.email);
-  return { accepted: true };
+export async function requestHandleRecovery(deps: PasswordResetDeps, input: { email: string }): Promise<RecoveryAccepted> {
+  return openFlow(deps, 'handle_recovery', input.email);
 }
 
 /**
