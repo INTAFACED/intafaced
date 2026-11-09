@@ -75,9 +75,7 @@ async function restingOrder(who) {
   return res.body.id;
 }
 
-test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it; a recovery-required order ranks above a withdrawal request of the same age`, async ({
-  browser,
-}) => {
+test(`${J} #1 only a record that already belongs to the ticket's customer can be linked to it`, async ({ browser }) => {
   test.setTimeout(180_000);
   const { ticket, who } = await request(browser);
   const link = (kind, recordId) => asDesk('lead', 'mutation', 'linkRecord', { ticketId: ticket.id, kind, recordId });
@@ -107,8 +105,10 @@ test(`${J} #1 only a record that already belongs to the ticket's customer can be
   }
   const links = await asDesk('lead', 'query', 'ticketLinks', { ticketId: ticket.id });
   expect(links.json?.result?.data, links.text.slice(0, 300)).toEqual([linked.json.result.data]);
-  // The ranking itself (a request linked to a recovery-required order above a withdrawal request of the same age) is
-  // proved in services/svc-support/src/ticket-links.test.ts: the stack has no path that leaves an order recovery_required.
+  // Not checked here: the step's ranking half (a request linked to a recovery-required order above a withdrawal request of
+  // the same age). The stack has no path that leaves an order recovery_required, so the ranking rule is checked only in
+  // services/svc-support/src/ticket-links.test.ts and services/svc-support/src/ticket-links.pg.test.ts, and #1 is named
+  // left in the pull request.
 });
 
 test(`${J} #2 reading the customer's balance or withdrawal destination is refused until two checks the customer can confirm are recorded`, async ({
