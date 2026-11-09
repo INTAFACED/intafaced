@@ -17,7 +17,6 @@
  *   node tooling/ci/ci-review.mjs read      <out dir>   the reviewer's JSON answer into verdict.json and tests/verdict.json
  *                                                       (no verdict: exit 1)
  *   node tooling/ci/ci-review.mjs judge     <out dir>   the Verdict step: exit 1 on FAIL, 0 on PASS
- *   node tooling/ci/ci-review.mjs rerun-seal            re-run a red CI merge seal on this head once the review passed
  *
  * The Test verdict step is `test-judge.mjs judge <out dir>/tests`.
  *
@@ -598,20 +597,13 @@ function cmdJudge(dir) {
   }
 }
 
-async function cmdRerunSeal() {
-  const { rerunSeal } = await import('./seal-rerun.mjs');
-  const pull = eventPull(JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')), process.env.GITHUB_REPOSITORY);
-  console.log(await rerunSeal(process.env.GITHUB_REPOSITORY, pull.head, { number: pull.number }));
-}
-
 async function main() {
   const [cmd, dir] = process.argv.slice(2);
   if (cmd === 'index') return indexHead(dir);
   if (cmd === 'diff') return cmdDiff(dir);
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
-  if (cmd === 'rerun-seal') return cmdRerunSeal();
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | rerun-seal');
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir>');
   process.exit(2);
 }
 
