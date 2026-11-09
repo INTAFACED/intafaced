@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { checkAccess } from '@intafaced/config';
+import { checkAccess, checkCitizenship, hasSubdivisionRows, isSubdivisionCode, regionCodeChain } from '@intafaced/config';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
@@ -45,6 +45,7 @@ export type SignUpErrorCode =
   | 'identity.underage'
   | 'identity.country_invalid'
   | 'identity.region_blocked'
+  | 'identity.subdivision_required'
   | 'identity.screening_unset'
   | 'identity.signup_expired'
   | 'identity.signup_code_invalid'
@@ -103,6 +104,12 @@ export interface SignUpStart {
   readonly password: string;
   /** ISO 3166-1 alpha-2 country of residence. */
   readonly country: string;
+  /**
+   * ISO 3166-2 subdivision of residence (`CA-QC`), inside `country`. Required only where a subdivision of that country
+   * is blocked on its own (`hasSubdivisionRows`), because the country alone cannot then say whether the person is served.
+   */
+  readonly subdivision?: string | undefined;
+  /** Country of citizenship (ISO 3166-1 alpha-2), or an ISO 3166-2 subdivision. Screened against the sanctions list only. */
   readonly nationality?: string | undefined;
   /** `YYYY-MM-DD`. Checked against the owner's minimum age; kept only sealed (`birthDateKey`). */
   readonly dateOfBirth: string;
@@ -182,6 +189,12 @@ export function countryCode(value: string): string | undefined {
   return REGION_NAMES.of(code) === code ? undefined : code;
 }
 
+/** An ISO 3166-2 subdivision code inside a real country (`CA-ON`), upper-cased, or undefined. Shape only: no subdivision list ships. */
+export function subdivisionCode(value: string): string | undefined {
+  const code = value.trim().toUpperCase();
+  return isSubdivisionCode(code) && countryCode(regionCodeChain(code)[1]!) ? code : undefined;
+}
+
 /** Whole years between a `YYYY-MM-DD` birth date and `now` (UTC), or undefined for a date that is not real or is in the future. */
 export function ageOn(dateOfBirth: string, now: Date): number | undefined {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOfBirth.trim());
@@ -207,8 +220,8 @@ function secondsUntil(at: Date, now: Date): number {
   return Math.max(1, Math.ceil((at.getTime() - now.getTime()) / 1000));
 }
 
-/** Age, then country and nationality. Throws the first refusal; nothing has been written yet. */
-function assertEligible(deps: SignUpDeps, input: SignUpStart, now: Date): string {
+/** Age, then country and nationality. Throws the first refusal; nothing has been written yet. Exported for its unit test. */
+export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCountries'>, input: SignUpStart, now: Date): string {
   const minAge = intIn(deps.minAgeYears, 1, MAX_MIN_AGE);
   if (minAge === undefined)
     throw new SignUpError('Sign-up is not available yet. The minimum age is not published.', 'identity.age_rule_unset');
@@ -218,19 +231,46 @@ function assertEligible(deps: SignUpDeps, input: SignUpStart, now: Date): string
 
   const country = countryCode(input.country);
   if (!country) throw new SignUpError('Choose the country you live in from the list.', 'identity.country_invalid');
-  const nationality = input.nationality === undefined || input.nationality === '' ? undefined : countryCode(input.nationality);
-  if (input.nationality && !nationality) throw new SignUpError('Choose your nationality from the list.', 'identity.country_invalid');
+  const subdivision = input.subdivision === undefined || input.subdivision === '' ? undefined : subdivisionCode(input.subdivision);
+  if (input.subdivision && (!subdivision || !subdivision.startsWith(`${country}-`))) {
+    throw new SignUpError('Choose the state or province you live in from the list.', 'identity.country_invalid');
+  }
+  const nationalityRaw = input.nationality === undefined || input.nationality === '' ? undefined : input.nationality;
+  const nationality = nationalityRaw === undefined ? undefined : (countryCode(nationalityRaw) ?? subdivisionCode(nationalityRaw));
+  if (nationalityRaw && !nationality) throw new SignUpError('Choose your nationality from the list.', 'identity.country_invalid');
 
-  const closed = new Set((deps.closedCountries ?? []).map((c) => c.trim().toUpperCase()));
-  for (const region of [country, nationality]) {
-    if (!region) continue;
-    if (closed.has(region)) throw new SignUpError('We cannot open accounts for this country right now.', 'identity.region_blocked');
-    const decision = checkAccess({ module: 'identity', region, plane: 'fiat', kycTier: 'none' });
-    if (decision.allowed) continue;
-    if (decision.code === 'denied.screening_unconfigured' || decision.code === 'denied.screening_fixture') {
-      throw new SignUpError('Sign-up is paused: the sanctions screening list is not set.', 'identity.screening_unset');
-    }
-    throw new SignUpError('We cannot open accounts for this country right now.', 'identity.region_blocked');
+  const paused = (code: string): boolean => code === 'denied.screening_unconfigured' || code === 'denied.screening_fixture';
+  const pausedError = () => new SignUpError('Sign-up is paused: the sanctions screening list is not set.', 'identity.screening_unset');
+  const blocked = () => new SignUpError('We cannot open accounts for this country right now.', 'identity.region_blocked');
+  const closedSet = new Set((deps.closedCountries ?? []).map((c) => c.trim().toUpperCase()));
+  // The owner's sign-up off switch names countries; it covers every subdivision in them.
+  const closed = (region: string): boolean => regionCodeChain(region).some((c) => closedSet.has(c));
+  const access = (region: string) => checkAccess({ module: 'identity', region, plane: 'fiat', kycTier: 'none' });
+
+  // Where the person lives: both authorities, on the per-country switch (Hyperliquid terms 1.6 (a) and (b)). The
+  // country first, so a paused screening list or a whole-country block answers before anyone is asked for a province.
+  // A country with a subdivision blocked on its own (Ontario in Canada) then needs the subdivision, or the bare
+  // country would let an Ontario resident through.
+  if (closed(subdivision ?? country)) throw blocked();
+  const home = access(country);
+  if (!home.allowed) throw paused(home.code) ? pausedError() : blocked();
+  if (!subdivision && hasSubdivisionRows(country)) {
+    throw new SignUpError('Choose the state or province you live in.', 'identity.subdivision_required');
+  }
+  if (subdivision) {
+    const residence = access(subdivision);
+    if (!residence.allowed) throw paused(residence.code) ? pausedError() : blocked();
+  }
+
+  // Citizenship, wherever the person lives: the owner's sign-up off switch, the per-country switch with the identity
+  // module's rules (business blocks such as the US, OWNER 237), as before, and then the sanctions screening list, which
+  // also reads subdivision rows (1.6 (c)). Serving a US citizen who lives elsewhere would need an owner decision.
+  if (nationality) {
+    if (closed(nationality)) throw blocked();
+    const national = access(nationality);
+    if (!national.allowed) throw paused(national.code) ? pausedError() : blocked();
+    const citizenship = checkCitizenship({ citizenship: nationality });
+    if (!citizenship.allowed) throw paused(citizenship.code) ? pausedError() : blocked();
   }
   return country;
 }
