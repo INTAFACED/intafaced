@@ -356,7 +356,7 @@ export function buildProposal(
     program.snapshotTimeUtc = at === '' ? null : at;
   }
   // Builder fees (J-cex-spot-17 #3): complete, and never above the venue's own cap, as svc-trade checks when it writes.
-  const builder = applyBuilderDraft(schedule, draft.builderFees ?? [], caps);
+  const builder = applyBuilderDraft(schedule, draft.builderFees ?? [], caps, base.schedule.builderFees);
   if (!builder.ok) return refuse(builder.code, builder.message);
   const typed = draft.effectiveAt.trim();
   if (!TYPED_TIME.test(typed) || Number.isNaN(Date.parse(typed)))

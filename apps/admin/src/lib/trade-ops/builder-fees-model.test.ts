@@ -85,9 +85,27 @@ describe('builder-fee versions in the Fees room', () => {
     expect(buildProposal(base, perp, reason, NOW, CAPS)).toMatchObject({ ok: false, code: 'trade.builder_fee_above_venue_cap' });
     expect(buildProposal(base, withSpot(''), reason, NOW, CAPS)).toMatchObject({ ok: false, code: 'trade.builder_fee_blank' });
     expect(buildProposal(base, withSpot('1.23456'), reason, NOW, CAPS)).toMatchObject({ ok: false, code: 'trade.builder_fee_blank' });
-    expect(buildProposal(base, withSpot('2'), reason, NOW, null)).toMatchObject({ ok: false, code: 'trade.builder_fee_venue_unknown' });
+    expect(buildProposal(base, withSpot('3'), reason, NOW, null)).toMatchObject({ ok: false, code: 'trade.builder_fee_venue_unknown' });
     const uncapped = { ...CAPS, markets: [{ symbol: 'BTC-USDC', kind: 'spot', capBps: null }] };
-    expect(buildProposal(base, withSpot('2'), reason, NOW, uncapped)).toMatchObject({ ok: false, code: 'trade.builder_fee_cap_unknown' });
+    expect(buildProposal(base, withSpot('3'), reason, NOW, uncapped)).toMatchObject({ ok: false, code: 'trade.builder_fee_cap_unknown' });
+  });
+
+  it('a version that keeps the builder fees as they were (an engine rate change) needs no read of the venue', () => {
+    const base = row('2', '2026-11-09T09:30:00.000Z', '2');
+    const kept = { ...draftFrom(base), effectiveAt: LATER };
+    const check = buildProposal(base, kept, reason, NOW, null);
+    expect(check.ok && check.schedule.builderFees).toEqual(base.schedule.builderFees);
+  });
+
+  it('a cap the venue publishes with more places than our rates is read and compared exactly', () => {
+    const fine = { ...CAPS, markets: [{ symbol: 'BTC-USDC', kind: 'spot', capBps: '2.00005' }] };
+    expect(parseBuilderCaps(fine)).toEqual(fine);
+    expect(builderRateText('2.00005')).toBe('0.0200005% (2.00005 bps)');
+    const base = row('2', '2026-11-09T09:30:00.000Z', '2');
+    const d = { ...draftFrom(base), effectiveAt: LATER };
+    const at = (feeBps: string) => ({ ...d, builderFees: [{ venueId: VENUE, group: 'spot', feeBps }] });
+    expect(buildProposal(base, at('2.0001'), reason, NOW, fine)).toMatchObject({ ok: false, code: 'trade.builder_fee_above_venue_cap' });
+    expect(buildProposal(base, at('1.9999'), reason, NOW, fine).ok).toBe(true);
   });
 
   it('parses the caps read, and refuses a body that is not that shape', () => {

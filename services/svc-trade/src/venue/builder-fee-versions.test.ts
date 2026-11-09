@@ -74,6 +74,10 @@ describe('builder-fee versions by venue and market group', () => {
   it('a cap the venue does not publish, a venue the door does not reach, the door off, or an unlisted market refuse', () => {
     const uncapped = { venueId: VENUE, markets: [market('BTC-USDC', null)] };
     expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '0' }), uncapped))).toBe('trade.builder_fee_cap_unknown');
+    // A venue that sends no cap field at all publishes none.
+    const { builderFeeCapBps: _gone, ...bare } = market('BTC-USDC', '100');
+    const silent = { venueId: VENUE, markets: [bare as unknown as UserVenueMarket] };
+    expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '0' }), silent))).toBe('trade.builder_fee_cap_unknown');
     expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '1' }), { ...venue, venueId: 'other' }))).toBe(
       'trade.builder_fee_venue_unknown',
     );

@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { compare, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import type { UserVenueMarket } from '@intafaced/venue-contracts';
+import { feeScheduleRowAt } from '../spot/fee-schedule-store.js';
 
 /**
  * OUR BUILDER FEE, VERSIONED BY VENUE AND MARKET GROUP (J-cex-spot-17 #1 #3, custody delta: we hold no customer money,
@@ -134,7 +135,8 @@ export function assertWithinVenueCaps(
     }
     for (const market of venue.markets) {
       const fee = builderFeeOf(book, venueId, market.symbol)!;
-      const cap = market.builderFeeCapBps;
+      // A venue (or an older venue server) that sends no cap at all publishes none.
+      const cap = market.builderFeeCapBps ?? { known: false };
       if (!cap.known) {
         throw new BuilderFeeVersionError(
           'trade.builder_fee_cap_unknown',
@@ -156,13 +158,23 @@ export function assertWithinVenueCaps(
  * `book` is null when no version is in force or it names no builder fees (the door then uses the boot owner value).
  */
 export async function builderFeesAt(sql: Sql, at: Date): Promise<{ version: string | null; book: BuilderFeeBook | null }> {
-  const [row] = await sql<Array<{ version: string; schedule: Record<string, unknown> | string }>>`
-    SELECT version::text, schedule
-      FROM trade.fee_schedule_versions
-     WHERE effective_at <= ${at.toISOString()}
-     ORDER BY effective_at DESC, fee_schedule_versions.version DESC
-     LIMIT 1`;
+  // The same lookup the engine prices an order by (spot/fee-schedule-store.ts), so the two never pick different versions.
+  const row = await feeScheduleRowAt(sql, at);
   if (!row) return { version: null, book: null };
-  const schedule = typeof row.schedule === 'string' ? (JSON.parse(row.schedule) as Record<string, unknown>) : row.schedule;
-  return { version: row.version, book: parseBuilderFees(schedule.builderFees) };
+  return { version: row.version, book: parseBuilderFees(row.schedule.builderFees) };
+}
+
+/** True when two schedules set the same builder fees (key order aside): a version that leaves them as they were. */
+export function sameBuilderFees(a: unknown, b: unknown): boolean {
+  const canonical = (v: unknown): unknown =>
+    v === null || typeof v !== 'object'
+      ? v
+      : Array.isArray(v)
+        ? v.map(canonical)
+        : Object.fromEntries(
+            Object.keys(v)
+              .sort()
+              .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
+          );
+  return JSON.stringify(canonical(a) ?? null) === JSON.stringify(canonical(b) ?? null);
 }

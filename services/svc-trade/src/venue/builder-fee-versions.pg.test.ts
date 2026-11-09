@@ -200,6 +200,13 @@ describe('builder-fee versions (PG-hard, TEST venue over loopback)', () => {
     expect(await db.sql`SELECT version FROM trade.fee_schedule_versions`).toHaveLength(0);
     doorOn = true;
     expect(await write(schedule('100', '10'), '2026-11-09T10:05:00.000Z', '0')).toMatchObject({ version: '1' });
+    // An engine rate change that keeps those builder fees as they are needs no read of the venue: it writes with the door off.
+    doorOn = false;
+    expect(await write({ ...schedule('100', '10'), takerBps: '12' }, '2026-11-09T10:06:00.000Z', '1')).toMatchObject({ version: '2' });
+    // A change to them, with the door off, is refused.
+    await expect(write(schedule('99', '10'), '2026-11-09T10:07:00.000Z', '2')).rejects.toMatchObject({
+      code: 'trade.builder_fee_venue_unknown',
+    });
   });
 
   it('an order carries the version in force when it is prepared; one still open keeps it after a new version takes effect', async () => {

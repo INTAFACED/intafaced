@@ -72,7 +72,7 @@ import {
 } from '../spot/fee-schedule.js';
 import { priceBandView, sqlPriceBandStore, type PriceBandView } from '../futures/dynamic-price-band.js';
 import { feeScheduleAt, feeScheduleHistory, latestFeeScheduleVersion, type FeeScheduleVersionRow } from '../spot/fee-schedule-store.js';
-import { BuilderFeeVersionError, assertWithinVenueCaps, parseBuilderFees } from '../venue/builder-fee-versions.js';
+import { BuilderFeeVersionError, assertWithinVenueCaps, parseBuilderFees, sameBuilderFees } from '../venue/builder-fee-versions.js';
 import { VenueRefusalError, type UserVenueMarket } from '@intafaced/venue-contracts';
 import { VipReviewAdmin } from './vip-review.js';
 import { readMarketStatusHistory } from './status-history.js';
@@ -497,7 +497,7 @@ export class TradeOpsAdmin {
       markets: read.markets.map((m) => ({
         symbol: m.symbol,
         kind: m.kind,
-        capBps: m.builderFeeCapBps.known ? formatAmount(m.builderFeeCapBps.value) : null,
+        capBps: m.builderFeeCapBps?.known ? formatAmount(m.builderFeeCapBps.value) : null,
       })),
     };
   }
@@ -540,11 +540,15 @@ export class TradeOpsAdmin {
       if (err instanceof FeeScheduleError) throw new TradeOpsError(err.code, err.message);
       throw err;
     }
-    // Builder fees, if the version sets them: complete, and never above the venue's own cap on any market they apply to,
-    // as the venue publishes it now. Checked before the approval is used, so a refused version leaves it unspent.
+    // Builder fees, if the version sets them: complete, and, when they change, never above the venue's own cap on any
+    // market they apply to, as the venue publishes it now. A version that keeps the latest version's builder fees as they
+    // are (an engine rate change) needs no venue read: they were checked when written, and the venue refuses an order
+    // above its cap itself. Checked before the approval is used, so a refused version leaves it unspent.
     try {
       const builderFees = parseBuilderFees(input.schedule.builderFees);
-      if (builderFees) assertWithinVenueCaps(builderFees, await this.venueMarketsNow());
+      const latestRow = (await feeScheduleHistory(this.deps.sql)).at(-1);
+      const unchanged = latestRow !== undefined && sameBuilderFees(latestRow.schedule.builderFees, input.schedule.builderFees);
+      if (builderFees && !unchanged) assertWithinVenueCaps(builderFees, await this.venueMarketsNow());
     } catch (err) {
       if (err instanceof BuilderFeeVersionError) throw new TradeOpsError(err.code, err.message);
       throw err;

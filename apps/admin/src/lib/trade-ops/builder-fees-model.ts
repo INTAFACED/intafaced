@@ -12,8 +12,10 @@ import type { VersionState } from './fees-versions-model';
 const rec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown): v is string => typeof v === 'string';
 
-/** 0 to 9999 bps, at most four places: svc-trade's own rule. */
+/** 0 to 9999 bps, at most four places: svc-trade's own rule for our rates. */
 export const BUILDER_RATE = /^(?:0|[1-9]\d{0,3})(?:\.\d{1,4})?$/;
+/** A figure the venue publishes (its cap) may carry more places than our rates: any plain decimal, at most 18 places. */
+const VENUE_BPS = /^(?:0|[1-9]\d{0,19})(?:\.\d{1,18})?$/;
 
 export interface VenueBuilderFeesView {
   readonly defaultGroup: string;
@@ -38,7 +40,7 @@ export function builderFeesOf(schedule: Readonly<Record<string, unknown>>): Reco
 
 /** Exact decimal bps as a percent with its bps: "2" → "0.02% (2 bps)", "1.5" → "0.015% (1.5 bps)". */
 export function builderRateText(bps: string | null | undefined): string {
-  if (bps === null || bps === undefined || !BUILDER_RATE.test(bps)) return 'not set';
+  if (bps === null || bps === undefined || !VENUE_BPS.test(bps)) return 'not set';
   const [whole = '0', frac = ''] = bps.split('.');
   const digits = (whole + frac).padStart(frac.length + 3, '0');
   const point = digits.length - frac.length - 2;
@@ -47,10 +49,25 @@ export function builderRateText(bps: string | null | undefined): string {
   return `${BigInt(digits.slice(0, point))}.${percentFrac}% (${bps} bps)`;
 }
 
-/** A decimal bps string as a 4-place scaled bigint, for an exact comparison. */
+/** A decimal bps string as an 18-place scaled bigint, for an exact comparison. */
 export function bpsUnits(bps: string): bigint {
   const [whole = '0', frac = ''] = bps.split('.');
-  return BigInt(whole) * 10_000n + BigInt(frac.padEnd(4, '0').slice(0, 4) || '0');
+  return BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0').slice(0, 18) || '0');
+}
+
+/** The same JSON, whatever the key order. */
+function sameJson(a: unknown, b: unknown): boolean {
+  const canonical = (v: unknown): unknown =>
+    v === null || typeof v !== 'object'
+      ? v
+      : Array.isArray(v)
+        ? v.map(canonical)
+        : Object.fromEntries(
+            Object.keys(v)
+              .sort()
+              .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
+          );
+  return JSON.stringify(canonical(a) ?? null) === JSON.stringify(canonical(b) ?? null);
 }
 
 // ── the venue's caps ──
@@ -68,7 +85,7 @@ export function parseBuilderCaps(raw: unknown): BuilderCaps | null {
   if (!rec(raw) || !str(raw.venueId) || !str(raw.displayName) || typeof raw.test !== 'boolean' || !str(raw.asOf)) return null;
   if (!Array.isArray(raw.markets)) return null;
   const markets = raw.markets.map((m) =>
-    rec(m) && str(m.symbol) && str(m.kind) && (m.capBps === null || (str(m.capBps) && BUILDER_RATE.test(m.capBps)))
+    rec(m) && str(m.symbol) && str(m.kind) && (m.capBps === null || (str(m.capBps) && VENUE_BPS.test(m.capBps)))
       ? { symbol: m.symbol, kind: m.kind, capBps: m.capBps as string | null }
       : null,
   );
@@ -165,15 +182,18 @@ export function builderDraftFrom(schedule: Readonly<Record<string, unknown>>): B
 export type BuilderCheck = { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string };
 
 /**
- * Put the draft's builder fees into `schedule` (a copy the caller owns) and check every venue it sets against that
- * venue's own cap, as svc-trade does when it writes: a blank or malformed rate refuses `trade.builder_fee_blank`, a rate
- * above the cap on any market it applies to `trade.builder_fee_above_venue_cap`, a cap the venue does not publish
- * `trade.builder_fee_cap_unknown`, and a venue whose caps could not be read `trade.builder_fee_venue_unknown`.
+ * Put the draft's builder fees into `schedule` (a copy the caller owns) and, when they differ from the base version's
+ * (`baseBuilderFees`), check every venue it sets against that venue's own cap, as svc-trade does when it writes: a blank
+ * or malformed rate refuses `trade.builder_fee_blank`, a rate above the cap on any market it applies to
+ * `trade.builder_fee_above_venue_cap`, a cap the venue does not publish `trade.builder_fee_cap_unknown`, and a venue
+ * whose caps could not be read `trade.builder_fee_venue_unknown`. Builder fees kept as they were need no venue read, so
+ * an engine rate change never waits on the venue.
  */
 export function applyBuilderDraft(
   schedule: Record<string, unknown>,
   lines: readonly BuilderDraftLine[],
   caps: BuilderCaps | null,
+  baseBuilderFees: unknown,
 ): BuilderCheck {
   const book = rec(schedule.builderFees) ? schedule.builderFees : null;
   for (const line of lines) {
@@ -196,6 +216,7 @@ export function applyBuilderDraft(
       };
     venue.groups[line.group] = value;
   }
+  if (sameJson(schedule.builderFees, baseBuilderFees)) return { ok: true };
   for (const [venueId, fees] of Object.entries(builderFeesOf(schedule))) {
     if (!caps || caps.venueId !== venueId)
       return {

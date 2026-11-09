@@ -249,7 +249,12 @@ export class UserVenueDoor {
       if (versioned) feeBps = versioned.feeBps;
     } catch (err) {
       if (!(err instanceof BuilderFeeVersionError)) throw err;
-      feeBps = null;
+      // A stored builder-fee version this door cannot read is never replaced by a guess: no order is prepared.
+      throw new VenueRefusalError({
+        venueId,
+        code: 'builder_fee_not_published',
+        detail: `the builder-fee version in force cannot be read (${err.code}: ${err.message}), so no order is prepared`,
+      });
     }
     if (!address || feeBps === null) {
       throw new VenueRefusalError({
