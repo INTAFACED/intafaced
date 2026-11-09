@@ -505,6 +505,18 @@ async function turnInstantOff() {
   await expect(instantSwitch()).toHaveAttribute('aria-checked', 'false');
 }
 
+/**
+ * Press a button and return the amount and price it showed at that very moment. The read and the click run in one
+ * browser task, so the book cannot requote between them: what is returned is exactly what the press acted on.
+ */
+async function pressShowing(button) {
+  return button.evaluate((el) => {
+    const shown = { amount: el.getAttribute('data-amount'), price: el.getAttribute('data-price') };
+    el.click();
+    return shown;
+  });
+}
+
 /** The cancels the browser sends (DELETE /api/v1/orders/<id>), by order id, from now on. */
 function cancels() {
   const sent = [];
@@ -708,10 +720,8 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   // Reviewed one-click close: a limit sell of every free BTC lot at the best bid, in the review; nothing is sent.
   const close = oneClick().getByTestId('of-close-all');
   await expect(close).toBeEnabled({ timeout: 15_000 });
-  const freeShown = await close.getAttribute('data-amount');
-  const bidShown = await close.getAttribute('data-price');
+  const { amount: freeShown, price: bidShown } = await pressShowing(close);
   expect(toUnits(freeShown)).toBeGreaterThan(0n);
-  await close.click();
   await expect(review).toContainText('Review your sell');
   expect(same(await reviewValue('Price').innerText(), bidShown)).toBe(true);
   await expect(reviewValue('Amount')).toContainText(canon(freeShown));
@@ -745,9 +755,7 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   // Instant one-click close: one limit sell of every free lot at the best bid the button shows, sent at once.
   const btcFreeBefore = free(await (await api(who)).balances(), 'BTC');
   await expect(close).toBeEnabled();
-  const freeNow = await close.getAttribute('data-amount');
-  const bidNow = await close.getAttribute('data-price');
-  await close.click();
+  const { amount: freeNow, price: bidNow } = await pressShowing(close);
   await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(2);
   await expect(review).toHaveCount(0);
   expect(sent[1]).toMatchObject({ symbol: SYMBOL, side: 'sell', type: 'limit' });
