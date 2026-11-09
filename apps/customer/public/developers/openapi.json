@@ -610,6 +610,25 @@
         }
       }
     },
+    "/api/v1/orders/{id}/queue": {
+      "get": {
+        "operationId": "fetchOrderQueuePosition",
+        "summary": "Orders and size ahead of one of your resting orders in the matching queue, with a fill estimate when the window is set",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/orders/{id}/trades": {
       "get": {
         "operationId": "fetchOrderTrades",

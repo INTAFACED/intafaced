@@ -320,6 +320,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Each amend and replace of one order, oldest first',
   },
   {
+    name: 'fetchOrderQueuePosition',
+    method: 'GET',
+    path: '/api/v1/orders/:id/queue',
+    product: 'spot',
+    access: 'private',
+    summary: 'Orders and size ahead of one of your resting orders in the matching queue, with a fill estimate when the window is set',
+  },
+  {
     name: 'fetchOrderTrades',
     method: 'GET',
     path: '/api/v1/orders/:id/trades',

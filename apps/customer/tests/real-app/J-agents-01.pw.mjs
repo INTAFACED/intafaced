@@ -45,6 +45,23 @@ const REFUSAL_WORDS = {
 };
 const refusalWords = (code) => REFUSAL_WORDS[code.replace(/^agents\./, '')] ?? code;
 
+const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * What a comparison column's "Who may use it" cell says for one agent's stored eligibility (svc-agents `agent.get`), in
+ * the page's English words: no rule; the person's plan granted; or left out, naming the very rule the service gives as
+ * the reason (plan, age or region) and, for a plan rule, the plans it is published for and the person's own.
+ */
+function verdictFor(e) {
+  if (e.rule === 'none') return /^No plan, age or region rule limits who may use it$/;
+  const plan = (value) => (value === 'none' || value === '' ? 'none (not verified)' : value);
+  if (e.eligible) return new RegExp(`^Your plan \\(${escape(plan(e.yourPlan))}\\) is one it is published for$`);
+  if (!e.published)
+    return new RegExp(`^Not on your ${escape(e.reason)}: no ${escape(e.reason)} is published for it, so no one can use it$`);
+  return new RegExp(
+    `^Not on your ${escape(e.reason)}: it is published for ${escape(e.plans.join(', '))}, and your account is on ${escape(plan(e.yourPlan))}$`,
+  );
+}
+
 /** The session #5 ran, from the run file; a later step after a failed #5 says so instead of using another session. */
 function ranSession() {
   const { sessionId } = agents.run.read();
@@ -109,10 +126,26 @@ test(`${J} #1 opens Agents: the catalogue from the stored list with filters, sor
   for (const name of ['Navigator', 'Support helper', 'Market scanner', 'Merchant watcher', 'Copy intelligence']) {
     await expect(agentCard(page, name)).toBeVisible();
   }
-  await expect(main(page).getByRole('textbox', { name: 'Search agents' })).toBeVisible();
-  await main(page).getByRole('combobox', { name: 'How it is used' }).selectOption({ label: 'Metered session' });
-  await expect(agentCard(page, 'Curriculum coach')).toHaveCount(0);
-  await main(page).getByRole('combobox', { name: 'How it is used' }).selectOption({ label: 'All' });
+  const shownNames = async () =>
+    (await main(page).getByRole('article').getByRole('heading', { level: 3 }).allInnerTexts()).sort((x, y) => x.localeCompare(y));
+  // Search narrows the stored cards to the ones whose name matches, and clearing it brings every one back.
+  const search = main(page).getByRole('textbox', { name: 'Search agents' });
+  await search.fill('nav');
+  await expect.poll(shownNames).toEqual(storedNames.filter((name) => /nav/i.test(name)));
+  expect(await shownNames()).toEqual(['Navigator']);
+  await search.fill('');
+  await expect.poll(shownNames).toEqual(storedNames);
+  // The kind filter keeps only the stored agents of that kind: metered sessions hide the room agents, and the room
+  // filter shows only them.
+  const SESSION = ['Navigator', 'Support helper', 'Market scanner', 'Merchant watcher', 'Copy intelligence'];
+  const ROOM = ['Curriculum coach', 'Launch check', 'Growth drafts'];
+  const kind = main(page).getByRole('combobox', { name: 'How it is used' });
+  await kind.selectOption({ label: 'Metered session' });
+  await expect.poll(shownNames).toEqual(storedNames.filter((name) => SESSION.includes(name)));
+  await kind.selectOption({ label: 'Inside a room' });
+  await expect.poll(shownNames).toEqual(storedNames.filter((name) => ROOM.includes(name)));
+  expect(await shownNames(), 'the stack stores at least one room agent').not.toEqual([]);
+  await kind.selectOption({ label: 'All' });
 
   const sort = main(page).getByRole('combobox', { name: 'Sort' });
   await expect(sort).toBeVisible(UNBUILT);
@@ -199,7 +232,9 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
   await expect(eligibility).toHaveCount(1);
   const verdicts = eligibility.getByRole('cell');
   await expect(verdicts).toHaveCount(3);
-  for (const i of [1, 2]) await expect(verdicts.nth(i)).toHaveText(/you may use it|plan|age|region/i);
+  // Each column's verdict is that column's own stored eligibility, word for word.
+  await expect(verdicts.nth(1)).toHaveText(verdictFor(navigator.eligibility));
+  await expect(verdicts.nth(2)).toHaveText(verdictFor(support.eligibility));
 });
 
 test(`${J} #2 an agent the person is not eligible for shows the real reason (plan, age or region) in the comparison`, async ({
@@ -251,9 +286,10 @@ test(`${J} #2 an agent the person is not eligible for shows the real reason (pla
     // Each column, not the row as a whole, says the person is left out and names the rule.
     const cells = row.getByRole('cell');
     await expect(cells).toHaveCount(3);
-    for (const i of [1, 2]) {
-      await expect(cells.nth(i)).toHaveText(/^Not\b.*\b(plan|age|region)\b/i);
-      await expect(cells.nth(i)).not.toHaveText(/you may use it|is one it is published for|no plan, age or region rule/i);
+    // Each column names the very rule its own stored eligibility gives as the reason, with that column's plans.
+    for (const [i, g] of guardrails.entries()) {
+      await expect(cells.nth(i + 1)).toHaveText(verdictFor(g.eligibility));
+      await expect(cells.nth(i + 1)).toContainText(`Not on your ${g.eligibility.reason}`);
     }
   } finally {
     await context.close();
