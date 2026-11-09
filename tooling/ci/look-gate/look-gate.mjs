@@ -1186,6 +1186,19 @@ async function selfTest() {
     'block',
     'a kit baseline change blocks on its own kit row',
   );
+  // Planted (CI review on 362d8a9c): a row the gate can't place blocks every blocking change, and a look-baselines path
+  // outside the runner's three folders still blocks on every row.
+  eq(
+    policy.verdict({ failing: [{ target: 'mystery page' }], changed: ['apps/customer/look-baselines/root/phone.png'], today: '2026-12-01' })
+      .mode,
+    'block',
+    'an unplaced row blocks a baseline change',
+  );
+  eq(
+    policy.verdict({ failing: kitRow, changed: ['packages/other/look-baselines/x/phone.png'], today: '2026-12-01' }).mode,
+    'block',
+    'a look-baselines path outside the three folders blocks on every row',
+  );
   eq(
     policy.verdict({ failing: kitRow, changed: ['apps/customer/look-baselines/root/phone.png'], today: '2026-12-01' }).mode,
     'report',

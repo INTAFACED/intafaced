@@ -54,9 +54,14 @@ export function placeOf(target) {
 export function owns(path, target, importsLit) {
   if (KIT_PATHS.some((re) => re.test(path))) return true;
   const place = placeOf(target);
-  // Only the three baseline folders the runner reads count as baselines; a `look-baselines` folder in a room is room code.
+  // A row the gate can't place (not the kit, the console or a Customer route) is answered for by every blocking path,
+  // as before this rule: an unknown row never stops blocking (CI review on 362d8a9c).
+  if (place.surface === 'other') return true;
+  // Only the three baseline folders the runner reads own their own rooms' rows. Any other `look-baselines` path still
+  // blocks on every row, as BLOCKING_PATHS always made it (CI review on 362d8a9c).
   const base = /^(packages\/ui\/look-baselines|apps\/customer\/look-baselines|apps\/admin\/look-baselines)\/(?:([^/]+)\/)?/.exec(path);
   if (base) return base[1] === place.baselines && (base[2] === undefined || base[2] === place.room);
+  if (/(?:^|\/)look-baselines\//.test(path)) return true;
   return place.surface === 'customer' && migratedRoomOf(path, importsLit) !== null;
 }
 
