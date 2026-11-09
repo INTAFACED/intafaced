@@ -552,9 +552,12 @@ export class DeskRouting {
     return out;
   }
 
-  /** A routing pass for one request, as the worker runs it. */
+  /**
+   * A lead's routing pass for one request, as the worker runs it. A pass can give the request to another person, which
+   * only a lead may do (`support.not_lead`); the worker itself calls `route`, never this.
+   */
   async run(actorId: string, ticketId: string): Promise<RouteOutcome> {
-    await this.member(actorId);
+    await this.lead(actorId);
     await this.desk.assertDeskVisible(actorId, ticketId);
     return this.route(ticketId);
   }

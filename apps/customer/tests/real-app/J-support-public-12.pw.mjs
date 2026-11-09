@@ -344,9 +344,12 @@ test(`${J} #6 round robin for three online agents: five new requests go out in t
   await desk('lead', 'mutation', 'ticketSetGroup', { ticketId: race, groupId: routed.group.id });
   expect(await assignee(race)).toBeNull();
   await setAvailability('lead', turn[0], 'online', `TEST ${J} #6 back`);
+  // Only a lead may start a pass (it gives the request to someone); the agent's is refused and assigns nothing.
+  await refused('agent', 'mutation', 'routingRun', { ticketId: race }, 'support.not_lead');
+  expect(await assignee(race)).toBeNull();
   const passes = await Promise.all([
     asDesk('lead', 'mutation', 'routingRun', { ticketId: race }),
-    asDesk('agent', 'mutation', 'routingRun', { ticketId: race }),
+    asDesk('lead', 'mutation', 'routingRun', { ticketId: race }),
   ]);
   const outcomes = passes.map((p) => p.json.result.data.status);
   expect(outcomes.sort()).toEqual(['assigned', 'skipped']);

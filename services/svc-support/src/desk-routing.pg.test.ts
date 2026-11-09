@@ -170,8 +170,13 @@ if (!url) throw new Error('desk-routing.pg.test.ts needs TEST_DATABASE_URL point
     });
 
     it('refuses a non-lead, an unknown person, a bad capacity and a malformed skill', async () => {
-      const { routing, group } = await desk([{ id: A, capacity: 1 }]);
+      const { routing, group, request, assignedRows } = await desk([{ id: A, capacity: 1 }]);
       await expect(routing.setMode(A, { groupId: group.id, mode: 'round_robin' })).rejects.toMatchObject({ code: 'support.not_lead' });
+      // A pass gives a request to someone: an agent cannot start one, and nothing is assigned.
+      await routing.setMode(LEAD, { groupId: group.id, mode: 'round_robin' });
+      const t = await request('agent pass');
+      await expect(routing.run(A, t.id)).rejects.toMatchObject({ code: 'support.not_lead' });
+      expect(await assignedRows(t.id)).toHaveLength(0);
       await expect(routing.setStaffRouting(LEAD, { userId: CUSTOMER, capacity: 1, skills: [] })).rejects.toMatchObject({
         code: 'support.not_staff',
       });

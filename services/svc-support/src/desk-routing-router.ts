@@ -125,7 +125,7 @@ export function routingProcedures(routing: DeskRouting, support: SupportService)
         return run(() => routing.waiting(ctx.principal!.userId));
       }),
 
-    /** The worker's pass for one request. Racing passes, or a pass and a hand claim, make one assignment. */
+    /** A lead runs the worker's pass for one request. Racing passes, or a pass and a hand claim, make one assignment. */
     routingRun: scopedProcedure('support:ops')
       .input(z.object({ ticketId: guid }))
       .output(outcome)
