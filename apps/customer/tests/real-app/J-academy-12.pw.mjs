@@ -1,7 +1,9 @@
 // World: none
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, api } from './stack.mjs';
+import { ORIGIN, ROOT, api } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { userIdOf } from './copy.mjs';
 
@@ -46,6 +48,18 @@ async function staff(kind, procedure, input) {
   const res = await ctx.edge[kind]('academy', procedure, input, token);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return JSON.parse(res.text).result.data;
+}
+
+/** svc-academy's own database role on the stack (loopback, the marker's postgres port, the stack's secret), to read what was stored. */
+async function academyDb() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const postgres = createRequire(path.join(ROOT, 'services', 'svc-academy', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  return postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
 }
 
 /** Founder A on the console, in a context of its own. */
@@ -293,6 +307,23 @@ test(`${J} #2 numeric, multi-select, essay and survey questions: tolerance, part
   const userId = (await (await api(run.learner)).get('/api/identity/trpc/rank.get')).body.result.data.userId;
   expect(userId).toMatch(/^[0-9a-f-]{36}$/);
   expect(JSON.stringify(sent.body)).not.toContain(userId);
+  // What is stored: the one response row holds the answers, no account (not even the id in another column or the answers)
+  // and its time to the hour only; the record that this learner answered holds no answers and no time to join by.
+  const sql = await academyDb();
+  try {
+    const stored = await sql`SELECT row_to_json(r)::text AS raw, r.user_id, r.answers, r.submitted_at
+      FROM academy.course_survey_responses r WHERE r.item_id = ${run.surveyId}`;
+    expect(stored).toHaveLength(1);
+    expect(stored[0].user_id).toBeNull();
+    expect(stored[0].answers).toEqual(answers);
+    expect(stored[0].raw).not.toContain(userId);
+    expect(new Date(stored[0].submitted_at).getTime() % 3_600_000).toBe(0);
+    const takers = await sql`SELECT row_to_json(t)::text AS raw FROM academy.course_survey_takers t WHERE t.item_id = ${run.surveyId}`;
+    expect(takers).toHaveLength(1);
+    expect(Object.keys(JSON.parse(takers[0].raw)).sort()).toEqual(['item_id', 'user_id']);
+  } finally {
+    await sql.end();
+  }
   const again = await learnerWrite(run.learner, 'submitCourseSurvey', { itemId: run.surveyId, clientToken: token, answers });
   expect(again.status).toBe(409);
   expect(again.body?.error?.data?.cause?.code).toBe('academy.survey_duplicate');
@@ -332,6 +363,19 @@ test(`${J} #3 with an access code and an IP filter set, a start without the code
   const unreadable = await learnerWrite(learner, 'startCourseQuiz', { itemId: run.quizId, accessCode: CODE });
   expect(unreadable.status).toBe(412);
   expect(unreadable.body?.error?.data?.cause?.code).toBe('academy.ip_unreadable');
+  // Nothing moved: no attempt was started by any of the three refusals.
+  const after = await (await api(learner)).get(trpc('courseQuiz', { itemId: run.quizId }));
+  expect(after.status).toBe(200);
+  expect(after.body.result.data).toMatchObject({ accessCodeRequired: true, attemptsUsed: 0 });
+  const userId = (await (await api(learner)).get('/api/identity/trpc/rank.get')).body.result.data.userId;
+  expect(userId).toMatch(/^[0-9a-f-]{36}$/);
+  const sql = await academyDb();
+  try {
+    const [{ n }] = await sql`SELECT count(*)::int AS n FROM academy.course_quiz_attempts WHERE item_id = ${run.quizId} AND user_id = ${userId}`;
+    expect(n).toBe(0);
+  } finally {
+    await sql.end();
+  }
 });
 
 // Steps 4 and 5 work on courses of their own: a published course's outline is not edited, and the first course was opened
