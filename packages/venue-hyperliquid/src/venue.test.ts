@@ -818,6 +818,8 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       { known: true, value: a('1') },
     ]);
     expect((await venue.markets(account)).value.find((m) => m.symbol === 'PURR-USDC')!.takerFeeBps).toEqual({ known: false });
+    // The venue publishes no builder-fee cap through info, so none is typed in: every market reads "not known".
+    expect(anon.map((m) => m.builderFeeCapBps)).toEqual(anon.map(() => ({ known: false })));
   });
 });
 

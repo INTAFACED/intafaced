@@ -492,6 +492,9 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       lotSize: unit(m.szDecimals),
       makerFeeBps: fee(m.kind === 'spot' ? 'userSpotAddRate' : 'userAddRate'),
       takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
+      // The info API publishes no per-market builder-fee cap, so it is not known: the door then writes no builder-fee
+      // version for this venue and a fee'd order refuses, rather than trusting a number we typed in.
+      builderFeeCapBps: { known: false },
     }));
     return this.asOf(list);
   }
