@@ -59,11 +59,18 @@ export function canonicalVenueDecimal(value: string): string {
   return f === '' ? whole! : `${whole}.${f}`;
 }
 
-/** A time as the canonical ISO string the hash binds, or null when it is not a time. */
+/**
+ * A time as the canonical ISO string the hash binds, or null when it is not a real time: ISO with its zone, and every
+ * field in range (no 2026-02-30, no 24:00, no +25:00), so a time never silently rolls over into another day.
+ */
 export function canonicalVenueTime(value: string): string | null {
-  const text = value.trim();
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(text)) return null;
-  const at = new Date(text);
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value.trim());
+  if (!m) return null;
+  const [y, mo, d, h, mi, s] = [m[1], m[2], m[3], m[4], m[5], m[6] ?? '0'].map(Number) as [number, number, number, number, number, number];
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth || h > 23 || mi > 59 || s > 59) return null;
+  if (m[7] !== 'Z' && (Number(m[9]) > 23 || Number(m[10]) > 59)) return null;
+  const at = new Date(value.trim());
   return Number.isNaN(at.getTime()) ? null : at.toISOString();
 }
 

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { strictVenueTime } from './venue-markets-model';
 
 /**
  * The approvals the venue markets desk needs (J-cex-spot-16), each bound to a hash of exactly what svc-trade will write.
@@ -36,8 +37,12 @@ export function canonicalVenueDecimal(value: string): string {
   return f === '' ? whole! : `${whole}.${f}`;
 }
 
-/** A time in the one form svc-trade binds (ISO, UTC, milliseconds). */
-export const canonicalVenueTime = (value: string): string => new Date(value.trim()).toISOString();
+/** A time in the one form svc-trade binds (ISO, UTC, milliseconds). Throws on a time svc-trade refuses. */
+export function canonicalVenueTime(value: string): string {
+  const at = strictVenueTime(value);
+  if (at === null) throw new Error(`${JSON.stringify(value)} is not a time svc-trade takes`);
+  return at;
+}
 
 interface Base {
   venueId: string;

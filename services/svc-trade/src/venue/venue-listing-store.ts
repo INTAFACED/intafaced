@@ -365,7 +365,7 @@ export function listedTestStore(
       routing: 'show',
       approvalId: `test-stack-listing:${venueId}:${symbol}`,
       proposerId: 'TEST fixture',
-      approverId: 'TEST fixture',
+      approverId: 'TEST fixture approval',
       executorId: 'TEST fixture',
       reason: 'TEST fixture listing',
       recordedAt: opensAt,

@@ -20,6 +20,7 @@ import { InMemoryPreparedActionStore } from '../venue/prepared-action-store.js';
 import { UserVenueDoor, type BuilderFeeValue } from '../venue/user-venue-door.js';
 import { MemoryVenueListingStore, delistingNoticeKey } from '../venue/venue-listing-store.js';
 import {
+  LOCAL_TEST_SEED_APPROVER,
   LOCAL_TEST_SEED_OPERATOR,
   StoreVenueRoutingGate,
   assertTestListingsAllowed,
@@ -260,6 +261,7 @@ describe('venue markets desk (J-cex-spot-16)', () => {
         }),
       ),
     ).toBe('trade.venue_listing_opening_window_invalid');
+    expect(await code(list('ETH-USDC', '2026-11-31T12:00:00Z'))).toBe('trade.venue_listing_opening_window_invalid');
     expect(await store.listingVersions(VENUE)).toEqual([]);
     expect((await door.markets()).value).toEqual([]);
   });
@@ -508,6 +510,7 @@ describe('venue markets desk (J-cex-spot-16)', () => {
       ).toBe('trade.venue_delisting_date_blank');
     }
     expect(await code(delist('1 Dec', '1'))).toBe('trade.venue_delisting_date_invalid');
+    expect(await code(delist('2027-02-30T00:00:00Z', '1'))).toBe('trade.venue_delisting_date_invalid');
     expect(await code(delist('2026-11-09T11:00:00.000Z', '1'))).toBe('trade.venue_delisting_not_future');
 
     const resting = order({ price: a('1900'), amount: a('1') });
@@ -615,6 +618,21 @@ describe('the canonical forms every approval hash binds', () => {
     expect(canonicalVenueTime('2026-12-01T08:00:00+08:00')).toBe('2026-12-01T00:00:00.000Z');
     expect(canonicalVenueTime('2026-12-01')).toBeNull();
     expect(canonicalVenueTime('next week')).toBeNull();
+    // A time that does not exist never rolls over into another one.
+    for (const bad of [
+      '2026-02-30T00:00:00Z',
+      '2027-02-29T00:00:00Z',
+      '2026-04-31T00:00:00Z',
+      '2026-13-01T00:00:00Z',
+      '2026-11-09T24:00:00Z',
+      '2026-11-09T12:60:00Z',
+      '2026-11-09T12:00:60Z',
+      '2026-11-09T12:00:00+25:00',
+      '2026-11-09T12:00:00+08:60',
+    ])
+      expect(canonicalVenueTime(bad), bad).toBeNull();
+    expect(canonicalVenueTime('2028-02-29T00:00:00Z')).toBe('2028-02-29T00:00:00.000Z');
+    expect(canonicalVenueTime('2026-11-09T23:59:59.999+14:00')).toBe('2026-11-09T09:59:59.999Z');
   });
 });
 
@@ -622,7 +640,7 @@ describe('the LOCAL TEST listing seed', () => {
   const sim = () => new TestVenueSimulator({ clock: () => new Date('2026-11-09T12:00:00.000Z'), markets: TEST_VENUE_MARKETS });
   const at = new Date('2026-11-09T12:00:00.000Z');
 
-  it('lists exactly the named markets the venue lists, as LOCAL TEST seed, once', async () => {
+  it('lists exactly the named markets the venue lists, by two distinct stack ids, once', async () => {
     const store = new MemoryVenueListingStore();
     expect(await seedTestListings(store, sim(), parseTestListings('BTC-USDC,BTC-PERP,SOL-USDC'), 'dev', at)).toEqual([
       'BTC-USDC',
@@ -630,10 +648,12 @@ describe('the LOCAL TEST listing seed', () => {
     ]);
     expect(await seedTestListings(store, sim(), ['BTC-USDC', 'BTC-PERP'], 'test', at)).toEqual([]);
     const rows = await store.listingVersions(VENUE);
-    expect(rows.map((r) => [r.symbol, r.version, r.routing, r.approvalId, r.proposerId])).toEqual([
-      ['BTC-PERP', 1, 'show', `test-stack-listing:${VENUE}:BTC-PERP`, LOCAL_TEST_SEED_OPERATOR],
-      ['BTC-USDC', 1, 'show', `test-stack-listing:${VENUE}:BTC-USDC`, LOCAL_TEST_SEED_OPERATOR],
+    expect(rows.map((r) => [r.symbol, r.version, r.routing, r.approvalId, r.proposerId, r.approverId])).toEqual([
+      ['BTC-PERP', 1, 'show', `test-stack-listing:${VENUE}:BTC-PERP`, LOCAL_TEST_SEED_OPERATOR, LOCAL_TEST_SEED_APPROVER],
+      ['BTC-USDC', 1, 'show', `test-stack-listing:${VENUE}:BTC-USDC`, LOCAL_TEST_SEED_OPERATOR, LOCAL_TEST_SEED_APPROVER],
     ]);
+    expect(LOCAL_TEST_SEED_OPERATOR).not.toBe(LOCAL_TEST_SEED_APPROVER);
+    expect(`${LOCAL_TEST_SEED_OPERATOR} ${LOCAL_TEST_SEED_APPROVER}`).toMatch(/^LOCAL TEST stack seed LOCAL TEST stack seed approval$/);
     expect(await store.latestListing(VENUE, 'ETH-USDC')).toBeNull();
   });
 

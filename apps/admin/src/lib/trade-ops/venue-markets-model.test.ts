@@ -25,6 +25,12 @@ describe('venue markets desk model (J-cex-spot-16)', () => {
     expect(checkOpensAt('2026-11-09 12:00')).toMatchObject({ ok: false, code: 'trade.venue_listing_opening_window_invalid' });
     expect(checkOpensAt('2026-11-09T12:00:00Z')).toEqual({ ok: true, value: '2026-11-09T12:00:00Z' });
     expect(checkDelistsAt('')).toMatchObject({ ok: false, code: 'trade.venue_delisting_date_blank' });
+    // A time that does not exist refuses, as svc-trade refuses it, never rolling into the next month.
+    expect(checkOpensAt('2026-02-30T00:00:00Z')).toMatchObject({ ok: false, code: 'trade.venue_listing_opening_window_invalid' });
+    expect(checkOpensAt('2026-11-09T24:00:00Z')).toMatchObject({ ok: false, code: 'trade.venue_listing_opening_window_invalid' });
+    expect(checkDelistsAt('2027-02-29T00:00:00Z')).toMatchObject({ ok: false, code: 'trade.venue_delisting_date_invalid' });
+    expect(checkDelistsAt('2026-12-01T00:00:00+25:00')).toMatchObject({ ok: false, code: 'trade.venue_delisting_date_invalid' });
+    expect(checkDelistsAt('2028-02-29T00:00:00Z')).toEqual({ ok: true, value: '2028-02-29T00:00:00Z' });
     expect(checkRouting('pause')).toMatchObject({ ok: false, code: 'trade.venue_routing_invalid' });
     expect(checkRouting('close_only')).toEqual({ ok: true, value: 'close_only' });
   });

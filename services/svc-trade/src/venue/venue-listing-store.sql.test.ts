@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client/money';
+import { TEST_VENUE_MARKETS, TestVenueSimulator, seedTestVenue } from '@intafaced/venue-sim';
+import { LOCAL_TEST_SEED_APPROVER, LOCAL_TEST_SEED_OPERATOR, seedTestListings } from './venue-listing.js';
 import { SqlVenueListingStore, delistingNoticeKey, type VenueLimitVersion, type VenueListingVersion } from './venue-listing-store.js';
 
 /**
@@ -137,8 +139,24 @@ describe('SqlVenueListingStore (Postgres)', () => {
     );
     await expect(store.appendLimits(limits({ version: 2, approvalId: 'limits-3', approverId: 'op-a' }))).rejects.toThrow(/two_people/);
     await expect(store.appendListing(listing({ approverId: 'op-a' }))).rejects.toThrow(/two_people/);
+    // No approval id is exempt, the stack seed's included.
+    await expect(
+      store.appendListing(listing({ approvalId: 'test-stack-listing:test-venue-sim:ETH-USDC', approverId: 'op-a' })),
+    ).rejects.toThrow(/two_people/);
     await store.appendListing(listing());
     await expect(db!.sql`UPDATE trade.venue_listings SET routing = 'stop'`).rejects.toThrow(/never changed/);
     await expect(db!.sql`DELETE FROM trade.venue_routed_limits`).rejects.toThrow(/never changed/);
+  });
+
+  it('the LOCAL TEST stack seed lands under the two-person CHECK, as two distinct stack ids, once', async () => {
+    const sim = new TestVenueSimulator({ clock: () => T0, markets: TEST_VENUE_MARKETS, chainId: 84532 });
+    await seedTestVenue(sim);
+    expect(await seedTestListings(store, sim, ['BTC-USDC'], 'test', T0)).toEqual(['BTC-USDC']);
+    expect(await seedTestListings(store, sim, ['BTC-USDC'], 'test', T0)).toEqual([]);
+    expect(await store.latestListing('test-venue-sim', 'BTC-USDC')).toMatchObject({
+      version: 1,
+      proposerId: LOCAL_TEST_SEED_OPERATOR,
+      approverId: LOCAL_TEST_SEED_APPROVER,
+    });
   });
 });

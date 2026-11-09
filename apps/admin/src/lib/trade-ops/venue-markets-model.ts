@@ -185,8 +185,21 @@ export function parseVenueMarketsView(raw: unknown): VenueMarketsView | null {
 export type Check<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly code: string; readonly message: string };
 const no = (code: string, message: string): { ok: false; code: string; message: string } => ({ ok: false, code, message });
 
-/** The time form svc-trade takes: ISO with a zone. */
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+/**
+ * A time as the canonical ISO string svc-trade binds (services/svc-trade/src/admin/venue-markets.ts, the same rule), or null when it is not a real time: ISO with its zone, and every
+ * field in range (no 2026-02-30, no 24:00, no +25:00), so a time never silently rolls over into another day.
+ */
+export function strictVenueTime(value: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value.trim());
+  if (!m) return null;
+  const [y, mo, d, h, mi, s] = [m[1], m[2], m[3], m[4], m[5], m[6] ?? '0'].map(Number) as [number, number, number, number, number, number];
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth || h > 23 || mi > 59 || s > 59) return null;
+  if (m[7] !== 'Z' && (Number(m[9]) > 23 || Number(m[10]) > 59)) return null;
+  const at = new Date(value.trim());
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
 /** An exact unsigned decimal, as svc-trade takes it. */
 const DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 
@@ -196,7 +209,7 @@ export const reasonReady = (reason: string): boolean => reason.trim().length >= 
 function time(value: string, blank: string, invalid: string, label: string): Check<string> {
   const text = value.trim();
   if (text === '') return no(blank, `${label} is blank; it is never filled in.`);
-  if (!ISO_TIME.test(text) || Number.isNaN(Date.parse(text)))
+  if (strictVenueTime(text) === null)
     return no(invalid, `${label} must be a time with its zone, such as 2026-11-09T12:00:00Z.`);
   return { ok: true, value: text };
 }

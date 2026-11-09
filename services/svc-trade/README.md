@@ -188,8 +188,8 @@ proposer, approver and executor; a retry of an approved write answers the versio
 row (`trade.venue_delisting_notices`, key `venue-delisting:<venueId>:<symbol>:<delistsAt>`) in the same transaction and
 publishes `trade.venue_delisting.created` after commit, again each minute until the bus takes it; svc-notify files one
 dated notice per key. None of this cancels an order, touches an open venue order, or posts to the ledger.
-`TRADE_USER_VENUE_TEST_LISTINGS` (set only by the local stack) lists the named markets on a TEST venue as `LOCAL TEST seed`
-(approval id `test-stack-listing:<venueId>:<symbol>`); refused outside APP_ENV dev or test and on a venue that is not TEST.
+`TRADE_USER_VENUE_TEST_LISTINGS` (set only by the local stack) lists the named markets on a TEST venue, proposed by the stack id
+`LOCAL TEST stack seed` and approved by `LOCAL TEST stack seed approval` (approval id `test-stack-listing:<venueId>:<symbol>`); refused outside APP_ENV dev or test and on a venue that is not TEST.
 
 ## Events
 

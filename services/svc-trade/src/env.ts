@@ -28,7 +28,7 @@ const schema = serviceEnvSchema
 
       /**
        * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST
-       * venue when it connects, recorded with the operator `LOCAL TEST seed`, so the stack's venue journeys see their
+       * venue when it connects, recorded with the stack ids `LOCAL TEST stack seed` / `... approval`, so the stack's venue journeys see their
        * markets. Blank lists nothing (every market then needs two operators). Refused at boot unless the raw APP_ENV is
        * exactly dev or test, and refused on a venue that is not a TEST venue. Set only by the local stack's launcher.
        */

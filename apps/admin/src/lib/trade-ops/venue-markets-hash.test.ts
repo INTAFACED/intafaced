@@ -29,6 +29,11 @@ describe('venue markets approval hashes (J-cex-spot-16)', () => {
     expect(venueLimitsTarget('test-venue-sim', 'ETH-USDC')).toBe('venue-limits:test-venue-sim:ETH-USDC');
   });
 
+  it('never hashes a time that does not exist', () => {
+    expect(() => venueDelistingPayloadHash({ ...b, delistsAt: '2026-02-30T00:00:00Z' })).toThrow();
+    expect(() => venueListingPayloadHash({ ...b, opensAt: '2026-11-09T24:00:00Z' })).toThrow();
+  });
+
   it('changes with the version and with the reason', () => {
     const one = venueRoutingPayloadHash({ ...b, routing: 'stop' });
     expect(venueRoutingPayloadHash({ ...b, routing: 'stop', expectedVersion: '2' })).not.toBe(one);

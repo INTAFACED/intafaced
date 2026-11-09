@@ -130,7 +130,9 @@ export class StoreVenueRoutingGate implements VenueRoutingGate {
 
 // ── The LOCAL TEST seed ─────────────────────────────────────────────────────
 
-export const LOCAL_TEST_SEED_OPERATOR = 'LOCAL TEST seed' as const;
+/** The stack ids the LOCAL TEST seed records: labelled stack ids, not people, and two of them, as every row needs. */
+export const LOCAL_TEST_SEED_OPERATOR = 'LOCAL TEST stack seed' as const;
+export const LOCAL_TEST_SEED_APPROVER = 'LOCAL TEST stack seed approval' as const;
 
 /** `TRADE_USER_VENUE_TEST_LISTINGS`: a comma list of venue symbols. Blank is none. */
 export function parseTestListings(raw: string | undefined): readonly string[] {
@@ -157,9 +159,9 @@ export function assertTestListingsAllowed(symbols: readonly string[], appEnv: st
 
 /**
  * List `symbols` on a TEST venue as a LOCAL TEST seed, so the stack's other venue journeys see their markets: version 1
- * of each listing, routing `show`, open from now, recorded under `test-stack-listing:<venueId>:<symbol>` with the operator
- * `LOCAL TEST seed`. A market already listed (seeded or approved) is left as it is; a symbol the venue does not list is
- * skipped. Refused on a venue that is not a TEST venue and outside APP_ENV dev or test. Returns the symbols it wrote.
+ * of each listing, routing `show`, open from now, recorded under `test-stack-listing:<venueId>:<symbol>`, proposed by
+ * `LOCAL TEST stack seed` and approved by `LOCAL TEST stack seed approval` (stack ids, not people). A market already
+ * listed (seeded or approved) is left as it is; a symbol the venue does not list is skipped. Refused on a venue that is not a TEST venue and outside APP_ENV dev or test. Returns the symbols it wrote.
  */
 export async function seedTestListings(
   store: VenueListingStore,
@@ -185,7 +187,7 @@ export async function seedTestListings(
       routing: 'show',
       approvalId: `test-stack-listing:${venue.venue.id}:${symbol}`,
       proposerId: LOCAL_TEST_SEED_OPERATOR,
-      approverId: LOCAL_TEST_SEED_OPERATOR,
+      approverId: LOCAL_TEST_SEED_APPROVER,
       executorId: LOCAL_TEST_SEED_OPERATOR,
       reason: 'LOCAL TEST seed: listed for the TEST stack',
       recordedAt: now,
