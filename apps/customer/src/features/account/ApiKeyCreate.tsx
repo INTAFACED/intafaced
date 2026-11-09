@@ -136,6 +136,9 @@ export function ApiKeyCreate() {
       </div>
     );
   const { keys, scopes, subaccounts } = resource.data;
+  // A key for an organisation (DV-console-01): opened from that organisation's area on the key page. The form says so,
+  // and it must name the sub-account the key reaches.
+  const orgId = new URLSearchParams(window.location.search).get('org') ?? '';
   const offered = scopes.filter((entry) => entry.onKey);
   const blocked = scopes.filter((entry) => !entry.onKey);
 
@@ -152,8 +155,6 @@ export function ApiKeyCreate() {
     const expiresAt = ends ? endOfDayUtc(ends) : undefined;
     const ips = ipLines(String(data.get('ips') ?? ''));
     const accountId = String(data.get('accountId') ?? '');
-    // A key for an organisation (DV-console-01): opened from that organisation's area on the key page.
-    const orgId = new URLSearchParams(window.location.search).get('org') ?? '';
     const agent = data.get('agent') === 'on';
     const asked = {
       name: String(data.get('name') ?? ''),
@@ -210,8 +211,16 @@ export function ApiKeyCreate() {
         <Field label={t('name')} hint={t('nameHint')} name="name" autoComplete="off" maxLength={64} />
         <label className="field">
           <span>{t('subaccount')}</span>
-          <select name="accountId" defaultValue="" aria-describedby="api-key-subaccount-hint" disabled={subaccounts === null}>
-            <option value="">{t('subaccountNone')}</option>
+          <select
+            name="accountId"
+            defaultValue=""
+            aria-describedby="api-key-subaccount-hint"
+            disabled={subaccounts === null}
+            required={orgId !== ''}
+          >
+            <option value="" disabled={orgId !== ''}>
+              {t(orgId ? 'subaccountChoose' : 'subaccountNone')}
+            </option>
             {(subaccounts ?? []).map((row) => (
               <option key={row.id} value={row.id}>
                 {row.nickname ?? row.label}
@@ -219,7 +228,7 @@ export function ApiKeyCreate() {
             ))}
           </select>
           <small id="api-key-subaccount-hint" className="muted">
-            {t(subaccounts === null ? 'subaccountUnread' : 'subaccountHint')}
+            {t(subaccounts === null ? 'subaccountUnread' : orgId ? 'subaccountOrgHint' : 'subaccountHint')}
           </small>
         </label>
         <label className="api-keys__stored">

@@ -102,6 +102,19 @@ describe('developerTeam (the key page in an organisation)', () => {
     expect(team.keys).toEqual([]);
     expect(calls).toHaveLength(1);
   });
+  it('the owner sees each member with only a published role, and how many role changes each has had', async () => {
+    const { sql } = fakeSql([
+      seat('admin', null),
+      [],
+      [
+        { user_id: OWNER, email: 'o@example.test', org_role: 'admin', developer_role: null, role_version: 0 },
+        { user_id: MEMBER, email: 'm@example.test', org_role: 'trader', developer_role: 'keys_admin', role_version: 3 },
+      ],
+    ]);
+    const team = await developerTeam(sql, ORG, OWNER, ['keys_read']);
+    // keys_admin is stored but no longer published: it gives no authority, so the owner sees none, not a stale role.
+    expect(team.members[1]).toEqual({ userId: MEMBER, email: 'm@example.test', orgRole: 'trader', developerRole: null, roleVersion: 3 });
+  });
   it('a non-member is refused as if the organisation did not exist', async () => {
     const { sql } = fakeSql([[]]);
     await expect(developerTeam(sql, ORG, MEMBER, BOTH)).rejects.toMatchObject({ code: 'identity.developer_org_denied' });
@@ -133,6 +146,14 @@ describe('setDeveloperRole (the owner changes a role)', () => {
   });
   it('the same request id for a different change refuses', async () => {
     const { sql } = fakeSql([seat('admin', null), [{ user_id: MEMBER, role: 'keys_read' }]]);
+    await expect(setDeveloperRole(sql, OWNER, input, BOTH)).rejects.toMatchObject({ code: 'identity.developer_request_conflict' });
+  });
+  it('a concurrent repeat of the same change that loses the insert race answers changed: false', async () => {
+    const { sql } = fakeSql([seat('admin', null), [], [{ ok: 1 }], [], [{ user_id: MEMBER, role: 'keys_admin' }]]);
+    await expect(setDeveloperRole(sql, OWNER, input, BOTH)).resolves.toEqual({ userId: MEMBER, role: 'keys_admin', changed: false });
+  });
+  it('a concurrent different change with the same request id refuses', async () => {
+    const { sql } = fakeSql([seat('admin', null), [], [{ ok: 1 }], [], [{ user_id: MEMBER, role: 'keys_read' }]]);
     await expect(setDeveloperRole(sql, OWNER, input, BOTH)).rejects.toMatchObject({ code: 'identity.developer_request_conflict' });
   });
   it('someone outside the organisation cannot be given a role', async () => {

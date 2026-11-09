@@ -5,7 +5,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { RevokeSheet, stateOf, RevokedReason, type Sheet } from './ApiKeys';
-import { changeRefusal, readDeveloperTeam, readMyOrgs, revokeOrgKey, setDeveloperRole } from './developer-keys-api';
+import { changeRefusal, developerRoleRequestId, readDeveloperTeam, readMyOrgs, revokeOrgKey, setDeveloperRole } from './developer-keys-api';
 
 const ROLE_REFUSALS = new Set([
   'identity.developer_roles_unset',
@@ -30,7 +30,13 @@ function RoleRow({ team, member, onSaved }: { team: DeveloperTeam; member: Devel
     setBusy(true);
     setSaid(null);
     try {
-      const answer = await setDeveloperRole(api, team.orgId, member.userId, role, `dev-role:${crypto.randomUUID()}`);
+      const answer = await setDeveloperRole(
+        api,
+        team.orgId,
+        member.userId,
+        role,
+        developerRoleRequestId(team.orgId, member.userId, member.roleVersion, role),
+      );
       if (answer.ok) {
         // The area reads the team again; the saved notice is the area's, so it outlives the reload.
         onSaved();

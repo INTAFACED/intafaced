@@ -121,8 +121,9 @@ export async function developerTeam(
         `
       : [];
   const members = owner
-    ? await sql<Array<{ user_id: string; email: string; org_role: string; developer_role: string | null }>>`
-        SELECT m.user_id, u.email::text AS email, m.role AS org_role, d.role AS developer_role
+    ? await sql<Array<{ user_id: string; email: string; org_role: string; developer_role: string | null; role_version: number }>>`
+        SELECT m.user_id, u.email::text AS email, m.role AS org_role, d.role AS developer_role,
+          (SELECT count(*)::int FROM org_developer_role_changes c WHERE c.org_id = m.org_id AND c.user_id = m.user_id) AS role_version
         FROM organization_members m
         JOIN users u ON u.id = m.user_id
         LEFT JOIN org_developer_roles d ON d.org_id = m.org_id AND d.user_id = m.user_id
@@ -140,7 +141,9 @@ export async function developerTeam(
       userId: m.user_id,
       email: m.email,
       orgRole: m.org_role,
-      developerRole: (DEVELOPER_ROLES as readonly string[]).includes(m.developer_role ?? '') ? (m.developer_role as DeveloperRole) : null,
+      // Only a published role is shown: an unpublished one gives no authority (manageRefusalOf), so it reads as none.
+      developerRole: published?.includes(m.developer_role as DeveloperRole) ? (m.developer_role as DeveloperRole) : null,
+      roleVersion: Number(m.role_version),
     })),
     keys: keys.map(toRecord),
   };
@@ -186,6 +189,13 @@ export async function setDeveloperRole(
       RETURNING 1
     `;
     if (inserted.length === 0) {
+      // A concurrent request with this id committed first: the same change is a repeat, another change refuses.
+      const raced = await tx<Array<{ user_id: string; role: string | null }>>`
+        SELECT user_id, role FROM org_developer_role_changes WHERE org_id = ${input.orgId} AND request_id = ${input.requestId}
+      `;
+      if (raced[0] && raced[0].user_id === input.userId && raced[0].role === input.role) {
+        return { userId: input.userId, role: input.role, changed: false };
+      }
       throw new DeveloperTeamError('This request id was already used for a different change', 'identity.developer_request_conflict');
     }
     if (input.role === null) {

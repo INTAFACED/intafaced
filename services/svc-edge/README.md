@@ -124,7 +124,7 @@ Until this landed the edge sent **no CORS headers at all** — not a permissive 
 | `Access-Control-Allow-Origin`      | the caller's own origin, echoed. **Never `*`**                        |
 | `Access-Control-Allow-Credentials` | `true`, beside an exact allowlisted origin only; never with `*`       |
 | `Access-Control-Allow-Methods`     | `GET, POST, OPTIONS`                                                  |
-| `Access-Control-Allow-Headers`     | `authorization, content-type`                                         |
+| `Access-Control-Allow-Headers`     | `authorization, content-type, idempotency-key, x-api-explorer`        |
 | `Access-Control-Expose-Headers`    | `x-request-id, x-server-received, x-server-sent`, allowed origin only |
 | `Vary`                             | `origin`, on every answer including the ones that allow nothing       |
 | Surface                            | `/api/*`, `/health`, `/ready`. **`/admin/*` is not a CORS surface**   |

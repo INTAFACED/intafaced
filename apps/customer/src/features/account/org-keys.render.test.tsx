@@ -116,8 +116,8 @@ describe('the organisation area on the key page', () => {
         myRole: 'owner',
         manageRefusal: null,
         members: [
-          { userId: USER, email: 'owner@example.test', orgRole: 'admin', developerRole: null },
-          { userId: MEMBER, email: 'member@example.test', orgRole: 'trader', developerRole: 'keys_read' },
+          { userId: USER, email: 'owner@example.test', orgRole: 'admin', developerRole: null, roleVersion: 0 },
+          { userId: MEMBER, email: 'member@example.test', orgRole: 'trader', developerRole: 'keys_read', roleVersion: 1 },
         ],
       }),
     ];
@@ -132,6 +132,8 @@ describe('the organisation area on the key page', () => {
     await settle();
     const sent = world.asked.find((a) => a.procedure === 'developerKeys.setTeamRole');
     expect(sent?.input).toMatchObject({ orgId: ORG, userId: MEMBER, role: 'keys_admin' });
+    // The request id is a business key (AGENTS.md floor 3): organisation, member, the role version seen, the role asked.
+    expect((sent?.input as { requestId: string }).requestId).toBe(`dev-role:${ORG}:${MEMBER}:v1:keys_admin`);
     for (let i = 0; i < 5; i += 1) await settle();
     expect(host.textContent).toContain('The role is saved.');
   });

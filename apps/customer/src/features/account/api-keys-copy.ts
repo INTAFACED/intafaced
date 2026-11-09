@@ -111,6 +111,9 @@ const messages = {
     'This sub-account holds as many keys as it may. Revoke one of its keys to make another. Nothing was created.',
   subaccount: 'Sub-account',
   subaccountNone: 'None: a key for this account',
+  subaccountChoose: 'Choose the sub-account this key reaches',
+  subaccountOrgHint:
+    'This is a key for your organisation. It reaches only the sub-account you choose, and the organisation’s owner and key admins can see and revoke it.',
   subaccountHint: 'A key for a sub-account reaches only that sub-account. It can read its balance and nothing of this account.',
   subaccountUnread: 'Your sub-accounts could not be read just now, so this key is for this account. Reload to choose a sub-account.',
   colAccount: 'Account',

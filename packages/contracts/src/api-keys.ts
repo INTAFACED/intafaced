@@ -383,6 +383,8 @@ export const developerTeamMemberSchema = z
     email: z.string(),
     orgRole: z.string(),
     developerRole: developerRoleSchema.nullable(),
+    /** How many role changes were recorded for this member; a role change's request id names it (a business key). */
+    roleVersion: z.number().int().nonnegative(),
   })
   .strict();
 export const developerTeamSchema = z

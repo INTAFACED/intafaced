@@ -71,6 +71,15 @@ export function readDeveloperTeam(api: ApiClient, orgId: string, signal: AbortSi
 }
 
 /** The owner gives a member a developer role, or takes it away. The request id is new per press; a repeat changes nothing. */
+/**
+ * A role change's request id is a business key: the organisation, the member, how many changes the page saw, and the
+ * role asked. Pressing again after a lost answer repeats it (the service answers `changed: false`); a change made from
+ * a stale page names an old version, and a different role at that version refuses.
+ */
+export function developerRoleRequestId(orgId: string, userId: string, roleVersion: number, role: DeveloperRole | null): string {
+  return `dev-role:${orgId}:${userId}:v${roleVersion}:${role ?? 'none'}`;
+}
+
 export function setDeveloperRole(api: ApiClient, orgId: string, userId: string, role: DeveloperRole | null, requestId: string) {
   return api.mutate('identity', 'developerKeys.setTeamRole', { orgId, userId, role, requestId }, developerSetRoleOutputSchema);
 }
