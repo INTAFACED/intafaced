@@ -57,6 +57,16 @@ const away = (mark, bps) => fromUnits(((mark + (mark * BigInt(bps)) / 10_000n) /
 /** The TEST maker's perp quotes held where they rest, or quoted again (local-test-market.mjs hold, release). */
 const hold = () => tool('local-test-market.mjs', 'hold', SYMBOL);
 const release = () => tool('local-test-market.mjs', 'release', SYMBOL);
+/**
+ * The BTC/USDT spot book marks the perpetual, and a futures order's margin tier is rated against that book's depth
+ * (svc-trade futures-jobs.ts `ladderGate`, the mark's own book). The TEST maker re-quotes it every cycle, so the tier a
+ * review showed could be a tier lower than the order's own rating a moment later (run 42537547693, attempt 1, shard 30:
+ * the ticket's limit buy refused `trade.risk_limit_confirm_required`, "from tier 2 into tier 3", #7610). Held, its
+ * ladder rests as it is and its taker sends nothing, so the review, the confirm's re-check and the order read one book.
+ */
+const INDEX = 'BTC/USDT';
+const holdIndex = () => tool('local-test-market.mjs', 'hold', INDEX);
+const releaseIndex = () => tool('local-test-market.mjs', 'release', INDEX);
 
 /**
  * A TEST long through the book at market, as the ticket sends it; waits for the position. A market open is an IOC at
@@ -158,7 +168,12 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
   const position = await openLong(me, 'open');
   await page.reload();
 
-  // A limit buy 3% under the mark rests; the ticket sends it with the trader's own label.
+  // A limit buy 3% under the mark rests; the ticket sends it with the trader's own label. The index book is held from
+  // before the mark is read until the ticket's order is answered, once that book has both sides (an empty book held
+  // stays empty), timed from before the ask as the hold's own lapse is.
+  await bestPrices(INDEX, 50, 60_000);
+  const indexHeldAt = Date.now();
+  holdIndex();
   const { mark } = await markOf(me);
   const ticket = page.getByRole('region', { name: 'Order ticket' });
   await ticket.getByRole('group', { name: 'Order type' }).getByRole('button', { name: 'Limit' }).click();
@@ -189,6 +204,9 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
     await expect.poll(reCheckDone, { timeout: 20_000 }).toBe(true);
   }
   expect(answer, 'the ticket sent the order').not.toBeNull();
+  // The hold lapses HOLD_MAX_MS after it was asked for; the review and the order had to read the held book inside it.
+  expect(Date.now() - indexHeldAt, `the ${INDEX} hold lapsed before the ticket's order was answered`).toBeLessThan(HOLD_MAX_MS);
+  releaseIndex();
   expect(answer.status(), await answer.text()).toBe(200);
   expect(answer.request().postDataJSON()).toMatchObject({ type: 'limit', orderLabel: LABEL });
   const resting = await until(
@@ -245,10 +263,12 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
   run.write({ positionId: position.id, cancelledId: rest.orderId });
 });
 
-// Released after the steps that open a long, passed or not: a step stopped by its timeout runs no `finally`.
+// Released after the steps that open a long, passed or not: a step stopped by its timeout runs no `finally`. #1's
+// index hold too, so a step that failed while it held leaves the next step's BTC/USDT book quoted.
 test.afterEach(() => {
   const title = test.info().title;
   if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `)) release();
+  if (title.startsWith(`${J} #1 `)) releaseIndex();
 });
 
 test(`${J} #2 opens an order a stop placed and one a liquidation placed: the origin named, the label shown and filtered`, async ({
