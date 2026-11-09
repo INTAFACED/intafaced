@@ -1,6 +1,6 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, EDGE, fromUnits, ORIGIN, otherTrader, toUnits } from './stack.mjs';
+import { api, bestPrices, EDGE, fromUnits, fund, ORIGIN, otherTrader, toUnits } from './stack.mjs';
 import { awayBid, chosePro, deskPath, fundedTrader, held, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
 
 // J-charts-desk-14 "I read the order flow: time and sales, depth, ladder and the DOM, and trade from the ladder", in the
@@ -486,6 +486,10 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
   // Two other TEST accounts rest first, then me: two orders and their sizes are ahead of mine.
   const taker = await api(otherTrader());
   const second = await api(await fundedTrader(page, 'jcd14q', '500'));
+  // A seller with TEST BTC and no order at that price, to print a trade there once the queue has formed.
+  const sellerWho = await fundedTrader(page, 'jcd14s', '1');
+  expect(fund(sellerWho.email, 'BTC', '0.01').tx).toBeTruthy();
+  const seller = await api(sellerWho);
   const mineClient = await api(who);
   const rest = async (client, amount, tag) => {
     const res = await client.post('/api/v1/orders', {
@@ -543,6 +547,37 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
       .reduce((sum, p) => sum + toUnits(canon(p.amount)), 0n);
     expect(toUnits(basis.tradedThrough)).toBeGreaterThanOrEqual(through);
 
+    // A trade prints at my price: the seller's limit sell of 0.001 there, immediate or cancel, fills against the first
+    // order in the queue. My place moves up by that size, the traded volume grows by it, and the chance is no longer
+    // the empty-window answer: it is that volume's share of the size that must trade, above zero.
+    const before = toUnits(basis.tradedThrough);
+    const sold = await seller.post('/api/v1/orders', {
+      symbol: SYMBOL,
+      type: 'limit',
+      side: 'sell',
+      price,
+      amount: SMALL,
+      timeInForce: 'IOC',
+      clientOrderId: `jcd14-q8-print-${RUN}`,
+    });
+    expect(sold.status, JSON.stringify(sold.body).slice(0, 300)).toBeLessThan(300);
+    expect(toUnits(canon(sold.body.filled))).toBe(toUnits(SMALL));
+    const sizeAheadAfter = sizeAheadOnBook - toUnits(SMALL);
+    await expect.poll(level, { timeout: 15_000 }).toBe(sizeAheadAfter + toUnits(SMALL));
+    const after = await mineClient.get(`/api/v1/orders/${mine}/queue`);
+    expect(after.status, JSON.stringify(after.body).slice(0, 300)).toBe(200);
+    // The first order still has 0.001 left, so two orders are still ahead, with 0.001 less size between them.
+    expect(after.body).toMatchObject({ orderId: mine, ordersAhead: 2, source: 'native_l3' });
+    expect(toUnits(after.body.sizeAhead)).toBe(sizeAheadAfter);
+    const basisAfter = after.body.fillProbabilityBasis;
+    expect(toUnits(basisAfter.sizeToFill)).toBe(sizeAheadAfter + toUnits(SMALL));
+    expect(toUnits(basisAfter.tradedThrough)).toBeGreaterThanOrEqual(before + toUnits(SMALL));
+    const ratioAfter = (toUnits(basisAfter.tradedThrough) * 10n ** 18n) / toUnits(basisAfter.sizeToFill);
+    const chanceAfter = ((ratioAfter > 10n ** 18n ? 10n ** 18n : ratioAfter) / 10n ** 14n) * 10n ** 14n;
+    expect(toUnits(after.body.fillProbability)).toBe(chanceAfter);
+    // At least 0.001 traded against 0.003 to fill: a third or more, never the 0 an unread window would give.
+    expect(chanceAfter).toBeGreaterThanOrEqual(toUnits('0.3333'));
+
     // The DOM shows the same place and the chance with its basis, on my resting order's row.
     await signIn(page, who);
     await openDesk();
@@ -551,13 +586,15 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
     const row = queue.getByTestId('of-queue-row').and(page.locator(`[data-order-id="${mine}"]`));
     await expect(row).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
     await expect(row).toHaveAttribute('data-orders-ahead', '2');
-    expect(toUnits(canon(await row.getAttribute('data-size-ahead')))).toBe(sizeAheadOnBook);
+    expect(toUnits(canon(await row.getAttribute('data-size-ahead')))).toBe(sizeAheadAfter);
     await expect(row).toHaveAttribute('data-source', 'native_l3');
-    await expect(row.getByTestId('of-queue-ahead')).toHaveText(/^2 orders ahead, 0\.0030* BTC ahead of you$/);
-    expect(toUnits(canon(await row.getAttribute('data-chance')))).toBe((capped / 10n ** 14n) * 10n ** 14n);
+    await expect(row.getByTestId('of-queue-ahead')).toHaveText(/^2 orders ahead, 0\.0020* BTC ahead of you$/);
+    // The badge's chance is the service's, which can only grow while the window still holds the print.
+    expect(toUnits(canon(await row.getAttribute('data-chance')))).toBeGreaterThanOrEqual(chanceAfter);
     await expect(row.getByTestId('of-queue-chance')).toHaveText(/^Estimated chance of a fill: \d+\.\d{2}%$/);
+    expect(await row.getByTestId('of-queue-chance').innerText()).not.toBe('Estimated chance of a fill: 0.00%');
     await expect(row.getByTestId('of-queue-basis')).toContainText(
-      new RegExp(`traded at or through this price in the last ${basis.windowSeconds} seconds, against the 0\\.0040* BTC that must trade`),
+      new RegExp(`traded at or through this price in the last ${basis.windowSeconds} seconds, against the 0\\.0030* BTC that must trade`),
     );
     await expect(row.getByTestId('of-queue-basis')).toContainText('From the matching engine’s own queue.');
 
