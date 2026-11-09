@@ -59,7 +59,7 @@ import {
   academyCertIssueRuleSchema,
   academyCertIssueSchema,
   academyCertIdSchema,
-  academyCertRevocationSchema,
+  academyCertRevokeResultSchema,
   academyRevokeCertInputSchema,
   academyItemVideoSchema,
   academySetItemVideoInputSchema,
@@ -3741,16 +3741,18 @@ export function createAcademyRouter(
 
       /**
        * AC-certificates-03: revoke one issued certificate by its public code, under two-person approval
-       * (`academy.cert.revoke`, payload `{publicId, reason}`). The public check then says revoked.
+       * (`academy.cert.revoke`, payload `{publicId, reason}`). The public check then says revoked, and the XP the grant was
+       * worth goes back to the rank ladder (AC-certificates-02; the answer's `xpReversal` says whether it went out).
        */
       revokeCert: scopedProcedure('admin:write', { module: 'academy' })
         .input(academyRevokeCertInputSchema)
-        .output(academyCertRevocationSchema)
+        .output(academyCertRevokeResultSchema)
         .mutation(({ input, ctx }) =>
           guard(async () => {
             // A repeat answers with the first record, and an unknown code refuses, before the two people's approval is spent.
+            // It publishes the XP reversal again under the same key: the recovery path when the first publish did not go out.
             const recorded = await academy.certRevocation(input.publicId);
-            if (recorded) return recorded;
+            if (recorded) return { ...recorded, xpReversal: await academy.reverseCertXp(input.publicId) };
             const pair = await consumeApprovalPair(ctx.principal, approvals, input, 'academy.cert.revoke', {
               publicId: input.publicId,
               reason: input.reason,

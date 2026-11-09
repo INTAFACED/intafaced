@@ -57,7 +57,7 @@ export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
  *     and `('ledger.reconciliation_control.lifecycle', { controlId, lifecycle, reason })`
  *   - svc-market `marketActionPayloadHash('market.vendor.vet', { vendorId, decision, reason })`
  *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` / `.appoint` `{ userId }`,
- *     and `('academy.residency.decide', { id, decision })`
+ *     and `('academy.residency.decide', { id, decision })`, `('academy.cert.revoke', { publicId, reason })`
  *   - svc-market takedown `marketActionPayloadHash('market.takedown', { listingId, reason })`
  *   - svc-identity key rotation `identityActionPayloadHash('identity.auth_key_rotate', { keyId })` / `('identity.auth_key_remove_old', { keyIds })`;
  *     waitlist wave release `identityActionPayloadHash('waitlist.wave.release', { wave, size })`;
@@ -186,6 +186,9 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.appoint', { userId: request.userId });
     case 'academy.residency.decide':
       return sha('academy.residency.decide', { id: request.id, decision: request.decision });
+    // svc-academy `revokeCert` spends `academy.cert.revoke` over `{ publicId, reason }`.
+    case 'academy.cert.revoke':
+      return sha('academy.cert.revoke', { publicId: request.publicId, reason: request.reason });
     case 'bank.card.status':
       return shaBank('bank.ops.setCardStatus', { cardId: request.cardId, status: request.status });
     case 'bank.card.funding':
@@ -353,6 +356,7 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
     case 'academy.ambassador.unfreeze':
     case 'academy.ambassador.appoint':
     case 'academy.residency.decide':
+    case 'academy.cert.revoke':
       return {
         actionType: request.kind,
         targetService: 'svc-academy',

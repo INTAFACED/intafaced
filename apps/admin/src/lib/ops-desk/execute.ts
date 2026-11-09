@@ -48,6 +48,32 @@ interface ResidencyAnswer {
   readonly status: string;
 }
 
+interface CertRevokeAnswer {
+  readonly publicId: string;
+  readonly reason: string;
+  readonly xpReversal: { readonly emitted: true; readonly xpDelta: number } | { readonly emitted: false; readonly reason: string };
+}
+
+/** svc-academy's revoke answer: the revocation as recorded, and whether the XP the certificate gave went back. */
+export function readCertRevokeAnswer(raw: unknown): CertRevokeAnswer | null {
+  if (!isRecord(raw) || typeof raw.publicId !== 'string' || typeof raw.reason !== 'string' || !isRecord(raw.xpReversal)) return null;
+  const xp = raw.xpReversal;
+  if (xp.emitted === true && typeof xp.xpDelta === 'number' && Number.isSafeInteger(xp.xpDelta))
+    return { publicId: raw.publicId, reason: raw.reason, xpReversal: { emitted: true, xpDelta: xp.xpDelta } };
+  if (xp.emitted === false && typeof xp.reason === 'string')
+    return { publicId: raw.publicId, reason: raw.reason, xpReversal: { emitted: false, reason: xp.reason } };
+  return null;
+}
+
+/** What the revoke did to the holder's XP, in words: the service's answer only, never a guess. */
+function certXpWords(xp: CertRevokeAnswer['xpReversal']): string {
+  if (xp.emitted) return `The ${-xp.xpDelta} XP it gave was sent back to the rank ladder.`;
+  if (xp.reason === 'no_policy') return 'It carried no XP, so there was none to take back.';
+  if (xp.reason === 'publisher_unavailable' || xp.reason === 'publish_failed')
+    return 'The XP it gave could not be sent back yet (svc-academy could not publish it). Revoking it again sends it under the same key, and it is taken once.';
+  return `svc-academy did not send its XP back (${xp.reason}).`;
+}
+
 export function readResidencyAnswer(raw: unknown): ResidencyAnswer | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.status !== 'string') return null;
   return { id: raw.id, status: raw.status };
@@ -308,6 +334,35 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.userId !== request.userId || a.status !== 'active') return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned ambassador record is ${a.status}.` };
+    }
+    if (request.kind === 'academy.cert.revoke') {
+      const result = await founderCall(
+        ctx,
+        'academy',
+        'admin.revokeCert',
+        'POST',
+        { publicId: request.publicId, reason: request.reason, ...ids },
+        readCertRevokeAnswer,
+      );
+      // svc-academy looks the code up before it spends the approval, so an unknown one leaves the approval unspent.
+      if (result.kind === 'refused' && result.refusal.status === 404) {
+        return {
+          ok: false,
+          refusal: {
+            title: 'No issued certificate has this code',
+            body: `svc-academy holds no certificate with the public code ${request.publicId}, so nothing was revoked and the approval was not spent.`,
+            next: 'Check the code on the holder’s verify link (/academy/certificates/verify/<code>) and ask again.',
+            code: 'academy.cert_not_found',
+            changed: 'no',
+          },
+        };
+      }
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.publicId !== request.publicId) return WRONG_STATE;
+      // A repeat answers with the first revoke's record, so its reason can differ from this request's.
+      const repeat = a.reason !== request.reason ? ` It was already revoked, with the reason "${a.reason}".` : '';
+      return { ok: true, detail: `svc-academy answered: certificate ${a.publicId} is revoked.${repeat} ${certXpWords(a.xpReversal)}` };
     }
     if (request.kind === 'academy.residency.decide') {
       const result = await founderCall(

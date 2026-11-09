@@ -6,6 +6,7 @@ import {
   AmbassadorActions,
   ResidencyActions,
   AppointAmbassadorAction,
+  RevokeCertificateAction,
   CARD_COPY,
   CardStatusAction,
   DisputeActions,
@@ -411,6 +412,18 @@ describe('academy decide residency and appoint ambassador', () => {
     const html = renderToStaticMarkup(<ResidencyActions row={rowOf(decided)} userId={ME} onChanged={() => undefined} />);
     expect(html).toContain('residency-no-action');
     expect(html).not.toContain('ACCEPT RESIDENCY');
+  });
+  it('the certificates section carries the revoke control: a code first, then a required reason, under two founders', () => {
+    const html = render(props('academy', null));
+    expect(html).toContain('data-testid="revoke-certificate"');
+    expect(html).toContain('Public code of the certificate to revoke');
+    expect(html).toContain('Enter the certificate’s public code above first');
+    expect(html).toContain('Ask a second operator to approve the revoke');
+    expect(html).toContain('The XP the certificate gave is taken back');
+    const alone = renderToStaticMarkup(<RevokeCertificateAction userId={ME} onChanged={() => undefined} />);
+    expect(alone).toContain('id="revoke-cert-code"');
+    expect(alone).toMatch(/id="[^"]*dk-reason"/);
+    expect(alone).toContain('Approve, reject, withdraw or run a request');
   });
   it('the appoint control renders on its own as well', () => {
     expect(renderToStaticMarkup(<AppointAmbassadorAction userId={ME} onChanged={() => undefined} />)).toContain('id="appoint-user"');

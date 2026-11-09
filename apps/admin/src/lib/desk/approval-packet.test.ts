@@ -211,6 +211,30 @@ describe('market and academy requests', () => {
   });
 });
 
+describe('academy certificate revoke requests', () => {
+  const revoke = {
+    kind: 'academy.cert.revoke',
+    publicId: '0123456789abcdef0123456789abcdef',
+    reason: 'issued in error after review',
+  } as const;
+  it('round-trips as a packet and is read strictly: a 32-character code, a real reason, no extra keys', () => {
+    expect(decodePacket(encodePacket({ ...packet, request: revoke }))).toEqual({ ok: true, packet: { ...packet, request: revoke } });
+    expect(readDeskRequest(revoke)).toEqual(revoke);
+    expect(readDeskRequest({ ...revoke, publicId: 'not-a-code' })).toBeNull();
+    expect(readDeskRequest({ ...revoke, publicId: revoke.publicId.toUpperCase() })).toBeNull();
+    expect(readDeskRequest({ ...revoke, reason: '' })).toBeNull();
+    expect(readDeskRequest({ ...revoke, reason: '   ' })).toBeNull();
+    expect(readDeskRequest({ ...revoke, reason: 'short' })).toBeNull();
+    expect(readDeskRequest({ ...revoke, extra: 1 })).toBeNull();
+  });
+  it('names the verb and the code, and carries its reason', () => {
+    expect(confirmPhrase(revoke)).toBe('REVOKE CERTIFICATE 01234567');
+    expect(describeRequest(revoke)).toContain(revoke.publicId);
+    expect(describeRequest(revoke)).toContain(revoke.reason);
+    expect(requestReason(revoke)).toBe(revoke.reason);
+  });
+});
+
 describe('academy appoint and residency decision requests', () => {
   const userId = '9f8e7d6c-1111-4222-8333-444455556666';
   const id = '5a3b9c10-1111-4222-8333-444455556666';

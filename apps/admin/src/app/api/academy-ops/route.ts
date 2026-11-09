@@ -15,4 +15,5 @@ export const POST = (request: Request) =>
     'academy.ambassador.freeze',
     'academy.ambassador.unfreeze',
     'academy.residency.decide',
+    'academy.cert.revoke',
   ]);

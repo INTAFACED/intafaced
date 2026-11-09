@@ -141,6 +141,68 @@ describe('academy ambassador freeze and unfreeze', () => {
   });
 });
 
+describe('academy certificate revoke', () => {
+  const CODE = '0123456789abcdef0123456789abcdef';
+  const revoke: DeskRequest = { kind: 'academy.cert.revoke', publicId: CODE, reason: 'issued in error after review' };
+  const record = (xpReversal: unknown, reason = 'issued in error after review') => ({
+    publicId: CODE,
+    certId: 'foundations-v1',
+    proposedBy: FOUNDER,
+    approvedBy: USER,
+    revokedBy: FOUNDER,
+    reason,
+    revokedAt: '2026-11-09T00:00:00.000Z',
+    xpReversal,
+  });
+  it('sends the code, the reason and both approval ids to admin.revokeCert, and says the XP went back', async () => {
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(record({ emitted: true, idempotencyKey: 'k', xpDelta: -100 })));
+    vi.stubGlobal('fetch', fn);
+    const reply = await opsExecute(ctx)(revoke, ids);
+    expect(reply).toMatchObject({ ok: true });
+    expect(reply.ok && reply.detail).toContain('The 100 XP it gave was sent back to the rank ladder.');
+    const [url, init] = fn.mock.calls[0]!;
+    expect(url).toBe('http://edge:4000/api/academy/trpc/admin.revokeCert');
+    expect(JSON.parse(String(init!.body))).toEqual({ publicId: CODE, reason: 'issued in error after review', ...ids });
+  });
+  it('says plainly when the XP could not go back yet, or there was none, and names a repeat', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(record({ emitted: false, reason: 'publish_failed' }, 'an earlier reason given'))),
+    );
+    const failed = await opsExecute(ctx)(revoke, ids);
+    expect(failed.ok && failed.detail).toContain('could not be sent back yet');
+    expect(failed.ok && failed.detail).toContain('already revoked, with the reason "an earlier reason given"');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(record({ emitted: false, reason: 'no_policy' }))),
+    );
+    const none = await opsExecute(ctx)(revoke, ids);
+    expect(none.ok && none.detail).toContain('It carried no XP, so there was none to take back.');
+  });
+  it('an unknown code is refused in words, with the approval unspent', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => err(404, 'We could not find that.')),
+    );
+    expect(await opsExecute(ctx)(revoke, ids)).toMatchObject({
+      ok: false,
+      refusal: { title: 'No issued certificate has this code', code: 'academy.cert_not_found', changed: 'no' },
+    });
+  });
+  it('an answer for another code, or with no XP outcome, is unknown, not success', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ...record({ emitted: true, idempotencyKey: 'k', xpDelta: -100 }), publicId: 'f'.repeat(32) })),
+    );
+    expect(await opsExecute(ctx)(revoke, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ...record(null) })),
+    );
+    expect(await opsExecute(ctx)(revoke, ids)).toMatchObject({ ok: false });
+  });
+});
+
 describe('academy appoint ambassador', () => {
   const appoint: DeskRequest = { kind: 'academy.ambassador.appoint', userId: USER };
   it('sends the person and both approval ids as the founder, and needs the record to say active', async () => {

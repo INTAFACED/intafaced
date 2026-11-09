@@ -105,6 +105,7 @@ export type DeskRequest =
   | { readonly kind: 'academy.ambassador.freeze'; readonly userId: string; readonly reason: string }
   | { readonly kind: 'academy.ambassador.unfreeze'; readonly userId: string }
   | { readonly kind: 'academy.ambassador.appoint'; readonly userId: string }
+  | { readonly kind: 'academy.cert.revoke'; readonly publicId: string; readonly reason: string }
   | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision }
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
   /**
@@ -314,6 +315,8 @@ const REASON_CODE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** A market symbol as the service keys it: no surrounding space, no lower case, so one market has one target id. */
 const MARKET_SYMBOL = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** An issued Academy certificate's public code, as its verify link carries it (svc-academy `isPublicId`). */
+export const CERT_PUBLIC_ID = /^[0-9a-f]{32}$/;
 /** svc-ops' reconciliation alert evidence hash: SHA-256 hex of the contract's canonical evidence. */
 const EVIDENCE_HASH = /^[0-9a-f]{64}$/;
 /** svc-ops' staff hold number: one global sequence. */
@@ -575,6 +578,12 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       reason: raw.reason,
       version: raw.version,
     };
+  }
+  // svc-academy binds the certificate's public code and the reason to the approval, so the second founder signs both.
+  if (raw.kind === 'academy.cert.revoke') {
+    if (keys !== 'kind,publicId,reason') return null;
+    if (typeof raw.publicId !== 'string' || !CERT_PUBLIC_ID.test(raw.publicId) || !validReason(raw.reason)) return null;
+    return { kind: 'academy.cert.revoke', publicId: raw.publicId, reason: raw.reason };
   }
   if (raw.kind === 'academy.ambassador.appoint') {
     if (keys !== 'kind,userId') return null;
@@ -873,6 +882,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `UNFREEZE AMBASSADOR ${request.userId.slice(0, 8)}`;
     case 'academy.ambassador.appoint':
       return `APPOINT AMBASSADOR ${request.userId.slice(0, 8)}`;
+    case 'academy.cert.revoke':
+      return `REVOKE CERTIFICATE ${request.publicId.slice(0, 8)}`;
     case 'academy.residency.decide':
       return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} RESIDENCY ${request.id.slice(0, 8)}`;
     case 'bank.card.status':
@@ -983,6 +994,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Lift the freeze on Academy ambassador ${request.userId}: they hold the ambassador role again.`;
     case 'academy.ambassador.appoint':
       return `Appoint ${request.userId} as an Academy ambassador: they hold the ambassador role and its badge. This is a status only; it pays nothing.`;
+    case 'academy.cert.revoke':
+      return `Revoke Academy certificate ${request.publicId} ("${request.reason}"): its public verify page says revoked, the revoke is in the grant audit with who did it and why, and the XP the certificate gave is taken back from the holder's rank, so a perk that rank gave stops. It cannot be undone or claimed again.`;
     case 'academy.residency.decide':
       return request.decision === 'accepted'
         ? `Accept residency application ${request.id}: the application is recorded as accepted.`

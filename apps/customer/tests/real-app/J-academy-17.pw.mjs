@@ -1,8 +1,8 @@
 // World: restart
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ADMIN } from './admin.mjs';
-import { api, journeyState, tool } from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
+import { ORIGIN, api, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
 
@@ -11,7 +11,9 @@ import { staffSignIn } from './staff.mjs';
 // (identity's TEST roster; staff.mjs). The grants and revokes they audit are made here first, through Academy's own admin
 // door with the stack's TEST founders, as an operator would: a fresh TEST learner given staff access to a course with a
 // reason, who earns the Foundations certificate, and has it revoked with a reason under the two-founder rule. The
-// certificate issue rule is shared, so it is set to automatic for the earn and put back to manual after.
+// certificate issue rule is shared, so it is set to automatic for the earn and put back to manual after. #6 revokes
+// through the console itself (founder A asks, founder B approves, A runs), for a learner whose certificate XP lifted them
+// to the next rank, so the perk that rank gave is seen to stop.
 const J = 'J-academy-17';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const COURSE = 'foundations';
@@ -168,4 +170,160 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
   const none = await ctx.edge.query('academy', 'admin.grantAudit', { course: `${J}-no-such-course` }, token);
   expect(none.status, none.text.slice(0, 300)).toBe(200);
   expect(JSON.parse(none.text).result.data).toEqual({ items: [], nextCursor: null });
+});
+
+/** The learner's rank and perks as identity holds them: { rank, xp, nextRankAt, feeDiscountBps }. */
+async function rankOf(session) {
+  const rank = await session.get('/api/identity/trpc/rank.get');
+  expect(rank.status, JSON.stringify(rank.body).slice(0, 300)).toBe(200);
+  const perks = await session.get('/api/identity/trpc/rank.perks');
+  expect(perks.status, JSON.stringify(perks.body).slice(0, 300)).toBe(200);
+  const { rank: level, xp, nextRankAt } = rank.body.result.data;
+  return { rank: level, xp: BigInt(xp), nextRankAt: nextRankAt === null ? null : BigInt(nextRankAt), perks: perks.body.result.data };
+}
+
+/** The rank card on the learner's Account page: the lifetime XP and the trading fee discount the rank gives. */
+async function expectRankCard(page, xp, feeDiscountBps) {
+  await page.goto('/uc/account');
+  const card = page.getByTestId('rank-perks');
+  const value = (label) => card.locator('dt', { hasText: label }).locator('xpath=following-sibling::dd[1]');
+  await expect(value('Lifetime XP')).toHaveText(new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(xp));
+  await expect(value('Trading fee discount')).toHaveText(`${feeDiscountBps / 100}%`);
+}
+
+/** One founder's console on the Certificates page, scoped to its revoke control. */
+async function revokeDesk(page) {
+  await page.goto(`${ADMIN}/academy-ops/certificates`, { waitUntil: 'load' });
+  const desk = page.getByTestId('revoke-certificate');
+  await expect(desk.getByRole('heading', { name: 'Revoke a certificate' })).toBeVisible({ timeout: 60_000 });
+  return desk;
+}
+
+test(`${J} #6 revokes a certificate with a reason: the verify page shows revoked, the revoke is in the grant audit, and the XP-backed perk stops`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(480_000);
+  // A fresh TEST learner, verified at both levels (identity awards XP for each approval), on the Foundations course.
+  const learnerTab = await (await browser.newContext()).newPage();
+  const who = await signUp(learnerTab, 'ja17r');
+  await verify(learnerTab, who, 'Basic');
+  await signIn(learnerTab, who);
+  await verify(learnerTab, who, 'Full');
+  await signIn(learnerTab, who);
+  const session = await api(who);
+  const learnerId = session.userId;
+
+  // The XP the owner published for this certificate. With none, a revoke has no perk to stop, so this step cannot be shown.
+  const policy = (await read(who, 'certXpPlane')).policies.find((row) => row.certId === CERT);
+  expect(policy, `the stack publishes an XP value for ${CERT}: without one no perk is backed by the certificate`).toBeTruthy();
+  const certXp = BigInt(policy.xpDelta);
+  expect(certXp > 0n).toBe(true);
+
+  // Before the certificate: the learner's XP and perks, and the certificate's XP is what lifts them to the next rank.
+  const before = await rankOf(session);
+  expect(before.nextRankAt, 'the learner has a next rank to reach').not.toBeNull();
+  expect(
+    before.nextRankAt <= certXp,
+    `the certificate's ${certXp} XP reaches the next rank from ${before.xp} XP (${before.nextRankAt} to go), so it backs a perk`,
+  ).toBe(true);
+
+  // The learner earns the certificate: every required item, issued by the rule (set to automatic for the earn only).
+  await learnerTab.goto(`/academy/learning/course/${COURSE}`);
+  await learnerTab.locator('[data-academy-enrol]').getByRole('button', { name: 'Enrol now', exact: true }).click();
+  await expect(learnerTab.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  const items = (await read(who, 'certDefinitions')).find((row) => row.id === CERT).requiredItemSlugs;
+  for (const itemSlug of items.slice(0, -1)) {
+    const done = await session.post(trpc('markCurriculumComplete'), { itemSlug });
+    expect(done.status, JSON.stringify(done.body).slice(0, 300)).toBe(200);
+  }
+  await setIssueRule('automatic');
+  let publicId;
+  try {
+    const last = await session.post(trpc('markCurriculumComplete'), { itemSlug: items.at(-1) });
+    expect(last.status, JSON.stringify(last.body).slice(0, 300)).toBe(200);
+    await expect
+      .poll(async () => (await read(who, 'myCerts', { limit: 50 })).find((row) => row.certId === CERT)?.publicId ?? null, {
+        timeout: 30_000,
+      })
+      .not.toBeNull();
+    publicId = (await read(who, 'myCerts', { limit: 50 })).find((row) => row.certId === CERT).publicId;
+  } finally {
+    await setIssueRule('manual');
+  }
+
+  // With the certificate, the rank holds its XP and the next rank's perk: a trading fee discount the learner did not have.
+  await expect.poll(async () => (await rankOf(session)).xp, { timeout: 30_000 }).toBe(before.xp + certXp);
+  const earned = await rankOf(session);
+  expect(earned.rank).toBeGreaterThan(before.rank);
+  expect(earned.perks.feeDiscountBps).toBeGreaterThan(before.perks.feeDiscountBps);
+  await expectRankCard(learnerTab, earned.xp, earned.perks.feeDiscountBps);
+
+  // Founder A asks to revoke it with a reason; a blank reason or a malformed code holds the form.
+  const reason = `TEST ${J} #6: revoked with a reason after review`;
+  const founderA = await (await browser.newContext()).newPage();
+  const founderB = await (await browser.newContext()).newPage();
+  const a = await founderSignIn(founderA, 'a');
+  await founderSignIn(founderB, 'b');
+  const askDesk = await revokeDesk(founderA);
+  const code = askDesk.getByLabel('Public code of the certificate to revoke');
+  const ask = askDesk.getByRole('button', { name: /^Ask a second operator to approve the revoke/ });
+  await code.fill('not-a-certificate');
+  await expect(askDesk).toContainText('That is not a certificate code');
+  await expect(ask).toBeDisabled();
+  await code.fill(publicId);
+  const phrase = `REVOKE CERTIFICATE ${publicId.slice(0, 8)}`;
+  await askDesk.getByLabel(/to confirm$/).fill(phrase);
+  await expect(ask).toBeDisabled();
+  await expect(askDesk).toContainText('Write the reason first');
+  await askDesk.getByLabel(/^Why \(shown in the grant audit/).fill(reason);
+  await expect(ask).toBeEnabled();
+  await ask.click();
+  await expect(askDesk.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+  const packetText = (await askDesk.getByLabel('Request packet').inputValue()).trim();
+
+  // Founder B approves that exact packet on their own console; founder A runs it.
+  const approveDesk = await revokeDesk(founderB);
+  await approveDesk.getByLabel('Request packet').fill(packetText);
+  await expect(approveDesk.getByTestId('packet-summary')).toContainText(publicId);
+  await expect(approveDesk.getByTestId('packet-summary')).toContainText(reason);
+  await approveDesk.getByLabel(/to approve or run it$/).fill(phrase);
+  await approveDesk.getByRole('button', { name: 'Approve this request' }).click();
+  await expect(approveDesk.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+  await askDesk.getByLabel(/to approve or run it$/).fill(phrase);
+  await askDesk.getByRole('button', { name: 'Run the approved request' }).click();
+  const ran = askDesk.getByTestId('step-reply');
+  await expect(ran).toContainText(`certificate ${publicId} is revoked`, { timeout: 60_000 });
+  await expect(ran).toContainText(`The ${certXp} XP it gave was sent back to the rank ladder.`);
+
+  // The public verify page, signed out, says revoked.
+  const anyone = await browser.newContext({ baseURL: ORIGIN, storageState: { cookies: [], origins: [] } });
+  const verifyPage = await anyone.newPage();
+  await verifyPage.goto(`/academy/certificates/verify/${publicId}`);
+  await expect(verifyPage.locator(`[data-certificate-verify="${publicId}"]`).getByTestId('verify-status')).toHaveText('Revoked');
+  await anyone.close();
+
+  // Compliance sees the revoke in the grant audit: newest line for this learner, founder A, the reason.
+  await staffSignIn(page, browser, 'compliance');
+  await page.goto(`${ADMIN}/academy-ops/grants`);
+  const audit = page.getByTestId('read-academy.grant-audit');
+  await expect(audit.getByRole('heading', { name: 'Grants and revokes' })).toBeVisible({ timeout: 60_000 });
+  const rows = audit.getByRole('table').getByRole('row').filter({ hasText: learnerId });
+  await expect(rows.nth(0)).toContainText('Certificate revoked');
+  await expect(rows.nth(0)).toContainText(CERT);
+  await expect(rows.nth(0)).toContainText(a.userId);
+  await expect(rows.nth(0)).toContainText(reason);
+
+  // The XP the certificate backed is gone from the rank, and the perk it gave is no longer listed.
+  await expect.poll(async () => (await rankOf(session)).xp, { timeout: 30_000 }).toBe(before.xp);
+  const after = await rankOf(session);
+  expect(after.rank).toBe(before.rank);
+  expect(after.perks).toEqual(before.perks);
+  expect(after.perks.feeDiscountBps).toBeLessThan(earned.perks.feeDiscountBps);
+  await expectRankCard(learnerTab, after.xp, after.perks.feeDiscountBps);
+  await expect(learnerTab.getByTestId('rank-perks')).not.toContainText(`${earned.perks.feeDiscountBps / 100}%`);
+
+  await founderA.context().close();
+  await founderB.context().close();
+  await learnerTab.context().close();
 });

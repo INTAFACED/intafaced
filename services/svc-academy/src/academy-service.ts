@@ -104,6 +104,7 @@ import type {
   AcademyCertIssue,
   AcademyCertIssueRule,
   AcademyCertRevocation,
+  AcademyCertRevokeResult,
   AcademySetCertIssueRuleInput,
   AcademyProgramme,
   AcademyProgrammeCourseState,
@@ -3028,6 +3029,10 @@ export class AcademyService {
    * consumes identity's approval and passes who proposed and who approved it). The grant turns `revoked` and one record
    * names them, the operator who carried it out, the reason and the time. A repeat answers with the first record and
    * writes nothing; an unknown code is `academy.cert_not_found`.
+   *
+   * AC-certificates-02: after the revoke is durable, the XP the grant was worth is taken back (`reverseCertXp`), and the
+   * answer says whether that went out. A repeat publishes it again under the same key, so a revoke whose reversal could
+   * not leave this process heals the next time anyone revokes it, the same recovery story as `grantCert`.
    */
   async revokeCert(input: {
     publicId: string;
@@ -3036,10 +3041,10 @@ export class AcademyService {
     approvedBy: string;
     operatorId: string;
     now?: Date;
-  }): Promise<AcademyCertRevocation> {
+  }): Promise<AcademyCertRevokeResult> {
     const reason = input.reason.trim();
     if (reason.length === 0 || reason.length > 500) throw new AcademyError('A revoke needs a reason', 'academy.cert_invalid');
-    return transaction(this.sql, async (tx) => {
+    const revocation = await transaction(this.sql, async (tx) => {
       await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${input.publicId} FOR UPDATE`;
       const recorded = await this.certRevocation(input.publicId, tx);
       if (recorded) return recorded;
@@ -3054,6 +3059,35 @@ export class AcademyService {
       `;
       return revocationRecord(rows[0]!);
     });
+    return { ...revocation, xpReversal: await this.reverseCertXp(input.publicId) };
+  }
+
+  /**
+   * AC-certificates-02: take back the XP one revoked certificate's grant was worth, so the rank it lifted, and the perks
+   * that rank gave, fall back. Writes nothing here; identity is the only rank writer. The award is published again first,
+   * under its own key: identity drops it when it already landed, and when it never did (the bus was down at the grant)
+   * the pair nets to nothing instead of taking XP the learner never got. The reversal goes out only once the award did,
+   * since a revoked grant is never claimed again and could not re-publish its award later. An unpriced certificate gave
+   * nothing and reverses nothing (`no_policy`). A failure is reported, never thrown: the revoke stands, and a repeat
+   * revoke publishes again under the same keys. Only a revoked certificate is reversed; anything else refuses.
+   */
+  async reverseCertXp(publicId: string): Promise<CertXpEmitResult> {
+    if (!isPublicId(publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; status: string }>>`
+      SELECT user_id, cert_id, granted_at, idempotency_key, status FROM academy.cert_grants WHERE public_id = ${publicId}
+    `;
+    const row = rows[0];
+    if (!row) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    if (row.status !== 'revoked') throw new AcademyError('Only a revoked certificate gives its XP back', 'academy.cert_invalid');
+    const grant: CertGrantRecord = {
+      userId: row.user_id,
+      certId: row.cert_id,
+      grantedAt: row.granted_at,
+      idempotencyKey: row.idempotency_key,
+    };
+    const award = await this.certXp.publishCertXp(grant);
+    if (!award.emitted) return award;
+    return this.certXp.publishCertXpReversal(grant);
   }
 
   /** The stored issue rule of one certificate, or null when staff have set none. */

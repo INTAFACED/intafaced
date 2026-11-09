@@ -29,7 +29,7 @@
  */
 
 import type { EventBus } from '@intafaced/events';
-import type { CertGrantRecord } from './progress.js';
+import { certIdempotencyKey, type CertGrantRecord } from './progress.js';
 import { CERT_XP_V0, xpIntentFromGrant } from './xp-policy.js';
 import { mayPublishXp, toXpEarnedPublish } from './xp-emit.js';
 import {
@@ -56,11 +56,23 @@ export const CERT_XP_SOURCE_MODULE = 'academy' as const;
  */
 export const CERT_XP_ACTION = 'cert.granted' as const;
 
+/**
+ * AC-certificates-02: the action of the reversal published when staff revoke a certificate whose grant carried XP. Its
+ * delta is the award's, negated, so the rank (and the perks the rank gave) fall back to where they stood without it.
+ */
+export const CERT_XP_REVOKE_ACTION = 'cert.revoked' as const;
+
+/**
+ * The reversal's business key: the award's key under its own prefix, one per grant, so a repeat revoke re-publishes the
+ * same reversal and identity's `ON CONFLICT (idempotency_key) DO NOTHING` takes it once.
+ */
+export const CERT_XP_REVOKE_KEY_PREFIX = 'academy.cert-revoke:' as const;
+
 /** Matches `xpEarned` in packages/events — XP is an integer, and is NOT money. */
 export type CertXpEventPayload = {
   readonly userId: string;
   readonly sourceModule: typeof CERT_XP_SOURCE_MODULE;
-  readonly action: typeof CERT_XP_ACTION;
+  readonly action: typeof CERT_XP_ACTION | typeof CERT_XP_REVOKE_ACTION;
   readonly xpDelta: number;
   readonly meta: { readonly certId: string };
 };
@@ -140,6 +152,25 @@ export function certXpIntentFor(grant: CertGrantRecord): { ok: true; intent: Cer
 }
 
 /**
+ * Revoked grant → the reversal of its award, or the reason there is none. Pure. The same policy decides it as the award
+ * (`certXpIntentFor`), so an unpriced certificate has nothing to reverse (`no_policy`) and a priced one takes back exactly
+ * what it gave: `xpDelta` is the award's, negated, under `academy.cert-revoke:cert:<userId>:<certId>`.
+ */
+export function certXpReversalIntentFor(
+  grant: CertGrantRecord,
+): { ok: true; intent: CertXpIntent } | { ok: false; reason: CertXpSkipReason } {
+  const award = certXpIntentFor(grant);
+  if (!award.ok) return award;
+  return {
+    ok: true,
+    intent: {
+      idempotencyKey: `${CERT_XP_REVOKE_KEY_PREFIX}${certIdempotencyKey(grant.userId, grant.certId)}`,
+      payload: { ...award.intent.payload, action: CERT_XP_REVOKE_ACTION, xpDelta: -award.intent.payload.xpDelta },
+    },
+  };
+}
+
+/**
  * The port svc-academy's service depends on. Deliberately narrower than
  * `EventBus`: this service may publish one event and may not subscribe to
  * anything, and a port that cannot express `subscribe` cannot grow one by
@@ -150,6 +181,11 @@ export interface CertXpPublisher {
   readonly id: string;
   readonly usable: boolean;
   publishCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult>;
+  /**
+   * AC-certificates-02: publish the reversal of a revoked grant's award (`certXpReversalIntentFor`). Reported, never
+   * thrown, exactly as the award: the revoke is already durable, and a repeat revoke re-publishes under the same key.
+   */
+  publishCertXpReversal(grant: CertGrantRecord): Promise<CertXpEmitResult>;
 }
 
 /**
@@ -176,6 +212,14 @@ export class NullCertXpPublisher implements CertXpPublisher {
     if (!decided.ok) return { emitted: false, reason: decided.reason };
     return { emitted: false, reason: 'publisher_unavailable' };
   }
+
+  async publishCertXpReversal(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+    assertCertGrantPathHonest(grant);
+    decideCertGrantLedgerPost(grant);
+    const decided = certXpReversalIntentFor(grant);
+    if (!decided.ok) return { emitted: false, reason: decided.reason };
+    return { emitted: false, reason: 'publisher_unavailable' };
+  }
 }
 
 /**
@@ -195,10 +239,18 @@ export class BusCertXpPublisher implements CertXpPublisher {
     private readonly onError: (err: unknown, grant: CertGrantRecord) => void = () => undefined,
   ) {}
 
-  async publishCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+  publishCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+    return this.publish(grant, certXpIntentFor);
+  }
+
+  publishCertXpReversal(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+    return this.publish(grant, certXpReversalIntentFor);
+  }
+
+  private async publish(grant: CertGrantRecord, decide: typeof certXpIntentFor): Promise<CertXpEmitResult> {
     assertCertGrantPathHonest(grant);
     decideCertGrantLedgerPost(grant);
-    const decided = certXpIntentFor(grant);
+    const decided = decide(grant);
     if (!decided.ok) return { emitted: false, reason: decided.reason };
 
     try {

@@ -6,6 +6,7 @@ import { Chip } from '@/components/chip';
 import {
   AmbassadorActions,
   AppointAmbassadorAction,
+  RevokeCertificateAction,
   CardFundingAction,
   CardStatusAction,
   DisputeActions,
@@ -377,6 +378,7 @@ export function SectionView({
         </div>
       )}
       {section.sectionAction === 'academy.ambassador.appoint' && <AppointAmbassadorAction userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {section.sectionAction === 'academy.cert.revoke' && <RevokeCertificateAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.sectionAction === 'bank.card.status' && <CardStatusAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.sectionAction === 'bank.card.funding' && (
         <CardFundingAction userId={ctx.userId} onChanged={ctx.onChanged} offers={view?.reads['bank.card-funding-offers']} />

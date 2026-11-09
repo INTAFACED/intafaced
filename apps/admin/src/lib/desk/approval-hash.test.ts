@@ -117,6 +117,20 @@ describe('payload hash equals the owning service’s own function', () => {
       academyActionPayloadHash('academy.ambassador.unfreeze', { userId }),
     );
   });
+  it('academy certificate revoke hashes the code and the reason as svc-academy does', () => {
+    const publicId = 'a'.repeat(32);
+    const reason = 'issued in error after review';
+    expect(payloadHashFor({ kind: 'academy.cert.revoke', publicId, reason })).toBe(
+      academyActionPayloadHash('academy.cert.revoke', { publicId, reason }),
+    );
+    expect(proposeInputFor({ kind: 'academy.cert.revoke', publicId, reason })).toMatchObject({
+      actionType: 'academy.cert.revoke',
+      targetService: 'svc-academy',
+      targetId: 'academy.cert.revoke',
+      expectedVersion: '1',
+      policyVersion: 'v1',
+    });
+  });
   it('academy appoint and residency decision', () => {
     const userId = '9f8e7d6c-1111-4222-8333-444455556666';
     const id = '5a3b9c10-1111-4222-8333-444455556666';

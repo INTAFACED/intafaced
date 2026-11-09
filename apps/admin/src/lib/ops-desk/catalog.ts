@@ -1538,7 +1538,7 @@ const academySections: readonly DeskSection[] = [
   {
     id: 'certificates',
     title: 'Certificates and grants',
-    intro: 'Which certificates exist and whether granting one pays XP.',
+    intro: 'Which certificates exist and whether granting one pays XP. Revoking an issued certificate is a two-founder request.',
     reads: [
       {
         id: 'academy.cert-defs',
@@ -1566,6 +1566,7 @@ const academySections: readonly DeskSection[] = [
     ],
     unavailable: [],
     disabledActions: [],
+    sectionAction: 'academy.cert.revoke',
     links: [{ href: '/academy-ops/grants', label: 'Grants', why: 'Who was granted which certificate, and when.' }],
   },
   {

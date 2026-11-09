@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { StepReplyView } from '@/components/approval-workbench';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import {
+  CERT_PUBLIC_ID,
   REASON_MAX,
   REASON_MIN,
   validReason,
@@ -230,6 +231,60 @@ export function AppointAmbassadorAction({ userId, onChanged }: { userId: string;
         action={action}
         consequence={`The person holds the ambassador role and badge. It is a status only and pays nothing. A person who is already an ambassador, active or frozen, is refused by the service. ${TWO_PEOPLE}`}
         blockedButtonLabel="Appoint unavailable"
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
+/**
+ * Revoke one issued certificate (AC-certificates-02, AC-certificates-03). A founder types its public code (the end of the
+ * holder's verify link) and the reason, and the same two-founder flow as every other Academy control runs: a different
+ * founder approves the code AND the reason at identity, and svc-academy spends the approval once. An unknown code is
+ * refused by the service before the approval is spent, and its words are shown when the request is run.
+ */
+export function RevokeCertificateAction({ userId, onChanged }: { userId: string; onChanged: () => void }) {
+  const [target, setTarget] = useState('');
+  const code = target.trim().toLowerCase();
+  const valid = CERT_PUBLIC_ID.test(code);
+  const action: ControlAction = {
+    heading: 'Revoke this certificate',
+    submitLabel: 'Ask a second operator to approve the revoke (this console admits only founders)',
+    needsReason: true,
+    reasonLabel: `Why (shown in the grant audit and signed by the approver, ${REASON_MIN} to ${REASON_MAX} characters)`,
+    build: (reason) => ({ kind: 'academy.cert.revoke', publicId: code, reason }),
+    danger: true,
+  };
+  return (
+    <div className="dk-stack" data-testid="revoke-certificate">
+      <h3>Revoke a certificate</h3>
+      <div className="adm-field">
+        <label htmlFor="revoke-cert-code">Public code of the certificate to revoke</label>
+        <input
+          id="revoke-cert-code"
+          className="adm-input"
+          value={target}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="32 letters and digits, from the holder’s verify link"
+          onChange={(e) => setTarget(e.target.value)}
+        />
+      </div>
+      <ControlDesk
+        key={valid ? code : 'no-certificate'}
+        endpoint="/api/academy-ops"
+        userId={userId}
+        blockedReason={null}
+        formHold={
+          valid
+            ? null
+            : code === ''
+              ? 'Enter the certificate’s public code above first (the end of its verify link, /academy/certificates/verify/<code>).'
+              : 'That is not a certificate code: it is 32 letters a to f and digits, the end of the holder’s verify link.'
+        }
+        action={action}
+        consequence={`The certificate's public verify page says revoked, and the revoke is in the grant audit with who did it and why. The XP the certificate gave is taken back from the holder's rank, so a perk that rank gave stops. It cannot be undone, and the holder cannot claim it again. ${TWO_PEOPLE}`}
+        blockedButtonLabel="Revoke unavailable"
         onChanged={onChanged}
       />
     </div>
