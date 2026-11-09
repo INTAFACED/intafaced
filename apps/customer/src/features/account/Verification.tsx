@@ -50,8 +50,12 @@ type Known = {
   finalized?: boolean;
 };
 type Problem = 'storage' | 'locks' | 'another' | 'changed' | 'invalidCountry';
-/** Whether the ID and selfie steps show before the person asks for the bank's verification. */
-const BANK_ROUTE_OPEN = true;
+/**
+ * Whether the ID and selfie steps show before the person asks for the bank's verification. They do not: trading asks for
+ * no ID document or selfie (J-cex-spot-01 #3, OWNER 258 (4)), so /verification leads with the trading checks and the
+ * bank's steps open on "Start verification for the bank". J-identity-08 #2 and #3 (not changed here) need that click.
+ */
+const BANK_ROUTE_OPEN = false;
 const emptyJournal: VerificationJournal = { records: [], failed: false };
 
 export function Verification() {
