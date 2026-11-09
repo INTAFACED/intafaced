@@ -94,9 +94,12 @@ describe('honest venue words', () => {
     // A spot buy carries no builder fee, so nothing is asked, even with the owner value blank (project-state #1888).
     expect(builderApprovalLine(false, null, false)).toBe('Builder approval not needed');
     expect(builderApprovalLine(true, false, false)).toBe('Builder approval not needed');
-    expect(carriesBuilderFee('spot', 'buy')).toBe(false);
-    expect(carriesBuilderFee('spot', 'sell')).toBe(true);
-    expect(carriesBuilderFee('perpetual', 'buy')).toBe(true);
+    // Read from the venue's preview, never from the side alone: a known zero carries none; any other figure, or one the
+    // venue doesn't report, carries one and so asks for the approval.
+    expect(carriesBuilderFee({ known: true, value: { asset: 'BTC', amount: '0' } })).toBe(false);
+    expect(carriesBuilderFee({ known: true, value: { asset: 'BTC', amount: '0.000' } })).toBe(false);
+    expect(carriesBuilderFee({ known: true, value: { asset: 'BTC', amount: '0.00001' } })).toBe(true);
+    expect(carriesBuilderFee({ known: false })).toBe(true);
     expect(t('Builder fee owner blank')).toMatch(/owner value that is blank/);
     expect(builderApprovalLine(true, null)).toBe('Not known');
     expect(builderApprovalLine(true, true)).toBe('Builder approved');

@@ -52,6 +52,8 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
   }
 }
 
+const MARKET_KINDS_TTL_MS = 60_000;
+
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
 
 /** Identity's step-up request id is at most 128 characters. */
@@ -227,22 +229,38 @@ export class UserVenueDoor {
     return { venueId: venue.venue.id, owner: o, subAccount: subAccount ?? null };
   }
 
-  /** An order with our builder fee from the owner value; blank refuses before the venue is asked. */
+  /** Each listed symbol's market kind, read once a minute, so an order costs no extra venue read. */
+  private marketKinds: { at: number; kinds: Map<string, 'spot' | 'perpetual'> } | null = null;
+
+  private async marketKind(venue: UserVenue, symbol: string): Promise<'spot' | 'perpetual'> {
+    const now = this.deps.now().getTime();
+    const fresh = this.marketKinds && now - this.marketKinds.at < MARKET_KINDS_TTL_MS ? this.marketKinds : null;
+    let kind = fresh?.kinds.get(symbol);
+    if (!kind) {
+      // A miss re-reads the list: a market listed since the last read is found, and an unlisted one is refused.
+      const kinds = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m.kind] as const));
+      this.marketKinds = { at: now, kinds };
+      kind = kinds.get(symbol);
+    }
+    if (!kind) {
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'unknown_market', detail: `${symbol} is not listed on this venue` });
+    }
+    return kind;
+  }
+
   /**
-   * Our builder fee on an order, from the owner value. A spot buy carries none and so never needs it published or
-   * approved: the venue charges builder fees only on a spot sell and on both sides of a perp ("builder codes do not
-   * apply to the buying side of spot trades", Hyperliquid's builder-codes page, read 9 Nov 2026; project-state #1888).
+   * Our builder fee on an order, from the owner value; blank refuses before the venue is asked to prepare. A spot buy
+   * carries none and so never needs it published or approved: the venue charges builder fees only on a spot sell and
+   * on both sides of a perp ("builder codes do not apply to the buying side of spot trades", Hyperliquid's
+   * builder-codes page, read 9 Nov 2026; project-state #1888).
    */
   private async withBuilderFee(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<PlaceUserOrderIntent> {
-    const venueId = venue.venue.id;
-    if (intent.side === 'buy') {
-      const market = (await venue.markets(null)).value.find((m) => m.symbol === intent.symbol);
-      if (market?.kind === 'spot') return { ...intent, builderFee: null };
-    }
+    const kind = await this.marketKind(venue, intent.symbol);
+    if (kind === 'spot' && intent.side === 'buy') return { ...intent, builderFee: null };
     const builder = this.deps.builder;
     if (!builder) {
       throw new VenueRefusalError({
-        venueId,
+        venueId: venue.venue.id,
         code: 'builder_fee_not_published',
         detail: 'our builder fee is not published (owner value blank), so no order is prepared',
       });

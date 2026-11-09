@@ -209,15 +209,30 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
     expect([sold.builderFee, sold.feeAsset]).toEqual([a('0.15'), 'USDC']);
   });
 
+  it('a spot buy that carries a builder fee needs no approval and pays none, since the venue charges none on a spot buy', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:nb');
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:nb');
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.01', 'order:o:nb'));
+    const out = await w.run(
+      w.wallet,
+      w.trader,
+      order('BTC-USDC', 'buy', '60000', '0.01', 'order:t:nb', { builderFee: { builder: '0xb11de4', feeBps: a('5') } }),
+    );
+    expect(out.outcome).toMatchObject({ definite: true, accepted: true });
+    expect((await w.sim.fills(w.trader, new Date(0))).value[0]!.builderFee).toBe(ZERO);
+  });
+
   it('#6 an order carrying more builder fee than the account approved is refused before signing', async () => {
     const w = world();
-    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:6');
+    // A spot sell: a spot buy carries no builder fee and so needs no approval (project-state #1888).
+    w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:6');
     expect(
       await refusal(
         w.sim.prepare(
           w.trader,
           w.wallet.signer,
-          order('BTC-USDC', 'buy', '60000', '0.1', 'order:t:6', { builderFee: { builder: '0xb11de4', feeBps: a('0.5') } }),
+          order('BTC-USDC', 'sell', '60000', '0.1', 'order:t:6', { builderFee: { builder: '0xb11de4', feeBps: a('0.5') } }),
         ),
       ),
     ).toBe('builder_fee_not_approved');

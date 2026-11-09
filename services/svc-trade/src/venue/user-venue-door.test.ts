@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
@@ -406,6 +406,22 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     await expect(after.d.prepare(principal, { owner, signer, intent: sellAt('71400') })).rejects.toMatchObject({
       code: 'trade.venue_action_key_reused',
     });
+  });
+
+  it('an unlisted symbol is refused unknown_market, never as a blank builder fee; the market list is read once for many orders', async () => {
+    const { d } = door({ builder: null });
+    await expect(d.prepare(principal, { owner, signer, intent: order(21, { symbol: 'NOPE-USDC' }) })).rejects.toMatchObject({
+      refusal: { code: 'unknown_market' },
+    });
+    await expect(d.preview(principal, owner, order(22, { symbol: 'btc-usdc' }))).rejects.toMatchObject({
+      refusal: { code: 'unknown_market' },
+    });
+    const venue = await d.venue();
+    const markets = vi.spyOn(venue, 'markets');
+    await d.preview(principal, owner, order(23, { price: a('50000') }));
+    await d.preview(principal, owner, order(24, { price: a('50001') }));
+    // The two refusals above already read the list; two more orders inside the minute read nothing more.
+    expect(markets).toHaveBeenCalledTimes(0);
   });
 
   it('blank builder fee: every order that would carry one refuses builder_fee_not_published, nothing stored; a spot buy carries none and goes ahead', async () => {

@@ -29,12 +29,12 @@ export function builderApprovalLine(
 }
 
 /**
- * Whether an order carries our builder fee: not a spot buy, because the venue charges builder fees only on a spot sell and
- * on both sides of a perp ("builder codes do not apply to the buying side of spot trades"; project-state #1888). The door
- * attaches none to a spot buy, and nothing then asks for an approval.
+ * Whether an order carries our builder fee, read from the venue's own preview: a known zero means it carries none (a
+ * spot buy, which the venue charges no builder fee on; project-state #1888) and so needs no approval. Anything else,
+ * including a fee the venue doesn't report, is treated as carrying one.
  */
-export function carriesBuilderFee(kind: 'spot' | 'perpetual', side: 'buy' | 'sell'): boolean {
-  return !(kind === 'spot' && side === 'buy');
+export function carriesBuilderFee(builderFee: VenuePreview['builderFee']): boolean {
+  return !(builderFee.known && /^0(\.0+)?$/.test(builderFee.value.amount));
 }
 
 /**
@@ -72,7 +72,7 @@ export function ReviewDialog({
 }) {
   const { t } = venueCopy.useCopy();
   const p = preview.value;
-  const carries = carriesBuilderFee(p.kind, intent.side);
+  const carries = carriesBuilderFee(p.builderFee);
   const approved = carries ? builderApproved(account, status) : true;
   const [approving, setApproving] = useState<ActionResult | null>(null);
   const [busy, setBusy] = useState(false);

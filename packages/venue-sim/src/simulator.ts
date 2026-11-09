@@ -405,7 +405,8 @@ export class TestVenueSimulator implements UserVenue {
         if (intent.builderFee) {
           if (compare(intent.builderFee.feeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee cannot be negative');
           const approved = state.builderApprovals.get(intent.builderFee.builder.toLowerCase()) ?? ZERO;
-          if (compare(approved, intent.builderFee.feeBps) < 0) {
+          // A spot buy pays no builder fee (see `fill`), so it needs no approval either.
+          if (this.builderApplies(intent) && compare(approved, intent.builderFee.feeBps) < 0) {
             refuse(
               this.venue.id,
               'builder_fee_not_approved',
@@ -719,7 +720,7 @@ export class TestVenueSimulator implements UserVenue {
         if (builderFee) {
           if (compare(builderFee.feeBps, ZERO) < 0) return refused('venue_rejected', 'a builder fee cannot be negative');
           const approved = state.builderApprovals.get(builderFee.builder) ?? ZERO;
-          if (compare(approved, builderFee.feeBps) < 0)
+          if (this.builderApplies(intent) && compare(approved, builderFee.feeBps) < 0)
             return refused('builder_fee_not_approved', 'the builder fee approval no longer covers this order');
         }
         return this.place(state, intent, cloid, builderFee, refused, accepted);
@@ -917,6 +918,11 @@ export class TestVenueSimulator implements UserVenue {
   private marginPerUnit(intent: PlaceUserOrderIntent, setting: { leverageBps: number } | undefined): Amount {
     if (intent.reduceOnly) return ZERO;
     return div(mul(intent.price, BPS), parseAmount(String(setting!.leverageBps)), QUOTE_ROUND);
+  }
+
+  /** Whether the venue charges a builder fee on this order at all: never on a spot buy (project-state #1888). */
+  private builderApplies(intent: PlaceUserOrderIntent): boolean {
+    return !(this.market(intent.symbol).kind === 'spot' && intent.side === 'buy');
   }
 
   /** One fee line on `basis`, the same rounding `fill` charges. */

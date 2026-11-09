@@ -57,6 +57,14 @@ type Tab = 'positions' | 'orders' | 'history' | 'funding' | 'adl' | 'calls' | 't
  */
 export default function FuturesScreen(props: ScreenProps) {
   const venue = useVenueMode();
+  // While venue mode is still being read, a neutral skeleton: never today's desk, which could take an order in that window.
+  if (venue.mode === 'checking') {
+    return (
+      <div role="status" aria-busy="true">
+        <Skeleton className="m-4 h-96 bg-field" />
+      </div>
+    );
+  }
   if (venue.mode === 'on') return <VenueFuturesDesk mode={venue} symbol={new URLSearchParams(props.search).get('symbol')} />;
   return <TodayFuturesScreen {...props} />;
 }

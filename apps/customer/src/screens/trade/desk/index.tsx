@@ -295,6 +295,9 @@ function DeskSkeleton() {
  */
 export default function TradeDeskScreen(props: ScreenProps) {
   const venue = useVenueMode();
+  // While venue mode is still being read, a neutral skeleton: never today's desk, which could take a custodial order in
+  // the window before the venue desk appears.
+  if (venue.mode === 'checking') return <DeskSkeleton />;
   const today = <TodayDeskScreen {...props} />;
   if (venue.mode !== 'on') return today;
   return <VenueSpotGate mode={venue} pair={normalizePair(props.params.pair ?? defaultDeskPair)} fallback={today} />;

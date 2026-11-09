@@ -11,11 +11,8 @@ export const venueCopy = defineCopy('trade.venue', {
   'Trading mode': 'Trading mode',
   'Trading mode line':
     'Your own account on {venue}. Your wallet signs every order, cancel and withdrawal; INTAFACED holds none of your funds.',
-  'Fee line': 'Fees on {symbol}: maker {maker}, taker {taker} (the venue’s), and our builder fee {builder}',
   'Fee bps': '{bps} bps',
-  'Builder fee blank': 'not published, so no order can be placed',
-  'Fee line spot':
-    'Fees on {symbol}: maker {maker}, taker {taker} (the venue’s), and our builder fee {builder} on a sell; a buy carries none',
+  'Fee line spot': 'Fees on {symbol}: maker {maker}, taker {taker} (the venue’s); our builder fee on a sell: {builder}; a buy carries none',
   'Builder fee blank spot': 'not published, so no sell can be placed',
 
   // Wallet
