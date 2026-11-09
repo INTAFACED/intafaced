@@ -66,9 +66,7 @@ import { placesOf } from './text';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
 import {
-  DEFAULT_SLIPPAGE_BPS,
   HeldDraft,
-  SLIPPAGE_CHOICES_BPS,
   depositTransfer,
   draftSignature,
   intentOf,
@@ -77,7 +75,6 @@ import {
   ticketProblem,
   withdrawStep,
   type DepositRoute,
-  type SlippageBps,
   type TicketFields,
   type VenueOrderType,
   type VenueSide,
@@ -198,7 +195,6 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const { run } = useVenueActions(owner);
   const access = useTradeAccess();
   const [type, setType] = useState<VenueOrderType>('limit');
-  const [slippage, setSlippage] = useState<SlippageBps>(DEFAULT_SLIPPAGE_BPS);
   const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
   const [lastResult, setLastResult] = useState<ActionResult | null>(null);
   const [cancelledKeys, setCancelledKeys] = useState<Array<{ key: string; clientOrderId: string }>>([]);
@@ -207,6 +203,9 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const placedKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
   const best = usePolled((signal) => venue.bestPrices(market.symbol, signal), `best:${market.symbol}`, VENUE_POLL_MS);
   const cancelled = useCancelledOrders(owner, cancelledKeys);
+  // The owner's market price protection, as svc-trade answers it with the venue's best prices; blank refuses a market order.
+  const cap = best.data?.slippageCapBps ?? null;
+  const capSet = cap?.known === true;
 
   const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
   const feeLine = v('Fee line spot', {
@@ -258,18 +257,6 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
               </TabsTab>
             ))}
           </TabsList>
-          {type === 'market' ? (
-            <label className="dk-tif">
-              <span className="dk-tif-label">{t('Slippage limit')}</span>
-              <select value={slippage} onChange={(e) => setSlippage(e.target.value as SlippageBps)} aria-label={t('Slippage limit')}>
-                {SLIPPAGE_CHOICES_BPS.map((choice) => (
-                  <option key={choice.bps} value={choice.bps}>
-                    {t('Slippage choice', { percent: choice.percent })}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
         </div>
         <TabsPanel value={type} className="dk-order-body">
           <div className="dk-forms">
@@ -283,7 +270,8 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
                 owner={owner}
                 access={access}
                 account={account}
-                worst={type === 'market' ? slippageLimit(side, best.data?.value ?? null, slippage, market.tickSize) : null}
+                worst={type === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null}
+                capSet={capSet}
                 run={run}
                 onPlaced={placed}
               />
@@ -458,6 +446,7 @@ function VenueSideForm({
   access,
   account,
   worst,
+  capSet,
   run,
   onPlaced,
 }: {
@@ -469,6 +458,7 @@ function VenueSideForm({
   access: Access;
   account: VenueAccount;
   worst: string | null;
+  capSet: boolean;
   run: ReturnType<typeof useVenueActions>['run'];
   onPlaced: (intent: OrderIntent, answer: ActionResult) => void;
 }) {
@@ -500,7 +490,7 @@ function VenueSideForm({
   }
   const draft = useMemo(() => (owner ? new HeldDraft(owner, market.symbol) : null), [owner, market.symbol]);
   const fields: TicketFields = { side, type, price, amount };
-  const issue = ticketProblem(fields, market, worst);
+  const issue = ticketProblem(fields, market, worst, capSet);
   const intent = draft && issue === null ? intentOf(fields, market, worst, draft.keyFor(fields)) : null;
   const signature = intent ? `${draftSignature(fields)}|${intent.price}|${intent.clientOrderKey}` : null;
 
@@ -641,6 +631,10 @@ function VenueSideForm({
           <p className="dk-note">{t('Verification unread')}</p>
         ) : !owner ? (
           <p className="dk-note">{t('Connect to trade')}</p>
+        ) : issue === 'no_cap' && type === 'market' ? (
+          <p className="dk-note" data-code="trade.slippage_cap_unset">
+            {t('No price protection')}
+          </p>
         ) : issue === 'no_book' ? (
           <p className="dk-note">{t('No book side')}</p>
         ) : issue === 'amount_step' && amount ? (

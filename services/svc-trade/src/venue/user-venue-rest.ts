@@ -36,6 +36,12 @@ import { UserVenueDoor, UserVenueDoorError } from './user-venue-door.js';
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
+  /**
+   * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank. The desk
+   * bounds a venue market order's worst price by it; blank, a market order has no bound and the desk refuses it
+   * (`trade.slippage_cap_unset`). Never a default.
+   */
+  slippageCapBps?: number | null;
 }
 
 type Query = { owner?: string; subAccount?: string; clientOrderId?: string; since?: string; symbol?: string };
@@ -125,7 +131,9 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
       const venue = await d.venue();
       if (!venue.bestPrices)
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
-      return venue.bestPrices(req.query.symbol);
+      const best = await venue.bestPrices(req.query.symbol);
+      const cap = deps.slippageCapBps ?? null;
+      return { ...best, slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) } };
     });
   });
 

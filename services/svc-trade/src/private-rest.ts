@@ -202,6 +202,8 @@ export interface PrivateRestDeps {
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
   userVenue?: UserVenueDoor | null;
+  /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank): a venue market order's worst price. */
+  userVenueSlippageCapBps?: number | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -1346,7 +1348,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
-  attachUserVenueRoutes(app, deps.userVenue ?? null, { requirePrincipal, requireTradeJurisdiction });
+  attachUserVenueRoutes(app, deps.userVenue ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    slippageCapBps: deps.userVenueSlippageCapBps ?? null,
+  });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {

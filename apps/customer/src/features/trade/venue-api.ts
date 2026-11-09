@@ -79,6 +79,8 @@ export type VenueMarket = z.infer<typeof venueMarketSchema>;
 
 export const venueBestPricesSchema = z.object({ symbol: z.string(), bid: decimalSchema.nullable(), ask: decimalSchema.nullable() });
 export type VenueBestPrices = z.infer<typeof venueBestPricesSchema>;
+/** The venue's best prices with the owner's market price protection (TRADE_MARKET_SLIPPAGE_CAP_BPS) svc-trade adds: blank is not known. */
+export const venueBestPricesReadSchema = asOf(venueBestPricesSchema).extend({ slippageCapBps: maybeKnown(decimalSchema) });
 
 export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
@@ -368,7 +370,7 @@ export function venueApi(api: ApiClient) {
   return {
     status: (signal?: AbortSignal) => api.rest('/venue/status', venueStatusSchema, { signal }),
     markets: (signal?: AbortSignal) => read('/markets', asOf(z.array(venueMarketSchema)), {}, signal),
-    bestPrices: (symbol: string, signal?: AbortSignal) => read('/best-prices', asOf(venueBestPricesSchema), { symbol }, signal),
+    bestPrices: (symbol: string, signal?: AbortSignal) => read('/best-prices', venueBestPricesReadSchema, { symbol }, signal),
     balances: (owner: string, signal?: AbortSignal) => read('/balances', asOf(z.array(venueBalanceSchema)), { owner }, signal),
     openOrders: (owner: string, signal?: AbortSignal) => read('/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),
     orderByClientId: (owner: string, clientOrderId: string, signal?: AbortSignal) =>

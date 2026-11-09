@@ -1580,6 +1580,7 @@ registerPrivateRest(app, {
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   grid,
   userVenue,
+  userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

@@ -24,11 +24,12 @@ beforeAll(async () => {
 afterAll(async () => new Promise<void>((r) => server.close(() => r())));
 afterEach(async () => app?.close());
 
-async function mount(door: UserVenueDoor | null) {
+async function mount(door: UserVenueDoor | null, slippageCapBps: number | null = null) {
   app = Fastify();
   attachUserVenueRoutes(app, door, {
     requirePrincipal: () => USER,
     requireTradeJurisdiction: () => true,
+    slippageCapBps,
   });
   await app.ready();
   return app;
@@ -98,6 +99,15 @@ describe('/api/v1/venue/*', () => {
     for (const side of [body.value.bid, body.value.ask]) expect(side === null || typeof side === 'string').toBe(true);
     expect(typeof body.asOf).toBe('string');
     expect((await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices' })).statusCode).toBe(400);
+    // The owner's price protection is blank here: not known, never a default.
+    expect(body.slippageCapBps).toEqual({ known: false });
+  });
+
+  it("best-prices carries the owner's market price protection as svc-trade holds it", async () => {
+    await mount(door(), 150);
+    const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().slippageCapBps).toEqual({ known: true, value: '150' });
   });
 
   it('orders refuse builder_fee_not_published (422); a withdrawal without its step-up refuses 403; a money number refuses 400', async () => {

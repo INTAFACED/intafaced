@@ -62,6 +62,9 @@ describe('the ticket asks the venue as the order is typed', () => {
   it('a market order is IOC at its worst price, and with no book on its side there is no order', () => {
     const market: TicketFields = { side: 'buy', type: 'market', price: '', amount: '0.001' };
     expect(ticketProblem(market, MARKET, null)).toBe('no_book');
+    // With the owner's price protection blank, a market order is refused, never bounded by a figure the desk made up.
+    expect(ticketProblem(market, MARKET, '60600.2', false)).toBe('no_cap');
+    expect(ticketProblem({ ...market, type: 'limit', price: '60000' }, MARKET, null, false)).toBeNull();
     expect(intentOf(market, MARKET, '60600.2', 'order:x:y:z')).toMatchObject({ type: 'market', timeInForce: 'IOC', price: '60600.2' });
   });
 });

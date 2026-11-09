@@ -23,19 +23,8 @@ export function shortAddress(address: string): string {
 }
 
 /**
- * How far a market order's worst price may sit from the venue's best price, in basis points: the person's own choice
- * on the ticket, one of these, 100 bps (1%) unless they pick another.
- */
-export const SLIPPAGE_CHOICES_BPS = [
-  { bps: '50', percent: '0.5' },
-  { bps: '100', percent: '1' },
-  { bps: '200', percent: '2' },
-] as const;
-export type SlippageBps = (typeof SLIPPAGE_CHOICES_BPS)[number]['bps'];
-export const DEFAULT_SLIPPAGE_BPS: SlippageBps = '100';
-
-/**
- * A market order's worst price (its slippage limit), from the venue's own best prices: a buy pays at most the best ask
+ * A market order's worst price (its slippage limit), from the venue's own best prices and the owner's market price
+ * protection (`bps`, TRADE_MARKET_SLIPPAGE_CAP_BPS as svc-trade answers it, never a default): a buy pays at most the best ask
  * plus `bps`, rounded up to the tick; a sell takes at least the best bid less `bps`, rounded down. Null when the venue's
  * book has no price on the side the order meets, so no market order is offered then.
  */
@@ -63,12 +52,16 @@ export interface TicketFields {
 }
 
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
-export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book';
+export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
 
-export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null): TicketProblem | null {
+/**
+ * `capSet` is false when the owner's market price protection is blank: a market order then has no bound, so it is refused
+ * (`trade.slippage_cap_unset`), never sent unbounded or bounded by a figure the desk made up.
+ */
+export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
-  if (fields.type === 'market') return worst === null ? 'no_book' : null;
+  if (fields.type === 'market') return !capSet ? 'no_cap' : worst === null ? 'no_book' : null;
   if (!fields.price.trim() || !isDecimal(fields.price)) return 'price';
   if (!onStep(fields.price, market.tickSize)) return 'price_step';
   return null;
