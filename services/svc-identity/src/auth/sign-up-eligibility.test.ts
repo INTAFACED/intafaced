@@ -92,9 +92,28 @@ describe('sign-up residence and citizenship (Hyperliquid terms 1.6, OWNER 258)',
     expect(codeOf({ country: 'CA', subdivision: 'CA-QC', nationality: 'kp' })).toBe('identity.region_blocked');
   });
 
-  it('a blank screening list refuses with its typed error, nationality or not', () => {
+  it('a blank screening list refuses with its typed error, nationality or not, before asking for a province', () => {
     delete process.env.INTAFACED_SANCTIONS_REGIONS;
     expect(codeOf({ country: 'DE' })).toBe('identity.screening_unset');
+    expect(codeOf({ country: 'CA' })).toBe('identity.screening_unset');
     expect(codeOf({ country: 'DE', nationality: 'US' })).toBe('identity.screening_unset');
+  });
+});
+
+describe("the owner's sign-up off switch covers a country's subdivisions", () => {
+  it('refuses a residence or nationality given as a subdivision of a closed country', () => {
+    const deps = { minAgeYears: 18, closedCountries: ['CA', 'DE'] };
+    const code = (over: Partial<SignUpStart>): string => {
+      try {
+        assertEligible(deps, input(over), NOW);
+        return 'allowed';
+      } catch (e) {
+        if (e instanceof SignUpError) return e.code;
+        throw e;
+      }
+    };
+    expect(code({ country: 'CA', subdivision: 'CA-QC' })).toBe('identity.region_blocked');
+    expect(code({ country: 'FR', nationality: 'DE-BY' })).toBe('identity.region_blocked');
+    expect(code({ country: 'FR', nationality: 'GB' })).toBe('allowed');
   });
 });

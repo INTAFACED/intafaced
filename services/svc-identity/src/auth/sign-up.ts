@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { checkAccess, checkCitizenship, hasSubdivisionRows } from '@intafaced/config';
+import { checkAccess, checkCitizenship, hasSubdivisionRows, isSubdivisionCode, regionCodeChain } from '@intafaced/config';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
@@ -188,8 +188,7 @@ export function countryCode(value: string): string | undefined {
 /** An ISO 3166-2 subdivision code inside a real country (`CA-ON`), upper-cased, or undefined. Shape only: no subdivision list ships. */
 export function subdivisionCode(value: string): string | undefined {
   const code = value.trim().toUpperCase();
-  const m = /^([A-Z]{2})-[A-Z0-9]{1,3}$/.exec(code);
-  return m && countryCode(m[1]!) ? code : undefined;
+  return isSubdivisionCode(code) && countryCode(regionCodeChain(code)[1]!) ? code : undefined;
 }
 
 /** Whole years between a `YYYY-MM-DD` birth date and `now` (UTC), or undefined for a date that is not real or is in the future. */
@@ -239,22 +238,30 @@ export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCou
   const paused = (code: string): boolean => code === 'denied.screening_unconfigured' || code === 'denied.screening_fixture';
   const pausedError = () => new SignUpError('Sign-up is paused: the sanctions screening list is not set.', 'identity.screening_unset');
   const blocked = () => new SignUpError('We cannot open accounts for this country right now.', 'identity.region_blocked');
-  const closed = new Set((deps.closedCountries ?? []).map((c) => c.trim().toUpperCase()));
+  const closedSet = new Set((deps.closedCountries ?? []).map((c) => c.trim().toUpperCase()));
+  // The owner's sign-up off switch names countries; it covers every subdivision in them.
+  const closed = (region: string): boolean => regionCodeChain(region).some((c) => closedSet.has(c));
+  const access = (region: string) => checkAccess({ module: 'identity', region, plane: 'fiat', kycTier: 'none' });
 
-  // Where the person lives: both authorities, on the per-country switch (Hyperliquid terms 1.6 (a) and (b)). A country
-  // with a subdivision blocked on its own (Ontario in Canada) needs the subdivision, or the bare country would let an
-  // Ontario resident through.
-  if (closed.has(country)) throw blocked();
+  // Where the person lives: both authorities, on the per-country switch (Hyperliquid terms 1.6 (a) and (b)). The
+  // country first, so a paused screening list or a whole-country block answers before anyone is asked for a province.
+  // A country with a subdivision blocked on its own (Ontario in Canada) then needs the subdivision, or the bare
+  // country would let an Ontario resident through.
+  if (closed(subdivision ?? country)) throw blocked();
+  const home = access(country);
+  if (!home.allowed) throw paused(home.code) ? pausedError() : blocked();
   if (!subdivision && hasSubdivisionRows(country)) {
     throw new SignUpError('Choose the state or province you live in.', 'identity.subdivision_required');
   }
-  const residence = checkAccess({ module: 'identity', region: subdivision ?? country, plane: 'fiat', kycTier: 'none' });
-  if (!residence.allowed) throw paused(residence.code) ? pausedError() : blocked();
+  if (subdivision) {
+    const residence = access(subdivision);
+    if (!residence.allowed) throw paused(residence.code) ? pausedError() : blocked();
+  }
 
   // Citizenship, wherever the person lives: the sanctions screening list only (1.6 (c)), never a business block, so a
   // US citizen living outside the US is served. The owner's sign-up off switch still applies to it, as before.
   if (nationality) {
-    if (closed.has(nationality)) throw blocked();
+    if (closed(nationality)) throw blocked();
     const citizenship = checkCitizenship({ citizenship: nationality });
     if (!citizenship.allowed) throw paused(citizenship.code) ? pausedError() : blocked();
   }

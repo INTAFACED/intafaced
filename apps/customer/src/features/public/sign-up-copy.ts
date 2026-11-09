@@ -54,6 +54,8 @@ const messages = {
   'identity.underage': 'You are under the minimum age to open an account. Nothing was created.',
   'identity.country_invalid': 'Choose the country you live in, and your nationality if you give one, from the list.',
   'identity.region_blocked': 'We cannot open accounts for this country right now. Nothing was created.',
+  'identity.subdivision_required':
+    'We need the state or province you live in for this country, and this page does not ask for it yet. Nothing was created.',
   'identity.screening_unset': 'Sign-up is paused: the sanctions screening list is not set. Nothing was created.',
   'identity.signup_expired': 'This sign-up has run out. Start again with your details.',
   'identity.signup_code_invalid': 'That code is not right. Check the newest email and try again.',
