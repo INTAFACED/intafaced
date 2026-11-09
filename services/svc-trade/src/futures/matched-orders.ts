@@ -416,7 +416,7 @@ export interface MatchedOrdersDeps {
     readonly side: PositionSide;
     readonly qty: Amount;
     readonly mark: Amount;
-    /** Once the order's row is written: that row, left out of the exposure since `qty` is that order. */
+    /** An order left out of the exposure: once an order's row is written, that row, since `qty` is that order; for an amend, the order it will cancel first. */
     readonly excludeOrderId?: string;
     /** The depth an earlier rating in the same request read; absent reads it now. */
     readonly depthNotional?: Amount;
@@ -431,7 +431,7 @@ export interface MatchedOrdersDeps {
     readonly marketId: string;
     readonly symbol: string;
     readonly lotSize: Amount | null;
-    /** Once the order's row is written: that row, left out of what is committed, since it is the order being rated. */
+    /** An order left out of what is committed: once an order's row is written, that row; for an amend, the order it will cancel first. */
     readonly excludeOrderId?: string;
   }) => Promise<OpenInterestRoom>;
 }
@@ -1150,8 +1150,18 @@ export class MatchedFuturesOrders {
    * mode, the price band, the position's own leverage and idleness, the pre-trade limits, the margin tier and open
    * interest. `place` runs it, and an amend runs it before it touches the original (`replace`), so an amend that could
    * not rest is refused with the original still on the book. Returns what the order would hold.
+   *
+   * `replacing` is the order an amend will cancel first. The margin tier and open interest are read without it, as they
+   * will stand once it is off the book. Counted, the original could carry the side into the tier the replacement needs,
+   * so the replacement would pass here and then be refused once the original was cancelled.
    */
-  private async openingChecks(input: PlaceMatchedOrderInput, clientOrderId: string, market: MarketRow, inForce: Amount) {
+  private async openingChecks(
+    input: PlaceMatchedOrderInput,
+    clientOrderId: string,
+    market: MarketRow,
+    inForce: Amount,
+    replacing?: string,
+  ) {
     if (input.leverage % LEVERAGE_STEP !== 0n) {
       refuse('trade.leverage_invalid', 'leverage has at most two decimal places');
     }
@@ -1207,8 +1217,8 @@ export class MatchedFuturesOrders {
     if (pretrade) {
       throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
     }
-    const rated = await this.refuseUnconfirmedTier(input, market, input.qty, mark);
-    await this.refuseOverOpenInterest(input.userId, market, input.qty);
+    const rated = await this.refuseUnconfirmedTier(input, market, input.qty, mark, replacing);
+    await this.refuseOverOpenInterest(input.userId, market, input.qty, replacing);
     return { at, mark, bandAt, limit, rates, hold, orderId, rated };
   }
 
@@ -1221,6 +1231,7 @@ export class MatchedFuturesOrders {
     market: MarketRow,
     qty: Amount,
     mark: Amount,
+    replacing?: string,
   ): Promise<RiskTierCrossing | null> {
     if (!this.deps.riskTier) return null;
     const crossing = await this.deps.riskTier({
@@ -1230,6 +1241,7 @@ export class MatchedFuturesOrders {
       side: positionSideOf(input.side),
       qty,
       mark,
+      ...(replacing ? { excludeOrderId: replacing } : {}),
     });
     const refusal = unconfirmedTierRefusal(crossing, input.confirmTier, input.leverage, this.deps.maxLeverage);
     if (refusal) refuse(refusal.code, refusal.message, refusal.status);
@@ -1267,9 +1279,15 @@ export class MatchedFuturesOrders {
    * An opening order that would carry the account past its share of the market's open-interest limit, or the market
    * past the limit, refuses with the room left (`open-interest-limits.ts`). Before anything is held or written.
    */
-  private async refuseOverOpenInterest(userId: string, market: MarketRow, qty: Amount): Promise<void> {
+  private async refuseOverOpenInterest(userId: string, market: MarketRow, qty: Amount, replacing?: string): Promise<void> {
     if (!this.deps.openInterest) return;
-    const room = await this.deps.openInterest({ userId, marketId: market.id, symbol: market.symbol, lotSize: lotOf(market) });
+    const room = await this.deps.openInterest({
+      userId,
+      marketId: market.id,
+      symbol: market.symbol,
+      lotSize: lotOf(market),
+      ...(replacing ? { excludeOrderId: replacing } : {}),
+    });
     const refusal = openInterestRefusal(room, qty, market.base_asset);
     if (refusal) refuse(refusal.code, refusal.message, refusal.status);
   }
@@ -3015,7 +3033,7 @@ export class MatchedFuturesOrders {
     const band = this.deps.priceBand;
     if (band === null)
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
-    const { hold } = await this.openingChecks(replacement, key, market, await this.bandInForce(market.id, band));
+    const { hold } = await this.openingChecks(replacement, key, market, await this.bandInForce(market.id, band), orderId);
     const free = (await this.deps.ledger.balance(userAvailable(principal.userId, row.hold_asset))).amount;
     if (free + holdOf(row) < hold) {
       refuse(

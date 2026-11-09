@@ -48,7 +48,11 @@ async function markOf(me) {
     'a preview with a mark',
     60_000,
   );
-  return { mark: toUnits(preview.body.markPrice), tier: preview.body.riskTier?.projected };
+  return {
+    mark: toUnits(preview.body.markPrice),
+    tier: preview.body.riskTier?.projected,
+    confirmRequired: preview.body.riskTier?.confirmRequired === true,
+  };
 }
 
 /** `bps` basis points from the mark, in whole units of price. */
@@ -390,7 +394,7 @@ test(`${J} #3 presses Amend on a futures order: a reviewed cancel-and-replace, n
   const me = await api(who);
   await signIn(page, who);
   const label = 'amend-me';
-  const { mark, tier } = await markOf(me);
+  const { mark, tier, confirmRequired } = await markOf(me);
   const placed = await me.post('/api/v1/futures/orders', {
     symbol: SYMBOL,
     side: 'buy',
@@ -423,11 +427,23 @@ test(`${J} #3 presses Amend on a futures order: a reviewed cancel-and-replace, n
   const unchanged = (await me.get(`/api/v1/futures/orders/${original.orderId}`)).body;
   expect(unchanged).toMatchObject({ status: 'open', limitPrice: original.limitPrice });
 
-  const sent = page.waitForResponse((r) => r.url().endsWith(`/api/v1/futures/orders/${original.orderId}/amend`));
+  const amendSent = () => page.waitForResponse((r) => r.url().endsWith(`/api/v1/futures/orders/${original.orderId}/amend`));
+  let sent = amendSent();
   await dialog.getByRole('button', { name: 'Confirm amend' }).click();
-  const answer = await sent;
+  let answer = await sent;
+  if (confirmRequired) {
+    // The replacement opens the side in a margin tier the trader must accept, as the original did. That is asked before
+    // anything is cancelled: the original still rests, and the room asks for the tier by name.
+    expect(answer.status(), await answer.text()).toBe(409);
+    expect((await answer.json()).error).toBe('trade.risk_limit_confirm_required');
+    expect((await me.get(`/api/v1/futures/orders/${original.orderId}`)).body).toMatchObject({ status: 'open' });
+    await dialog.getByRole('checkbox', { name: `I accept margin tier ${tier} for this size` }).check();
+    sent = amendSent();
+    await dialog.getByRole('button', { name: 'Confirm amend' }).click();
+    answer = await sent;
+  }
   expect(answer.status(), await answer.text()).toBe(200);
-  expect(answer.request().postDataJSON()).toEqual({ price: newPrice });
+  expect(answer.request().postDataJSON()).toEqual(confirmRequired ? { price: newPrice, confirmTier: tier } : { price: newPrice });
   const { replaced, replacement } = await answer.json();
   await expect(page.getByRole('status', { name: 'Amended' })).toContainText(replacement.orderId);
 

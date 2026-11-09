@@ -243,6 +243,41 @@ describe('svc-trade futures amend: a reviewed cancel-and-replace (PG-backed)', (
     expect(engine.cancels).toHaveLength(cancels);
   });
 
+  it('the margin tier is read as it stands once the original is off: a tier only the original reached is asked before the cancel', async () => {
+    // A ladder of two tiers: any live opening order puts the side in tier 2, so a first order is asked to confirm it.
+    // Counted, the original keeps the side in tier 2 and the replacement crosses nothing; once it is cancelled, the
+    // replacement crosses into tier 2 alone. The tier is read without the original, so the amend asks before it cancels.
+    const svc = build({
+      riskTier: async ({ userId, marketId, side, qty, excludeOrderId }) => {
+        const live = await sql<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM trade.futures_orders
+           WHERE user_id = ${userId} AND market_id = ${marketId} AND reduce_only = false
+             AND side = ${side === 'long' ? 'buy' : 'sell'}
+             AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+             AND (${excludeOrderId ?? null}::text IS NULL OR id::text <> ${excludeOrderId ?? null}::text)
+        `;
+        const currentTier = live[0]!.n > 0 ? 2 : null;
+        return { currentTier, projectedTier: 2, maintenanceBps: 250, notional: qty * 100n, confirmRequired: currentTier === null };
+      },
+    });
+    const resting = await svc.place(
+      principal(ALICE),
+      order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('99'), confirmTier: 2 }),
+    );
+    expect(resting.status).toBe('open');
+    const cancels = engine.cancels.length;
+    await expect(svc.replace(principal(ALICE), resting.orderId, { limitPrice: A('98') })).rejects.toMatchObject({
+      code: 'trade.risk_limit_confirm_required',
+      status: 409,
+    });
+    expect(await statusOf(resting.orderId)).toBe('open');
+    expect(engine.cancels).toHaveLength(cancels);
+    // Confirmed, the amend goes through: the original cancelled once, the replacement resting at the new price.
+    const done = await svc.replace(principal(ALICE), resting.orderId, { limitPrice: A('98'), confirmTier: 2 });
+    expect(done.replaced.status).toBe('cancelled');
+    expect(done.replacement).toMatchObject({ status: 'open', limitPrice: '98' });
+  });
+
   it('a reduce-only order is not amended: a close is cancelled and placed again', async () => {
     const svc = build();
     const buy = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
