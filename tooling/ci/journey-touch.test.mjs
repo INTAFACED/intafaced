@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { MAP_VERSION } from './journey-reach-map.mjs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
+import { JOURNEY_CI, READ_ELSEWHERE, RUN_FILE, STACK_FILE, journeyTouch, pathKind, stackService } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -465,4 +466,106 @@ test('CI review: an empty run (nothing to run, or a draft) never stands in for t
   assert.equal(v.ok, false);
   assert.match(v.lines.join('\n'), /none has finished/);
   assert.match(v.lines.join('\n'), /not a full run \(no step from 2 journey file/);
+});
+
+// ---- A service's own stack settings narrow by that service's reach (project-state#1574, U4) ----
+
+const J = (n) => `J-s-${n}.pw.mjs`;
+const STACK_MAP = {
+  v: MAP_VERSION,
+  mode: 'reach',
+  runs: [{ id: 3 }, { id: 2 }, { id: 1 }],
+  journeys: [J(1), J(2), J(3), J(4)],
+  full: {},
+  services: { 'services/svc-academy': [0], 'services/svc-support': [1], 'services/svc-edge': [0, 1, 2, 3], 'services/svc-notify': [2] },
+  packages: {},
+  customer: {},
+  subscribers: ['services/svc-notify'],
+};
+const stackReach = { map: STACK_MAP, behind: 0, journeyFiles: new Set(STACK_MAP.journeys), subscribes: () => false, mode: 'reach' };
+const STACK = (n) => `tooling/scripts/local-stack-services/${n}.mjs`;
+const PROFILE = (n) => `tooling/profiles/test-owner-values/${n}.json`;
+
+test('planted: a stack file or TEST profile of a mapped service narrows to the journeys that reach that service', () => {
+  const academy = journeyTouch([STACK('academy')], () => true, stackReach);
+  assert.deepEqual([academy.mode, academy.files], ['files', [J(1)]]);
+  assert.match(academy.reach.join('\n'), /local-stack-services\/academy\.mjs \(as services\/svc-academy\): 1 journey file\(s\) reach it/);
+  const both = journeyTouch([STACK('academy'), PROFILE('quant'), 'services/svc-support/src/x.ts'], () => true, {
+    ...stackReach,
+    map: { ...STACK_MAP, services: { ...STACK_MAP.services, 'services/svc-quant': [3] } },
+  });
+  assert.deepEqual([both.mode, both.files], ['files', [J(1), J(2), J(4)]], 'a stack file, a profile and service code together');
+  // With a journey test file alongside, the run takes both.
+  const withTest = journeyTouch([STACK('academy'), `apps/customer/tests/real-app/${J(3)}`], () => true, stackReach);
+  assert.deepEqual(withTest.files, [J(1), J(3)]);
+});
+
+test('planted: a stack file stays full for an unmapped name, a subscriber, a file read elsewhere, shared setup, no map', () => {
+  const fix = journeyTouch([STACK('fix')], () => true, stackReach);
+  assert.equal(fix.mode, 'full', 'svc-fix is not in the map');
+  assert.deepEqual(fix.full, [{ path: STACK('fix'), why: 'the journey stack’s shared setup (SHARED_SETUP)' }], 'its reason as before');
+  const prof = journeyTouch([PROFILE('fix')], () => true, stackReach);
+  assert.match(prof.full[0].why, /the stack’s environment/);
+  const notify = journeyTouch([STACK('notify')], () => true, stackReach);
+  assert.equal(notify.mode, 'full', 'a subscriber');
+  assert.match(notify.full[0].why, /subscribes to bus events/);
+  const withShared = journeyTouch([STACK('academy'), 'tooling/scripts/local-stack-fixtures/x.json'], () => true, stackReach);
+  assert.equal(withShared.mode, 'full', 'a stack file together with shared setup');
+  assert.deepEqual(
+    withShared.full.map((x) => x.path),
+    ['tooling/scripts/local-stack-fixtures/x.json', STACK('academy')],
+  );
+  const withScript = journeyTouch([STACK('academy'), 'tooling/scripts/local-test-market.mjs'], () => true, stackReach);
+  assert.equal(withScript.mode, 'full', 'a stack file together with another script');
+  assert.equal(withScript.full.find((x) => x.path === STACK('academy')).why, 'the journey stack’s shared setup (SHARED_SETUP)');
+  assert.equal(journeyTouch([STACK('academy')]).mode, 'full', 'no --reach');
+  assert.equal(journeyTouch([STACK('academy')], () => true, { ...stackReach, behind: 99 }).mode, 'full', 'a stale map');
+  assert.equal(journeyTouch([STACK('academy')], () => true, { ...stackReach, mode: 'full' }).mode, 'full', 'the map switched off');
+  assert.equal(journeyTouch([STACK('edge')], () => true, stackReach).mode, 'full', 'a service every journey reaches');
+  for (const f of READ_ELSEWHERE) {
+    assert.equal(stackService(f), null, f);
+    const svc = `services/svc-${STACK_FILE.exec(f).slice(1).find(Boolean)}`;
+    const t = journeyTouch([f], () => true, { ...stackReach, map: { ...STACK_MAP, services: { ...STACK_MAP.services, [svc]: [0] } } });
+    assert.equal(t.mode, 'full', `${f}: other code reads it`);
+  }
+  // Not a service's own settings file: a nested path, another extension, a profile's side file, a real-app helper whose
+  // path merely ends like one (shared setup).
+  for (const f of [
+    'tooling/scripts/local-stack-services/x/academy.mjs',
+    'tooling/profiles/test-owner-values/identity-breached-passwords.sha1',
+    'apps/customer/tests/real-app/tooling/scripts/local-stack-services/academy.mjs',
+  ]) {
+    assert.equal(stackService(f), null, f);
+    assert.equal(journeyTouch([f], () => true, stackReach).mode, 'full', f);
+  }
+});
+
+test('drift: every stack file that journey or harness code reads outside the stack is in READ_ELSEWHERE', async () => {
+  const { loadProfile } = await import('../scripts/owner-settings.mjs');
+  const values = loadProfile().values;
+  const found = new Map();
+  const add = (f, by) => found.set(f, [...(found.get(f) ?? []), by]);
+  const harness = execFileSync('git', ['ls-files', 'apps/customer/tests/real-app', 'tooling/scripts'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter((f) => /\.m?[jt]s$/.test(f) && !/\.(test|spec)\./.test(f))
+    // The stack's own files, the profile loader, and the CX-8 rig (order-path-cx8.yml, not a journeys run).
+    .filter((f) => !f.startsWith('tooling/scripts/local-stack-services/'))
+    .filter((f) => !['tooling/scripts/owner-settings.mjs', 'tooling/scripts/order-path-cx8-boot.mjs'].includes(f));
+  assert.ok(harness.includes('tooling/scripts/local-test-gates.mjs'), 'the scan reads the harness (sanity)');
+  for (const f of harness) {
+    const t = readFileSync(join(ROOT, f), 'utf8');
+    // local-test-stack.mjs is the stack itself: it imports each service's stack file to start that service.
+    if (f !== 'tooling/scripts/local-test-stack.mjs')
+      for (const m of t.matchAll(/local-stack-services\/([a-z0-9-]+)\.mjs['"`]/g)) add(STACK(m[1]), f);
+    for (const m of t.matchAll(/test-owner-values\/([a-z0-9-]+)\.json['"`]/g)) add(PROFILE(m[1]), f);
+    for (const m of t.matchAll(/profileEnvFor\(\s*['"`]([a-z0-9-]+)['"`]/g)) add(PROFILE(m[1]), f);
+    // A profile value read by its key: quoted, as a property, or as a template's stem (`LEDGER_ASSET_PRECISION_${id}`).
+    for (const [k, v] of Object.entries(values)) {
+      const stem = k.replace(/_[^_]*$/, '_');
+      if (new RegExp(`['"\`]${k}['"\`]|\\.${k}\\b|\`${stem}\\$\\{`).test(t)) add(PROFILE(v.service), `${f} (${k})`);
+    }
+  }
+  assert.ok(found.has(PROFILE('ledger')), 'the scan finds the precision read in local-test-gates.mjs (sanity)');
+  const missing = [...found].filter(([f]) => !READ_ELSEWHERE.includes(f)).map(([f, by]) => `${f}: read by ${by.join(', ')}`);
+  assert.deepEqual(missing, [], 'add these to READ_ELSEWHERE in journey-touch.mjs');
 });

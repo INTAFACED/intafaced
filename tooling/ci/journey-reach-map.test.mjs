@@ -496,6 +496,23 @@ test('planted: the seal accepts a run of exactly the selected journeys, and fail
   assert.match(stale.lines.join('\n'), /full run: it changes what can reach any journey .*couldn't be read/);
 });
 
+test('planted: the seal holds a service stack file to that service’s journeys, like its code (project-state#1574)', async () => {
+  const files = ['tooling/scripts/local-stack-services/tax.mjs'];
+  const exact = await sealWith({ files, runs: [ghRun(1)], reports: { 1: { states: {}, ran: [POPUP, TAX] } }, verdict: async () => clean });
+  assert.equal(exact.ok, true, exact.lines.join('\n'));
+  const missing = await sealWith({ files, runs: [ghRun(1)], reports: { 1: { states: {}, ran: [TAX] } }, verdict: async () => clean });
+  assert.equal(missing.ok, false, 'a run that missed a journey the service reaches');
+  // A service the map doesn't know (svc-fix) stays shared setup: a targeted run does not seal it.
+  const fix = await sealWith({
+    files: ['tooling/scripts/local-stack-services/fix.mjs'],
+    runs: [ghRun(1)],
+    reports: { 1: { states: {}, ran: [POPUP, TAX] } },
+    verdict: async () => ({ ...clean, missing: [BANK, BOTH] }),
+  });
+  assert.equal(fix.ok, false);
+  assert.match(fix.lines.join('\n'), /full run/);
+});
+
 // ---- The committed map is public: only repository paths, service directories, journey names and run facts ----
 
 test('the committed map holds only shapes a public map may hold', () => {

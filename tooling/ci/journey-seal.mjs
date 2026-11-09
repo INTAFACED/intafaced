@@ -81,7 +81,7 @@ import {
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
-import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
+import { RUN_FILE, journeyTouch, pathKind, printable, stackService } from './journey-touch.mjs';
 import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls } from './review-marker.mjs';
 
@@ -1041,7 +1041,12 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
   const paths = await io.files(number);
-  const shared = paths.filter(isSharedSetup);
+  // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
+  // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
+  const reverting = revertOf({ title: pull.title, body: pull.body, repo });
+  // A service's own stack settings file (stackService) is shared setup only for a revert (as the journeys workflow's
+  // revert rule reads it); otherwise journeyTouch narrows it by its service's reach, or holds it full itself.
+  const shared = paths.filter((p) => isSharedSetup(p) && (reverting || !stackService(p)));
   const texts = new Map();
   const text = (f, ref) => {
     const k = `${ref}:${f}`;
@@ -1053,9 +1058,6 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // The journeys this pull request can reach (journey-touch.mjs): a journey test file the head removed runs nothing.
   const atHead = new Map();
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
-  // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
-  // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
-  const reverting = revertOf({ title: pull.title, body: pull.body, repo });
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
     : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }));
@@ -1099,7 +1101,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           rangeOf: io.rangeOf,
         })
     : null;
-  const notShared = reach.full.filter((x) => !isSharedSetup(x.path));
+  const notShared = reach.full.filter((x) => !isSharedSetup(x.path) || stackService(x.path));
   const full = shared.length
     ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf, waitOnRunning, inherited })
     : reach.mode === 'full'

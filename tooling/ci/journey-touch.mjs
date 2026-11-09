@@ -18,6 +18,12 @@
  *     own full runs recorded reaching it, when no full path above is in the change and the map can speak for every
  *     product path in it (shared setup, scripts, admin-app paths, packages it can't map, a switched-off, missing or
  *     stale map: full). Its journeys join the `files` list, and `reach` says why;
+ *   - a service's own stack settings (STACK_FILE: tooling/scripts/local-stack-services/<name>.mjs, the env the stack
+ *     starts svc-<name> with, and tooling/profiles/test-owner-values/<name>.json, the TEST owner values only
+ *     svc-<name> loads) count as services/svc-<name> for reach, through the same reachSelect a change under
+ *     services/svc-<name>/ takes, with its full fallbacks (a subscriber, a service no journey reached, a stale or missing
+ *     map, no --reach). A name the map doesn't know (fix.mjs) and a file other journey or harness code reads
+ *     (READ_ELSEWHERE) stay full as shared setup or the stack's environment;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -90,11 +96,59 @@ const NONE_RULES = [
   (p) => /^(apps|services|packages)\//.test(p) && /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) && !p.startsWith('apps/customer/tests/real-app/'),
 ];
 
+/**
+ * A service's own stack settings: the file and the name it starts. Why one of these may narrow to the journeys that
+ * reach svc-<name> (project-state#1574, U4): every journeys run, narrowed or not, boots the whole stack, so a change
+ * that breaks the stack's boot (a syntax error, a missing value, a service that no longer starts) still fails any run
+ * and is not hidden by narrowing. What it changes beyond boot is that one service's settings, and a setting of svc-<name>
+ * reaches only journeys that reach svc-<name>, which main's map records (and a subscriber, whose handlers log nothing,
+ * stays full there). The local stack loads each file only for its own service (local-test-stack.mjs imports each
+ * stack file once, and owner-settings.mjs loadProfile refuses a value whose `service` is not its file's name), so the
+ * one way out is code outside the stack that reads the file itself: READ_ELSEWHERE.
+ */
+export const STACK_FILE = /^tooling\/(?:scripts\/local-stack-services\/([a-z0-9-]+)\.mjs|profiles\/test-owner-values\/([a-z0-9-]+)\.json)$/;
+
+/**
+ * The stack files that journey or harness code outside the stack reads itself, so a change to one can reach journeys
+ * that never reach its service: they stay full. journey-touch.test.mjs finds every such read in apps/customer/tests/
+ * real-app and tooling/scripts (an import or a quoted path naming the file, profileEnvFor('<name>'), or a read of a
+ * profile value by a key held in the file) and fails when one is missing here.
+ */
+export const READ_ELSEWHERE = [
+  'tooling/profiles/test-owner-values/agents.json', // J-agents-03, -12, -15
+  'tooling/profiles/test-owner-values/identity.json', // J-identity-08, -11, -14
+  'tooling/profiles/test-owner-values/ledger.json', // local-test-gates.mjs labelledTestPrecision (LEDGER_ASSET_PRECISION_*)
+  'tooling/profiles/test-owner-values/mining-pool.json', // J-more-catalogue-05, local-test-stack.mjs's mining rig
+  'tooling/profiles/test-owner-values/protocol.json', // J-dex-protocol-04, -07
+  'tooling/profiles/test-owner-values/support.json', // J-identity-13
+  'tooling/profiles/test-owner-values/token.json', // local-test-stack.mjs token-params
+  'tooling/profiles/test-owner-values/trade.json', // J-copy-bots-otc-01, -10
+  'tooling/scripts/local-stack-services/bank.mjs', // J-wallet-05 imports it
+  'tooling/scripts/local-stack-services/identity.mjs', // local-test-gates.mjs imports it
+  'tooling/scripts/local-stack-services/pay.mjs', // local-test-gates.mjs writes the marker file it reads
+];
+
+/** The service directory a stack settings file stands for (services/svc-<name>), or null: not a stack file, or one
+ *  READ_ELSEWHERE holds. Whether the map knows that service is journeyTouch's question. */
+export function stackService(path) {
+  const p = String(path);
+  const m = STACK_FILE.exec(p);
+  if (!m || READ_ELSEWHERE.includes(p)) return null;
+  return `services/svc-${m[1] ?? m[2]}`;
+}
+
 const PRODUCT = 'product code, and no map recorded from real runs says which journeys reach it yet';
 
-/** One path's kind: { kind: 'full', why } | { kind: 'file', file } | { kind: 'none' }. */
+/** One path's kind: { kind: 'full', why } | { kind: 'file', file } | { kind: 'none' }. A stack settings file
+ *  (stackService) is full with `product` and `service` set, so journeyTouch may narrow it by its service's reach. */
 export function pathKind(path) {
   const p = String(path);
+  const k = baseKind(p);
+  const service = stackService(p);
+  return service && k.kind === 'full' ? { ...k, product: true, service } : k;
+}
+
+function baseKind(p) {
   if (isSharedSetup(p)) return { kind: 'full', why: 'the journey stack’s shared setup (SHARED_SETUP)' };
   const run = RUN_FILE.exec(p);
   if (run && JOURNEY_TEST.test(p)) return { kind: 'file', file: run[1] };
@@ -128,11 +182,29 @@ export function journeyTouch(paths, atHead = () => true, reach = null) {
     else if (k.kind === 'full') full.push({ path: printable(p), why: k.why });
     else if (k.kind === 'file' && atHead(p)) files.add(k.file);
   }
+  // A stack settings file stands for its service (stackService): as `services/svc-<name>/<its path>`, so reachSelect
+  // treats it exactly as a change under that service. A service the map doesn't know (fix.mjs; or no usable map) keeps
+  // the file's own full reason, as before.
+  const asOwn = new Map();
+  for (const p of [...product]) {
+    const k = pathKind(p);
+    if (!k.service) continue;
+    if (reach?.map && (reach.map.services?.[k.service] || reach.map.subscribers?.includes(k.service))) asOwn.set(p, `${k.service}/${p}`);
+    else {
+      product.splice(product.indexOf(p), 1);
+      full.push({ path: printable(p), why: k.why });
+    }
+  }
+  const named = (text) => {
+    let t = String(text);
+    for (const [p, as] of asOwn) t = t.split(as).join(`${p} (as ${as.slice(0, -p.length - 1)})`);
+    return t;
+  };
   let because;
   if (product.length && !full.length && reach) {
     const sel = reachSelect({
       map: reach.map,
-      paths: product,
+      paths: product.map((p) => asOwn.get(p) ?? p),
       behind: reach.behind,
       atHead: reach.journeyFiles,
       subscribes: reach.subscribes,
@@ -140,9 +212,9 @@ export function journeyTouch(paths, atHead = () => true, reach = null) {
     });
     if (sel.mode === 'files') {
       for (const f of sel.files) files.add(f);
-      because = sel.because.map(printable);
-    } else for (const p of product) full.push({ path: printable(p), why: printable(sel.why) });
-  } else for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+      because = sel.because.map((l) => printable(named(l)));
+    } else for (const p of product) full.push({ path: printable(p), why: printable(named(sel.why)) });
+  } else for (const p of product) full.push({ path: printable(p), why: asOwn.has(p) ? pathKind(p).why : PRODUCT });
   full.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const list = [...files].sort();
   const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
