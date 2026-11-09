@@ -436,14 +436,15 @@ test(`${J} #2 proposes a new version with a blank taker fee: refused with a type
     a.page.on('request', (req) => {
       if (req.method() !== 'GET') sent.push(`${req.method()} ${new URL(req.url()).pathname}`);
     });
-    await form.getByLabel(`Taker bps, ${GROUP} / regular`).fill('');
+    // A row every version this file publishes carries (`SCHEDULE`), so this step needs no earlier step's version in force.
+    await form.getByLabel(`Taker bps, ${REGULAR.pairGroup} / ${REGULAR.tierId}`).fill('');
     await form.getByLabel('Takes effect at (UTC)').fill(typed(Date.now() + 3_600_000));
     await form.getByLabel('Reason (12 to 500 characters, kept in the audit)').fill(`LOCAL TEST ${J}: a version with no taker fee`);
     await form.getByRole('button', { name: 'Ask a second founder to approve' }).click();
 
     const refusal = a.page.locator('[data-fees=refused]');
     await expect(refusal).toContainText('trade.fee_schedule_blank');
-    await expect(refusal).toContainText(`The taker fee of ${GROUP} / regular is blank`);
+    await expect(refusal).toContainText(`The taker fee of ${REGULAR.pairGroup} / ${REGULAR.tierId} is blank`);
     await expect(refusal).toContainText('Nothing was sent.');
     await expect(a.page.locator('[data-fees=proposed]')).toHaveCount(0);
     // Long enough for a request the click started to have been sent.
