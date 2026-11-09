@@ -1,3 +1,4 @@
+import type { KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -1342,6 +1343,51 @@ export class AuthService {
     await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
     await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
     return id;
+  }
+
+  /**
+   * STAFF FIRST CONNECTION (J-ops-console-09 #2). An invited staff member sets their own password: this makes their
+   * identity account with the invited email, already confirmed (the one-time token reached that mailbox), and runs
+   * `claim` in the same transaction so the token is spent and the staff record bound to the account, or neither.
+   * The password passes the same rules as every sign-up. No session is opened: they sign in to the console after. As at
+   * sign-up, the browser it happened on (`deviceKey`, when it holds one) is trusted, so that first sign-in is not asked
+   * to approve itself.
+   */
+  async registerInvitedStaff(
+    input: { email: string; password: string; deviceKey?: string | null },
+    claim: (tx: Sql, userId: string) => Promise<void>,
+  ): Promise<string> {
+    const handle = `staff_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, { handle, email: input.email });
+      assertPasswordNotBreached(input.password);
+    });
+    const passwordHash = await hashPassword(input.password);
+    let userId: string;
+    try {
+      userId = await transaction(this.sql, async (tx) => {
+        const id = await this.insertNewUser(tx, { handle, email: input.email, password: input.password }, passwordHash);
+        await tx`UPDATE users SET email_verified_at = now() WHERE id = ${id}`;
+        await claim(tx, id);
+        return id;
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new AuthError('An account with that email already exists', 'auth.email_taken');
+      throw err;
+    }
+    await this.bus.publish('userCreated', { userId, handle }, { idempotencyKey: `user.created:${userId}` });
+    if (input.deviceKey) {
+      await trustDevice(this.sql, this.newDevicePolicy, {
+        userId,
+        label: deviceLabel(currentUserAgent()),
+        now: this.passwordResetNow(),
+        trustedBy: 'sign-up',
+        presentedKey: input.deviceKey,
+      });
+    }
+    this.log.warn({ audit: 'staff.first_connection', userId }, 'staff.first_connection');
+    return userId;
   }
 
   /** After the account is committed: announce it, award the first XP, open a (non-MFA) session. */
@@ -2843,6 +2889,8 @@ export class AuthService {
     requireSignature?: boolean;
     requireNonEmptyIpAllowlist?: boolean;
     ipAllowlist?: string[];
+    /** The key's rate limit for the edge (`installApiKeyRateExchange`); null while no tier is set. */
+    rateLimit?: KeyRateLimit | null;
   }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw await this.deadApiKeyRefusal(key);

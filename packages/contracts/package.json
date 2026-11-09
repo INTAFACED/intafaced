@@ -22,6 +22,10 @@
       "types": "./dist/account-controls.d.ts",
       "default": "./dist/account-controls.js"
     },
+    "./action-approval-policy": {
+      "types": "./dist/action-approval-policy.d.ts",
+      "default": "./dist/action-approval-policy.js"
+    },
     "./identity-staff": {
       "types": "./dist/identity-staff.d.ts",
       "default": "./dist/identity-staff.js"
@@ -234,6 +238,10 @@
       "types": "./dist/support-categories.d.ts",
       "default": "./dist/support-categories.js"
     },
+    "./support-safety": {
+      "types": "./dist/support-safety.d.ts",
+      "default": "./dist/support-safety.js"
+    },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"
@@ -329,6 +337,10 @@
     "./api-keys": {
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"
+    },
+    "./api-rate-limits": {
+      "types": "./dist/api-rate-limits.d.ts",
+      "default": "./dist/api-rate-limits.js"
     },
     "./trade-errors": {
       "types": "./dist/trade-errors.d.ts",

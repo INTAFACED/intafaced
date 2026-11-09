@@ -14,6 +14,7 @@ const switches = z
     down: z.boolean(),
     rampQuote: z.enum(['live', 'expired']),
     rampFee: z.enum(['known', 'unknown']),
+    accountDetails: z.enum(['none', 'issued']),
   })
   .strict();
 

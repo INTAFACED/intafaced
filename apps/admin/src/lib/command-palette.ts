@@ -62,6 +62,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/trade-ops/exports', label: 'Trade: exports', keywords: ['csv'] },
   { href: '/identity-ops/keys', label: 'Identity: signing keys', keywords: ['rotate', 'jwt'] },
   { href: '/identity-ops/oauth', label: 'Identity: OAuth apps' },
+  { href: '/identity-ops/limits', label: 'Identity: API limits' },
 ];
 
 /** Things an operator does, each opening the page where it is done. */

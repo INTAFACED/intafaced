@@ -89,6 +89,12 @@ export interface ReadSpec {
   readonly rowsKey?: string;
   /** List only: dotted path of a stable id inside a row. */
   readonly idKey?: string;
+  /**
+   * List only: keep only the rows whose value at this dotted path is exactly `equals` (one KYC case's documents out of the
+   * person's list). Whether the page is full is still judged on what the service sent, so a full page of other rows still says
+   * more may exist.
+   */
+  readonly rowsWhere?: { readonly key: string; readonly equals: string };
   /** List only, instead of `idKey`: the service gives these rows no id (a total per vendor and asset). They are shown by position and carry no row action. */
   readonly anonymousRows?: true;
   readonly columns: readonly Column[];
@@ -149,7 +155,8 @@ export type RowAction =
   | 'pay.deposit_travel_rule';
 
 /** A control that belongs to a whole section rather than to a row (it needs a typed target). */
-export type SectionAction = 'academy.ambassador.appoint' | 'bank.card.status' | 'pay.transfer.lookup' | 'bank.customer.balances';
+export type SectionAction =
+  'academy.ambassador.appoint' | 'bank.card.status' | 'bank.card.funding' | 'pay.transfer.lookup' | 'bank.customer.balances';
 
 /** A section that is drawn by its own component from the reads above it, not as a list or facts. */
 export type SectionPanel = 'protocol.blockers';

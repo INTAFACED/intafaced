@@ -101,6 +101,10 @@ function localMailBody(message: LocalMailMessage): string {
   if (purpose === 'handle-recovery') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} handle=${(message.handle ?? '').replace(/\s+/g, '')}\n`;
   }
+  if (purpose === 'staff-invite') {
+    // The console's first-connection page, relative to the console as the customer links are to the app.
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} link=staff-welcome?token=${encodeURIComponent(message.code)}\n`;
+  }
   if (purpose === 'withdraw-address-approval') {
     // The detail is a plain line; spaces become underscores so the line stays one field per word.
     const detail = (message.detail ?? '').replace(/[^A-Za-z0-9.:,()_-]+/g, '_');

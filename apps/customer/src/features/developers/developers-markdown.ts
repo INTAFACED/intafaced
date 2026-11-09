@@ -8,6 +8,7 @@ import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
 import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
 import { developersCopy } from './developers-copy';
+import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
 import { docsCopy } from './developers-docs-copy';
 import { causeKey, fixKey, tradeErrorsCopy } from './errors/trade-errors-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
@@ -27,6 +28,7 @@ import {
 
 const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
+const limits = rateLimitsCopy.forLocale('en').t;
 const tradeErrors = tradeErrorsCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
 
@@ -38,7 +40,7 @@ const code = (text: string) => `\`${text}\``;
 const sectionTarget = (section: Section) =>
   section.page ? `/developers/${section.id}` : section.published ? section.published.href : portal('waitsFor', { slice: section.waitsFor });
 
-/** Pages of this portal that read live data (notices an operator publishes), so they have no static markdown variant. */
+/** Pages of this portal that read live notices an operator publishes, so they have no static markdown variant. */
 const LIVE_PAGES = ['status', 'changelog'] as const;
 
 export type DocsPage = { slug: string; title: string; summary: string; body: () => string };
@@ -160,6 +162,29 @@ export const DOCS_PAGES: readonly DocsPage[] = [
             ]),
           ],
         ),
+      ].join('\n\n'),
+  },
+  {
+    // The written part of the rate-limits page; its numbers are the owner's and are read live (DV-limits-01 to 03).
+    slug: 'rate-limits',
+    title: sectionTitle('rate-limits'),
+    summary: limits('lead'),
+    body: () =>
+      [
+        limits('lead'),
+        `## ${limits('modelTitle')}`,
+        limits('modelBucket'),
+        limits('modelCost'),
+        limits('modelReplica'),
+        limits('liveNumbers'),
+        `## ${limits('refusalTitle')}`,
+        limits('refusalBody'),
+        limits('refusalHeaders'),
+        `## ${limits('backoffTitle')}`,
+        limits('backoffBody'),
+        limits('backoffExample'),
+        `## ${limits('formTitle')}`,
+        limits('formLead'),
       ].join('\n\n'),
   },
   {
