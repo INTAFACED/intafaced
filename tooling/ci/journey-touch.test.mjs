@@ -471,3 +471,37 @@ test('CI review: an empty run (nothing to run, or a draft) never stands in for t
   assert.match(v.lines.join('\n'), /none has finished/);
   assert.match(v.lines.join('\n'), /not a full run \(no step from 2 journey file/);
 });
+
+test('root Markdown runs no journeys because nothing the journeys run executes reads a root Markdown file (CI review on c8dccd77)', () => {
+  // What the Real-app journeys run executes: its workflow, the actions it uses, every script the workflow runs, and the
+  // journey files, followed through their relative imports. If any of them reads a root Markdown file (a read call
+  // and the file's name on one line of code, not a comment), a change to that file could break a journey, and the rule
+  // that root Markdown runs none would be wrong. A name in a message or a path list is not a read.
+  const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
+  const rootMd = git('ls-files').filter((f) => /^[^/]+\.md$/.test(f));
+  assert.ok(rootMd.includes('AGENTS.md') && rootMd.includes('README.md'), 'the root Markdown files are listed');
+  const WORKFLOW = '.github/workflows/real-app-journeys.yml';
+  const workflow = readFileSync(join(ROOT, WORKFLOW), 'utf8');
+  const scripts = [...workflow.matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts))\b/g)].map((m) => m[1]);
+  assert.ok(scripts.includes('tooling/scripts/local-test-stack.mjs'), 'the workflow runs the stack script');
+  const queue = [WORKFLOW, ...git('ls-files', '.github/actions'), ...scripts, ...git('ls-files', 'apps/customer/tests/real-app')];
+  const seen = new Set();
+  const names = new RegExp(`(^|[^\\w/.-])(${rootMd.map((f) => f.replace(/\./g, '\\.')).join('|')})`);
+  const reads =
+    /\b(readFile|readFileSync|createReadStream|existsSync|statSync|openSync)\(|\bfetch\(|(^|[;&|]|\$\(|run:)\s*(cat|cp|head|tail|grep|sed|git show)\s|<\s*\S+\.md\b/;
+  const named = [];
+  while (queue.length) {
+    const f = normalize(queue.shift());
+    if (seen.has(f) || !existsSync(join(ROOT, f))) continue;
+    seen.add(f);
+    const text = readFileSync(join(ROOT, f), 'utf8');
+    text.split('\n').forEach((line, i) => {
+      const code = line.replace(/^\s*(\/\/|\*|\/\*|#).*$/, '').replace(/\s\/\/.*$/, '');
+      if (names.test(code) && reads.test(code)) named.push(`${f}:${i + 1}`);
+    });
+    for (const m of text.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
+      queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
+  }
+  assert.ok(seen.size > 50, `followed the journeys run's files (${seen.size})`);
+  assert.deepEqual(named, [], 'nothing the journeys run executes reads a root Markdown file');
+});
