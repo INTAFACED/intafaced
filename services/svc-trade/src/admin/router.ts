@@ -40,6 +40,7 @@ const chartOwnerValueSet = z.discriminatedUnion('key', [
   chartCountSet('delayedBoundarySeconds', 86_400),
   chartCountSet('renderBudgetMs', 60_000),
   chartCountSet('orderProtectionBps', 10_000),
+  chartCountSet('queueFillWindowSeconds', 86_400),
   z
     .object({
       key: z.literal('dataClass'),
