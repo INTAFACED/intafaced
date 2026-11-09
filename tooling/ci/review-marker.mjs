@@ -3,7 +3,7 @@
  * Merge-seal step: a pull request that changes gate-file or look-baseline paths is sealed only when
  * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head, and
  * one that changes a journey test or shared test code only when the same job passed its `Test verdict` step there
- * (JUDGE_CHECK; the review's call and the test part's own reader call, one job).
+ * (JUDGE_CHECK; one model call answers both).
  *
  *   node tooling/ci/review-marker.mjs --self-test
  *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
@@ -50,10 +50,8 @@ export const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
 export const REVIEW_JOB = 'CI review';
 export const VERDICT_STEP = 'Verdict';
 /**
- * The two verdicts the seal reads from REVIEW_WORKFLOW's one job, REVIEW_JOB (U4, project-state #1574: "Fold the AI
- * test judge into the one CI review, so a PR has one AI judge"), each from its own call since 9 Nov 2026 (the test part
- * asks the proof reader's question on the readers' model; its `Read the steps` step runs on through a failure, so a
- * reader's failure leaves no Test verdict pass and voids no review pass): the review's part
+ * The two verdicts the seal reads from REVIEW_WORKFLOW's one job, REVIEW_JOB, made from one model call per head (U4,
+ * project-state #1574: "Fold the AI test judge into the one CI review, so a PR has one AI judge"): the review's part
  * (gate files and look baselines, reviewReason) in its `Verdict` step, and the test part (journey tests and shared test
  * code, test-judge.mjs judgeReason) in its `Test verdict` step. They stay two steps so each blocks only what it always
  * blocked: a review FAIL on a test-only change doesn't block, and a test FAIL blocks whatever the review says. Both are

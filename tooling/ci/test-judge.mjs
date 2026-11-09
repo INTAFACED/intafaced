@@ -8,7 +8,7 @@
  * job until U4 (project-state #1574: "Fold the AI test judge into the one CI review, so a PR has one AI judge").
  *
  *   node tooling/ci/test-judge.mjs judge  <out dir>   the Test verdict step: the job summary, exit 1 on FAIL, 0 on PASS
- *   node tooling/ci/test-judge.mjs local --repo <clone> --base <sha> --head <sha> --words <project-state dir> [--title <t>] <out dir>
+ *   node tooling/ci/test-judge.mjs local --repo <clone> --base <sha> --head <sha> --words <project-state dir> <out dir>
  *                                                     the test part's input alone from a local clone, for the proof runs
  *
  * Why it exists: proof v2's post-merge reach reads voided 545 proofs over one harness change that, judged once in its
@@ -56,26 +56,6 @@ export const MAX_OWN_STEPS = 150;
 /** Steps a shared or file-level change reaches, sampled so the judge sees what the tests rely on. */
 export const SAMPLE_STEPS = 24;
 const SHA40 = /^[0-9a-f]{40}$/;
-
-// ── The reader's question (project-state tooling/proof-v2/READER.md step 3) ──────────────────────────────────────────
-
-/** A step read's verdicts, READER.md's: every outcome asserted against the running stack, or not, or another outcome. */
-export const READ_VERDICTS = ['FAITHFUL', 'WEAK', 'MISMATCH'];
-/** Where the count of record files a PR's carried read (project-state carry-read.mjs); its 15% sample hashes this path. */
-export const finalReadPath = (pr) => `research/proof-v2/reads/step-pr${pr}.json`;
-/** A step as the count keys it: `J-x-01#3` (project-state v2.mjs), from this file's `J-x-01 #3`. */
-export const countKey = (step) => String(step).replace(/\s+/g, '');
-/** The count's money steps (project-state tooling/proof-v2/v2.mjs isMoney): wallet, bank, pay, J-ops-console-27. */
-export const countMoney = (step) => /^J-(wallet|bank|pay)-\d+#/.test(countKey(step)) || countKey(step).startsWith('J-ops-console-27#');
-/** The count's 15% sample (v2.mjs inSample, SAMPLE 0.15): the same hash of the step and the read's final path. */
-export function countSample(step, readPath) {
-  const h = createHash('sha256')
-    .update(`${countKey(step)}|${readPath}`)
-    .digest();
-  return h.readUInt32BE(0) / 2 ** 32 < 0.15;
-}
-/** Why a read step needs the count's second, blind reader, else null (request.mjs `second`). */
-export const secondReason = (step, pr) => (countMoney(step) ? 'money step' : countSample(step, finalReadPath(pr)) ? '15% sample' : null);
 
 /** Why the seal needs the test judge for this change, or null. An empty file list fails closed. */
 export function judgeReason(files) {
@@ -476,19 +456,19 @@ export function changedNames(text, lines) {
 
 // ── The step words ────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** The journey lines a reader reads with each step (project-state tooling/proof-v2/words.mjs FIELDS, READER.md step 3). */
+/** The journey lines the proof reader reads besides the step's row (step-read.mjs; project-state READER.md step 3). */
 export const WORD_FIELDS = ['Starts', 'Ends', 'Money', 'Outside'];
 
 /**
  * One acceptance file's steps: Map<'J-x-01 #3', { title, does, sees, fields }>: the "does" and "sees" cells, and the
- * journey's Starts, Ends, Money and Outside lines (`fields`, the first of each), the words READER.md's reader reads.
+ * journey's Starts, Ends, Money and Outside lines (`fields`, the first of each), which only the proof read uses.
  */
 export function parseStepWords(md) {
   const out = new Map();
   let journey = null;
   let title = '';
-  let cols = null;
   let fields = {};
+  let cols = null;
   const cells = (line) =>
     line
       .trim()
@@ -554,32 +534,19 @@ export const fence = (s) =>
 const stable = (s, salt) => createHash('sha256').update(`${salt}|${s}`).digest('hex');
 
 /**
- * Everything the test part needs, from a `src` that reads text at a sha: `diff(base, head)` (the pull request's diff from
+ * Everything the judge needs, from a `src` that reads text at a sha: `diff(base, head)` (the pull request's diff from
  * the merge base, and that merge base), `read(sha, path)` (null when absent), `journeys()` (the journey files on the
  * default branch) and `readGraph(path)` (the default branch's copy, for what the journeys import). `loadWords()` gives
- * { words: Map of step words, ref }, and is called only when a step needs reading. `title` and `body` are the event's
- * pull request's: the steps the title names, less those a `Left-or-replaced:` line leaves (journey-seal.mjs), are read
- * like the steps whose own test changed. Pure apart from `src` and `loadWords`, so the tests run offline.
- * Returns { applicable, why, prompt?, second?, required?, deterministic: [{ step, line }], facts, shingleTexts, read }.
+ * { words: Map of step words, ref }, and is called only when a step needs judging. Pure apart from `src` and
+ * `loadWords`, so the tests run offline.
+ * Returns { applicable, why, prompt?, required?, schema?, deterministic: [{ step, line }], facts, shingleTexts }.
  */
-export async function buildInputs({ src, base, head, pr, brief, loadWords, title = '', body = '' }) {
+export async function buildInputs({ src, base, head, pr, brief, loadWords, lead = '', reviewDiff }) {
   const { diff, mergeBase } = await src.diff(base, head);
   const files = parseDiff(diff);
   const judged = files.filter((f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath)));
-  // Loaded here, not at the top: journey-seal.mjs reaches this file again through review-marker.mjs.
-  const { titleSteps, exemptions } = await import('./journey-seal.mjs');
-  const leftOut = exemptions(body).steps;
-  const claimed = new Set(
-    titleSteps(title)
-      .filter((k) => !leftOut.has(k))
-      .map((k) => k.replace('#', ' #')),
-  );
-  if (judged.length === 0 && claimed.size === 0)
-    return { applicable: false, why: 'no journey test or shared test code changed, and the title claims no step' };
-  // A pull request that changes no test reads its claimed steps' tests as main has them: its product diff is no part of
-  // the read, so it is neither sent nor counted against the cap.
-  const testDiff = judged.length > 0;
-  if (testDiff && Buffer.byteLength(diff) > MAX_DIFF_BYTES)
+  if (judged.length === 0) return { applicable: false, why: 'no journey test or shared test code changed' };
+  if (Buffer.byteLength(diff) > MAX_DIFF_BYTES)
     return {
       applicable: true,
       tooLarge: `the diff is ${Buffer.byteLength(diff)} bytes, over ${MAX_DIFF_BYTES}; it can't be judged whole; split the pull request`,
@@ -605,7 +572,6 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, title
 
   const declared = []; // journey files whose const J disagrees with their name: a FAIL line, without the model
   const own = new Set(); // steps whose own test changed
-  const ownFiles = new Set(); // the journey files those tests are in, given whole
   const reached = new Map(); // step -> journey file, reached by a shared or file-level change
   const changes = []; // { file, kind, reaches, names }
   const testText = new Map(); // step -> its test body (head, else graph)
@@ -636,7 +602,6 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, title
             declared.push({ step: `${f.path}`, line: `${f.path} ${why}; the judge can't tell which journey's words its tests answer to` });
         }
       for (const s of t.own) own.add(s);
-      if (t.own.size) ownFiles.add(f.path);
       if (t.fileLevel) {
         changes.push({ file: f.path, kind: 'file-level', reaches: t.all.size, journeys: 1 });
         for (const s of t.all) if (!t.own.has(s)) reached.set(s, f.path);
@@ -653,47 +618,14 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, title
     for (const jf of users) for (const s of allStepsOf(jf)) if (!own.has(s)) (reached.set(s, reached.get(s) ?? jf), n++);
     changes.push({ file: f.path, kind: 'shared', reaches: n, journeys: users.length, names: [...names] });
   }
-
-  // The steps read (READER.md step 3): each step whose own test changed, and each the title claims, by its test at the
-  // head, in whichever file of its journey holds it (a journey split across files, J-identity-06-apps.pw.mjs, included).
-  const headTests = new Map(); // step -> { file, text } at the head
-  const headFiles = new Map(); // journey file -> its whole text at the head
-  const wanted = new Set([...own, ...claimed].map((s) => s.split(' #')[0]));
-  for (const jf of journeyFiles) {
-    const j = journeyOfFile(jf);
-    if (!wanted.has(j)) continue;
-    const text = after.has(jf) ? after.get(jf) : await src.read(head, jf);
-    if (text != null) headFiles.set(jf, text);
-    const lines = String(text ?? '').split('\n');
-    for (const t of testsIn(text, j))
-      if (!headTests.has(t.step)) headTests.set(t.step, { file: jf, text: lines.slice(t.start - 1, t.end).join('\n') });
-  }
-  const readable = [...new Set([...own, ...claimed])].filter((s) => headTests.has(s)).sort();
-  // A step whose own test the pull request removed can't be read as proving its step: a FAIL line, without the model.
-  const gone = [...own].filter((s) => !headTests.has(s)).sort();
-  // A claimed step with no test at the head is the seal's to refuse (its run shows no such step), not a read.
-  const notRead = [...claimed].filter((s) => !headTests.has(s)).map((s) => ({ step: s, why: 'no test for it at the head' }));
-  for (const s of readable) reached.delete(s);
-  if (readable.length === 0 && gone.length === 0 && changes.length === 0 && declared.length === 0)
-    return { applicable: false, why: 'no step to read, and the changed shared test code reaches no journey step' };
-  if (readable.length > MAX_OWN_STEPS)
+  for (const s of own) reached.delete(s);
+  if (own.size === 0 && changes.length === 0) return { applicable: false, why: 'the changed shared test code reaches no journey step' };
+  if (own.size > MAX_OWN_STEPS)
     return {
       applicable: true,
-      tooLarge: `${readable.length} steps to read, over ${MAX_OWN_STEPS}; they can't be read whole in one call; split the pull request`,
+      tooLarge: `${own.size} steps' own tests changed, over ${MAX_OWN_STEPS}; they can't be judged whole in one call; split the pull request`,
     };
   const { words: stepWords, ref: wordsRef } = await loadWords();
-  // A step whose own test changed but whose words can't be found is a gap in what the judge was given, not a verdict on
-  // the test: no verdict at all (the job fails before any verdict step), and a re-run once the words are found decides.
-  // (Failure it prevents: #7540 sat 7.8 h on three FAILs that said "no step words" for a split journey file.)
-  const noWords = readable.filter((s) => !stepWords.has(s));
-  const ownNoWords = noWords.filter((s) => own.has(s));
-  if (ownNoWords.length)
-    return {
-      applicable: true,
-      noVerdict: `no step words for ${ownNoWords.join(', ')} at project-state ${wordsRef}: the judge can't read a test against words it can't find; this is no verdict (re-run once project-state holds them, or the test names its journey's id)`,
-    };
-  for (const s of noWords) notRead.push({ step: s, why: `no step words at project-state ${wordsRef}` });
-  const reads = readable.filter((s) => stepWords.has(s));
 
   // The sample: steps whose tests name a changed shared name first, then a fixed spread, one per journey at a time.
   const names = new Set(changes.flatMap((c) => c.names ?? []));
@@ -710,196 +642,167 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, title
       seenJ.add(j);
     }
   for (const s of pool) if (sample.length < Math.min(SAMPLE_STEPS, pool.length) && !sample.includes(s)) sample.push(s);
-  sample.sort();
 
-  const deterministic = [
-    ...declared,
-    ...gone.map((s) => ({ step: s, line: `${s}: the pull request removes its test, so nothing at the head proves the step` })),
-  ];
-  // A read blocks only when its step's own test changed: what the test part rules on must be the code, since its FAIL
-  // stands for the code (review-marker.mjs) and a title edit starts no run. A claimed step whose test the pull request
-  // leaves as it is gets its read all the same, recorded and shown (the `proof v2 read` status), never a block.
-  const required = { reads, steps: sample, changes: changes.map((c) => c.file), blocking: reads.filter((s) => own.has(s)) };
-  const second = reads.filter((s) => secondReason(s, pr));
-  const read = {
-    wordsRef,
-    steps: reads.map((s) => ({
-      step: s,
-      test_file: headTests.get(s).file,
-      own: own.has(s),
-      claimed: claimed.has(s),
-      second: secondReason(s, pr),
-    })),
-    notRead,
-  };
+  // A step whose test changed but that has no words can't be judged adequate to them: a FAIL line, without the model.
+  const deterministic = [...declared];
+  const ownList = [...own].sort();
+  for (const s of ownList)
+    if (!stepWords.has(s))
+      deterministic.push({
+        step: s,
+        line: `no step words for ${s} at project-state ${wordsRef}; a test can't be judged against words that don't exist`,
+      });
+  const judgedSteps = ownList.filter((s) => stepWords.has(s));
+  const required = { steps: [...judgedSteps, ...sample.sort()], changes: changes.map((c) => c.file) };
   // The set-aside's facts, decided here rather than by the judge (setAsideRefusal): money from the default branch (no
   // money source: every step counts as money), the steps whose own test changed, and the head's set-aside length.
   const isMoney = src.money ? await src.money() : () => true;
   const setAsideText = await src.read(head, SET_ASIDE_CODE);
   const setAside = {
-    money: sample.filter((s) => isMoney(s)),
-    own: [...own].sort(),
+    money: required.steps.filter((s) => isMoney(s)),
+    own: judgedSteps,
     days: setAsideDays(setAsideText),
     mainDays: mainSetAsideDays(src.readGraph(SET_ASIDE_CODE)),
     retry: retryProblem(await src.read(head, SET_ASIDE_FILES[0])),
     touches: files.some((f) => SET_ASIDE_FILES.includes(f.path) || SET_ASIDE_READERS.includes(f.path)),
   };
-  const facts = {
-    own: own.size,
-    claimed: claimed.size,
-    reads: reads.length,
-    second: second.length,
-    reached: reached.size,
-    sample: sample.length,
-  };
-  if (reads.length === 0 && sample.length === 0 && required.changes.length === 0)
-    return { applicable: true, wordsRef, deterministic, required, setAside, read, facts: { ...facts, changes } };
-
-  const setAsideFacts = [
-    "\nSET-ASIDE FACTS (decided by the judge's code, from the default branch and the head; trusted)",
-    `money steps among those listed (never set aside): ${setAside.money.join('; ') || '(none)'}`,
-    `steps whose own test changed (never set aside): ${setAside.own.join('; ') || '(none)'}`,
-    `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${setAsideCap(setAside.mainDays) ?? '(none: main is unreadable)'}; the default branch's: ${setAside.mainDays})`,
-    `the retry's file: ${setAside.retry === null ? `retries appears only as ${RETRY_FORM} (one line, nowhere else but line comments); the judge still checks nothing else sets it (retryOnce)` : `refused: ${setAside.retry}`}`,
-    `a change may answer set-aside only for: ${SET_ASIDE_FILES.join(', ')}`,
-  ].join('\n');
-  const wordLines = (s, tag) => {
-    const w = stepWords.get(s);
-    const fields = WORD_FIELDS.filter((k) => w.fields?.[k]).map((k) => `  ${k}: ${w.fields[k]}`);
-    return [`${s} [${tag}]`, `  Journey: ${w.title}`, ...fields, `  The person does: ${w.does}`, `  They see: ${w.sees}`].join('\n');
-  };
-  const readTag = (s) => `read: ${own.has(s) ? 'its own test changed' : 'the title claims it'}`;
-  const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
-  const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));
-  const setAsideShown = /\bSET_ASIDE_DAYS\b/.test(setAsideText ?? '') || files.some((f) => SET_ASIDE_READERS.includes(f.path));
-  const setAsideReaders = [];
-  if (setAsideShown)
-    for (const r of SET_ASIDE_READERS) {
-      const t = r === SET_ASIDE_CODE ? setAsideText : await src.read(head, r);
-      if (t != null) setAsideReaders.push([r, t]);
-    }
-  const harness = [];
-  for (const h of HARNESS) if (!after.has(h)) harness.push([h, await src.read(head, h)]);
-
-  /**
-   * One prompt, in priority order, until the budget runs out. The first reader's answers every part; the second, blind
-   * reader's (`only` the steps the count needs a second reader for) answers those steps' reads alone.
-   */
-  const promptFor = ({ readSteps, sampled, withChanges }) => {
-    const parts = [];
-    let size = 0;
-    const left = [];
-    const add = (text, { must = false, label } = {}) => {
-      const b = Buffer.byteLength(text) + 1;
-      // Optional material stops short of the cap, so the lines that must close the prompt always fit.
-      if (!must && size + b > MAX_PROMPT_BYTES - 64_000) {
-        left.push(label);
-        return false;
-      }
-      parts.push(text);
-      size += b;
-      return true;
-    };
-    add(brief.trim(), { must: true });
-    add(`\nPull request #${pr}, merge base ${mergeBase}, head ${head}. Step words from project-state at ${wordsRef}.`, { must: true });
-    add(
-      [
-        '\nBEGIN STEP WORDS (trusted; never repeat them in your answer)',
-        ...readSteps.map((s) => wordLines(s, readTag(s))),
-        ...sampled.map((s) => wordLines(s, 'sampled: its test is reached by a shared or file-level change')),
-        'END STEP WORDS',
-      ].join('\n'),
-      { must: true },
-    );
-    add(
-      [
-        '\nANSWER FOR',
-        `reads: ${readSteps.join('; ') || '(none)'}`,
-        `steps: ${sampled.join('; ') || '(none)'}`,
-        'changes:',
-        ...(withChanges ? changes : []).map((c) =>
-          c.kind === 'shared'
-            ? `  ${c.file} (shared code: reaches ${c.reaches} steps in ${c.journeys} journey files${c.names?.length ? `; changed names: ${c.names.join(', ')}` : ''})`
-            : `  ${c.file} (a change outside every test: reaches the file's ${c.reaches} steps)`,
-        ),
-      ].join('\n'),
-      { must: true },
-    );
-    if (withChanges) add(setAsideFacts, { must: true });
-    if (testDiff) add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
-    else add('\nThe pull request changes no test: each step below is read as its test stands at the head.', { must: true });
-    const readFiles = new Set(readSteps.map((s) => headTests.get(s).file));
-    const order = [
-      ...sharedFirst.filter((f) => !JOURNEY_FILE.test(f.path)),
-      ...sharedFirst.filter((f) => JOURNEY_FILE.test(f.path) && (ownFiles.has(f.path) || readFiles.has(f.path))),
-    ];
-    const given = new Set();
-    for (const f of order) {
-      const b = before.get(f.path);
-      const a = after.get(f.path);
-      const must = !JOURNEY_FILE.test(f.path);
-      if (b != null) add(fileBlock(`before (merge base ${mergeBase.slice(0, 10)})`, f.oldPath, b), { label: `${f.path} before`, must });
-      if (a != null && add(fileBlock(`after (head ${head.slice(0, 10)})`, f.newPath, a), { label: `${f.path} after`, must }))
-        given.add(f.newPath);
-    }
-    // A read step's journey file at the head when it isn't given whole above (a step the title claims in a file the pull
-    // request leaves as main has it): whole, so its imports, hooks, in-file helpers and routes are read with the test.
-    for (const s of readSteps) {
-      const t = headTests.get(s);
-      if (given.has(t.file)) continue;
-      add(fileBlock(`unchanged, holding the read step ${s} (head ${head.slice(0, 10)})`, t.file, headFiles.get(t.file) ?? t.text), {
-        must: true,
-      });
-      given.add(t.file);
-    }
-    // The set-aside and its readers, whole: the judge reads its conditions there.
-    if (withChanges) for (const [r, t] of setAsideReaders) add(fileBlock(`after (head ${head.slice(0, 10)})`, r, t), { must: true });
-    for (const [h, t] of harness)
-      if (t != null) add(fileBlock(`unchanged (head ${head.slice(0, 10)})`, h, t), { label: `${h} (unchanged harness)` });
-    for (const s of sampled) {
-      const t = testText.get(s);
-      if (t)
-        add(`\nBEGIN UNTRUSTED TEST ${s} (sampled, from ${reached.get(s)})\n${fence(t)}\nEND UNTRUSTED TEST`, {
-          label: `the test of ${s}`,
-        });
-    }
-    if (withChanges)
-      for (const f of sharedFirst.filter((f) => JOURNEY_FILE.test(f.path) && !ownFiles.has(f.path) && !readFiles.has(f.path))) {
-        // Whole journey files whose change sits outside every test add context, not evidence: the diff shows the
-        // change, so they stop at FILE_LEVEL_BYTES and the rest are named as left out.
-        const a = after.get(f.path);
-        if (a == null) continue;
-        if (size > FILE_LEVEL_BYTES) left.push(`${f.path} after`);
-        else add(fileBlock(`after (head ${head.slice(0, 10)})`, f.newPath, a), { label: `${f.path} after` });
-      }
-    if (left.length) add(`\nLeft out for size (judge these from the diff): ${left.join('; ')}`, { must: true });
-    add('\nAnswer with the structured verdict only.', { must: true });
-    return { text: parts.join('\n'), size, left: left.length };
-  };
-  const first = promptFor({ readSteps: reads, sampled: sample, withChanges: true });
-  if (first.size > MAX_PROMPT_BYTES)
+  if (required.steps.length === 0 && required.changes.length === 0)
     return {
       applicable: true,
-      tooLarge: `the shared files and the diff alone are ${first.size} bytes, over ${MAX_PROMPT_BYTES}; they can't be judged whole; split the pull request`,
+      wordsRef,
+      deterministic,
+      required,
+      setAside,
+      facts: { own: own.size, reached: reached.size, sample: 0, changes },
     };
-  const secondPrompt = second.length ? promptFor({ readSteps: second, sampled: [], withChanges: false }).text : null;
 
-  const shingleTexts = [...reads, ...sample].flatMap((s) => {
+  // The prompt, in priority order, until the budget runs out.
+  const parts = [];
+  let size = 0;
+  const left = [];
+  const add = (text, { must = false, label } = {}) => {
+    const b = Buffer.byteLength(text) + 1;
+    // Optional material stops short of the cap, so the lines that must close the prompt always fit.
+    if (!must && size + b > MAX_PROMPT_BYTES - 64_000) {
+      left.push(label);
+      return false;
+    }
+    parts.push(text);
+    size += b;
+    return true;
+  };
+  // `lead` (the CI review's brief and its own diff, ci-review.mjs) heads the one prompt and counts toward its size.
+  if (lead) add(lead, { must: true });
+  add(brief.trim(), { must: true });
+  add(`\nPull request #${pr}, merge base ${mergeBase}, head ${head}. Step words from project-state at ${wordsRef}.`, { must: true });
+  const wordLines = (s, tag) => {
     const w = stepWords.get(s);
-    return [w.title, w.does, w.sees, ...WORD_FIELDS.map((k) => w.fields?.[k] ?? '')];
+    return `${s} [${tag}]\n  Journey: ${w.title}\n  The person does: ${w.does}\n  They see: ${w.sees}`;
+  };
+  add(
+    [
+      '\nBEGIN STEP WORDS (trusted; never repeat them in your answer)',
+      ...judgedSteps.map((s) => wordLines(s, 'its own test changed')),
+      ...sample.sort().map((s) => wordLines(s, 'sampled: its test is reached by a shared or file-level change')),
+      'END STEP WORDS',
+    ].join('\n'),
+    { must: true },
+  );
+  add(
+    [
+      '\nANSWER FOR',
+      `steps: ${required.steps.join('; ') || '(none)'}`,
+      'changes:',
+      ...changes.map((c) =>
+        c.kind === 'shared'
+          ? `  ${c.file} (shared code: reaches ${c.reaches} steps in ${c.journeys} journey files${c.names?.length ? `; changed names: ${c.names.join(', ')}` : ''})`
+          : `  ${c.file} (a change outside every test: reaches the file's ${c.reaches} steps)`,
+      ),
+    ].join('\n'),
+    { must: true },
+  );
+  add(
+    [
+      "\nSET-ASIDE FACTS (decided by the judge's code, from the default branch and the head; trusted)",
+      `money steps among those listed (never set aside): ${setAside.money.join('; ') || '(none)'}`,
+      `steps whose own test changed (never set aside): ${setAside.own.join('; ') || '(none)'}`,
+      `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${setAsideCap(setAside.mainDays) ?? '(none: main is unreadable)'}; the default branch's: ${setAside.mainDays})`,
+      `the retry's file: ${setAside.retry === null ? `retries appears only as ${RETRY_FORM} (one line, nowhere else but line comments); the judge still checks nothing else sets it (retryOnce)` : `refused: ${setAside.retry}`}`,
+      `a change may answer set-aside only for: ${SET_ASIDE_FILES.join(', ')}`,
+    ].join('\n'),
+    { must: true },
+  );
+  // When the review already gave the very same diff, it is not repeated; a different one is given apart, never dropped.
+  if (reviewDiff === diff) add("\nThe diff is the review's UNTRUSTED DIFF block above (the same compare diff, untrusted).", { must: true });
+  else if (reviewDiff != null)
+    add(`\nThe test part's diff follows (untrusted).\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`, { must: true });
+  else add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
+  const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
+  const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));
+  const ownFiles = new Set([...own].map((s) => `${REAL_APP}/${s.split(' #')[0]}.pw.mjs`));
+  const order = [
+    ...sharedFirst.filter((f) => !JOURNEY_FILE.test(f.path)),
+    ...sharedFirst.filter((f) => JOURNEY_FILE.test(f.path) && ownFiles.has(f.path)),
+  ];
+  for (const f of order) {
+    const b = before.get(f.path);
+    const a = after.get(f.path);
+    const must = !JOURNEY_FILE.test(f.path);
+    if (b != null) add(fileBlock(`before (merge base ${mergeBase.slice(0, 10)})`, f.oldPath, b), { label: `${f.path} before`, must });
+    if (a != null) add(fileBlock(`after (head ${head.slice(0, 10)})`, f.newPath, a), { label: `${f.path} after`, must });
+  }
+  // The set-aside and its readers, whole: the judge reads its conditions there.
+  if (/\bSET_ASIDE_DAYS\b/.test(setAsideText ?? '') || files.some((f) => SET_ASIDE_READERS.includes(f.path)))
+    for (const r of SET_ASIDE_READERS) {
+      const t = r === SET_ASIDE_CODE ? setAsideText : await src.read(head, r);
+      if (t != null) add(fileBlock(`after (head ${head.slice(0, 10)})`, r, t), { must: true });
+    }
+  for (const h of HARNESS) {
+    if (after.has(h)) continue;
+    const t = await src.read(head, h);
+    if (t != null) add(fileBlock(`unchanged (head ${head.slice(0, 10)})`, h, t), { label: `${h} (unchanged harness)` });
+  }
+  for (const s of sample) {
+    const t = testText.get(s);
+    if (t)
+      add(`\nBEGIN UNTRUSTED TEST ${s} (sampled, from ${reached.get(s)})\n${fence(t)}\nEND UNTRUSTED TEST`, { label: `the test of ${s}` });
+  }
+  for (const f of sharedFirst.filter((f) => JOURNEY_FILE.test(f.path) && !ownFiles.has(f.path))) {
+    // Whole journey files whose change sits outside every test add context, not evidence: the diff shows the change,
+    // so they stop at FILE_LEVEL_BYTES and the rest are named as left out.
+    const a = after.get(f.path);
+    if (a == null) continue;
+    if (size > FILE_LEVEL_BYTES) left.push(`${f.path} after`);
+    else add(fileBlock(`after (head ${head.slice(0, 10)})`, f.newPath, a), { label: `${f.path} after` });
+  }
+  if (left.length) add(`\nLeft out for size (judge these from the diff): ${left.join('; ')}`, { must: true });
+  add('\nAnswer with the structured verdict only.', { must: true });
+  if (size > MAX_PROMPT_BYTES)
+    return {
+      applicable: true,
+      tooLarge: `the shared files and the diff alone are ${size} bytes, over ${MAX_PROMPT_BYTES}; they can't be judged whole; split the pull request`,
+    };
+
+  const shingleTexts = [...judgedSteps, ...sample].flatMap((s) => {
+    const w = stepWords.get(s);
+    return [w.title, w.does, w.sees];
   });
   return {
     applicable: true,
     wordsRef,
-    prompt: first.text,
-    second: secondPrompt,
-    secondRequired: { reads: second, steps: [], changes: [], blocking: second.filter((s) => own.has(s)) },
+    prompt: parts.join('\n'),
     required,
     deterministic,
     setAside,
-    read,
     shingleTexts,
-    facts: { ...facts, changes: changes.map(({ names: _n, ...c }) => c), left: first.left, bytes: first.size },
+    facts: {
+      own: own.size,
+      reached: reached.size,
+      sample: sample.length,
+      changes: changes.map(({ names: _n, ...c }) => c),
+      left: left.length,
+      bytes: size,
+    },
   };
 }
 
@@ -910,26 +813,11 @@ const CONDITION = {
   required: ['holds', 'why'],
   additionalProperties: false,
 };
-const READ_ITEMS = {
-  type: 'array',
-  items: {
-    type: 'object',
-    properties: {
-      step: { type: 'string' },
-      verdict: { type: 'string', enum: READ_VERDICTS },
-      refusal: { type: 'boolean' },
-      note: { type: 'string' },
-    },
-    required: ['step', 'verdict', 'refusal', 'note'],
-    additionalProperties: false,
-  },
-};
 /** The structured answer the judge must give (the reviewer CLI, -p --json-schema). */
 export const JUDGE_SCHEMA = {
   type: 'object',
   properties: {
     verdict: { type: 'string', enum: ['PASS', 'FAIL'] },
-    reads: READ_ITEMS,
     steps: {
       type: 'array',
       items: {
@@ -958,14 +846,7 @@ export const JUDGE_SCHEMA = {
       additionalProperties: false,
     },
   },
-  required: ['verdict', 'reads', 'steps', 'changes', 'setAside'],
-  additionalProperties: false,
-};
-/** The second, blind reader's answer: its reads alone. */
-export const SECOND_SCHEMA = {
-  type: 'object',
-  properties: { verdict: JUDGE_SCHEMA.properties.verdict, reads: READ_ITEMS },
-  required: ['verdict', 'reads'],
+  required: ['verdict', 'steps', 'changes', 'setAside'],
   additionalProperties: false,
 };
 
@@ -999,22 +880,9 @@ export function readTests(a, required, rules = null) {
   const good = (e, key) => e && typeof e[key] === 'string' && VERDICTS.includes(e.verdict) && typeof e.why === 'string';
   if (!Array.isArray(a.steps) || !a.steps.every((e) => good(e, 'step'))) return { ok: false, why: 'the steps are not well-formed' };
   if (!Array.isArray(a.changes) || !a.changes.every((e) => good(e, 'file'))) return { ok: false, why: 'the changes are not well-formed' };
-  const okRead = (e) =>
-    e && typeof e.step === 'string' && READ_VERDICTS.includes(e.verdict) && typeof e.refusal === 'boolean' && typeof e.note === 'string';
-  // No reads given is no read answered: each listed read is then unanswered, so it fails closed below.
-  const given = a.reads ?? [];
-  if (!Array.isArray(given) || !given.every(okRead)) return { ok: false, why: 'the reads are not well-formed' };
-  const reads = new Map(given.map((e) => [normStep(e.step), e]));
   const steps = new Map(a.steps.map((e) => [normStep(e.step), e]));
   const changes = new Map(a.changes.map((e) => [String(e.file).trim(), e]));
   const lines = [];
-  for (const s of required.reads ?? []) {
-    const e = reads.get(normStep(s));
-    if (!e) return { ok: false, why: `the judge left the read of step ${s} unanswered` };
-    // Without a `blocking` list (an older meta.json, or a direct call), every read blocks.
-    const blocks = required.blocking ? required.blocking.map(normStep).includes(normStep(s)) : true;
-    lines.push({ kind: 'read', id: s, verdict: e.verdict, refusal: e.refusal, why: e.note, blocks });
-  }
   for (const s of required.steps) {
     const e = steps.get(normStep(s));
     if (!e) return { ok: false, why: `the judge left step ${s} unanswered` };
@@ -1030,8 +898,7 @@ export function readTests(a, required, rules = null) {
     const no = setAsideRefusal(l, a.setAside, rules);
     if (no) Object.assign(l, { verdict: 'weaker', why: `set-aside refused: ${no}; ${l.why}` });
   }
-  // A read that isn't FAITHFUL fails the test part as a weaker entry does: the step's test doesn't prove its words.
-  const weaker = lines.some((l) => l.verdict === 'weaker' || (l.kind === 'read' && l.blocks && l.verdict !== 'FAITHFUL'));
+  const weaker = lines.some((l) => l.verdict === 'weaker');
   const verdict = weaker || a.verdict === 'FAIL' ? 'FAIL' : 'PASS';
   const kept = lines.filter((l) => l.verdict === 'set-aside').length;
   const note =
@@ -1049,14 +916,9 @@ export function summaryLines(v, set) {
   if (v.wordsRef) out.push(`Step words read from project-state at ${v.wordsRef} (not shown here).`, '');
   if (v.facts)
     out.push(
-      `Steps read against their words: ${v.facts.reads ?? 0} (own tests changed: ${v.facts.own}; claimed by the title: ${v.facts.claimed ?? 0}; with the count's second, blind reader: ${v.facts.second ?? 0}); steps reached by shared or file-level changes: ${v.facts.reached}, of which ${v.facts.sample} were sampled for the judge.`,
+      `Own tests changed: ${v.facts.own}; steps reached by shared or file-level changes: ${v.facts.reached}, of which ${v.facts.sample} were sampled for the judge.`,
       '',
     );
-  for (const l of (v.lines ?? []).filter((x) => x.kind === 'read'))
-    out.push(
-      `- ${l.id} (read${l.reader === 'second' ? ', second reader' : ''}${l.blocks === false ? '; claimed, its test unchanged: shown, not blocking' : ''}): **${l.verdict}**${l.refusal ? ' (refusal)' : ''}: ${redact(l.why, set)}`,
-    );
-  for (const n of v.read?.notRead ?? []) out.push(`- ${n.step}: not read (${n.why})`);
   for (const c of v.facts?.changes ?? []) {
     const l = (v.lines ?? []).find((x) => x.kind === 'change' && x.id === c.file);
     if (l) out.push(`- \`${c.file}\` (${c.kind}, reaches ${c.reaches} steps): **${l.verdict}**: ${redact(l.why, set)}`);
@@ -1204,17 +1066,14 @@ export const JUDGE_BRIEF = new URL('./test-judge/JUDGE.md', import.meta.url);
 
 /**
  * Writes the input files; a change with nothing to judge, or too much to judge whole, is decided here (verdict.json and
- * `skip-judge`), so only a `prompt.txt` asks the reader (and `second/prompt.txt` the second, blind reader). `title` and
- * `body` are the pull request's at this event.
+ * `skip-judge`), so only a `prompt.txt` asks the model. `brief` is what heads the prompt: the CI review gives its own
+ * brief and then this one (ci-review.mjs).
  */
-export async function writeInputs(
-  dir,
-  { src, base, head, pr, loadWords, brief = readFileSync(JUDGE_BRIEF, 'utf8'), title = '', body = '' },
-) {
+export async function writeInputs(dir, { src, base, head, pr, loadWords, brief = readFileSync(JUDGE_BRIEF, 'utf8'), lead, reviewDiff }) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'head.txt'), head);
-  // The words are read only when a step needs reading, so a PR that changes no test and claims no step needs no token.
-  const got = await buildInputs({ src, base, head, pr, brief, loadWords, title, body });
+  // The words are read only when a step needs judging, so a PR that changes no test needs no project-state token.
+  const got = await buildInputs({ src, base, head, pr, brief, loadWords, lead, reviewDiff });
   const done = (verdict, extra) => {
     writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict, lines: [], ...extra }));
     writeFileSync(join(dir, 'skip-judge'), '1');
@@ -1227,161 +1086,37 @@ export async function writeInputs(
     done('FAIL', { findings: [got.tooLarge], wordsRef: got.wordsRef });
     return 'too large: FAIL without asking the judge';
   }
-  if (got.noVerdict) {
-    // No verdict, and no call: the read step fails on it and the Test verdict step never runs; the review is untouched.
-    writeFileSync(join(dir, 'no-verdict.txt'), got.noVerdict);
-    return `no verdict: ${got.noVerdict}`;
-  }
   const meta = {
     head,
-    pr,
     wordsRef: got.wordsRef,
     required: got.required,
-    secondRequired: got.secondRequired ?? null,
     deterministic: got.deterministic,
     setAside: got.setAside,
-    read: got.read,
     facts: got.facts,
   };
   writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
   writeFileSync(join(dir, 'shingles.json'), JSON.stringify([...shingles(got.shingleTexts ?? [])]));
   if (!got.prompt) {
     done(got.deterministic.length ? 'FAIL' : 'PASS', meta);
-    return `decided without the judge: ${got.deterministic.length} FAIL line(s)`;
+    return `decided without the judge: ${got.deterministic.length} step(s) without words`;
   }
   writeFileSync(join(dir, 'prompt.txt'), got.prompt);
   writeFileSync(join(dir, 'schema.json'), JSON.stringify(JUDGE_SCHEMA));
-  if (got.second) {
-    mkdirSync(join(dir, 'second'), { recursive: true });
-    writeFileSync(join(dir, 'second', 'prompt.txt'), got.second);
-    writeFileSync(join(dir, 'second', 'schema.json'), JSON.stringify(SECOND_SCHEMA));
-  }
   const f = got.facts;
-  return `reading #${pr} at ${head}: ${f.reads} step(s) read (${f.second} with a second reader), ${f.changes.length} shared or file-level change(s) reaching ${f.reached} step(s), ${f.sample} sampled; prompt ${f.bytes} bytes${f.left ? `, ${f.left} file(s) left out for size` : ''}`;
-}
-
-/** The reader CLI's JSON output (`--output-format json`) to its structured answer, or why there is none. */
-function readerOutput(path) {
-  if (!existsSync(path)) return { ok: false, why: `the reader wrote no ${path.split('/').slice(-2).join('/')}` };
-  let out;
-  try {
-    out = JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return { ok: false, why: 'the reader printed no JSON' };
-  }
-  if (out?.is_error !== false || out?.subtype !== 'success')
-    return { ok: false, why: `the reader ended with an error (${out?.subtype ?? 'no subtype'})` };
-  return { ok: true, answer: out.structured_output };
+  return `judging #${pr} at ${head}: ${f.own} own-test step(s), ${f.changes.length} shared or file-level change(s) reaching ${f.reached} step(s), ${f.sample} sampled; prompt ${f.bytes} bytes${f.left ? `, ${f.left} file(s) left out for size` : ''}`;
 }
 
 /**
- * The count of record's read (project-state tooling/proof-v2/README.md "Reads", READER.md step 3) of this head, made by
- * this run: one reader per call, its id the run that made it (`ci:<repo>/actions/runs/<id>/attempts/<n>/<reader>`),
- * never the builder. It is uploaded as an artifact of a public repository, so it holds step ids, verdicts and notes with
- * any that repeat the step words withheld, never the words; project-state's store takes it for the PR's merged head,
- * adds the hash of the words at `words_ref`, and carries it to the merge (carry-read.mjs). Returns the reads written.
+ * The test part of the model's structured answer into `<dir>/verdict.json`, against the `meta.json` writeInputs wrote.
+ * Returns { ok, why }: not ok is no verdict (the job fails before any Verdict step, so a re-run can try again).
  */
-export function writeRead(dir, meta, lines, { run, builder, set }) {
-  const of = (reader) => lines.filter((l) => l.kind === 'read' && (l.reader ?? 'first') === reader);
-  const byStep = new Map((meta.read?.steps ?? []).map((s) => [s.step, s]));
-  const doc = (reader, ls) => ({
-    kind: 'step',
-    pr: `#${meta.pr}`,
-    read_sha: meta.head,
-    brief: 'intafaced tooling/ci/test-judge/JUDGE.md (the reader question of project-state tooling/proof-v2/READER.md step 3)',
-    words_ref: meta.wordsRef,
-    builder_thread: builder,
-    steps: ls.map((l) => ({
-      step: countKey(l.id),
-      test_file: byStep.get(l.id)?.test_file ?? null,
-      read_sha: meta.head,
-      red_before: null,
-      green_after: null,
-      readers: [{ thread: `${run}/${reader}`, verdict: l.verdict, refusal: l.refusal === true, note: redact(l.why, set) }],
-    })),
-    not_read: (meta.read?.notRead ?? []).map((n) => ({ step: countKey(n.step), why: n.why })),
-  });
-  const out = [];
-  const first = of('first');
-  if (first.length) {
-    writeFileSync(join(dir, 'read.json'), JSON.stringify(doc('reader', first), null, 1));
-    out.push('read.json');
-  }
-  const second = of('second');
-  if (second.length) {
-    writeFileSync(join(dir, 'read-second.json'), JSON.stringify({ ...doc('second', second), second_of: 'read.json' }, null, 1));
-    out.push('read-second.json');
-  }
-  return out;
-}
-
-/**
- * The reader's answers (`<dir>/answer.json`, and `<dir>/second/answer.json` when the count needs a second reader) into
- * `<dir>/verdict.json`, against the `meta.json` writeInputs wrote, and the v2 read files (writeRead). Returns { ok, why }:
- * not ok is no verdict (the job fails before the Test verdict step, so a re-run can try again). With `skip-judge` it
- * only checks the verdict is written.
- */
-export function recordTests(dir, structured, { second, run = 'ci:local', builder = 'unknown' } = {}) {
-  if (existsSync(join(dir, 'skip-judge')))
-    return existsSync(join(dir, 'verdict.json'))
-      ? { ok: true, why: 'decided without the reader' }
-      : { ok: false, why: 'no verdict written' };
+export function recordTests(dir, structured) {
   const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
   const a = readTests(structured, meta.required, meta.setAside ?? null);
   if (!a.ok) return a;
-  const lines = a.lines;
-  let verdict = a.verdict;
-  if ((meta.secondRequired?.reads ?? []).length) {
-    const b = readTests({ ...(second ?? {}), steps: [], changes: [] }, meta.secondRequired);
-    if (!b.ok) return { ok: false, why: `the second reader: ${b.why}` };
-    lines.push(...b.lines.map((l) => ({ ...l, reader: 'second' })));
-    if (b.verdict !== 'PASS') verdict = 'FAIL';
-  }
-  if (meta.deterministic.length) verdict = 'FAIL';
-  const set = existsSync(join(dir, 'shingles.json')) ? new Set(JSON.parse(readFileSync(join(dir, 'shingles.json'), 'utf8'))) : new Set();
-  const reads = writeRead(dir, meta, lines, { run, builder, set });
-  writeFileSync(
-    join(dir, 'verdict.json'),
-    JSON.stringify({ ...meta, verdict, lines, note: a.note, readFiles: reads, readStatus: readStatus(lines) }),
-  );
-  return { ok: true, why: `${verdict}; read files: ${reads.join(', ') || 'none'}` };
-}
-
-/**
- * The commit status `proof v2 read` for this head, as project-state's post-read.sh posted it for a reader thread: success
- * only when every reader read every step FAITHFUL, its description the counts alone (intafaced is public). Null when no
- * step was read.
- */
-export function readStatus(lines) {
-  const vs = lines.filter((l) => l.kind === 'read').map((l) => l.verdict);
-  if (!vs.length) return null;
-  const counts = READ_VERDICTS.filter((v) => vs.includes(v)).map((v) => `${vs.filter((x) => x === v).length} ${v}`);
-  return {
-    state: vs.every((v) => v === 'FAITHFUL') ? 'success' : 'failure',
-    description: `${counts.join(', ')} (the CI review's read of the step's words and its test)`,
-  };
-}
-
-/** The `read` step: the reader's answers in `<dir>` into the verdict and the v2 read; exit 1 when there is no verdict. */
-export function cmdRead(dir, env = process.env) {
-  if (existsSync(join(dir, 'no-verdict.txt'))) return { ok: false, why: readFileSync(join(dir, 'no-verdict.txt'), 'utf8') };
-  if (existsSync(join(dir, 'skip-judge'))) return recordTests(dir);
-  const first = readerOutput(join(dir, 'answer.json'));
-  if (!first.ok) return { ok: false, why: first.why };
-  const needsSecond = existsSync(join(dir, 'second', 'prompt.txt'));
-  const second = needsSecond ? readerOutput(join(dir, 'second', 'answer.json')) : { ok: true };
-  if (!second.ok) return { ok: false, why: `the second reader: ${second.why}` };
-  let builder = 'unknown';
-  try {
-    const login = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'))?.pull_request?.user?.login;
-    if (login) builder = `github:${login}`;
-  } catch {
-    /* no event: a local run */
-  }
-  const run = env.GITHUB_RUN_ID
-    ? `ci:${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT ?? 1}`
-    : 'ci:local';
-  return recordTests(dir, first.answer, { second: second.answer, run, builder });
+  const verdict = a.verdict === 'PASS' && meta.deterministic.length === 0 ? 'PASS' : 'FAIL';
+  writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ ...meta, verdict, lines: a.lines, note: a.note }));
+  return { ok: true, why: verdict };
 }
 
 export function cmdJudge(dir, { exit = true } = {}) {
@@ -1409,33 +1144,12 @@ async function main() {
     const head = arg('--head');
     const src = gitSource(clone, base);
     console.log(
-      await writeInputs(dir, {
-        src,
-        base,
-        head,
-        pr: arg('--pr') ?? 'local',
-        title: arg('--title') ?? '',
-        loadWords: async () => readWordsLocal(arg('--words')),
-      }),
+      await writeInputs(dir, { src, base, head, pr: arg('--pr') ?? 'local', loadWords: async () => readWordsLocal(arg('--words')) }),
     );
     return;
   }
   if (cmd === 'judge') return void cmdJudge(dir);
-  if (cmd === 'status') {
-    // The status step's input: `state<TAB>description`, or nothing when no step was read.
-    const v = existsSync(join(dir, 'verdict.json')) ? JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8')) : {};
-    if (v.readStatus) console.log(`${v.readStatus.state}\t${v.readStatus.description}`);
-    return;
-  }
-  if (cmd === 'read') {
-    const v = cmdRead(dir);
-    if (!v.ok) {
-      console.error(`::error::no test verdict: ${v.why}. Re-run the job; nothing about this head is decided yet.`);
-      process.exit(1);
-    }
-    return void console.log(`test part: ${v.why}`);
-  }
-  console.error('usage: test-judge.mjs read|judge|status <dir> | local --repo <clone> --base <sha> --head <sha> --words <dir> <dir>');
+  console.error('usage: test-judge.mjs judge <dir> | local --repo <clone> --base <sha> --head <sha> --words <dir> <dir>');
   process.exit(2);
 }
 
