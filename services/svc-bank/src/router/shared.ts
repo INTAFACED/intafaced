@@ -327,3 +327,33 @@ export const heldSendOutput = z.object({
   createdAt: z.string().datetime(),
   decidedAt: z.string().datetime().nullable(),
 });
+
+/**
+ * The card partner's figures for one cardholder and asset, as it reports them (OWNER 226; `cards/partner-card-holds.ts`).
+ * `test` is true on the TEST partner card. Each null is "not known", never 0.
+ */
+export const partnerFiguresOutput = z
+  .object({
+    test: z.boolean(),
+    mode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
+    assetId: z.string(),
+    available: z.string().nullable(),
+    held: z.string().nullable(),
+  })
+  .strict();
+
+/** One partner-held hold as the card partner reports it now. */
+export const partnerHoldReportOutput = z
+  .object({
+    test: z.boolean(),
+    partnerRef: z.string(),
+    mode: z.enum(['partner_holds', 'wallet_pull']),
+    status: z.enum(['held', 'captured', 'released', 'expired']),
+    amount: z.string(),
+    captured: z.string(),
+    released: z.string(),
+    refunded: z.string(),
+    open: z.string(),
+    expiresAt: z.string().nullable(),
+  })
+  .strict();

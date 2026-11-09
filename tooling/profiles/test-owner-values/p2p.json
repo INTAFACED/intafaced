@@ -90,6 +90,16 @@
       "service": "p2p",
       "value": "86400",
       "note": "Longest a share link to an ad may live (a day); J-p2p-05 #3 also makes a link that ends after a few seconds."
+    },
+    "P2P_APPEAL_REVIEW_HOURS": {
+      "service": "p2p",
+      "value": "48",
+      "note": "Hours support has to review a completion appeal; J-p2p-12 #2 sends one and support decides it."
+    },
+    "P2P_FOLLOWER_NOTICES_PER_DAY": {
+      "service": "p2p",
+      "value": "20",
+      "note": "How many of one trader's new ads a day reach their followers as a notice; J-p2p-12 #4 posts one and each follower is told once."
     }
   }
 }

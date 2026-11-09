@@ -582,6 +582,20 @@ export function createPersonalPayApi(
       // exact requested UUID and current owner/URL view, never a guessed field.
       return p2pCurrent() ? result : p2pDeparted();
     },
+    /** P-trade-orders-21: the caller's one completion appeal, or null while it is still available. */
+    myAppeal(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.query('p2p', 'reputation.myAppeal', undefined, s.completionAppealSchema.nullable(), { signal });
+    },
+    /** P-trade-orders-21: appeal one cancelled or disputed order, once. The same appeal sent again returns it. */
+    appealCompletion(input: { tradeId: string; reason: string }) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', 'reputation.appeal', input, s.completionAppealSchema);
+    },
     /** The signed-in account id (null when signed out). Lets a screen tell "you" from the other side. */
     viewer: userId,
     /**

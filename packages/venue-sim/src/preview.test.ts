@@ -98,16 +98,23 @@ describe('preview', () => {
     expect(sub(after, before)).toBe(sub(a('1.5'), fees));
   });
 
-  it('a resting buy is maker, with the builder fee line from the order', async () => {
+  it('a resting buy is maker and pays no builder fee, as on the venue; a resting sell carries the builder fee line from the order', async () => {
     const { sim, account } = world();
     await seedTestVenue(sim);
     const builder = '0x00000000000000000000000000000000000000b1';
+    // "builder codes do not apply to the buying side of spot trades" (Hyperliquid's builder-codes page; project-state #1888).
     const preview = (await sim.preview(account, order({ price: a('59000'), amount: a('1'), builderFee: { builder, feeBps: a('2') } })))
       .value;
     expect(preview.role).toBe('maker');
     expect(preview.lock).toEqual({ asset: 'USDC', amount: a('59000') });
     expect(preview.venueFee).toEqual({ known: true, value: { asset: 'BTC', amount: a('0.0001') } });
-    expect(preview.builderFee).toEqual({ known: true, value: { asset: 'BTC', amount: a('0.0002') } });
+    expect(preview.builderFee).toEqual({ known: true, value: { asset: 'BTC', amount: 0n } });
+    const sell = (
+      await sim.preview(account, order({ side: 'sell', price: a('70000'), amount: a('1'), builderFee: { builder, feeBps: a('2') } }))
+    ).value;
+    expect(sell.role).toBe('maker');
+    expect(sell.venueFee).toEqual({ known: true, value: { asset: 'USDC', amount: a('7') } });
+    expect(sell.builderFee).toEqual({ known: true, value: { asset: 'USDC', amount: a('14') } });
   });
 
   it('an unpublished maker fee is not known, never zero', async () => {
