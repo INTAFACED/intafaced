@@ -61,6 +61,8 @@ const en = {
   decline_bank_card_cash_limit_exceeded: 'Over this card’s daily cash limit. Take out less, or raise the limit under Spending limits.',
   decline_bank_card_channel_off: 'This kind of payment is switched off for the card. Turn it on under Where this card works.',
   decline_bank_card_use_limit_reached: 'This card had its last allowed use. Use another card.',
+  decline_bank_card_pin_wrong: 'Wrong PIN. Too many wrong tries in a row block the PIN; you can view it under PIN.',
+  decline_bank_card_pin_blocked: 'The PIN is blocked after too many wrong tries. Set a new PIN under PIN to use it again.',
   decline_ledger_insufficient_funds: 'Not enough money for this purchase. Add money, then try again.',
   declineUnknown: 'Declined. This code has no plain words here yet: keep it if you contact support.',
 };
@@ -123,6 +125,8 @@ const es = {
     'Supera el límite diario de efectivo de esta tarjeta. Retira menos o sube el límite en Límites de gasto.',
   decline_bank_card_channel_off: 'Este tipo de pago está desactivado en la tarjeta. Actívalo en Dónde funciona esta tarjeta.',
   decline_bank_card_use_limit_reached: 'Esta tarjeta ya tuvo su último uso permitido. Usa otra tarjeta.',
+  decline_bank_card_pin_wrong: 'PIN incorrecto. Demasiados intentos fallidos seguidos bloquean el PIN; puedes verlo en PIN.',
+  decline_bank_card_pin_blocked: 'El PIN está bloqueado tras demasiados intentos fallidos. Pon un PIN nuevo en PIN para volver a usarlo.',
   decline_ledger_insufficient_funds: 'No hay dinero suficiente para esta compra. Añade dinero y vuelve a intentarlo.',
   declineUnknown: 'Rechazada. Este código aún no tiene palabras aquí: guárdalo si contactas con soporte.',
 } satisfies Record<keyof typeof en, string>;
@@ -187,6 +191,9 @@ const fr = {
     'Au-delà du plafond de retrait journalier de cette carte. Retirez moins, ou relevez le plafond dans Plafonds de dépense.',
   decline_bank_card_channel_off: 'Ce type de paiement est désactivé sur la carte. Activez-le dans Où cette carte fonctionne.',
   decline_bank_card_use_limit_reached: 'Cette carte a eu sa dernière utilisation permise. Utilisez une autre carte.',
+  decline_bank_card_pin_wrong: 'Code PIN erroné. Trop d’essais erronés d’affilée bloquent le code PIN ; vous pouvez le voir sous Code PIN.',
+  decline_bank_card_pin_blocked:
+    'Le code PIN est bloqué après trop d’essais erronés. Définissez un nouveau code PIN sous Code PIN pour l’utiliser de nouveau.',
   decline_ledger_insufficient_funds: 'Pas assez d’argent pour cet achat. Ajoutez de l’argent, puis réessayez.',
   declineUnknown: 'Refusé. Ce code n’a pas encore de mots ici : gardez-le si vous contactez le support.',
 } satisfies Record<keyof typeof en, string>;
