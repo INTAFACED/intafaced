@@ -226,33 +226,50 @@ test(`${J} #1 a support agent finds the stuck learner and opens their page: prof
 });
 
 test(`${J} #2 their progress lists every item with its status and attempts, the undone item's tombstone included`, async ({ page }) => {
-  const { learnerId, items } = run.read();
+  const { learnerId, items, learner } = run.read();
   if (!learnerId) throw new Error(`${J} #1 left no learner`);
+  // The learner's two courses as Academy lists them: the console must show each, every item in order.
+  const quizCourse = data(await learnerRead(learner, 'curriculum', { path: QUIZ_PATH, limit: 50 })).map((row) => row.slug);
+  expect(quizCourse).toContain(items.quiz);
   await founderSignIn(page, 'b');
   await openLearner(page, learnerId);
   const progress = learnerPage(page).getByTestId('learner-progress');
-  const course = progress.locator(`[data-course="${PATH}"]`);
-  // Every item of the course, in order.
-  await expect(course.locator('[data-item]')).toHaveCount(items.all.length);
-  for (const [i, slug] of items.all.entries()) await expect(course.locator('[data-item]').nth(i)).toHaveAttribute('data-item', slug);
-  // Both of the learner's courses are there.
-  await expect(progress.locator(`[data-course="${QUIZ_PATH}"] [data-item]`).first()).toBeVisible();
-  // The undone item: not complete now, with its completion and its Undo both kept.
-  const undone = itemRow(page, items.undone);
-  await expect(undone).toHaveAttribute('data-item-status', 'undone');
-  await expect(undone.getByTestId('item-status')).toHaveText('Undone');
-  await expect(undone.getByTestId('item-history').locator('[data-history]')).toHaveCount(2);
-  await expect(undone.getByTestId('item-history').locator('[data-history]').nth(0)).toHaveAttribute('data-history', 'completed');
-  await expect(undone.getByTestId('item-history').locator('[data-history]').nth(1)).toHaveAttribute('data-history', 'undone');
-  // The quiz item: its one finished attempt, which used the one attempt allowed.
-  const quiz = itemRow(page, items.quiz);
-  await expect(quiz.getByTestId('item-status')).toHaveText('Not started');
-  await expect(quiz.getByTestId('quiz-counted')).toHaveText('1 of 1 attempts used');
-  await expect(quiz.locator('[data-attempt]')).toHaveCount(1);
-  await expect(quiz.locator('[data-attempt]').first()).toHaveAttribute('data-attempt-state', 'counted');
-  await expect(quiz.locator('[data-attempt]').first()).toContainText('0 of 2, not passed');
-  // Every other item says it is not started.
-  await expect(itemRow(page, items.mark).getByTestId('item-status')).toHaveText('Not started');
+  // What #1's learner did, item by item: completed then undid the first Sovereign item, failed the one attempt on the
+  // Builder quiz, and touched nothing else. Every item carries exactly that status, history and attempts.
+  const expected = (slug) =>
+    slug === items.undone
+      ? { status: 'undone', text: 'Undone', history: ['completed', 'undone'], attempts: [] }
+      : slug === items.quiz
+        ? { status: 'not_started', text: 'Not started', history: [], attempts: [['counted', '0 of 2, not passed']] }
+        : { status: 'not_started', text: 'Not started', history: [], attempts: [] };
+  for (const [path, slugs] of [
+    [PATH, items.all],
+    [QUIZ_PATH, quizCourse],
+  ]) {
+    const course = progress.locator(`[data-course="${path}"]`);
+    await expect(course.locator('[data-item]')).toHaveCount(slugs.length);
+    for (const [i, slug] of slugs.entries()) {
+      const row = course.locator('[data-item]').nth(i);
+      await expect(row, `${path} item ${i}`).toHaveAttribute('data-item', slug);
+      const want = expected(slug);
+      await expect(row, slug).toHaveAttribute('data-item-status', want.status);
+      await expect(row.getByTestId('item-status'), slug).toHaveText(want.text);
+      const history = row.locator('[data-testid="item-history"] [data-history]');
+      await expect(history, slug).toHaveCount(want.history.length);
+      for (const [h, event] of want.history.entries()) await expect(history.nth(h), slug).toHaveAttribute('data-history', event);
+      const attempts = row.locator('[data-attempt]');
+      await expect(attempts, slug).toHaveCount(want.attempts.length);
+      for (const [a, [state, words]] of want.attempts.entries()) {
+        await expect(attempts.nth(a), slug).toHaveAttribute('data-attempt-state', state);
+        await expect(attempts.nth(a), slug).toContainText(words);
+      }
+      // An item with a quiz says how many attempts counted; one with none tried says so.
+      if (await row.getByTestId('item-quiz').count()) {
+        if (want.attempts.length === 0) await expect(row.getByTestId('item-quiz').getByText('No attempt yet.'), slug).toBeVisible();
+      } else expect(slug, 'the quiz item shows its quiz').not.toBe(items.quiz);
+    }
+  }
+  await expect(itemRow(page, items.quiz).getByTestId('quiz-counted')).toHaveText('1 of 1 attempts used');
 });
 
 test(`${J} #3 Mark complete with no reason is refused by name; with a reason the item is complete and the event is listed`, async ({
