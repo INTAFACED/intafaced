@@ -111,6 +111,9 @@ export function PublicRoutes({ path }: { path: string }) {
           <HelpLibrary at={library} />
         ) : path === '/findPwd' ? (
           <PasswordRecovery />
+        ) : path === '/completePasswordReset' ? (
+          // The mailed reset link (J-identity-03 #2): its code opens the code step.
+          <PasswordRecovery linkCode={new URLSearchParams(window.location.search).get('code') ?? undefined} />
         ) : path === '/about-us' ? (
           <AboutPage />
         ) : path === '/developers' || path.startsWith('/developers/') ? (

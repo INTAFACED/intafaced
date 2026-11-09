@@ -3,6 +3,8 @@ import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
 import { WithdrawalFreezes, WITHDRAWAL_FREEZE_UNAVAILABLE } from './withdrawal-freeze.js';
 import { withdrawalFreezeProcedures } from './withdrawal-freeze-router.js';
+import { MemoryLinkBook, TicketLinks } from './ticket-links.js';
+import { ticketLinkProcedures } from './ticket-links-router.js';
 import { guestProcedures } from './guest-router.js';
 import { chatProcedures } from './chat-router.js';
 import type { SupportChat } from './chat.js';
@@ -144,6 +146,9 @@ export function mapError(err: unknown): never {
       err.code === 'support.kb_version_unknown' ||
       err.code === 'support.identity_grounding_unwired' ||
       err.code === 'support.order.user_mismatch' ||
+      // J-support-public-20 #1: not the customer's record, or its owner gave no answer; nothing was linked.
+      err.code === 'support.link_record_not_owned' ||
+      err.code === 'support.link_record_unverifiable' ||
       err.code === 'support.settle.refused' ||
       err.code === 'support.kb_review_required' ||
       // listQueue / listAll / listMine / listComments / events / listKb / searchKb page size unpublished. Blank is not 100.
@@ -275,6 +280,8 @@ export function createSupportRouter(
   routing?: DeskRouting,
   /** Withdrawal freezes asked from a request (J-support-public-20 #7). Left out, no identity is wired and each ask refuses. */
   freezes: WithdrawalFreezes = new WithdrawalFreezes(support, null),
+  /** A request's links to the customer's own records (J-support-public-20 #1). Left out, every link refuses unverifiable. */
+  links: TicketLinks = new TicketLinks(new MemoryLinkBook(), support, null, null),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -293,6 +300,7 @@ export function createSupportRouter(
     ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
     ...verificationCheckProcedures(checks),
+    ...ticketLinkProcedures(links, mapError),
     ...officialChannelProcedures(officialChannels),
     safety: safetyRouter(safety),
 
