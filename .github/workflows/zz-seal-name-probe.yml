@@ -1,0 +1,15 @@
+name: Seal name probe
+# Throwaway probe for INTAFACED/project-state#1574 (never merged): what name does a skipped job with a name expression
+# leave on the head when a pull request is edited?
+on:
+  pull_request:
+    types: [opened, edited]
+permissions: {}
+jobs:
+  probe:
+    name: ${{ (github.event.action != 'edited' || github.event.changes.base) && 'Probe seal' || 'Probe seal (an edit)' }}
+    if: github.event.action != 'edited' || github.event.changes.base
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: 'true'
