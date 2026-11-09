@@ -1,5 +1,5 @@
 /**
- * The paths the test judge rules on (tooling/ci/test-judge.mjs, the seal's `Test judge` verdict), in a module with no
+ * The paths the test judge rules on (tooling/ci/test-judge.mjs, the CI review's test part: the seal's `Test verdict`), in a module with no
  * imports, so test-diff-guard.mjs can read them from main's copy beside it (ci.yml copies the guard's imports from main).
  * The guard leaves only what the judge always rules on to it (leftToJudge); see test-diff-guard.mjs (R3 C6).
  */
@@ -36,16 +36,18 @@ export const judgedFile = (f) => !(UNIT_TEST.test(f) && SKIPPED_UNIT_TEST.test(f
 /**
  * Whether test-diff-guard.mjs leaves a change to the test judge instead of asking for a Test-change line: a journey step
  * file that is added or modified (never deleted, which the guard always reports), on a pull request the judge's job runs
- * for (`judgeRuns`: same repository, base main; ci-review.yml's `judge` job condition). The judge always reads such a file:
+ * for (`judgeRuns`: same repository, base main; ci-review.yml's `review` job condition, whose `Test verdict` step judges it). The judge always reads such a file:
  * its changed tests are steps judged one by one, and a change outside its tests is judged file-level. A look sweep, a
  * harness, a config or a unit-test-shaped file is judged only when a journey reaches it, so the guard keeps those.
  */
 export const leftToJudge = (change, { judgeRuns }) => Boolean(judgeRuns) && change?.status !== 'D' && JOURNEY_FILE.test(change?.path ?? '');
 
 /**
- * Whether ci-review.yml's `judge` job runs for a pull request, as its `if:` says: the head is this repository's own and
- * the base is main (`JUDGE_JOB_CONDITIONS`). test-diff-guard.mjs reads it from CI's env; judged-paths.test.mjs holds the
- * workflow's condition to exactly these two, so the guard can't leave a file to a judge that doesn't run.
+ * Whether ci-review.yml's `review` job (the CI review, whose test part is the judge) runs for a pull request's head, as
+ * its `if:` says: the head is this repository's own and the base is main (`JUDGE_JOB_CONDITIONS`); its third term only
+ * skips an `edited` event that changes no base, which a head's own opening or push has already reviewed.
+ * test-diff-guard.mjs reads it from CI's env; judged-paths.test.mjs holds the workflow's condition to exactly these, so
+ * the guard can't leave a file to a judge that doesn't run.
  */
 export const JUDGE_JOB_CONDITIONS = [
   'github.event.pull_request.head.repo.full_name == github.repository',

@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 /**
- * The test judge (.github/workflows/ci-review.yml, job `Test judge`): one fresh model call per pull request that changes
- * a journey test or the shared code journey tests run on. It answers one question for each affected step: after this
- * change, does the test still exercise and distinguish the behaviour the step's words require? A test that keeps its
- * assertions but no longer reaches the product fails it. The brief is tooling/ci/test-judge/JUDGE.md.
+ * The CI review's test part (.github/workflows/ci-review.yml, job `CI review`, step `Test verdict`): for a pull request
+ * that changes a journey test or the shared code journey tests run on, the same one model call that reviews the diff
+ * also answers one question for each affected step: after this change, does the test still exercise and distinguish the
+ * behaviour the step's words require? A test that keeps its assertions but no longer reaches the product fails it. Its
+ * brief is tooling/ci/test-judge/JUDGE.md, given after the review's own (ci-review.mjs). It was the separate `Test judge`
+ * job until U4 (project-state #1574: "Fold the AI test judge into the one CI review, so a PR has one AI judge").
  *
- *   node tooling/ci/test-judge.mjs inputs <out dir>   the judge's input: the diff, the files, the step words, the prompt
- *   node tooling/ci/test-judge.mjs read   <out dir>   the judge's JSON answer into verdict.json (no verdict: exit 1)
- *   node tooling/ci/test-judge.mjs judge  <out dir>   the Verdict step: the job summary, exit 1 on FAIL, 0 on PASS
+ *   node tooling/ci/test-judge.mjs judge  <out dir>   the Test verdict step: the job summary, exit 1 on FAIL, 0 on PASS
  *   node tooling/ci/test-judge.mjs local --repo <clone> --base <sha> --head <sha> --words <project-state dir> <out dir>
- *                                                     the same input from a local clone, for the proof runs
+ *                                                     the test part's input alone from a local clone, for the proof runs
  *
  * Why it exists: proof v2's post-merge reach reads voided 545 proofs over one harness change that, judged once in its
- * own PR, altered nothing the tests observe (project-state research/system-design-2026-11-07/E1-RESULT.md). The judge
- * rules before merge instead, and the seal (review-marker.mjs, JUDGE_CHECK) waits for its Verdict step on the exact
- * head whenever judgeReason names a changed file. A FAIL stands for its head and its code, like the CI review's.
+ * own PR, altered nothing the tests observe (project-state research/system-design-2026-11-07/E1-RESULT.md). The test
+ * part rules before merge instead, and the seal (review-marker.mjs, JUDGE_CHECK) waits for its Test verdict step on the
+ * exact head whenever judgeReason names a changed file. A FAIL stands for its head and its code, like the review's.
  *
  * Like ci-review.mjs, nothing here checks out, builds or runs the pull request's code: the diff and the files are read
  * as text through the API at the event's base and head shas. The step words are private (they live in project-state
@@ -515,7 +515,11 @@ export function redact(why, set, n = 5) {
 
 // ── The prompt ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const fence = (s) => String(s).replace(/^(BEGIN|END) UNTRUSTED/gm, '$1 UNTRUSTED (quoted by the author)');
+// Inside an untrusted block, a line that opens or closes a block (untrusted, or the trusted step words) is marked as quoted.
+export const fence = (s) =>
+  String(s)
+    .replace(/^(BEGIN|END) UNTRUSTED/gm, '$1 UNTRUSTED (quoted by the author)')
+    .replace(/^(BEGIN|END) STEP WORDS/gm, '$1 STEP WORDS (quoted by the author)');
 const stable = (s, salt) => createHash('sha256').update(`${salt}|${s}`).digest('hex');
 
 /**
@@ -526,7 +530,7 @@ const stable = (s, salt) => createHash('sha256').update(`${salt}|${s}`).digest('
  * `loadWords`, so the tests run offline.
  * Returns { applicable, why, prompt?, required?, schema?, deterministic: [{ step, line }], facts, shingleTexts }.
  */
-export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
+export async function buildInputs({ src, base, head, pr, brief, loadWords, lead = '', reviewDiff }) {
   const { diff, mergeBase } = await src.diff(base, head);
   const files = parseDiff(diff);
   const judged = files.filter((f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath)));
@@ -676,6 +680,8 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     size += b;
     return true;
   };
+  // `lead` (the CI review's brief and its own diff, ci-review.mjs) heads the one prompt and counts toward its size.
+  if (lead) add(lead, { must: true });
   add(brief.trim(), { must: true });
   add(`\nPull request #${pr}, merge base ${mergeBase}, head ${head}. Step words from project-state at ${wordsRef}.`, { must: true });
   const wordLines = (s, tag) => {
@@ -715,7 +721,11 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     ].join('\n'),
     { must: true },
   );
-  add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
+  // When the review already gave the very same diff, it is not repeated; a different one is given apart, never dropped.
+  if (reviewDiff === diff) add("\nThe diff is the review's UNTRUSTED DIFF block above (the same compare diff, untrusted).", { must: true });
+  else if (reviewDiff != null)
+    add(`\nThe test part's diff follows (untrusted).\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`, { must: true });
+  else add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
   const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
   const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));
   const ownFiles = new Set([...own].map((s) => `${REAL_APP}/${s.split(' #')[0]}.pw.mjs`));
@@ -849,7 +859,11 @@ export function readAnswer(text, required, rules = null) {
   }
   if (out?.is_error !== false || out?.subtype !== 'success')
     return { ok: false, why: `the judge ended with an error (${out?.subtype ?? 'no subtype'})` };
-  const a = out.structured_output;
+  return readTests(out.structured_output, required, rules);
+}
+
+/** The test part of a structured answer (`tests` in the CI review's, JUDGE_SCHEMA) to a verdict, as readAnswer. */
+export function readTests(a, required, rules = null) {
   if (!a || typeof a !== 'object') return { ok: false, why: 'the judge gave no structured answer' };
   if (a.verdict !== 'PASS' && a.verdict !== 'FAIL') return { ok: false, why: `the verdict "${a.verdict}" is neither PASS nor FAIL` };
   const good = (e, key) => e && typeof e[key] === 'string' && VERDICTS.includes(e.verdict) && typeof e.why === 'string';
@@ -887,7 +901,7 @@ export function readAnswer(text, required, rules = null) {
 
 /** The job summary's lines: step ids, verdicts and reasons, never the step words. */
 export function summaryLines(v, set) {
-  const out = [`## Test judge: ${v.verdict} on ${v.head}`, ''];
+  const out = [`## CI review, test part: ${v.verdict} on ${v.head}`, ''];
   if (v.wordsRef) out.push(`Step words read from project-state at ${v.wordsRef} (not shown here).`, '');
   if (v.facts)
     out.push(
@@ -919,7 +933,7 @@ async function getText(path, accept, token) {
 }
 
 /** The step words of every module, from project-state's default branch, with the commit they were read at. */
-async function readWordsApi(token) {
+export async function readWordsApi(token) {
   const repo = 'INTAFACED/project-state';
   const ref = await getText(`/repos/${repo}/commits/main`, 'application/vnd.github.sha', token);
   if (ref.status !== 200 || !SHA40.test(ref.text.trim())) throw new Error(`could not read project-state's main: HTTP ${ref.status}`);
@@ -958,7 +972,7 @@ export function readWordsLocal(dir) {
  * of the public repository into the default branch's checkout (no token, and no file is checked out or run), so a PR
  * that touches hundreds of files costs no API calls per file. The import graph is the default branch's checkout.
  */
-function ciSource(repo, token, graphRoot) {
+export function ciSource(repo, token, graphRoot) {
   const git = (...a) => execFileSync('git', ['-C', graphRoot, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   return {
     diff: async (base, head) => {
@@ -1036,22 +1050,19 @@ export function gitSource(clone, graphSha) {
 
 // ── Commands ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-function eventPull() {
-  const pr = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))?.pull_request;
-  const head = String(pr?.head?.sha ?? '');
-  const base = String(pr?.base?.sha ?? '');
-  if (!pr || !SHA40.test(head) || !SHA40.test(base)) throw new Error('not a pull_request_target event with a base and head sha');
-  if (pr.head?.repo?.full_name !== process.env.GITHUB_REPOSITORY) throw new Error('a pull request from a fork gets no test judge');
-  return { number: pr.number, head, base };
-}
+/** The test part's brief, from the default branch's checkout beside this file. */
+export const JUDGE_BRIEF = new URL('./test-judge/JUDGE.md', import.meta.url);
 
-/** Writes the input files; a change with nothing to judge, or too much to judge whole, is decided here. */
-export async function writeInputs(dir, { src, base, head, pr, loadWords }) {
+/**
+ * Writes the input files; a change with nothing to judge, or too much to judge whole, is decided here (verdict.json and
+ * `skip-judge`), so only a `prompt.txt` asks the model. `brief` is what heads the prompt: the CI review gives its own
+ * brief and then this one (ci-review.mjs).
+ */
+export async function writeInputs(dir, { src, base, head, pr, loadWords, brief = readFileSync(JUDGE_BRIEF, 'utf8'), lead, reviewDiff }) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'head.txt'), head);
-  const brief = readFileSync(new URL('./test-judge/JUDGE.md', import.meta.url), 'utf8');
   // The words are read only when a step needs judging, so a PR that changes no test needs no project-state token.
-  const got = await buildInputs({ src, base, head, pr, brief, loadWords });
+  const got = await buildInputs({ src, base, head, pr, brief, loadWords, lead, reviewDiff });
   const done = (verdict, extra) => {
     writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict, lines: [], ...extra }));
     writeFileSync(join(dir, 'skip-judge'), '1');
@@ -1084,16 +1095,17 @@ export async function writeInputs(dir, { src, base, head, pr, loadWords }) {
   return `judging #${pr} at ${head}: ${f.own} own-test step(s), ${f.changes.length} shared or file-level change(s) reaching ${f.reached} step(s), ${f.sample} sampled; prompt ${f.bytes} bytes${f.left ? `, ${f.left} file(s) left out for size` : ''}`;
 }
 
-function cmdRead(dir) {
+/**
+ * The test part of the model's structured answer into `<dir>/verdict.json`, against the `meta.json` writeInputs wrote.
+ * Returns { ok, why }: not ok is no verdict (the job fails before any Verdict step, so a re-run can try again).
+ */
+export function recordTests(dir, structured) {
   const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
-  const a = readAnswer(readFileSync(join(dir, 'answer.json'), 'utf8'), meta.required, meta.setAside ?? null);
-  if (!a.ok) {
-    console.error(`::error::no verdict: ${a.why}. Re-run the job; nothing about this head is decided yet.`);
-    process.exit(1);
-  }
+  const a = readTests(structured, meta.required, meta.setAside ?? null);
+  if (!a.ok) return a;
   const verdict = a.verdict === 'PASS' && meta.deterministic.length === 0 ? 'PASS' : 'FAIL';
   writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ ...meta, verdict, lines: a.lines, note: a.note }));
-  console.log(`verdict ${verdict}`);
+  return { ok: true, why: verdict };
 }
 
 export function cmdJudge(dir, { exit = true } = {}) {
@@ -1104,7 +1116,7 @@ export function cmdJudge(dir, { exit = true } = {}) {
   console.log(lines.join('\n'));
   if (v.verdict !== 'PASS' && exit) {
     console.error(
-      `::error title=Test judge FAIL::a test no longer proves its step on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)`,
+      `::error title=CI review test part FAIL::a test no longer proves its step on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)`,
     );
     process.exit(1);
   }
@@ -1114,20 +1126,6 @@ export function cmdJudge(dir, { exit = true } = {}) {
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const dir = rest.filter((a) => !a.startsWith('--')).at(-1);
-  if (cmd === 'inputs') {
-    const pull = eventPull();
-    const src = ciSource(process.env.GITHUB_REPOSITORY, process.env.GH_TOKEN, process.env.GITHUB_WORKSPACE);
-    const loadWords = async () => {
-      const t = process.env.PROJECT_STATE_READ_TOKEN;
-      if (!t)
-        throw new Error(
-          'the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the step words are unreadable and nothing is decided',
-        );
-      return readWordsApi(t);
-    };
-    console.log(await writeInputs(dir, { src, base: pull.base, head: pull.head, pr: pull.number, loadWords }));
-    return;
-  }
   if (cmd === 'local') {
     const arg = (n) => (rest.includes(n) ? rest[rest.indexOf(n) + 1] : undefined);
     const clone = arg('--repo');
@@ -1139,9 +1137,8 @@ async function main() {
     );
     return;
   }
-  if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return void cmdJudge(dir);
-  console.error('usage: test-judge.mjs inputs|read|judge <dir> | local --repo <clone> --base <sha> --head <sha> --words <dir> <dir>');
+  console.error('usage: test-judge.mjs judge <dir> | local --repo <clone> --base <sha> --head <sha> --words <dir> <dir>');
   process.exit(2);
 }
 

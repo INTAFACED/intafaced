@@ -30,7 +30,8 @@ concurrency:
 
 jobs:
   review:
-    # The seal reads this job by name (REVIEW_JOB) and its step `Verdict` by name (VERDICT_STEP): rename all three together.
+    # The seal reads this job by name (REVIEW_JOB) and its steps `Verdict` and `Test verdict` by name (VERDICT_STEP,
+    # TEST_VERDICT_STEP): rename them together.
     name: CI review
     # In-repo pull requests into main only; of `edited` events, only a base change (a title or body edit needs no review).
     if: >-
@@ -38,15 +39,14 @@ jobs:
       github.event.pull_request.base.ref == 'main' &&
       (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-24.04
-    timeout-minutes: 25 # healthy run: a few minutes; the seal re-run below waits up to 4 minutes for a running seal
+    # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB, and the seal
+    # re-run below waits up to 4 minutes for a running seal.
+    timeout-minutes: 30
     environment: ci-review
     permissions:
-      contents: read # the default branch's checkout and the compare diff
+      contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
       checks: read # find the seal's check run on the head
       actions: write # re-run a red seal once the review passes; read this run's tree index
-    # The test judge runs only in a run whose head is indexed, so its FAIL is found again on any head with the same tree.
-    outputs:
-      indexed: ${{ steps.indexed.outputs.indexed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,13 +75,21 @@ jobs:
           # Kept for the repository's retention setting (the default, which is also its longest); an earlier attempt's
           # index is replaced only once it has expired.
           overwrite: ${{ steps.index.outputs.expired == 'true' }}
-      - name: Mark the head indexed
-        id: indexed
-        run: echo "indexed=true" >> "$GITHUB_OUTPUT"
 
+      # The review's input and its test part's (U4, project-state #1574: "Fold the AI test judge into the one CI review,
+      # so a PR has one AI judge"). For a pull request that changes a journey test or the shared code journey tests run
+      # on, the test part (tooling/ci/test-judge.mjs, its brief tooling/ci/test-judge/JUDGE.md) asks of each affected
+      # step whether its test still exercises and distinguishes what the step's words require; it decides alone when
+      # nothing needs judging (PASS) or the change is too large (FAIL), else the one call below answers it too. (Failure
+      # it prevents: proof v2's post-merge reach reads voided 545 proofs over one harness change that altered nothing the
+      # tests observe; project-state research/system-design-2026-11-07/E1-RESULT.md.) The step words are private: read
+      # from project-state with PROJECT_STATE_READ_TOKEN (read-only, that repository only, and only when a step needs
+      # judging), written only to the prompt file, and never printed. The pull request's code is read as text (the
+      # compare API and two shallow fetches of its base and head), never checked out or run.
       - name: Read the diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_STATE_READ_TOKEN: ${{ secrets.PROJECT_STATE_READ_TOKEN }}
         run: node tooling/ci/ci-review.mjs diff "$RUNNER_TEMP/review"
 
       # The reviewer CLI at the version and tarball hashes in .github/workflows/ci-review/package-lock.json (npm ci refuses any
@@ -92,16 +100,21 @@ jobs:
           cp .github/workflows/ci-review/package.json .github/workflows/ci-review/package-lock.json "$RUNNER_TEMP/reviewer/"
           npm ci --prefix "$RUNNER_TEMP/reviewer" --no-audit --no-fund
 
-      # No tools, no settings, no MCP servers and no session kept: the reviewer reads the prompt (the brief, then the
-      # diff fenced as untrusted data) and answers in the schema. Run in an empty folder, so no CLAUDE.md is loaded. The
-      # key is in this step's environment only. The model and effort are pinned (every INTAFACED thread runs Opus,
+      # No tools, no settings, no MCP servers and no session kept: the reviewer reads the prompt (the brief, with the test
+      # part's after it when it applies, then the diff and files fenced as untrusted data) and answers in the schema:
+      # one call per head answers both parts. Run in an empty folder, so no CLAUDE.md is loaded. The key is in this
+      # step's environment only. The model and effort are pinned (every INTAFACED thread runs Opus,
       # OWNER 56; a review is judgment, so high), so the judge can't change with the account's default.
       - name: Review
+        id: review
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           dir="$RUNNER_TEMP/review"
-          if [ -f "$dir/skip-reviewer" ]; then echo "the diff step already decided (too large to review whole)"; exit 0; fi
+          if [ -f "$dir/skip-reviewer" ]; then
+            echo "the diff step already decided (too large to review whole)"
+            exec node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
+          fi
           if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "::error::the ci-review environment has no CLAUDE_CODE_OAUTH_TOKEN secret, so no review runs and nothing is decided"
             exit 1
@@ -115,98 +128,27 @@ jobs:
             < "$dir/prompt.txt" > "$dir/answer.json"
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
 
-      # The step the seal reads: it fails only on a well-formed FAIL, which then stands for this head and its code.
+      # The step the seal reads for gate files and look baselines: it fails only on a well-formed FAIL of the review
+      # part, which then stands for this head and its code.
       - name: Verdict
+        id: verdict
         run: node tooling/ci/ci-review.mjs judge "$RUNNER_TEMP/review"
 
-      # Best effort, after the verdict: the seal counts a pass only in a job that concluded success, so this step's own
-      # failure must not void a PASS. (Failure it prevents: a review that finishes while the seal is already polling
-      # waits here up to 4 minutes for the seal, which waits for this job; the step threw, the job ended failure, and the
-      # PASS was lost until a fresh review. Found by /code-review on #7132, finding 1.)
+      # The step the seal reads for journey tests and shared test code (review-marker.mjs JUDGE_CHECK): the same answer's
+      # test part, PASS when nothing needed judging. It runs whatever the review part said, so a review FAIL on a
+      # test-only change blocks nothing it didn't before, and its FAIL stands for this head and its code.
+      - name: Test verdict
+        id: tests
+        if: ${{ !cancelled() && steps.review.outcome == 'success' }}
+        run: node tooling/ci/test-judge.mjs judge "$RUNNER_TEMP/review/tests"
+
+      # Best effort, after the verdicts, once either part passed: the seal counts a pass only in a job that concluded
+      # success or failed only in its other verdict step (review-marker.mjs), so this step's own failure must not fail
+      # the job. (Failure it prevents: a review that finishes while the seal is already polling waits here up to 4
+      # minutes for the seal, which waits for this job; the step threw, the job ended failure, and the PASS was lost
+      # until a fresh review. Found by /code-review on #7132, finding 1.)
       - name: Re-run a red seal on this head
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node tooling/ci/ci-review.mjs rerun-seal
-
-  # The test judge (tooling/ci/test-judge.mjs, its brief tooling/ci/test-judge/JUDGE.md): for a pull request that changes
-  # a journey test or the shared code journey tests run on, one fresh model call asks whether each affected test still
-  # exercises and distinguishes what its step's words require. The seal (review-marker.mjs JUDGE_CHECK) reads this job by
-  # name and its step `Verdict` on the exact head, under the same rules as the CI review: this default-branch copy only,
-  # a FAIL stands for its head and its code. It runs after the review job so the head is indexed first, whatever the
-  # review's own verdict (the review's FAIL blocks only gate files and look baselines). (Failure it prevents: proof v2's
-  # post-merge reach reads voided 545 proofs over one harness change that altered nothing the tests observe; project-state
-  # research/system-design-2026-11-07/E1-RESULT.md.)
-  #
-  # The step words are private: they are read from project-state with PROJECT_STATE_READ_TOKEN (read-only, that
-  # repository only), written only to the prompt file, and never printed. The summary carries step ids, verdicts and the
-  # judge's reasons, with any reason that repeats the step words withheld. The pull request's code is read as text (the
-  # compare API and two shallow fetches of its base and head), never checked out or run.
-  judge:
-    name: Test judge
-    needs: review
-    if: >-
-      always() && needs.review.outputs.indexed == 'true' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.base.ref == 'main'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30 # healthy run: under 10 minutes; a shared-harness change sends the judge up to 1.5 MB
-    environment: ci-review
-    permissions:
-      contents: read # the default branch's checkout, the compare diff and the base and head as text
-      checks: read # find the seal's check run on the head
-      actions: write # re-run a red seal once the judge passes
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 20
-
-      # Decides alone when nothing needs judging (no journey test or shared test code changed, or none of it reaches a
-      # step: PASS) or when the change is too large to judge whole (FAIL); otherwise writes the prompt.
-      - name: Read the change and the step words
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PROJECT_STATE_READ_TOKEN: ${{ secrets.PROJECT_STATE_READ_TOKEN }}
-        run: node tooling/ci/test-judge.mjs inputs "$RUNNER_TEMP/judge"
-
-      - name: Install the pinned reviewer
-        run: |
-          if [ -f "$RUNNER_TEMP/judge/skip-judge" ]; then exit 0; fi
-          mkdir -p "$RUNNER_TEMP/reviewer"
-          cp .github/workflows/ci-review/package.json .github/workflows/ci-review/package-lock.json "$RUNNER_TEMP/reviewer/"
-          npm ci --prefix "$RUNNER_TEMP/reviewer" --no-audit --no-fund
-
-      # The CI review's call, at effort medium (every agent runs at medium, OWNER 232; proven at medium on E1's cases and
-      # #7238): no tools, no settings, no MCP servers, no session kept, an empty folder, the model and effort pinned. The answer stays on the runner; only `read` turns it into a verdict.
-      - name: Judge
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          dir="$RUNNER_TEMP/judge"
-          if [ -f "$dir/skip-judge" ]; then echo "decided without the judge"; exit 0; fi
-          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "::error::the ci-review environment has no CLAUDE_CODE_OAUTH_TOKEN secret, so no judge runs and nothing is decided"
-            exit 1
-          fi
-          mkdir -p "$RUNNER_TEMP/empty" && cd "$RUNNER_TEMP/empty"
-          "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
-            --model claude-opus-5-5 --effort medium \
-            --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
-            --no-session-persistence --output-format json --json-schema "$(cat "$dir/schema.json")" \
-            "Judge the pull request in the input against the brief at its top. Answer with the structured verdict only." \
-            < "$dir/prompt.txt" > "$dir/answer.json"
-          node "$GITHUB_WORKSPACE/tooling/ci/test-judge.mjs" read "$dir"
-
-      # The step the seal reads: it fails only on a FAIL, which then stands for this head and its code.
-      - name: Verdict
-        run: node tooling/ci/test-judge.mjs judge "$RUNNER_TEMP/judge"
-
-      # Best effort, after the verdict, as in the review job: this step's failure must not void a PASS.
-      - name: Re-run a red seal on this head
+        if: ${{ !cancelled() && (steps.verdict.outcome == 'success' || steps.tests.outcome == 'success') }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
