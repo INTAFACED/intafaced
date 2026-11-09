@@ -352,6 +352,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * and a client that re-fetches will find it in a terminal state.
    */
   'trade.order_not_open': { ccxt: 'InvalidOrder', status: 409 },
+  /** The native L3 queue is not readable now. Retryable; never answered from L2 sizes. */
+  'trade.queue_unavailable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /** Someone else's order. Not "not found" — do not leak existence either way. */
   'trade.not_owner': { ccxt: 'PermissionDenied', status: 403 },
 
