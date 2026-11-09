@@ -98,9 +98,16 @@ test(`${J} #1 with no agent online, the chat panel shows the request form and th
   const { chatHours } = await contactChannels();
   if (chatHours) await expect(offline.getByTestId('support-chat-hours')).toContainText(chatHours);
   else await expect(offline.getByTestId('support-chat-hours-unset')).toHaveText('Support hours are not set.');
-  // The request form the link opens is the real one.
+  // The request form the link opens is the real one: the guest's request form with every field to fill in and send.
   await offline.getByRole('link', { name: 'Send a request instead' }).click();
   await expect(page).toHaveURL(/\/support\/new$/);
+  const form = page.getByTestId('support-guest-new');
+  await expect(form.getByRole('heading', { name: 'New request' })).toBeVisible();
+  await expect(form.getByLabel('Your email address')).toBeVisible();
+  await expect(form.getByRole('combobox', { name: 'Topic' })).toBeVisible();
+  await expect(form.getByLabel('Subject', { exact: true })).toBeVisible();
+  await expect(form.getByLabel('What happened')).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Send request' })).toBeEnabled();
   // Nothing can be opened while nobody is on the desk.
   const res = await anonymous('chatOpen', {
     clientKey: key(),
