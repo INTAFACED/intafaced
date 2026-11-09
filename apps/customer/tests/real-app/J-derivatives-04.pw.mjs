@@ -391,7 +391,13 @@ test(`${J} #6 tries a second closing order on a closing position: refused, one c
   const who = await fundedTrader(page, 'jd4f', '1000');
   const me = await api(who);
   await signIn(page, who);
-  const position = await openLong(me, 'closing');
+  const opened = await openLong(me, 'closing');
+  // The whole TEST long, once every print of its market buy has landed.
+  const position = await until(
+    async () => (await me.get('/api/v1/positions')).body.find((p) => p.id === opened.id),
+    (p) => p !== undefined && typeof p.contracts === 'string' && toUnits(p.contracts) === toUnits(SIZE),
+    'the TEST long at its whole size',
+  );
 
   // A closing order for the whole position rests: a reduce-only limit sell 3% over the mark.
   const { mark } = await markOf(me);
@@ -400,7 +406,7 @@ test(`${J} #6 tries a second closing order on a closing position: refused, one c
     side: 'sell',
     type: 'limit',
     price: away(mark, 300),
-    amount: position.contracts ?? SIZE,
+    amount: position.contracts,
     reduceOnly: true,
     marginMode: 'isolated',
     clientOrderId: `${J}-close-1-${Date.now()}`,

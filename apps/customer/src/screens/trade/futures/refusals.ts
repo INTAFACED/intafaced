@@ -437,7 +437,7 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.futures_one_closing_order': {
     title: 'This position already has a closing order',
-    body: 'One closing order per position: your open close orders already cover all of it. Change or cancel the one that rests, in Orders, before placing another.',
+    body: 'One closing order per position: an order on the book already closes all of it. Cancel the one that rests, in Orders, before placing another.',
     retryable: false,
   },
   'trade.futures_reduce_past_bankruptcy': {

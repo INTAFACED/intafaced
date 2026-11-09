@@ -436,6 +436,16 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       await assertBooksAgree();
     });
 
+    it('size held only by a fill still settling is no resting closing order: it answers as more than the position', async () => {
+      await aliceLongBobShort();
+      const closing = await reduce(ALICE, 'sell', A('2'));
+      // The engine printed a fill for all of it, then the order left the book; the fill has not landed yet.
+      await sql`
+        UPDATE trade.futures_orders SET status = 'cancelled', engine_filled_qty = qty WHERE id = ${closing.orderId}
+      `;
+      await expect(reduce(ALICE, 'sell', A('0.5'))).rejects.toMatchObject({ code: 'trade.futures_reduce_only_exceeds_position' });
+    });
+
     it('a limit past the bankruptcy price refuses; a market reduce gets that price as its limit', async () => {
       await aliceLongBobShort();
       // Alice is long 2 at 100 with 20 margin: bankrupt at 90. Mark 93, band 88.35 to 97.65.
