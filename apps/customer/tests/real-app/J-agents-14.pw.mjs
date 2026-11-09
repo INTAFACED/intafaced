@@ -380,8 +380,11 @@ test(`${J} #6 reassigns an ownerless agent: the owner column and counts update`,
     .filter({ has: page.getByRole('button', { name: 'Reassign' }) })
     .first();
   await expect(ownerless.getByTestId('fleet-owner')).toHaveText('No owner', UNBUILT);
-  const name = await ownerless.getByRole('cell').first().innerText();
-  const row = fleetRows(page).filter({ has: page.getByRole('cell', { name, exact: true }) });
+  // The row is pinned by the agent's reference as svc-agents stores it: a product agent's name may read "not set" on
+  // many rows (run 42608487532: 11 rows), so the name cannot tell them apart.
+  const ref = await ownerless.getAttribute('data-agent-ref');
+  expect(ref, 'the row carries its agent reference').toMatch(/\S/);
+  const row = fleetRows(page).and(page.locator(`tr[data-agent-ref="${ref}"]`));
   await expect(row, 'the agent is named by one row').toHaveCount(1);
   await ownerless.getByRole('button', { name: 'Reassign' }).click();
   await page
