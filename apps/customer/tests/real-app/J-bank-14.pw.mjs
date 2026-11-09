@@ -111,24 +111,20 @@ async function founders() {
   return gatesCtx;
 }
 /** One card-issuer event through the bank's ops door, approved by two founders as the simulator's stand-in requires. */
-async function cardEvent(actionType, procedure, fields) {
+async function cardEvent(actionType, procedure, fields, hashed = fields) {
   const { gates, ctx, sessions } = await founders();
   const approval = await gates.twoPerson(ctx, sessions, {
     actionType,
     targetService: 'svc-bank',
     targetId: actionType,
     expectedVersion: '1',
-    payloadHash: gates.bankPayloadHash(actionType, fields),
+    payloadHash: gates.bankPayloadHash(actionType, hashed),
     policyVersion: gates.MARKERS.policyVersion,
   });
   const res = await ctx.edge.mutate('bank', procedure, { ...fields, ...approval }, await sessions.a.treasuryToken());
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return res.json.result.data;
 }
-const authorize = (cardId, amount) =>
-  cardEvent('bank.card_authorize', 'ops.cardAuthorize', { cardId, authorizationRef: `jb14-${randomUUID()}`, amount });
-const capture = (cardId, authorizationRef, amount) =>
-  cardEvent('bank.card_capture', 'ops.cardCapture', { cardId, authorizationRef, amount });
 
 async function cards() {
   const res = await (await bank()).query('cards.list', { limit: 50 });
@@ -140,8 +136,12 @@ const cardOf = async (id) => (await cards()).find((card) => card.id === id);
 const panel = (page, card) => page.getByTestId(`card-${card.id}`);
 
 /** A purchase the issuer reports on the card, as its message names it. */
-const buy = (cardId, amount, at = {}) =>
-  cardEvent('bank.card_authorize', 'ops.cardAuthorize', { cardId, authorizationRef: `jb14-${randomUUID()}`, amount, ...at });
+function buy(cardId, amount, at = {}) {
+  const bound = { cardId, authorizationRef: `jb14-${randomUUID()}`, amount };
+  // The founders' approval binds the card, the reference and the amount, as the ops door checks it; the merchant parts
+  // ride with the issuer's message.
+  return cardEvent('bank.card_authorize', 'ops.cardAuthorize', { ...bound, ...at }, bound);
+}
 
 const cardId = () => {
   const { card } = run.read();
@@ -329,6 +329,7 @@ test(`${J} #2 sets a per-purchase cap and other limits: an exact figure above ze
   // Zero is never a cap: neither the per-purchase cap nor any other.
   await dialog.getByLabel('Per purchase (USDT)').fill('0');
   await dialog.getByLabel('Per day (USDT)').fill('0');
+  await dialog.getByRole('button', { name: 'Review' }).click();
   await expect(dialog.getByText('Enter an exact amount greater than zero.').first()).toBeVisible();
   // An exact cap above zero, a daily cap, and the monthly and cash caps left blank.
   await dialog.getByLabel('Per purchase (USDT)').fill('20.5');
