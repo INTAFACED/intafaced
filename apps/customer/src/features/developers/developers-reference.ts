@@ -129,6 +129,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Tickers of every market with a book',
   },
   {
+    name: 'fetchSpreads',
+    method: 'GET',
+    path: '/api/v1/spreads',
+    product: 'spot',
+    access: 'public',
+    summary: 'The bid-ask spread of every market with a book',
+  },
+  {
+    name: 'fetchMarketAnalytics',
+    method: 'GET',
+    path: '/api/v1/analytics/:symbol',
+    product: 'spot',
+    access: 'public',
+    summary: 'One market’s aggressor differential and trade count over a named window',
+  },
+  {
     name: 'fetchOrderBook',
     method: 'GET',
     path: '/api/v1/orderbook/:symbol',

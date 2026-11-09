@@ -34,6 +34,8 @@ const schema = serviceEnvSchema
        * unknown rather than calling a guessed address. Never a ledger URL.
        */
       TRADE_URL: z.string().url().optional(),
+      /** svc-pay, for its record-ownership door (J-support-public-20 #1). Unset, a withdrawal or deposit link refuses unverifiable. */
+      PAY_URL: z.string().url().optional(),
       /**
        * svc-bank, for one question on a scam report: did this person send this transfer (J-bank-18 #3,
        * `bank-scam-transfer.ts`)? Unset means no transfer can be checked, so a scam report is not taken. Never written to.
