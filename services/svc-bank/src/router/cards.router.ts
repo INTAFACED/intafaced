@@ -480,7 +480,7 @@ export function createCardsRouter(c: BankRouterContext) {
      */
     reveal: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ cardId: z.string().guid(), revealId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
-      .output(z.object({ pan: z.string(), expiry: z.string(), cvv: z.string(), expiresAt: z.string() }))
+      .output(z.object({ pan: z.string(), expiry: z.string(), cvv: z.string(), expiresAt: z.string(), test: z.boolean() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
@@ -493,14 +493,16 @@ export function createCardsRouter(c: BankRouterContext) {
             input.stepUpApprovalId,
             false,
           );
-          return bank.cards.reveal({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+          // `test`: the TEST partner's stand-in details (J-bank-14 #3), so a screen labels them TEST.
+          const revealed = await bank.cards.reveal({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+          return { ...revealed, test: bank.cards.secretsAreTest() };
         }),
       ),
 
     pin: router({
       reveal: scopedProcedure('bank:read', { module: 'bank' })
         .input(z.object({ cardId: z.string().guid(), revealId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
-        .output(z.object({ pin: z.string(), expiresAt: z.string() }))
+        .output(z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() }))
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
             const card = await bank.cards.card(input.cardId);
@@ -513,7 +515,8 @@ export function createCardsRouter(c: BankRouterContext) {
               input.stepUpApprovalId,
               false,
             );
-            return bank.cards.revealPin({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+            const revealed = await bank.cards.revealPin({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+            return { ...revealed, test: bank.cards.secretsAreTest() };
           }),
         ),
       set: scopedProcedure('bank:write', { module: 'bank' })
@@ -548,7 +551,10 @@ export function createCardsRouter(c: BankRouterContext) {
         ),
     }),
 
-    /** Opaque push-provisioning payload. Refuses until socket.live-issuer can produce one. */
+    /**
+     * Opaque push-provisioning payload, and one wallet token row per card and wallet (J-bank-14 #4). Refuses until
+     * socket.live-issuer can produce one, except on the TEST partner adapter with `secrets: "test"`, whose payload says TEST.
+     */
     walletProvision: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
@@ -558,18 +564,51 @@ export function createCardsRouter(c: BankRouterContext) {
           nonce: z.string().min(1).max(4096),
         }),
       )
-      .output(z.object({ payload: z.string(), expiresAt: z.string() }))
+      .output(z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
           assertSelf(ctx.principal.userId, card.userId);
-          return bank.cards.walletProvision({
+          const provisioned = await bank.cards.walletProvision({
             cardId: input.cardId,
             userId: ctx.principal.userId,
             provisionId: input.provisionId,
             wallet: input.wallet,
             nonce: input.nonce,
           });
+          return { ...provisioned, test: bank.cards.secretsAreTest() };
+        }),
+      ),
+
+    /** Which of card details, PIN and phone wallets the issuer offers, and whether they are TEST (J-bank-14 #3, #4). */
+    secretsOffered: scopedProcedure('bank:read', { module: 'bank' })
+      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean() }))
+      .query(async () => guard(async () => bank.cards.secretsOffered())),
+
+    /** The phone wallets this card was added to: `added`, `paused` while the card is frozen, or `closed` (J-bank-14 #4). */
+    walletTokens: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid() }))
+      .output(
+        z.object({
+          test: z.boolean(),
+          tokens: z.array(
+            z.object({
+              id: z.string(),
+              wallet: z.enum(['apple', 'google']),
+              state: z.enum(['added', 'paused', 'closed']),
+              addedAt: z.string(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          return {
+            test: bank.cards.secretsAreTest(),
+            tokens: await bank.cards.walletTokens({ cardId: input.cardId, userId: ctx.principal.userId }),
+          };
         }),
       ),
 
