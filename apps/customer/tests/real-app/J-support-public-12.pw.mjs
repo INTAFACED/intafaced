@@ -259,6 +259,12 @@ test(`${J} #5 a membership change shows on the next read, and the group log has 
   const panel = page.getByTestId('groups-panel');
   await panel.locator('#sd-group-log-pick').selectOption({ label: groups.two.name });
   await expect(page.getByTestId('groups-log').getByRole('row').filter({ hasText: 'Member added' })).toHaveCount(1);
+  // The agent directory's groups column (#1) on the next read names both of the agent's groups, not "None".
+  await page.reload();
+  const groupsCell = page.getByTestId('staff-panel').getByTestId(`staff-groups-${people.b}`);
+  await expect(groupsCell).toContainText(groups.one.name);
+  await expect(groupsCell).toContainText(groups.two.name);
+  await expect(groupsCell).not.toHaveText('None');
   await page.close();
 });
 
