@@ -15,6 +15,8 @@ export const trustedDevicesSchema = z.object({
       lastSeenAt: iso,
       trustedUntil: iso.nullable(),
       current: z.boolean(),
+      /** A new-device sign-in on it the person has not confirmed yet: Home's "Needs you" asks about it. */
+      newSignIn: z.boolean(),
     }),
   ),
   waiting: z.array(z.object({ flowId: z.string().guid(), label: z.string(), createdAt: iso, expiresAt: iso })),
@@ -23,6 +25,7 @@ export type TrustedDevices = z.infer<typeof trustedDevicesSchema>;
 
 export const deviceRemovedSchema = z.object({ removed: z.boolean(), sessionsEnded: z.number().int().nonnegative() });
 export const deviceApprovedSchema = z.object({ approved: z.literal(true) });
+export const signInConfirmedSchema = z.object({ confirmed: z.number().int().nonnegative() });
 
 /** The step-up for removing one device: bound to the device and this request. */
 export function removeStepUp(deviceId: string, clientRequestId: string): StepUpBegin {
@@ -40,7 +43,12 @@ export function approveStepUp(flowId: string): StepUpBegin {
 }
 
 /** The refusals this card words itself. */
-export const TRUSTED_DEVICE_CODES = ['auth.device_not_trusted', 'identity.device_not_found', 'auth.code_expired'] as const;
+export const TRUSTED_DEVICE_CODES = [
+  'auth.device_not_trusted',
+  'identity.device_not_found',
+  'auth.code_expired',
+  'identity.confirm_from_another_device',
+] as const;
 export type TrustedDeviceCode = (typeof TRUSTED_DEVICE_CODES)[number];
 export const trustedDeviceCode = (code: string | undefined): TrustedDeviceCode | undefined =>
   (TRUSTED_DEVICE_CODES as readonly string[]).includes(code ?? '') ? (code as TrustedDeviceCode) : undefined;

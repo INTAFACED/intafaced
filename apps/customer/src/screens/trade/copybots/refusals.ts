@@ -62,6 +62,10 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_session_key_missing': { title: 'The copy permission isn’t granted', body: 'Grant it before copies can be placed.' },
   'trade.copy_session_key_revoked': { title: 'The copy permission was withdrawn', body: 'Follow again to start new copies.' },
   'trade.copy_paused': { title: 'This follow is paused', body: 'Resume it to copy new trades. Open positions stay as they are.' },
+  'trade.copy_paused_by_platform': {
+    title: 'Paused by the platform',
+    body: 'The platform has paused copying this leader or this market. Open positions stay as they are.',
+  },
   'trade.copy_stopped': { title: 'This follow has stopped', body: 'Follow again to copy new trades. Open positions stay as they are.' },
   'trade.copy_detached': { title: 'You have left this leader', body: 'Your positions are yours to manage.' },
   'trade.copy_leader_resume_forbidden': { title: 'Only you can resume this', body: 'A leader can’t restart your copying.' },
@@ -315,6 +319,10 @@ const BOTS: Readonly<Record<string, Words>> = {
 
 /** Spot grid bot (svc-trade grid). A field the person left out or set out of range is named in the title. */
 const GRID: Readonly<Record<string, Words>> = {
+  'trade.bots_paused_by_platform': {
+    title: 'Paused by the platform',
+    body: 'The platform has paused new bots of this type or on this market. Bots already running keep running. Nothing was created.',
+  },
   'trade.bots_verification_insufficient': {
     title: 'Verification insufficient',
     body: 'Bots need a higher verification level than your account has. Finish verification, then set up a bot. Nothing was created.',

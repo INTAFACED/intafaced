@@ -37,7 +37,9 @@ describe('readers', () => {
     expect(readDeskScope({ restricted: 'yes', groups: [], seesAllGroups: false })).toBeNull();
   });
   it('says what the scope means in plain words', () => {
-    expect(scopeSentence({ restricted: false, groups: [], seesAllGroups: false })).toContain('No groups are set up');
+    expect(scopeSentence({ restricted: false, groups: [], seesAllGroups: false })).toBe(
+      'Visibility is not restricted: no groups are set up, so the whole desk sees every ticket.',
+    );
     expect(scopeSentence({ restricted: true, groups: [{ id: G, name: 'Payments' }], seesAllGroups: false })).toContain('Payments');
     expect(scopeSentence({ restricted: true, groups: [], seesAllGroups: true })).toContain('every group');
     expect(scopeSentence({ restricted: true, groups: [], seesAllGroups: false })).toContain('you are in none');

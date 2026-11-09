@@ -1,0 +1,1019 @@
+{
+  "about": "Evidence for docs/runbooks/journey-baseline.json read from run 1719: each step taken off, with every test of it in that run's merged report. Written by the PR that rewrote the baseline (#7446).",
+  "rule": "docs/runbooks/regression-issue-state.md, The journeys baseline: only a pass on main takes a step off (tooling/ci/journey-baseline-guard.mjs rule 3). A step counts as passed only when every test of it passed in that run.",
+  "run": {
+    "number": 1719,
+    "id": 42357098806,
+    "attempt": 1,
+    "sha": "921d9d6cf32bb4ea81f1a91fef390dae92f73bac",
+    "workflow": ".github/workflows/real-app-journeys.yml",
+    "event": "push",
+    "branch": "main",
+    "conclusion": "success",
+    "shards": "35 of 35 shard jobs success; Plan the shards, Build the stack once and the verdict job (Real-app journeys) success: 38 of 38 jobs",
+    "report": "the run's real-app-journeys artifact, report.json; stats expected 1604, unexpected 517, skipped 3, flaky 0"
+  },
+  "removed": [
+    {
+      "step": "J-agents-03#5",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-03 #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke makes the next call fail; a blank token lifetime refuses; a frozen owner makes the token fail too",
+          "file": "J-agents-03.pw.mjs",
+          "line": 290,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-03#6",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-03 #6 asks the assistant to draft an agent: with the model unset the owner-decision notice and the builder still works; nothing saved until accepted",
+          "file": "J-agents-03.pw.mjs",
+          "line": 366,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "title": "J-agents-03 #6 once the model choice is set a draft appears whose tools passed the validator; nothing is saved until accepted",
+          "file": "J-agents-03.pw.mjs",
+          "line": 402,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-03#7",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-03 #7 publishes to a chosen surface, then edits and republishes: version 1 is immutable; the edit is a draft; republish moves one surface and running sessions keep their version; a surface the policy forbids is blocked with the reason",
+          "file": "J-agents-03.pw.mjs",
+          "line": 454,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-03#8",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-03 #8 shares the agent with a co-owner and deletes a spare draft: a group as co-owner is refused; deletion asks for an irreversible confirmation",
+          "file": "J-agents-03.pw.mjs",
+          "line": 565,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-04#1",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-04 #1 opens the Test panel and runs a test: mode test, billing 0, no reservation or usage row, every reply and log row labelled TEST; on a live-engine deployment the test still uses the mock engine",
+          "file": "J-agents-04.pw.mjs",
+          "line": 153,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-04#2",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-04 #2 tests a tool that would move value: the run reports what it would do and no ledger call is made",
+          "file": "J-agents-04.pw.mjs",
+          "line": 174,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-04#3",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-04 #3 submits a dry run of one tool call: the checks it passed and the would-be effect; no ledger entry, intent or reservation",
+          "file": "J-agents-04.pw.mjs",
+          "line": 207,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-04#4",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-04 #4 looks at the lists: live and test runs listed separately; test runs left out of live analytics by default",
+          "file": "J-agents-04.pw.mjs",
+          "line": 273,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-04#5",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-04 #5 opens Evaluations with no test set: a visible warning that the agent has no test set",
+          "file": "J-agents-04.pw.mjs",
+          "line": 337,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-04#6",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-04 #6 adds cases, repeats and a blank pass threshold, then starts: refused naming the threshold and no run; with it set, cases times repeats results each labelled TEST, and pass or fail equals the comparison",
+          "file": "J-agents-04.pw.mjs",
+          "line": 346,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-04#7",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-04 #7 starts the same evaluation again with the same request id: one evaluation run exists",
+          "file": "J-agents-04.pw.mjs",
+          "line": 417,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-05#1",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-05 #1 writes \"ask before sending a comment\", then a rule that acts without asking on a live-write tool: the first saves, the second and any loosening are refused",
+          "file": "J-agents-05.pw.mjs",
+          "line": 173,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-05#2",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-05 #2 uses a connector class for the first time: the consent card appears and the call is refused until granted; revoking withdraws it",
+          "file": "J-agents-05.pw.mjs",
+          "line": 226,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-05#3",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-05 #3 runs the agent to the gated tool: the tool has not run, the run reads waiting for approval and a request row exists",
+          "file": "J-agents-05.pw.mjs",
+          "line": 280,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-05#4",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-05 #4 gets the notice and opens the Approvals inbox: the notice names the action and links to the inbox; the push notice shows the vendor text",
+          "file": "J-agents-05.pw.mjs",
+          "line": 322,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-05#5",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-05 #5 edits the payload then approves: a new request for the new payload, the old approval does not carry over; approve runs once, a repeat returns the first result",
+          "file": "J-agents-05.pw.mjs",
+          "line": 367,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-05#6",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-05 #6 rejects another request and lets a third expire: the step ends with a typed refusal; an expired request or a down identity service fails closed",
+          "file": "J-agents-05.pw.mjs",
+          "line": 430,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-agents-05#7",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-agents-05 #7 turns on the automatic reviewer for no-value tools: \"proceed\" runs a no-value call; a value tool always asks; a refusal is logged with its code; with the model unset the owner-decision notice",
+          "file": "J-agents-05.pw.mjs",
+          "line": 497,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-copy-bots-otc-01#5",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-copy-bots-otc-01 #5 presses Start copying: below the copy verification level, under a blank country list and as a sub-account, each refused by name, and nothing is followed",
+          "file": "J-copy-bots-otc-01.pw.mjs",
+          "line": 250,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-copy-bots-otc-10#4",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-copy-bots-otc-10 #4 rejects with a reason: the applicant sees it and when the owner's wait ends; applying inside the wait is refused",
+          "file": "J-copy-bots-otc-10.pw.mjs",
+          "line": 185,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "title": "J-copy-bots-otc-10 #4 may resubmit after the owner's wait: the room opens the application again and it waits in the queue",
+          "file": "J-copy-bots-otc-10.pw.mjs",
+          "line": 234,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-02#11",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-02 #11 swaps from a wallet holding only TEST USD and no native currency, paying the fee in TEST USD at the oracle rate plus the published markup; an off-list token or a stale oracle is refused and the fee is paid in native currency instead",
+          "file": "J-dex-protocol-02.pw.mjs",
+          "line": 393,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-04#6",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-04 #6 creates a claim link for TEST tokens and shares it: a link with the amount and an expiry; the recipient claims once and a second claim fails; the sender can claw back after expiry",
+          "file": "J-dex-protocol-04.pw.mjs",
+          "line": 262,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-04#7",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-04 #7 opens Activity and toggles failed and spam: the counts change with the toggles and the export equals the visible rows",
+          "file": "J-dex-protocol-04.pw.mjs",
+          "line": 385,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-04#8",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-04 #8 speeds up a pending transfer, then cancels another that has mined: a same-nonce replacement with a higher fee; for the mined one the row says it is final and a completed transfer cannot be canceled",
+          "file": "J-dex-protocol-04.pw.mjs",
+          "line": 461,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-07#3",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-07 #3 opens the market brief and the stablecoin screener: a brief or \"No brief today\"; a blank stablecoin list shows its refusal; the leaderboard equals realised trades",
+          "file": "J-dex-protocol-07.pw.mjs",
+          "line": 279,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-07#4",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-07 #4 opens a token page: price, liquidity in token amounts, fees and growth; market cap \"Not available\" with no supply source; a USD price with its as-of time",
+          "file": "J-dex-protocol-07.pw.mjs",
+          "line": 405,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-08#4",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-08 #4 opens sub-accounts and a multi-signature account: the sub-account list; the multi-signature control shows its blocker until the contract exists",
+          "file": "J-dex-protocol-08.pw.mjs",
+          "line": 95,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-08#7",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-08 #7 opens the safety education and the audit room: each step opens its control; each product row says \"External audit: not done\" with no check mark",
+          "file": "J-dex-protocol-08.pw.mjs",
+          "line": 147,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-08#8",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-08 #8 follows the compromise guidance: an ordered list: revoke keys, revoke approvals, move funds, each step linked to its control",
+          "file": "J-dex-protocol-08.pw.mjs",
+          "line": 174,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-dex-protocol-09#8",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-dex-protocol-09 #8 opens a contract's source status and the Read tab: exact, similar or unverified with the reason; a proxy reads through its implementation; a Write asks the wallet",
+          "file": "J-dex-protocol-09.pw.mjs",
+          "line": 629,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-merchant-07#7",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-merchant-07 #7 confirms with a fresh step-up and sends: one payout with a receipt; a second inside the confirmation life does not ask again",
+          "file": "J-merchant-07.pw.mjs",
+          "line": 795,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-more-catalogue-02#3",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-more-catalogue-02 #3 browses vendor listings by category: the taxonomy is svc-market's, and each category shows exactly the listings filed under it, and no listing is ranked or placed above another (RC-more-catalogue-18)",
+          "file": "J-more-catalogue-02.pw.mjs",
+          "line": 202,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "title": "J-more-catalogue-02 #3 every kind of listing shows its review state: svc-market's own, on every card in every category",
+          "file": "J-more-catalogue-02.pw.mjs",
+          "line": 291,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-p2p-06#1",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-p2p-06 #1 the buyer cancels before paying, with a reason: one refund to the seller, and the cancel counts",
+          "file": "J-p2p-06.pw.mjs",
+          "line": 51,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-p2p-06#5",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-p2p-06 #5 the release window passes after payment: a dispute opens once, and the escrow does not move",
+          "file": "J-p2p-06.pw.mjs",
+          "line": 223,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-pay-03#5",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-pay-03 #5 sets how to treat payments from people not in contacts: a stranger's payment waits, and can be accepted or denied",
+          "file": "J-pay-03.pw.mjs",
+          "line": 356,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-pay-03#6",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-pay-03 #6 adds an email or phone to receive by: a payment sent to that contact lands in the balance; with the sender off the code step shows the notice",
+          "file": "J-pay-03.pw.mjs",
+          "line": 442,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-portfolio-03#1",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-portfolio-03 #1 opens /money/activity: every kind of movement in one list, in plain words, with signed amounts and local time",
+          "file": "J-portfolio-03.pw.mjs",
+          "line": 154,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "title": "J-portfolio-03 #1 a conversion is listed as a convert, not as a desk trade",
+          "file": "J-portfolio-03.pw.mjs",
+          "line": 290,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-portfolio-11#4",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-portfolio-11 #4 requests an export for a long range: a job row exists first, the same request returns the same job, and the document centre lists it",
+          "file": "J-portfolio-11.pw.mjs",
+          "line": 227,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-portfolio-11#5",
+      "was": "unbuilt",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-portfolio-11 #5 a worker dies mid-render: the job re-queues on the same key and the second file has the same content",
+          "file": "J-portfolio-11.pw.mjs",
+          "line": 298,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "J-support-public-01#3",
+      "was": "regression",
+      "runId": 42357098806,
+      "attempt": 1,
+      "tests": [
+        {
+          "title": "J-support-public-01 #3 browses a category and then a section: only that section's published answers, and an honest empty section",
+          "file": "J-support-public-01.pw.mjs",
+          "line": 129,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        },
+        {
+          "title": "J-support-public-01 #3 with the whole library empty, /help shows its honest empty state and no sample answer",
+          "file": "J-support-public-01.pw.mjs",
+          "line": 512,
+          "status": "expected",
+          "retries": 0,
+          "results": [
+            {
+              "retry": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "recordedBlockers": {
+    "J-agents-03#6": {
+      "recorded": "owner decision: the owner's model choice is unset on purpose, so \"Draft it\" stays disabled",
+      "issue": 6841,
+      "testChangedIn": [
+        {
+          "sha": "e197ef33e7f06c7e7cdaf98bb41b156b62768f6d",
+          "pr": 7172,
+          "subject": "svc-agents: AG-identity-01, AG-builder-03 each agent's own token (owner, scopes, expiry; revoke, expiry or a frozen owner fails the next call; blank lifetime refuses) and the assistant's draft (owner.decision while unset; validated tools; nothing saved until accepted) (J-agents-03 #5 #6) (#7172)",
+          "productFiles": 15
+        }
+      ],
+      "howChecked": "the step's own test blocks (from each test( line to the next) were compared at every commit to its file from run 1154's commit 000d254 to run 1719's commit 921d9d6; they change only in the commit listed, which replaces the clause that failed by the blocker's name with assertions of the built behaviour, and drops no other assertion",
+      "note": "the step now has two tests: with the model choice unset, Draft it stays disabled and the service answers 412 owner.decision; with the stack's TEST engine set, a draft appears whose tools the validator admits"
+    },
+    "J-copy-bots-otc-01#5": {
+      "recorded": "BLOCKED: no sub-account sign-in exists",
+      "issue": 7000,
+      "testChangedIn": [
+        {
+          "sha": "c100f0b3f03085490da32e8998cd2582142c7eb0",
+          "pr": 7147,
+          "subject": "feat(identity): act as your own sub-account in a tab; J-copy-bots-otc-01 #5 proves the copy gate refuses a low tier, a blank country list and a sub-account (#7147)",
+          "productFiles": 9
+        }
+      ],
+      "howChecked": "the step's own test blocks (from each test( line to the next) were compared at every commit to its file from run 1154's commit 000d254 to run 1719's commit 921d9d6; they change only in the commit listed, which replaces the clause that failed by the blocker's name with assertions of the built behaviour, and drops no other assertion"
+    },
+    "J-copy-bots-otc-10#4": {
+      "recorded": "UNSET: the owner's wait before a rejected applicant may apply again is not an owner setting yet (CB-copy-12); svc-trade answered trade.copy_lead_reapply_wait_unset",
+      "issue": null,
+      "testChangedIn": [
+        {
+          "sha": "5a006c85aebddcdfd6598dfb26d6dafaf573b70d",
+          "pr": 7149,
+          "subject": "svc-trade: J-copy-bots-otc-10 #4 a rejected lead applicant sees the reason and may apply again after the owner's wait (CB-copy-12) (#7149)",
+          "productFiles": 7
+        }
+      ],
+      "howChecked": "the step's own test blocks (from each test( line to the next) were compared at every commit to its file from run 1154's commit 000d254 to run 1719's commit 921d9d6; they change only in the commit listed, which replaces the clause that failed by the blocker's name with assertions of the built behaviour, and drops no other assertion",
+      "note": "the wait is now read from svc-trade (reapplyAfter): a re-application inside the wait is refused with trade.copy_lead_reapply_wait, and one after it is queued"
+    },
+    "J-dex-protocol-07#3": {
+      "recorded": "BLOCKED market_data: no market data source exists on the platform",
+      "issue": 6634,
+      "testChangedIn": [
+        {
+          "sha": "43ff9af7bc7d6e818241aa078ace4c5cfd0c5b71",
+          "pr": 7168,
+          "subject": "svc-protocol: D-portfolio-wallet-06, D-swap-11 the market brief is written from the pools' last 24 hours (or \"No brief today\"); the token page shows its dollar price with its as-of time (J-dex-protocol-07 #3, #4) (#7168)",
+          "productFiles": 7
+        }
+      ],
+      "howChecked": "the step's own test blocks (from each test( line to the next) were compared at every commit to its file from run 1154's commit 000d254 to run 1719's commit 921d9d6; they change only in the commit listed, which replaces the clause that failed by the blocker's name with assertions of the built behaviour, and drops no other assertion"
+    },
+    "J-dex-protocol-07#4": {
+      "recorded": "BLOCKED (price_feed): no dollar price source is set on the stack, so the page shows no USD price with its as-of time",
+      "issue": null,
+      "testChangedIn": [
+        {
+          "sha": "43ff9af7bc7d6e818241aa078ace4c5cfd0c5b71",
+          "pr": 7168,
+          "subject": "svc-protocol: D-portfolio-wallet-06, D-swap-11 the market brief is written from the pools' last 24 hours (or \"No brief today\"); the token page shows its dollar price with its as-of time (J-dex-protocol-07 #3, #4) (#7168)",
+          "productFiles": 7
+        }
+      ],
+      "howChecked": "the step's own test blocks (from each test( line to the next) were compared at every commit to its file from run 1154's commit 000d254 to run 1719's commit 921d9d6; they change only in the commit listed, which replaces the clause that failed by the blocker's name with assertions of the built behaviour, and drops no other assertion"
+    },
+    "J-portfolio-03#1": {
+      "recorded": "BLOCKED convert_kind: svc-bank has no convert activity kind",
+      "issue": 7034,
+      "testChangedIn": [
+        {
+          "sha": "98b37d103630a8223c51ffca17bf8ca2f2ed34bb",
+          "pr": 7294,
+          "subject": "feat(activity): J-portfolio-03 #1 a conversion is its own activity kind, Convert, not a desk trade (#7294)",
+          "productFiles": 16
+        }
+      ],
+      "howChecked": "the step's own test blocks (from each test( line to the next) were compared at every commit to its file from run 1154's commit 000d254 to run 1719's commit 921d9d6; they change only in the commit listed, which replaces the clause that failed by the blocker's name with assertions of the built behaviour, and drops no other assertion"
+    },
+    "J-support-public-01#3": {
+      "recorded": "the empty-library clause needs an empty-catalogue stack profile",
+      "issue": 7003,
+      "testChangedIn": [
+        {
+          "sha": "a9658f3c3a454760977dd55d7556ae282a15b424",
+          "pr": 7236,
+          "subject": "ci(stack): empty-catalogue support profile for J-support-public-01 #3 (#7236)",
+          "productFiles": 0
+        }
+      ],
+      "howChecked": "the step's own test blocks (from each test( line to the next) were compared at every commit to its file from run 1154's commit 000d254 to run 1719's commit 921d9d6; they change only in the commit listed, which replaces the clause that failed by the blocker's name with assertions of the built behaviour, and drops no other assertion",
+      "note": "#7236 added the empty-catalogue stack profile the issue named; Main trust closed issue 7003 on 6 Nov after run 42180910888 passed the step, and its state line is https://github.com/INTAFACED/intafaced/issues/7003#issuecomment-6707649072"
+    }
+  }
+}

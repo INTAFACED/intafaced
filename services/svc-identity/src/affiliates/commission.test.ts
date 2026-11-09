@@ -24,14 +24,14 @@ import {
 
 /** Test-only fixture — not a production default (DIRECTION §8). */
 const FIXTURE_TIERS: readonly TierRate[] = [
-  { hop: 0, rate: '0.10' },
-  { hop: 1, rate: '0.05' },
-  { hop: 2, rate: '0.02' },
+  { hop: 0, rate: '0.130' },
+  { hop: 1, rate: '0.07' },
+  { hop: 2, rate: '0.03' },
 ];
 
 describe('affiliates Slice B — commission accrual (no payout)', () => {
   it('decimalMul truncates to 18dp without float', () => {
-    expect(decimalMul('100.00', '0.10')).toBe('10');
+    expect(decimalMul('100.00', '0.130')).toBe('13');
     // truncate (not round): 1.5 * 0.333… is 0.4999… at 18dp
     expect(decimalMul('1.5', '0.333333333333333333')).toBe('0.499999999999999999');
   });
@@ -101,15 +101,15 @@ describe('affiliates Slice B — commission accrual (no payout)', () => {
     expect(rows[0]).toMatchObject({
       beneficiaryId: 'u2',
       hop: 0,
-      rate: '0.10',
-      commissionAmount: '10',
+      rate: '0.130',
+      commissionAmount: '13',
       feeAmount: '100',
     });
     expect(rows[1]).toMatchObject({
       beneficiaryId: 'u1',
       hop: 1,
-      rate: '0.05',
-      commissionAmount: '5',
+      rate: '0.07',
+      commissionAmount: '7',
     });
     // no hop-2 because chain depth from u3 only reaches u1 at hop 1
   });
@@ -146,8 +146,8 @@ describe('affiliates Slice B — commission accrual (no payout)', () => {
     });
     const s = summarizeCommissionRows(rows);
     expect(s.rowCount).toBe(1);
-    expect(s.totalCommission).toBe('10');
-    expect(s.byBeneficiary['u1']).toBe('10');
+    expect(s.totalCommission).toBe('13');
+    expect(s.byBeneficiary['u1']).toBe('13');
     expect(s.asset).toBe('USDT');
     expect(countCommissionRowsByHop(rows)).toEqual({ 0: 1 });
     expect(countCommissionRowsByHop([])).toEqual({});
@@ -202,8 +202,8 @@ describe('L3 wave53 commission summary status/export', () => {
       tiers: FIXTURE_TIERS,
     });
     const s = summarizeCommissionRows(rows);
-    expect(commissionSummaryBoardCard(s).total).toBe('10');
-    expect(commissionSummaryStatusLine(s)).toContain('total=10');
+    expect(commissionSummaryBoardCard(s).total).toBe('13');
+    expect(commissionSummaryStatusLine(s)).toContain('total=13');
     expect(commissionSummaryStatusLineMatches(s)).toBe(true);
     expect(commissionRowCountInRange(s, 1, 5)).toBe(true);
     expect(commissionRowCountInRange(s, 5, 1)).toBe(false);

@@ -1,4 +1,4 @@
-import { BANK_CUSTOMER_BALANCES } from '@/lib/ops-desk/catalog';
+import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS } from '@/lib/ops-desk/catalog';
 import type { KycSelfieForCompliance } from '@intafaced/contracts/identity-kyc-selfie';
 import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import type { CustomerTab } from './tabs';
@@ -31,6 +31,8 @@ const CONTROL_HISTORY_LIMIT = 50;
 const DOCUMENT_LIMIT = 50;
 /** identity's own cap on one selfie list (`kyc.selfie.listFor`, max 50). */
 const SELFIE_LIMIT = 50;
+/** How many of a person's KYC cases are read: identity's own ceiling for one read. */
+const KYC_CASE_LIMIT = 200;
 const SELFIE_STATUS_WORDS: Record<KycSelfieForCompliance['status'], string> = {
   provided: 'Waiting for a person to compare it',
   accepted: 'Accepted',
@@ -185,6 +187,138 @@ function depositTravelRule(userId: string): ReadSpec {
   };
 }
 
+/** svc-bank's cap on one page of cards (`ops.customerCards`, max 200). */
+const CARD_LIMIT = 200;
+const CARD_STATUS_WORDS: Readonly<Record<string, string>> = {
+  active: 'Active',
+  inactive: 'Issued, not activated yet',
+  frozen: 'Frozen',
+  closed: 'Closed',
+};
+
+/** The account's cards, every status (a closed one included), newest first, up to svc-bank's 200 (J-ops-console-04 #7). */
+function customerCards(userId: string): ReadSpec {
+  return {
+    id: 'cards.list',
+    title: 'Cards issued to this account',
+    note: 'The cards svc-bank issued to this account, newest first, in every status, closed ones included, as svc-bank holds it now: up to the newest 200 in one read. When 200 are shown, older cards may exist and are not shown here. A simulated card is the test card simulator: no real card exists. No card number, security code, PIN or shipping address is read here; svc-bank logs that you read this account’s cards before it reads them.',
+    module: 'bank',
+    plainName: 'svc-bank’s cards for this account',
+    procedure: 'ops.customerCards',
+    input: { userId, limit: CARD_LIMIT },
+    shape: 'list',
+    rowsKey: 'cards',
+    idKey: 'id',
+    page: CARD_LIMIT,
+    columns: [
+      col('id', 'Card id', 'text'),
+      col('status', 'Status', 'text', { words: CARD_STATUS_WORDS }),
+      col('cardType', 'Type', 'text'),
+      col('panTail', 'Last four', 'text'),
+      col('assetId', 'Draws on', 'text'),
+      col('simulated', 'Simulated (no real card)', 'bool'),
+      col('perAuthorizationLimit', 'Per payment limit', 'amount'),
+      col('settlementAssetId', 'Charged in', 'text', { detail: true }),
+      col('issuer', 'Programme', 'text', { detail: true }),
+      col('dailyLimit', 'Daily limit', 'amount', { nullable: true, detail: true }),
+      col('monthlyLimit', 'Monthly limit', 'amount', { nullable: true, detail: true }),
+      col('cashLimit', 'Cash limit', 'amount', { nullable: true, detail: true }),
+      col('cashbackBps', 'Cashback', 'bps', { detail: true }),
+      col('online', 'Online payments', 'bool', { detail: true }),
+      col('contactless', 'Contactless', 'bool', { detail: true }),
+      col('atm', 'Cash machines', 'bool', { detail: true }),
+      col('abroad', 'Abroad', 'bool', { detail: true }),
+      col('usesAllowed', 'Payments before it closes itself', 'int', { nullable: true, detail: true }),
+      col('designId', 'Design', 'text', { nullable: true, detail: true }),
+      col('deliverySpeed', 'Delivery speed', 'text', { nullable: true, detail: true }),
+      col('replacesCardId', 'Replaces card id', 'text', { nullable: true, detail: true }),
+      col('replacedByCardId', 'Replaced by card id', 'text', { nullable: true, detail: true }),
+    ],
+    emptyText: 'svc-bank has issued no card to this account: it has never been issued or ordered one.',
+    forbiddenText: FORBID_BANK_OPS,
+    refusals: {
+      'bank.ops_audit_unavailable':
+        'svc-bank could not record that you asked, so it read nothing. It writes that record before it reads any card, and refuses when it cannot.',
+      'bank.cards_list_limit_unset':
+        'svc-bank refused the read because no page size was sent. This console always sends one; this is a fault in the console.',
+    },
+  };
+}
+
+/**
+ * Identity's document list for one account (`kyc.listDocuments`), each row with the status of the verification it is
+ * attached to, and the two-founder request that opens one in the KYC document viewer. With `recordId`, only the documents
+ * attached to that verification: the KYC case detail lists its own documents from the same read, with the same viewer.
+ */
+export function identityDocumentsRead(userId: string, recordId?: string): ReadSpec {
+  return {
+    id: 'identity.documents',
+    title: 'Identity documents',
+    note: 'Every document identity’s vault holds for this account, newest first: what it is, when it was stored, and the status of the verification it is attached to. Only the description is read here; open a row to ask a second founder to approve opening its contents.',
+    module: 'identity',
+    plainName: 'identity’s document vault',
+    procedure: 'kyc.listDocuments',
+    input: { userId, limit: DOCUMENT_LIMIT },
+    ...(recordId === undefined ? {} : { rowsWhere: { key: 'reviewRecordId', equals: recordId } }),
+    shape: 'list',
+    idKey: 'id',
+    page: DOCUMENT_LIMIT,
+    columns: [
+      col('createdAt', 'Stored', 'time'),
+      col('contentType', 'Type', 'text'),
+      col('reviewStatus', 'Status', 'text'),
+      col('byteLength', 'Size (bytes)', 'int'),
+      col('storedBy', 'Stored by', 'text', { nullable: true }),
+      col('reviewTier', 'Verification level', 'text', { nullable: true, detail: true }),
+      col('reviewRecordId', 'Verification id', 'text', { nullable: true, detail: true }),
+      col('id', 'Document id', 'text', { detail: true }),
+    ],
+    rowAction: 'identity.kyc_document.open',
+    emptyText: 'Identity’s vault holds no document for this account: none has been uploaded or stored for it.',
+    forbiddenText:
+      'Identity did not accept your founder session for this read (the document list is for an enabled founder with the compliance permission and a second factor).',
+    refusals: {
+      'kyc_doc.unwired':
+        'Identity’s document vault is switched off on this deployment: its encryption key (IDENTITY_KYC_DOC_KEY) is not set, so no document can be stored or listed for anyone.',
+      'kyc_doc.reviews_unwired':
+        'Identity’s document vault is on, but its lookup of the verification each document is attached to is not wired, so it refuses the list rather than show every document as not attached.',
+    },
+  };
+}
+
+/**
+ * Identity's KYC cases of one person (`kyc.historyFor`), newest first: each request and what was decided on it. With `caseId`,
+ * that one case, for its detail page.
+ */
+export function kycCasesRead(userId: string, caseId?: string): ReadSpec {
+  return {
+    id: caseId === undefined ? 'identity.kyc-cases' : 'identity.kyc-case',
+    title: 'Verification cases',
+    note: 'Each identity verification this person asked for, newest first, as identity holds it: the level, the state and when it was decided. Open a case to see its documents.',
+    module: 'identity',
+    plainName: 'identity’s verification cases',
+    procedure: 'kyc.historyFor',
+    input: { userId, limit: KYC_CASE_LIMIT },
+    shape: 'list',
+    rowsKey: 'cases',
+    idKey: 'id',
+    ...(caseId === undefined ? {} : { rowsWhere: { key: 'id', equals: caseId } }),
+    page: KYC_CASE_LIMIT,
+    columns: [
+      col('submittedAt', 'Asked', 'time'),
+      col('tier', 'Level', 'text'),
+      col('state', 'State', 'text'),
+      col('decidedAt', 'Decided', 'time', { nullable: true }),
+      col('jurisdiction', 'Jurisdiction', 'text', { detail: true }),
+      col('recordId', 'Verification id', 'text', { detail: true }),
+      col('id', 'Case id', 'text', { detail: true }),
+    ],
+    emptyText: 'This person has asked for no identity verification.',
+    forbiddenText:
+      'Identity did not accept your founder session for this read (verification cases are for an enabled founder with the compliance permission).',
+  };
+}
+
 export interface CustomerTabPlan {
   readonly reads: readonly ReadSpec[];
   /** What this tab cannot show for one account, and why. */
@@ -259,50 +393,20 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
       };
     case 'cards':
       return {
-        reads: [],
+        reads: [customerCards(userId)],
         unwired: [
           un(
-            'cards.list',
-            'Cards issued to this account',
-            'svc-bank keeps each customer’s cards, but its card list answers only the signed-in owner; it has no operator read of one customer’s cards.',
+            'cards.payments',
+            'Card payments of this account',
+            'svc-bank has no operator read that lists one customer’s card payments: its card payment list answers only the signed-in owner, and its staff read of a card payment goes by one payment’s id.',
           ),
         ],
       };
     case 'documents':
       return {
         reads: [
-          {
-            id: 'identity.documents',
-            title: 'Identity documents',
-            note: 'Every document identity’s vault holds for this account, newest first: what it is, when it was stored, and the status of the verification it is attached to. Only the description is read here; open a row to ask a second founder to approve opening its contents.',
-            module: 'identity',
-            plainName: 'identity’s document vault',
-            procedure: 'kyc.listDocuments',
-            input: { userId, limit: DOCUMENT_LIMIT },
-            shape: 'list',
-            idKey: 'id',
-            page: DOCUMENT_LIMIT,
-            columns: [
-              col('createdAt', 'Stored', 'time'),
-              col('contentType', 'Type', 'text'),
-              col('reviewStatus', 'Status', 'text'),
-              col('byteLength', 'Size (bytes)', 'int'),
-              col('storedBy', 'Stored by', 'text', { nullable: true }),
-              col('reviewTier', 'Verification level', 'text', { nullable: true, detail: true }),
-              col('reviewRecordId', 'Verification id', 'text', { nullable: true, detail: true }),
-              col('id', 'Document id', 'text', { detail: true }),
-            ],
-            rowAction: 'identity.kyc_document.open',
-            emptyText: 'Identity’s vault holds no document for this account: none has been uploaded or stored for it.',
-            forbiddenText:
-              'Identity did not accept your founder session for this read (the document list is for an enabled founder with the compliance permission and a second factor).',
-            refusals: {
-              'kyc_doc.unwired':
-                'Identity’s document vault is switched off on this deployment: its encryption key (IDENTITY_KYC_DOC_KEY) is not set, so no document can be stored or listed for anyone.',
-              'kyc_doc.reviews_unwired':
-                'Identity’s document vault is on, but its lookup of the verification each document is attached to is not wired, so it refuses the list rather than show every document as not attached.',
-            },
-          },
+          identityDocumentsRead(userId),
+          kycCasesRead(userId),
           {
             id: 'identity.selfies',
             title: 'Selfies',

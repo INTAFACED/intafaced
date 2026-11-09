@@ -73,6 +73,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/accounts', 'accounts'],
   ['/api/kill-switch', 'killswitches'],
   ['/api/service-records', 'killswitches'],
+  ['/api/incidents', 'killswitches'],
   ['/api/ledger-freeze', 'ledger'],
   ['/api/ledger-lookup', 'ledger'],
   ['/api/ledger-reconciliation', 'ledger'],
@@ -95,6 +96,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/academy-release', 'academy-ops'],
   ['/api/academy-item-rules', 'academy-ops'],
   ['/api/academy-gradebook', 'academy-ops'],
+  ['/api/academy-learners', 'academy-ops'],
   ['/api/academy-media', 'academy-ops'],
   ['/api/academy-hub', 'academy-ops'],
   ['/api/academy-course-links', 'academy-ops'],
@@ -216,6 +218,8 @@ export function moduleForPage(pathname: string): ModuleId | null {
   if (under(path, '/changes')) return 'identity-ops';
   // The module health board sits with the module board (kill switches): both are the whole-platform view.
   if (under(path, '/health')) return 'killswitches';
+  // Staff incidents are the whole platform's too (OPS-oncall-02).
+  if (under(path, '/incidents')) return 'killswitches';
   for (const route of MODULE_ROUTES) {
     if (route.href !== '/' && under(path, route.href)) return route.id;
   }

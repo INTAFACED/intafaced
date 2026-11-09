@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { DecisionMerchant, DeclineReason } from './CardBlocks';
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
@@ -11,7 +12,7 @@ import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
 import { useSession } from '../session/session';
-import { CardCashback, CardJourney } from './CardJourney';
+import { CardCashback, CardJourney, CardPayFrom } from './CardJourney';
 import { cardOrderCopy } from './card-order-copy';
 
 type CardRecord = z.infer<typeof cardSchema>;
@@ -260,6 +261,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           {row.authorizationRef === '' ? <Copy k="emptyReference" /> : row.authorizationRef}
         </dd>
       </dl>
+      <DecisionMerchant merchant={row.merchant ?? null} country={row.merchantCountry ?? null} />
       {row.declineCode !== null && (
         <dl className="money-card-decline">
           <dt>
@@ -270,6 +272,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           </dd>
         </dl>
       )}
+      {row.declineCode ? <DeclineReason code={row.declineCode} /> : null}
       {row.conversion && (
         <div className="money-card-conversion">
           <h5>
@@ -556,6 +559,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
         {order.t('getCard')}
       </a>
       <CardCashback />
+      <CardPayFrom />
       <OrderCard open={open} programme={orderProgramme} assets={orderAssets} />
       {selected && (
         <section className="money-selected-card" aria-labelledby="money-selected-card-heading">

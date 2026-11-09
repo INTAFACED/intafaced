@@ -145,6 +145,8 @@ describe('event fan-out', () => {
             : 'notify.identity.security.factor_changed.body',
       );
       expect(row.href).toBe('/uc/safe');
+      // The row carries identity's business key, which Home matches to identity's "Needs you" item for a new device.
+      expect(row.params).toEqual({ noticeKey: `factor-changed:${USER}:${SECURITY_FACTOR_CHANGES.indexOf(kind) + 1}` });
       expect(isMessageKey(row.titleKey) && isMessageKey(row.bodyKey)).toBe(true);
       expect(categoryFromKind(row.kind)).toBe('security');
     }

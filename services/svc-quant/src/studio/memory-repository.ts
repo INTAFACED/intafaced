@@ -1,4 +1,6 @@
 import { QUANT_STUDIO_NOT_FOUND, QuantError } from '../errors.js';
+import { utf8Bytes } from '../quota/counts.js';
+import type { QuotaGate } from '../quota/quota.js';
 import { decodeListCursor, encodeListCursor, idempotencyConflict } from './keys.js';
 import type {
   OperatorListPage,
@@ -86,12 +88,19 @@ function receiptOf(stored: MemoryReceipt): WriteReceipt {
  * In-memory port for tests. Production does not construct this.
  * Version objects are appended, never rewritten.
  */
-export function createMemoryStrategyRepository(): StrategyRepository {
+export function createMemoryStrategyRepository(quota?: QuotaGate): StrategyRepository {
   const rows = new Map<string, MemoryRow>();
   const receipts = new Map<string, MemoryReceipt>();
 
   function receiptKey(accountId: string, idempotencyKey: string): string {
     return `${accountId}\0${idempotencyKey}`;
+  }
+
+  /** Memory counts the strategies' source as storage; Postgres adds the run results. */
+  function held(accountId: string): { saved: bigint; storage: bigint } {
+    const own = [...rows.values()].filter((row) => row.accountId === accountId);
+    const storage = own.reduce((sum, row) => row.versions.reduce((acc, v) => acc + utf8Bytes(v.source), sum), 0n);
+    return { saved: BigInt(own.filter((row) => row.deletedAt === null).length), storage };
   }
 
   function owned(accountId: string, id: string): MemoryRow | undefined {
@@ -153,6 +162,14 @@ export function createMemoryStrategyRepository(): StrategyRepository {
         remember(input.accountId, input.idempotencyKey, 'create', detail);
         return detail;
       }
+      if (quota) {
+        const counts = held(input.accountId);
+        await quota.check(null, input.accountId, [
+          { resource: 'strategies', used: counts.saved, adding: 1n },
+          { resource: 'versions', used: 0n, adding: 1n },
+          { resource: 'storage', used: counts.storage, adding: utf8Bytes(input.draft.source) },
+        ]);
+      }
       const now = new Date().toISOString();
       const row: MemoryRow = {
         id: `studio_${crypto.randomUUID()}`,
@@ -183,6 +200,12 @@ export function createMemoryStrategyRepository(): StrategyRepository {
       if (!row || row.deletedAt) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
       const previous = row.versions[row.versions.length - 1];
       if (!previous) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+      if (quota) {
+        await quota.check(null, input.accountId, [
+          { resource: 'versions', used: BigInt(row.versions.length), adding: 1n },
+          { resource: 'storage', used: held(input.accountId).storage, adding: utf8Bytes(input.draft.source) },
+        ]);
+      }
       const next: StrategyVersionRecord = { ...clone(input.draft), version: previous.version + 1, createdAt: new Date().toISOString() };
       row.versions.push(next);
       // A saved version names the strategy again; the head follows it until the next rename.
@@ -231,6 +254,7 @@ export function createMemoryStrategyRepository(): StrategyRepository {
       const row = owned(input.accountId, input.id);
       if (!row) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
       if (row.deletedAt) {
+        if (quota) await quota.check(null, input.accountId, [{ resource: 'strategies', used: held(input.accountId).saved, adding: 1n }]);
         row.deletedAt = null;
         row.restores += 1;
       }

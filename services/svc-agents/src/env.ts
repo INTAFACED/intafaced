@@ -298,11 +298,32 @@ const schema = serviceEnvSchema
       AGENTS_LOG_READ_REASONS: blankAsAbsent(z.string().optional()),
       /** Rows one operator log read or export shows, 1 to 500. Blank refuses agents.ops_actions_limit_unset. */
       AGENTS_OPS_ACTIONS_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(500).optional()),
+      /** Rows one operator fleet registry read shows, 1 to 500 (AG-registry-01). Blank refuses agents.registry_list_limit_unset. */
+      AGENTS_REGISTRY_LIST_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(500).optional()),
+      /** Steps one background test run of an own agent takes, 1 to 10000 (AG-control-02). Blank refuses agents.background_unset. */
+      AGENTS_BACKGROUND_TEST_STEPS: blankAsAbsent(z.coerce.number().int().min(1).max(10000).optional()),
+      /** Milliseconds one background step takes, 200 to 600000: the ticker's period. Blank refuses agents.background_unset. */
+      AGENTS_BACKGROUND_STEP_MS: blankAsAbsent(z.coerce.number().int().min(200).max(600000).optional()),
       /**
        * Days an executed engine call's prompt text is kept for a transcript read; 0 keeps none. Blank keeps none and a
        * transcript read refuses agents.transcript_retention_unset.
        */
       AGENTS_TRANSCRIPT_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(0).max(3650).optional()),
+      // ── Payment token of a wallet payment method (J-agents-02 #4) ─────────
+      // Owner values: the chain node a wallet's balance is read from, the chain it must be, and the token a run's worst
+      // case is checked against there (the fee asset's form on that chain), with its decimals. All four or none: with any
+      // one blank, a run of an agent whose payment method is a wallet refuses agents.funds_unread (payment_token_unset),
+      // never a made-up figure. Runs with no wallet method read the platform balance and need none of them.
+      AGENTS_PAYMENT_RPC_URL: blankAsAbsent(z.string().url().optional()),
+      AGENTS_PAYMENT_CHAIN_ID: blankAsAbsent(z.coerce.number().int().min(1).max(2_147_483_647).optional()),
+      AGENTS_PAYMENT_TOKEN_ADDRESS: blankAsAbsent(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x token address')
+          .optional(),
+      ),
+      AGENTS_PAYMENT_TOKEN_DECIMALS: blankAsAbsent(z.coerce.number().int().min(0).max(36).optional()),
     }),
   );
 

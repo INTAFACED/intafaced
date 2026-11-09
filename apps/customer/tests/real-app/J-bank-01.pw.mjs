@@ -1,8 +1,9 @@
-// World: none
+// World: restart
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-bank-01, in the running app (docs/roadmap/journeys.json): I open my bank, see my accounts and spaces, and create one.
 // One test per step, titled "J-bank-01 #<n>", run in order on one TEST account funded with TEST 100 USDT. The stack
@@ -63,6 +64,30 @@ async function spaces(who) {
   return res.data;
 }
 const main = (rows) => rows.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+
+/**
+ * Runs `fn` with svc-bank restarted on one owner value blank (`LOCAL_STACK_BANK_<NAME>=off`,
+ * tooling/scripts/local-stack-services/bank.mjs), and restarts it on the TEST value after, even when `fn` fails.
+ */
+async function withBankValueBlank(key, fn) {
+  const restart = (value) => {
+    const before = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+    try {
+      tool('local-test-stack.mjs', 'restart', 'bank');
+    } finally {
+      if (before === undefined) delete process.env[key];
+      else process.env[key] = before;
+    }
+  };
+  restart('off');
+  try {
+    return await fn();
+  } finally {
+    restart(undefined);
+  }
+}
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
 
 test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async ({ page }) => {
@@ -88,8 +113,12 @@ test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async 
   await expect(page.getByText('This address is not available')).toBeVisible();
 });
 
-test(`${J} #2 reads the account panel: the published TEST terms, and no fee-free claim of its own`, async ({ page }) => {
-  await signIn(page, person());
+test(`${J} #2 reads the account panel: the published TEST terms, and with the owner's terms blank "terms not published" with its code and no fee-free claim`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const who = person();
+  await signIn(page, who);
   await page.goto('/bank');
   const terms = page.getByTestId('account-terms');
   await expect(terms).toContainText('TEST base tier');
@@ -97,6 +126,18 @@ test(`${J} #2 reads the account panel: the published TEST terms, and no fee-free
   await expect(terms).toContainText('0 USDT');
   await expect(terms).toContainText('local-test-1');
   await expect(page.locator('main')).not.toContainText(/fee[- ]free/i);
+
+  // With the owner's terms table blank: the bank refuses by its code, and the panel says the terms are not published,
+  // shows that code, and claims no fee or fee-free account.
+  await withBankValueBlank('LOCAL_STACK_BANK_ACCOUNT_TERMS', async () => {
+    expect(await (await bank(who)).query('accounts.features', {})).toMatchObject({ ok: false, code: 'bank.account_terms_unset' });
+    await page.goto('/bank');
+    const unset = page.getByTestId('failure').filter({ hasText: 'Terms not published' });
+    await expect(unset).toBeVisible();
+    await expect(unset).toContainText('bank.account_terms_unset');
+    await expect(page.getByTestId('account-terms')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText(/fee[- ]free|TEST base tier|Monthly fee/i);
+  });
 });
 
 test(`${J} #3 adds a currency once, and removing one that holds money is refused with Send and Convert`, async ({ page }) => {
@@ -124,9 +165,25 @@ test(`${J} #3 adds a currency once, and removing one that holds money is refused
   await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC' }).click();
   await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
   await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+
+  // Where the partner has no currency accounts (the TEST partner switched to offer none): "not offered by the partner",
+  // and no currency account is opened.
+  await withPartner(who, { notOffered: ['currencies'] }, async () => {
+    await page.reload();
+    await page.getByLabel('Currency to add').selectOption('USDC');
+    await page.getByRole('button', { name: 'Add currency' }).click();
+    await expect(page.getByTestId('failure').filter({ hasText: /not offered by the partner/i })).toBeVisible();
+    await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+    expect(await (await bank(who)).mutate('currencies.add', { assetId: 'USDC' })).toMatchObject({
+      ok: false,
+      code: 'bank.not_offered_by_partner',
+    });
+    expect((await spaces(who)).filter((s) => s.kind === 'primary' && s.assetId === 'USDC')).toHaveLength(0);
+  });
 });
 
 test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is refused with the limit`, async ({ page }) => {
+  test.setTimeout(240_000);
   const who = person();
   await signIn(page, who);
   await page.goto('/bank/spaces');
@@ -157,6 +214,35 @@ test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is r
   await dialog.getByRole('button', { name: 'Confirm' }).click();
   await expect(dialog).toContainText(`already has ${LIMIT} spaces`);
   expect(named(await spaces(who), 'One too many TEST')).toBeUndefined();
+
+  // The at-limit create is settled before the bank restarts: the page holds no write whose outcome is unconfirmed, so a
+  // check of it can't meet the bank mid-restart.
+  const paused = page.getByRole('alert').filter({ hasText: 'Bank writes are paused' });
+  await page.goto('/bank/spaces');
+  await expect(page.getByRole('heading', { name: 'Spaces', level: 1 })).toBeVisible();
+  await expect(paused).toHaveCount(0);
+
+  // With the owner's space limit blank: the create is refused, saying the limit is not set, and no space is made.
+  await withBankValueBlank('LOCAL_STACK_BANK_SPACE_LIMIT', async () => {
+    const before = (await spaces(who)).length;
+    expect(await (await bank(who)).mutate('spaces.create', { assetId: 'USDT', name: 'No limit TEST' })).toMatchObject({
+      ok: false,
+      code: 'bank.space_limit_unset',
+    });
+    await page.goto('/bank/spaces');
+    await expect(page.getByRole('heading', { name: 'Spaces', level: 1 })).toBeVisible();
+    await expect(paused).toHaveCount(0);
+    await page.getByRole('button', { name: 'Create space' }).click();
+    await dialog.getByLabel('Asset', { exact: true }).selectOption('USDT');
+    await dialog.getByLabel('Space name').fill('No limit TEST');
+    await dialog.getByRole('button', { name: 'Review' }).click();
+    await dialog.getByRole('button', { name: 'Confirm' }).click();
+    await expect(dialog).toContainText(/has not set how many spaces/i);
+    await expect(dialog).not.toContainText('Confirmed by the service');
+    const after = await spaces(who);
+    expect(after).toHaveLength(before);
+    expect(named(after, 'No limit TEST')).toBeUndefined();
+  });
 });
 
 test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked source is refused before any request`, async ({ page }) => {
@@ -197,10 +283,39 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   await dialog.getByRole('button', { name: 'Review' }).click();
   await expect(dialog.getByText('This space is locked', { exact: false })).toBeVisible();
   expect(sent).toEqual([]);
+
+  // Where the partner has no spaces (the TEST partner switched to offer none): the move reads "not offered by the
+  // partner", and both balances stay as the partner reports them.
+  await withPartner(who, { notOffered: ['spaces'] }, async () => {
+    await page.goto('/bank/transfers');
+    await page.getByLabel('From your space').selectOption(main(after).id);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await dialog.getByLabel('To which of your accounts').selectOption(trip.id);
+    await dialog.getByLabel(/Amount/).fill('20');
+    await dialog.getByRole('button', { name: 'Review' }).click();
+    await dialog.getByRole('button', { name: 'Confirm' }).click();
+    await expect(dialog).toContainText(/not offered by the partner/i);
+    const refused = await (
+      await bank(who)
+    ).mutate('transfers.create', {
+      transferId: `jb01-${randomUUID()}`,
+      fromSpaceId: main(after).id,
+      toSpaceId: trip.id,
+      amount: '20',
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
+    const held = await spaces(who);
+    expect(main(held).balance).toBe(main(after).balance);
+    expect(named(held, SPACE).balance).toBe(named(after, SPACE).balance);
+  });
 });
 
-test(`${J} #6 opens account details: each currency needs a banking partner, rail.bank, and no number is shown`, async ({ page }) => {
-  await signIn(page, person());
+test(`${J} #6 opens account details: the TEST partner's details labelled TEST, and with no partner each currency needs one, rail.bank, and no number is shown`, async ({
+  page,
+}) => {
+  const who = person();
+  await signIn(page, who);
+  // With no banking partner for account details (the TEST partner's default): the notice, rail.bank, no number.
   await page.goto('/bank');
   for (const currency of ['EUR', 'GBP', 'USD']) {
     const block = page.getByTestId(`account-details-${currency}`);
@@ -209,6 +324,29 @@ test(`${J} #6 opens account details: each currency needs a banking partner, rail
     await expect(block.getByTestId('account-details-set')).toHaveCount(0);
   }
   await expect(page.locator('main')).not.toContainText(/IBAN|Sort code|Account number/);
+
+  // On the TEST partner adapter, with details issued to this person: for each currency, exactly the partner's details as
+  // its own answer gives them, labelled TEST, with no rail.bank notice.
+  await withPartner(who, { accountDetails: 'issued' }, async () => {
+    const answer = await (await bank(who)).query('accountDetails.list');
+    expect(answer.ok, JSON.stringify(answer).slice(0, 300)).toBe(true);
+    await page.goto('/bank');
+    for (const currency of ['EUR', 'GBP', 'USD']) {
+      const row = answer.data.currencies.find((c) => c.currency === currency);
+      expect(row, `${currency} in the partner's answer`).toMatchObject({ state: 'done', blocker: null });
+      expect(row.sets.length, `${currency}: the partner issued a set`).toBeGreaterThan(0);
+      const block = page.getByTestId(`account-details-${currency}`);
+      await expect(block).not.toContainText('rail.bank');
+      const shown = block.getByTestId('account-details-set');
+      await expect(shown).toHaveCount(row.sets.length);
+      for (const [i, set] of row.sets.entries()) {
+        expect(set.partnerBank, 'the issuing bank is the TEST partner').toMatch(/TEST/);
+        expect(set.accountNumber, 'the number is labelled TEST').toMatch(/^TEST-/);
+        await expect(shown.nth(i)).toContainText(set.accountNumber);
+        await expect(shown.nth(i)).toContainText(set.partnerBank);
+      }
+    }
+  });
 });
 
 /** The bank reads the page made, each with the input it sent. `business.list` is the profile picker's own list. */

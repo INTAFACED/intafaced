@@ -191,6 +191,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { learnerDeskProcedures } from './learners/learner-desk-router.js';
 import { gradeReportProcedures } from './curriculum/grade-reports-router.js';
 import { relatedItems } from './curriculum/related.js';
 import { listPublicCourses, searchPublicCurriculum } from './curriculum/public-catalogue.js';
@@ -1009,10 +1010,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.assignment_has_submissions':
     case 'academy.review_already_sent':
     case 'academy.grader_locked':
+    case 'academy.grant_active':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.enrolment_required':
     case 'academy.permission_denied':
+    case 'academy.grant_expired':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.price_unset':
@@ -1066,6 +1069,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.assignment_not_found':
     case 'academy.review_task_not_found':
     case 'academy.submission_not_found':
+    case 'academy.grant_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
@@ -3293,6 +3297,7 @@ export function createAcademyRouter(
 
     admin: router({
       ...gradeReportProcedures(academy.gradeReports),
+      ...learnerDeskProcedures(academy, guard),
       /** AC-course-structure-01: the courses staff created, newest first, and how many are in each state. */
       courses: scopedProcedure('admin:read', { module: 'academy' })
         .input(academyCourseListInputSchema)

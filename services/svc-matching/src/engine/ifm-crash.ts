@@ -15,7 +15,7 @@ import {
   replayInFlight,
   type InFlightMark,
 } from './ifm.js';
-import type { AmendResult, CancelResult, EngineAmend, EngineOrder, MarketId, OrderId, SubmitResult } from './types.js';
+import type { AmendResult, CancelReason, CancelResult, EngineAmend, EngineOrder, MarketId, OrderId, SubmitResult } from './types.js';
 
 const FLAG = Symbol.for('intafaced.matching.ifm-crash');
 const STORE = Symbol.for('intafaced.matching.ifm-crash.unknown');
@@ -33,7 +33,7 @@ type Host = {
   [STORE]?: Map<OrderId, InFlightMark>;
   submit: (marketId: MarketId, order: EngineOrder, proof?: unknown) => Promise<SubmitResult>;
   amend: (marketId: MarketId, cmd: EngineAmend, proof?: unknown) => Promise<AmendResult>;
-  cancel: (marketId: MarketId, orderId: OrderId) => Promise<CancelResult>;
+  cancel: (marketId: MarketId, orderId: OrderId, reason?: CancelReason) => Promise<CancelResult>;
   recover: () => Promise<{ records: number; markets: number }>;
   journal?: { read?: () => readonly JournalRow[] };
 };
@@ -98,9 +98,10 @@ export function installIfmCrash(ctor: typeof MatchingEngine = MatchingEngine): v
     return origAmend.call(this, marketId, cmd, proof);
   };
 
-  proto.cancel = async function (this: MatchingEngine, marketId: MarketId, orderId: OrderId) {
+  // The reason rides through: an expiry sweep's cancel must leave as `expired`, not the default `requested`.
+  proto.cancel = async function (this: MatchingEngine, marketId: MarketId, orderId: OrderId, reason?: CancelReason) {
     if (isCrashUnknown(this, orderId)) return inFlightCancelResult(orderId, true);
-    return origCancel.call(this, marketId, orderId);
+    return origCancel.call(this, marketId, orderId, reason);
   };
 }
 

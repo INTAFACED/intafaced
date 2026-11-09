@@ -122,6 +122,28 @@ refuses `support.rating_window_invalid`. The emailed rating request is announced
 whether anyone is emailed is svc-notify's answer and waits on the mail path (`vendor.email`). The in-app
 prompt does not wait on either.
 
+Live chat (SP-chat-01, J-support-public-05): our own channel, built. `chatAvailability` (public) says who can answer now
+(`online` when a desk member is online, `busy` when none is online and one is busy, `offline` otherwise), the chat hours
+from the contact channels (or null: "not set"), the owner's pre-chat fields and the read interval `SUPPORT_CHAT_POLL_MS`.
+`chatOpen` (public) refuses `support.chat_agent_unavailable` while nobody is on the desk; a session then waits for an
+online agent (`waitingForAgent`). The session belongs to the signed principal (one with `support:write`), or to the
+account a claim from `chatIdentityToken` names when svc-support signed it for that account and it has not expired; any
+other claim is recorded `refused` (`support.chat_identity_invalid`): a signed-in caller keeps their own identity and a
+caller with no session of ours is a guest. The body never names the owner. Every session has an access token, derived
+from the page's 256-bit open key; only the key's and the token's hashes are kept, and the same key reopens the same chat.
+A guest's pre-chat form is one enquiry with source chat (`chat_enquiries`); its address is sealed with the guest address
+key, erased after the guest retention, and never answered back. `chatSend` and `chatPoll` (cursor `after`) are POSTs so
+the token stays out of addresses; a message is keyed by (session, `clientMessageId`), the per-chat rate is the owner's
+`SUPPORT_CHAT_RATE_LIMIT` per `SUPPORT_CHAT_RATE_WINDOW_SECONDS` (blank refuses `support.chat_rate_limit_unset`) and
+the opening message counts. Card numbers and recovery phrases are refused as on a request. The desk (`support:ops`):
+`chatInbox`, `chatAccept` (an online member only, else `support.chat_agent_not_online`; another agent's chat
+`support.chat_already_accepted`), `chatReply` (the accepting agent only), `chatDeskPoll`, `chatDeskClose`,
+`chatEnquiries` and `requestSource`. Closing writes first: the session is closed, then the request is made under
+`chat:<session>` (owner: the account, or the session id for a guest; body: the transcript), then linked in
+`ticket_sources` with the profile type svc-identity answered when the chat opened (`/internal/campaign-participant`,
+read per chat, `unread` when identity cannot answer). A closed chat takes no message (`support.chat_closed`).
+`chatContinueByEmail` answers `vendor.email` (no mailbox in this build) and leaves the chat open.
+
 Contact channels: the owner-set support email, phone and chat hours. `contactChannels` is public (a
 signed-out visitor reads it) and answers each channel as a value or `null`; nothing is seeded and no address,
 number or hour is built in. `setContactChannels` (`support:ops`, staff lead only, until the `support:admin` scope

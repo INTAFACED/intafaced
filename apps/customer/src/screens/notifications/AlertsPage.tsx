@@ -27,6 +27,7 @@ import {
 import { AlertEditPanel } from './AlertEditPanel';
 import { TriggerLog } from './TriggerLog';
 import { WatchlistAlert, type BlockedReason } from './WatchlistAlert';
+import { FollowListAlert } from './FollowListAlert';
 import { useAlertQuota } from './use-quota';
 import { useTriggers } from './use-triggers';
 import { Button, StateBlock } from './deps';
@@ -789,6 +790,16 @@ export default function AlertsPage() {
         blockedReason={blockedReason}
         busy={busy === 'watchlist'}
         onSave={saveWatchlist}
+      />
+
+      <FollowListAlert
+        markets={marketList}
+        blockedReason={blockedReason}
+        stamp={(iso) => stamp(iso, timeZone)}
+        onChanged={() => {
+          reload();
+          quota.reload();
+        }}
       />
 
       <section

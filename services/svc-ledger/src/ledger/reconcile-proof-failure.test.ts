@@ -64,7 +64,7 @@ function connect(): Sql {
 }
 
 function service(sql: Sql, bus = new MemoryEventBus('proof-failure')) {
-  return { svc: new LedgerService(sql, bus), bus };
+  return { svc: new LedgerService(sql, bus, { custodyLayer: 'on' }), bus };
 }
 
 const deposit = (userId: string) =>

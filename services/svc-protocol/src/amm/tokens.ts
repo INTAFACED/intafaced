@@ -2,6 +2,8 @@ import { formatUnits, parseUnits, type Address, type Hex } from 'viem';
 import {
   ORGANIC_SCORE_UNSET,
   TOKEN_WINDOW_SECONDS,
+  TOKENS_BLOCK_AHEAD,
+  TOKENS_BLOCK_TOO_OLD,
   TOKENS_HOLDERS_INCONSISTENT,
   TOKENS_READ_TOO_LARGE,
   TOKEN_NOT_LISTED,
@@ -87,7 +89,13 @@ export interface MarketSnapshot {
 
 export class TokensReadError extends Error {
   constructor(
-    readonly code: typeof TOKENS_READ_TOO_LARGE | typeof TOKENS_HOLDERS_INCONSISTENT | typeof TOKEN_NOT_LISTED | typeof TOKEN_UNSUPPORTED,
+    readonly code:
+      | typeof TOKENS_READ_TOO_LARGE
+      | typeof TOKENS_HOLDERS_INCONSISTENT
+      | typeof TOKEN_NOT_LISTED
+      | typeof TOKEN_UNSUPPORTED
+      | typeof TOKENS_BLOCK_AHEAD
+      | typeof TOKENS_BLOCK_TOO_OLD,
     message: string,
   ) {
     super(`${code}: ${message}`);

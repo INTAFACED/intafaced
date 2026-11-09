@@ -7,7 +7,7 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
-import { TrustedDeviceError, type DeviceAuthorisationDetails } from './trusted-devices.js';
+import { deviceKeyHash, TrustedDeviceError, type DeviceAuthorisationDetails } from './trusted-devices.js';
 import { RankService } from '../rank/rank-service.js';
 
 /**
@@ -167,6 +167,14 @@ if (!available) {
       const newDeviceMail = `SELECT count(*)::int AS n FROM mail_outbox WHERE user_id = '${who.userId}' AND purpose = 'factor-changed' AND detail = 'new_device'`;
       expect(await count(newDeviceEvents)).toBe(1);
       expect(await count(newDeviceMail)).toBe(1);
+      // The event names the device it trusted, unanswered, so Home's "Needs you" asks about it (work-items.ts).
+      expect(
+        await count(
+          `SELECT count(*)::int AS n FROM security_factor_events e JOIN trusted_devices t ON t.id = e.trusted_device_id
+            WHERE e.user_id = '${who.userId}' AND e.change = 'new_device' AND e.reviewed_at IS NULL
+              AND t.device_key_hash = '${deviceKeyHash(session.deviceKey!)}'`,
+        ),
+      ).toBe(1);
 
       // Once only.
       expect((await refused(auth.deviceComplete({ flowId: waiting.flowId, secret: waiting.secret }))).code).toBe(

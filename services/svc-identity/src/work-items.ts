@@ -11,7 +11,13 @@
  * A person who still holds a live approval owes nothing when a newer attempt (an upgrade) was rejected or lapsed: they
  * are verified, and asking them to act would be a false alarm. A pending upgrade still shows as `info`.
  *
- * The owner sends copy keys, never sentences, and links only into its own rooms (`/verification`).
+ * And one `new_device` item per still-trusted device with a new-device sign-in the person has not answered: "a new device signed in; if this wasn't
+ * you, open Security". It is `action`, links to Security (`/uc/safe`), and its id is `new_device:<the event's notice
+ * key>`, the key svc-notify files the inbox notice under, so Home shows that notice here and not twice. It exists while
+ * the event is unreviewed and its device is still trusted: "This was me" in Security (`trustedDevices.confirmSignIn`,
+ * from another device) or removing the device ends it. Newest first.
+ *
+ * The owner sends copy keys, never sentences, and links only into its own rooms (`/verification`, `/uc/`).
  */
 import { protectedProcedure, router, TRPCError, workItemsOutputSchema, type WorkItem, type WorkItemsOutput } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
@@ -23,6 +29,9 @@ type NewestRecord = {
 };
 
 const LINK = '/verification';
+const SECURITY = '/uc/safe';
+/** At most this many new-device items, newest first, inside the contract's limit on one owner's answer. */
+const NEW_DEVICE_ITEMS = 20;
 
 /**
  * The verification item for one person's newest KYC record (null: none at all), as of `now`. `liveApproval` says
@@ -45,6 +54,35 @@ export function verificationItem(userId: string, newest: NewestRecord | null, no
   const lapsed = newest.status === 'expired' || (newest.expires_at !== null && newest.expires_at.getTime() <= now.getTime());
   if (lapsed) return item(newest.id, 'action', 'identity.verification.expired', newest.expires_at ?? undefined);
   return null;
+}
+
+/** The `new_device` item for one unanswered new-device sign-in, keyed by its notice key. */
+export function newDeviceItem(noticeKey: string): WorkItem {
+  return {
+    id: `new_device:${noticeKey}`,
+    kind: 'new_device',
+    source: 'identity',
+    severity: 'action',
+    titleKey: 'identity.new_device.review',
+    link: SECURITY,
+  };
+}
+
+/** The person's still-trusted devices with an unanswered new-device sign-in, one item each, newest first. */
+export async function newDeviceItems(sql: Sql, userId: string, now = new Date()): Promise<WorkItem[]> {
+  // One item per device: a device approved again before it was answered asks once, by its newest sign-in.
+  const rows = await sql<Array<{ notice_key: string }>>`
+    SELECT notice_key FROM (
+      SELECT DISTINCT ON (e.trusted_device_id) e.notice_key, e.changed_at, e.created_at, e.id
+        FROM security_factor_events e JOIN trusted_devices t ON t.id = e.trusted_device_id AND t.user_id = e.user_id
+       WHERE e.user_id = ${userId} AND e.change = 'new_device' AND e.reviewed_at IS NULL
+         AND t.removed_at IS NULL AND (t.trusted_until IS NULL OR t.trusted_until > ${now})
+       ORDER BY e.trusted_device_id, e.changed_at DESC, e.created_at DESC, e.id DESC
+    ) newest
+     ORDER BY changed_at DESC, created_at DESC, id DESC
+     LIMIT ${NEW_DEVICE_ITEMS}
+  `;
+  return rows.map((row) => newDeviceItem(row.notice_key));
 }
 
 export async function listVerificationItems(sql: Sql, userId: string, now = new Date()): Promise<WorkItemsOutput> {
@@ -80,7 +118,12 @@ export function createWorkItemsRouter(sql: Sql) {
             message: 'Sign in on this device to see what needs you [identity.work_items_delegated]',
           });
         }
-        return listVerificationItems(sql, principal.userId);
+        const now = new Date();
+        const [verification, devices] = await Promise.all([
+          listVerificationItems(sql, principal.userId, now),
+          newDeviceItems(sql, principal.userId, now),
+        ]);
+        return workItemsOutputSchema.parse({ items: [...verification.items, ...devices] });
       }),
     }),
   });

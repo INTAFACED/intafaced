@@ -13,7 +13,13 @@ import {
 import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';
-import { cardProgrammeProcedure, setCardStatusProcedure } from '../ops/card-programme.js';
+import {
+  cardPartnerTermsProcedure,
+  cardProgrammeFundingProcedure,
+  cardProgrammeProcedure,
+  requestCardProgrammeFundingProcedure,
+  setCardStatusProcedure,
+} from '../ops/card-programme.js';
 import { decideLimitRequestProcedure, limitRequestQueueProcedure } from '../transfers/limit-requests.js';
 import { createLoanProductProcedure, setLoanProductRateProcedure } from '../ops/loan-products.js';
 import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusProcedure } from '../ops/earn-pools.js';
@@ -24,9 +30,11 @@ import { onrampQuotesProcedure } from '../ops/onramp-quotes.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from '../ops/customer-balances.js';
+import { customerCardsProcedure } from '../ops/customer-cards.js';
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
+import { cardDisputeProcedures } from '../ops/card-disputes.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
 import { amountString, actionApprovalFields, heldSendOutput, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
@@ -596,6 +604,12 @@ export function createOpsRouter(c: BankRouterContext) {
            */
           amount: amountString,
           merchantCategory: z.string().min(1).max(64).optional(),
+          /** The merchant and its two-letter country as the issuer names them; a blocked one declines (J-bank-14 #1). */
+          merchant: z.string().min(1).max(64).optional(),
+          merchantCountry: z
+            .string()
+            .regex(/^[A-Za-z]{2}$/)
+            .optional(),
           channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']).optional(),
           ...actionApprovalFields,
         }),
@@ -632,6 +646,8 @@ export function createOpsRouter(c: BankRouterContext) {
             authorizationRef: input.authorizationRef,
             amount: parseAmount(input.amount),
             ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
+            ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
             ...(input.channel === undefined ? {} : { channel: input.channel }),
           });
           return {
@@ -982,7 +998,15 @@ export function createOpsRouter(c: BankRouterContext) {
       guard,
     ),
     cardProgramme: cardProgrammeProcedure(bank, guard),
+    /** The card partner's answers on funder, reserve, loss liability and custody, or "not known" (J-bank-26 #6, J-bank-27 #4). */
+    cardPartnerTerms: cardPartnerTermsProcedure(bank, guard),
+    /** Settlement reconciliation, stablecoin conversion and the partner's funding offers (J-bank-26 #6). Read only. */
+    cardProgrammeFunding: cardProgrammeFundingProcedure(bank, guard),
+    /** Fund, defund or set auto reload at the card partner, with a second founder's approval (J-bank-26 #6). */
+    requestCardProgrammeFunding: requestCardProgrammeFundingProcedure(bank, consumeOpsApproval, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
+    /** J-bank-27: card disputes worked by support (queue, case, evidence, representment, arbitration, credit, decision). */
+    ...cardDisputeProcedures(bank, guard),
     rampHealth: rampHealthProcedure(bank, guard),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
@@ -993,6 +1017,8 @@ export function createOpsRouter(c: BankRouterContext) {
     authorizationGet: authorizationGetProcedure(bank, guard),
     customerBalances: customerBalancesProcedure(bank, guard),
     customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
+    /** J-ops-console-04 #7: one customer's cards, every status, for the console's customer record. Read-only, audited first. */
+    customerCards: customerCardsProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
   });
 }

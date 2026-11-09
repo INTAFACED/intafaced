@@ -1,10 +1,11 @@
+import { useEffect, useRef } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { WORK_LIST_CAP_UNSET, type WorkItem, type WorkItemKind, type WorkItemSource } from '@intafaced/contracts/home-work-items';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import { Amount, fmtAmount, Skeleton, StateBlock, StatusTag } from './deps';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
-import { HOME_CONFIG_UNWIRED, ratioPercent, type WorkList as List } from './work-list';
+import { HOME_CONFIG_UNWIRED, needsYouShown, ratioPercent, type NeedsYouShown, type WorkList as List } from './work-list';
 import { useWorkList } from './work-list-data';
 import { usePreferences } from '../../shared/preferences';
 
@@ -14,6 +15,7 @@ const TITLE = {
   'identity.verification.pending': 'Work verification pending',
   'identity.verification.rejected': 'Work verification rejected',
   'identity.verification.expired': 'Work verification expired',
+  'identity.new_device.review': 'Work new device review',
   'bank.margin.call_open': 'Work margin call open',
   'bank.margin.liquidating': 'Work margin liquidating',
   'bank.card.frozen_by_you': 'Work card frozen by you',
@@ -23,6 +25,7 @@ const TITLE = {
 const titleOf = (key: string) => (Object.hasOwn(TITLE, key) ? TITLE[key as keyof typeof TITLE] : undefined);
 const KIND_TITLE = {
   verification: 'Work kind verification',
+  new_device: 'Work kind new_device',
   margin_health: 'Work kind margin_health',
   loan_payment_due: 'Work kind loan_payment_due',
   card_frozen: 'Work kind card_frozen',
@@ -41,11 +44,35 @@ const SEVERITY = {
 /**
  * "Needs you" (HM-dashboard-03): what needs the person now, each row from its owner's record and opening the owner's
  * room. With the owner values blank the list is refused with its code; an owner that has not answered is named, so an
- * empty list never claims "nothing needs you" on a missing answer.
+ * empty list never claims "nothing needs you" on a missing answer. `onShown` hears what the list shows (and `null` once
+ * it leaves the page), so Home's inbox does not show a notice a second time that an item here already carries.
  */
-export function WorkList({ hidden, className = 'home-section', testId }: { hidden: boolean; className?: string; testId?: string }) {
+export function WorkList({
+  hidden,
+  className = 'home-section',
+  testId,
+  onShown,
+}: {
+  hidden: boolean;
+  className?: string;
+  testId?: string;
+  onShown?: (shown: NeedsYouShown | null) => void;
+}) {
   const { t } = homeCopy.useCopy();
   const { list, retry } = useWorkList();
+  const report = useRef(onShown);
+  report.current = onShown;
+  // Once it has settled, a re-read (Try again) keeps reporting the last answer, so the inbox row does not blink.
+  const settledOnce = useRef(false);
+  const shownKey = list.state === 'ready' ? `ready:${list.items.map((item) => item.id).join('|')}` : list.state;
+  useEffect(() => {
+    if (list.state === 'loading' && settledOnce.current) return;
+    if (list.state !== 'loading') settledOnce.current = true;
+    report.current?.(needsYouShown(list));
+    // Reported again only when what is shown changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey]);
+  useEffect(() => () => report.current?.(null), []);
   return (
     <section data-testid={testId} className={`${className} home-work`} aria-labelledby="home-work-title">
       <div className="home-section__head">

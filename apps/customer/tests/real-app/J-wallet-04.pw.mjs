@@ -307,12 +307,30 @@ test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing 
 
 /** Reloads the page and returns the bank's own row for `label` from the address-book read that load makes. */
 async function bankRowOnReload(page, label) {
-  const read = page.waitForResponse(
-    (res) => res.request().method() === 'GET' && /\/api\/bank\/trpc\/ramps\.destinations\.list/.test(res.url()),
-  );
-  await page.reload();
-  const res = await read;
-  expect(res.status()).toBe(200);
+  // Only the read the reloaded page makes counts. A rename makes the old page read the book again just before the
+  // reload, and when that read was the one matched the reload dropped its body ("No resource with given identifier
+  // found", #7457). So the match starts once the reload has committed, the body is read as soon as it arrives, and the
+  // read must have started after the reload's own document request did (both times from the browser's clock).
+  let reloaded = false;
+  const committed = (frame) => {
+    if (frame === page.mainFrame()) reloaded = true;
+  };
+  page.on('framenavigated', committed);
+  let res;
+  let doc;
+  try {
+    const read = page
+      .waitForResponse(
+        (res) => reloaded && res.request().method() === 'GET' && /\/api\/bank\/trpc\/ramps\.destinations\.list/.test(res.url()),
+      )
+      .then(async (res) => ({ status: res.status(), startedAt: res.request().timing().startTime, body: await res.json() }));
+    [res, doc] = await Promise.all([read, page.reload()]);
+  } finally {
+    page.off('framenavigated', committed);
+  }
+  expect(doc, 'the reload loaded a new document').toBeTruthy();
+  expect(res.startedAt, "the address-book read is the reloaded page's own").toBeGreaterThanOrEqual(doc.request().timing().startTime);
+  expect(res.status).toBe(200);
   const rows = [];
   const walk = (value) => {
     if (Array.isArray(value)) value.forEach(walk);
@@ -321,7 +339,7 @@ async function bankRowOnReload(page, label) {
       else Object.values(value).forEach(walk);
     }
   };
-  walk(await res.json());
+  walk(res.body);
   return rows.find((row) => row.label === label) ?? null;
 }
 

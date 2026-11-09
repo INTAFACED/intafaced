@@ -60,7 +60,7 @@ function ledgerRefusal(err: unknown): Response {
     const status =
       err.code === 'ledger.idempotency_conflict'
         ? 409
-        : err.code === 'ledger.frozen'
+        : err.code === 'ledger.frozen' || err.code === 'ledger.custody_layer_off'
           ? 412
           : err.code === 'ledger.unauthenticated'
             ? 401

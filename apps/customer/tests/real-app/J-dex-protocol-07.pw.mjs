@@ -295,8 +295,9 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
   const brief = panel.getByRole('article', { name: `Brief for ${day} (UTC)` });
   await expect(brief.getByRole('heading', { name: `Brief for ${day} (UTC)`, exact: true })).toBeVisible();
 
-  // The 24-hour list at the same block: the tokens the pages list, and the figures the brief's lines must repeat.
-  const list = await service(page.request, 'tokens.list', { window: '24h' });
+  // The 24-hour list at the same block: the tokens the pages list, and the figures the brief's lines must repeat. It is
+  // read at the brief's own block, since a block mined after the page loaded would otherwise move the list's head.
+  const list = await service(page.request, 'tokens.list', { window: '24h', blockNumber: block.toString() });
   expect(list.blockNumber, 'the brief and the 24-hour list are read at the same block').toBe(block.toString());
   const listedTokens = new Set(list.tokens.map((t) => t.token.address.toLowerCase()));
 

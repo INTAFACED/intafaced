@@ -41,3 +41,13 @@ export function isExplicitDevOrTestEnv(env: Record<string, string | undefined> =
 export function hasLocalTestMarker(value: unknown): boolean {
   return typeof value === 'string' && value.trim().toLowerCase().startsWith(LOCAL_TEST_MARKER_PREFIX);
 }
+
+/**
+ * ISO 3166-1 user-assigned alpha-2 codes: AA, QM-QZ, XA-XZ, ZZ. No country holds one.
+ * `XK` (Kosovo) sits in the XA-XZ range but is in real use, so it is excluded.
+ */
+export function isUserAssignedRegionCode(code: string): boolean {
+  const upper = code.trim().toUpperCase();
+  if (upper === 'XK') return false;
+  return upper === 'AA' || upper === 'ZZ' || /^Q[M-Z]$/.test(upper) || /^X[A-Z]$/.test(upper);
+}

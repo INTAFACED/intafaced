@@ -4,6 +4,7 @@ import { accountOperatorEntitlementSchema } from '@intafaced/contracts';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { CONSOLE_READ_ONLY } from '@intafaced/contracts/ops-console-mode';
 import { loadConsoleMode } from '@/lib/console-mode/read';
+import { staffReadAreasOf, type OperatorAccess } from '@/lib/operator-access';
 
 export const ADMIN_COOKIE = '__Host-intafaced-admin';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -288,16 +289,19 @@ export async function founderEdgeCall(
  * the raw value), also a member of identity's labelled TEST staff roster (support, compliance, risk, finance), so staff
  * journeys can run as staff. Anywhere else the TEST path is never asked: production stays founder-only, and a
  * production identity has no roster anyway (it refuses boot with one). A revoked founder is never let in as staff.
+ *
+ * Returns who was admitted: a founder, or a TEST staff member with the staff areas their session may read (the console
+ * lists only those areas' pages, `operator-access.ts`).
  */
 export async function assertCurrentFounder(
   session: FounderSession,
   config: AdminSessionConfig,
   env: Record<string, string | undefined> = process.env,
-): Promise<void> {
+): Promise<OperatorAccess> {
   const raw = await founderEdgeCall(config, 'identity', 'accountControls.operatorStatus', 'GET', {}, session.accessToken);
   const status = accountOperatorEntitlementSchema.safeParse(raw);
   if (!status.success) throw new AdminSessionError('admin.upstream_invalid', 502);
-  if (status.data.status === 'enabled' && status.data.userId === session.userId) return;
+  if (status.data.status === 'enabled' && status.data.userId === session.userId) return { kind: 'founder' };
   // The console reads its own APP_ENV; the local stack starts it with APP_ENV dev beside identity's. A console started
   // with anything else never asks, so a TEST staff member then gets admin.founder_required, the production answer.
   if (
@@ -310,7 +314,8 @@ export async function assertCurrentFounder(
     );
     // Only a well-formed answer naming this user and a TEST role admits. Anything else (no role, another user, an answer
     // this console can't read) is not shown to be staff, so it gets the same refusal as any other non-founder.
-    if (staff.success && staff.data.userId === session.userId && staff.data.role !== null) return;
+    if (staff.success && staff.data.userId === session.userId && staff.data.role !== null)
+      return { kind: 'staff', readAreas: staffReadAreasOf(session.accessToken) };
   }
   if (status.data.status === 'unconfigured') throw new AdminSessionError('admin.founders_unconfigured', 503);
   throw new AdminSessionError('admin.founder_required', 403);
@@ -349,15 +354,17 @@ export async function assertConsoleWritable(request: Request, session: FounderSe
   if (view.kind === 'read' && view.mode.readOnly) throw new AdminSessionError(CONSOLE_READ_ONLY, 423);
 }
 
-export async function authorizeAdminRequest(request: Request): Promise<{ session: FounderSession; config: AdminSessionConfig }> {
+export async function authorizeAdminRequest(
+  request: Request,
+): Promise<{ session: FounderSession; config: AdminSessionConfig; operator: OperatorAccess }> {
   const config = adminSessionConfig();
   const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
   assertAdminOrigin(request, config, mutation);
   const session = openFounderSession(request.headers.get('cookie'), config);
   if (mutation) assertAdminCsrf(request, session);
-  await assertCurrentFounder(session, config);
+  const operator = await assertCurrentFounder(session, config);
   if (mutation) await assertConsoleWritable(request, session, config);
-  return { session, config };
+  return { session, config, operator };
 }
 
 export function adminSessionErrorResponse(error: unknown): Response {

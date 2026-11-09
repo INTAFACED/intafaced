@@ -1,6 +1,6 @@
-// World: book
+// World: book, market
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { awayBid, confirm, free, fundedTrader, held, openDesk, openOrders, placements, previewed, reviewSheet } from './desk.mjs';
 
 // J-cex-spot-03, in the running app (docs/roadmap/journeys.json): market orders and every time in force do exactly what
@@ -21,6 +21,10 @@ function account() {
 const buyForm = (page) => page.locator('form[data-testid="dk-form"][data-side="buy"]');
 const sellForm = (page) => page.locator('form[data-testid="dk-form"][data-side="sell"]');
 const tab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
+
+/** The TEST maker's BTC/USDT quotes held where they rest, or quoted again (local-test-market.mjs hold, release). */
+const hold = () => tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+const release = () => tool('local-test-market.mjs', 'release', 'BTC/USDT');
 
 async function pickTif(page, label) {
   await page.getByRole('combobox', { name: 'Time in force' }).click();
@@ -235,6 +239,9 @@ test(`${J} #8 chooses the self-trade mode and crosses their own resting order: t
   page,
 }) => {
   const who = account();
+  // The TEST maker re-quotes every cycle and its walk can move further than half its spread, so a price read between its
+  // bid and ask can be met by its next ladder (#7490). Held, its ladder rests as it is and nothing else crosses the book.
+  hold();
   const { bid, ask } = await bestPrices();
   // Between the book's bid and ask, so nobody else's order meets either of the person's two.
   const price = fromUnits(((toUnits(bid) + toUnits(ask)) / 2n / toUnits('0.01')) * toUnits('0.01'));
@@ -288,6 +295,10 @@ test(`${J} #8 chooses the self-trade mode and crosses their own resting order: t
   expect(await openOrders(who)).toHaveLength(1);
   expect((await a.delete(`/api/v1/orders/${open[0].id}?symbol=BTC%2FUSDT`)).status).toBeLessThan(300);
   await expect.poll(async () => held(await a.balances(), 'BTC')).toBe(0n);
+});
+// Held for #8 only, passed or not: the next step's book is quoted again.
+test.afterEach(() => {
+  if (test.info().title.startsWith(`${J} #8 `)) release();
 });
 
 test(`${J} #9 adds a tag and types the order in value: the tag shows on the order and in history, the value sizes the amount`, async ({

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { WORK_LIST_CAP_UNSET, type HomeConfig, type WorkItem } from '@intafaced/contracts/home-work-items';
-import { HOME_CONFIG_FAILED, HOME_CONFIG_UNWIRED, ratioPercent, sourceAnswer, workList, type SourceRead } from './work-list';
+import {
+  HOME_CONFIG_FAILED,
+  HOME_CONFIG_UNWIRED,
+  needsYouShown,
+  ratioPercent,
+  shownInNeedsYou,
+  sourceAnswer,
+  workList,
+  type SourceRead,
+} from './work-list';
 
 const config = (over: Partial<HomeConfig> = {}) =>
   ({
@@ -130,6 +139,47 @@ describe('Home work list (HM-dashboard-03)', () => {
     expect(sourceAnswer('bank', { items: [card, card] })).toMatchObject({ state: 'failed' });
     expect(sourceAnswer('pay', { items: [{ ...payout, amount: { value: 12.5, asset: 'USDT' } }] })).toMatchObject({ state: 'failed' });
     expect(sourceAnswer('pay', null)).toMatchObject({ state: 'failed' });
+  });
+});
+
+describe('what "Needs you" shows, as the inbox on Home reads it', () => {
+  const NOTICE_KEY = 'factor-changed:u1:2';
+  const device: WorkItem = {
+    id: `new_device:${NOTICE_KEY}`,
+    kind: 'new_device',
+    source: 'identity',
+    severity: 'action',
+    titleKey: 'identity.new_device.review',
+    link: '/uc/safe',
+  };
+  const notice = (kind: string, noticeKey: unknown) => ({ kind, params: { noticeKey } });
+
+  it('carries the new-device notice whose key is one of its items, and nothing else', () => {
+    const shown = needsYouShown(workList(config(), all(ready(verify, device), ready(), ready())));
+    expect(shown).toEqual({ settled: true, noticeKeys: new Set([NOTICE_KEY]) });
+    expect(shownInNeedsYou(notice('identity.security.new_device', NOTICE_KEY), shown)).toBe(true);
+    // Another sign-in's notice, a different kind with the same key, or a notice with no key is not carried.
+    expect(shownInNeedsYou(notice('identity.security.new_device', 'factor-changed:u1:9'), shown)).toBe(false);
+    expect(shownInNeedsYou(notice('identity.security.password_changed', NOTICE_KEY), shown)).toBe(false);
+    expect(shownInNeedsYou(notice('identity.security.new_device', undefined), shown)).toBe(false);
+    // Off the page, the list carries nothing.
+    expect(shownInNeedsYou(notice('identity.security.new_device', NOTICE_KEY), null)).toBe(false);
+  });
+
+  it('carries only the items it shows: one past the cap is not carried', () => {
+    const shown = needsYouShown(workList(config({ workListCap: 1 }), all(ready(verify, device), ready(), ready())));
+    expect(shown).toEqual({ settled: true, noticeKeys: new Set() });
+  });
+
+  it('is unsettled while it loads, and settled but carrying nothing once refused', () => {
+    expect(needsYouShown(workList({ state: 'loading' }, all(ready(), ready(), ready())))).toEqual({
+      settled: false,
+      noticeKeys: new Set(),
+    });
+    expect(needsYouShown(workList({ state: 'unwired' }, all(ready(device), ready(), ready())))).toEqual({
+      settled: true,
+      noticeKeys: new Set(),
+    });
   });
 });
 

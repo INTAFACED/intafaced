@@ -9,6 +9,7 @@ export type ScreenId =
   | 'trade/convert'
   | 'trade/options'
   | 'trade/execution'
+  | 'trade/terminal'
   | 'trade/otc'
   | 'trade/futures'
   | 'trade/margin'

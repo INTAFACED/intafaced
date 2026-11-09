@@ -54,6 +54,7 @@ import { RecentActivity } from './RecentActivity';
 import { WorkList } from './WorkList';
 import { GetStarted } from './GetStarted';
 import { useStartedTile } from './started-data';
+import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
@@ -608,6 +609,8 @@ export function HomePro() {
   const home = useHomeLayout();
   const tiles = shownTiles(home.layout, 'pro');
   const started = useStartedTile(portfolio, tiles.includes('started'));
+  // What "Needs you" shows, so the inbox row is never a notice it already carries.
+  const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
 
   const noMarkets = markets.status === 'empty' || (markets.status === 'ready' && !markets.data.some((market) => market.orderable));
   const accountEmpty = portfolio.status === 'empty' || (portfolio.status === 'ready' && portfolio.data.holdings.length === 0);
@@ -628,7 +631,7 @@ export function HomePro() {
     <div data-testid="if-home-pro" className="if-home-pro">
       <h1 className="if-sr">{t('Home')}</h1>
       <HomeNotices />
-      <HomeInbox />
+      <HomeInbox needsYou={needsYou} />
       {/* Above the summary, so it is there in every state of the account (an unverified one has no total row). */}
       <div className="hp-toolbar">
         <CustomiseHome home={home} mode="pro" />
@@ -643,7 +646,7 @@ export function HomePro() {
               </div>
             ) : null;
           case 'work':
-            return <WorkList key={id} hidden={hideBalances} className="hp-panel hp-work" testId="hp-work" />;
+            return <WorkList key={id} hidden={hideBalances} className="hp-panel hp-work" testId="hp-work" onShown={setNeedsYou} />;
           case 'holdings':
             return showAssets ? <Assets key={id} portfolio={portfolio} hidden={hideBalances} /> : null;
           case 'activity':

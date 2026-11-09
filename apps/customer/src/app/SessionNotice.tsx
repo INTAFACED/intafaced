@@ -24,6 +24,12 @@ export function SessionNotice() {
         {t('You were signed out because your sign-in was used elsewhere.')}
       </p>
     );
+  if (notice === 'idle')
+    return (
+      <p className="tb-note" role="status">
+        {t('You were signed out because this device was not used for longer than its idle sign-out.')}
+      </p>
+    );
   if (notice === 'frozen')
     return (
       <p className="tb-note" role="status">

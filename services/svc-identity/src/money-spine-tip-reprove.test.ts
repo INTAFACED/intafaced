@@ -60,7 +60,7 @@ const codeOf = (err: unknown) => (err as { code?: string }).code;
 
 const publishedLaw = {
   published: true as const,
-  tiers: [{ hop: 0, rate: '0.10' }],
+  tiers: [{ hop: 0, rate: '0.130' }],
 };
 
 function accrualRow(): CommissionRow {
@@ -69,9 +69,9 @@ function accrualRow(): CommissionRow {
     beneficiaryId: BENE,
     payerId: PAYER,
     hop: 0,
-    rate: '0.10',
+    rate: '0.130',
     feeAmount: '100',
-    commissionAmount: '10',
+    commissionAmount: '13',
     asset: ASSET,
     accruedAt: new Date('2026-08-12T00:00:00.000Z'),
     sourceModule: 'identity',
@@ -126,8 +126,8 @@ describe('D26-P2-12 tip re-prove — identity money doors', () => {
 
     expect(first.posted).toBe(true);
     expect(second.idempotencyKeys).toEqual(first.idempotencyKeys);
-    expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('10');
-    expect(await bal(ledger, houseFees('identity', ASSET))).toBe('90');
+    expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('13');
+    expect(await bal(ledger, houseFees('identity', ASSET))).toBe('87');
     expect(await bal(ledger, rewardsEngine(ASSET))).toBe('0');
   });
 

@@ -1,3 +1,4 @@
+import type { TestPartner } from './partner/test-partner.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
@@ -8,6 +9,8 @@ import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
+import { CardDisputeService, type DisputeCap } from './cards/card-disputes.js';
+import { noCardIssuer } from './cards/issuer.js';
 import { CardOrderService } from './cards/card-orders.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
@@ -76,6 +79,8 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  */
 
 export interface BankServices {
+  /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
+  readonly testPartner: TestPartner | null;
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
@@ -109,6 +114,8 @@ export interface BankServices {
   readonly cards: CardService;
   /** J-bank-13: the card room's product list, terms, order and delivery. */
   readonly cardOrders: CardOrderService;
+  /** J-bank-27: card disputes worked by support; the partner's provisional credit and loss liability, the owner's cap. */
+  readonly cardDisputes: CardDisputeService;
   readonly ramps: RampService;
   /** Add money: the ways to pay in with their quotes, and the customer's requests (J-bank-02). */
   readonly addMoney: AddMoneyService;
@@ -165,6 +172,8 @@ export interface BankServiceOptions {
   cashOutPartner?: CashOutPartner | null;
   /** Who opens and says paid an add-money pay-in (J-bank-02 #3, #5). The TEST stand-in is the only one; unset refuses by name. */
   onrampPartner?: OnrampPartner | null;
+  /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
+  testPartner?: TestPartner | null;
   /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
   refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
@@ -193,6 +202,8 @@ export interface BankServiceOptions {
    * programme (and none has one: the live rail is `socket.live-issuer`).
    */
   cards?: CardServiceOptions;
+  /** The owner's dispute cap per asset (`BANK_CARD_DISPUTE_CAP_JSON`); unset refuses `bank.card_dispute_cap_unset`. */
+  cardDisputeCap?: DisputeCap;
   /**
    * Ramp wiring: crypto ledger half, if any.
    *
@@ -378,6 +389,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
   });
+  const cardDisputes = new CardDisputeService(sql, {
+    issuer: options.cards?.issuer ?? noCardIssuer,
+    partnerTerms: () => cards.partnerTerms(),
+    simulated: () => cards.programme().simulated,
+    cap: options.cardDisputeCap ?? null,
+  });
   const cardOrders = new CardOrderService(sql, cards, {
     terms: options.cards?.programmeTerms ?? null,
   });
@@ -386,6 +403,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const assetRegistry = options.assetRegistry ?? null;
   const ramps = new RampService(sql, ledger, {
     ...options.ramps,
+    testRamp: options.testPartner ?? null,
     onrampPayments: options.ramps?.onrampPayments ?? options.onrampPartner?.payments ?? null,
     withdrawNetworks: options.ramps?.withdrawNetworks ?? (assetRegistry ? withdrawNetworksFrom(assetRegistry) : null),
   });
@@ -445,6 +463,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
+    testPartner: options.testPartner ?? null,
     spaces,
     sorter,
     billsPots,
@@ -468,6 +487,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     loans,
     cards,
     cardOrders,
+    cardDisputes,
     ramps,
     addMoney,
     linkedAccounts,

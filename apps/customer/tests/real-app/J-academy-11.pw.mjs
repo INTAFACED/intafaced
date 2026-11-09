@@ -553,8 +553,10 @@ test(`${J} #9 Preview as new learner shows the real syllabus with locks and reco
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to preview`);
   const page = await console_(browser);
   await page.goto(courseUrl);
-  const history = page.getByTestId('course-history');
-  const before = await history.innerText();
+  // Each history entry on its own: innerText's line breaks depend on layout, so a whole-list text comparison was flaky.
+  const history = page.getByTestId('course-history').locator('li');
+  const before = await history.allTextContents();
+  expect(before.length).toBeGreaterThan(0);
 
   // Preview as new learner: the stored syllabus, each item with its lock; nothing is recorded.
   await page.getByRole('link', { name: 'Preview as new learner', exact: true }).click();

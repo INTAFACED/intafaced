@@ -12,7 +12,7 @@
  * are both. So this engine is complete in every part except the number it is
  * not allowed to choose, and it names that gap with a stable code rather than
  * seeding a rate. A seeded rate in source is indistinguishable from a decided
- * one three months later — see the deleted DEFAULT_ACCRUAL_TIERS (10/5/2%) in
+ * one three months later — see the deleted DEFAULT_ACCRUAL_TIERS in
  * commission.ts, which is exactly how an invented bps became platform default.
  *
  * §0.6 — NO VALUE MOVES OUTSIDE packages/ledger-client. This file assembles no

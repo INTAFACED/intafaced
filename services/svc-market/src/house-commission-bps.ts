@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * House commission bps from env. Blank / whitespace is unset — never 0.
- * Explicit `"0"` is the owner free-cut. `z.coerce.number()` would turn `" "` into 0.
+ * Explicit `"0"` is an owner rate, not silence. `z.coerce.number()` would turn `" "` into 0.
  */
 export const marketHouseCommissionBpsSchema = z.preprocess((v) => {
   if (v === undefined || v === null) return undefined;

@@ -12,7 +12,7 @@
     "outside": "`vendor.email` for the expiry notice only.",
     "size": "L",
     "families": 1,
-    "order": 1,
+    "order": 2,
     "later": ["AC-commerce-01"]
   },
   {
@@ -74,7 +74,7 @@
     "outside": "`feed.news` for the optional news block only (licensed outside content we do not produce); the hub, topics and cards are our own back end and are built.",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-articles-02",
@@ -89,7 +89,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-assignments-01",
@@ -104,7 +104,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1,
+    "order": 2,
     "keptFor": ["AC-assignments-04", "AC-progress-01"]
   },
   {
@@ -150,7 +150,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1,
+    "order": 2,
     "keptFor": ["AC-progress-02"]
   },
   {
@@ -166,7 +166,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-catalogue-02",
@@ -181,7 +181,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-catalogue-03",
@@ -196,7 +196,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-certificates-01",
@@ -256,7 +256,7 @@
     "outside": "`rail.card` for a card purchase (card issuer and processor); `vendor.email` is not needed here. The purchase flow itself, the intents, the reconciler and the re",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 3
   },
   {
     "id": "AC-course-structure-01",
@@ -271,7 +271,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-course-structure-02",
@@ -286,7 +286,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-course-structure-03",
@@ -301,7 +301,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-course-structure-04",
@@ -316,7 +316,7 @@
     "outside": "`owner.decision` for the model-backed path only (provider not chosen); the rule-and-template path is built and needs none.",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-enrolment-01",
@@ -331,7 +331,7 @@
     "outside": "`vendor.email` for the activation mail only; enrolment itself is our own back end and is built.",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-enrolment-02",
@@ -376,7 +376,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1,
+    "order": 2,
     "keptFor": ["AC-assignments-04", "AC-notifications-02"]
   },
   {
@@ -422,7 +422,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-order-02",
@@ -437,7 +437,7 @@
     "outside": "`vendor.email`, `owner.decision`, `rail.card`, `feed.news` (and `vendor.sms` or `vendor.push` where a reminder uses them) are rendered through the shared notice",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-programmes-01",
@@ -467,7 +467,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-progress-02",
@@ -482,7 +482,7 @@
     "outside": "`vendor.email` for goal reminders only; progress, grades and the planner are our own back end and are built.",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-progress-03",
@@ -542,7 +542,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-quizzes-04",
@@ -572,7 +572,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-release-access-02",
@@ -587,7 +587,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-roles-01",
@@ -678,7 +678,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AC-videos-02",
@@ -693,7 +693,7 @@
     "outside": "`owner.decision` for automatic subtitles and translation only (provider chosen by the owner); upload, handouts, manual captions and transcripts are our own back",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-academy-01",
@@ -978,7 +978,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2,
+    "order": 1,
     "later": ["AG-governance-01"]
   },
   {
@@ -1107,7 +1107,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "AG-governance-01",
@@ -1227,7 +1227,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "AG-outside-02",
@@ -1242,7 +1242,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "AG-outside-03",
@@ -1257,7 +1257,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "AG-outside-04",
@@ -1272,7 +1272,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "AG-registry-01",
@@ -1318,7 +1318,7 @@
     "outside": "a run notice by email or SMS shows `vendor.email` or `vendor.sms` until a vendor is set (see AG-sessions-04); nothing else is not-connected",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 3
   },
   {
     "id": "AG-sessions-03",
@@ -1333,7 +1333,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 3
   },
   {
     "id": "AG-sessions-04",
@@ -1378,7 +1378,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "AG-spend-03",
@@ -1393,7 +1393,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "AG-spend-04",
@@ -1604,7 +1604,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-agents-07",
@@ -1709,7 +1709,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1,
+    "order": 2,
     "later": ["AL-backtest-02", "AL-editor-01", "AL-orders-01"]
   },
   {
@@ -1725,7 +1725,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AL-backtest-03",
@@ -1740,7 +1740,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AL-backtest-04",
@@ -1770,7 +1770,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1,
+    "order": 2,
     "later": ["AL-editor-02"]
   },
   {
@@ -1786,7 +1786,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AL-editor-03",
@@ -1801,7 +1801,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AL-editor-04",
@@ -1907,7 +1907,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1,
+    "order": 2,
     "later": ["AL-backtest-01", "AL-orders-01"]
   },
   {
@@ -2055,7 +2055,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AL-orders-01",
@@ -2118,7 +2118,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "AL-report-02",
@@ -2133,7 +2133,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1,
+    "order": 2,
     "later": ["AL-backtest-03"]
   },
   {
@@ -2378,7 +2378,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "LOAN-07",
@@ -2393,7 +2393,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "BK-acct-01",
@@ -2423,7 +2423,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-acct-03",
@@ -2453,7 +2453,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-acct-05",
@@ -2498,7 +2498,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-acct-08",
@@ -2513,7 +2513,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-acct-09",
@@ -2877,7 +2877,7 @@
     "outside": "`rail.card` (no live issuer; card-sim on the stack)",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-ccrypto-02",
@@ -2892,7 +2892,7 @@
     "outside": "`rail.card` (card-sim on the stack)",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-ccrypto-03",
@@ -2907,7 +2907,7 @@
     "outside": "`rail.card` (card-sim on the stack)",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-cdisp-01",
@@ -3197,7 +3197,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2,
+    "order": 4,
     "later": ["BK-earn-04"]
   },
   {
@@ -3244,7 +3244,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 4
   },
   {
     "id": "BK-earn-05",
@@ -3259,7 +3259,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 4
   },
   {
     "id": "BK-loan-01",
@@ -3274,7 +3274,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 3
   },
   {
     "id": "BK-loan-02",
@@ -3289,7 +3289,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 4
   },
   {
     "id": "BK-loan-03",
@@ -3304,7 +3304,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 4
   },
   {
     "id": "BK-loan-04",
@@ -3319,7 +3319,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 4
   },
   {
     "id": "BK-loan-05",
@@ -3334,7 +3334,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 4
   },
   {
     "id": "BK-loan-06",
@@ -3364,7 +3364,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 4
   },
   {
     "id": "BK-loan-08",
@@ -3424,7 +3424,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-pots-01",
@@ -3484,7 +3484,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 3
+    "order": 4
   },
   {
     "id": "BK-ord-01",
@@ -3529,7 +3529,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-safe-02",
@@ -3544,7 +3544,7 @@
     "outside": "",
     "size": "M",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-safe-03",
@@ -3559,7 +3559,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-salary-01",
@@ -3619,7 +3619,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1,
+    "order": 2,
     "later": ["BK-xfer-02", "BK-xfer-08"]
   },
   {
@@ -3635,7 +3635,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-xfer-03",
@@ -3665,7 +3665,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-xfer-05",
@@ -3680,7 +3680,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-xfer-06",
@@ -3695,7 +3695,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-xfer-07",
@@ -3710,7 +3710,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-xfer-08",
@@ -3740,7 +3740,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-xfer-10",
@@ -3815,7 +3815,7 @@
     "outside": "`vendor.email` for the e-mail copy of the notice; the in-app notice is built and shown regardless.",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-bank-02",
@@ -3980,7 +3980,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-campaign-types-01",
@@ -3995,7 +3995,7 @@
     "outside": "`owner.decision` only for the gift-card and points types (LD-camp-10, LD-camp-08); the catalogue itself is our own back end",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-campaign-types-02",
@@ -4010,7 +4010,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-campaign-types-03",
@@ -4040,7 +4040,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-eligibility-rules-02",
@@ -4055,7 +4055,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-eligibility-rules-03",
@@ -4070,7 +4070,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-eligibility-rules-04",
@@ -4101,7 +4101,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-payouts-ledger-02",
@@ -4116,7 +4116,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-promotions-events-01",
@@ -4236,7 +4236,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-rewards-hub-02",
@@ -4251,7 +4251,7 @@
     "outside": "`owner.decision` only for the part that makes any bonus profit withdrawable (LD-camp-06); everything else is our own back end",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-rewards-hub-03",
@@ -4296,7 +4296,7 @@
     "outside": "`owner.decision` only for a points effect (LD-camp-08); the rule builder itself is our own back end and is built (GAP-AUDIT)",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-tasks-quests-01",
@@ -4311,7 +4311,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CM-vip-tiers-01",
@@ -4386,7 +4386,7 @@
     "outside": "`owner.decision` (LD-camp-06) on margin use, loss offset and profit share",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-campaigns-01",
@@ -4506,7 +4506,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-cex-spot-02",
@@ -4521,7 +4521,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-cex-spot-03",
@@ -4566,7 +4566,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 1
   },
   {
     "id": "RC-cex-spot-06",
@@ -4581,7 +4581,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-cex-spot-07",
@@ -4596,7 +4596,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-cex-spot-08",
@@ -4611,7 +4611,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-cex-spot-09",
@@ -4626,7 +4626,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-cex-spot-10",
@@ -4656,7 +4656,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-cex-spot-12",
@@ -4746,7 +4746,7 @@
     "outside": "`feed.market` while mid source is `venue` and no outside venue feed is configured.",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "SP-conditional-algo-01",
@@ -4761,7 +4761,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-conditional-algo-02",
@@ -4776,7 +4776,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-conditional-algo-03",
@@ -4806,7 +4806,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 1
   },
   {
     "id": "SP-convert-buy-01",
@@ -4821,7 +4821,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-convert-buy-02",
@@ -4836,7 +4836,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-convert-buy-03",
@@ -4851,7 +4851,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-convert-buy-04",
@@ -4928,7 +4928,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 3
+    "order": 1
   },
   {
     "id": "SP-developer-status-03",
@@ -4943,7 +4943,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 3
+    "order": 1
   },
   {
     "id": "SP-fees-vip-01",
@@ -4989,7 +4989,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-fees-vip-04",
@@ -5004,7 +5004,7 @@
     "outside": "`rail.card` (card-scheme fee composition, when no processor)",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-lifecycle-history-01",
@@ -5141,7 +5141,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-ops-03",
@@ -5156,7 +5156,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-ops-04",
@@ -5276,7 +5276,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "SP-order-03",
@@ -6110,7 +6110,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-bots-02",
@@ -6125,7 +6125,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1,
+    "order": 2,
     "later": ["CB-bots-03"]
   },
   {
@@ -6171,7 +6171,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-bots-06",
@@ -6246,7 +6246,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-bots-11",
@@ -6426,7 +6426,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-04",
@@ -6441,7 +6441,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 3
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-05",
@@ -6456,7 +6456,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-06",
@@ -6471,7 +6471,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-07",
@@ -6486,7 +6486,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-08",
@@ -6501,7 +6501,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-09",
@@ -6516,7 +6516,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-10",
@@ -6531,7 +6531,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-11",
@@ -6546,7 +6546,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-12",
@@ -6561,7 +6561,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-13",
@@ -6576,7 +6576,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-14",
@@ -6636,7 +6636,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-02",
@@ -6651,7 +6651,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1,
+    "order": 2,
     "later": ["CB-copy-17"]
   },
   {
@@ -6667,7 +6667,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-04",
@@ -6682,7 +6682,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-05",
@@ -6772,7 +6772,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-11",
@@ -6802,7 +6802,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-copy-13",
@@ -6967,7 +6967,7 @@
     "outside": "",
     "size": "S",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-execution-01",
@@ -6982,7 +6982,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-execution-02",
@@ -6997,7 +6997,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-execution-03",
@@ -7012,7 +7012,7 @@
     "outside": "venue submit port for the live door (feed.market class) when unset.",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-execution-04",
@@ -7027,7 +7027,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-execution-05",
@@ -7042,7 +7042,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-execution-06",
@@ -7102,7 +7102,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-ops-02",
@@ -7177,7 +7177,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-order-controls-02",
@@ -7192,7 +7192,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-order-controls-03",
@@ -7207,7 +7207,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "CB-order-controls-04",
@@ -7222,7 +7222,7 @@
     "outside": "outside liquidity is `feed.market` where a feed is required.",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "CB-order-controls-05",
@@ -7252,7 +7252,7 @@
     "outside": "outside providers: `feed.market` class when routed externally.",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "CB-otc-02",
@@ -7267,7 +7267,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "CB-otc-03",
@@ -7282,7 +7282,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-otc-04",
@@ -7297,7 +7297,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-otc-05",
@@ -7312,7 +7312,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-otc-06",
@@ -7327,7 +7327,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-otc-07",
@@ -7342,7 +7342,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "CB-otc-08",
@@ -7357,7 +7357,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "CB-otc-09",
@@ -7372,7 +7372,7 @@
     "outside": "outside maker settlement: `feed.market` class, refused by name.",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-10",
@@ -7402,7 +7402,7 @@
     "outside": "vendor.email (allowlist) for statements.",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "CB-otc-12",
@@ -7417,7 +7417,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 4
   },
   {
     "id": "CB-otc-13",
@@ -7432,7 +7432,7 @@
     "outside": "rail.crypto (custody), feed.market (outside liquidity), allowlisted.",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-14",
@@ -7447,7 +7447,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-15",
@@ -7462,7 +7462,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-16",
@@ -7477,7 +7477,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-17",
@@ -7492,7 +7492,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-18",
@@ -7507,7 +7507,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-19",
@@ -7522,7 +7522,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-20",
@@ -7537,7 +7537,7 @@
     "outside": "",
     "size": "S",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "CB-otc-21",
@@ -7552,7 +7552,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "RC-copy-bots-otc-01",
@@ -7883,7 +7883,7 @@
     "outside": "`owner.decision` (named: the portfolio-margin model, P-4)",
     "size": "M",
     "families": 3,
-    "order": 3
+    "order": 4
   },
   {
     "id": "D-account-07",
@@ -7943,7 +7943,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-cross-02",
@@ -7958,7 +7958,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-cross-03",
@@ -7973,7 +7973,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-cross-04",
@@ -7988,7 +7988,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-cross-05",
@@ -8003,7 +8003,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-cross-06",
@@ -8018,7 +8018,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-data-01",
@@ -8033,7 +8033,7 @@
     "outside": "",
     "size": "M",
     "families": 5,
-    "order": 3
+    "order": 2
   },
   {
     "id": "D-data-02",
@@ -8048,7 +8048,7 @@
     "outside": "",
     "size": "M",
     "families": 5,
-    "order": 3
+    "order": 2
   },
   {
     "id": "D-data-03",
@@ -8093,7 +8093,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 3
+    "order": 2
   },
   {
     "id": "D-data-06",
@@ -8108,7 +8108,7 @@
     "outside": "",
     "size": "S",
     "families": 2,
-    "order": 3
+    "order": 2
   },
   {
     "id": "D-funded-01",
@@ -8153,7 +8153,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "D-funded-04",
@@ -8168,7 +8168,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "D-instruments-01",
@@ -8228,7 +8228,7 @@
     "outside": "`owner.decision` (named: the futures payout model, which account pays winners, PR #5016)",
     "size": "L",
     "families": 2,
-    "order": 2,
+    "order": 1,
     "later": ["D-ops-05", "D-orders-11"]
   },
   {
@@ -8259,7 +8259,7 @@
     "outside": "`feed.market` (named: the options quote feed)",
     "size": "L",
     "families": 3,
-    "order": 3,
+    "order": 1,
     "later": ["D-instruments-07"]
   },
   {
@@ -8275,7 +8275,7 @@
     "outside": "`owner.decision` (named: the options collateral model)",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 1
   },
   {
     "id": "D-instruments-08",
@@ -8290,7 +8290,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-margin-01",
@@ -8320,7 +8320,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-margin-03",
@@ -8366,7 +8366,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-margin-06",
@@ -8488,7 +8488,7 @@
     "outside": "price feed provider (owner choice)",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 1
   },
   {
     "id": "D-multiasset-02",
@@ -8503,7 +8503,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 1
   },
   {
     "id": "D-multiasset-03",
@@ -8518,7 +8518,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 1
   },
   {
     "id": "D-multiasset-04",
@@ -8578,7 +8578,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-ops-04",
@@ -8593,7 +8593,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-ops-05",
@@ -8608,7 +8608,7 @@
     "outside": "`owner.decision` (named: the futures payout model, PR #5016)",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-ops-06",
@@ -8623,7 +8623,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-ops-07",
@@ -8638,7 +8638,7 @@
     "outside": "`owner.decision` (named: RFQ allocation and block settlement law)",
     "size": "L",
     "families": 3,
-    "order": 3
+    "order": 2
   },
   {
     "id": "D-ops-08",
@@ -8653,7 +8653,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 3
+    "order": 1
   },
   {
     "id": "D-orders-01",
@@ -8715,7 +8715,7 @@
     "outside": "`feed.market` for the index trigger source only, when an outside index is the source (D-instruments-01)",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-orders-05",
@@ -8730,7 +8730,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-orders-06",
@@ -8745,7 +8745,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-orders-07",
@@ -8820,7 +8820,172 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 3
+    "order": 1
+  },
+  {
+    "id": "D-venue-01",
+    "title": "Venue list on the ticket: every venue that lists the market, its price, depth and fee, and whether the person can sign there",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "customer: trade"],
+    "depends": [],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-02",
+    "title": "Routing preview: the venue chosen for this order, its expected fill and fee, and why",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "packages/venue-adapter", "customer: trade"],
+    "depends": ["D-venue-01"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-03",
+    "title": "The routed order: signed once, sent once to the chosen venue, the same client order id on every retry",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts"],
+    "depends": ["D-venue-02", "D-venue-06"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-04",
+    "title": "A venue that goes down: marked down, left out of the next preview, or no order and the reason",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "packages/venue-sim"],
+    "depends": ["D-venue-01", "D-venue-02"],
+    "journeys": [],
+    "outside": "",
+    "size": "S",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-05",
+    "title": "The operator's routing view: our users' routed volume and builder fees by venue, house exposure \"none: routed\"",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts"],
+    "depends": ["D-venue-03", "D-venue-07"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-06",
+    "title": "Our builder fee, approved by the customer's own signature before the first order on a venue that carries one",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "packages/venue-sim", "packages/venue-hyperliquid"],
+    "depends": ["D-venue-01"],
+    "journeys": [],
+    "outside": "`owner.decision` (our builder fee per venue is the owner's number; blank refuses)",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-07",
+    "title": "The builder fee in our ledger: earned once per venue fill, received when the venue pays, reconciled against the venue",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "ledger",
+    "touches": ["svc-ledger", "packages/venue-contracts", "packages/ledger-client"],
+    "depends": ["D-venue-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-08",
+    "title": "Later (OWNER 226): our own book as one more venue, with outside depth beside it and the house's hedge on the ops desk",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-matching",
+    "touches": ["svc-matching", "packages/venue-contracts"],
+    "depends": ["D-venue-02"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 4
+  },
+  {
+    "id": "D-venue-09",
+    "title": "The session key: one approval per session for a key that trades and never withdraws",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "packages/venue-sim", "customer: trade"],
+    "depends": ["D-venue-03"],
+    "journeys": [],
+    "outside": "`vendor.wallet` (the embedded-wallet provider, J-wallet-22)",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-10",
+    "title": "A HIP-3 market: its own margin account, the deployer's open-interest cap, and a halt that settles at mark",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-hyperliquid", "packages/venue-contracts", "customer: trade"],
+    "depends": ["D-venue-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-11",
+    "title": "Money into the venue account: the person's own wallet sends USDC, by CCTP first",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "customer: money"],
+    "depends": ["D-venue-01"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
   },
   {
     "id": "RC-derivatives-01",
@@ -8835,7 +9000,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-derivatives-02",
@@ -8850,7 +9015,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-derivatives-03",
@@ -8865,7 +9030,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-derivatives-04",
@@ -8880,7 +9045,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-derivatives-05",
@@ -8895,7 +9060,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "DV-auth-01",
@@ -8910,7 +9075,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "DV-auth-02",
@@ -8940,7 +9105,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "DV-console-01",
@@ -8985,7 +9150,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "DV-fix-01",
@@ -9075,7 +9240,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "DV-keys-06",
@@ -9090,7 +9255,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "DV-limits-01",
@@ -9181,7 +9346,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "DV-portal-02",
@@ -9196,7 +9361,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "DV-portal-03",
@@ -9211,7 +9376,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "DV-rest-01",
@@ -9241,7 +9406,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "DV-sandbox-02",
@@ -9256,7 +9421,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "DV-status-01",
@@ -9316,7 +9481,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "DV-versioning-01",
@@ -9481,7 +9646,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-developer-04",
@@ -9496,7 +9661,7 @@
     "outside": "`hardware` for low-latency path and colocation (physical cross-connect).",
     "size": "S",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-developer-05",
@@ -9511,7 +9676,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-developer-06",
@@ -9556,7 +9721,7 @@
     "outside": "`rail.card` (processor), `rail.crypto` (node env)",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-bridge-chain-03",
@@ -9601,7 +9766,7 @@
     "outside": "`chain.go` (INTACHAIN network entries and fast confirmations); `rail.crypto` (probe needs the node env)",
     "size": "M",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-developer-compliance-01",
@@ -9646,7 +9811,7 @@
     "outside": "`vendor.aml` (VPN and sanctions lists), `owner.decision` (policy text)",
     "size": "M",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-developer-compliance-04",
@@ -9699,7 +9864,7 @@
     "outside": "`rail.crypto` (node env absent)",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-explorer-02",
@@ -9714,7 +9879,7 @@
     "outside": "`rail.crypto` (node env absent)",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-explorer-03",
@@ -9729,7 +9894,7 @@
     "outside": "`rail.crypto` (node, archive, trace)",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-explorer-04",
@@ -9744,7 +9909,7 @@
     "outside": "`vendor.email` (alert e-mail)",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-explorer-05",
@@ -9759,7 +9924,7 @@
     "outside": "`rail.crypto`",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-explorer-06",
@@ -9774,7 +9939,7 @@
     "outside": "`rail.crypto` (node for `eth_getCode`)",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-explorer-07",
@@ -9789,7 +9954,7 @@
     "outside": "`chain.go` (INTACHAIN), `rail.crypto` (nodes)",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-fees-governance-01",
@@ -9858,7 +10023,7 @@
     "outside": "`owner.decision`",
     "size": "M",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-fees-governance-05",
@@ -9888,7 +10053,7 @@
     "outside": "`owner.decision` (review terms), `audit.external` (mainnet only)",
     "size": "M",
     "families": 3,
-    "order": 1,
+    "order": 2,
     "later": ["D-launch-listing-03"]
   },
   {
@@ -9904,7 +10069,7 @@
     "outside": "`owner.decision` (criteria), `vendor.kyc` (the KYC link for permissioned tokens, until the issuer's flow exists)",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-launch-listing-03",
@@ -9934,7 +10099,7 @@
     "outside": "`feed.market` (USD), `owner.decision` (thresholds)",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-launch-listing-05",
@@ -9949,7 +10114,7 @@
     "outside": "`rail.crypto`, `owner.decision` (fee split)",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 3
   },
   {
     "id": "D-launch-listing-06",
@@ -9995,7 +10160,7 @@
     "outside": "`rail.crypto`, `owner.decision` (curve design, presets)",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 3
   },
   {
     "id": "D-launch-listing-09",
@@ -10391,7 +10556,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-order-controls-02",
@@ -10406,7 +10571,7 @@
     "outside": "`rail.crypto`, `chain.go`, `audit.external`, `owner.decision` as mapped above",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-order-controls-03",
@@ -10497,7 +10662,7 @@
     "outside": "`owner.decision` (ladder, ADL policy), `feed.market`",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 4
   },
   {
     "id": "D-perps-05",
@@ -10512,7 +10677,7 @@
     "outside": "`owner.decision`",
     "size": "S",
     "families": 3,
-    "order": 3
+    "order": 4
   },
   {
     "id": "D-perps-06",
@@ -10572,7 +10737,7 @@
     "outside": "`rail.crypto` (node env absent), `owner.decision` (remote-connect project id)",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-portfolio-wallet-02",
@@ -10602,7 +10767,7 @@
     "outside": "`rail.crypto`, `rail.card`",
     "size": "M",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-portfolio-wallet-04",
@@ -10632,7 +10797,7 @@
     "outside": "`owner.decision` (auto-earn assets), `feed.market`",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-portfolio-wallet-06",
@@ -10647,7 +10812,7 @@
     "outside": "`feed.market`, `owner.decision`",
     "size": "M",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-portfolio-wallet-07",
@@ -10662,7 +10827,7 @@
     "outside": "`feed.market`, `licence`, `rail.crypto`",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-swap-intents-01",
@@ -10677,7 +10842,7 @@
     "outside": "`rail.crypto` (node env absent)",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 3
   },
   {
     "id": "D-swap-intents-02",
@@ -10692,7 +10857,7 @@
     "outside": "`rail.crypto`",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 3
   },
   {
     "id": "D-swap-intents-03",
@@ -10738,7 +10903,7 @@
     "outside": "`rail.crypto` (relay or node env absent), `owner.decision` (multisig key)",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 3
   },
   {
     "id": "D-swap-01",
@@ -10753,7 +10918,7 @@
     "outside": "`rail.crypto` (node env absent)",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-swap-02",
@@ -10768,7 +10933,7 @@
     "outside": "`rail.crypto` (simulation needs the node env)",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-swap-03",
@@ -10783,7 +10948,7 @@
     "outside": "`rail.crypto`",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-swap-04",
@@ -10798,7 +10963,7 @@
     "outside": "`rail.crypto`",
     "size": "S",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-swap-05",
@@ -10813,7 +10978,7 @@
     "outside": "`feed.market` for an external venue that is configured but down",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-swap-06",
@@ -10828,7 +10993,7 @@
     "outside": "`rail.crypto` (bundler or node), none for the policy itself",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-swap-07",
@@ -10874,7 +11039,7 @@
     "outside": "`rail.crypto`",
     "size": "L",
     "families": 2,
-    "order": 2,
+    "order": 3,
     "later": ["D-swap-intents-04"]
   },
   {
@@ -10890,7 +11055,7 @@
     "outside": "",
     "size": "S",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "D-swap-11",
@@ -10905,7 +11070,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1,
+    "order": 2,
     "later": ["D-explorer-05"]
   },
   {
@@ -10921,7 +11086,7 @@
     "outside": "`rail.crypto`",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-dex-protocol-01",
@@ -10936,7 +11101,7 @@
     "outside": "`rail.crypto` (node env absent)",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-dex-protocol-02",
@@ -10951,7 +11116,7 @@
     "outside": "`rail.crypto` (relay or node env absent), `owner.decision` (paymaster deposit address blank)",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-dex-protocol-03",
@@ -11116,7 +11281,7 @@
     "outside": "`owner.decision` (buyback rate blank)",
     "size": "S",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-dex-protocol-14",
@@ -11191,7 +11356,7 @@
     "outside": "`audit.external` (mainnet), `rail.crypto` (node env absent)",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 3
   },
   {
     "id": "RC-dex-protocol-19",
@@ -11221,7 +11386,7 @@
     "outside": "`owner.decision` (plans or ladder unpublished)",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 3
   },
   {
     "id": "HM-dashboard-01",
@@ -11297,7 +11462,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "HM-desks-02",
@@ -11312,7 +11477,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "HM-desks-03",
@@ -11655,7 +11820,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-account-lifecycle-04",
@@ -12226,7 +12391,7 @@
     "outside": "`vendor.sms`, `vendor.email`, `vendor.push` (delivery and channel adapter env) (AMENDED 2026-10-18 (review: push gateway needs its own code)",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "I-signin-sessions-01",
@@ -12694,7 +12859,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 2
   },
   {
     "id": "I-signin-sessions-32",
@@ -13054,7 +13219,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-adv-billing-tax-03",
@@ -13069,7 +13234,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-adv-billing-tax-04",
@@ -13099,7 +13264,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-adv-billing-tax-06",
@@ -13159,7 +13324,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-adv-billing-tax-10",
@@ -13174,7 +13339,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-adv-developer-01",
@@ -13414,7 +13579,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-in-person-01",
@@ -13568,7 +13733,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-money-out-02",
@@ -13643,7 +13808,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-money-out-07",
@@ -13884,7 +14049,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-adv-org-access-07",
@@ -13899,7 +14064,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-org-access-08",
@@ -13944,7 +14109,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-org-access-11",
@@ -13974,7 +14139,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-payments-core-02",
@@ -13989,7 +14154,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-payments-core-03",
@@ -14034,7 +14199,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-payments-core-06",
@@ -14124,7 +14289,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-payments-core-12",
@@ -14214,7 +14379,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-adv-payments-core-18",
@@ -14245,7 +14410,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-payments-core-20",
@@ -14260,7 +14425,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-payments-core-21",
@@ -14275,7 +14440,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-phantom-order-01",
@@ -14290,7 +14455,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1,
+    "order": 2,
     "later": ["M-adv-phantom-order-05"]
   },
   {
@@ -14306,7 +14471,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-phantom-order-03",
@@ -14321,7 +14486,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-phantom-order-04",
@@ -14336,7 +14501,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-adv-phantom-order-05",
@@ -14411,7 +14576,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1,
+    "order": 2,
     "keptFor": ["RC-merchant-08"]
   },
   {
@@ -15102,7 +15267,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-merchant-09",
@@ -15117,7 +15282,7 @@
     "outside": "`rail.bank` when no bank rail delivers payer names.",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-merchant-10",
@@ -15132,7 +15297,7 @@
     "outside": "`rail.card` or `rail.bank` when the rail cannot report availability.",
     "size": "S",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "MC-blueprint-01",
@@ -15171,7 +15336,7 @@
     "outside": "`chain.go` (running a chain launch; reading test deployments is allowed and labelled)",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "MC-launch-02",
@@ -15186,7 +15351,7 @@
     "outside": "`licence` (only where a regulated sale needs a licence we do not hold)",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "MC-launch-03",
@@ -15216,7 +15381,7 @@
     "outside": "`chain.go` (any chain-side stake)",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "MC-launch-05",
@@ -15246,7 +15411,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1,
+    "order": 4,
     "later": ["MC-market-02"]
   },
   {
@@ -15262,7 +15427,7 @@
     "outside": "`owner.decision` (a refund or redeem while the policy is undecided)",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 4
   },
   {
     "id": "MC-market-03",
@@ -15292,7 +15457,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 3,
+    "order": 4,
     "keptFor": ["MC-mining-03"]
   },
   {
@@ -15308,7 +15473,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 3,
+    "order": 4,
     "keptFor": ["MC-mining-05"]
   },
   {
@@ -15324,7 +15489,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 3,
+    "order": 4,
     "keptFor": ["MC-mining-02"]
   },
   {
@@ -15340,7 +15505,7 @@
     "outside": "`vendor.email` and `vendor.push` (the notice delivery)",
     "size": "L",
     "families": 4,
-    "order": 3,
+    "order": 4,
     "keptFor": ["MC-mining-02"]
   },
   {
@@ -15356,7 +15521,7 @@
     "outside": "`owner.decision` (the reward source while undecided)",
     "size": "L",
     "families": 2,
-    "order": 3,
+    "order": 4,
     "keptFor": ["RC-more-catalogue-07"]
   },
   {
@@ -15387,7 +15552,7 @@
     "outside": "`owner.decision` (the Predict room while INTACORE and the Predict service do not run; owned by MC-predict-06; AMENDED 2026-10-19 (review: P1 GO recorded, rules ",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "MC-predict-01",
@@ -15509,7 +15674,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1,
+    "order": 2,
     "later": ["MC-token-02", "MC-token-03"]
   },
   {
@@ -15525,7 +15690,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 3
   },
   {
     "id": "MC-token-03",
@@ -15540,7 +15705,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "MC-token-04",
@@ -15555,7 +15720,7 @@
     "outside": "`chain.go` (delegation while no GO is recorded)",
     "size": "S",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-more-catalogue-01",
@@ -15615,7 +15780,7 @@
     "outside": "`audit.external` (mainnet only); `rail.crypto` (no signer for the network)",
     "size": "S",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-05",
@@ -15630,7 +15795,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-06",
@@ -15660,7 +15825,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-08",
@@ -15675,7 +15840,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-09",
@@ -15690,7 +15855,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-10",
@@ -15825,7 +15990,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-19",
@@ -15840,7 +16005,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-20",
@@ -15855,7 +16020,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 1
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-21",
@@ -15870,7 +16035,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-more-catalogue-22",
@@ -15930,7 +16095,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "OPS-ORD-02",
@@ -15961,7 +16126,7 @@
     "outside": "`rail.bank` for a mailed cheque; `owner.decision` for the loss-cover account.",
     "size": "L",
     "families": 2,
-    "order": 2,
+    "order": 1,
     "later": ["OPS-accounts-desk-02", "OPS-payments-desk-03"]
   },
   {
@@ -16130,7 +16295,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "OPS-alerts-01",
@@ -16566,7 +16731,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1,
+    "order": 2,
     "later": ["OPS-ledger-desk-02"]
   },
   {
@@ -16597,7 +16762,7 @@
     "outside": "`rail.bank` and `rail.crypto` are the only codes: a deposit arrives only from a configured rail; with no rail the queue is empty and says so. The queue and attr",
     "size": "L",
     "families": 2,
-    "order": 2,
+    "order": 1,
     "later": ["OPS-payments-desk-03"]
   },
   {
@@ -16748,7 +16913,7 @@
     "outside": "`rail.bank`: provider balance pulls and the capability probe refuse with this code until a partner is connected. The desk, pools and settings are built.",
     "size": "L",
     "families": 3,
-    "order": 2,
+    "order": 1,
     "later": ["OPS-reconciliation-01"]
   },
   {
@@ -16773,7 +16938,7 @@
     "outside": "`rail.bank` for rail choice, beneficiary registration and the partner call; `owner.decision` for the funding account until the owner records it.",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "OPS-payments-desk-04",
@@ -17120,7 +17285,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1,
+    "order": 2,
     "later": ["OPS-service-health-02"]
   },
   {
@@ -17391,7 +17556,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "RC-ops-console-03",
@@ -17421,7 +17586,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "RC-ops-console-05",
@@ -17436,7 +17601,7 @@
     "outside": "`vendor.tax` for the tax section only when no tax provider is configured.",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "RC-ops-console-06",
@@ -17646,7 +17811,7 @@
     "outside": "`owner.decision` for sending a regulator notification until a destination is chosen and entered.",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "RC-ops-console-20",
@@ -17661,7 +17826,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "RC-ops-console-21",
@@ -17676,7 +17841,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "RC-ops-console-22",
@@ -17691,7 +17856,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "RC-ops-console-23",
@@ -17721,7 +17886,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "P-ads-merchant-01",
@@ -17948,7 +18113,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-ads-merchant-16",
@@ -18024,7 +18189,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-ads-merchant-21",
@@ -18039,7 +18204,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-ads-merchant-22",
@@ -18069,7 +18234,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "P-disputes-security-01",
@@ -18114,7 +18279,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-disputes-security-04",
@@ -18174,7 +18339,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-disputes-security-08",
@@ -18189,7 +18354,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-disputes-security-09",
@@ -18204,7 +18369,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "P-disputes-security-10",
@@ -18219,7 +18384,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-disputes-security-11",
@@ -18295,7 +18460,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-disputes-security-16",
@@ -18325,7 +18490,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-disputes-security-18",
@@ -18386,7 +18551,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1,
+    "order": 2,
     "later": ["P-ads-merchant-01"]
   },
   {
@@ -18402,7 +18567,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-trade-orders-02",
@@ -18417,7 +18582,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-trade-orders-03",
@@ -18432,7 +18597,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-trade-orders-04",
@@ -18447,7 +18612,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "P-trade-orders-05",
@@ -18462,7 +18627,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "P-trade-orders-06",
@@ -18477,7 +18642,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 3
   },
   {
     "id": "P-trade-orders-07",
@@ -18492,7 +18657,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-trade-orders-08",
@@ -18507,7 +18672,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "P-trade-orders-09",
@@ -18522,7 +18687,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "P-trade-orders-10",
@@ -18537,7 +18702,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "P-trade-orders-11",
@@ -18552,7 +18717,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "P-trade-orders-12",
@@ -18567,7 +18732,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1,
+    "order": 2,
     "later": ["P-order-01"]
   },
   {
@@ -18583,7 +18748,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-trade-orders-14",
@@ -18598,7 +18763,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "P-trade-orders-15",
@@ -18613,7 +18778,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "P-trade-orders-16",
@@ -18628,7 +18793,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "P-trade-orders-17",
@@ -18674,7 +18839,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-trade-orders-20",
@@ -18689,7 +18854,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "P-trade-orders-21",
@@ -18719,7 +18884,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 4
   },
   {
     "id": "P-trade-orders-23",
@@ -18734,7 +18899,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-p2p-01",
@@ -18780,7 +18945,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "PP-disputes-safety-01",
@@ -18856,7 +19021,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "PP-disputes-safety-06",
@@ -18871,7 +19036,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "PP-disputes-safety-07",
@@ -18886,7 +19051,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2,
+    "order": 4,
     "later": ["PP-money-balance-02"]
   },
   {
@@ -18980,7 +19145,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-money-balance-01",
@@ -18995,7 +19160,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-money-balance-02",
@@ -19010,7 +19175,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "PP-money-balance-03",
@@ -19040,7 +19205,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1,
+    "order": 2,
     "later": ["PP-send-request-07"]
   },
   {
@@ -19056,7 +19221,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1,
+    "order": 2,
     "later": ["PP-order-01"]
   },
   {
@@ -19087,7 +19252,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-order-03",
@@ -19102,7 +19267,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-01",
@@ -19148,7 +19313,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-04",
@@ -19163,7 +19328,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "PP-send-request-05",
@@ -19178,7 +19343,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-06",
@@ -19208,7 +19373,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-08",
@@ -19223,7 +19388,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "PP-send-request-09",
@@ -19253,7 +19418,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-11",
@@ -19268,7 +19433,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-12",
@@ -19283,7 +19448,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-13",
@@ -19298,7 +19463,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-14",
@@ -19374,7 +19539,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "PP-send-request-19",
@@ -19464,7 +19629,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "PH-pay-01",
@@ -20071,7 +20236,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-support-public-02",
@@ -20153,7 +20318,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-support-public-07",
@@ -20168,7 +20333,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-agents-01",
@@ -20336,7 +20501,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-desk-02",
@@ -20351,7 +20516,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-desk-03",
@@ -20445,7 +20610,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1,
+    "order": 2,
     "later": ["SP-help-centre-03"]
   },
   {
@@ -20461,7 +20626,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1,
+    "order": 2,
     "later": ["SP-kb-01"]
   },
   {
@@ -20477,7 +20642,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-kb-01",
@@ -20492,7 +20657,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1,
+    "order": 2,
     "later": ["SP-kb-02"]
   },
   {
@@ -20523,7 +20688,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-kb-04",
@@ -20628,7 +20793,7 @@
     "outside": "`vendor.email` for breach alert mail; the clocks, states and hit rate are our own.",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-sla-02",
@@ -20658,7 +20823,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-status-02",
@@ -20673,7 +20838,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1,
+    "order": 2,
     "later": ["SP-status-04"]
   },
   {
@@ -20689,7 +20854,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-status-04",
@@ -20704,7 +20869,7 @@
     "outside": "`vendor.email`, `vendor.sms` and `vendor.push` for delivery that leaves our inbox. The subscriber model, feed, webhook adapter and challenge are our own.",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-status-05",
@@ -20719,7 +20884,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-tickets-01",
@@ -20734,7 +20899,7 @@
     "outside": "`vendor.email` for the guest verification mail (the row is stored and the refusal names the code). Everything else is our own back end.",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-tickets-02",
@@ -20764,7 +20929,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "SP-tickets-04",
@@ -21110,7 +21275,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 4
   },
   {
     "id": "W-balances-04",
@@ -21170,7 +21335,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "W-balances-08",
@@ -21185,7 +21350,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "W-balances-09",
@@ -21200,7 +21365,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "W-balances-10",
@@ -21215,7 +21380,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 1
   },
   {
     "id": "W-compliance-notices-01",
@@ -21230,7 +21395,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1,
+    "order": 2,
     "later": ["W-deposit-04"]
   },
   {
@@ -21246,7 +21411,7 @@
     "outside": "vendor.aml",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 4
   },
   {
     "id": "W-compliance-notices-03",
@@ -21307,7 +21472,7 @@
     "outside": "rail.crypto",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 4
   },
   {
     "id": "W-custody-ops-02",
@@ -21322,7 +21487,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 4
   },
   {
     "id": "W-custody-ops-03",
@@ -21337,7 +21502,7 @@
     "outside": "rail.crypto",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 4
   },
   {
     "id": "W-custody-ops-04",
@@ -21382,7 +21547,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-custody-ops-07",
@@ -21397,7 +21562,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-custody-ops-08",
@@ -21412,7 +21577,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-custody-ops-09",
@@ -21427,7 +21592,7 @@
     "outside": "rail.crypto",
     "size": "M",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-custody-ops-10",
@@ -21442,7 +21607,7 @@
     "outside": "rail.crypto",
     "size": "L",
     "families": 4,
-    "order": 3,
+    "order": 4,
     "later": ["W-withdraw-04"]
   },
   {
@@ -21458,7 +21623,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-custody-ops-12",
@@ -21473,7 +21638,7 @@
     "outside": "rail.crypto",
     "size": "L",
     "families": 3,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-custody-ops-13",
@@ -21488,7 +21653,7 @@
     "outside": "rail.crypto",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 4
   },
   {
     "id": "W-deposit-01",
@@ -21519,7 +21684,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "W-deposit-03",
@@ -21534,7 +21699,7 @@
     "outside": "rail.crypto",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 4
   },
   {
     "id": "W-deposit-04",
@@ -21549,7 +21714,7 @@
     "outside": "rail.crypto",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "W-deposit-05",
@@ -21580,7 +21745,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "W-deposit-07",
@@ -21610,7 +21775,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 4
   },
   {
     "id": "W-deposit-09",
@@ -21625,7 +21790,7 @@
     "outside": "vendor.email",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "W-deposit-10",
@@ -21640,7 +21805,7 @@
     "outside": "rail.crypto",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-deposit-11",
@@ -21670,7 +21835,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-security-accounts-02",
@@ -21715,7 +21880,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-security-accounts-05",
@@ -21730,7 +21895,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-security-accounts-06",
@@ -21805,7 +21970,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 4
   },
   {
     "id": "W-withdraw-04",
@@ -21820,7 +21985,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 4
   },
   {
     "id": "W-withdraw-05",
@@ -21835,7 +22000,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 4
   },
   {
     "id": "W-withdraw-06",
@@ -21866,7 +22031,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "W-withdraw-08",
@@ -21912,7 +22077,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-withdraw-11",
@@ -21927,7 +22092,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-withdraw-12",
@@ -21942,7 +22107,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-withdraw-13",
@@ -21972,7 +22137,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 4
   },
   {
     "id": "W-withdraw-15",
@@ -21987,7 +22152,7 @@
     "outside": "rail.crypto (AMENDED 2026-10-18 (review))",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 4
   },
   {
     "id": "W-withdraw-16",
@@ -22032,7 +22197,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-catalogue-02",
@@ -22047,7 +22212,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-catalogue-03",
@@ -22062,7 +22227,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-disp-01",
@@ -22243,7 +22408,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-bill-05",
@@ -22349,7 +22514,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3,
+    "order": 2,
     "later": ["M-catalogue-03"]
   },
   {
@@ -22425,7 +22590,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-developer-01",
@@ -22531,7 +22696,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-money-out-02",
@@ -22546,7 +22711,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-money-out-03",
@@ -22561,7 +22726,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-money-out-04",
@@ -22591,7 +22756,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-money-out-05b",
@@ -22636,7 +22801,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-payments-core-01",
@@ -22651,7 +22816,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-payments-core-02",
@@ -22666,7 +22831,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-payments-core-03",
@@ -22696,7 +22861,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-payments-core-04b",
@@ -22711,7 +22876,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-payments-core-05",
@@ -22726,7 +22891,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1,
+    "order": 2,
     "later": ["M-payments-core-06"]
   },
   {
@@ -22742,7 +22907,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-payments-core-07",
@@ -22757,7 +22922,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-payments-core-08",
@@ -22772,7 +22937,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-payments-core-09",
@@ -22787,7 +22952,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-plat-org-01",
@@ -22802,7 +22967,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-plat-org-02",
@@ -22832,7 +22997,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-plat-org-04",
@@ -22862,7 +23027,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 2
   },
   {
     "id": "M-plat-org-06",
@@ -22923,7 +23088,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-plat-org-10",
@@ -22953,7 +23118,7 @@
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-plat-org-12",
@@ -22984,7 +23149,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1,
+    "order": 2,
     "later": ["M-plat-org-14"]
   },
   {
@@ -23000,7 +23165,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "M-plat-org-15",

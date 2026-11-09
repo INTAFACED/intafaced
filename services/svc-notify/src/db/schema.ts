@@ -258,6 +258,23 @@ export const priceAlerts = schema.table('price_alerts', {
   source: text('source').$type<'mark' | 'bid' | 'ask' | 'last'>().notNull().default('mark'),
 });
 
+/** A watchlist alert: one price rule on every market of a watchlist, picking up later additions. See drizzle/*_notify_watchlist_alerts.sql. */
+export const watchlistAlerts = schema.table('watchlist_alerts', {
+  id: pk(),
+  userId: text('user_id').notNull(),
+  listId: text('list_id').notNull(),
+  listName: text('list_name').notNull(),
+  condition: text('condition').$type<'crossing' | 'crossing_up' | 'crossing_down' | 'greater_than' | 'less_than'>().notNull(),
+  direction: text('direction').$type<'above' | 'below'>().notNull(),
+  targetPrice: text('target_price').notNull(),
+  status: text('status').$type<'active' | 'stopped'>().notNull().default('active'),
+  markets: jsonb('markets').$type<string[]>().notNull().default([]),
+  createdAt: createdAt(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  lastSyncAt: timestamp('last_sync_at', { withTimezone: true, mode: 'date' }),
+  lastSyncCode: text('last_sync_code'),
+});
+
 /** One row each time an alert fired, keyed by alert and fire number. See drizzle/0022_notify_alert_frequency.sql (it replaced alert_triggers). */
 export const alertTriggers = schema.table(
   'alert_fires',

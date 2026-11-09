@@ -45,6 +45,8 @@ export const transferQuoteSchema = z.object({
   spentToday: amount,
   fee: amount,
   feeBlocker: z.string().nullable(),
+  /** The partner's fee on the move: absent when none is reported, null when the partner has not said ("not known"). */
+  networkFee: amount.nullable().optional(),
   withinPerTransfer: z.boolean(),
   withinDaily: z.boolean(),
 });

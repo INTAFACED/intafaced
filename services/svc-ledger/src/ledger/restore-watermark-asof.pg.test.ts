@@ -142,7 +142,10 @@ describe('restore watermark as of a cut-off on the real ledger', () => {
   });
 
   it('the service answers live for an empty body, as of the instant for { asOf } with it echoed, and refuses a bad one', async () => {
-    const service = new LedgerService(db!.sql, new MemoryEventBus('restore-watermark-asof'), { clockSkewBoundMs: BOUND });
+    const service = new LedgerService(db!.sql, new MemoryEventBus('restore-watermark-asof'), {
+      custodyLayer: 'on',
+      clockSkewBoundMs: BOUND,
+    });
     const live = restoreWatermarkReadSchema.parse(await service.restoreWatermark({}));
     expect(live.asOf).toBeUndefined();
     const cutOff = new Date(Date.now() - 1000).toISOString();

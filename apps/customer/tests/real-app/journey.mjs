@@ -1,9 +1,13 @@
-import { test as base, expect as baseExpect } from '@playwright/test';
+import { test as base, expect as baseExpect, chromium as playwrightChromium } from '@playwright/test';
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
+import { REACH_ATTACHMENT, makeLogReader, makeRecorder } from '../../../../tooling/scripts/journey-reach.mjs';
+import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
 
@@ -56,6 +60,29 @@ export const expect = new Proxy(baseExpect, {
   apply: (target, self, args) => Reflect.apply(inFastStep() ? fastExpect : target, self, args),
 });
 
+// What each journey file reached (tooling/scripts/journey-reach.mjs): the stack's ports and paths its Node code and its
+// pages called, and the customer app's functions its pages ran, attached to the report per test as `journey-reach`. The
+// file running now owns what is recorded; a file's own beforeAll and afterAll hooks enter it first (below).
+// The build on disk here, unless the stack serves the customer app from another folder (local-test-stack.mjs's
+// customer-dist override): then no script can be placed, and each record says so (otherDist).
+const servesOtherDist = !!process.env.LOCAL_STACK_CUSTOMER_DIST || existsSync(path.join(localStackState(), 'customer-dist.json'));
+const reach = makeRecorder({ root: ROOT, distDir: servesOtherDist ? null : path.join(ROOT, 'apps', 'customer', 'dist') });
+let reachFile = 'outside-any-file';
+// What the stack's services logged they served, read from their own logs at each read below (journey-reach.mjs).
+const stackLogs = makeLogReader(path.join(localStackState(), 'logs'));
+const enterReach = (file) => {
+  reachFile = file;
+  reach.enter(file);
+};
+const readLogs = () => noted(() => reach.served(stackLogs.read(), reachFile));
+const noted = (fn) => {
+  try {
+    fn();
+  } catch {
+    /* recording never stops a request, a page or a test */
+  }
+};
+
 // Every sign-in or sign-up a journey sends from Node, through any helper, names an account whose resting orders come down
 // before the next file (stack.mjs recordSignIn). Browser pages are watched the same way (the `browser` fixture below).
 const nodeFetch = globalThis.fetch;
@@ -65,21 +92,174 @@ globalThis.fetch = (input, init) => {
   } catch {
     /* recording never stops a request */
   }
+  noted(() => reach.request(reachFile, typeof input === 'string' ? input : (input?.url ?? String(input)), init?.method ?? input?.method));
   return nodeFetch(input, init);
 };
-const watchSignIns = (context) => context.on('request', (req) => recordSignIn(req.url(), req.postData() ?? undefined));
+
+/**
+ * Each page's coverage of the customer app: Chromium's precise coverage with call counts, started before the page's
+ * first navigation and read without a gap at every test's end and before the page or its context closes (CDP
+ * Profiler.takePreciseCoverage reads and resets the counts). A page the app opened by itself (a popup) starts counting
+ * only once it is seen, and a page that closed or lost its session before it was read can't be read whole: both mark
+ * the record incomplete, which the map reads as reaching every source.
+ */
+const covered = new Map(); // page -> { cdp, file }
+async function startCoverage(page, { opened = false } = {}) {
+  if (covered.has(page)) return;
+  const entry = { cdp: null, gone: false };
+  covered.set(page, entry);
+  page.on('close', () => {
+    if (!entry.gone) reach.incomplete(reachFile, 'closed');
+    covered.delete(page);
+  });
+  try {
+    entry.cdp = await page.context().newCDPSession(page);
+    await entry.cdp.send('Profiler.enable');
+    await entry.cdp.send('Profiler.startPreciseCoverage', { callCount: true, detailed: false });
+    entry.cdp.on('close', () => {
+      if (!entry.gone) reach.incomplete(reachFile, 'detached');
+    });
+    if (opened) reach.incomplete(reachFile, 'popup');
+  } catch {
+    reach.incomplete(reachFile, 'noStart');
+  }
+  page.on('websocket', (ws) => noted(() => reach.request(reachFile, ws.url(), 'WS')));
+}
+async function readCoverage(page, { last = false } = {}) {
+  const entry = covered.get(page);
+  if (!entry?.cdp) return;
+  try {
+    const { result } = await entry.cdp.send('Profiler.takePreciseCoverage');
+    reach.coverage(reachFile, result);
+  } catch {
+    if (!entry.gone) reach.incomplete(reachFile, 'noRead');
+  }
+  if (last) entry.gone = true;
+}
+const readAll = (pages, opts) => Promise.all(pages.map((p) => readCoverage(p, opts)));
+
+/**
+ * Playwright's API requests (page.request and context.request, the `request` fixture, playwright.request.newContext)
+ * fire no context `request` event and skip Node's fetch: get, post and the rest all go through the instance's `fetch`,
+ * which records the URL it was given (when whole) and the URL the response came from.
+ */
+const watchedApi = new WeakSet();
+function watchApi(api) {
+  if (!api || typeof api.fetch !== 'function' || watchedApi.has(api)) return api;
+  watchedApi.add(api);
+  const fetchApi = api.fetch.bind(api);
+  api.fetch = async (urlOrRequest, options = {}) => {
+    const given = typeof urlOrRequest === 'string' ? urlOrRequest : urlOrRequest?.url?.();
+    const m = options?.method ?? (typeof urlOrRequest === 'string' ? undefined : urlOrRequest?.method?.()) ?? 'GET';
+    noted(() => reach.request(reachFile, given, m));
+    const response = await fetchApi(urlOrRequest, options);
+    noted(() => reach.request(reachFile, response.url(), m));
+    return response;
+  };
+  return api;
+}
+function watchApiMaker(apiRequest) {
+  if (!apiRequest || watchedApi.has(apiRequest)) return;
+  watchedApi.add(apiRequest);
+  const newContext = apiRequest.newContext.bind(apiRequest);
+  apiRequest.newContext = async (...args) => watchApi(await newContext(...args));
+}
+
+const creating = new WeakMap(); // context -> pages being made by our own newPage, not opened by the app
+const watched = new WeakSet();
+function watchContext(context) {
+  if (watched.has(context)) return context;
+  watched.add(context);
+  noted(() => watchApi(context.request));
+  context.on('request', (req) => {
+    recordSignIn(req.url(), req.postData() ?? undefined);
+    noted(() => reach.request(reachFile, req.url(), req.method()));
+  });
+  context.on('page', (page) => {
+    if (!(creating.get(context) > 0)) void startCoverage(page, { opened: true });
+  });
+  const newPage = context.newPage.bind(context);
+  context.newPage = async (...args) => {
+    creating.set(context, (creating.get(context) ?? 0) + 1);
+    let page;
+    try {
+      page = await newPage(...args);
+    } finally {
+      creating.set(context, creating.get(context) - 1);
+    }
+    await startCoverage(page);
+    const close = page.close.bind(page);
+    page.close = async (...a) => {
+      await readCoverage(page, { last: true });
+      return close(...a);
+    };
+    return page;
+  };
+  const closeContext = context.close.bind(context);
+  context.close = async (...a) => {
+    await readAll(context.pages(), { last: true });
+    return closeContext(...a);
+  };
+  return context;
+}
+const watchSignIns = watchContext;
+
+/** Every context of a browser reports its sign-ins and its reach: its own newContext and newPage, and its close. */
+function watchBrowser(browser) {
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (...args) => watchContext(await newContext(...args));
+  // browser.newPage(options) is a page in a context of its own, closed with the page: made here the same way, so counting
+  // starts on about:blank, before its first navigation.
+  browser.newPage = async (options) => {
+    const context = watchContext(await newContext(options));
+    const page = await context.newPage();
+    const close = page.close.bind(page);
+    page.close = async (...a) => {
+      await close(...a);
+      await closeContextQuietly(context);
+    };
+    return page;
+  };
+  const closeBrowser = browser.close.bind(browser);
+  browser.close = async (...a) => {
+    await readAll(
+      browser.contexts().flatMap((c) => c.pages()),
+      { last: true },
+    );
+    return closeBrowser(...a);
+  };
+  return browser;
+}
+const closeContextQuietly = async (context) => {
+  try {
+    await context.close();
+  } catch {
+    /* already closed */
+  }
+};
+
+/** Playwright's chromium, whose launched browsers report like the fixture's (J-identity-08 launches its own). */
+export const chromium = new Proxy(playwrightChromium, {
+  get(target, prop, receiver) {
+    if (prop === 'launch') return async (...args) => watchBrowser(await target.launch(...args));
+    const v = Reflect.get(target, prop, receiver);
+    return typeof v === 'function' ? v.bind(target) : v;
+  },
+});
 
 const extended = base.extend({
   // Every context a journey opens, through the `page` fixture or its own browser.newContext(), reports its sign-ins.
   browser: [
     async ({ browser }, use) => {
-      const newContext = browser.newContext.bind(browser);
-      browser.newContext = async (...args) => {
-        const context = await newContext(...args);
-        watchSignIns(context);
-        return context;
-      };
-      await use(browser);
+      await use(watchBrowser(browser));
+    },
+    { scope: 'worker' },
+  ],
+  // The worker's API request maker (the `request` fixture and playwright.request.newContext) reports its requests too.
+  playwright: [
+    async ({ playwright }, use) => {
+      noted(() => watchApiMaker(playwright.request));
+      await use(playwright);
     },
     { scope: 'worker' },
   ],
@@ -91,10 +271,32 @@ const extended = base.extend({
   // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
   worldBetweenFiles: [
     async ({}, use, testInfo) => {
+      enterReach(testInfo.file);
       await enterFile(testInfo.file);
       await use();
     },
     { auto: true, timeout: 150_000 },
+  ],
+  // What this test's file reached, read from every open page and attached (tooling/scripts/journey-reach.mjs). Records of
+  // other files still waiting (a file's afterAll hooks, run after its last test) are attached here too, each naming its
+  // own file. Never fails the test.
+  // It takes `context`, so it ends before the test's own context closes and reads its pages while they are open.
+  journeyReach: [
+    async ({ context }, use, testInfo) => {
+      void context;
+      await use();
+      try {
+        await readAll([...covered.keys()]);
+        readLogs();
+        for (const file of reach.files()) {
+          const record = reach.take(file);
+          if (record) await testInfo.attach(REACH_ATTACHMENT, { body: JSON.stringify(record), contentType: 'application/json' });
+        }
+      } catch {
+        /* recording never fails a test */
+      }
+    },
+    { auto: true },
   ],
   // No journey leaves the platform posting freeze on for the journeys after it (journey-freeze-guard.mjs).
   postingFreezeGuard: [
@@ -134,11 +336,42 @@ extended.beforeAll = (...args) => {
   const entered = async (fixtures, testInfo) => {
     // The restore gets its own time on top of the hook's, as the worldBetweenFiles fixture does.
     if (testInfo.timeout > 0) testInfo.setTimeout(testInfo.timeout + 150_000);
+    enterReach(testInfo.file);
     await enterFile(testInfo.file);
     return hook(fixtures, testInfo);
   };
   entered.toString = () => hook.toString();
   return beforeAll(...args, entered);
+};
+
+/** A file's afterAll hooks run after its last test: what they reach is its own, read once they end and attached by the
+ *  next test that runs (journeyReach). */
+/** The journey file (`*.pw.mjs`) whose loading registers a hook, from the call stack, or null. */
+const registeringFile = () => {
+  for (const line of String(new Error().stack).split('\n')) {
+    const m = line.match(/(file:\/\/[^\s()]+?\.pw\.mjs|\/[^\s()]+?\.pw\.mjs)/);
+    if (m) return m[1].startsWith('file:') ? fileURLToPath(m[1]) : m[1];
+  }
+  return null;
+};
+const afterAll = extended.afterAll;
+extended.afterAll = (...args) => {
+  // Its records say a file's afterAll record is due, so the map can tell when it never came (journey-reach.mjs).
+  const from = registeringFile();
+  if (from) noted(() => reach.declaresAfterAll(from));
+  const hook = args.pop();
+  const after = async (fixtures, testInfo) => {
+    enterReach(testInfo.file);
+    try {
+      return await hook(fixtures, testInfo);
+    } finally {
+      await readAll([...covered.keys()]).catch(() => {});
+      readLogs();
+      reach.afterAll(testInfo.file);
+    }
+  };
+  after.toString = () => hook.toString();
+  return afterAll(...args, after);
 };
 
 export const test = extended;

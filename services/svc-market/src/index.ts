@@ -34,8 +34,8 @@ registerProcessHooks(
  * Balances live in svc-ledger only. Commission bps is owner-gated: unset env
  * refuses createListing + purchase and empties the public catalogue rather
  * than inventing a rate (D26-P1-M1 / M2). Compose wires LEDGER_URL to
- * svc-ledger; MARKET_HOUSE_COMMISSION_BPS is owner-published (0 = explicit
- * free-cut in `.env.example`); compose pass-through, no in-code default.
+ * svc-ledger; MARKET_HOUSE_COMMISSION_BPS is owner-set on the host (see the
+ * private records); compose pass-through, no in-code default.
  */
 
 const sql = postgres(env.DATABASE_URL, {
