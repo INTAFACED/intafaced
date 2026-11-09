@@ -331,6 +331,8 @@ export class TransferService {
             { transferId: input.transferId, keySpace, fromUserId: from.userId, toUserId: to.userId, note, reference },
           );
           const moved = await partner.move({ key, from: partnerAccountFor(from), to: partnerAccountFor(to), amount: input.amount });
+          // The note and reference show on the partner's lines of this move in History, as on a ledger transaction's.
+          if (note !== null || reference !== null) await attachTransferMessageTx(this.sql, input.transferId, moved.id);
           return {
             transferId: input.transferId,
             occurrence: 0,

@@ -446,6 +446,9 @@ function after(a: LedgerPageEntry, b: LedgerPageEntry): number {
   return a.txId < b.txId ? 1 : a.txId > b.txId ? -1 : 0;
 }
 
+/** A partner move between a person's own spaces is never a personal send: its note comes from `transfer_messages`. */
+const NO_PERSONAL_TX: ReadonlySet<string> = new Set();
+
 export class ActivityService {
   constructor(
     private readonly spaces: SpaceLister,
@@ -457,7 +460,9 @@ export class ActivityService {
     const partner = this.options.custody?.bankFor(userId);
     if (partner) {
       const limit = Math.min(Math.max(Math.trunc(input.limit ?? ACTIVITY_DEFAULT_LIMIT), 1), ACTIVITY_MAX_LIMIT);
-      return partnerActivityPage(userId, partner, this.spaces, input, limit);
+      const page = await partnerActivityPage(userId, partner, this.spaces, input, limit);
+      // Each line's note and reference, private note and dispute, kept in svc-bank against the partner's move reference.
+      return { ...page, items: await this.withRecords(userId, page.items, NO_PERSONAL_TX, false, false) };
     }
     if (input.sort === 'asc') return this.listOldestFirst(userId, input);
     if (!hasFilter(input)) return this.listPage(userId, input);
@@ -472,7 +477,11 @@ export class ActivityService {
    */
   async get(userId: string, id: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {
     const partner = this.options.custody?.bankFor(userId);
-    if (partner) return partnerActivityItem(userId, partner, this.spaces, id);
+    if (partner) {
+      const found = await partnerActivityItem(userId, partner, this.spaces, id);
+      const lines = await this.withRecords(userId, found.lines, NO_PERSONAL_TX, false, false);
+      return { ...found, item: lines.find((line) => line.id === found.item.id) ?? found.item, lines };
+    }
     if (id.startsWith('order:')) {
       const orderId = id.slice('order:'.length);
       if (orderId.length < 1 || orderId.length > 128) throw new ActivityNotFoundError();

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
@@ -140,6 +141,11 @@ export function testPartner(): TestPartner {
   const byPerson = new Map<string, PartnerMove[]>();
   const funds = new Map<string, { readonly userId: string; readonly assetId: string; readonly amount: Amount }>();
   let seq = 0;
+  /**
+   * Unique to this process, so a move reference is never reused after a restart: a note kept in svc-bank's database
+   * against an earlier process's move must never attach to a new move with the same sequence number.
+   */
+  const boot = randomBytes(6).toString('hex');
 
   const switches = (userId: string) => kept.get(userId) ?? SWITCHES_OFF;
   const set = (userId: string, change: Partial<TestPartnerSwitches>): TestPartnerSwitches => {
@@ -202,7 +208,7 @@ export function testPartner(): TestPartner {
       // One step, nothing awaited: the debit, the credit and the record are made together or not at all.
       seq += 1;
       const move: PartnerMove = Object.freeze({
-        id: `test-partner-move-${String(seq).padStart(12, '0')}`,
+        id: `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`,
         key: request.key,
         from: Object.freeze({ ...request.from }),
         to: Object.freeze({ ...request.to }),

@@ -176,6 +176,45 @@ describe('partner-held bank moves (OWNER 226)', () => {
     );
   });
 
+  it("a move's note and reference show on both of its partner lines in History, and on the line read alone", async () => {
+    const { api, trip, mainSpace } = await partnerHeld(ADA);
+    await api.transfers.create({
+      transferId: 'move-ada-note',
+      fromSpaceId: mainSpace.id,
+      toSpaceId: trip.id,
+      amount: '20',
+      note: 'rent TEST',
+      reference: 'REF-TEST-1',
+    });
+    const feed = await api.activity.list({ limit: 50 });
+    expect(feed.items).toHaveLength(2);
+    for (const line of feed.items)
+      expect(line).toMatchObject({ note: 'rent TEST', reference: 'REF-TEST-1', heldAt: { label: TEST_PARTNER_LABEL } });
+    const one = await api.activity.get({ id: feed.items[0]!.id });
+    expect(one.item).toMatchObject({ note: 'rent TEST', reference: 'REF-TEST-1' });
+    expect(one.lines.map((l) => l.note)).toEqual(['rent TEST', 'rent TEST']);
+  });
+
+  it('a move reference is never reused by a restarted TEST partner, so a kept note never attaches to a new move', async () => {
+    const { api, trip, mainSpace } = await partnerHeld(ADA);
+    await api.transfers.create({
+      transferId: 'move-ada-before',
+      fromSpaceId: mainSpace.id,
+      toSpaceId: trip.id,
+      amount: '5',
+      note: 'old TEST',
+    });
+    // The restart: a new process's TEST partner, whose first move has the same sequence number as the last one's.
+    partner = testPartner();
+    const { api: after } = as(ADA);
+    await after.testPartner.set({ custody: 'off' });
+    await after.testPartner.fund({ fundId: `fund-${ADA}-again`, assetId: 'USDT', amount: '100' });
+    await after.transfers.create({ transferId: 'move-ada-after', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '5' });
+    const feed = await after.activity.list({ limit: 50 });
+    expect(feed.items).toHaveLength(2);
+    for (const line of feed.items) expect(line.note).toBeUndefined();
+  });
+
   it('a retry after a lost partner reply makes one move, never two', async () => {
     const { api, trip, mainSpace } = await partnerHeld(ADA);
     await api.testPartner.set({ nextReply: 'lost' });
