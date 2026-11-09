@@ -43,7 +43,7 @@ Written 8 Nov 2026, 02:12 UTC, from `origin/main` at `69f5a7a04`. A plan only; e
 - **Verification**, stated in the PR:
   - R0 is the last finished full Real-app journeys run on main before the PR. The PR's own full run must be green on every step R0 had green, except the steps in `journey-baseline.json` and steps the machine set aside, each named.
   - The journeys the piece names pass 10 of 10 local repeats, with 0 retries.
-  - The Test judge and the CI review PASS on the exact head.
+  - The CI review's Verdict and Test verdict PASS on the exact head.
   - After the merge, R1 is the first full run on main that contains it. A step green in R0 and red in R1 means the piece is reverted, unless it is fixed within 2 hours.
 - **Full runs share runners:** the lead approves each one first.
 

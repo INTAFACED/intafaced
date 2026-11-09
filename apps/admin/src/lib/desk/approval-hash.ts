@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { CONSOLE_MODE_TARGET_ID, CONSOLE_MODE_TARGET_SERVICE, consoleModeApprovalFields } from '@intafaced/contracts/ops-console-mode';
 import { OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields } from '@intafaced/contracts/ops-reconciliation-alerts';
+import {
+  OPS_CAPITAL_TARGET_SERVICE,
+  OPS_CAPITAL_THRESHOLD_ACTION,
+  opsCapitalThresholdFields,
+  opsCapitalThresholdTargetId,
+} from '@intafaced/contracts/ops-capital';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import {
   STAFF_HOLD_TARGET_SERVICE,
@@ -225,6 +231,12 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-ops `approvalPayloadHash('ops.reconciliation_alert.accept', opsAlertAcceptFields(alertId, note, evidenceHash))`.
     case 'ops.reconciliation_alert.accept':
       return sha(OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash));
+    // svc-ops `approvalPayloadHash('ops.capital.threshold.set', opsCapitalThresholdFields(asset, minimum, contact, reason))`.
+    case 'ops.capital.threshold.set':
+      return sha(
+        OPS_CAPITAL_THRESHOLD_ACTION,
+        opsCapitalThresholdFields(request.assetId, request.minimum, request.contact, request.reason),
+      );
     // svc-ops `approvalPayloadHash('ops.venue_cost.record', { period, category, amount, asset, sourceNote })`, fields in this order.
     case 'ops.venue_cost.record':
       return sha('ops.venue_cost.record', {
@@ -553,6 +565,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: OPS_ALERT_ACCEPT_ACTION,
         targetService: 'svc-ops',
         targetId: opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash).targetId,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes against the asset's threshold. Its target service is not on identity's operator list, so both founders are needed.
+    case 'ops.capital.threshold.set':
+      return {
+        actionType: OPS_CAPITAL_THRESHOLD_ACTION,
+        targetService: OPS_CAPITAL_TARGET_SERVICE,
+        targetId: opsCapitalThresholdTargetId(request.assetId),
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',
