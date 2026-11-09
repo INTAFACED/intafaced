@@ -212,6 +212,7 @@ const en = {
   rEmailInviteUnconfigured: 'Email invitations are switched off on this system.',
   rEmailInviteRateLimited: 'Too many email invitations were sent recently. Wait a while, then try again. Nothing was changed.',
   rDisputeNotFound: 'We could not find that dispute.',
+  rDisputeFundsUnavailable: 'We can’t show where this dispute’s money is right now. Try again shortly.',
   rDisputeClosed: 'This dispute is already closed, so it cannot be changed.',
   rDisputeTransition: 'You can only contest a dispute that is still open.',
   rEvidenceRequired: 'Add at least one piece of evidence before you contest.',

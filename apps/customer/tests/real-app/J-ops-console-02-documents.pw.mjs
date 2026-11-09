@@ -141,16 +141,48 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
     await a.getByRole('button', { name: 'Run query' }).click();
     const kycCase = a.getByTestId('delivery-receipt');
     await expect(kycCase, 'the KYC case history answers for this person').toContainText(record.id, { timeout: 60_000 });
-    // The row asks that the KYC case's detail opens this document in the same viewer. The console has no KYC case detail
-    // to open (kyc-document-viewer.tsx: "so will a KYC case's detail"; the history above is a raw service answer, not a
-    // case view), so there is nothing to drive and the clause fails by name. Whoever builds the case detail replaces this
-    // with its real flow: open the case, open its document, expect kyc-document-viewer with data-document=image.id.
-    expect
-      .soft(
-        null,
-        'the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)',
-      )
-      .not.toBeNull();
+    // The KYC case's detail opens its attached document in the same viewer. A opens the case from the documents tab: the
+    // case page lists only the documents attached to its verification (the image, not the PDF), and opening one takes a new
+    // second-founder approval, since the first was spent.
+    await a.goto(`${ADMIN}/accounts/${record.userId}?tab=documents`, { waitUntil: 'load' });
+    const links = a.getByTestId('kyc-case-links').getByRole('link');
+    await expect(links).toHaveCount(1, { timeout: 60_000 });
+    await links.first().click();
+    await a.waitForURL((url) => url.pathname.startsWith(`/accounts/${record.userId}/kyc/`), { timeout: 60_000 });
+    const casePage = a.getByTestId('kyc-case-detail');
+    await expect(casePage.getByTestId('read-identity.kyc-case').locator('tbody > tr')).toHaveCount(1, { timeout: 60_000 });
+    await expect(casePage.getByTestId('read-identity.kyc-case').locator('tbody > tr').first()).toContainText('submitted');
+    const caseDocs = casePage.getByTestId('kyc-case-documents').getByTestId('read-identity.documents');
+    await expect(caseDocs.locator('tbody > tr')).toHaveCount(1, { timeout: 60_000 });
+    await expect(caseDocs.locator('tbody > tr').first()).toContainText('image/png');
+    await caseDocs.locator('tbody > tr').first().getByRole('button', { name: 'Open', exact: true }).click();
+    const caseDetail = caseDocs.getByTestId('row-detail');
+    await expect(caseDetail).toContainText(image.id);
+    await expect(caseDetail).toContainText(record.id);
+    const caseDeskA = caseDetail.getByTestId('control-desk');
+    await caseDeskA.getByLabel(/to confirm$/).fill(phrase);
+    await caseDeskA.getByRole('button', { name: 'Ask a second founder to approve opening it', exact: true }).click();
+    await expect(caseDeskA.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+    const casePacket = (await caseDeskA.getByLabel('Request packet', { exact: true }).inputValue()).trim();
+    await b.goto(a.url(), { waitUntil: 'load' });
+    const caseDocsB = b.getByTestId('kyc-case-documents').getByTestId('read-identity.documents');
+    await caseDocsB.locator('tbody > tr').first().getByRole('button', { name: 'Open', exact: true }).click();
+    const caseDeskB = caseDocsB.getByTestId('row-detail').getByTestId('control-desk');
+    await caseDeskB.getByLabel('Request packet', { exact: true }).fill(casePacket);
+    await expect(caseDeskB.getByTestId('packet-summary')).toContainText(`Open KYC document ${image.id}`);
+    await caseDeskB.getByLabel(/to approve or run it$/).fill(phrase);
+    await caseDeskB.getByRole('button', { name: 'Approve this request', exact: true }).click();
+    await expect(caseDeskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+    await caseDeskA.getByLabel(/to approve or run it$/).fill(phrase);
+    await caseDeskA.getByRole('button', { name: 'Run the approved request', exact: true }).click();
+    const caseViewer = caseDeskA.getByTestId('kyc-document-viewer');
+    await expect(caseViewer).toBeVisible({ timeout: 60_000 });
+    await expect(caseViewer).toHaveAttribute('data-document', image.id);
+    const caseDrawn = caseViewer.getByTestId('kyc-document-image');
+    await expect(caseDrawn).toBeVisible();
+    expect(await caseDrawn.evaluate((img) => [img.complete, img.naturalWidth, img.naturalHeight])).toEqual([true, 24, 24]);
+    await caseViewer.getByRole('button', { name: 'Close the document', exact: true }).click();
+    await expect(caseDeskA.getByTestId('kyc-document-image')).toHaveCount(0);
   } finally {
     await a.context().close();
     await b.context().close();

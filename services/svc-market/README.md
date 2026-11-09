@@ -326,8 +326,8 @@ otherwise.
 - **Commission:** `MARKET_HOUSE_COMMISSION_BPS` — **no in-code default**. Unset
   refuses `market.commission_not_configured` on **createListing** and fresh **purchase**
   before any row, slot claim, or post; **public catalogue returns []** so the
-  shopfront never advertises unsellable stock. Owner published **`0`** in
-  `.env.example` (2026-08-13 explicit free-cut). Compose pass-through only
+  shopfront never advertises unsellable stock. The owner sets the rate on the
+  host (see the private records). Compose pass-through only
   (`${MARKET_HOUSE_COMMISSION_BPS:-}`) and wires `LEDGER_URL` to `svc-ledger`.
 - **Rounding:** floor on commission (customer favour); buyer pays exactly the
   listed price (vendor net + house = price).

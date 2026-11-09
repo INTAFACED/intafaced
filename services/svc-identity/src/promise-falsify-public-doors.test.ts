@@ -60,7 +60,7 @@ const ASSET = 'USDT';
 
 const publishedLaw = {
   published: true as const,
-  tiers: [{ hop: 0, rate: '0.10' }],
+  tiers: [{ hop: 0, rate: '0.130' }],
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -205,9 +205,9 @@ function accrualRow(): CommissionRow {
     beneficiaryId: BENE,
     payerId: PAYER,
     hop: 0,
-    rate: '0.10',
+    rate: '0.130',
     feeAmount: '100',
-    commissionAmount: '10',
+    commissionAmount: '13',
     asset: ASSET,
     accruedAt: new Date('2026-08-12T00:00:00.000Z'),
     sourceModule: 'identity',
@@ -680,7 +680,7 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
     expect(statusCode).toBe(200);
     const data = unwrapData(body) as Record<string, unknown>;
     expect(data.posted).toBe(false);
-    expect(data.totalCommission).toBe('10');
+    expect(data.totalCommission).toBe('13');
     assertNoInventedBalance(data);
     expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('0');
     expect(await bal(ledger, houseFees('identity', ASSET))).toBe('100');
@@ -716,8 +716,8 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
     expect(firstData.posted).toBe(true);
     expect(secondData.idempotencyKeys).toEqual(firstData.idempotencyKeys);
     assertNoInventedBalance(firstData);
-    expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('10');
-    expect(await bal(ledger, houseFees('identity', ASSET))).toBe('90');
+    expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('13');
+    expect(await bal(ledger, houseFees('identity', ASSET))).toBe('87');
     expect(await bal(ledger, rewardsEngine(ASSET))).toBe('0');
   });
 });

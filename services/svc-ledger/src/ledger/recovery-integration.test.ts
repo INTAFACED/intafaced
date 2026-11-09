@@ -73,7 +73,7 @@ describe('native recovery integration with the actual ledger service', () => {
     'completes actual max:1 proof and snapshots without reacquiring its pool, holding no tip lock while it waits',
     async () =>
       fixture(async (db, pool) => {
-        const ledger = new LedgerService(pool, new MemoryEventBus('max1'));
+        const ledger = new LedgerService(pool, new MemoryEventBus('max1'), { custodyLayer: 'on' });
         await ledger.post(deposit('max1-success'));
         const blocker = await db.sql.reserve();
         try {
@@ -122,7 +122,7 @@ describe('native recovery integration with the actual ledger service', () => {
           }
           return publish(...args);
         };
-        const ledger = new LedgerService(pool, bus);
+        const ledger = new LedgerService(pool, bus, { custodyLayer: 'on' });
         await ledger.post(deposit('max1-failure'));
         await db.sql`UPDATE accounts SET balance = balance + 1 WHERE owner_type = 'user'`;
         const blocker = await db.sql.reserve();
@@ -162,7 +162,7 @@ describe('native recovery integration with the actual ledger service', () => {
     async () =>
       fixture(async (db, pool) => {
         const bus = new MemoryEventBus('proof-error');
-        const ledger = new LedgerService(pool, bus);
+        const ledger = new LedgerService(pool, bus, { custodyLayer: 'on' });
         await ledger.post(deposit('proof-error'));
         await db.sql`ALTER TABLE ledger_entries RENAME COLUMN amount TO hidden_amount`;
         const result = await bounded(runScheduledReconciliation(pool, ledger));
@@ -185,7 +185,7 @@ describe('native recovery integration with the actual ledger service', () => {
     async () =>
       fixture(async (db, pool) => {
         const bus = new MemoryEventBus('snapshot-error');
-        const ledger = new LedgerService(pool, bus);
+        const ledger = new LedgerService(pool, bus, { custodyLayer: 'on' });
         await ledger.post(deposit('snapshot-error'));
         await db.sql.unsafe(
           `CREATE FUNCTION "${db.schema}".refuse_snapshot() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'native snapshot refusal'; END $$; CREATE TRIGGER refuse_snapshot BEFORE INSERT ON "${db.schema}".balance_snapshots FOR EACH ROW EXECUTE FUNCTION "${db.schema}".refuse_snapshot();`,
@@ -251,7 +251,7 @@ describe('native recovery integration with the actual ledger service', () => {
             throw new Error('thaw bus failure');
           return publish(...args);
         };
-        const ledger = new LedgerService(pool, bus);
+        const ledger = new LedgerService(pool, bus, { custodyLayer: 'on' });
         await expect(ledger.recoverUnpublishedOutbox()).rejects.toThrow('thaw bus failure');
         const pending = await unpublishedFreezeOutbox(pool);
         expect(pending).toHaveLength(1);

@@ -5,7 +5,7 @@ import { chromium, test, expect } from './journey.mjs';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, reviewLimit } from './desk.mjs';
-import { api, signUpInBrowser, tool } from './stack.mjs';
+import { ORIGIN, api, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
 // Starts signed in at level none on /verification. Tests titled "J-identity-08 #<n>" prove a whole step; the others
@@ -115,6 +115,13 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
   page,
 }) => {
   test.setTimeout(120_000);
+  // The browser's own session, as its calls to identity carry it, so the over-size refusal below can be asked of the
+  // service itself and not only of the page's own check.
+  let authorization;
+  page.on('request', (r) => {
+    const value = r.headers().authorization;
+    if (value && new URL(r.url()).pathname.startsWith('/api/identity/trpc/')) authorization = value;
+  });
   await atVerification(page);
   const guided = page.getByRole('region', { name: 'Guided verification' });
   const current = guided.getByTestId('verification__guided-steps').locator('li[aria-current="step"]');
@@ -171,6 +178,28 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
   await file.setInputFiles({ name: 'id.png', mimeType: 'image/png', buffer: Buffer.alloc(300 * 1024, 7) });
   await guided.getByRole('button', { name: 'Upload photo' }).click();
   await expect(guided.getByTestId('verification__guided-problem')).toHaveText('This file is 300 KiB. The limit is 256 KiB.');
+  // identity itself refuses the same over-size file with the cap, should a page send it: the draft's own upload, sent
+  // with this browser's session, is a typed refusal naming the 262144-byte cap, and the draft stays on the upload step
+  // at the same version.
+  expect(authorization).toMatch(/^Bearer \S+$/);
+  const headers = { origin: ORIGIN, authorization, 'content-type': 'application/json' };
+  const readDraft = async () => {
+    const res = await page.request.get('/api/identity/trpc/kyc.profile.read', { headers });
+    expect(res.status()).toBe(200);
+    return (await res.json()).result.data.draft;
+  };
+  const draft = await readDraft();
+  expect(draft.step).toBe(5);
+  const oversize = await page.request.post('/api/identity/trpc/kyc.profile.upload', {
+    headers,
+    data: { version: draft.version, contentType: 'image/png', bytesBase64: Buffer.alloc(300 * 1024, 7).toString('base64') },
+  });
+  const oversizeText = await oversize.text();
+  expect(oversize.status(), oversizeText).toBe(413);
+  expect(oversizeText).toContain('kyc.upload_too_large');
+  expect(oversizeText).toContain('over the 262144-byte limit');
+  const unchanged = await readDraft();
+  expect({ step: unchanged.step, version: unchanged.version }).toEqual({ step: draft.step, version: draft.version });
   const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
   await file.setInputFiles({ name: 'id.png', mimeType: 'image/png', buffer: png });
   await guided.getByRole('button', { name: 'Upload photo' }).click();
@@ -532,8 +561,8 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
     await expect(rung('full').locator(`[data-feature="${feature}"]`)).toContainText('Included in your level');
 });
 
-test(`${J} #6: one case record with history; an approval unlocks the mapped features at once`, async ({ page }) => {
-  test.setTimeout(120_000);
+test(`${J} #6: one case record with history; an approval unlocks the mapped features at once`, async ({ page, browser }) => {
+  test.setTimeout(240_000);
   const { rung } = await atVerification(page);
   const capabilities = page.getByRole('region', { name: 'Capabilities' });
   const capability = (name) => capabilities.locator(`[data-testid="verification__capability"][data-capability="${name}"]`);
@@ -568,6 +597,41 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
   await expect(rung('full')).toHaveAttribute('aria-current', 'step');
   for (const feature of ['deposit', 'withdraw', 'trade'])
     await expect(rung('full').locator(`[data-feature="${feature}"]`)).toContainText('Included in your level');
+
+  // The other outcome the step names: another person's case, sent for Full, is rejected with a plain reason code. It
+  // stays one case with its two steps, the reason and its code read in words, and nothing it would have unlocked turns
+  // active.
+  const context = await browser.newContext();
+  try {
+    const other = await context.newPage();
+    const second = await atVerification(other);
+    const otherCapability = (name) =>
+      other.getByRole('region', { name: 'Capabilities' }).locator(`[data-testid="verification__capability"][data-capability="${name}"]`);
+    const otherCases = other.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
+    await other.getByLabel('Level to request').selectOption({ label: 'Full' });
+    await sendRequest(other);
+    await other.reload();
+    await expect(otherCases).toHaveCount(1);
+    await expect(otherCases.first()).toHaveAttribute('data-state', 'submitted');
+    await expect(otherCapability('custody_fiat')).toHaveAttribute('data-state', 'pending');
+    expect(tool('local-test-gates.mjs', 'kyc-reject', second.who.handle, 'document_unreadable')).toContain(
+      'rejected (document_unreadable)',
+    );
+    await other.reload();
+    await expect(otherCases).toHaveCount(1);
+    const rejected = otherCases.first();
+    await expect(rejected).toHaveAttribute('data-state', 'rejected');
+    await expect(rejected.getByTestId('verification__case-steps').locator('li')).toHaveText([/^Sent for review · /, /^Rejected · /]);
+    await expect(rejected.getByTestId('verification__case-reason')).toHaveAttribute('data-reason', 'document_unreadable');
+    await expect(rejected.getByTestId('verification__case-reason-text')).toHaveText(
+      'Reason: TEST: the photo of your ID could not be read.',
+    );
+    for (const name of ['custody_crypto', 'transfer_crypto', 'trade_crypto', 'custody_fiat', 'transfer_fiat'])
+      await expect(otherCapability(name)).not.toHaveAttribute('data-state', 'active');
+    await expect(second.rung('none')).toHaveAttribute('aria-current', 'step');
+  } finally {
+    await context.close();
+  }
 });
 
 test(`${J} #7: a restriction on another screen gives its reason in plain words and the next step`, async ({ page }) => {

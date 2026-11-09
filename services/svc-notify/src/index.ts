@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
+import { createIdentityWatchlistsClient, retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
 import { channelGuestMailSender, GuestVerificationService, outboxGuestMailSender } from './guests/verification.js';
@@ -53,6 +53,7 @@ import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
 import { PostgresAlertStore } from './alerts/store.js';
+import { PostgresWatchRuleStore, WatchRuleService } from './alerts/watch-rules.js';
 import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
 import { createTradeHttpMarkSource } from './alerts/trade-http-mark.js';
 import { createDarkWhaleMarkSource, createTradeHttpWhaleMarkSource, parseWhaleFlowAllowlist } from './alerts/whale-mark.js';
@@ -356,6 +357,17 @@ const alerts = new AlertService(
   },
   new PostgresAlertTriggerLog(sql),
 );
+/**
+ * Watchlist alerts (J-charts-desk-09 #7): the person's lists come from identity (`preferences.watchlistsFor`, svc-notify only),
+ * and the listed markets from the same trade market list the marks read. A blank IDENTITY_URL or service secret leaves the
+ * client unwired: a create refuses `identity.watchlists_unavailable` and the sweep adds nothing, saying why on each rule.
+ */
+const watchRules = new WatchRuleService(
+  alerts,
+  new PostgresWatchRuleStore(sql),
+  createIdentityWatchlistsClient({ identityUrl: process.env.IDENTITY_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+  async () => (alertMarks.marketIdsBySymbol ? alertMarks.marketIdsBySymbol() : null),
+);
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
 let lastAlertSweepAt: string | null = null;
@@ -408,6 +420,7 @@ export const appRouter = createNotifyRouter(
       addressWindowMs: env.NOTIFY_GUEST_ADDRESS_WINDOW_MS,
     },
   ),
+  watchRules,
 );
 export type AppRouter = typeof appRouter;
 
@@ -583,10 +596,10 @@ const alertSweepRecorder = {
 
 // Boot pass — an interval-only driver made `/ready` read "never ran" and left
 // watches blind until the first tick.
-void runAlertSweepPass(alerts, alertSweepRecorder);
+void runAlertSweepPass(alerts, alertSweepRecorder, watchRules);
 
 const alertSweep = setInterval(() => {
-  void runAlertSweepPass(alerts, alertSweepRecorder);
+  void runAlertSweepPass(alerts, alertSweepRecorder, watchRules);
 }, ALERT_SWEEP_INTERVAL_MS);
 alertSweep.unref();
 

@@ -20,6 +20,8 @@ export const COPY_SKIP_REASONS = [
   'stopped',
   /** The leader was suspended or delisted by the operator. */
   'lead_stopped',
+  /** The platform paused copying this lead, or halted the market (the copy and bots kill switch, CB-ops-03). */
+  'platform_paused',
   /** A follower risk control held it back: loss or drawdown stop, open-copy limit, a limit that could not be read, or an account control. */
   'risk_control',
   /** The follower's balance did not cover the copy. */
@@ -44,6 +46,7 @@ const BY_COPY_CODE: Partial<Record<string, CopySkipReason>> = {
   'trade.copy_key_expired': 'stopped',
   'trade.copy_leader_suspended': 'lead_stopped',
   'trade.copy_leader_delisted': 'lead_stopped',
+  'trade.copy_paused_by_platform': 'platform_paused',
   'trade.copy_drawdown_stop': 'risk_control',
   'trade.copy_concurrency_exceeded': 'risk_control',
   'trade.copy_limit_unevaluable': 'risk_control',

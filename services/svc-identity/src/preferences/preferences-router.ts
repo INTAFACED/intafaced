@@ -1,10 +1,24 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  IDENTITY_WATCHLISTS_CALLERS,
+  identityWatchlistsInputSchema,
+  identityWatchlistsSchema,
+  parseStoredWatchlists,
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+  TRPCError,
+  watchlistsAnswer,
+} from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { SUPPORTED_LOCALES } from '@intafaced/i18n/locales';
 import { uiViewPreferenceSchema } from '@intafaced/contracts/ui-view-preferences';
 import { homeTilesPreferenceSchema } from '@intafaced/contracts/home-tiles-preferences';
-import { savedScreensPreferenceSchema, watchlistsPreferenceSchema } from '@intafaced/contracts/watchlists-preferences';
+import {
+  savedScreensPreferenceSchema,
+  WATCHLISTS_NAMESPACE,
+  watchlistsPreferenceSchema,
+} from '@intafaced/contracts/watchlists-preferences';
 import { addressWatchesPreferenceSchema, tokenWatchlistPreferenceSchema } from '@intafaced/contracts/protocol-watch-preferences';
 import { ACCOUNT_DISPLAY_NAMESPACE } from './account-display.js';
 import { getPreferences, PreferencesError, setPreferences, type PreferenceSettings, type PreferenceView } from './preferences.js';
@@ -112,6 +126,25 @@ export function createPreferencesRouter(sql: Sql, settings?: PreferenceSettings)
             };
           } catch (error) {
             preferenceError(error);
+          }
+        }),
+      /**
+       * A person's watchlists for svc-notify's watchlist alerts (J-charts-desk-09 #7): each list's id, name and symbols. Service
+       * only: `serviceProcedureFor` proves the caller is svc-notify before the input is parsed. A read of the view record and
+       * nothing else; a POST only because the caller signs the body. A stored record that is not the shape refuses, so the
+       * caller says it has no answer instead of reading the lists as empty.
+       */
+      watchlistsFor: serviceProcedureFor(IDENTITY_WATCHLISTS_CALLERS)
+        .input(identityWatchlistsInputSchema)
+        .output(identityWatchlistsSchema)
+        .mutation(async ({ input }) => {
+          const [row] = await sql<Array<{ value: unknown }>>`
+            SELECT value FROM user_preferences WHERE user_id = ${input.userId} AND namespace = ${WATCHLISTS_NAMESPACE}
+          `;
+          try {
+            return watchlistsAnswer(parseStoredWatchlists(row?.value ?? null));
+          } catch {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'identity.watchlists_record_invalid' });
           }
         }),
     }),

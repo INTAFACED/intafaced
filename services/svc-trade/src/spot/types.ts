@@ -75,6 +75,8 @@ export interface Market {
   readonly makerBps: number;
   readonly takerBps: number;
   readonly listedAt: Date | null;
+  /** The date a delisted market leaves the board (J-cex-spot-14 #1); null when none is set or the read did not load it. */
+  readonly delistsAt?: Date | null;
   readonly assetClass: AssetClass;
   /**
    * When this market accepts orders.
@@ -311,6 +313,8 @@ export type TradeErrorCode =
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
   | 'trade.mode_limit_only'
+  /** The retail price improvement layer has no priority class (SP-markets-data-04): an order asking for it is refused. */
+  | 'trade.rpi_unavailable'
   /** Cancel-only mode: a new order is refused; cancel works. */
   | 'trade.mode_cancel_only'
   /** Post-only mode: an order that would take liquidity is refused. */
@@ -428,6 +432,8 @@ export type TradeErrorCode =
   // An order-history page cursor that is not one of the caller's orders.
   | 'trade.invalid_cursor'
   | 'trade.order_not_open'
+  // The native L3 queue could not be read (matching down or refused L3): a queue read never falls back to L2.
+  | 'trade.queue_unavailable'
   | 'trade.not_owner'
   | 'trade.perks_unavailable'
   | 'trade.dust_fill'
@@ -607,6 +613,7 @@ export type TradeErrorCode =
   | 'trade.algo_invalid_qty'
   | 'trade.algo_invalid_schedule'
   | 'trade.algo_unsupported_kind'
+  | 'trade.bots_paused_by_platform'
   | 'trade.algo_not_found'
   | 'trade.algo_duplicate_id'
   | 'trade.algo_bad_state'

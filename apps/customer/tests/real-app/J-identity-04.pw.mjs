@@ -245,6 +245,32 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   await expect(names).toContainText('Name saved.');
   await expect(names).toContainText('Work laptop');
 
+  // The service itself refuses a name over the length, not only the page's field: the same rename sent with this
+  // browser's own session and a 65-character name is a typed refusal before any step-up, and the stored name stays.
+  // identity's own list also says no per-account limit is set (null), as the page does.
+  const listed = page.waitForRequest((r) => new URL(r.url()).pathname.endsWith('/api/identity/trpc/listPasskeys'));
+  await page.reload();
+  const listRequest = await listed;
+  const authorization = listRequest.headers().authorization;
+  expect(authorization).toMatch(/^Bearer \S+$/);
+  const stored = async () => {
+    const res = await page.request.get(listRequest.url(), { headers: { origin: ORIGIN, authorization } });
+    expect(res.status()).toBe(200);
+    return (await res.json()).result.data;
+  };
+  const before = await stored();
+  expect(before.maxPerAccount).toBeNull();
+  expect(before.passkeys).toHaveLength(1);
+  expect(before.passkeys[0].label).toBe('Work laptop');
+  expect(before.passkeys[0].kind).toBe('platform');
+  const tooLong = await page.request.post('/api/identity/trpc/renamePasskey', {
+    headers: { origin: ORIGIN, authorization, 'content-type': 'application/json' },
+    data: { credentialId: before.passkeys[0].credentialId, label: 'x'.repeat(65), clientRequestId: `pn-too-long-${who.handle}` },
+  });
+  expect(tooLong.status()).toBe(400);
+  expect(await tooLong.text()).toContain('identity.passkey_label_invalid');
+  expect((await stored()).passkeys[0].label).toBe('Work laptop');
+
   // A second passkey from another authenticator. This sign-in has not passed a second factor, so the add asks
   // "Confirm it is you" first; the first passkey answers it.
   await virtualAuthenticator(page, 'usb');
@@ -260,6 +286,15 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   await expect(names.getByTestId('security__row')).toHaveCount(2);
   await expect(names.locator('[data-testid="security__row"]', { hasText: 'Work laptop' })).toContainText('This device');
   await expect(names.locator('[data-testid="security__row"]', { hasText: 'Unnamed passkey' })).toContainText('Security key');
+  // identity holds the same two: the named one on this device, the unnamed security key, and still no limit.
+  const after = await stored();
+  expect(after.maxPerAccount).toBeNull();
+  expect(after.passkeys.map((p) => [p.label, p.kind]).sort()).toEqual(
+    [
+      ['Work laptop', 'platform'],
+      [null, 'security_key'],
+    ].sort(),
+  );
 });
 
 test(`${J} #1 Security opens on a checklist: each method, its status and why an open one matters; money out and security changes are always "Required"`, async ({

@@ -309,6 +309,31 @@ export type BankErrorCode =
   | 'bank.rank_unavailable'
   /** The owner has not published the card programme (countries, card limits, terms), so no card can be ordered. */
   | 'bank.card_eligibility_unset'
+  | 'bank.card_spend_assets_unset'
+  /** A pay-from order names an asset the card partner cannot spend from (J-bank-29 #2). */
+  | 'bank.card_pay_from_not_offered'
+  /** A pay-from order is empty or names an asset twice. */
+  | 'bank.card_pay_from_order_invalid'
+  /** The card partner does not offer this programme funding kind, or has not said (J-bank-26 #6). */
+  | 'bank.card_funding_not_offered'
+  /** A programme funding request needs a positive amount, and auto reload a positive threshold. */
+  | 'bank.card_funding_invalid'
+  /** No card dispute with that id (J-bank-27). */
+  | 'bank.card_dispute_not_found'
+  /** A dispute request is not in shape, or a case key was used for a different dispute. */
+  | 'bank.card_dispute_invalid'
+  /** That step is not open to a dispute in its state (a closed case, representment twice, arbitration before representment). */
+  | 'bank.card_dispute_state'
+  /** The authorisation has no settled capture to dispute, or the amount is above what was captured. */
+  | 'bank.card_dispute_not_disputable'
+  /** The owner has not published the dispute cap for this asset, so no credit or cardholder decision is made (J-bank-27 #4). */
+  | 'bank.card_dispute_cap_unset'
+  /** The disputed amount is above the owner's dispute cap (J-bank-27 #4). */
+  | 'bank.card_dispute_cap_exceeded'
+  /** The card partner does not take provisional credits or dispute decisions through this adapter. */
+  | 'bank.card_dispute_partner_unset'
+  /** The card partner answered a provisional credit with another amount than the one asked; nothing was recorded. */
+  | 'bank.card_dispute_partner_mismatch'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */
@@ -1027,7 +1052,21 @@ export type BankErrorCode =
   /** Identity refused the claim; the message names identity's code. Nothing moved. */
   | 'bank.recovery_claim_refused'
   /** Some of the owner's value is held, staked or pledged, so nothing is swept until it is free. */
-  | 'bank.recovery_blocked';
+  | 'bank.recovery_blocked'
+  // ── The TEST partner bank and ramp (CUSTODY-DELTA §4; OWNER 226) ───────
+  /** The partner bank does not offer this feature (currency accounts, spaces, pots or joint accounts); nothing written. */
+  | 'bank.not_offered_by_partner'
+  /** The partner bank is not answering; nothing was sent or changed. */
+  | 'bank.partner_unavailable'
+  /** The partner's ramp gave no fee, so the pay amount is not known; no quote was kept. */
+  | 'bank.onramp_fee_not_known'
+  /** The TEST partner switches exist only on a stack that runs the TEST partner (`BANK_TEST_PARTNER=test`). */
+  | 'bank.test_partner_off'
+  // ── Card controls (BK-cctl-01, J-bank-14 #1) ───────
+  /** A card control names a category the programme doesn't list, an empty merchant, or a country that isn't two letters. */
+  | 'bank.card_control_invalid'
+  /** The control to lift is not a live control of this card. */
+  | 'bank.card_control_not_found';
 
 export class BankError extends Error {
   constructor(

@@ -37,7 +37,7 @@ export function createTokensRouter(deps: TokensRouterDeps) {
   const readMarket = marketReader(deps.chain);
   const readHolders = holdersReader(deps.chain);
 
-  async function context() {
+  async function context(at?: bigint) {
     const factory = deps.factory();
     if (isZeroAddress(factory))
       throw new TRPCError({
@@ -50,7 +50,7 @@ export function createTokensRouter(deps: TokensRouterDeps) {
         code: 'PRECONDITION_FAILED',
         message: `${TOKENS_QUOTE_UNSET}: PROTOCOL_TOKENS_QUOTE_TOKEN is an owner setting; no price is stated until it is set.`,
       });
-    const snap = await readMarket(factory);
+    const snap = await readMarket(factory, at);
     const quote =
       snap.tokens.find((t) => t.address.toLowerCase() === quoteAddress.toLowerCase()) ??
       shapeToken<TokenBasics>({ address: quoteAddress, ...(await deps.chain.tokenBasics(quoteAddress)) });
@@ -73,7 +73,7 @@ export function createTokensRouter(deps: TokensRouterDeps) {
       .output(tokensListOutputSchema)
       .query(({ input }) =>
         guard(async () => {
-          const { snap, quote } = await context();
+          const { snap, quote } = await context(input.blockNumber === undefined ? undefined : BigInt(input.blockNumber));
           return tokensList(snap, quote, input.window);
         }),
       ),

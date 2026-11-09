@@ -1,5 +1,7 @@
 # ADR: house commission authority — blank refuses, numbers stay owner
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about purchase settlement via marketPurchase from customer balances; stake/slot burn before ledger post applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-13 (D26-P0-10 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-10 — listings / treasury / house commission law.  
@@ -49,7 +51,7 @@ P0-10’s done bar is **authority + refuse-blank**. That is this document plus t
 
 Until a number is published, commerce stays refuse-closed. `market.commerce` C1+C2 staying `done` means the **mechanism** is done, not that a rate exists.
 
-**Number click (2026-08-13):** owner published `MARKET_HOUSE_COMMISSION_BPS=0` in `.env.example` (explicit free-cut). Compose remains pass-through with no default. Unset on a host is still `market.commission_not_configured`.
+**Number click (2026-08-13):** the owner set the rate; it is set on the host and kept in the private records, not in this repo. Compose remains pass-through with no default. Unset on a host is still `market.commission_not_configured`.
 
 ---
 

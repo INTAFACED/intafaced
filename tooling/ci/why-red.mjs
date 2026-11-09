@@ -35,7 +35,7 @@ import { ghJson, makeGh } from '../scripts/gate-gh.mjs';
 
 const SEAL = 'CI merge seal';
 const REVIEW_STATUS = 'Independent review';
-const RERUN_STATUS = 'Seal re-run'; // review-signoff.mjs posts it red when it could not re-run the seal itself
+const RERUN_STATUS = 'Seal re-run'; // the retired review-signoff.mjs posted it red when it could not re-run the seal; old heads may still carry it
 const REVIEW_MISSING = 'Review sign-off missing'; // the annotation title review-marker.mjs prints
 const MAX_LINES = 8;
 const WIDTH = 200;

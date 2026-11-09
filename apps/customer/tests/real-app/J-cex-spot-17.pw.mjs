@@ -129,10 +129,15 @@ const versionRow = (page, group, version, tier = 'regular') =>
 /** Founder B approves exactly `payloadHash` in Freezes & approvals. */
 async function approveAsB(b, approvalId, payloadHash) {
   await b.goto(`${ADMIN}/trade-ops/approvals`);
+  // The queue's pending list loads after the page and lands above the form, moving "Approve request" down. A press
+  // taken before it lands and a release after it misses the button, so no dialog opens (main run 42455893390): act
+  // once the list is in, which also means the page is hydrated.
+  await expect(b.getByRole('grid', { name: 'Approvals waiting for this operator' })).toBeVisible();
   await b.getByLabel('Approval id', { exact: true }).fill(approvalId);
   await b.getByLabel('Payload hash you reviewed').fill(payloadHash);
   await b.getByRole('button', { name: 'Approve request' }).click();
   const dialog = b.getByRole('alertdialog');
+  await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(dialog.locator('[data-outcome=ok]')).toBeVisible();
 }

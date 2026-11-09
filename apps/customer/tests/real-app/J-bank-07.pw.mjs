@@ -7,6 +7,7 @@ import { test, expect } from './journey.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, json, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account. Steps 1
 // and 2 (BK-pots-02): a space with a goal whose progress is exact, rounded down and capped, changed and cleared on the
@@ -321,6 +322,20 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   const again = await api.mutate('spaces.requestUnlock', { spaceId: pot });
   expect(again).toMatchObject({ ok: true, data: { unlocksAt: new Date(opens).toISOString() } });
   expect(toUnits(named(await spaces(who), POT).balance)).toBe(toUnits('20'));
+
+  // Where the partner has no pots (the TEST partner switched to offer none): locking for longer reads "not offered by
+  // the partner", and the lock stays as it was.
+  const before = named(await spaces(who), POT);
+  await withPartner(who, { notOffered: ['pots'] }, async () => {
+    await page.goto(`/bank/spaces?space=${pot}`);
+    const later = new Date(until.getTime() + 5 * 24 * 3600_000);
+    const dialog = await act(page, 'Lock for longer', (d) => d.getByLabel('Locked until').fill(local(later)));
+    await dialog.getByRole('button', { name: 'Confirm' }).click();
+    await expect(dialog).toContainText(/not offered by the partner/i);
+    const refused = await api.mutate('spaces.setLock', { spaceId: pot, lockedUntil: later.toISOString() });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
+    expect(named(await spaces(who), POT)).toMatchObject({ lockedUntil: before.lockedUntil, unlocksAt: before.unlocksAt });
+  });
 });
 
 test(`${J} #3 money flows into the space on its own: a standing order and a card round-up land once each, and the space's statement lists them`, async ({
@@ -927,4 +942,26 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
     ['invited', who.handle],
     ['invited', who.handle],
   ]);
+
+  // Where the partner has no joint accounts or shared pots (the TEST partner switched to offer none): sharing reads "not
+  // offered by the partner", and nothing is stored or logged.
+  await withPartner(who, { notOffered: ['joint'] }, async () => {
+    await page.reload();
+    await shared.getByRole('button', { name: 'Share a pot', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Pot', { exact: true }).selectOption(pot.id);
+    await dialog.getByLabel('Their handle or email').fill(`@${third.handle}`);
+    await dialog.getByLabel('What they can do').selectOption('viewer');
+    await dialog.getByRole('button', { name: 'Review' }).click();
+    await dialog.getByRole('button', { name: 'Send invite' }).click();
+    await expect(dialog).toContainText(/not offered by the partner/i);
+    const refused = await api.mutate('sharedPots.invite', {
+      inviteId: randomUUID(),
+      spaceId: pot.id,
+      handle: third.handle,
+      role: 'viewer',
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
+    expect((await api.query('sharedPots.activity', { spaceId: pot.id, limit: 50 })).data).toHaveLength(7);
+  });
 });

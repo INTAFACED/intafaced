@@ -1,3 +1,4 @@
+import type { KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -95,6 +96,14 @@ import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
 import { applySelfFreeze, redeemFreezeLink, type FreezeLinkResult } from './freeze-link.js';
 import {
+  markCompromiseReviewed,
+  openCompromiseCase,
+  readCompromiseCase,
+  reportStolenFunds,
+  type OpenedCase,
+} from '../account/compromise.js';
+import type { CompromiseCase, CompromiseReviewItem } from '@intafaced/contracts/identity-compromise';
+import {
   cancelMfaReset,
   completeDueMfaReset,
   confirmMfaReset,
@@ -126,6 +135,9 @@ import {
 } from './trusted-devices.js';
 import {
   completePasswordReset,
+  completePasswordResetByCode,
+  passwordResetLimits,
+  type PasswordResetLimits,
   publishedPasswordResetTtlSeconds,
   relayMailOutbox,
   requestHandleRecovery,
@@ -234,6 +246,7 @@ export class AuthError extends Error {
       | 'auth.password_breached'
       | 'auth.reset_proof_invalid'
       | 'auth.reset_unwired'
+      | 'auth.reset_limit'
       | 'auth.email_confirm_invalid'
       | 'auth.email_confirm_unwired'
       | 'auth.email_confirm_rate_limited'
@@ -1336,6 +1349,51 @@ export class AuthService {
     return id;
   }
 
+  /**
+   * STAFF FIRST CONNECTION (J-ops-console-09 #2). An invited staff member sets their own password: this makes their
+   * identity account with the invited email, already confirmed (the one-time token reached that mailbox), and runs
+   * `claim` in the same transaction so the token is spent and the staff record bound to the account, or neither.
+   * The password passes the same rules as every sign-up. No session is opened: they sign in to the console after. As at
+   * sign-up, the browser it happened on (`deviceKey`, when it holds one) is trusted, so that first sign-in is not asked
+   * to approve itself.
+   */
+  async registerInvitedStaff(
+    input: { email: string; password: string; deviceKey?: string | null },
+    claim: (tx: Sql, userId: string) => Promise<void>,
+  ): Promise<string> {
+    const handle = `staff_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, { handle, email: input.email });
+      assertPasswordNotBreached(input.password);
+    });
+    const passwordHash = await hashPassword(input.password);
+    let userId: string;
+    try {
+      userId = await transaction(this.sql, async (tx) => {
+        const id = await this.insertNewUser(tx, { handle, email: input.email, password: input.password }, passwordHash);
+        await tx`UPDATE users SET email_verified_at = now() WHERE id = ${id}`;
+        await claim(tx, id);
+        return id;
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new AuthError('An account with that email already exists', 'auth.email_taken');
+      throw err;
+    }
+    await this.bus.publish('userCreated', { userId, handle }, { idempotencyKey: `user.created:${userId}` });
+    if (input.deviceKey) {
+      await trustDevice(this.sql, this.newDevicePolicy, {
+        userId,
+        label: deviceLabel(currentUserAgent()),
+        now: this.passwordResetNow(),
+        trustedBy: 'sign-up',
+        presentedKey: input.deviceKey,
+      });
+    }
+    this.log.warn({ audit: 'staff.first_connection', userId }, 'staff.first_connection');
+    return userId;
+  }
+
   /** After the account is committed: announce it, award the first XP, open a (non-MFA) session. */
   private async finishRegistration(userId: string, input: RegisterInput): Promise<SessionTokens> {
     await this.bus.publish(
@@ -2276,6 +2334,11 @@ export class AuthService {
     return requestPasswordReset(this.resetDeps(), input);
   }
 
+  /** The owner's reset request cap and window, or null while the reset is unwired. The same for every visitor. */
+  passwordResetLimits(): PasswordResetLimits | null {
+    return passwordResetLimits(this.resetDeps());
+  }
+
   /** Same shape as `requestPasswordReset`: the username goes to a known address, a notice (if on) to any other. */
   async requestHandleRecovery(input: { email: string }): Promise<{ accepted: true }> {
     return requestHandleRecovery(this.resetDeps(), input);
@@ -2304,8 +2367,12 @@ export class AuthService {
    * Signed-out reset, step 2. A correct proof replaces the hash and ends every
    * session. This call does not sign the person in.
    */
-  async completePasswordReset(input: { email: string; code: string; newPassword: string }): Promise<void> {
-    const result = await completePasswordReset(this.resetDeps(), input);
+  async completePasswordReset(input: { email?: string | undefined; code: string; newPassword: string }): Promise<void> {
+    // From the mailed link the code comes alone (J-identity-03 #2); typed on the page, with the address.
+    const result =
+      input.email === undefined
+        ? await completePasswordResetByCode(this.resetDeps(), { code: input.code, newPassword: input.newPassword })
+        : await completePasswordReset(this.resetDeps(), { email: input.email, code: input.code, newPassword: input.newPassword });
     if (result.sessionsRevoked > 0) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
     this.log.warn({ userId: result.userId, sessionsRevoked: result.sessionsRevoked }, 'auth.password_reset');
   }
@@ -2339,6 +2406,50 @@ export class AuthService {
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, reason: result.reason, changed: result.changed }, 'auth.self_frozen');
     return { frozen: true, reason: result.reason, since: result.since, changed: result.changed };
+  }
+
+  /**
+   * "My account is compromised" (I-signin-sessions-28, J-identity-13 #3). The same bar as the owner's own freeze: a
+   * signed-in person (never an API key or sub-account) and the current password, counted as a guess. Then, in one
+   * transaction, every session and API key ends, the owner's freeze (reason `compromise`) is set and one case opens
+   * (`account/compromise.ts`). While a case is open this returns it, after ending anything made since. Moves no money.
+   */
+  async startCompromise(input: { userId: string; actor: FactorActor; password: string }): Promise<OpenedCase> {
+    if (input.actor.delegated) {
+      throw new AuthError('Sign in yourself to secure your account; an API key or sub-account cannot', 'auth.mfa_required');
+    }
+    const rows = await this.sql<Array<{ password_hash: string; status: string }>>`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
+    await this.reserve(input.userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.password))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    await recordSuccess(this.sql, input.userId, 'password');
+    const opened = await transaction(this.sql, (tx) => openCompromiseCase(tx, input.userId));
+    if (opened.sessionsEnded > 0) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
+    this.log.warn({ userId: input.userId, caseId: opened.caseId, changed: opened.changed }, 'identity.compromise_started');
+    return opened;
+  }
+
+  /** The person's open compromised-account case, or null (J-identity-13 #3 to #5). */
+  async compromiseCase(userId: string, actor: FactorActor): Promise<CompromiseCase | null> {
+    if (actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    return readCompromiseCase(this.sql, userId);
+  }
+
+  /** A stolen-funds report as a note on the open case (J-identity-13 #5). Moves no money. */
+  async reportStolenFunds(input: { userId: string; actor: FactorActor; body: string; clientRequestId: string }) {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    return reportStolenFunds(this.sql, input);
+  }
+
+  /** The person reviewed their devices or addresses while the case is open (J-identity-13 #4). */
+  async markCompromiseReviewed(input: { userId: string; actor: FactorActor; item: CompromiseReviewItem }) {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    return markCompromiseReviewed(this.sql, input);
   }
 
   /**
@@ -2791,6 +2902,8 @@ export class AuthService {
     requireSignature?: boolean;
     requireNonEmptyIpAllowlist?: boolean;
     ipAllowlist?: string[];
+    /** The key's rate limit for the edge (`installApiKeyRateExchange`); null while no tier is set. */
+    rateLimit?: KeyRateLimit | null;
   }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw await this.deadApiKeyRefusal(key);

@@ -17,7 +17,9 @@ export type MetricsErrorCode =
   /** The ledger could not be read, so balances cannot be stated. Never zero-filled. */
   | 'pay.metrics_balance_unavailable'
   /** No list of assets a business can settle in is set (`PAY_SETTLEMENT_ASSETS` blank). Never a guessed list. */
-  | 'pay.settlement_assets_unset';
+  | 'pay.settlement_assets_unset'
+  /** No acquiring partner is registered on this deployment, so its terms cannot be read. Never answered as "not known". */
+  | 'pay.partner_terms_unavailable';
 
 export class MetricsError extends Error {
   constructor(
@@ -40,7 +42,7 @@ export function metricsToTrpcError(err: unknown): unknown {
         ? 'NOT_FOUND'
         : err.code === 'pay.metrics_balance_unavailable'
           ? 'SERVICE_UNAVAILABLE'
-          : err.code === 'pay.settlement_assets_unset'
+          : err.code === 'pay.settlement_assets_unset' || err.code === 'pay.partner_terms_unavailable'
             ? 'PRECONDITION_FAILED'
             : 'BAD_REQUEST';
     return new TRPCError({ code, message: err.message, cause: err });

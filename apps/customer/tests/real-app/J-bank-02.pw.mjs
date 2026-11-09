@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-bank-02, in the running app (docs/roadmap/journeys.json): I add money to my bank balance. One test per step, titled
 // "J-bank-02 #<n>", run in order on one TEST account funded with TEST 50 USDT. The stack connects no real payment partner
@@ -372,6 +373,23 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
   await page.getByRole('button', { name: 'See ways to pay' }).click();
   await expect(row).toContainText('TEST price from a stand-in');
   await expect(row).not.toContainText(`Price holds until: ${holds}`);
+
+  // The partner's own word that its quote expired (the TEST ramp switched to expire every quote it gave): a price still
+  // inside its own time is refused as expired when accepted, and nothing is asked for, kept or charged.
+  await withPartner(who, { rampQuote: 'expired' }, async () => {
+    await page.reload();
+    await page.getByLabel('Add to').selectOption('USDT');
+    await page.getByLabel('Amount').fill('20');
+    await page.getByLabel('Country you pay from').fill('NL');
+    await page.getByRole('button', { name: 'See ways to pay' }).click();
+    await expect(row).toContainText('Price holds until');
+    const fresh = await ask(page, 'bank_transfer');
+    await fresh.getByRole('button', { name: 'Ask for this payment' }).click();
+    await expect(refused).toContainText('The price ran out');
+    await expect(refused).toContainText('bank.onramp_quote_expired');
+    expect((await requests(who)).map((r) => r.method)).toEqual(['bank_transfer']);
+    expect(await usdt(who)).toBe('50');
+  });
 });
 
 test(`${J} #5 pays and watches the order: the tracker from created to credited, and the amount is the quote's receive amount exactly`, async ({

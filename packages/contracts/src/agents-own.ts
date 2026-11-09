@@ -109,6 +109,11 @@ const ownAgentRunRowBase = {
   cost: z.string(),
   assetId: z.string(),
   occurredAt: z.string(),
+  /**
+   * The words' parameters of a refused run, as its action row keeps them (the method, figure, source and as-of time of
+   * a funds refusal, J-agents-02 #4); empty on a run that was not refused and on a held tool call.
+   */
+  messageParams: z.record(z.string(), z.union([z.string(), z.number()])),
 };
 export const ownAgentRunRowSchema = z.union([
   z.object({
@@ -127,6 +132,38 @@ export const ownAgentRunRowSchema = z.union([
   }),
 ]);
 export type OwnAgentRunRow = z.infer<typeof ownAgentRunRowSchema>;
+
+/**
+ * `own.paymentMethod.get` / `own.paymentMethod.set` (J-agents-02 #4): the payment method the person chose for this
+ * agent's runs, and the wallets they linked by their own signature, which they may choose from. Today a method is one
+ * linked wallet (`kind: 'wallet'`); none chosen is null, and runs are checked against the platform balance as before.
+ * `linked` is identity's answer as svc-agents read it through its door: `unread` when identity could not be asked, so
+ * the page says so rather than showing "no wallet". Addresses are lower-case.
+ */
+const walletAddressSchema = z.string().regex(/^0x[0-9a-f]{40}$/);
+export const ownAgentPaymentMethodSchema = z.object({
+  method: z.object({ kind: z.literal('wallet'), address: walletAddressSchema, chosenAt: z.string() }).nullable(),
+  linked: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('usable'), wallets: z.array(z.object({ address: walletAddressSchema, linkedAt: z.string() })) }),
+    z.object({ state: z.literal('account_inactive') }),
+    z.object({ state: z.literal('unread') }),
+  ]),
+});
+export type OwnAgentPaymentMethod = z.infer<typeof ownAgentPaymentMethodSchema>;
+/**
+ * Choose a linked wallet (`address`), or clear the choice (`address: null`). Choosing refuses
+ * `agents.payment_method.wallet_not_linked` when the address is not one of the person's linked wallets right now,
+ * `agents.payment_method.account_inactive` when identity says none of them may be used, and
+ * `agents.payment_method.wallets_unread` when identity could not be asked. Clearing always succeeds.
+ */
+export const ownAgentPaymentMethodInputSchema = z.object({
+  id: z.string().min(1).max(64),
+  address: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{40}$/)
+    .nullable(),
+});
+export type OwnAgentPaymentMethodInput = z.infer<typeof ownAgentPaymentMethodInputSchema>;
 
 /** `own.session.close`: the session closed once every window of it is paid. An unpaid one refuses `agents.window_unpaid`. */
 export const ownAgentSessionClosedSchema = z.object({ sessionId: z.string().uuid(), status: z.literal('closed'), closedAt: z.string() });
@@ -172,6 +209,49 @@ export const ownAgentRuleSchema = z.object({
   updatedAt: z.string(),
 });
 export type OwnAgentRule = z.infer<typeof ownAgentRuleSchema>;
+
+/**
+ * `own.policy.*` (AG-spend-02, J-agents-08 #1): the person's allow and deny rules for what their agent may do, by action
+ * and account scope. A deny at any scope wins whatever order the rules were written in; on an agent that requires rules,
+ * an action no rule allows is refused. The rules only narrow: they never move value and an agent never writes them.
+ */
+export const OWN_AGENT_POLICY_EFFECTS = ['allow', 'deny'] as const;
+export type OwnAgentPolicyEffect = (typeof OWN_AGENT_POLICY_EFFECTS)[number];
+export const OWN_AGENT_POLICY_ACTIONS = ['place_order', 'cancel_order', 'amend_order'] as const;
+export type OwnAgentPolicyAction = (typeof OWN_AGENT_POLICY_ACTIONS)[number];
+/** `all` covers every account of the person's; `main` is their main account. */
+export const OWN_AGENT_POLICY_SCOPES = ['all', 'main'] as const;
+export type OwnAgentPolicyScope = (typeof OWN_AGENT_POLICY_SCOPES)[number];
+/** What the rules decide for one action on one account: refused by a deny, allowed by an allow, refused because rules
+ * are required and none allows it, or open because no rule touches it and rules are not required. */
+export const OWN_AGENT_POLICY_OUTCOMES = ['denied', 'allowed', 'no_match_refused', 'no_rule'] as const;
+export type OwnAgentPolicyOutcome = (typeof OWN_AGENT_POLICY_OUTCOMES)[number];
+
+export const ownAgentPolicyRuleSchema = z.object({
+  id: z.string().uuid(),
+  effect: z.enum(OWN_AGENT_POLICY_EFFECTS),
+  action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+  scope: z.enum(OWN_AGENT_POLICY_SCOPES),
+  createdAt: z.string(),
+});
+export type OwnAgentPolicyRule = z.infer<typeof ownAgentPolicyRuleSchema>;
+
+export const ownAgentPolicyDecisionSchema = z.object({
+  action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+  account: z.literal('main'),
+  outcome: z.enum(OWN_AGENT_POLICY_OUTCOMES),
+  /** The rule that decided it, or null when no rule did. */
+  ruleId: z.string().uuid().nullable(),
+});
+export type OwnAgentPolicyDecision = z.infer<typeof ownAgentPolicyDecisionSchema>;
+
+/** The stored rules, whether rules are required, and the service's decision for each action on the main account. */
+export const ownAgentPolicySchema = z.object({
+  rulesRequired: z.boolean(),
+  rules: z.array(ownAgentPolicyRuleSchema),
+  decisions: z.array(ownAgentPolicyDecisionSchema),
+});
+export type OwnAgentPolicy = z.infer<typeof ownAgentPolicySchema>;
 
 /** `own.consents.*`: the person's consent to one class of tools for one agent; a withdrawn one keeps its revoke time. */
 export const ownAgentConsentSchema = z.object({

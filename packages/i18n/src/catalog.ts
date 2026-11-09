@@ -220,6 +220,8 @@ export const en = {
   'notify.trade.copy_skipped.title': 'A follow skipped a copy',
   'notify.trade.copy_skipped.body.lead_stopped':
     'The leader was suspended, so their trade was not copied for you. You can stop this follow or choose another leader.',
+  'notify.trade.copy_skipped.body.platform_paused':
+    'The platform paused copying this leader or this market, so their trade was not copied for you. What you hold stays as it is. You can see what is paused on My follows.',
   'notify.trade.copy_skipped.body.risk_control':
     'One of your limits held back a copy of the leader’s trade. You can check your limits on the follow.',
   'notify.trade.copy_skipped.body.insufficient_funds':
@@ -289,6 +291,7 @@ export const en = {
   // ── errors ────────────────────────────────────────────────────────────────
   'error.insufficientFunds': 'Insufficient balance.',
   'error.generic': 'Something went wrong. Try again.',
+  'error.custodyLayerOff': 'INTAFACED does not hold customer money, so this money movement is not offered. Nothing was moved.',
   'error.network': 'No connection. Check your network.',
   'error.notFound': 'We could not find that.',
   'error.unauthorized': 'Sign in to continue.',

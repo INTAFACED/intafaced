@@ -265,6 +265,35 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
+// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1): svc-protocol holds a TEST business block for the TEST region
+// AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const prior = process.env.LOCAL_STACK_TEST_REGION_SERVED;
+  const envs = () => localTestServiceEnvs(PLAN_SECRETS);
+  const envOf = (all, name) => all.find((d) => d.name === name).env;
+  try {
+    delete process.env.LOCAL_STACK_TEST_REGION_SERVED;
+    const served = envs();
+    assert.equal(envOf(served, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST block by default');
+    assert.equal(envOf(served, 'edge').DEFAULT_REGION, undefined, 'edge keeps its own default region');
+    process.env.LOCAL_STACK_TEST_REGION_SERVED = 'off';
+    const blocked = envs();
+    assert.equal(envOf(blocked, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
+    assert.equal(envOf(blocked, 'edge').DEFAULT_REGION, 'AA');
+    for (const { name, env } of blocked) {
+      const before = envOf(served, name);
+      assert.equal(env.INTAFACED_SANCTIONS_REGIONS, before.INTAFACED_SANCTIONS_REGIONS, `${name}'s sanctions list is unchanged`);
+      if (name !== 'protocol') assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
+      if (name !== 'edge') assert.equal(env.DEFAULT_REGION, before.DEFAULT_REGION, `${name}'s region is unchanged`);
+    }
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_TEST_REGION_SERVED;
+    else process.env.LOCAL_STACK_TEST_REGION_SERVED = prior;
+  }
+  console.log('local-test-stack: the TEST blocked region switch');
+}
+
 // Every service file in local-stack-services/ is started, once, under its own name.
 {
   const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
@@ -469,6 +498,29 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: agents TEST Coach route comes from the agents profile, and its off switch drops it');
 }
 
+// The capital monitor's TEST venues answer on this stack with the ops profile's TEST builder account, and
+// LOCAL_STACK_OPS_TEST_VENUE_READ=off switches them down (every venue read fails) without blanking the account.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const account = loadProfile().values.OPS_TEST_VENUE_BUILDER_ACCOUNT;
+  assert.equal(account.service, 'ops');
+  assert.match(account.value, /^TEST-/);
+  const opsEnv = () => localTestServiceEnvs().find((service) => service.name === 'ops').env;
+  assert.equal(opsEnv().OPS_TEST_VENUE, 'test');
+  assert.equal(opsEnv().OPS_TEST_VENUE_BUILDER_ACCOUNT, account.value);
+  const before = process.env.LOCAL_STACK_OPS_TEST_VENUE_READ;
+  process.env.LOCAL_STACK_OPS_TEST_VENUE_READ = 'off';
+  try {
+    assert.equal(opsEnv().OPS_TEST_VENUE, 'down');
+    assert.equal(opsEnv().OPS_TEST_VENUE_BUILDER_ACCOUNT, account.value);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_OPS_TEST_VENUE_READ;
+    else process.env.LOCAL_STACK_OPS_TEST_VENUE_READ = before;
+  }
+  console.log('local-test-stack: ops TEST venues answer with the profile builder account, and the read switch takes them down');
+}
+
 // The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank
 // profile verbatim, so no corridor, rate or reference length is typed anywhere else.
 {
@@ -478,6 +530,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   const profile = loadProfile().values;
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
   assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
+  assert.equal(bank.env.BANK_TEST_PARTNER, 'test');
   assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
   assert.equal(bank.env.BANK_ONRAMP_PARTNER, 'payin-sim');
   // The pay-in stand-in's page is svc-bank's own address, and it sends the payer back to the customer app's add-money room.
@@ -679,6 +732,11 @@ try {
   used.add('trade');
   used.delete('ledger'); // /api/ledger is deliberately not routed (a string in a comment/refusal)
   used.delete('v2');
+  // /api/edge/* is no upstream: svc-edge answers it itself (the rate-limit doors, J-developer-06). Exempt only while
+  // svc-edge really registers that door, so a customer call to a missing edge path still fails here.
+  if (/'\/api\/edge\/rate-limits\//.test(readFileSync(join(repo, 'services', 'svc-edge', 'src', 'rate-limits-door.ts'), 'utf8'))) {
+    used.delete('edge');
+  }
   assert.ok(used.size >= 12, `found only ${used.size} Customer modules: ${[...used]}`);
   const unmapped = [...used].filter((m) => !upstreams.some((u) => u.prefix === m));
   assert.deepEqual(unmapped, [], `Customer calls modules Edge has no route for: ${unmapped}`);
@@ -689,10 +747,10 @@ try {
     assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
     if (state === 'absent') absentButUsed.push(m);
   }
-  // Absent on purpose, with its reason in EDGE_ABSENT: dex is called by the Protocol rooms (#4835) and stays unwired.
-  // protocol is started (J-dex-protocol-01), mining too (svc-mining-pool binds HTTP_HOST since #5907), and indexer since the
-  // explorer pages (#6645, local-stack-services/indexer.mjs).
-  assert.deepEqual([...absentButUsed].sort(), ['dex'], `unexpected Customer modules without a service: ${absentButUsed}`);
+  // Every module the Customer app calls is started: protocol (J-dex-protocol-01), mining (svc-mining-pool binds HTTP_HOST
+  // since #5907), indexer since the explorer pages (#6645, local-stack-services/indexer.mjs), and dex since the wallet
+  // orders room (J-dex-protocol-10, local-stack-services/dex.mjs).
+  assert.deepEqual([...absentButUsed].sort(), [], `unexpected Customer modules without a service: ${absentButUsed}`);
 } finally {
   rmSync(planHome, { recursive: true, force: true });
 }
@@ -843,7 +901,7 @@ try {
 // The only Customer build call is inside the `!override` guard in ensureBuilt.
 assert.match(
   source,
-  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer', \{ VITE_TEAM_URL: TEAM_TLS_ORIGIN \}\);/,
+  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer', \{\s*VITE_TEAM_URL: TEAM_TLS_ORIGIN,\s*INTAFACED_SOURCEMAP: 'hidden',\s*\}\);/,
 );
 // Its Team link points at the console's TEST HTTPS front: the build's HTTPS-only check stays as it is (TeamDesk.tsx).
 assert.match(source, /const TEAM_TLS_ORIGIN = `https:\/\/\$\{HOST\}:\$\{PORTS\['team-tls'\]\}`;/);
@@ -879,7 +937,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against.
   assert.match(
     source,
-    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'nats',?\s*\];/,
+    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
@@ -1284,4 +1342,160 @@ console.log('local-test-stack: customer folder override checks passed');
     else process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS = before;
   }
   console.log('local-test-stack: identity idle sign-out and device limit are off unless switched on, then from the profile');
+}
+
+// The build stamp and a running stack's own state (#7463): a service writing its state file under its folder in the
+// checkout (services/<name>/.data/, the relative default of TRADE_MM_SEED_STATE_PATH and edge's state paths) left the
+// stamp's edits stale, so every later restart in the shard rebuilt everything and ran past the 120 s tool cap. That
+// write never changes the edits; a real source change, tracked or untracked, still does, and so the stamp goes stale.
+{
+  const { worktreeEdits, buildStillFresh, RUNTIME_STATE } = await import('./local-test-stack.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'build-stamp-'));
+  const git = (...args) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  const put = (rel, text) => {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), text);
+  };
+  const SOURCE = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
+  try {
+    git('init', '-q');
+    put('services/svc-trade/src/seed.ts', 'export const a = 1;\n');
+    put('packages/money/src/index.ts', 'export const b = 2;\n');
+    git('add', '.');
+    git('commit', '-qm', 'base');
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
+    const stamp = { stampRepo: repo, stampHead: head, stampEdits: worktreeEdits(SOURCE, [], repo) };
+    const now = () => ({ repo, head, edits: worktreeEdits(SOURCE, [], repo) });
+    const same = (a, b) => a === b;
+
+    // A running service's state files, written and rewritten: still fresh, so a restart rebuilds nothing.
+    put('services/svc-trade/.data/mm-seed-last-run.json', '{"runs":1}');
+    put('services/svc-edge/.data/edge-reconcile-last.json', '{}');
+    assert.equal(worktreeEdits(SOURCE, [], repo), stamp.stampEdits, 'a service state file is no source edit');
+    put('services/svc-trade/.data/mm-seed-last-run.json', '{"runs":2}');
+    assert.ok(buildStillFresh(stamp, now(), same), 'the stamp stays fresh while the seed job rewrites its state');
+
+    // Real source changes, each from that state: every one makes the stamp stale.
+    const stale = [
+      ['an untracked source file', () => put('services/svc-trade/src/new.ts', 'export const c = 3;\n')],
+      ['an edited tracked file', () => put('packages/money/src/index.ts', 'export const b = 3;\n')],
+      ['a .data folder deeper in a service', () => put('services/svc-trade/src/.data/x.ts', 'x\n')],
+      ['a .data folder in a package', () => put('packages/money/.data/x.json', '{}')],
+      ['a file named .data at the service root', () => put('services/svc-trade/.data.json', '{}')],
+    ];
+    for (const [what, change] of stale) {
+      change();
+      assert.ok(!buildStillFresh(stamp, now(), same), `${what} makes the stamp stale`);
+      git('checkout', '-q', '--', '.');
+      git('clean', '-fdq');
+      put('services/svc-trade/.data/mm-seed-last-run.json', '{"runs":3}');
+      assert.ok(buildStillFresh(stamp, now(), same), `back to fresh after undoing ${what}`);
+    }
+    assert.deepEqual(RUNTIME_STATE, ['services/*/.data/**'], 'only the services’ own state folder is left out');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+  console.log('local-test-stack: a service state file never stales the build stamp; a real source change still does');
+}
+
+// The services that write state files get a path in the stack's own state folder, never their checkout-relative default.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const envOf = (name) => localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === name).env;
+  const state = [
+    ['trade', 'TRADE_MM_SEED_STATE_PATH'],
+    ['edge', 'EDGE_KILL_STATE_PATH'],
+    ['edge', 'EDGE_COMPLIANCE_QUEUE_PATH'],
+    ['edge', 'EDGE_RECONCILE_LAST_PATH'],
+    ['matching', 'MATCHING_JOURNAL_PATH'],
+  ];
+  for (const [name, key] of state) {
+    const value = envOf(name)[key];
+    assert.ok(value && value.startsWith('/') && !value.includes('/services/svc-'), `${name} ${key} is in the stack state folder`);
+  }
+  console.log('local-test-stack: trade and edge write their state in the stack state folder');
+}
+
+// The rebuild decision from a stamp file as the stack writes it, copied, with no stack running (#7463): with trade's
+// seed-state file written where its default puts it, a restart reads "none" (nothing rebuilt); after a real source
+// edit it reads "full".
+{
+  const { worktreeEdits, backendDecision } = await import('./local-test-stack.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'build-decision-'));
+  const state = mkdtempSync(join(tmpdir(), 'build-decision-state-'));
+  const git = (...args) =>
+    spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
+  const put = (rel, text) => {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), text);
+  };
+  const SOURCE = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
+  try {
+    git('init', '-q');
+    put('services/svc-trade/src/seed.ts', 'export const a = 1;\n');
+    git('add', '.');
+    git('commit', '-qm', 'base');
+    const head = git('rev-parse', 'HEAD').stdout.trim();
+    // The stamp a build writes (local-test-stack.mjs, after the build), copied into a state folder of its own.
+    const stampFile = join(state, 'build-stamp.json');
+    writeFileSync(stampFile, JSON.stringify({ head, repo, edits: worktreeEdits(SOURCE, [], repo), customerBuilt: true }));
+    const decide = () =>
+      backendDecision(
+        { stamp: JSON.parse(readFileSync(stampFile, 'utf8')), repo, head, edits: worktreeEdits(SOURCE, [], repo) },
+        (a, b) => a === b,
+      );
+    assert.equal(decide(), 'none', 'a fresh stamp rebuilds nothing');
+    put('services/svc-trade/.data/mm-seed-last-run.json', '{"BTC-USDT":{"runId":"r1","levels":3}}');
+    assert.equal(decide(), 'none', "with trade's seed-state file in place, nothing is rebuilt");
+    put('services/svc-trade/src/seed.ts', 'export const a = 2;\n');
+    assert.equal(decide(), 'full', 'after a real source edit, everything is rebuilt');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(state, { recursive: true, force: true });
+  }
+  console.log("local-test-stack: the rebuild decision reads none with trade's seed state in place, full after a source edit");
+}
+
+// LOCAL_STACK_USER_VENUE is read by one helper in the stack and in trade's env, so a padded "on" starts the TEST venue
+// and points trade at it (never one without the other), and a bad value is refused by both.
+{
+  const { userVenueOn, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { userVenueSwitchOn } = await import('./local-test-venue.mjs');
+  const saved = process.env.LOCAL_STACK_USER_VENUE;
+  try {
+    for (const [raw, on] of [
+      [undefined, false],
+      ['', false],
+      [' off ', false],
+      ['on', true],
+      [' on ', true],
+    ]) {
+      if (raw === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+      else process.env.LOCAL_STACK_USER_VENUE = raw;
+      assert.equal(userVenueOn(), on, `stack: ${JSON.stringify(raw)}`);
+      const trade = localTestServiceEnvs().find((d) => d.name === 'trade').env;
+      assert.equal('TRADE_USER_VENUE_URL' in trade, on, `trade env: ${JSON.stringify(raw)}`);
+    }
+    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off or on/);
+  } finally {
+    if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+    else process.env.LOCAL_STACK_USER_VENUE = saved;
+  }
+  console.log('local-test-stack: LOCAL_STACK_USER_VENUE reads the same in the stack and in trade env');
+}
+
+// No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
+// every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
+{
+  const { CHAIN_PORTS } = await import('./local-test-chain.mjs');
+  const table = /const PORTS = \{([\s\S]*?)\n\};/.exec(source)?.[1] ?? '';
+  const stackPorts = [...table.matchAll(/'?[\w-]+'?: (\d{4,5}),/g)].map((m) => Number(m[1]));
+  assert.ok(stackPorts.length > 20, 'the stack port table was read');
+  const clash = stackPorts.filter((port) => Object.values(CHAIN_PORTS).includes(port));
+  assert.deepEqual(clash, [], `stack ports also used by the test chain: ${clash.join(', ')}`);
+  assert.equal(new Set(stackPorts).size, stackPorts.length, 'every stack port is used once');
+  console.log('local-test-stack: no stack port collides with the test chain or with another stack port');
 }

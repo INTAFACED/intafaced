@@ -17,6 +17,14 @@ export type CopyDesk = z.infer<typeof copyDeskSchema>;
 
 const ackSchema = z.object({ followId: z.string(), relationshipState: z.string(), newIntentFenced: z.boolean(), disposition: z.string() });
 
+/** The scopes the platform has paused now (svc-trade `copy.platformPauses`, CB-ops-03). */
+export const platformPausesSchema = z.object({
+  leads: z.array(z.string()),
+  botTypes: z.array(z.string()),
+  symbols: z.array(z.string()),
+});
+export type PlatformPauses = z.infer<typeof platformPausesSchema>;
+
 export const algoPolicySchema = z.object({
   capability: z.object({ createEnabled: z.boolean(), jobsEnabled: z.boolean() }),
   immatureKinds: z.array(z.string()),
@@ -301,6 +309,7 @@ export function createRoomApi(api: ApiClient) {
     flatten: (input: { followId: string; requestId: string; stepUpApprovalId: string | null }) =>
       api.mutate('trade', 'copy.flatten', input, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
+    platformPauses: (signal?: AbortSignal) => api.query('trade', 'copy.platformPauses', undefined, platformPausesSchema, { signal }),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),
     algoList: (limit: number, signal?: AbortSignal) => api.query('trade', 'algo.list', { limit }, botListSchema, { signal }),
     algoGet: tools.algoGet,

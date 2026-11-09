@@ -408,8 +408,13 @@ export function parseScreeningList(raw: string | undefined, source?: string): Sc
   const seen = new Set<string>();
   const regions: ScreenedRegion[] = [];
 
+  // Issues name an entry by its position, never by its content: the raw value
+  // is the `INTAFACED_SANCTIONS_REGIONS` secret, and this message is thrown at
+  // boot, where it lands in a service log that CI prints into a public job log.
+  let position = 0;
   for (const item of trimmed.split(',')) {
     const entry = item.trim();
+    position += 1;
     if (entry === '') continue;
 
     const colon = entry.indexOf(':');
@@ -417,13 +422,13 @@ export function parseScreeningList(raw: string | undefined, source?: string): Sc
     const reason = (colon === -1 ? '' : entry.slice(colon + 1)).trim();
 
     if (!REGION_CODE.test(code)) {
-      issues.push(`"${entry}" — expected an ISO-3166 alpha-2 code, optionally followed by ":reason"`);
+      issues.push(`entry ${position} — expected an ISO-3166 alpha-2 code, optionally followed by ":reason" (value not shown)`);
       continue;
     }
 
     const upper = code.toUpperCase();
     if (seen.has(upper)) {
-      issues.push(`"${upper}" listed more than once — one entry per region, so there is one reason to maintain`);
+      issues.push(`entry ${position} repeats an earlier region — one entry per region, so there is one reason to maintain`);
       continue;
     }
 

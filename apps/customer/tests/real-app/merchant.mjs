@@ -4,7 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test } from './journey.mjs';
 import { FAIL_FAST } from '../../../../tooling/scripts/journey-fail-fast.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, forgetSession, nextCode } from './identity-factors.mjs';
 
@@ -127,7 +127,7 @@ async function chooseTakenCategory(page) {
  * svc-pay's two-person door (`local-test-world.mjs approve-kyb`). The owner signs in again after, for the new grant. */
 export async function verifiedBusiness(page, who, merchantId) {
   await sentForReview(page, who);
-  approveKyb(merchantId);
+  await approveKyb(merchantId);
 }
 
 /** The owner chooses a category and sends the verification reference from /pay/onboarding/verification; it reads In review. */
@@ -140,9 +140,23 @@ export async function sentForReview(page, who) {
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
 }
 
-/** The stack's TEST founder pair approves the business's verification (svc-pay's KYB decision door). */
-export function approveKyb(merchantId) {
-  const decided = JSON.parse(tool('local-test-world.mjs', 'approve-kyb', merchantId).trim().split('\n').pop());
+/**
+ * The stack's TEST founder pair approves the business's verification (svc-pay's KYB decision door). Asynchronous, as
+ * `foundersScript` is: the founders' sign-ins can wait out TOTP steps (about a minute), and a worker blocked that long
+ * never sees Edge close its idle kept-alive sockets, so its next call through Edge is written to a closed one and fails
+ * before any answer ("other side closed", #7461). With the worker free, the socket is dropped and a fresh one opened.
+ */
+export async function approveKyb(merchantId) {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-world.mjs'), 'approve-kyb', merchantId],
+    {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 120_000,
+    },
+  );
+  const decided = JSON.parse(stdout.trim().split('\n').pop());
   expect(decided.kybStatus).toBe('approved');
   return decided;
 }

@@ -11,10 +11,10 @@ import { signOutBrowser } from './stack.mjs';
 // the stack is touched. #5 kills a whole kind and restores it (two founders) in the same step, in a finally, for the same
 // reason. #5's "a restart does not re-enable it" is a service restart, which a browser cannot make: the step reads the
 // kill again from a fresh console load.
-// Every step is written; none is built yet, so each fails at its first missing part, quickly (UNBUILT):
-// - /more-ops/agents answers "This operator route does not exist": there is no fleet registry, export, quarantine,
-//   kind kill or reassign (AG-registry-01, AG-control-02); /more-ops shows only the agents task routes and prices;
-// - the customer cannot create an agent yet (no builder at /agents/new), so the start has no agent to quarantine.
+// Built: the console's Agent fleet desk (AG-registry-01, AG-control-02) over svc-agents' fleet.* procedures, and on the
+// customer's side the agent's status and its background test run (Test, then Runs). A part a step needs that is missing
+// still fails fast (UNBUILT). Steps #3, #4, #5 and #7 each sign in two or three people (founders with a TOTP code, the
+// customer), so each has its own time budget, as the start does; no check is loosened.
 const J = 'J-agents-14';
 const agents = agentsRun(J);
 
@@ -61,6 +61,7 @@ test(`${J} #3 quarantines one agent with a reason: new sessions refuse as disabl
   browser,
   page,
 }) => {
+  test.setTimeout(180_000);
   // The customer, in a browser of their own, has a background run of the agent going before the quarantine.
   const customer = await browser.newContext();
   try {
@@ -79,8 +80,33 @@ test(`${J} #3 quarantines one agent with a reason: new sessions refuse as disabl
     await expect(ownRow(page)).toContainText('Quarantined');
     await expect(ownRow(page).getByTestId('audit-operator')).toHaveText(founder.handle);
 
-    // The run in flight stops at its next step, and a new session of the agent is refused as disabled.
+    // The run in flight stops at its next step, and a new session of the agent is refused as disabled. The Runs panel
+    // reads the runs once when it opens, and the next step boundary (one AGENTS_BACKGROUND_STEP_MS tick) can come just
+    // after that read (#7517's run 42455921357: still Running on a read made after the quarantine). So the panel is read
+    // again until the run reads stopped, and the stop is held to steps, not time: read after the quarantine committed,
+    // the run may take at most the one step a tick that read the switch before the commit could still take.
+    const runsRead = () => own.waitForResponse((r) => r.url().includes('/api/agents/trpc/own.backgroundRuns'));
+    const newestRun = async (response) => {
+      const body = await response.json();
+      return (body?.result?.data?.json ?? body?.result?.data)?.[0];
+    };
+    const firstRead = runsRead();
     await openOwnAgent(own, agents, 'Runs');
+    const atQuarantine = await newestRun(await firstRead);
+    expect(atQuarantine?.stepsDone, 'the run in flight, read after the quarantine').toEqual(expect.any(Number));
+    let latest = atQuarantine;
+    await expect(async () => {
+      if (latest.state !== 'stopped') {
+        const read = runsRead();
+        await own.reload();
+        await own.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Runs', exact: true }).click(UNBUILT);
+        latest = await newestRun(await read);
+      }
+      expect(latest.state).toBe('stopped');
+    }).toPass({ timeout: 10_000 });
+    expect(latest.id, 'the same run').toBe(atQuarantine.id);
+    expect(latest.stopCode).toBe('agents.agent.quarantined');
+    expect(latest.stepsDone, 'it stopped at its next step, not later').toBeLessThanOrEqual(atQuarantine.stepsDone + 1);
     await expect(tableIn(own.getByRole('main'), 'Live runs').getByRole('row').nth(1)).toContainText('Stopped: agent quarantined');
     await own.getByRole('main').getByRole('button', { name: 'Open a session' }).click({ force: true });
     await expect(own.getByRole('main').getByRole('alert')).toContainText('agents.agent.disabled');
@@ -90,6 +116,7 @@ test(`${J} #3 quarantines one agent with a reason: new sessions refuse as disabl
 });
 
 test(`${J} #4 restores it as one founder: refused until two distinct founders restore it`, async ({ browser, page }) => {
+  test.setTimeout(180_000);
   await openFleet(page, 'a');
   await ownRow(page).getByRole('button', { name: 'Restore' }).click(UNBUILT);
   await expect(ownRow(page)).toContainText('Restore waiting for a second founder');
@@ -114,6 +141,7 @@ test(`${J} #5 kills a whole kind: every agent of the kind disabled in one audite
   browser,
   page,
 }) => {
+  test.setTimeout(180_000);
   await openFleet(page, 'a');
   await page.getByRole('button', { name: 'Kill a kind' }).click(UNBUILT);
   const sheet = page.getByRole('dialog', { name: 'Kill a kind' });
@@ -155,6 +183,7 @@ test(`${J} #6 reassigns an ownerless agent: the owner column and counts update`,
 });
 
 test(`${J} #7 checks as the customer: the quarantined agent shows its disabled status and the open button off`, async ({ page }) => {
+  test.setTimeout(180_000);
   // #4 restored it, so it is quarantined again first; the customer then sees it as a customer does.
   await openFleet(page);
   await ownRow(page).getByRole('button', { name: 'Quarantine' }).click(UNBUILT);

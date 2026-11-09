@@ -86,6 +86,7 @@ export const paymentsContract: ContractPart = {
     { method: 'disputeSummary', run: (p) => p.disputeSummary() },
     { method: 'disputes', run: (p) => p.disputes(undefined, '') },
     { method: 'dispute', run: (p) => p.dispute('d0000001-0000-4000-8000-000000000001') },
+    { method: 'disputeFunds', run: (p) => p.disputeFunds('d0000001-0000-4000-8000-000000000001') },
     { method: 'customerSummary', run: (p) => p.customerSummary('2026-09-01T00:00:00.000Z') },
     { method: 'customers', run: (p) => p.customers(undefined, '') },
     { method: 'customerSeries', run: (p) => p.customerSeries('TEST-cust-001', '2026-09-18T00:00:00.000Z', '2026-10-18T00:00:00.000Z') },

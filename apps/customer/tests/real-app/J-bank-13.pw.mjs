@@ -592,13 +592,38 @@ async function earnFeesIntoPot(who, token, amount) {
 }
 
 /** One TEST spend on the card, authorised then captured; returns the capture's cashback and the authorisation. */
-async function spendOn(api, cardId, spend) {
+async function spendOn(api, cardId, spend, beforeCapture = async () => {}) {
   const held = await authorize(cardId, spend);
   expect(held).toMatchObject({ decision: 'approved' });
   const rows = await api.query('cards.authorizations', { cardId, limit: 50 });
   const ref = rows.data.find((row) => row.id === held.authorizationId).authorizationRef;
+  await beforeCapture(held);
   const captured = await capture(cardId, ref, spend);
   return { held, cashback: captured.cashback };
+}
+
+/** svc-ledger's own accounts under one address prefix, by account id, read as an operator (founder a, admin:treasury). */
+async function ledgerAccounts(prefix) {
+  const { ctx, sessions } = await founders();
+  const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(prefix)}`, {
+    headers: { authorization: `Bearer ${await sessions.a.treasuryToken()}` },
+  });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  const page = JSON.parse(text);
+  expect(page.nextCursor, `one page holds every account under ${prefix}`).toBeNull();
+  return new Map(page.accounts.map((row) => [row.accountId, row]));
+}
+
+/** One booked transaction as svc-ledger itself holds it, read as an operator (founder a, admin:treasury). */
+async function ledgerTx(txId) {
+  const { ctx, sessions } = await founders();
+  const res = await fetch(`${ctx.url('ledger')}/operator/transactions/${encodeURIComponent(txId)}`, {
+    headers: { authorization: `Bearer ${await sessions.a.treasuryToken()}` },
+  });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  return JSON.parse(text);
 }
 
 test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, async ({ page }) => {
@@ -658,10 +683,21 @@ test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, a
   const mid = await api.query('cards.cashback');
   expect(mid.data).toMatchObject({ tier: risen.cardTier, rateBps: secondBps });
 
-  // The same spend now pays at the new tier's rate, once.
+  // The same spend now pays at the new tier's rate, once. Before it is paid (authorised, not yet captured) the cashback
+  // it will earn is nowhere spendable: the free balance has dropped by the whole spend and not a unit more came back,
+  // the bank lists no cashback for that authorisation, and the card page's paid figure has not moved.
   await earnFeesIntoPot(who, token, second);
   const ifcMid = toUnits((await api.holding('IFC')).free);
-  const two = await spendOn(api, cardId, spend);
+  const two = await spendOn(api, cardId, spend, async (held) => {
+    expect(ifcMid - toUnits((await api.holding('IFC')).free)).toBe(toUnits(spend));
+    const pending = await api.query('cards.cashback');
+    expect(toUnits(pending.data.paid)).toBe(toUnits(before.data.paid) + first);
+    expect(pending.data.payments.filter((p) => p.authorizationId === held.authorizationId)).toEqual([]);
+    await page.goto('/bank/cards');
+    const paidLine = page.getByTestId('card-cashback').getByTestId('card-cashback-paid');
+    await expect(paidLine).toHaveAttribute('data-paid', pending.data.paid);
+    await expect(paidLine).toContainText(`Cashback paid: ${pending.data.paid} IFC`);
+  });
   expect(two.cashback).toMatchObject({ status: 'paid', amount: fromUnits(second) });
   expect(ifcMid - toUnits((await api.holding('IFC')).free)).toBe(toUnits(spend) - second);
 
@@ -674,6 +710,33 @@ test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, a
     expect(after.data.payments.filter((p) => p.authorizationId === spent.held.authorizationId)).toEqual([
       expect.objectContaining({ status: 'settled', amount: fromUnits(amount) }),
     ]);
+  }
+
+  // Each payment is recorded in svc-ledger as owed by INTAFACED: one transaction under the authorisation's reward key,
+  // taking exactly the cashback from the platform's reward pot (house:rewards-engine, IFC) and putting exactly that in
+  // the person's own available IFC (user:<id>), and nothing else.
+  const house = await ledgerAccounts('house:rewards-engine');
+  const mine = await ledgerAccounts(`user:${start.userId}`);
+  for (const [spent, amount] of [
+    [one, first],
+    [two, second],
+  ]) {
+    const [payment] = after.data.payments.filter((p) => p.authorizationId === spent.held.authorizationId);
+    expect(payment, `the bank lists the cashback of authorisation ${spent.held.authorizationId}`).toBeTruthy();
+    expect(payment.ledgerTxId, 'a settled cashback names its ledger transaction').toBeTruthy();
+    const tx = await ledgerTx(payment.ledgerTxId);
+    expect(tx).toMatchObject({
+      txId: payment.ledgerTxId,
+      businessKey: `reward:bank.card.cashback:${spent.held.authorizationId}`,
+      reason: 'bank.card.cashback',
+    });
+    expect(tx.postings).toHaveLength(2);
+    const from = tx.postings.find((p) => p.side === 'source');
+    const to = tx.postings.find((p) => p.side === 'destination');
+    expect(from).toMatchObject({ assetId: 'IFC', amount: fromUnits(amount) });
+    expect(house.get(from.accountId)).toMatchObject({ address: 'house:rewards-engine', kind: 'available', assetId: 'IFC' });
+    expect(to).toMatchObject({ assetId: 'IFC', amount: fromUnits(amount) });
+    expect(mine.get(to.accountId)).toMatchObject({ address: `user:${start.userId}`, kind: 'available', assetId: 'IFC' });
   }
 
   // The card page shows it: the tier the rank now gives, its rate in IFC, the tier table, and the cashback paid.

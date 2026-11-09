@@ -31,8 +31,8 @@ describe('affiliate accrual rate law — refuse-closed (no invent)', () => {
       JSON.stringify({
         published: true,
         tiers: [
-          { hop: 0, rate: '0.10' },
-          { hop: 1, rate: '0.05' },
+          { hop: 0, rate: '0.130' },
+          { hop: 1, rate: '0.07' },
         ],
       }),
     );
@@ -71,18 +71,20 @@ describe('affiliate accrual rate law — refuse-closed (no invent)', () => {
     expect(() => parseAccrualTierLawJson(JSON.stringify({ published: true, tiers: [{ hop: 0, rate: '2' }] }))).toThrow(CommissionError);
   });
 
-  it('D26-P0-02 .env.example JSON is published 10/5/2', () => {
+  it('.env.example leaves the owner rates blank (public repo; set on the host), and blank refuses', () => {
     const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
     const example = readFileSync(join(root, '.env.example'), 'utf8');
     const line = example.split(/\r?\n/).find((l) => l.startsWith('IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON='));
-    expect(line).toBeTruthy();
+    expect(line).toBe('IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON=');
     const law = parseAccrualTierLawJson(line!.slice('IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON='.length));
-    expect(law.published).toBe(true);
-    if (!law.published) throw new Error('expected published');
-    expect(law.tiers).toEqual([
-      { hop: 0, rate: '0.10' },
-      { hop: 1, rate: '0.05' },
-      { hop: 2, rate: '0.02' },
-    ]);
+    expect(law.published).toBe(false);
+    expect(() => resolveAccrualTiers({ law })).toThrow(AccrualRateRefuseError);
+    let code: unknown = 'no refusal';
+    try {
+      resolveAccrualTiers({ law });
+    } catch (err) {
+      code = (err as AccrualRateRefuseError).code;
+    }
+    expect(code).toBe('affiliate.accrual.rates_unset');
   });
 });

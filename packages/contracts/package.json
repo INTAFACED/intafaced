@@ -22,6 +22,10 @@
       "types": "./dist/account-controls.d.ts",
       "default": "./dist/account-controls.js"
     },
+    "./action-approval-policy": {
+      "types": "./dist/action-approval-policy.d.ts",
+      "default": "./dist/action-approval-policy.js"
+    },
     "./identity-staff": {
       "types": "./dist/identity-staff.d.ts",
       "default": "./dist/identity-staff.js"
@@ -62,6 +66,10 @@
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
     },
+    "./protocol-dex-orders": {
+      "types": "./dist/protocol-dex-orders.d.ts",
+      "default": "./dist/protocol-dex-orders.js"
+    },
     "./protocol-address-book": {
       "types": "./dist/protocol-address-book.d.ts",
       "default": "./dist/protocol-address-book.js"
@@ -74,6 +82,10 @@
       "types": "./dist/protocol-sessions.d.ts",
       "default": "./dist/protocol-sessions.js"
     },
+    "./protocol-venue-wallet": {
+      "types": "./dist/protocol-venue-wallet.d.ts",
+      "default": "./dist/protocol-venue-wallet.js"
+    },
     "./protocol-wallet-tx": {
       "types": "./dist/protocol-wallet-tx.d.ts",
       "default": "./dist/protocol-wallet-tx.js"
@@ -81,6 +93,10 @@
     "./outcome-markets": {
       "types": "./dist/outcome-markets.d.ts",
       "default": "./dist/outcome-markets.js"
+    },
+    "./ops-capital": {
+      "types": "./dist/ops-capital.d.ts",
+      "default": "./dist/ops-capital.js"
     },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
@@ -109,6 +125,10 @@
     "./identity-account-status": {
       "types": "./dist/identity-account-status.d.ts",
       "default": "./dist/identity-account-status.js"
+    },
+    "./identity-compromise": {
+      "types": "./dist/identity-compromise.d.ts",
+      "default": "./dist/identity-compromise.js"
     },
     "./identity-appeals": {
       "types": "./dist/identity-appeals.d.ts",
@@ -150,6 +170,10 @@
       "types": "./dist/ops-console-services.d.ts",
       "default": "./dist/ops-console-services.js"
     },
+    "./ops-incidents": {
+      "types": "./dist/ops-incidents.d.ts",
+      "default": "./dist/ops-incidents.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
@@ -161,6 +185,10 @@
     "./support-awaiting": {
       "types": "./dist/support-awaiting.d.ts",
       "default": "./dist/support-awaiting.js"
+    },
+    "./support-official-channels": {
+      "types": "./dist/support-official-channels.d.ts",
+      "default": "./dist/support-official-channels.js"
     },
     "./guest-verification": {
       "types": "./dist/guest-verification.d.ts",
@@ -198,6 +226,10 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./support-chat": {
+      "types": "./dist/support-chat.d.ts",
+      "default": "./dist/support-chat.js"
+    },
     "./support-kb-library": {
       "types": "./dist/support-kb-library.d.ts",
       "default": "./dist/support-kb-library.js"
@@ -221,6 +253,10 @@
     "./support-categories": {
       "types": "./dist/support-categories.d.ts",
       "default": "./dist/support-categories.js"
+    },
+    "./support-safety": {
+      "types": "./dist/support-safety.d.ts",
+      "default": "./dist/support-safety.js"
     },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
@@ -317,6 +353,10 @@
     "./api-keys": {
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"
+    },
+    "./api-rate-limits": {
+      "types": "./dist/api-rate-limits.d.ts",
+      "default": "./dist/api-rate-limits.js"
     },
     "./trade-errors": {
       "types": "./dist/trade-errors.d.ts",

@@ -1,4 +1,4 @@
-// World: book, restart
+// World: book, market, restart
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits, fromUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
@@ -16,6 +16,10 @@ const LEVERAGE = '5';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+
+/** The TEST maker's perp quotes held where they rest, or quoted again (local-test-market.mjs hold, release). */
+const hold = () => tool('local-test-market.mjs', 'hold', SYMBOL);
+const release = () => tool('local-test-market.mjs', 'release', SYMBOL);
 
 function account() {
   const who = run.read().account;
@@ -193,6 +197,12 @@ test(`${J} #4 attaches a take profit and a stop loss to an opening order: the or
   page,
 }) => {
   test.setTimeout(120_000);
+  // The margin tier is rated against the book's depth, read again when the order is placed (risk-tier-confirm.ts). The
+  // TEST maker re-places its perp ladder every cycle, so a cycle between the confirm's last check and the placement can
+  // move the tier the trader just accepted, and the order is refused trade.risk_limit_confirm_required (Real-app
+  // journeys run 42440306635, shard 21). Held, the ladder rests as it is and nothing else crosses it; the order still
+  // fills against it. Released after this step.
+  hold();
   const me = await api(account());
   const { positionId } = run.read();
   const sizeOf = async () => (await me.get('/api/v1/positions')).body.find((p) => p.id === positionId)?.contracts;
@@ -252,6 +262,11 @@ test(`${J} #4 attaches a take profit and a stop loss to an opening order: the or
   const row = attached.getByRole('row').filter({ hasText: 'Set on everything the order filled' });
   await expect(row).toHaveCount(1);
   await expect(row).toContainText(SIZE);
+});
+
+// Held for #4 only, passed or not: the next steps need the TEST walk to move the mark across their triggers.
+test.afterEach(() => {
+  if (test.info().title.startsWith(`${J} #4 `)) release();
 });
 
 /** The position's stop order dialog, opened from its row's Manage menu in the Positions tab. */
