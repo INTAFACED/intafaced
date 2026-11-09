@@ -209,8 +209,7 @@ export const reasonReady = (reason: string): boolean => reason.trim().length >= 
 function time(value: string, blank: string, invalid: string, label: string): Check<string> {
   const text = value.trim();
   if (text === '') return no(blank, `${label} is blank; it is never filled in.`);
-  if (strictVenueTime(text) === null)
-    return no(invalid, `${label} must be a time with its zone, such as 2026-11-09T12:00:00Z.`);
+  if (strictVenueTime(text) === null) return no(invalid, `${label} must be a time with its zone, such as 2026-11-09T12:00:00Z.`);
   return { ok: true, value: text };
 }
 

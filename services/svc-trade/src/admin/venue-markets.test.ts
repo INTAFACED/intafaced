@@ -585,7 +585,8 @@ describe('venue markets desk (J-cex-spot-16)', () => {
       '1',
       venueDelistingPayloadHash({ venueId: VENUE, symbol: 'ETH-USDC', delistsAt, expectedVersion: '1', reason: REASON }),
     );
-    const schedule = () => desk.delistingSchedule(writer(), { symbol: 'ETH-USDC', delistsAt, expectedVersion: '1', reason: REASON, ...ids });
+    const schedule = () =>
+      desk.delistingSchedule(writer(), { symbol: 'ETH-USDC', delistsAt, expectedVersion: '1', reason: REASON, ...ids });
     const written = await schedule();
     expect(written.delistingNotice).toMatchObject({ publishedAt: null });
     expect(published).toEqual([]);
