@@ -52,6 +52,7 @@ const en = {
   section_safety: 'Safety',
   section_claimLinks: 'Claim links',
   section_venue: 'Venue account',
+  section_embedded: 'My wallet',
   sections: 'Wallet sections',
   empty_activity: 'No wallet activity to show. Activity appears once the indexer reads this address.',
   empty_approvals: 'No live approvals: this wallet has not allowed anyone to move the tokens the network’s pools trade.',

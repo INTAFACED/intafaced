@@ -78,6 +78,10 @@
       "types": "./dist/protocol-address-risk.d.ts",
       "default": "./dist/protocol-address-risk.js"
     },
+    "./protocol-embedded-wallet": {
+      "types": "./dist/protocol-embedded-wallet.d.ts",
+      "default": "./dist/protocol-embedded-wallet.js"
+    },
     "./protocol-sessions": {
       "types": "./dist/protocol-sessions.d.ts",
       "default": "./dist/protocol-sessions.js"
