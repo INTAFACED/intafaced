@@ -149,6 +149,9 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, Namespace>> = {
   [ADDRESS_WATCHES_NAMESPACE]: { shape: (value) => parseAddressWatches(value) },
 };
 
+/** Every namespace the door stores. The database's `user_preferences_namespace_check` must allow exactly these. */
+export const PREFERENCE_NAMESPACES = Object.keys(NAMESPACES) as PreferenceNamespace[];
+
 function requireNamespace(namespace: string): PreferenceNamespace {
   if (!Object.prototype.hasOwnProperty.call(NAMESPACES, namespace)) {
     throw new PreferencesError(`${PREFERENCES_NAMESPACE_UNKNOWN}: ${namespace}`, PREFERENCES_NAMESPACE_UNKNOWN);
