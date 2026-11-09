@@ -197,6 +197,8 @@ const schema = serviceEnvSchema
           ),
         ])
         .pipe(z.array(z.enum(['name', 'email']))),
+      /** How often the routing worker re-selects waiting requests (SP-routing-01). Blank: no sweep; routing runs on desk actions only. */
+      SUPPORT_ROUTING_SWEEP_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
 

@@ -428,6 +428,8 @@ export type TradeErrorCode =
   // An order-history page cursor that is not one of the caller's orders.
   | 'trade.invalid_cursor'
   | 'trade.order_not_open'
+  // The native L3 queue could not be read (matching down or refused L3): a queue read never falls back to L2.
+  | 'trade.queue_unavailable'
   | 'trade.not_owner'
   | 'trade.perks_unavailable'
   | 'trade.dust_fill'
