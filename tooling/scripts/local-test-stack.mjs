@@ -524,6 +524,26 @@ function ownedAlive(rec) {
   return processRecordMatches(rec, readProcessIdentity(rec?.pid));
 }
 
+/**
+ * The `LOCAL_STACK_*=off` values this command runs with, sorted: a journey that blanks an owner value restarts a service
+ * with one (J-agents-15). Recorded on each process it starts, so the world restore can see a service left blank after
+ * its file (apps/customer/tests/real-app/services.mjs) and start it again without them.
+ */
+export function offOverrides(env = process.env) {
+  return Object.keys(env)
+    .filter((k) => /^LOCAL_STACK_[A-Z0-9_]+$/.test(k) && env[k] === 'off')
+    .sort();
+}
+
+/** Running services that `restart` can name and that were started with an `off` override: { name: [variables] }. */
+function offOverridden() {
+  const restartable = new Set(restartNames());
+  const out = {};
+  for (const [name, rec] of Object.entries(readProcs()))
+    if (restartable.has(name) && rec?.offOverrides?.length && ownedAlive(rec)) out[name] = rec.offOverrides;
+  return out;
+}
+
 function startProc(name, argv, env, cwd, extra = {}) {
   const logPath = path.join(P.logs, `${name}.log`);
   const fd = fs.openSync(logPath, 'a', 0o600);
@@ -533,7 +553,15 @@ function startProc(name, argv, env, cwd, extra = {}) {
   const procs = readProcs();
   // The kernel's birth mark, read now while the child certainly lives, is what ownedAlive holds it to on Linux (#7488).
   const kernelStart = readKernelStart(child.pid) ?? undefined;
-  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), kernelStart, ...extra };
+  const off = offOverrides();
+  procs[name] = {
+    pid: child.pid,
+    argv,
+    startedAt: new Date().toISOString(),
+    kernelStart,
+    ...(off.length ? { offOverrides: off } : {}),
+    ...extra,
+  };
   writeProcs(procs);
   return child.pid;
 }
@@ -2421,8 +2449,13 @@ function cmdPlan(flags) {
 }
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
+/** What `restart` can name. */
+function restartNames() {
+  return [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+}
+
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+  const known = restartNames();
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -4076,6 +4109,7 @@ async function runCli() {
   else if (cmd === 'seed-notice') cmdSeedNotice(rest);
   else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
+  else if (cmd === 'overrides') process.stdout.write(`${JSON.stringify(offOverridden())}\n`);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
     say('');
@@ -4083,7 +4117,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | build | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | build | stop | status | overrides | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

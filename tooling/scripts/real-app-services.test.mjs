@@ -3,7 +3,7 @@
 // done is said in words; a healthy stack is left alone. Run: node tooling/scripts/real-app-services.test.mjs
 import assert from 'node:assert/strict';
 
-const { healStack, downRows } = await import('../../apps/customer/tests/real-app/services.mjs');
+const { healStack, downRows, withoutOff, blankServices } = await import('../../apps/customer/tests/real-app/services.mjs');
 
 const TABLE_DOWN = [
   'INTAFACED local test stack',
@@ -16,29 +16,32 @@ const TABLE_DOWN = [
 /** A fake stack tool: answers each call from `answers` in order, and records the calls. */
 const fake = (...answers) => {
   const calls = [];
-  const run = async (args, timeout) => {
+  const envs = [];
+  const run = async (args, timeout, env) => {
     calls.push([args.join(' '), timeout]);
+    envs.push(env);
     return answers.shift() ?? { code: 0, timedOut: false, stdout: '', stderr: '' };
   };
-  return { run, calls };
+  return { run, calls, envs };
 };
 const ok = { code: 0, timedOut: false, stdout: '', stderr: '' };
 
 {
-  // Healthy: one status, nothing started, nothing said.
-  const f = fake(ok);
+  // Healthy, nothing left blank: status and overrides, nothing started, nothing said.
+  const f = fake(ok, ok);
   assert.deepEqual(await healStack({ run: f.run, healMs: 100_000 }), []);
   assert.deepEqual(
     f.calls.map((c) => c[0]),
-    ['status'],
+    ['status', 'overrides'],
   );
 }
 {
   // Down, healed: status, start, status; the down rows are named.
-  const f = fake({ code: 1, timedOut: false, stdout: TABLE_DOWN, stderr: '' }, ok, ok);
+  const f = fake({ code: 1, timedOut: false, stdout: TABLE_DOWN, stderr: '' }, ok, ok, ok);
   const said = await healStack({ run: f.run, statusMs: 7, healMs: 60_000 });
   assert.deepEqual(f.calls, [
     ['status', 7],
+    ['overrides', 7],
     ['start', 60_000],
     ['status', 7],
   ]);
@@ -53,6 +56,7 @@ const ok = { code: 0, timedOut: false, stdout: '', stderr: '' };
   // Down, the start times out and the stack stays down: said, never thrown.
   const f = fake(
     { code: null, timedOut: true, stdout: '', stderr: '' },
+    ok,
     { code: null, timedOut: true, stdout: '', stderr: '' },
     {
       code: 1,
@@ -70,13 +74,75 @@ const ok = { code: 0, timedOut: false, stdout: '', stderr: '' };
 }
 {
   // Too little time left in the restore: it says what is down and starts nothing (a start cut off part-way helps no one).
-  const f = fake({ code: 1, timedOut: false, stdout: TABLE_DOWN, stderr: '' });
+  const f = fake({ code: 1, timedOut: false, stdout: TABLE_DOWN, stderr: '' }, ok);
   const said = await healStack({ run: f.run, healMs: 10_000 });
   assert.deepEqual(
     f.calls.map((c) => c[0]),
-    ['status'],
+    ['status', 'overrides'],
   );
   assert.equal(said[1], 'not started again: 10s left in this restore, under 60s; later files may fail on it');
+}
+const BLANK = { code: 0, timedOut: false, stdout: '{"agents":["LOCAL_STACK_AGENTS_RATES"]}\n', stderr: '' };
+{
+  // Healthy, but a file left svc-agents started with its rates off: it is restarted without them, then status.
+  const env = { PATH: '/bin', LOCAL_STACK_AGENTS_RATES: 'off', LOCAL_STACK_STATE: '/tmp/s', LOCAL_STACK_S2S: 'on' };
+  const f = fake(ok, BLANK, ok, ok);
+  const said = await healStack({ run: f.run, statusMs: 7, healMs: 90_000, env });
+  assert.deepEqual(f.calls, [
+    ['status', 7],
+    ['overrides', 7],
+    ['restart agents', 90_000],
+    ['status', 7],
+  ]);
+  assert.deepEqual(f.envs[2], { PATH: '/bin', LOCAL_STACK_STATE: '/tmp/s', LOCAL_STACK_S2S: 'on' }, 'restarted without the off value only');
+  assert.deepEqual(said, [
+    'started with an owner value off: agents (LOCAL_STACK_AGENTS_RATES)',
+    'restarting agents without it',
+    'stack healthy again',
+  ]);
+}
+{
+  // Down and blank at once: one restart (which also starts what is down), not a start and a restart.
+  const f = fake({ code: 1, timedOut: false, stdout: TABLE_DOWN, stderr: '' }, BLANK, ok, ok);
+  const said = await healStack({ run: f.run, healMs: 90_000, env: {} });
+  assert.deepEqual(
+    f.calls.map((c) => c[0]),
+    ['status', 'overrides', 'restart agents', 'status'],
+  );
+  assert.match(said[0], /^stack not healthy \(status exit 1: /);
+  assert.equal(said.at(-1), 'stack healthy again');
+}
+{
+  // Blank with too little time: said, nothing restarted.
+  const f = fake(ok, BLANK);
+  const said = await healStack({ run: f.run, healMs: 30_000 });
+  assert.deepEqual(
+    f.calls.map((c) => c[0]),
+    ['status', 'overrides'],
+  );
+  assert.equal(said.at(-1), 'not restarted: 30s left in this restore, under 60s; later files may fail on it');
+}
+{
+  // An overrides answer that can't be read is said; a healthy stack is then left alone.
+  const f = fake(ok, { code: 0, timedOut: false, stdout: 'not json', stderr: '' });
+  assert.deepEqual(await healStack({ run: f.run, healMs: 90_000 }), [
+    'could not read which services run with an owner value off (overrides answer is not JSON)',
+  ]);
+  assert.deepEqual(blankServices({ code: null, timedOut: true, stdout: '' }), { blank: {}, error: 'overrides timed out' });
+  // Names and variables that aren't a service's or a LOCAL_STACK value are dropped, never passed to restart.
+  assert.deepEqual(blankServices({ code: 0, stdout: '{"agents; rm":["X"],"ws":["LOCAL_STACK_WS_UPSTREAM","PATH"]}' }), {
+    blank: { ws: ['LOCAL_STACK_WS_UPSTREAM'] },
+  });
+  assert.deepEqual(withoutOff({ LOCAL_STACK_HOSTS: 'off', LOCAL_STACK_HOSTS_X: 'on', HOME: 'off' }), {
+    LOCAL_STACK_HOSTS_X: 'on',
+    HOME: 'off',
+  });
+}
+// The stack records the off values each process started with (local-test-stack.mjs offOverrides).
+{
+  const src = (await import('node:fs')).readFileSync(new URL('./local-test-stack.mjs', import.meta.url), 'utf8');
+  assert.match(src, /\.\.\.\(off\.length \? \{ offOverrides: off \} : \{\}\)/, 'startProc records offOverrides');
+  assert.match(src, /cmd === 'overrides'/, "the stack tool answers 'overrides'");
 }
 // The restore's budget: a restart file gets about 100 s for the start; one that also moves the market gets too little.
 {
@@ -89,4 +155,6 @@ const ok = { code: 0, timedOut: false, stdout: '', stderr: '' };
 }
 // Rows that aren't the status table's, or that name a credential, are never shown.
 assert.deepEqual(downRows('secret=abcdefghijklmnopqrstuvwxyz0123 DOWN\n  svc-ws 14510 - DOWN (0)'), ['svc-ws 14510 - DOWN (0)']);
-console.log('real-app services: a stack left down after a restart is started again before the next file, and said');
+console.log(
+  'real-app services: a stack left down, or a service left with an owner value off, after a restart is put back before the next file, and said',
+);
