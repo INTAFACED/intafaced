@@ -98,7 +98,7 @@ function readyAdapter(setting: EmbeddedWalletSetting) {
   if (setting.kind === 'unwired')
     throw new EmbeddedWalletRefusedError(
       EMBEDDED_PROVIDER_UNWIRED,
-      'The wallet provider that is set is not connected in this build, so no wallet can be made. Nothing was made.',
+      'The wallet provider that is set has no adapter in this build yet, so no wallet can be made. Nothing was made.',
     );
   return setting.adapter;
 }
