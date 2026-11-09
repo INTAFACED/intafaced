@@ -76,12 +76,11 @@ export class StoreVenueRoutingGate implements VenueRoutingGate {
   constructor(private readonly store: VenueListingStore) {}
 
   async shown(venueId: string, at: Date): Promise<ReadonlyMap<string, ShownListing>> {
-    const latest = new Map<string, VenueListingVersion>();
-    for (const row of await this.store.listingVersions(venueId)) latest.set(row.symbol, row);
-    const limits = new Map<string, VenueLimitVersion>();
-    for (const row of await this.store.limitVersions(venueId)) limits.set(row.symbol, row);
+    // The latest row per symbol only (DISTINCT ON in SQL): a customer read never pulls the history.
+    const [listings, latestLimits] = await Promise.all([this.store.latestListings(venueId), this.store.latestLimitsBySymbol(venueId)]);
+    const limits = new Map<string, VenueLimitVersion>(latestLimits.map((row) => [row.symbol, row]));
     const out = new Map<string, ShownListing>();
-    for (const [symbol, listing] of latest) out.set(symbol, shownOf(listing, limits.get(symbol) ?? null, at));
+    for (const listing of listings) out.set(listing.symbol, shownOf(listing, limits.get(listing.symbol) ?? null, at));
     return out;
   }
 

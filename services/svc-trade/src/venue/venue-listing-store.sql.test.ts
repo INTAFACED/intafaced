@@ -148,6 +148,34 @@ describe('SqlVenueListingStore (Postgres)', () => {
     await expect(db!.sql`DELETE FROM trade.venue_routed_limits`).rejects.toThrow(/never changed/);
   });
 
+  it('reads the latest row per symbol, and every notice of a venue, each in one query', async () => {
+    await store.appendListing(listing());
+    await store.appendListing(listing({ version: 2, approvalId: 'approval-2', change: 'routing', routing: 'stop' }));
+    await store.appendListing(listing({ symbol: 'BTC-USDC', approvalId: 'approval-3' }));
+    await store.appendListing(listing({ venueId: 'other-venue', approvalId: 'approval-4', routing: 'close_only' }));
+    await store.appendLimits(limits());
+    await store.appendLimits(limits({ version: 2, approvalId: 'limits-2', maxOrderQty: a('7') }));
+    const delistsAt = new Date('2026-12-01T00:00:00.000Z');
+    const noticeKey = delistingNoticeKey('test-venue-sim', 'BTC-USDC', delistsAt);
+    await store.appendListing(listing({ symbol: 'BTC-USDC', version: 2, approvalId: 'approval-5', change: 'delisting', delistsAt }), {
+      noticeKey,
+      approvalId: 'approval-5',
+      venueId: 'test-venue-sim',
+      symbol: 'BTC-USDC',
+      delistsAt,
+      scheduledAt: T0,
+    });
+    expect((await store.latestListings('test-venue-sim')).map((r) => [r.symbol, r.version, r.routing])).toEqual([
+      ['BTC-USDC', 2, 'show'],
+      ['ETH-USDC', 2, 'stop'],
+    ]);
+    expect((await store.latestLimitsBySymbol('test-venue-sim')).map((r) => [r.symbol, r.version, r.maxOrderQty])).toEqual([
+      ['ETH-USDC', 2, a('7')],
+    ]);
+    expect((await store.noticesForVenue('test-venue-sim')).map((n) => n.noticeKey)).toEqual([noticeKey]);
+    expect(await store.noticesForVenue('other-venue')).toEqual([]);
+  });
+
   it('the LOCAL TEST stack seed lands under the two-person CHECK, as two distinct stack ids, once', async () => {
     const sim = new TestVenueSimulator({ clock: () => T0, markets: TEST_VENUE_MARKETS, chainId: 84532 });
     await seedTestVenue(sim);

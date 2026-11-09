@@ -170,6 +170,17 @@ function noticeView(n: VenueDelistingNotice | null) {
   return n ? { noticeKey: n.noticeKey, delistsAt: n.delistsAt.toISOString(), publishedAt: iso(n.publishedAt) } : null;
 }
 
+/** Rows by symbol, each symbol's rows in the order given (the store answers by symbol then version). */
+function groupBySymbol<T extends { symbol: string }>(rows: readonly T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const row of rows) {
+    const list = out.get(row.symbol);
+    if (list) list.push(row);
+    else out.set(row.symbol, [row]);
+  }
+  return out;
+}
+
 export class VenueMarketsAdmin {
   constructor(private readonly deps: VenueMarketsDeps) {}
 
@@ -184,25 +195,34 @@ export class VenueMarketsAdmin {
     return market;
   }
 
-  /** Every venue market and every listing we hold, ours beside the venue's own state and largest order. */
+  /**
+   * Every venue market and every listing we hold, ours beside the venue's own state and largest order. A read only: it
+   * publishes and writes nothing (a pending notice is sent right after its commit, or by the background retry).
+   */
   async list(principal: Principal) {
     requireOperator(principal);
     const venue = await this.connected();
-    await publishPendingDelistingNotices(this.deps.store, this.deps.notices, this.deps.now);
-    const read = await venue.markets(null);
+    const venueId = venue.venue.id;
+    const [read, listings, limits, notices] = await Promise.all([
+      venue.markets(null),
+      this.deps.store.listingVersions(venueId),
+      this.deps.store.limitVersions(venueId),
+      this.deps.store.noticesForVenue(venueId),
+    ]);
     const now = this.deps.now();
-    const listings = await this.deps.store.listingVersions(venue.venue.id);
-    const limits = await this.deps.store.limitVersions(venue.venue.id);
-    const symbols = [...new Set([...read.value.map((m) => m.symbol), ...listings.map((l) => l.symbol)])];
+    const venueBySymbol = new Map(read.value.map((m) => [m.symbol, m]));
+    const historyBySymbol = groupBySymbol(listings);
+    const limitsBySymbol = groupBySymbol(limits);
+    const noticeByApproval = new Map(notices.map((n) => [n.approvalId, n]));
+    const symbols = [...new Set([...venueBySymbol.keys(), ...historyBySymbol.keys()])];
     const markets = [];
     for (const symbol of symbols) {
-      const m = read.value.find((x) => x.symbol === symbol) ?? null;
-      const history = listings.filter((l) => l.symbol === symbol);
-      const limitHistory = limits.filter((l) => l.symbol === symbol);
+      const m = venueBySymbol.get(symbol) ?? null;
+      const history = historyBySymbol.get(symbol) ?? [];
+      const limitHistory = limitsBySymbol.get(symbol) ?? [];
       const current = history.at(-1) ?? null;
-      const delisting = current?.delistsAt
-        ? await this.deps.store.noticeByApproval(history.find((h) => h.change === 'delisting')!.approvalId)
-        : null;
+      const delistingApproval = current?.delistsAt ? history.find((h) => h.change === 'delisting')?.approvalId : undefined;
+      const delisting = delistingApproval ? (noticeByApproval.get(delistingApproval) ?? null) : null;
       markets.push({
         symbol,
         kind: m?.kind ?? null,
@@ -263,7 +283,7 @@ export class VenueMarketsAdmin {
       if (replay.venueId !== venueId || replay.symbol !== input.symbol || !same(replay)) {
         throw new TradeOpsError('approval_reused', 'this approval already wrote a different change');
       }
-      await publishPendingDelistingNotices(this.deps.store, this.deps.notices, this.deps.now);
+      // A replay answers what was written; a notice still pending is the background retry's to send.
       return this.answerListing(replay);
     }
     const expected = this.version(input.expectedVersion, 'trade.venue_listing_stale');

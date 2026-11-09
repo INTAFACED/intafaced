@@ -25,6 +25,7 @@ import {
   StoreVenueRoutingGate,
   assertTestListingsAllowed,
   parseTestListings,
+  publishPendingDelistingNotices,
   seedTestListings,
   type VenueDelistingNotices,
 } from '../venue/venue-listing.js';
@@ -90,6 +91,7 @@ describe('venue markets desk (J-cex-spot-16)', () => {
   let desk: VenueMarketsAdmin;
   let door: UserVenueDoor;
   let approvalSeq: number;
+  let notices: VenueDelistingNotices;
 
   beforeEach(async () => {
     now = new Date('2026-11-09T12:00:00.000Z');
@@ -101,7 +103,7 @@ describe('venue markets desk (J-cex-spot-16)', () => {
     published = [];
     busDown = false;
     approvalSeq = 0;
-    const notices: VenueDelistingNotices = {
+    notices = {
       async publish(x) {
         if (busDown) throw new Error('TEST bus down');
         published.push(x);
@@ -572,17 +574,68 @@ describe('venue markets desk (J-cex-spot-16)', () => {
     await expect(new StoreVenueRoutingGate(store).admitPlace(VENUE, order({ reduceOnly: true }), now)).resolves.toBeUndefined();
   });
 
-  it('#8 a notice the bus did not take stays pending and is sent once by the next run', async () => {
+  it('#8 a notice the bus did not take stays pending; no read or replay sends it, the background retry sends it once', async () => {
     await list();
     busDown = true;
-    const written = await delist('2026-12-01T00:00:00.000Z', '1');
+    const delistsAt = '2026-12-01T00:00:00.000Z';
+    const ids = approved(
+      VENUE_DELISTING_SCHEDULE_ACTION,
+      venueListingTarget(VENUE, 'ETH-USDC'),
+      '1',
+      venueDelistingPayloadHash({ venueId: VENUE, symbol: 'ETH-USDC', delistsAt, expectedVersion: '1', reason: REASON }),
+    );
+    const schedule = () => desk.delistingSchedule(writer(), { symbol: 'ETH-USDC', delistsAt, expectedVersion: '1', reason: REASON, ...ids });
+    const written = await schedule();
     expect(written.delistingNotice).toMatchObject({ publishedAt: null });
     expect(published).toEqual([]);
     busDown = false;
+    // The operator read publishes and writes nothing; a replay of the write neither.
     await desk.list(reader());
-    await desk.list(reader());
+    expect((await schedule()).listing).toMatchObject({ version: 2, approvalId: ids.approvalId });
+    expect(published).toEqual([]);
+    expect((await desk.list(reader())).markets.find((m) => m.symbol === 'ETH-USDC')!.delistingNotice).toMatchObject({ publishedAt: null });
+    // The background retry sends it, once.
+    await publishPendingDelistingNotices(store, notices, () => now);
+    await publishPendingDelistingNotices(store, notices, () => now);
     expect(published).toHaveLength(1);
     expect((await store.pendingNotices(10)).length).toBe(0);
+  });
+
+  it('the customer gate reads only the latest row per symbol; the desk read groups once and reads notices in one query', async () => {
+    await list();
+    await list('BTC-USDC');
+    await route('close_only', '1');
+    await limit('2', '4000');
+    await limit('3', '5000', '1');
+    await delist('2026-12-01T00:00:00.000Z', '2');
+    await delist('2026-12-02T00:00:00.000Z', '1', 'BTC-USDC');
+    const calls: string[] = [];
+    const counted = new Proxy(store, {
+      get(target, prop, receiver) {
+        const v = Reflect.get(target, prop, receiver) as unknown;
+        if (typeof v !== 'function') return v;
+        return (...args: unknown[]) => {
+          calls.push(String(prop));
+          return (v as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    });
+
+    const shown = await new StoreVenueRoutingGate(counted).shown(VENUE, now);
+    expect(calls.sort()).toEqual(['latestLimitsBySymbol', 'latestListings']);
+    expect(shown.get('ETH-USDC')).toMatchObject({ version: 3, routing: 'close_only', maxOrderQty: a('3') });
+    expect(shown.get('BTC-USDC')).toMatchObject({ version: 2, maxOrderQty: null });
+
+    calls.length = 0;
+    const read = await new VenueMarketsAdmin({ venue: async () => sim, store: counted, approvals: book, notices, now: () => now }).list(
+      reader(),
+    );
+    expect(calls.sort()).toEqual(['limitVersions', 'listingVersions', 'noticesForVenue']);
+    const eth = read.markets.find((m) => m.symbol === 'ETH-USDC')!;
+    expect(eth.listingHistory.map((h) => h.version)).toEqual([1, 2, 3]);
+    expect(eth.limitHistory.map((h) => h.version)).toEqual([1, 2]);
+    expect(eth.delistingNotice?.delistsAt).toBe('2026-12-01T00:00:00.000Z');
+    expect(read.markets.find((m) => m.symbol === 'BTC-USDC')!.delistingNotice?.delistsAt).toBe('2026-12-02T00:00:00.000Z');
   });
 
   // ── the money invariant ─────────────────────────────────────────────────

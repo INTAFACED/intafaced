@@ -71,10 +71,16 @@ export interface VenueListingStore {
   limitVersions(venueId: string): Promise<readonly VenueLimitVersion[]>;
   latestLimits(venueId: string, symbol: string): Promise<VenueLimitVersion | null>;
   limitsByApproval(approvalId: string): Promise<VenueLimitVersion | null>;
+  /** The latest listing version of each symbol on a venue, by symbol (one row per symbol, never the history). */
+  latestListings(venueId: string): Promise<readonly VenueListingVersion[]>;
+  /** The latest limit version of each symbol on a venue, by symbol (one row per symbol, never the history). */
+  latestLimitsBySymbol(venueId: string): Promise<readonly VenueLimitVersion[]>;
   /** Append `row` (its version is the latest + 1) and, in the same transaction, the delisting notice it sends. */
   appendListing(row: VenueListingVersion, notice?: Omit<VenueDelistingNotice, 'publishedAt'>): Promise<AppendOutcome>;
   appendLimits(row: VenueLimitVersion): Promise<AppendOutcome>;
   noticeByApproval(approvalId: string): Promise<VenueDelistingNotice | null>;
+  /** Every delisting notice of a venue, in one read. */
+  noticesForVenue(venueId: string): Promise<readonly VenueDelistingNotice[]>;
   /** Notices not yet published, oldest first. */
   pendingNotices(limit: number): Promise<readonly VenueDelistingNotice[]>;
   markNoticePublished(noticeKey: string, at: Date): Promise<void>;
@@ -112,6 +118,17 @@ export class MemoryVenueListingStore implements VenueListingStore {
   async limitsByApproval(approvalId: string) {
     return this.limits.find((r) => r.approvalId === approvalId) ?? null;
   }
+  private static latest<T extends { symbol: string; version: number }>(rows: readonly T[]): T[] {
+    const by = new Map<string, T>();
+    for (const row of MemoryVenueListingStore.order(rows)) by.set(row.symbol, row);
+    return [...by.values()];
+  }
+  async latestListings(venueId: string) {
+    return MemoryVenueListingStore.latest(this.listings.filter((r) => r.venueId === venueId));
+  }
+  async latestLimitsBySymbol(venueId: string) {
+    return MemoryVenueListingStore.latest(this.limits.filter((r) => r.venueId === venueId));
+  }
   async appendListing(row: VenueListingVersion, notice?: Omit<VenueDelistingNotice, 'publishedAt'>): Promise<AppendOutcome> {
     if (this.listings.some((r) => r.approvalId === row.approvalId)) return 'replayed';
     const latest = await this.latestListing(row.venueId, row.symbol);
@@ -130,6 +147,9 @@ export class MemoryVenueListingStore implements VenueListingStore {
   }
   async noticeByApproval(approvalId: string) {
     return [...this.notices.values()].find((n) => n.approvalId === approvalId) ?? null;
+  }
+  async noticesForVenue(venueId: string) {
+    return [...this.notices.values()].filter((n) => n.venueId === venueId);
   }
   async pendingNotices(limit: number) {
     return [...this.notices.values()]
@@ -268,6 +288,18 @@ export class SqlVenueListingStore implements VenueListingStore {
     >`SELECT ${this.sql.unsafe(LIMIT_COLUMNS)} FROM trade.venue_routed_limits WHERE approval_id = ${approvalId}`;
     return rows[0] ? limitOf(rows[0]) : null;
   }
+  async latestListings(venueId: string) {
+    const rows = await this.sql<ListingRow[]>`
+      SELECT DISTINCT ON (symbol) ${this.sql.unsafe(LISTING_COLUMNS)}
+        FROM trade.venue_listings WHERE venue_id = ${venueId} ORDER BY symbol, version DESC`;
+    return rows.map(listingOf);
+  }
+  async latestLimitsBySymbol(venueId: string) {
+    const rows = await this.sql<LimitRow[]>`
+      SELECT DISTINCT ON (symbol) ${this.sql.unsafe(LIMIT_COLUMNS)}
+        FROM trade.venue_routed_limits WHERE venue_id = ${venueId} ORDER BY symbol, version DESC`;
+    return rows.map(limitOf);
+  }
 
   async appendListing(row: VenueListingVersion, notice?: Omit<VenueDelistingNotice, 'publishedAt'>): Promise<AppendOutcome> {
     return (await this.sql
@@ -330,6 +362,12 @@ export class SqlVenueListingStore implements VenueListingStore {
       SELECT notice_key, approval_id, venue_id, symbol, delists_at, scheduled_at, published_at
         FROM trade.venue_delisting_notices WHERE approval_id = ${approvalId}`;
     return rows[0] ? noticeOf(rows[0]) : null;
+  }
+  async noticesForVenue(venueId: string) {
+    const rows = await this.sql<NoticeRow[]>`
+      SELECT notice_key, approval_id, venue_id, symbol, delists_at, scheduled_at, published_at
+        FROM trade.venue_delisting_notices WHERE venue_id = ${venueId}`;
+    return rows.map(noticeOf);
   }
   async pendingNotices(limit: number) {
     const rows = await this.sql<NoticeRow[]>`
