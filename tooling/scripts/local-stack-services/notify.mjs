@@ -40,8 +40,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // this stack's state folder (refused at boot unless APP_ENV is exactly dev or test). Production has no sender until
     // the owner configures the email gateway, and every confirmation waits with vendor.email.
     NOTIFY_STATUS_LINK_SECRET: secrets.notifyStatusLink,
-    NOTIFY_STATUS_MAIL_TRANSPORT: 'local-outbox',
-    NOTIFY_STATUS_MAIL_OUTBOX: path.join(STATE, 'status-mail-outbox.log'),
+    // LOCAL_STACK_NOTIFY_STATUS_MAIL=off (a journey's restart only, J-support-public-19 #5): no status mail sender, as in
+    // production before the owner configures the email gateway, so delivery rows wait pending and name vendor.email.
+    ...(process.env.LOCAL_STACK_NOTIFY_STATUS_MAIL === 'off'
+      ? {}
+      : { NOTIFY_STATUS_MAIL_TRANSPORT: 'local-outbox', NOTIFY_STATUS_MAIL_OUTBOX: path.join(STATE, 'status-mail-outbox.log') }),
     // The customer site's address on this stack, where Edge serves the status badge: the founder console builds badge
     // snippets on it. The local outbox above writes app paths and does not read it.
     NOTIFY_PUBLIC_ORIGIN: CUSTOMER_ORIGIN,
