@@ -121,8 +121,8 @@ describe('evaluateGeoBlock — empty is unknown, not a geo-clearance', () => {
     expect(looksLikeGeoClearance(result)).toBe(false);
   });
 
-  it('does not invent JURISDICTION_MATRIX blocked:true from the shipped empty set', () => {
-    const result = evaluateGeoBlock({ region: 'US', screening: LISTED });
+  it('does not invent JURISDICTION_MATRIX blocked:true for a region the shipped matrix does not block', () => {
+    const result = evaluateGeoBlock({ region: 'CA', screening: LISTED });
     expect(JSON.stringify(result)).not.toMatch(/"blocked"\s*:\s*true/);
     expect(inventedBlockedTrueList({ blocked: true })).toBe(true);
     expect(inventedBlockedTrueList({ blocked: [{ region: 'XX', blocked: true }] })).toBe(true);

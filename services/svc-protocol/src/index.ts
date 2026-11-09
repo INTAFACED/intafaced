@@ -28,6 +28,8 @@ import { walletSessionFromSetting } from './address-book/session.js';
 import { PostgresAddressBookStore } from './address-book/book.pg.js';
 import { venueConnectionTtlFromSetting, walletSanctionsFromSetting } from './venue-wallet/connection.js';
 import { PostgresVenueConnectionStore } from './venue-wallet/connection.pg.js';
+import { embeddedWalletFromSetting } from './embedded-wallet/provider.js';
+import { PostgresEmbeddedWalletStore } from './embedded-wallet/embedded.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
 import { PostgresListingStore } from './listing/ownership.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
@@ -81,6 +83,7 @@ for (const tableName of [
   'address_reports',
   'venue_wallet_connections',
   'venue_wallet_nonces',
+  'embedded_wallets',
 ]) {
   const [table] = await db.sql<Array<{ exists: boolean }>>`
     SELECT EXISTS (
@@ -152,6 +155,12 @@ const walletSessionSetting = walletSessionFromSetting(
 // Raw APP_ENV: a `TEST:` value refuses to boot anywhere but the local test stack.
 const venueConnectionTtl = venueConnectionTtlFromSetting(env.PROTOCOL_VENUE_CONNECTION_TTL_SECONDS, process.env.APP_ENV);
 const walletSanctions = walletSanctionsFromSetting(env.PROTOCOL_WALLET_SANCTIONS, process.env.APP_ENV);
+// The embedded-wallet provider (J-wallet-22): blank is unset; a TEST provider refuses to boot outside the local test stack.
+const embeddedWalletSetting = embeddedWalletFromSetting(
+  env.PROTOCOL_EMBEDDED_WALLET_PROVIDER,
+  env.PROTOCOL_EMBEDDED_WALLET_TEST_URL,
+  process.env.APP_ENV,
+);
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
 let badgeRestartable: boolean | undefined;
@@ -219,6 +228,10 @@ export const appRouter = createProtocolRouter({
     session: () => walletSessionSetting,
     ttlSeconds: () => venueConnectionTtl,
     sanctions: () => walletSanctions,
+  },
+  embeddedWallet: {
+    store: new PostgresEmbeddedWalletStore(db.sql),
+    setting: () => embeddedWalletSetting,
   },
   badge: {
     store: new PostgresBadgeStore(db.sql),

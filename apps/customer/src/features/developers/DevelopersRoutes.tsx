@@ -34,6 +34,8 @@ import { AuthErrorsCatalogue } from './errors/AuthErrorsCatalogue';
 import { SandboxRoutes } from './sandbox/SandboxRoutes';
 import { ErrorsPage } from './errors/TradeErrorsCatalogue';
 import { RateLimitsPage } from './rate-limits/RateLimitsPage';
+import { BotPolicyPage } from './trading/BotPolicyPage';
+import { OrderTypesPage } from './trading/OrderTypesPage';
 import '../public/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
@@ -54,6 +56,8 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   authentication: AuthenticationPage,
   errors: ErrorsPage,
   'rate-limits': RateLimitsPage,
+  'order-types': OrderTypesPage,
+  'bot-policy': BotPolicyPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */

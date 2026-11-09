@@ -65,9 +65,11 @@
  *     `none`              → `reviewed-empty`. See below; requires attribution.
  *     A list of codes     → `listed`.
  *
- *     A list is comma-separated. Each item is an ISO-3166 alpha-2 code,
- *     optionally followed by `:` and the reason an operator (or a refused user)
- *     should see. Whitespace around items is ignored; codes are case-insensitive.
+ *     A list is comma-separated. Each item is an ISO 3166-1 alpha-2 country
+ *     code or an ISO 3166-2 subdivision code (`AA-01`: a region listed without
+ *     its country), optionally followed by `:` and the reason an operator (or a
+ *     refused user) should see. A listed country covers its subdivisions; a
+ *     listed subdivision covers only itself. Whitespace around items is ignored; codes are case-insensitive.
  *
  *       INTAFACED_SANCTIONS_REGIONS="AA:UNSC resolution ref,BB:programme ref"
  *
@@ -140,7 +142,7 @@ export type ScreeningDeclaration =
   | 'reviewed-empty';
 
 export interface ScreenedRegion {
-  /** ISO-3166 alpha-2, upper-cased. */
+  /** ISO 3166-1 alpha-2 or ISO 3166-2 subdivision (`AA-01`), upper-cased. */
   readonly region: string;
   /** Shown on refusal and carried in the audit log. */
   readonly reason: string;
@@ -349,7 +351,8 @@ export function consultScreeningList(list: ScreeningList, region: string): Scree
     }
     return { outcome: 'clear', region: code, declaration: 'reviewed-empty', source: list.source };
   }
-  const hit = list.regions.find((entry) => entry.region === code);
+  const chain = regionCodeChain(code);
+  const hit = list.regions.find((entry) => chain.includes(entry.region));
   if (hit) {
     return { outcome: 'hit', region: code, reason: hit.reason, source: hit.source, declaration: 'listed' };
   }
@@ -369,7 +372,27 @@ export class ScreeningListError extends Error {
   }
 }
 
-const REGION_CODE = /^[A-Za-z]{2}$/;
+/** An ISO 3166-1 alpha-2 country, or an ISO 3166-2 subdivision of one (`CA-ON`, `UA-43`). */
+const REGION_CODE = /^[A-Za-z]{2}(?:-[A-Za-z0-9]{1,3})?$/;
+const SUBDIVISION_CODE = /^([A-Z]{2})-[A-Z0-9]{1,3}$/;
+
+/** True when `code` (trimmed, upper-cased) is an ISO 3166-2 subdivision code such as `CA-ON`. */
+export function isSubdivisionCode(code: string): boolean {
+  return SUBDIVISION_CODE.test(code.trim().toUpperCase());
+}
+
+/**
+ * The codes a region answers to, most specific first: `CA-ON` → `['CA-ON', 'CA']`, `CA` → `['CA']`.
+ *
+ * A row for a country covers every region in it; a row for a subdivision covers only that subdivision, so a
+ * region can be refused without its country (Hyperliquid terms 1.6, read 9 Nov 2026). A bare country never
+ * matches a subdivision row: who is in Ontario is only known when the subdivision is.
+ */
+export function regionCodeChain(region: string): readonly string[] {
+  const code = region.trim().toUpperCase();
+  const m = SUBDIVISION_CODE.exec(code);
+  return m ? [code, m[1]!] : [code];
+}
 
 /**
  * Parse the env format into a list.
@@ -422,7 +445,9 @@ export function parseScreeningList(raw: string | undefined, source?: string): Sc
     const reason = (colon === -1 ? '' : entry.slice(colon + 1)).trim();
 
     if (!REGION_CODE.test(code)) {
-      issues.push(`entry ${position} — expected an ISO-3166 alpha-2 code, optionally followed by ":reason" (value not shown)`);
+      issues.push(
+        `entry ${position} — expected an ISO 3166-1 alpha-2 or ISO 3166-2 code, optionally followed by ":reason" (value not shown)`,
+      );
       continue;
     }
 

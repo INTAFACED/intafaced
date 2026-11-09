@@ -23,12 +23,13 @@ import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from '
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
+import { ledgerPostingFreeze } from './partner/partner-bank.js';
 import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './cards/card-programme.js';
 import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { parseDisputeCap } from './cards/card-disputes.js';
-import { cardSimPartnerFor, parseSpendAssets } from './cards/partner-terms.js';
+import { cardSimPartnerFor, parsePinTryLimit, parseSpendAssets } from './cards/partner-terms.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
@@ -157,6 +158,10 @@ const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env
 
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
+  // A partner move posts nothing on the ledger, so it asks svc-ledger's posting freeze first (floor 4).
+  postingFreeze: ledgerPostingFreeze(env.LEDGER_URL),
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
@@ -254,6 +259,8 @@ const bank = createBankServices(sql, ledger, history, {
     ),
     /** The owner's list of assets a card may pay from (BK-ccrypto-01). Blank refuses `bank.card_spend_assets_unset`. */
     spendAssets: parseSpendAssets(env.BANK_CARD_SPEND_ASSETS),
+    /** The owner's count of wrong PIN tries that block a card's PIN (J-bank-14 #3). Blank declines a PIN by name. */
+    pinTryLimit: parsePinTryLimit(env.BANK_CARD_PIN_TRY_LIMIT),
     /** The owner's card programme terms (BK-cissue-01): eligibility, count limits, terms, designs, speeds. Blank refuses. */
     programmeTerms: parseCardProgramme(env.BANK_CARD_PROGRAMME_JSON),
     /** Cashback by rank card tier (RC-bank-02): the owner's rates, identity's rank door, and the simulator's TEST stand-in. */

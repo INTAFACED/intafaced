@@ -177,6 +177,8 @@ function fixture(mode: StepUpMode = 'required') {
     sharedPots: { assertMayTakeOut: async () => undefined, assertMayAddTo: async () => undefined },
     transfers: {
       transfer: mk('transfers.transfer', posted),
+      // `transfers.create`'s door: the service decides whose book holds the money (OWNER 226).
+      moveBetweenSpaces: mk('transfers.moveBetweenSpaces', posted),
       transferToUser: mk('transfers.transferToUser', posted),
       schedule: mk('transfers.schedule', sched),
       scheduleToUser: mk('transfers.scheduleToUser', sched),
@@ -435,7 +437,7 @@ describe('flag required: transfers.create / schedule / scheduleToUser', () => {
   it('a move between your own spaces never prompts', async () => {
     const f = fixture();
     await expect(f.caller().transfers.create({ ...createInput, toSpaceId: OWN_TO })).resolves.toMatchObject({ ledgerTxId: 'tx-1' });
-    expect(f.calls).toEqual(['transfers.transfer']);
+    expect(f.calls).toEqual(['transfers.moveBetweenSpaces']);
     expect(f.identity.consumeCalls).toBe(0);
   });
 
