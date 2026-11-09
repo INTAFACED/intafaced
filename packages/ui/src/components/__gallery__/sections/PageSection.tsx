@@ -44,8 +44,14 @@ function ScaledPage({ width }: { width: PageWidth }) {
       <Caption>
         width="{width}" (1440 px viewport, scaled to {Math.round(scale * 100)}%)
       </Caption>
-      {/* A picture of a page, not a page: inert, so its scaled-down controls are neither focusable nor targets. */}
-      <div inert className="relative overflow-hidden border border-line bg-bg" style={{ width: 1440 * scale, height: 560 * scale }}>
+      {/* A picture of a page, not a page: inert, so its scaled-down controls can't be focused, and marked so the look gate
+          reads it as a picture (no targets, no cut copy). */}
+      <div
+        inert
+        data-look-gate-picture
+        className="relative overflow-hidden border border-line bg-bg"
+        style={{ width: 1440 * scale, height: 560 * scale }}
+      >
         <div
           className="origin-top-left bg-bg outline outline-1 -outline-offset-1 outline-line"
           style={{ width: 1440, height: 560, transform: `scale(${scale})` }}

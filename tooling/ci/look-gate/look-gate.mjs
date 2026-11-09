@@ -274,9 +274,10 @@ function measure({ maxText }) {
 
   const CONTROL =
     'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [role="switch"], [tabindex]:not([tabindex="-1"])';
-  // Inert content (a scaled-down picture of a page) can't be focused or pressed: it holds no targets.
+  // The kit gallery's picture of a page (inert, marked data-look-gate-picture) can't be focused or pressed: it holds
+  // no targets. Only that marker counts; inert content anywhere else is measured as usual.
   const controls = [...document.querySelectorAll(CONTROL)]
-    .filter((el) => visible(el) && !el.closest('[inert]'))
+    .filter((el) => visible(el) && !el.closest('[inert][data-look-gate-picture]'))
     .map((el) => ({ el, r: el.getBoundingClientRect() }));
   const inText = (el) =>
     el.tagName === 'A' && [...el.parentElement.childNodes].some((n) => n !== el && n.nodeType === 3 && n.textContent.trim());
@@ -661,8 +662,9 @@ const CLIPPED_COPY = (generatedId) => {
   const cuts = (v) => v === 'hidden' || v === 'clip';
   const out = new Map();
   for (const own of document.querySelectorAll('[data-look-gate-copy]')) {
-    // Inert content is a picture of a page (scaled down, cut by its frame on purpose), not copy a person reads there.
-    if (own.closest('[inert]')) continue;
+    // The kit gallery's picture of a page (scaled down, cut by its frame on purpose) is not copy a person reads there.
+    // Only that marker counts: inert content anywhere else is still read, so cut copy there is still a finding.
+    if (own.closest('[inert][data-look-gate-picture]')) continue;
     // An inline or display: contents element has no box of its own: judge the block that holds it.
     let el = own;
     while (el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
@@ -1063,16 +1065,26 @@ async function selfTestBrowser(eq) {
     eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'a fixed bar escapes the row around it');
     await cut(`<div class="row" style="${box}"><div style="transform:translateX(300px)">%</div></div>`);
     eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'text wholly outside the row is hidden, not cut');
+    await cut(`<div inert data-look-gate-picture><div class="row" style="${box}">%</div></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'the gallery picture of a page is not copy that is cut');
     await cut(`<div inert><div class="row" style="${box}">%</div></div>`);
-    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'inert content (a picture of a page) is not copy that is cut');
+    eq(
+      await page.evaluate(CLIPPED_COPY, GENERATED_ID),
+      [['span.label', 'is cut by div.row']],
+      'inert copy outside the picture marker is still cut',
+    );
+    await cut(`<div data-look-gate-picture><div class="row" style="${box}">%</div></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by div.row']], 'the marker without inert is no exemption');
 
     // Targets: two 16 px buttons stacked edge to edge clash; the same inside an inert picture of a page are no targets.
     const pair =
       '<button style="display:block;width:20px;height:16px;padding:0">+</button><button style="display:block;width:20px;height:16px;padding:0">-</button>';
     await page.setContent(`<body style="margin:40px">${pair}</body>`);
     eq((await page.evaluate(measure, { maxText: 50 })).small.length, 2, 'two stacked 16 px buttons are small targets');
+    await page.setContent(`<body style="margin:40px"><div inert data-look-gate-picture>${pair}</div></body>`);
+    eq((await page.evaluate(measure, { maxText: 50 })).small, [], 'inside the gallery picture of a page they are no targets');
     await page.setContent(`<body style="margin:40px"><div inert>${pair}</div></body>`);
-    eq((await page.evaluate(measure, { maxText: 50 })).small, [], 'inside an inert picture they are no targets');
+    eq((await page.evaluate(measure, { maxText: 50 })).small.length, 2, 'inert buttons outside the picture marker are still measured');
 
     // Forced colours: the browser paints authored grey as CanvasText, so it is no finding; a box that keeps its own
     // colours (forced-color-adjust: none) is measured as painted, and low contrast there is.
