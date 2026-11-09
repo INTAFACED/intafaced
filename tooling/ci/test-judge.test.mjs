@@ -21,6 +21,7 @@ import {
   shingles,
   redact,
   readAnswer,
+  readTests,
   buildInputs,
   summaryLines,
   JOURNEY_FILE,
@@ -634,11 +635,31 @@ test('decided without the judge: nothing to judge passes without reading the wor
   const docs = 'diff --git a/docs/x.md b/docs/x.md\n--- a/docs/x.md\n+++ b/docs/x.md\n@@ -1 +1 @@\n-a\n+b\n';
   const never = async () => assert.fail('the words were read for a change that needs no judging');
   assert.equal((await buildInputs({ src: fakeSrc(docs), base: BASE, head: HEAD, pr: 1, brief: 'B', loadWords: never })).applicable, false);
-  // Planted (#7540): words the judge can't find are a gap in its input, never a FAIL that stands for the code.
-  await assert.rejects(
-    buildInputs({ src: fakeSrc(), base: BASE, head: HEAD, pr: 1, brief: 'B', loadWords: async () => ({ words: new Map(), ref: 'r' }) }),
-    /no step words for J-x-01 #2 at project-state r[^]*no verdict/,
-  );
+  // Planted (#7540): words the judge can't find are a gap in its input, never a FAIL that stands for the code, and
+  // never a stop for the review: the test part writes no verdict, and its read step fails on it alone.
+  const gap = await buildInputs({
+    src: fakeSrc(),
+    base: BASE,
+    head: HEAD,
+    pr: 1,
+    brief: 'B',
+    loadWords: async () => ({ words: new Map(), ref: 'r' }),
+  });
+  assert.match(gap.noVerdict, /no step words for J-x-01 #2 at project-state r[^]*no verdict/);
+  assert.equal(gap.prompt, undefined);
+  const dir = tmp();
+  await writeReviewInputs(dir, {
+    diff: DIFF,
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    src: fakeSrc(),
+    loadWords: async () => ({ words: new Map(), ref: 'r' }),
+    ...realBriefs(),
+  });
+  assert.ok(existsSync(join(dir, 'prompt.txt')), "the review's own prompt is written all the same");
+  assert.ok(!existsSync(join(dir, 'tests', 'verdict.json')) && !existsSync(join(dir, 'tests', 'prompt.txt')));
+  assert.match(cmdRead(join(dir, 'tests'), {}).why, /no step words for J-x-01 #2/);
   // A step only the title claims, with no words: not read, and named as not read.
   const docsSrc = { ...fakeSrc(docs), read: async () => JFILE };
   const claimOnly = await buildInputs({
@@ -952,6 +973,11 @@ test('planted: a step whose test no longer proves its words is read WEAK, fails 
   assert.equal(answer(testsAnswer({ read: 'WEAK', verdict: 'FAIL' })).ok, true);
   assert.equal(verdict(), 'FAIL');
   assert.equal(cmdJudge(tests, { exit: false }), 'FAIL');
+  assert.equal(JSON.parse(readFileSync(join(tests, 'verdict.json'), 'utf8')).readStatus.state, 'failure');
+  assert.equal(
+    execFileSync(process.execPath, [new URL('./test-judge.mjs', import.meta.url).pathname, 'status', tests], { encoding: 'utf8' }),
+    "failure\t1 WEAK (the CI review's read of the step's words and its test)\n",
+  );
   // The v2 read: project-state's format, the step as the count keys it, this run as its reader, never the step words.
   const r = read();
   assert.deepEqual([r.kind, r.pr, r.read_sha, r.words_ref, r.builder_thread], ['step', '#7', HEAD, 'c'.repeat(40), 'github:builder-bot']);
@@ -1025,11 +1051,16 @@ test('the title claims a step: read at the head though the PR changes no test; a
     title: 'svc-x: send coins (J-wallet-01 #1 #2)',
     body: 'Left-or-replaced: J-wallet-01 #2\n',
   });
-  assert.deepEqual(got.required, { reads: ['J-wallet-01 #1'], steps: [], changes: [] });
+  assert.deepEqual(got.required, { reads: ['J-wallet-01 #1'], steps: [], changes: [], blocking: [] });
+  // No test changed: the product diff is no part of the read.
+  assert.doesNotMatch(got.prompt, /BEGIN UNTRUSTED DIFF/);
+  assert.doesNotMatch(got.prompt, /svc-x/);
   assert.match(got.prompt, /J-wallet-01 #1 \[read: the title claims it\]/);
-  assert.match(
-    got.prompt,
-    /BEGIN UNTRUSTED TEST J-wallet-01 #1 \(read, at head [0-9a-f]{10}, from apps\/customer\/tests\/real-app\/J-wallet-01\.pw\.mjs\)\ntest\(`\$\{J\} #1 sends`, async \(\) => \{\n {2}expect\(sent\)\.toBe\(1n\);\n\}\);\nEND UNTRUSTED TEST/,
+  // The whole journey file, so its hooks, in-file helpers and routes are read with the test.
+  assert.ok(
+    got.prompt.includes(
+      `BEGIN UNTRUSTED FILE unchanged, holding the read step J-wallet-01 #1 (head ${HEAD.slice(0, 10)}) ${WALLET}\n${WALLET_FILE}\nEND UNTRUSTED FILE`,
+    ),
   );
   assert.doesNotMatch(got.prompt, /J-wallet-01 #2 \[read/);
   // A title naming no step, on a change to no test, needs nothing read and no words.
@@ -1063,14 +1094,30 @@ test("the count's second, blind reader: a money step gets its own call that neve
   assert.match(cmdRead(tests, ENV(dir)).why, /^the second reader: the reader wrote no second\/answer\.json/);
   writeFileSync(join(tests, 'second', 'answer.json'), answerText(one('WEAK')));
   assert.equal(cmdRead(tests, ENV(dir)).ok, true);
-  assert.equal(JSON.parse(readFileSync(join(tests, 'verdict.json'), 'utf8')).verdict, 'FAIL', "the second reader's WEAK keeps it out");
+  const v = JSON.parse(readFileSync(join(tests, 'verdict.json'), 'utf8'));
+  // The title claims the step and the PR leaves its test as it is: the WEAK is recorded and shown, never a block on code.
+  assert.equal(v.verdict, 'PASS');
+  assert.deepEqual(v.readStatus, {
+    state: 'failure',
+    description: "1 FAITHFUL, 1 WEAK (the CI review's read of the step's words and its test)",
+  });
+  assert.match(
+    summaryLines(v, new Set()).join('\n'),
+    /J-wallet-01 #1 \(read, second reader; claimed, its test unchanged: shown, not blocking\): \*\*WEAK\*\*/,
+  );
   const s = JSON.parse(readFileSync(join(tests, 'read-second.json'), 'utf8'));
   assert.equal(s.second_of, 'read.json');
   assert.equal(s.steps[0].readers[0].thread, 'ci:INTAFACED/intafaced/actions/runs/42/attempts/2/second');
   assert.notEqual(s.steps[0].readers[0].thread, JSON.parse(readFileSync(join(tests, 'read.json'), 'utf8')).steps[0].readers[0].thread);
   writeFileSync(join(tests, 'second', 'answer.json'), answerText(one('FAITHFUL')));
   assert.equal(cmdRead(tests, ENV(dir)).ok, true);
-  assert.equal(JSON.parse(readFileSync(join(tests, 'verdict.json'), 'utf8')).verdict, 'PASS');
+  assert.equal(JSON.parse(readFileSync(join(tests, 'verdict.json'), 'utf8')).readStatus.state, 'success');
+  // A step whose own test changed blocks on any reader's WEAK, the second's included.
+  const r = readTests(
+    { verdict: 'PASS', reads: [{ step: 'J-wallet-01 #1', verdict: 'WEAK', refusal: false, note: 'x' }], steps: [], changes: [] },
+    { reads: ['J-wallet-01 #1'], steps: [], changes: [], blocking: ['J-wallet-01 #1'] },
+  );
+  assert.equal(r.verdict, 'FAIL');
   // The sample: the count's own hash of the step and the final read path, the same as project-state v2.mjs inSample.
   assert.equal(secondReason('J-wallet-01 #1', 9), 'money step');
   const sampled = Array.from({ length: 400 }, (_, i) => secondReason('J-x-01 #2', i)).filter(Boolean).length;
@@ -1166,7 +1213,18 @@ test('the workflow: the review on Opus at medium (OWNER 259 (3)), the reads on o
   assert.match(reads, /--no-session-persistence --output-format json --json-schema/);
   assert.match(reads, /for d in "\$dir" "\$dir\/second"; do/);
   assert.match(reads, /node "\$GITHUB_WORKSPACE\/tooling\/ci\/test-judge\.mjs" read "\$dir"/);
+  // A reader's failure voids no review verdict: the read step runs on, and the seal finds no Test verdict pass instead.
+  assert.match(reads, /\n {8}continue-on-error: true\n/);
+  assert.ok(wf.indexOf('- name: Read the steps\n') < wf.indexOf('- name: Verdict\n'));
+  assert.doesNotMatch(
+    wf.slice(wf.indexOf('- name: Verdict\n'), wf.indexOf('- name: Test verdict\n')),
+    /\n {8}if:/,
+    'Verdict runs as before',
+  );
+  assert.match(wf, /\n {6}statuses: write #/);
+  assert.match(wf, /-f context="proof v2 read"/);
   const tv = wf.slice(wf.indexOf('- name: Test verdict\n'));
   assert.match(tv, /if: \$\{\{ !cancelled\(\) && steps\.reads\.outcome == 'success' \}\}/);
   assert.match(tv, /name: proof-v2-read-\$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(tv, /\n {10}overwrite: false\n/, "a re-run never replaces a head's first read");
 });

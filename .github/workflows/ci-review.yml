@@ -56,6 +56,7 @@ jobs:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
       checks: read # find the seal's check run on the head
       actions: write # re-run a red seal once the review passes; read this run's tree index
+      statuses: write # the `proof v2 read` commit status on this head (Post the read status)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -160,6 +161,9 @@ jobs:
       - name: Read the steps
         id: reads
         if: ${{ !cancelled() }}
+        # Its failure (no answer, no words) is no test verdict: the Test verdict step then never runs, so the seal finds no
+        # pass for a test change, while the review's Verdict, which the seal reads apart, still stands.
+        continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -196,12 +200,31 @@ jobs:
         if: ${{ !cancelled() && steps.reads.outcome == 'success' }}
         run: node tooling/ci/test-judge.mjs judge "$RUNNER_TEMP/review/tests"
 
+      # The `proof v2 read` commit status, as project-state's post-read.sh posted it for a reader thread (the signal a
+      # builder already watches): success only when every read step is FAITHFUL, its description the counts alone. A read
+      # of a step the title claims but whose test the pull request doesn't change shows here without blocking the merge.
+      - name: Post the read status
+        if: ${{ !cancelled() && steps.reads.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          line="$(node tooling/ci/test-judge.mjs status "$RUNNER_TEMP/review/tests")"
+          [ -n "$line" ] || { echo "no step read: no status"; exit 0; }
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="${line%%$'\t'*}" -f context="proof v2 read" \
+            -f description="${line#*$'\t'}" --jq '"posted: \(.context) \(.state)"'
+
       # The step reads as the count of record's v2 read of this head (test-judge.mjs writeRead): step ids, verdicts and
       # notes, never the step words (a public repository's artifact). project-state's scheduled store takes the one at a
       # merged PR's final head and carries it to the merge only if that step's test reached main unchanged
       # (carry-read.mjs), so no builder starts a read by hand. A WEAK read is uploaded too: it is a true read.
+      # The first read of a head is the one that counts: a re-run attempt never replaces it (overwrite off, and its failed
+      # upload fails nothing), and the store takes the oldest run's (project-state ci-read.mjs), so asking again can't
+      # trade a WEAK for a luckier FAITHFUL.
       - name: Upload the step reads
         if: ${{ !cancelled() && steps.reads.outcome == 'success' }}
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proof-v2-read-${{ github.event.pull_request.head.sha }}
@@ -209,7 +232,7 @@ jobs:
             ${{ runner.temp }}/review/tests/read.json
             ${{ runner.temp }}/review/tests/read-second.json
           if-no-files-found: ignore
-          overwrite: true
+          overwrite: false
 
       # Best effort, after the verdicts, once either part passed: the seal counts a pass only in a job that concluded
       # success or failed only in its other verdict step (review-marker.mjs), so this step's own failure must not fail
