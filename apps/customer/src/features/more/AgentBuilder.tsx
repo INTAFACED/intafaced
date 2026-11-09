@@ -11,6 +11,7 @@ import './agents-session.css';
 import {
   ownAgentCatalogueSchema as catalogueSchema,
   ownAgentLimitsSchema,
+  ownAgentPaymentMethodSchema,
   ownAgentRunResultSchema,
   ownAgentRunRowSchema,
   ownAgentSchema,
@@ -27,6 +28,7 @@ import {
   type OwnAgentPublication,
   type OwnAgentCatalogue,
   type OwnAgentLimits,
+  type OwnAgentPaymentMethod,
   type OwnAgentRunResult,
 } from '@intafaced/contracts/agents-own';
 import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
@@ -74,6 +76,9 @@ const CODE_WORDS = {
   'agents.usage.alert_above_limit': 'code_usage_alert_above_limit',
   'agents.funds_insufficient': 'code_funds_insufficient',
   'agents.funds_unread': 'code_funds_unread',
+  'agents.payment_method.wallet_not_linked': 'code_payment_method_wallet_not_linked',
+  'agents.payment_method.account_inactive': 'code_payment_method_account_inactive',
+  'agents.payment_method.wallets_unread': 'code_payment_method_wallets_unread',
   'agents.price_unset': 'code_price_unset_unread',
   'agents.spend_limit': 'code_spend_limit',
   'agents.request_id_replay': 'code_request_id_replay',
@@ -106,13 +111,60 @@ const REFUSAL_REASONS: ReadonlySet<Failed['reason']> = new Set(['error', 'forbid
 const refusalCode = (failed: Failed): string | null =>
   REFUSAL_REASONS.has(failed.reason) && /^agents\.[a-z_.]+$/.test(failed.message) ? failed.message : null;
 
+/** The words' parameters a refused run's row carries (`own.runs`): a funds refusal names its method, figure and source. */
+type RefusalParams = Readonly<Record<string, string | number>>;
+type BuilderT = ReturnType<typeof agentBuilderCopy.useCopy>['t'];
+/** The test networks a TEST stack's chain stands in for: their figures are labelled TEST. */
+const TEST_CHAIN_IDS: ReadonlySet<string> = new Set(['84532', '31337', '11155111']);
+const FUNDS_WHY = {
+  payment_token_unset: 'fundsWhy_payment_token_unset',
+  wallet_unlinked: 'fundsWhy_wallet_unlinked',
+  account_inactive: 'fundsWhy_account_inactive',
+  identity_unreachable: 'fundsWhy_identity_unreachable',
+  chain_unreachable: 'fundsWhy_chain_unreachable',
+  chain_mismatch: 'fundsWhy_chain_mismatch',
+  method_unread: 'fundsWhy_method_unread',
+} as const;
+const shortAddress = (address: string) => (address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address);
+const text = (params: RefusalParams, key: string) => (params[key] === undefined ? '' : String(params[key]));
+
+/**
+ * A funds refusal of a run paid from a wallet: the wallet, its figure with its source and as-of time, or why its amount
+ * could not be read (J-agents-02 #4). Null when the refusal names no wallet, so today's words stand.
+ */
+function walletFundsWords(t: BuilderT, code: string, params: RefusalParams): string | null {
+  if (params.method !== 'wallet' || typeof params.address !== 'string') return null;
+  const address = shortAddress(params.address);
+  if (code === 'agents.funds_insufficient') {
+    const chainId = text(params, 'chainId');
+    const block = text(params, 'block');
+    const asOf = new Date(text(params, 'asOf'));
+    return t('fundsWalletInsufficient', {
+      address,
+      available: text(params, 'available'),
+      token: text(params, 'token'),
+      asset: text(params, 'asset'),
+      worstCase: text(params, 'worstCase'),
+      source: t(TEST_CHAIN_IDS.has(chainId) ? 'fundsSourceTestChain' : 'fundsSourceChain', { chainId, block }),
+      asOf: Number.isNaN(asOf.getTime()) ? text(params, 'asOf') : asOf.toLocaleString(),
+    });
+  }
+  if (code === 'agents.funds_unread') {
+    const reason = text(params, 'reason');
+    const why = Object.hasOwn(FUNDS_WHY, reason) ? FUNDS_WHY[reason as keyof typeof FUNDS_WHY] : 'fundsWhy_method_unread';
+    return t('fundsWalletUnread', { address, why: t(why) });
+  }
+  return null;
+}
+
 /** A refusal as words, with its code beside them so support can find it. */
-function Refusal({
+export function Refusal({
   code,
   name = '',
   cap = '',
   asset = '',
   task = '',
+  params = {},
   inline = false,
 }: {
   code: string;
@@ -121,35 +173,60 @@ function Refusal({
   asset?: string;
   /** The routing task svc-agents logged the refused run under: a blank rate is named by it, never by the copy. */
   task?: string;
+  /** The refused run's own parameters, as its row carries them: a wallet's figure and source, or why it was unread. */
+  params?: RefusalParams;
   /** In a table row: the words without announcing them, since the row is a record, not a fresh refusal. */
   inline?: boolean;
 }) {
   const { t } = agentBuilderCopy.useCopy();
   const key = wordsKey(code);
+  const wallet = walletFundsWords(t, code, params);
   const words =
-    code === 'agents.own.reserved_name'
-      ? t('code_own_reserved_name', { name })
-      : code === 'agents.spend.above_agent_cap'
-        ? t('code_spend_above_agent_cap', { cap, asset })
-        : code === 'agents.price_unset'
-          ? task
-            ? t('code_price_unset', { task })
-            : t('code_price_unset_unread')
-          : key
-            ? t(key)
-            : t('code_other');
+    wallet !== null
+      ? wallet
+      : code === 'agents.own.reserved_name'
+        ? t('code_own_reserved_name', { name })
+        : code === 'agents.spend.above_agent_cap'
+          ? t('code_spend_above_agent_cap', { cap, asset })
+          : code === 'agents.price_unset'
+            ? task
+              ? t('code_price_unset', { task })
+              : t('code_price_unset_unread')
+            : key
+              ? t(key)
+              : t('code_other');
+  // A wallet is named short in the words and in full on the element, with its figure's block and time as the chain gave them.
+  const named =
+    wallet !== null
+      ? {
+          title: String(params.address),
+          'data-wallet': String(params.address),
+          ...(params.block === undefined ? {} : { 'data-block': String(params.block), 'data-as-of': String(params.asOf ?? '') }),
+          ...(params.reason === undefined ? {} : { 'data-reason': String(params.reason) }),
+        }
+      : {};
   return inline ? (
-    <span>
+    <span {...named}>
       {words} <code lang="zxx">{code}</code>
     </span>
   ) : (
-    <p role="alert">
+    <p role="alert" {...named}>
       {words} <code lang="zxx">{code}</code>
     </p>
   );
 }
 /** What a failed write says: the service's refusal in words, or the app's own account of a write it could not confirm. */
-function Answer({ failed, ...params }: { failed: Failed; name?: string; cap?: string; asset?: string; task?: string }) {
+function Answer({
+  failed,
+  ...params
+}: {
+  failed: Failed;
+  name?: string;
+  cap?: string;
+  asset?: string;
+  task?: string;
+  params?: RefusalParams;
+}) {
   const code = refusalCode(failed);
   return code ? <Refusal code={code} {...params} /> : <Failure result={failed} />;
 }
@@ -496,6 +573,7 @@ export function OwnAgentPage({ id }: { id: string }) {
               <>
                 <Limits agent={agent} />
                 <UsageLimits agent={agent} runs={usageRuns} />
+                <PaymentMethod agent={agent} />
                 <Sessions agent={agent} session={session} onRun={countRun} />
               </>
             ) : page === 'Test' ? (
@@ -764,6 +842,107 @@ function UsageLimitsForm({ agent, view, runs }: { agent: OwnAgent; view: OwnAgen
   );
 }
 
+/**
+ * The payment method of this agent's runs (J-agents-02 #4): one of the wallets the person linked by their own signature,
+ * or none (the available balance). svc-agents lists the linked wallets through its own door to identity; with none
+ * linked the page says so and links to where wallets are linked.
+ */
+export function PaymentMethod({ agent }: { agent: OwnAgent }) {
+  const api = useApi();
+  const loaded = useResource(
+    (signal) => api.query('agents', 'own.paymentMethod.get', { id: agent.id }, ownAgentPaymentMethodSchema, { signal }),
+    `own-payment-method:${agent.id}`,
+  );
+  return (
+    <Read resource={loaded.resource} retry={loaded.reload}>
+      {(view) => <PaymentMethodForm agent={agent} view={view} />}
+    </Read>
+  );
+}
+
+function PaymentMethodForm({ agent, view }: { agent: OwnAgent; view: OwnAgentPaymentMethod }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const [current, setCurrent] = useState(view);
+  const [choice, setChoice] = useState(view.method?.address ?? '');
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const pickId = `payment-method-${agent.id}`;
+  async function save() {
+    setBusy(true);
+    setSaved(false);
+    setRefused(null);
+    const res = await api.mutate('agents', 'own.paymentMethod.set', { id: agent.id, address: choice || null }, ownAgentPaymentMethodSchema);
+    setBusy(false);
+    if (!res.ok) return setRefused(res);
+    setCurrent(res.data);
+    setChoice(res.data.method?.address ?? '');
+    setSaved(true);
+  }
+  const wallets = current.linked.state === 'usable' ? current.linked.wallets : [];
+  return (
+    <Panel title={t('paymentTitle')}>
+      <form
+        aria-label={t('paymentTitle')}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <p className="muted">{t('paymentIntro')}</p>
+        <p data-testid="payment-method">
+          {current.method === null ? (
+            t('paymentNone')
+          ) : (
+            <span title={current.method.address} data-wallet={current.method.address}>
+              {t('paymentWallet', { address: shortAddress(current.method.address) })}
+            </span>
+          )}
+        </p>
+        {current.linked.state === 'unread' ? (
+          <p role="status">{t('paymentWalletsUnread')}</p>
+        ) : current.linked.state === 'account_inactive' ? (
+          <p role="status">{t('paymentAccountInactive')}</p>
+        ) : wallets.length === 0 ? (
+          <p data-testid="payment-no-wallet">
+            {t('paymentNoWallet')}{' '}
+            <a className="text-link" href="/uc/safe">
+              {t('paymentLinkWallets')}
+            </a>
+          </p>
+        ) : (
+          <>
+            <label className="field" htmlFor={pickId}>
+              <span>{t('paymentPick')}</span>
+              <select
+                id={pickId}
+                value={choice}
+                onChange={(event) => {
+                  setSaved(false);
+                  setChoice(event.target.value);
+                }}
+              >
+                <option value="">{t('paymentPickNone')}</option>
+                {wallets.map((wallet) => (
+                  <option key={wallet.address} value={wallet.address}>
+                    {wallet.address}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="submit" disabled={busy}>
+              {t('paymentSave')}
+            </Button>
+          </>
+        )}
+        {saved ? <p role="status">{t('paymentSaved')}</p> : null}
+        {refused ? <Answer failed={refused} /> : null}
+      </form>
+    </Panel>
+  );
+}
+
 /** One run's answer: the reply and what it cost. */
 type Ran = OwnAgentRunResult;
 
@@ -791,6 +970,7 @@ function Sessions({
   const [ran, setRan] = useState<Ran | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
   const [refusedTask, setRefusedTask] = useState('');
+  const [refusedParams, setRefusedParams] = useState<RefusalParams>({});
   const [busy, setBusy] = useState(false);
   const [runsVersion, setRunsVersion] = useState(0);
   useEffect(() => {
@@ -820,11 +1000,11 @@ function Sessions({
       ownAgentRunResultSchema,
     );
   };
-  /** The task svc-agents logged this session's newest blank-rate refusal under, or '' when it cannot be read. */
-  async function unpricedTask(session: string): Promise<string> {
+  /** This session's newest run refused with `code`, as svc-agents logged it, or null when it cannot be read. */
+  async function refusedRow(session: string, code: string) {
     const res = await api.query('agents', 'own.runs', { id: agent.id, limit: 10 }, z.array(ownAgentRunRowSchema));
-    if (!res.ok) return '';
-    return res.data.find((row) => row.sessionId === session && row.refusalCode === 'agents.price_unset')?.task ?? '';
+    if (!res.ok) return null;
+    return res.data.find((row) => row.sessionId === session && row.refusalCode === code) ?? null;
   }
   /** Closes the session once its usage is paid; a window the ledger refused for funds keeps it open, and says so. */
   async function close(session: string) {
@@ -851,7 +1031,14 @@ function Sessions({
       const failed = results.find((res) => !res.ok);
       if (admitted?.ok) setRan(admitted.data);
       if (failed && !failed.ok) {
-        setRefusedTask(refusalCode(failed) === 'agents.price_unset' ? await unpricedTask(session) : '');
+        // A blank rate is named by the task it was logged under; a funds refusal by its method, figure and source.
+        const code = refusalCode(failed);
+        const row =
+          code === 'agents.price_unset' || code === 'agents.funds_insufficient' || code === 'agents.funds_unread'
+            ? await refusedRow(session, code)
+            : null;
+        setRefusedTask(code === 'agents.price_unset' ? (row?.task ?? '') : '');
+        setRefusedParams(row?.messageParams ?? {});
         setRefused(failed);
       }
     }
@@ -904,7 +1091,7 @@ function Sessions({
             </p>
           </div>
         ) : null}
-        {refused ? <Answer failed={refused} task={refusedTask} /> : null}
+        {refused ? <Answer failed={refused} task={refusedTask} params={refusedParams} /> : null}
       </Panel>
       <Runs agent={agent} version={runsVersion} />
     </>
@@ -970,7 +1157,7 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
                       {row.status === 'waiting' ? (
                         t('runHeld', { tool: toolWords(tools, row.tool) })
                       ) : row.refusalCode ? (
-                        <Refusal code={row.refusalCode} task={row.task ?? ''} inline />
+                        <Refusal code={row.refusalCode} task={row.task ?? ''} params={row.messageParams} inline />
                       ) : null}
                     </td>
                     <td data-testid="run-cost">{money(row.cost, row.assetId)}</td>

@@ -1,6 +1,11 @@
 {
   "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
   "values": {
+    "OPS_INCIDENT_SEVERITIES": {
+      "service": "ops",
+      "value": "critical,major,minor",
+      "note": "TEST incident severities for the local and test stacks, not an owner decision: three names so an incident can be assessed, and a name outside them refused ops.severity_unknown (J-ops-console-19 #10). Blank leaves every incident pending."
+    },
     "OPS_RESTORE_TARGET": {
       "service": "ops",
       "value": "test-restore-area",

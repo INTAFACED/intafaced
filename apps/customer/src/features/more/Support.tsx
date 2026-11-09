@@ -10,6 +10,7 @@ import { t as copyText } from './copy';
 import { categoryLabel, topicFromAddress } from './support-category';
 import { Details, Read, Select, useAction } from './common';
 import { SupportHelpArticles } from './SupportHelpArticles';
+import { chatCopy } from './support-chat-copy';
 import { CustomerStatusBadge, RequestNotFound, SupportAddressUnknown, SupportRequest } from './SupportRequest';
 import { navigate } from '../../app/location';
 import { deskCopy } from './support-desk-copy';
@@ -157,6 +158,13 @@ export function Support({ path }: { path: string }) {
   return (
     <div className="support-desk">
       <Tabs items={VIEWS} value={view} onChange={(next) => navigate(VIEW_HREF[next as View])} label={copy.t('tabsLabel')} labels={labels} />
+      {route.view === 'help' && (
+        <p className="muted" data-testid="support-chat-link">
+          <a className="text-link" href="/support/chat">
+            <chatCopy.Copy k="openChat" />
+          </a>
+        </p>
+      )}
       {route.view === 'help' && <SupportHelpArticles action={action} onStartRequest={() => navigate(VIEW_HREF.new)} />}
       {route.view === 'request' && (
         <SupportRequest

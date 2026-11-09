@@ -162,6 +162,10 @@
       "types": "./dist/ops-console-services.d.ts",
       "default": "./dist/ops-console-services.js"
     },
+    "./ops-incidents": {
+      "types": "./dist/ops-incidents.d.ts",
+      "default": "./dist/ops-incidents.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
@@ -213,6 +217,10 @@
     "./support-contact": {
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
+    },
+    "./support-chat": {
+      "types": "./dist/support-chat.d.ts",
+      "default": "./dist/support-chat.js"
     },
     "./support-kb-library": {
       "types": "./dist/support-kb-library.d.ts",

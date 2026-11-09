@@ -14,6 +14,8 @@ import { SqlStaffHoldStore } from './staff-holds/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
+import { SqlIncidentStore } from './incidents/store.js';
+import { parseIncidentSeverities } from '@intafaced/contracts';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createCapitalSources } from './capital/sources.js';
 import { SqlCapitalStore } from './capital/store.js';
@@ -233,6 +235,8 @@ const appRouter = createOpsRouter(
     announcements: crmSql ? new SqlAnnouncementStore(crmSql) : undefined,
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
+    incidents: crmSql ? new SqlIncidentStore(crmSql) : undefined,
+    incidentSeverities: parseIncidentSeverities(env.OPS_INCIDENT_SEVERITIES),
     staffHolds,
     homeConfig: homeConfigFromEnv(env),
     reconciliationAlerts: reconciliationAlerts ?? undefined,

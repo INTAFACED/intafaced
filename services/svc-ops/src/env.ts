@@ -112,6 +112,12 @@ export const opsEnvSchema = baseEnvSchema
        */
       OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS: blankAsAbsent(z.coerce.number().int().positive().optional()),
       /**
+       * The severities a staff incident can be given (OPS-oncall-02), comma separated, lower snake case, never `pending`.
+       * Blank → an incident can only be declared pending, and declaring with a severity refuses ops.incident_severities_unset.
+       * A misspelt list refuses boot. Never invented.
+       */
+      OPS_INCIDENT_SEVERITIES: blankAsAbsent(z.string().optional()),
+      /**
        * Optional deployment reason codes for hiding a pool or delisting a market, comma separated, lower snake case.
        * Blank → the built-in default list applies; an admin edit overrides both. A misspelt code refuses at boot.
        */
