@@ -24,9 +24,10 @@ import {
   type SortState,
   type TableColumn,
 } from './deps';
-import { isPaused, marketTarget, priceText, spreadRatio, spreadText, volumeText, type Entry, type Mode } from './select';
+import { isAnnounced, isPaused, marketTarget, priceText, spreadRatio, spreadText, volumeText, type Entry, type Mode } from './select';
 import { opensLabel, rowStatus, type ListingStatusMap } from './listing-status';
-import { partialWindowStart, sinceLabel } from './window';
+import { maintenanceWhen, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
+import { ianaZone, partialWindowStart, sinceLabel } from './window';
 import { usePreferences } from '../../../shared/preferences';
 import type { Density } from './view-state';
 import type { FavoriteControl } from './MarketRow';
@@ -87,6 +88,58 @@ function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteCo
 /** Hourly closes by symbol, read once for the rows drawn and handed to the chart cells. */
 const EMPTY: Record<string, Decimal[]> = {};
 const SparkContext = createContext<Record<string, Decimal[]>>(EMPTY);
+
+/** The upcoming-maintenance flag on a market's row (J-cex-spot-14 #5). */
+function MaintenanceFlag({ window }: { window: MaintenanceWindowSoon }) {
+  const { t } = marketsCopy.useCopy();
+  const when = maintenanceWhen(window, Date.now());
+  const text =
+    when.kind === 'now'
+      ? t('Maintenance now')
+      : when.kind === 'hours'
+        ? when.n === 1
+          ? t('Maintenance in one hour')
+          : t('Maintenance in hours', { n: when.n })
+        : t('Maintenance in minutes', { n: when.n });
+  return (
+    <span data-testid="mkt-maintenance" className="mkt-since">
+      {text}
+    </span>
+  );
+}
+
+/** "16 Nov 2026" in the person's zone: the day a delisting market leaves the board. */
+function delistingDate(iso: string, zone: Parameters<typeof ianaZone>[0]): string {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: ianaZone(zone) }).format(
+    Date.parse(iso),
+  );
+}
+
+/** An upcoming or delisting listing's state on its row, with the delisting's date (J-cex-spot-14 #1). */
+function ListingState({ market, dense }: { market: MarketData; dense: boolean }) {
+  const { t } = marketsCopy.useCopy();
+  const { timeZone } = usePreferences();
+  if (market.listing === 'upcoming')
+    return (
+      <span data-testid="mkt-listing" data-listing="upcoming" className="mkt-stack" data-start="">
+        <Badge tone="neutral" density={dense ? 'dense' : 'comfortable'}>
+          {t('Upcoming')}
+        </Badge>
+      </span>
+    );
+  if (market.listing === 'delisting')
+    return (
+      <span data-testid="mkt-listing" data-listing="delisting" className="mkt-stack" data-start="">
+        <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
+          {t('Delisting')}
+        </Badge>
+        {market.delistsAt ? (
+          <span className="mkt-since">{t('Leaves the board on {date}', { date: delistingDate(market.delistsAt, timeZone) })}</span>
+        ) : null}
+      </span>
+    );
+  return null;
+}
 
 function SparkCell({ symbol, height, trend }: { symbol: string; height: number; trend: 'up' | 'down' | 'flat' }) {
   return <Sparkline values={useContext(SparkContext)[symbol] ?? []} width={96} height={height} direction={trend} />;
@@ -194,6 +247,9 @@ export function MarketsList({
                 </span>
               ) : null}
             </span>
+            <ListingState market={market} dense={dense} />
+            {/* The simple list has no status column, so a maintenance window is flagged by the name (J-cex-spot-14 #5). */}
+            {!pro && statuses?.[market.symbol]?.maintenance ? <MaintenanceFlag window={statuses[market.symbol]!.maintenance!} /> : null}
           </span>
         );
       },
@@ -260,6 +316,8 @@ export function MarketsList({
       width: STATUS_WIDTH,
       cell: (entry) => {
         const state = rowStatus(!isPaused(entry), statuses?.[entry.market.symbol]);
+        const maintenance = statuses?.[entry.market.symbol]?.maintenance ?? null;
+        const flag = maintenance ? <MaintenanceFlag window={maintenance} /> : null;
         if (state.kind === 'closed')
           return (
             <span className="mkt-stack" data-start="">
@@ -271,16 +329,26 @@ export function MarketsList({
                   {t('Opens {time}', { time: opensLabel(state.opensAt, timeZone) })}
                 </span>
               ) : null}
+              {flag}
             </span>
           );
-        return state.kind === 'paused' ? (
-          <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
-            {t('Paused')}
-          </Badge>
+        const badge =
+          state.kind === 'paused' ? (
+            <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
+              {t('Paused')}
+            </Badge>
+          ) : (
+            <Badge tone="lime" density={dense ? 'dense' : 'comfortable'}>
+              {t('Open')}
+            </Badge>
+          );
+        return flag ? (
+          <span className="mkt-stack" data-start="">
+            {badge}
+            {flag}
+          </span>
         ) : (
-          <Badge tone="lime" density={dense ? 'dense' : 'comfortable'}>
-            {t('Open')}
-          </Badge>
+          badge
         );
       },
     };
@@ -316,6 +384,20 @@ export function MarketsList({
             {more}
           </span>
         );
+        if (isAnnounced(market))
+          // An upcoming or delisting listing is never a tradeable row: the button says why, and nothing links to a desk.
+          return wrap(
+            <Button
+              variant="secondary"
+              size={size}
+              disabled
+              focusableWhenDisabled
+              aria-label={aria}
+              title={market.listing === 'upcoming' ? t('This market has not opened for trading') : t('This market is being delisted')}
+            >
+              {text}
+            </Button>,
+          );
         if (isPaused(entry))
           // Disabled but still reachable by keyboard, so the reason can be read (title for the pointer, aria-describedby for readers).
           return wrap(
@@ -383,7 +465,9 @@ export function MarketsList({
         onSortChange={(next) =>
           onSortChange(sort && sort.columnId === next.columnId && sort.direction !== firstDirection(next.columnId) ? null : next)
         }
-        onRowActivate={(entry) => navigate(marketTarget(entry.market, mode, isHiddenPath, signedIn))}
+        onRowActivate={(entry) => {
+          if (!isAnnounced(entry.market)) navigate(marketTarget(entry.market, mode, isHiddenPath, signedIn));
+        }}
         minWidth={pro ? PRO_MIN_WIDTH : SIMPLE_MIN_WIDTH}
         labels={{ loading: t('Loading') }}
       />
