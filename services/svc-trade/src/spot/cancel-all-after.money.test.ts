@@ -7,7 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
-import './cancel-all-after.js';
+import { setCancelAllAfterAlso } from './cancel-all-after.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import { TradeError, type Market } from './types.js';
 
@@ -201,6 +201,24 @@ describe('svc-trade spot cancel-all-after dead-man switch (PG-hard)', () => {
     await expect(caa().armCancelAllAfter({ ...principalFor(ALICE), expiresAt: undefined } as never, 10, PUBLISHED)).rejects.toMatchObject({
       code: 'trade.cancel_all_after_rejected',
     });
+    expect(await rowCount()).toBe(0);
+  });
+
+  it('firing also clears the futures book as the caller who armed it; a fault there keeps the countdown for the next pass', async () => {
+    await rest(ALICE, 'a-1');
+    const calls: string[] = [];
+    let broken = true;
+    setCancelAllAfterAlso(trade, async (p) => {
+      calls.push(p.userId);
+      if (broken) throw new Error('futures cancel transport timed out');
+    });
+    await caa().armCancelAllAfter(principal(ALICE), 10, PUBLISHED);
+    tick(10_000);
+    expect(await caa().sweepCancelAllAfter()).toMatchObject({ fired: 0, failed: 1 });
+    expect(await rowCount()).toBe(1);
+    broken = false;
+    expect(await caa().sweepCancelAllAfter()).toMatchObject({ fired: 1, failed: 0 });
+    expect(calls).toEqual([ALICE, ALICE]);
     expect(await rowCount()).toBe(0);
   });
 

@@ -441,8 +441,8 @@ const messages = {
   'Dead man unknown': 'Auto-cancel: couldn’t check',
   'Dead man title': 'Auto-cancel if you go quiet',
   'Dead man intro':
-    'If you don’t refresh it in time, every open order you have, in every market, is cancelled and its hold given back. Other people’s orders are never touched.',
-  'Dead man not published': 'No auto-cancel times are published, so it can’t be turned on.',
+    'If you don’t refresh it in time, every open order you have, spot and futures, in every market, is cancelled and its hold given back. Other people’s orders are never touched.',
+  'Dead man not published': 'Not offered by this venue: no auto-cancel times are published, so it can’t be turned on.',
   'Dead man loading': 'Checking auto-cancel…',
   'Dead man unreadable': 'We couldn’t check auto-cancel. Try again.',
   'Dead man after': 'Cancel after',
@@ -458,7 +458,7 @@ const messages = {
   'Dead man firing': 'The time passed. Your open orders are being cancelled.',
   'Dead man refused timeout': 'That time isn’t offered. Choose one of: {list} seconds.',
   'Dead man refused session': 'Your sign-in ends before that time. Sign in again, then turn it on.',
-  'Dead man refused unset': 'No auto-cancel times are published, so it can’t be turned on.',
+  'Dead man refused unset': 'Not offered by this venue: no auto-cancel times are published, so it can’t be turned on.',
   'Dead man refused other': 'Auto-cancel didn’t change: {reason}',
   'Dead man close': 'Close',
 

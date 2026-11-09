@@ -22,6 +22,7 @@ import { useSession } from '../../session/session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { appendPage } from './history-query';
 import { ordersCopy } from './orders-copy';
+import { DeadMan } from '../../../screens/trade/desk/DeadMan';
 import './orders.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -410,6 +411,8 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
             </Button>
           ) : null}
         </form>
+        {/* Cancel-on-disconnect (J-derivatives-04 step 5): the account's one switch, which clears spot and futures orders. */}
+        <DeadMan onChanged={() => setRevision((n) => n + 1)} />
         <p className="muted orders-note">
           <a className="text-link" href="/trade/futures">
             {t('deskLink')}

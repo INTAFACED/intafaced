@@ -22,11 +22,22 @@ import { TradeError, type OrderRecord } from './types.js';
 import { TradeService } from './trade-service.js';
 
 const FLAG = Symbol.for('intafaced.trade.cancelAllAfter');
+const ALSO = Symbol.for('intafaced.trade.cancelAllAfter.also');
+
+/**
+ * Another book the switch also clears when it fires: the futures orders (J-derivatives-04 step 5), which live outside
+ * spot's order table. Registered by the process that mounts them; each cancel is the ordinary one, so a pass that
+ * stops part way is finished by the next.
+ */
+export function setCancelAllAfterAlso(trade: TradeService, cancel: (principal: Principal) => Promise<void>): void {
+  (trade as unknown as { [ALSO]?: (principal: Principal) => Promise<void> })[ALSO] = cancel;
+}
 
 type Host = {
   sql: Sql;
   now: () => Date;
   cancelAllOrders: (principal: Principal) => Promise<OrderRecord[]>;
+  [ALSO]?: (principal: Principal) => Promise<void>;
 };
 
 export interface ArmedCountdown {
@@ -152,6 +163,8 @@ async function sweep(host: Host): Promise<CancelAllAfterSweep> {
     }
     try {
       await host.cancelAllOrders(principal);
+      const also = host[ALSO];
+      if (also) await also(principal);
       await drop(row.user_id, deadline);
       fired += 1;
     } catch {

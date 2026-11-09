@@ -164,7 +164,7 @@ import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import type { CancelAllAfterHost } from './spot/cancel-all-after.js';
-import './spot/cancel-all-after.js';
+import { setCancelAllAfterAlso } from './spot/cancel-all-after.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { recordSchedulerHeartbeat, schedulerInstanceId } from './algo/scheduler-heartbeat.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
@@ -995,6 +995,12 @@ const optionsExerciseJobs = startOptionsExerciseJobs({
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'options exercise job tick failed'),
 });
+// The dead-man switch clears the futures book too when it fires (J-derivatives-04 step 5).
+if (env.TRADE_FUTURES_MATCHING_ENABLED) {
+  setCancelAllAfterAlso(trade, async (principal) => {
+    await positions.cancelEveryMatchedOrder(principal);
+  });
+}
 const holdUnknownSweep = startHoldUnknownSweepJobs({
   trade,
   config: {

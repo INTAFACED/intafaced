@@ -1199,6 +1199,11 @@ export class PositionService {
     return this.matched.cancel(principal, orderId);
   }
 
+  /** Every live futures order of the caller, for the dead-man switch (`MatchedFuturesOrders.cancelEveryOrder`). */
+  async cancelEveryMatchedOrder(principal: Principal) {
+    return this.matched.cancelEveryOrder(principal);
+  }
+
   /** Settle matched fills that arrived while a position was busy (see `MatchedFuturesOrders.settleFillOrWait`). */
   async retryWaitingMatchedFills(limit: number) {
     return this.matched.retryWaitingFills(limit);

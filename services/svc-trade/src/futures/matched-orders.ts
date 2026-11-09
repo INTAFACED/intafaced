@@ -2853,6 +2853,31 @@ export class MatchedFuturesOrders {
   }
 
   /**
+   * Every live futures order of the caller, cancelled as `cancel` cancels one (the dead-man switch firing,
+   * J-derivatives-04 step 5). A liquidation's order is the venue's and is left alone. An order the book refuses to
+   * cancel by name is skipped; any other fault is raised once every order has been tried, so the switch stays armed
+   * and the next pass finishes what is left. Returns the ids cancelled.
+   */
+  async cancelEveryOrder(principal: Principal): Promise<string[]> {
+    const rows = await this.deps.sql<{ id: string }[]>`
+      SELECT id FROM trade.futures_orders
+       WHERE user_id = ${principal.userId} AND status IN ${this.deps.sql(LIVE_OR_UNKNOWN)} AND origin <> 'liquidation'
+       ORDER BY created_at, id
+    `;
+    const cancelled: string[] = [];
+    let fault: unknown = null;
+    for (const { id } of rows) {
+      try {
+        if ((await this.cancel(principal, id)).status === 'cancelled') cancelled.push(id);
+      } catch (err) {
+        if (!(err instanceof MatchedOrderError)) fault ??= err;
+      }
+    }
+    if (fault) throw fault;
+    return cancelled;
+  }
+
+  /**
    * The engine says an order has left the book. Releases the unused hold for a futures order; returns false for
    * anything that is not one, so the caller can run its own path.
    */

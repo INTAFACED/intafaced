@@ -382,3 +382,66 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   await expect(page.getByText(`Liquidation step ${fromLiq.originRef}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
 });
+
+test(`${J} #5 arms cancel-on-disconnect: armed with its time, and futures orders cancelled when the connection stays silent`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  // Its own TEST account, so the orders it reads are only its own.
+  const who = await fundedTrader(page, 'jd4d', '1000');
+  const me = await api(who);
+  await signIn(page, who);
+  const label = 'dead-man';
+  const { mark, tier } = await markOf(me);
+  const resting = [];
+  for (const bps of [-300, -320]) {
+    const placed = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'limit',
+      price: away(mark, bps),
+      amount: SIZE,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      confirmTier: tier,
+      clientOrderId: `${J}-cod-${bps}-${Date.now()}`,
+      orderLabel: label,
+    });
+    expect(placed.status, JSON.stringify(placed.body)).toBe(200);
+    expect(placed.body.status).toBe('open');
+    resting.push(placed.body);
+  }
+
+  // Armed from the futures orders room, on the venue's own scheduled cancel: its published times, and when it fires.
+  await room(page);
+  const button = page.getByRole('button', { name: /^Auto-cancel/ });
+  await expect(button).toHaveText('Auto-cancel: off');
+  await button.click();
+  const box = page.getByRole('alertdialog').filter({ hasText: 'Auto-cancel if you go quiet' });
+  await expect(box).toContainText('spot and futures');
+  await box.getByRole('radio', { name: '10 seconds' }).check();
+  const before = Date.now();
+  await box.getByRole('button', { name: 'Turn on' }).click();
+  await expect(box.getByText(/^On\. Unless refreshed, your open orders are cancelled at \d\d:\d\d:\d\d\.$/)).toBeVisible();
+  const state = (await me.get('/api/v1/orders/cancel-all-after')).body;
+  expect(state).toMatchObject({ armed: true, timeout: 10 });
+  const fires = Date.parse(state.triggerTime) - before;
+  expect(fires).toBeGreaterThan(5_000);
+  expect(fires).toBeLessThan(20_000);
+  await box.getByRole('button', { name: 'Close' }).click();
+  await expect(button).toHaveText(/^Auto-cancel at \d\d:\d\d:\d\d$/);
+
+  // Nothing refreshes it: past the time, the sweep cancels both futures orders and releases what each held, once.
+  await expect
+    .poll(async () => (await orders(me, `scope=open&limit=50&label=${label}`)).length, { timeout: 60_000, intervals: [1000] })
+    .toBe(0);
+  for (const o of resting) {
+    const now = (await me.get(`/api/v1/futures/orders/${o.orderId}`)).body;
+    expect(now.status).toBe('cancelled');
+    expect(toUnits(now.releasedAmount)).toBe(toUnits(o.holdAmount));
+    expect(toUnits(now.filledQty)).toBe(0n);
+  }
+  // The switch is off once it has fired, and says so.
+  expect((await me.get('/api/v1/orders/cancel-all-after')).body).toMatchObject({ armed: false });
+  await expect(button).toHaveText('Auto-cancel: off', { timeout: 15_000 });
+});
