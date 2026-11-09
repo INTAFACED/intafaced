@@ -14,6 +14,7 @@ import { presentFuturesErrorWire } from './futures-error-wire.js';
 import {
   FUTURES_ORDER_ORIGINS,
   MATCHED_ORDER_STATUSES,
+  SELF_TRADE_MODE,
   MatchedOrderError,
   ORDER_LABEL_INVALID,
   ORDER_LABEL_PATTERN,
@@ -35,7 +36,7 @@ import { FuturesError } from './position-service.js';
 import type { EntryProtectionInput, EntryProtectionView } from './conditional-orders/service.js';
 import type { ReverseInput, ReverseView } from './reverse.js';
 import { CONFIRM_TIER_INVALID, readConfirmTier } from './risk-tier-confirm.js';
-import { privateRead, privateWrite } from '../route-inventory.js';
+import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
 
 /** The largest page one read may ask for; a blank or larger limit refuses rather than picking one. */
 export const FUTURES_ORDERS_LIMIT_MAX = 500;
@@ -94,6 +95,17 @@ const ENTRY_PROTECTION_UNMOUNTED = {
   error: 'trade.entry_protection_unmounted',
   message: 'a take profit or stop loss on an opening order is not mounted on this deployment; nothing was placed',
 };
+
+/** What `GET /api/v1/futures/order-protections` answers. */
+export const FUTURES_ORDER_PROTECTIONS = {
+  selfTrade: {
+    mode: SELF_TRADE_MODE,
+    modes: [SELF_TRADE_MODE],
+    cancelledReason: 'trade.self_trade_prevention',
+    logged: 'each one opens a self-trade surveillance case',
+  },
+  orderRateLimit: { perMarket: null, applies: 'edge', limits: '/api/edge/rate-limits/costs' },
+} as const;
 
 const UNMOUNTED = {
   error: 'trade.futures_orders_unmounted',
@@ -330,6 +342,11 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
       throw err;
     }
   });
+
+  // The order-flow protections in force on the futures book (J-derivatives-04 step 7), read from what the code does:
+  // the engine's one self-trade mode, and no per-market order-rate limit, so the edge's own limit is the one that
+  // applies. Never "unlimited": the edge publishes its limit at /api/edge/rate-limits/costs.
+  app.get('/api/v1/futures/order-protections', publicRead, async (_req, reply) => reply.code(200).send(FUTURES_ORDER_PROTECTIONS));
 
   app.get<{ Querystring: ListQuery }>('/api/v1/futures/orders', privateRead, async (req, reply) => {
     const principal = gates.requirePrincipal(req, reply);

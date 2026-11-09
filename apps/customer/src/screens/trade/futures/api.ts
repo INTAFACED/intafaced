@@ -245,6 +245,13 @@ export const futuresOrderSchema = z.object({
   orderLabel: z.string().nullable().optional(),
 });
 export type FuturesOrder = z.infer<typeof futuresOrderSchema>;
+
+/** The order-flow protections in force (J-derivatives-04 step 7), as svc-trade publishes them. */
+export const futuresOrderProtectionsSchema = z.object({
+  selfTrade: z.object({ mode: z.string(), modes: z.array(z.string()), cancelledReason: z.string(), logged: z.string() }),
+  orderRateLimit: z.object({ perMarket: z.string().nullable(), applies: z.enum(['market', 'edge']), limits: z.string() }),
+});
+export type FuturesOrderProtections = z.infer<typeof futuresOrderProtectionsSchema>;
 export type FuturesOrderOrigin = (typeof FUTURES_ORDER_ORIGINS)[number];
 
 /** One change to a futures position a trade or the venue made: a fill through the book, or an ADL pair. */
@@ -514,6 +521,7 @@ export function createFuturesApi(api: ApiClient) {
     /** An opening order above the max-order as children of at most the cap; the same request again places none twice. */
     placeSplit: (input: PlaceOrderInput) =>
       api.rest('/futures/orders/split', futuresSplitSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' } }),
+    orderProtections: (signal?: AbortSignal) => api.rest('/futures/order-protections', futuresOrderProtectionsSchema, { signal }),
     cancelOrder: (orderId: string) => api.rest(`/futures/orders/${encodeURIComponent(orderId)}`, futuresOrderSchema, { method: 'DELETE' }),
     orders: (scope: 'open' | 'all', signal?: AbortSignal) =>
       api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope, limit: 100 }, signal }),

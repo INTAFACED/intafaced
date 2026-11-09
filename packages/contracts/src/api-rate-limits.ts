@@ -51,8 +51,21 @@ export type KeyRateLimit = z.infer<typeof keyRateLimitSchema>;
 export const routeCostSchema = z.object({ route: z.string().regex(/^(\*|GET|POST|PUT|PATCH|DELETE) \/\S*$/), cost: count }).strict();
 export type RouteCost = z.infer<typeof routeCostSchema>;
 
-/** `GET /api/edge/rate-limits/costs`: the cost table, first match wins. An empty list means the owner has set none. */
-export const rateCostsOutputSchema = z.object({ asOf: isoInstant, costs: z.array(routeCostSchema) }).strict();
+/**
+ * The edge's per-address limit as it enforces it on every request it counts (signed-in pages included): at most `max`
+ * requests in each `windowMs`. Null when the edge enforces none. It is the limit that applies wherever a product sets
+ * no rate limit of its own (J-derivatives-04 step 7).
+ */
+export const addressRateLimitSchema = z.object({ max: z.number().int().positive(), windowMs: z.number().int().positive() }).strict();
+export type AddressRateLimit = z.infer<typeof addressRateLimitSchema>;
+
+/**
+ * `GET /api/edge/rate-limits/costs`: the cost table, first match wins (an empty list means the owner has set none), and
+ * the per-address limit in force.
+ */
+export const rateCostsOutputSchema = z
+  .object({ asOf: isoInstant, costs: z.array(routeCostSchema), address: addressRateLimitSchema.nullable() })
+  .strict();
 export type RateCostsOutput = z.infer<typeof rateCostsOutputSchema>;
 
 /** Which limit refused a call. */

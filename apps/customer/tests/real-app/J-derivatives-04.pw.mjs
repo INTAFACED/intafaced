@@ -1,6 +1,6 @@
 // World: book, market
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, journeyState, tool, toUnits, fromUnits } from './stack.mjs';
+import { api, bestPrices, EDGE, journeyState, ORIGIN, tool, toUnits, fromUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { parseShift, shiftQuoted as makerShiftQuoted } from './market.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
@@ -248,7 +248,7 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
 // Released after the steps that open a long, passed or not: a step stopped by its timeout runs no `finally`.
 test.afterEach(() => {
   const title = test.info().title;
-  if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `)) release();
+  if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `) || title.startsWith(`${J} #7 `)) release();
 });
 
 test(`${J} #2 opens an order a stop placed and one a liquidation placed: the origin named, the label shown and filtered`, async ({
@@ -381,4 +381,82 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   await expect(page.getByRole('definition').filter({ hasText: /^Liquidation$/ })).toBeVisible();
   await expect(page.getByText(`Liquidation step ${fromLiq.originRef}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+});
+
+test(`${J} #7 exercises the order-flow protections: self-trade mode applied and logged; blank rate limits fall back to the edge limit and say so`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Its own TEST account, so the orders it reads are only its own.
+  const who = await fundedTrader(page, 'jd4p', '1000');
+  const me = await api(who);
+  await signIn(page, who);
+
+  // The protections as published: the engine's one self-trade mode, and no futures order-rate limit of its own, so
+  // the edge's per-address limit is the one in force, with its figures.
+  const published = (await me.get('/api/v1/futures/order-protections')).body;
+  expect(published).toMatchObject({ selfTrade: { mode: 'cancel_resting' }, orderRateLimit: { perMarket: null, applies: 'edge' } });
+  const edge = await (await fetch(`${EDGE}/api/edge/rate-limits/costs`, { headers: { origin: ORIGIN } })).json();
+  expect(edge.address).toMatchObject({ max: expect.any(Number), windowMs: expect.any(Number) });
+  await room(page);
+  const panel = page.getByRole('region', { name: 'Order-flow protections' });
+  await expect(panel).toContainText('the resting one is cancelled and the new one goes on');
+  await expect(panel).toContainText(
+    `Not set for futures, so the edge limit applies: ${edge.address.max} requests every ${Math.round(edge.address.windowMs / 1000)} seconds from your address.`,
+  );
+
+  // Self-trade applied: a TEST long, then the trader's own reduce-only sell resting as the best ask, then their own buy
+  // at that price. The engine cancels the resting sell instead of trading the trader with themselves.
+  const position = await openLong(me, 'stp');
+  hold();
+  try {
+    await bestPrices(SYMBOL);
+    const { bid, ask } = await bestPrices(SYMBOL);
+    const unit = 10n ** 18n;
+    expect(toUnits(ask) - toUnits(bid), `the ${SYMBOL} spread ${bid}..${ask} leaves no room inside it`).toBeGreaterThan(unit);
+    const inside = fromUnits(toUnits(ask) - unit);
+    const sell = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'sell',
+      type: 'limit',
+      price: inside,
+      amount: position.contracts,
+      reduceOnly: true,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-stp-sell-${Date.now()}`,
+    });
+    expect(sell.status, JSON.stringify(sell.body)).toBe(200);
+    expect(sell.body.status).toBe('open');
+    const { tier } = await markOf(me);
+    const buy = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'limit',
+      price: inside,
+      amount: SIZE,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      confirmTier: tier,
+      clientOrderId: `${J}-stp-buy-${Date.now()}`,
+    });
+    expect(buy.status, JSON.stringify(buy.body)).toBe(200);
+
+    // Logged on the order itself: cancelled, with self-trade prevention as its reason; nothing traded with itself.
+    const cancelled = await until(
+      async () => (await me.get(`/api/v1/futures/orders/${sell.body.orderId}`)).body,
+      (o) => o.status === 'cancelled' && o.refusalCode === 'trade.self_trade_prevention',
+      'the resting sell cancelled by self-trade prevention',
+    );
+    expect(toUnits(cancelled.filledQty)).toBe(0n);
+    const { body } = await me.get(`/api/v1/futures/executions?limit=50&orderId=${sell.body.orderId}`);
+    expect(body.executions).toEqual([]);
+
+    // In the room: the order's own page says why it ended.
+    await page.goto(`/trade/orders/${sell.body.orderId}?product=futures`);
+    await expect(page.getByText('Cancelled by self-trade prevention').first()).toBeVisible();
+    // The trader's buy is cleared off the book again.
+    if (buy.body.status === 'open') expect((await me.delete(`/api/v1/futures/orders/${buy.body.orderId}`)).status).toBe(200);
+  } finally {
+    release();
+  }
 });

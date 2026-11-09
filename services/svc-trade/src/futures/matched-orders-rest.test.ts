@@ -485,3 +485,20 @@ describe('futures orders through the book: REST', () => {
     });
   });
 });
+
+describe('futures order-flow protections: REST (J-derivatives-04 step 7)', () => {
+  it('publishes the engine’s one self-trade mode and that the edge limit applies, never unlimited', async () => {
+    const server = await app({}, { signedIn: false });
+    const res = await server.inject({ method: 'GET', url: '/api/v1/futures/order-protections' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      selfTrade: {
+        mode: 'cancel_resting',
+        modes: ['cancel_resting'],
+        cancelledReason: 'trade.self_trade_prevention',
+        logged: 'each one opens a self-trade surveillance case',
+      },
+      orderRateLimit: { perMarket: null, applies: 'edge', limits: '/api/edge/rate-limits/costs' },
+    });
+  });
+});

@@ -1081,6 +1081,18 @@
           }
         },
         {
+          "name": "fetchFuturesOrderProtections",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/order-protections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "order-protections"]
+            }
+          }
+        },
+        {
           "name": "createSplitFuturesOrder",
           "request": {
             "method": "POST",

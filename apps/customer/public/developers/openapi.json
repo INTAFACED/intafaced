@@ -1550,6 +1550,24 @@
         }
       }
     },
+    "/api/v1/futures/order-protections": {
+      "get": {
+        "operationId": "fetchFuturesOrderProtections",
+        "summary": "The order-flow protections in force: the self-trade mode, and which order-rate limit applies",
+        "tags": ["derivatives"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-only-with": "futures-matching",
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/futures/orders/split": {
       "post": {
         "operationId": "createSplitFuturesOrder",

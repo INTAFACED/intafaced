@@ -759,6 +759,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     signedOutWithoutMatching: TRADE_UNAUTHENTICATED,
   },
   {
+    name: 'fetchFuturesOrderProtections',
+    method: 'GET',
+    path: '/api/v1/futures/order-protections',
+    product: 'derivatives',
+    access: 'public',
+    summary: 'The order-flow protections in force: the self-trade mode, and which order-rate limit applies',
+    onlyWithFuturesMatching: true,
+  },
+  {
     name: 'createSplitFuturesOrder',
     method: 'POST',
     path: '/api/v1/futures/orders/split',

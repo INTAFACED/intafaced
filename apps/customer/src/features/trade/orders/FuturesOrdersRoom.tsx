@@ -21,6 +21,7 @@ import { tabsCopy } from '../../../screens/trade/futures/tabs-copy';
 import { useSession } from '../../session/session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { appendPage } from './history-query';
+import { OrderProtections } from './OrderProtections';
 import { ordersCopy } from './orders-copy';
 import './orders.css';
 
@@ -410,6 +411,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
             </Button>
           ) : null}
         </form>
+        <OrderProtections />
         <p className="muted orders-note">
           <a className="text-link" href="/trade/futures">
             {t('deskLink')}

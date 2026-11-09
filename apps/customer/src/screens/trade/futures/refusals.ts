@@ -109,6 +109,11 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'The book cannot be read right now',
     body: 'Opening, adding size and raising leverage need a readable order book to rate the margin tier. Nothing was held or changed. Lowering leverage adds margin and still works.',
   },
+  'trade.self_trade_prevention': {
+    title: 'Cancelled by self-trade prevention',
+    body: 'Your newer order would have traded with this one, so this one was cancelled and its hold given back. Nothing traded with yourself.',
+    retryable: false,
+  },
   'trade.risk_limit_confirm_required': {
     title: 'This order moves into a higher margin tier',
     body: 'The tier changed since your review, or it was not confirmed. Nothing was held. Review again, read the new tier and confirm it.',

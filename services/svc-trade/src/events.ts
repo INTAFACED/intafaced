@@ -43,7 +43,7 @@ export interface MatchedFillsSink {
     sequence: number;
   }): Promise<void>;
   /** `remainingQty` is what left the book unfilled; fills the engine printed before it may still be on their way. */
-  releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
+  releaseCancelled(orderId: string, remainingQty: string, reason?: string | null): Promise<boolean>;
 }
 
 /**
@@ -113,7 +113,7 @@ export async function subscribeMatchingEvents(
     'orderCancelled',
     idempotent(
       async (payload) => {
-        if (futures.current && (await futures.current.releaseCancelled(payload.orderId, payload.remainingQty))) return;
+        if (futures.current && (await futures.current.releaseCancelled(payload.orderId, payload.remainingQty, payload.reason))) return;
         await trade.releaseOnCancelEvent(payload.orderId, payload.remainingQty, payload.reason);
       },
       store,

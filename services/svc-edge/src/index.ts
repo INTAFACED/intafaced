@@ -344,7 +344,13 @@ registerMatchingOperatorRoutes(app, {
 });
 
 // The published cost table and a key's usage for its owner (J-developer-06 #1 #3).
-registerRateLimitsDoor(app, { tokens: tokenConfig, sessionLive, buckets: keyBuckets, costs: routeCosts });
+registerRateLimitsDoor(app, {
+  tokens: tokenConfig,
+  sessionLive,
+  buckets: keyBuckets,
+  costs: routeCosts,
+  address: rateLimit.enabled ? { max: rateLimit.max, windowMs: rateLimit.windowMs } : null,
+});
 
 // The FIX and SBE adapters' own status (J-cex-spot-20 #3), each signed with its own read key.
 registerAdapterStatusRoute(app, {

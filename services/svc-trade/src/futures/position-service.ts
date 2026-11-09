@@ -1217,14 +1217,14 @@ export class PositionService {
   /** The matched-order settlement, for the matching consumers. Fills and releases run whether or not the switch is on. */
   get matchedFills(): {
     settle(fill: MatchedFillEvent): Promise<void>;
-    releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
+    releaseCancelled(orderId: string, remainingQty: string, reason?: string | null): Promise<boolean>;
     ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean>;
   } {
     return {
       settle: async (fill) => {
         await this.matched.settleFillOrWait(fill);
       },
-      releaseCancelled: (orderId, remainingQty) => this.matched.releaseEngineCancellation(orderId, remainingQty),
+      releaseCancelled: (orderId, remainingQty, reason) => this.matched.releaseEngineCancellation(orderId, remainingQty, reason),
       ownsFill: (fill) => this.matched.ownsFill(fill),
     };
   }

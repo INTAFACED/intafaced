@@ -199,6 +199,16 @@ export const ORDER_LABEL_INVALID = 'trade.order_label_invalid';
 /** A liquidation order works for the venue's liquidation of the position; its trader cannot cancel it. */
 export const FUTURES_ORDER_NOT_CANCELLABLE = 'trade.futures_order_not_cancellable';
 
+/** The engine's reason on a cancellation its self-trade prevention made (`svc-matching` `SELF_TRADE_PREVENTION`). */
+export const ENGINE_SELF_TRADE_REASON = 'self_trade_prevention';
+/** Recorded on a futures order the engine's self-trade prevention cancelled. */
+export const FUTURES_SELF_TRADE_PREVENTION = 'trade.self_trade_prevention';
+/**
+ * The engine's one self-trade mode: the resting order is cancelled and the incoming one carries on
+ * (`svc-matching` engine/self-trade.ts, CANCEL_RESTING_CONTINUE). There is no owner choice of mode.
+ */
+export const SELF_TRADE_MODE = 'cancel_resting' as const;
+
 export interface PlaceMatchedOrderInput {
   readonly userId: string;
   /** Market symbol, e.g. BTC/USDT-PERP. Must be kind `futures` and active. */
@@ -1642,6 +1652,9 @@ export class MatchedFuturesOrders {
       await this.releaseWhenDone(current.id);
       return presentOrder(await this.loadOrder(current.id));
     }
+    // A resting order of the same trader that this one would have traded with was cancelled by the engine's self-trade
+    // prevention: recorded on that order, so it reads as such. Its hold is released by the cancellation event.
+    await this.recordSelfTradeCancels(result.cancellations);
 
     for (const fill of result.fills) {
       await this.settleFillOrWait({
@@ -2856,13 +2869,30 @@ export class MatchedFuturesOrders {
    * The engine says an order has left the book. Releases the unused hold for a futures order; returns false for
    * anything that is not one, so the caller can run its own path.
    */
-  async releaseEngineCancellation(orderId: string, remainingQty: string): Promise<boolean> {
+  async releaseEngineCancellation(orderId: string, remainingQty: string, reason?: string | null): Promise<boolean> {
     if (!mayBeMatchedOrderId(orderId)) return false;
     const rows = await this.deps.sql<{ status: string }[]>`SELECT status FROM trade.futures_orders WHERE id = ${orderId}`;
     if (!rows[0]) return false;
+    await this.recordSelfTradeCancels([{ orderId, reason: reason ?? null }]);
     await this.markLeftBook(orderId, parseAmount(remainingQty));
     await this.releaseWhenDone(orderId);
     return true;
+  }
+
+  /**
+   * Self-trade prevention (J-derivatives-04 step 7). The engine has one mode (`SELF_TRADE_MODE`): an order that would
+   * trade with the same account's resting order cancels the resting one and carries on; the engine opens a surveillance
+   * case for each. The cancelled order keeps the reason, `trade.self_trade_prevention`, unless it already has one.
+   */
+  private async recordSelfTradeCancels(
+    cancellations: readonly { readonly orderId: string; readonly reason?: string | null }[],
+  ): Promise<void> {
+    const ids = cancellations.filter((c) => c.reason === ENGINE_SELF_TRADE_REASON && mayBeMatchedOrderId(c.orderId)).map((c) => c.orderId);
+    if (ids.length === 0) return;
+    await this.deps.sql`
+      UPDATE trade.futures_orders SET refusal_code = ${FUTURES_SELF_TRADE_PREVENTION}, updated_at = now()
+       WHERE id IN ${this.deps.sql(ids)} AND refusal_code IS NULL
+    `;
   }
 
   /**

@@ -76,61 +76,62 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 
 ## Derivatives
 
-| Route                                           | Name                                                           | Permission                                            |
-| ----------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------- |
-| `GET /api/v1/funding-rate/:symbol`              | `fetchFundingRate`                                             | public; with a key trade:read                         |
-| `GET /api/v1/futures/order-types`               | `fetchFuturesOrderTypes`                                       | public; with a key trade:read                         |
-| `GET /api/v1/funding-history/:symbol`           | `fetchFundingRateHistory`                                      | public; with a key trade:read                         |
-| `GET /api/v1/futures/ticker`                    | `fetchFuturesTicker`                                           | public; with a key trade:read                         |
-| `GET /api/v1/futures/tiers`                     | `fetchLeverageTiers`                                           | public; with a key trade:read                         |
-| `GET /api/v1/outcomes/markets`                  | `fetchOutcomeMarkets`                                          | public; with a key trade:read                         |
-| `GET /api/v1/positions`                         | `fetchPositions`                                               | trade:read                                            |
-| `GET /api/v1/positions/closed`                  | `fetchClosedPositions`                                         | trade:read                                            |
-| `GET /api/v1/positions/:id`                     | `fetchPosition`                                                | trade:read                                            |
-| `GET /api/v1/positions/:id/margin-call`         | `fetchPositionMarginCall`                                      | trade:read                                            |
-| `POST /api/v1/positions`                        | `openPosition`                                                 | trade:write                                           |
-| `POST /api/v1/positions/:id/close`              | `closePositionQuantity`                                        | trade:write                                           |
-| `DELETE /api/v1/positions/:id`                  | `closePosition`                                                | trade:write                                           |
-| `POST /api/v1/positions/margin`                 | `addIsolatedMargin`                                            | trade:write                                           |
-| `POST /api/v1/positions/margin/reduce`          | `reduceIsolatedMargin`                                         | trade:write                                           |
-| `GET /api/v1/futures/adl-disclosure`            | `fetchAdlDisclosure`                                           | trade:read                                            |
-| `POST /api/v1/futures/adl-disclosure/ack`       | `ackAdlDisclosure`                                             | trade:write                                           |
-| `GET /api/v1/futures/adl-events`                | `fetchAdlDisclosureEvents`                                     | trade:read                                            |
-| `POST /api/v1/positions/leverage`               | `setLeverage`                                                  | trade:write                                           |
-| `POST /api/v1/positions/margin-mode`            | `setMarginMode`                                                | trade:write                                           |
-| `GET /api/v1/account/gated-list`                | `fetchGatedList`                                               | trade:read                                            |
-| `GET /api/v1/positions/:id/liquidation`         | `fetchPositionLiquidation`                                     | trade:read                                            |
-| `GET /api/v1/futures/liquidations`              | `fetchLiquidations`                                            | trade:read                                            |
-| `GET /api/v1/futures/payouts`                   | `fetchFuturesPayouts`                                          | trade:read                                            |
-| `GET /api/v1/positions/:id/funding-payments`    | `fetchFundingPayments`                                         | trade:read                                            |
-| `POST /api/v1/futures/positions/close-all`      | `closeAllPositions`                                            | trade:write                                           |
-| `GET /api/v1/futures/margin-summary`            | `fetchMarginSummary`                                           | trade:read                                            |
-| `GET /api/v1/futures/position-mode`             | `fetchPositionMode`                                            | trade:read                                            |
-| `PUT /api/v1/futures/position-mode`             | `setPositionMode`                                              | trade:write                                           |
-| `POST /api/v1/futures/leverage`                 | `setFuturesLeverage`                                           | trade:write                                           |
-| `POST /api/v1/futures/calculator`               | `calculateFuturesRisk`                                         | trade:write                                           |
-| `GET /api/v1/futures/collateral`                | `fetchCollateral`                                              | trade:read                                            |
-| `POST /api/v1/futures/conditional-orders`       | `createConditionalOrder`                                       | trade:write                                           |
-| `GET /api/v1/futures/conditional-orders`        | `fetchConditionalOrders`                                       | trade:read                                            |
-| `GET /api/v1/futures/conditional-orders/:id`    | `fetchConditionalOrder`                                        | trade:read                                            |
-| `DELETE /api/v1/futures/conditional-orders/:id` | `cancelConditionalOrder`                                       | trade:write                                           |
-| `PUT /api/v1/positions/:id/protection`          | `setPositionProtection`                                        | trade:write                                           |
-| `GET /api/v1/positions/:id/risk-stop`           | `fetchPositionRiskStop`                                        | trade:read                                            |
-| `PUT /api/v1/positions/:id/risk-stop`           | `setPositionRiskStop`                                          | trade:write                                           |
-| `GET /api/v1/futures/entry-protection`          | `fetchEntryProtection`                                         | trade:read                                            |
-| `POST /api/v1/futures/orders`                   | `createFuturesOrder`                                           | trade:write                                           |
-| `GET /api/v1/futures/orders`                    | `fetchFuturesOrders`                                           | trade:read                                            |
-| `GET /api/v1/futures/orders/:id`                | `fetchFuturesOrder` · mounted only with futures matching       | trade:read                                            |
-| `GET /api/v1/futures/executions`                | `fetchFuturesExecutions` · mounted only with futures matching  | trade:read                                            |
-| `DELETE /api/v1/futures/orders/:id`             | `cancelFuturesOrder`                                           | trade:write                                           |
-| `POST /api/v1/futures/orders/split`             | `createSplitFuturesOrder` · mounted only with futures matching | trade:write                                           |
-| `POST /api/v1/positions/:id/reverse`            | `reversePosition` · mounted only with futures matching         | trade:write                                           |
-| `POST /api/v1/positions/preview`                | `previewPosition`                                              | trade:write                                           |
-| `POST /api/v1/greeks/what-if`                   | `previewGreeksWhatIf`                                          | trade:write                                           |
-| `POST /api/v1/greeks/delta-hedge`               | `previewDeltaHedge`                                            | trade:write                                           |
-| `POST /api/v1/outcomes/orders`                  | `createOutcomeOrder`                                           | trade:write                                           |
-| `POST /api/v1/outcomes/markets/publish`         | `publishOutcomeMarket`                                         | service to service only; no key or session reaches it |
-| `POST /api/v1/outcomes/settle`                  | `settleOutcomeMarket`                                          | service to service only; no key or session reaches it |
+| Route                                           | Name                                                                | Permission                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
+| `GET /api/v1/funding-rate/:symbol`              | `fetchFundingRate`                                                  | public; with a key trade:read                         |
+| `GET /api/v1/futures/order-types`               | `fetchFuturesOrderTypes`                                            | public; with a key trade:read                         |
+| `GET /api/v1/funding-history/:symbol`           | `fetchFundingRateHistory`                                           | public; with a key trade:read                         |
+| `GET /api/v1/futures/ticker`                    | `fetchFuturesTicker`                                                | public; with a key trade:read                         |
+| `GET /api/v1/futures/tiers`                     | `fetchLeverageTiers`                                                | public; with a key trade:read                         |
+| `GET /api/v1/outcomes/markets`                  | `fetchOutcomeMarkets`                                               | public; with a key trade:read                         |
+| `GET /api/v1/positions`                         | `fetchPositions`                                                    | trade:read                                            |
+| `GET /api/v1/positions/closed`                  | `fetchClosedPositions`                                              | trade:read                                            |
+| `GET /api/v1/positions/:id`                     | `fetchPosition`                                                     | trade:read                                            |
+| `GET /api/v1/positions/:id/margin-call`         | `fetchPositionMarginCall`                                           | trade:read                                            |
+| `POST /api/v1/positions`                        | `openPosition`                                                      | trade:write                                           |
+| `POST /api/v1/positions/:id/close`              | `closePositionQuantity`                                             | trade:write                                           |
+| `DELETE /api/v1/positions/:id`                  | `closePosition`                                                     | trade:write                                           |
+| `POST /api/v1/positions/margin`                 | `addIsolatedMargin`                                                 | trade:write                                           |
+| `POST /api/v1/positions/margin/reduce`          | `reduceIsolatedMargin`                                              | trade:write                                           |
+| `GET /api/v1/futures/adl-disclosure`            | `fetchAdlDisclosure`                                                | trade:read                                            |
+| `POST /api/v1/futures/adl-disclosure/ack`       | `ackAdlDisclosure`                                                  | trade:write                                           |
+| `GET /api/v1/futures/adl-events`                | `fetchAdlDisclosureEvents`                                          | trade:read                                            |
+| `POST /api/v1/positions/leverage`               | `setLeverage`                                                       | trade:write                                           |
+| `POST /api/v1/positions/margin-mode`            | `setMarginMode`                                                     | trade:write                                           |
+| `GET /api/v1/account/gated-list`                | `fetchGatedList`                                                    | trade:read                                            |
+| `GET /api/v1/positions/:id/liquidation`         | `fetchPositionLiquidation`                                          | trade:read                                            |
+| `GET /api/v1/futures/liquidations`              | `fetchLiquidations`                                                 | trade:read                                            |
+| `GET /api/v1/futures/payouts`                   | `fetchFuturesPayouts`                                               | trade:read                                            |
+| `GET /api/v1/positions/:id/funding-payments`    | `fetchFundingPayments`                                              | trade:read                                            |
+| `POST /api/v1/futures/positions/close-all`      | `closeAllPositions`                                                 | trade:write                                           |
+| `GET /api/v1/futures/margin-summary`            | `fetchMarginSummary`                                                | trade:read                                            |
+| `GET /api/v1/futures/position-mode`             | `fetchPositionMode`                                                 | trade:read                                            |
+| `PUT /api/v1/futures/position-mode`             | `setPositionMode`                                                   | trade:write                                           |
+| `POST /api/v1/futures/leverage`                 | `setFuturesLeverage`                                                | trade:write                                           |
+| `POST /api/v1/futures/calculator`               | `calculateFuturesRisk`                                              | trade:write                                           |
+| `GET /api/v1/futures/collateral`                | `fetchCollateral`                                                   | trade:read                                            |
+| `POST /api/v1/futures/conditional-orders`       | `createConditionalOrder`                                            | trade:write                                           |
+| `GET /api/v1/futures/conditional-orders`        | `fetchConditionalOrders`                                            | trade:read                                            |
+| `GET /api/v1/futures/conditional-orders/:id`    | `fetchConditionalOrder`                                             | trade:read                                            |
+| `DELETE /api/v1/futures/conditional-orders/:id` | `cancelConditionalOrder`                                            | trade:write                                           |
+| `PUT /api/v1/positions/:id/protection`          | `setPositionProtection`                                             | trade:write                                           |
+| `GET /api/v1/positions/:id/risk-stop`           | `fetchPositionRiskStop`                                             | trade:read                                            |
+| `PUT /api/v1/positions/:id/risk-stop`           | `setPositionRiskStop`                                               | trade:write                                           |
+| `GET /api/v1/futures/entry-protection`          | `fetchEntryProtection`                                              | trade:read                                            |
+| `POST /api/v1/futures/orders`                   | `createFuturesOrder`                                                | trade:write                                           |
+| `GET /api/v1/futures/orders`                    | `fetchFuturesOrders`                                                | trade:read                                            |
+| `GET /api/v1/futures/orders/:id`                | `fetchFuturesOrder` · mounted only with futures matching            | trade:read                                            |
+| `GET /api/v1/futures/executions`                | `fetchFuturesExecutions` · mounted only with futures matching       | trade:read                                            |
+| `DELETE /api/v1/futures/orders/:id`             | `cancelFuturesOrder`                                                | trade:write                                           |
+| `GET /api/v1/futures/order-protections`         | `fetchFuturesOrderProtections` · mounted only with futures matching | public; with a key trade:read                         |
+| `POST /api/v1/futures/orders/split`             | `createSplitFuturesOrder` · mounted only with futures matching      | trade:write                                           |
+| `POST /api/v1/positions/:id/reverse`            | `reversePosition` · mounted only with futures matching              | trade:write                                           |
+| `POST /api/v1/positions/preview`                | `previewPosition`                                                   | trade:write                                           |
+| `POST /api/v1/greeks/what-if`                   | `previewGreeksWhatIf`                                               | trade:write                                           |
+| `POST /api/v1/greeks/delta-hedge`               | `previewDeltaHedge`                                                 | trade:write                                           |
+| `POST /api/v1/outcomes/orders`                  | `createOutcomeOrder`                                                | trade:write                                           |
+| `POST /api/v1/outcomes/markets/publish`         | `publishOutcomeMarket`                                              | service to service only; no key or session reaches it |
+| `POST /api/v1/outcomes/settle`                  | `settleOutcomeMarket`                                               | service to service only; no key or session reaches it |
 
 | WebSocket stream        | Door                                                   | Permission                |
 | ----------------------- | ------------------------------------------------------ | ------------------------- |

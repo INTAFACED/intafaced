@@ -16,6 +16,8 @@ export interface RateLimitsDoorDeps {
   readonly sessionLive: (principal: Principal) => Promise<void>;
   readonly buckets: KeyBuckets;
   readonly costs: readonly RouteCost[];
+  /** The per-address limit this edge enforces (`EDGE_RATE_LIMIT_MAX` per `EDGE_RATE_LIMIT_WINDOW_MS`), or null when off. */
+  readonly address: { readonly max: number; readonly windowMs: number } | null;
   readonly now?: () => number;
 }
 
@@ -36,7 +38,7 @@ export function registerRateLimitsDoor(app: FastifyInstance, deps: RateLimitsDoo
     reply
       .code(200)
       .header('cache-control', 'no-store')
-      .send({ asOf: new Date(clock()).toISOString(), costs: deps.costs }),
+      .send({ asOf: new Date(clock()).toISOString(), costs: deps.costs, address: deps.address }),
   );
 
   app.get<{ Params: { keyId: string } }>(KEY_USAGE_PATH, async (req, reply) => {
