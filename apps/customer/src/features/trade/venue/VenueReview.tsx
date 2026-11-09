@@ -30,7 +30,7 @@ export function builderApprovalLine(
 
 /**
  * Whether an order carries our builder fee, read from the venue's own preview: a known zero means it carries none (a
- * spot buy, which the venue charges no builder fee on; project-state #1888) and so needs no approval. Anything else,
+ * spot buy, which the venue charges no builder fee on; project-state PR 1888) and so needs no approval. Anything else,
  * including a fee the venue doesn't report, is treated as carrying one.
  */
 export function carriesBuilderFee(builderFee: VenuePreview['builderFee']): boolean {

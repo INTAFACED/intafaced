@@ -135,7 +135,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const sending = useRef(false);
 
   const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
-  // The venue charges our builder fee on a spot sell only (project-state #1888), so the line says which side carries it.
+  // The venue charges our builder fee on a spot sell only (project-state PR 1888), so the line says which side carries it.
   const feeLine = v('Fee line spot', {
     symbol: market.symbol,
     maker: fee(market.makerFeeBps),
