@@ -161,6 +161,8 @@ export const FUTURES_FILL_CROSSES_ORDER_PATHS = 'trade.futures_fill_crosses_orde
 export const FUTURES_REDUCE_ONLY_NO_POSITION = 'trade.futures_reduce_only_no_position';
 /** A reduce-only order larger than its position less the position's other live reduce-only orders. */
 export const FUTURES_REDUCE_ONLY_EXCEEDS_POSITION = 'trade.futures_reduce_only_exceeds_position';
+/** A second closing order on a position whose live reduce orders already claim all of it. */
+export const FUTURES_ONE_CLOSING_ORDER = 'trade.futures_one_closing_order';
 /** A reduce-only limit past the position's bankruptcy price: the fill could lose more than the margin. */
 export const FUTURES_REDUCE_PAST_BANKRUPTCY = 'trade.futures_reduce_past_bankruptcy';
 /** A market reduce whose bankruptcy price lies beyond the whole band: no price in the band is inside the bound. */
@@ -753,18 +755,36 @@ async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, position
  * before a cancel still arrives). Refused and rejected orders claim nothing.
  */
 export async function reservedReduceQty(tx: Sql | TransactionSql, positionId: string): Promise<Amount> {
-  const rows = await tx<{ qty: string; filled_qty: string; engine_filled_qty: string | null; status: string }[]>`
-    SELECT qty, filled_qty, engine_filled_qty, status FROM trade.futures_orders
+  return (await reducingClaims(tx, positionId)).reserved;
+}
+
+/**
+ * The same claims as `reservedReduceQty`, with the orders that make them, oldest first: what a refusal names when the
+ * position is already wholly claimed (J-derivatives-04 step 6).
+ */
+export async function reducingClaims(
+  tx: Sql | TransactionSql,
+  positionId: string,
+): Promise<{ reserved: Amount; claims: { id: string; origin: string; status: string; left: Amount }[] }> {
+  const rows = await tx<
+    { id: string; origin: string; qty: string; filled_qty: string; engine_filled_qty: string | null; status: string }[]
+  >`
+    SELECT id, origin, qty, filled_qty, engine_filled_qty, status FROM trade.futures_orders
      WHERE position_id = ${positionId} AND reduce_only AND status NOT IN ('refused', 'rejected')
+     ORDER BY created_at, id
   `;
   let reserved = 0n;
+  const claims: { id: string; origin: string; status: string; left: Amount }[] = [];
   for (const r of rows) {
     const cap =
       r.status === 'filled' ? parseAmount(r.qty) : r.engine_filled_qty == null ? parseAmount(r.qty) : parseAmount(r.engine_filled_qty);
     const left = cap - parseAmount(r.filled_qty);
-    if (left > 0n) reserved += left;
+    if (left > 0n) {
+      reserved += left;
+      claims.push({ id: r.id, origin: r.origin, status: r.status, left });
+    }
   }
-  return reserved;
+  return { reserved, claims };
 }
 
 /**
@@ -1435,7 +1455,23 @@ export class MatchedFuturesOrders {
         );
       }
       const size = parseAmount(position.size);
-      const reserved = await reservedReduceQty(tx, position.id);
+      const { reserved, claims } = await reducingClaims(tx, position.id);
+      // One closing order per position (J-derivatives-04 step 6): once orders still on the book already claim the whole
+      // position, another order of the trader's to close it is refused by name, pointing at the one that rests. Size
+      // held only by a fill still settling is not a resting order, and answers as more than the position, as before.
+      // A stop or a liquidation is sized against what is left and answers to its own rules.
+      const resting = claims.filter((c) => (LIVE_OR_UNKNOWN as readonly string[]).includes(c.status));
+      const restingQty = resting.reduce((sum, c) => sum + c.left, 0n);
+      if (restingQty >= size && (input.origin === undefined || input.origin.kind === 'user')) {
+        const first = resting[0]!;
+        refuse(
+          FUTURES_ONE_CLOSING_ORDER,
+          first.origin === 'liquidation'
+            ? `position ${position.id} is being closed by liquidation order ${first.id}: one closing order per position`
+            : `position ${position.id} already has closing order ${first.id} for its whole size: one closing order per position; cancel that one first`,
+          409,
+        );
+      }
       if (input.qty + reserved > size) {
         refuse(
           FUTURES_REDUCE_ONLY_EXCEEDS_POSITION,

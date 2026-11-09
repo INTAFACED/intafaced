@@ -234,7 +234,7 @@ describe('customer card procedures (PG-hard)', () => {
   }
 
   async function freshSim() {
-    await sql`TRUNCATE bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE bank.card_controls, bank.card_status_events, bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       cards: { issuer: cardIssuerFor('card-sim', { live: false }), clock: () => NOW },
@@ -356,6 +356,115 @@ describe('customer card procedures (PG-hard)', () => {
       ...APPROVAL,
     });
     expect(cash).toMatchObject({ decision: 'declined', declineCode: 'bank.card_cash_limit_exceeded' });
+  });
+
+  it('blocks a category, a merchant and a country (J-bank-14 #1): each declines with its own code before anything is held, and a lifted block lets the next purchase through', async () => {
+    const { ledger, user, ops } = await freshSim();
+    await fund(ledger, '500');
+    const cardId = randomUUID();
+    await user.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '400' });
+    const buy = (ref: string, at: { merchantCategory?: string; merchant?: string; merchantCountry?: string }) =>
+      ops.ops.cardAuthorize({ cardId, authorizationRef: ref, amount: '10', ...at, confirmOperatorId: CONFIRM, ...APPROVAL });
+
+    const read = await user.cards.controls.get({ cardId });
+    expect(read).toEqual({
+      categories: ['gambling', 'cash_like', 'adult', 'travel', 'entertainment', 'online_shopping', 'groceries', 'fuel'],
+      controls: [],
+      history: [],
+    });
+    await user.cards.controls.block({ cardId, kind: 'category', value: 'gambling' });
+    // Blocking again is the same control, never a second row.
+    await user.cards.controls.block({ cardId, kind: 'category', value: 'gambling' });
+    await user.cards.controls.block({ cardId, kind: 'merchant', value: '  TEST Casino Shop ' });
+    const blocked = await user.cards.controls.block({ cardId, kind: 'country', value: 'us' });
+    expect(blocked.controls.map((c) => [c.kind, c.value])).toEqual([
+      ['category', 'gambling'],
+      ['merchant', 'test casino shop'],
+      ['country', 'US'],
+    ]);
+
+    const available = (await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount;
+    expect(await buy('ctl-category', { merchantCategory: 'gambling' })).toMatchObject({
+      decision: 'declined',
+      declineCode: 'bank.card_category_blocked',
+    });
+    expect(await buy('ctl-merchant', { merchant: 'test CASINO shop' })).toMatchObject({
+      decision: 'declined',
+      declineCode: 'bank.card_merchant_blocked',
+    });
+    expect(await buy('ctl-country', { merchantCountry: 'US' })).toMatchObject({
+      decision: 'declined',
+      declineCode: 'bank.card_country_blocked',
+    });
+    // Nothing was held for any of them.
+    expect((await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount).toBe(available);
+    const feed = await user.cards.authorizations({ cardId, limit: 10 });
+    expect(feed.find((row) => row.authorizationRef === 'ctl-merchant')).toMatchObject({
+      merchant: 'test CASINO shop',
+      merchantCountry: null,
+      status: 'rejected',
+    });
+    expect(feed.find((row) => row.authorizationRef === 'ctl-country')).toMatchObject({ merchantCountry: 'US' });
+
+    // A purchase the controls don't name goes through; a lifted block no longer declines.
+    expect(await buy('ctl-other', { merchantCategory: 'groceries', merchant: 'TEST Grocer', merchantCountry: 'DE' })).toMatchObject({
+      decision: 'approved',
+    });
+    const gambling = blocked.controls.find((c) => c.kind === 'category')!;
+    const lifted = await user.cards.controls.lift({ cardId, controlId: gambling.id });
+    expect(lifted.controls.map((c) => c.kind)).toEqual(['merchant', 'country']);
+    expect(await buy('ctl-after-lift', { merchantCategory: 'gambling' })).toMatchObject({ decision: 'approved' });
+    await expect(user.cards.controls.lift({ cardId, controlId: randomUUID() })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.card_control_not_found'),
+    });
+  });
+
+  it('refuses a control it cannot keep, and records each lock and unlock in the card history (J-bank-14 #1)', async () => {
+    const { user } = await freshSim();
+    const cardId = randomUUID();
+    await user.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' });
+    for (const [kind, value] of [
+      ['category', 'casinos'],
+      ['country', 'USA'],
+      ['merchant', 'a'.repeat(65)],
+    ] as const)
+      await expect(user.cards.controls.block({ cardId, kind, value })).rejects.toThrow();
+    await expect(user.cards.controls.block({ cardId, kind: 'country', value: 'U1' })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.card_control_invalid'),
+    });
+    expect((await user.cards.controls.get({ cardId })).controls).toEqual([]);
+
+    await user.cards.setStatus({ cardId, status: 'frozen' });
+    // Freezing a frozen card changes nothing, so it adds no history.
+    await user.cards.setStatus({ cardId, status: 'frozen' });
+    await user.cards.setStatus({ cardId, status: 'active' });
+    const { history } = await user.cards.controls.get({ cardId });
+    expect(history.map((h) => [h.status, h.actor])).toEqual([
+      ['active', 'owner'],
+      ['frozen', 'owner'],
+    ]);
+  });
+
+  it("never shows or changes another person's card controls", async () => {
+    const { bank, user } = await freshSim();
+    const cardId = randomUUID();
+    await user.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' });
+    const other = createBankRouter(bank, { approvals: stubApprovalConsumer(CONFIRM) }).createCaller(
+      edgeContext({
+        headers: (() => {
+          const raw = encodePrincipal({ ...principal(), sub: FEE_PAYER, userId: FEE_PAYER } as Principal);
+          return {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, EDGE_SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          };
+        })(),
+        id: `req-${randomUUID()}`,
+      }),
+    );
+    await expect(other.cards.controls.get({ cardId })).rejects.toThrow();
+    await expect(other.cards.controls.block({ cardId, kind: 'category', value: 'gambling' })).rejects.toThrow();
+    expect((await user.cards.controls.get({ cardId })).controls).toEqual([]);
   });
 
   it('refuses PAN, PIN and wallet on the simulated programme and stores neither secret', async () => {
