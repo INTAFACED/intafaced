@@ -22,6 +22,7 @@ import { UserSpendStore } from './spend/store.js';
 import { createHttpTeamMembershipPort } from './team/membership.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
 import { registerCoachAgent } from './coach/coach-run.js';
+import { registerCatalogueOnlyAgents } from './fleet/catalogue-only.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
 import { agentsReadiness } from './readiness.js';
 import { describeAgentsLivePlanes } from './live-planes.js';
@@ -36,6 +37,7 @@ import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
 import { parseTierLaws } from './tier-laws.js';
 import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
+import { advanceBackgroundRuns } from './own/background.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -155,6 +157,8 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
 // agent_definitions; a process with zero rows makes every runSession 404.
 const bootAgents = await registerProductAgentsAtBoot(runtime);
 await registerCoachAgent(runtime);
+// The catalogue is the stored list: the agents it names that hold no tools here are stored too (fleet/catalogue-only.ts).
+await registerCatalogueOnlyAgents(runtime);
 
 const academyUrl = env.ACADEMY_URL;
 const loadCoachGrounding = academyUrl
@@ -217,6 +221,8 @@ const appRouter = createAgentsRouter({
   meter,
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
+  fleet: { registryLimit: env.AGENTS_REGISTRY_LIST_LIMIT ?? null },
+  ownBackground: { steps: env.AGENTS_BACKGROUND_TEST_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
   opsLog: {
     reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
     limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,
@@ -320,6 +326,22 @@ const sweepUnpublished = (): void => {
 sweepUnpublished();
 const unpublishedTimer = setInterval(sweepUnpublished, 60_000);
 unpublishedTimer.unref();
+
+// Background test runs of own agents take one step per period, re-reading the agent's switches at each (AG-control-02).
+// Blank leaves the ticker off, and a new background run refuses agents.background_unset.
+if (env.AGENTS_BACKGROUND_STEP_MS) {
+  let stepping = false;
+  const backgroundTimer = setInterval(() => {
+    if (stepping) return;
+    stepping = true;
+    advanceBackgroundRuns(sql)
+      .catch((err: unknown) => app.log.warn({ err }, 'background test runs did not advance'))
+      .finally(() => {
+        stepping = false;
+      });
+  }, env.AGENTS_BACKGROUND_STEP_MS);
+  backgroundTimer.unref();
+}
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {

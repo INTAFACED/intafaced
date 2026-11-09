@@ -609,6 +609,7 @@ export type TradeErrorCode =
   | 'trade.algo_invalid_qty'
   | 'trade.algo_invalid_schedule'
   | 'trade.algo_unsupported_kind'
+  | 'trade.bots_paused_by_platform'
   | 'trade.algo_not_found'
   | 'trade.algo_duplicate_id'
   | 'trade.algo_bad_state'

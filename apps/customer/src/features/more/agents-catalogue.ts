@@ -7,6 +7,8 @@ import { formatAmount, parseAmount } from '../../shared/money';
 export type AgentKind = 'session' | 'room' | 'staff' | 'unwired';
 export type CatalogueAgent = { id: string; kind: AgentKind; href?: string; tab?: 'Coach' };
 
+/** How the page presents each agent it knows: its kind and where it is used. Which agents are listed is the stored
+ * list's answer alone (`catalogueFromStored`); this only says how a stored agent is shown. */
 export const AGENT_CATALOGUE: readonly CatalogueAgent[] = [
   { id: 'navigator', kind: 'session' },
   { id: 'support', kind: 'session' },
@@ -46,10 +48,25 @@ export const guardrailSchema = z
       allowedModules: z.array(z.string()),
       allowedTasks: z.array(z.string()),
     }),
+    /** Who may use the agent under its published law, and whether this person may. Absent from an older service. */
+    eligibility: z
+      .discriminatedUnion('rule', [
+        z.object({ rule: z.literal('none'), eligible: z.literal(true), yourPlan: z.string() }),
+        z.object({
+          rule: z.literal('plan'),
+          published: z.boolean(),
+          plans: z.array(z.string()),
+          yourPlan: z.string(),
+          eligible: z.boolean(),
+          code: z.string().nullable(),
+        }),
+      ])
+      .optional(),
   })
   .nullable();
 
 export type Guardrail = NonNullable<z.infer<typeof guardrailSchema>>;
+export type Eligibility = NonNullable<Guardrail['eligibility']>;
 
 /** The stored agent list (svc-agents `agent.catalogue`): disabled agents stay in it with enabled false. */
 export const storedCatalogueSchema = z.array(
@@ -64,13 +81,24 @@ export const storedCatalogueSchema = z.array(
 export type StoredAgent = z.infer<typeof storedCatalogueSchema>[number];
 
 /**
- * Whether a person can use an agent now. A session agent follows its stored
- * row, and one the deployment has not stored cannot open a session. A room
- * agent is used inside its room; staff and unconnected agents cannot be used.
+ * The catalogue the page lists: exactly the stored agents, in the page's known order and then any other stored agent
+ * in the stored order, each with how the page presents it. An agent the stored list does not hold is never shown, so an
+ * empty stored list is an empty catalogue. A stored agent the page does not know is a session agent.
  */
+export function catalogueFromStored(stored: readonly StoredAgent[]): CatalogueAgent[] {
+  const ids = new Set(stored.map((row) => row.agentId));
+  const known = AGENT_CATALOGUE.filter((agent) => ids.has(agent.id));
+  const other = stored
+    .filter((row) => !AGENT_CATALOGUE.some((agent) => agent.id === row.agentId))
+    .map((row): CatalogueAgent => ({ id: row.agentId, kind: 'session' }));
+  return [...known, ...other];
+}
+
+/** Whether a person can use an agent now: its stored row's `enabled`. One the deployment has not stored cannot be used,
+ * and a staff-only or unconnected agent is never usable by a customer, whatever its row says. */
 export function agentEnabled(agent: CatalogueAgent, stored: readonly StoredAgent[]): boolean {
-  if (agent.kind === 'session') return stored.some((row) => row.agentId === agent.id && row.enabled);
-  return agent.kind === 'room';
+  if (agent.kind === 'staff' || agent.kind === 'unwired') return false;
+  return stored.some((row) => row.agentId === agent.id && row.enabled);
 }
 
 export type CatalogueSort = 'catalogue' | 'name';

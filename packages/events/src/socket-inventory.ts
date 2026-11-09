@@ -74,7 +74,7 @@ const ENDS: readonly WiringEnd[] = ['publisher', 'subscriber'];
 export const EVENT_BUS_MATRIX = {
   xpEarned: { kind: 'live' },
   rankUpdated: { kind: 'live' },
-  userCreated: { kind: 'socket', socketClass: 'A' },
+  userCreated: { kind: 'live' },
   kycApproved: { kind: 'live' },
   kycSubmitted: { kind: 'socket', socketClass: 'A' },
   kycRejected: { kind: 'socket', socketClass: 'A' },

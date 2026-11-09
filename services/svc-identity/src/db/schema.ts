@@ -78,6 +78,8 @@ export const users = identity.table(
     /** Staff archive of a closed account (J-ops-console-04 #10): set once with its reason code, never cleared. */
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     archiveReason: text('archive_reason'),
+    /** The person's own idle sign-out in seconds (J-identity-06 #4); null leaves the owner's SESSION_IDLE_SECONDS alone. */
+    idleSignoutSeconds: integer('idle_signout_seconds'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -463,6 +465,8 @@ export const apiKeys = identity.table(
     revokedCause: text('revoked_cause'),
     /** The person's own words when they revoked it; never an operator's note. */
     revokeReason: text('revoke_reason'),
+    /** The key's own refill per minute once a reviewer granted a higher limit (J-developer-06 #6); null: on its tier. */
+    rateRefillPerMinuteGranted: integer('rate_refill_per_minute_granted'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('api_keys_hash_idx').on(t.keyHash), index('api_keys_user_idx').on(t.userId, t.revoked)],

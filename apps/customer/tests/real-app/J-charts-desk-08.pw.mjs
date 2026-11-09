@@ -44,20 +44,107 @@ test(`${J} #1 opens a 2x2 grid; dragging a border resizes two cells and a double
 test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on the same key`, async ({ page }) => {
   await openGrid(page);
   const sizes = async () => Promise.all([0, 1, 2, 3].map(async (i) => [await width(page, i), await height(page, i)]));
-  const gridSizes = await sizes();
-  await canvasOf(page, 1).focus();
-  await page.keyboard.press('Alt+Enter');
-  await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '1');
-  for (const i of [0, 2, 3]) await expect(cell(page, i)).toBeHidden();
-  await expect(cell(page, 1)).toBeVisible();
-  expect(await width(page, 1)).toBeGreaterThan(1000);
-  await page.keyboard.press('Alt+Enter');
-  await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
-  // Every cell is back in view at its grid size, and the others stayed alive: their bars are still drawn.
-  for (const i of [0, 1, 2, 3]) await expect(cell(page, i)).toBeVisible();
-  await expect
-    .poll(async () => (await sizes()).every(([w, h], i) => Math.abs(w - gridSizes[i][0]) < 2 && Math.abs(h - gridSizes[i][1]) < 2))
-    .toBe(true);
+  // The grid's own tracks in px, as the browser laid them out: [first, border, second] for columns and for rows.
+  const tracks = async () =>
+    page.getByTestId('cg-area').evaluate((el) => {
+      const px = (value) => value.split(' ').map(parseFloat);
+      const style = getComputedStyle(el);
+      return { cols: px(style.gridTemplateColumns), rows: px(style.gridTemplateRows) };
+    });
+  // What in each cell can change its height on the market's clock, not this step's: its data-status chip and banners,
+  // by kind. The Delayed banner appears once the newest TEST trade is older than the boundary and goes when a new trade
+  // lands (main run 42440617559: sizes read 0.1 s after the bars drew, before the banner, could never match again).
+  const contentKeys = async () =>
+    (
+      await Promise.all(
+        [0, 1, 2, 3].map((i) =>
+          cell(page, i).evaluate((el) =>
+            [...el.querySelectorAll('[data-status], [data-testid="chart-banner"]')]
+              .map((n) => `${n.dataset.status ?? ''}:${n.dataset.kind ?? ''}`)
+              .join(','),
+          ),
+        ),
+      )
+    ).join('|');
+  // The height of what those chips and banners take in each cell: each banner with the gap before it, and each row a chip
+  // sits in. When content changes, this is all a row may legitimately grow or shrink by.
+  const chrome = async () =>
+    Promise.all(
+      [0, 1, 2, 3].map((i) =>
+        cell(page, i).evaluate((el) => {
+          let px = 0;
+          for (const b of el.querySelectorAll('[data-testid="chart-banner"]'))
+            px += b.getBoundingClientRect().height + (parseFloat(getComputedStyle(b.parentElement).rowGap) || 0);
+          const chipRows = new Set([...el.querySelectorAll('[data-testid="chart-status"]')].map((c) => c.parentElement));
+          for (const r of chipRows) px += r.getBoundingClientRect().height;
+          return px;
+        }),
+      ),
+    );
+  const snapshot = async () => ({ sizes: await sizes(), tracks: await tracks(), keys: await contentKeys(), chrome: await chrome() });
+  // With content changed, each row may move only within what the chips and banners changed by (scaled by the row's flex
+  // share): a restore that halves or doubles the rows while a banner comes or goes fails here, before any re-run.
+  const withinChrome = (before, now) => {
+    const deltas = now.chrome.map((c, i) => c - before.chrome[i]);
+    const small = Math.min(before.tracks.rows[0], before.tracks.rows[2]);
+    return [0, 2].every((r) => {
+      const k = before.tracks.rows[r] / small;
+      const moved = now.tracks.rows[r] - before.tracks.rows[r];
+      return moved >= Math.min(0, ...deltas) * k - 2 && moved <= Math.max(0, ...deltas) * k + 2;
+    });
+  };
+  const rowShare = (t) => t.rows[0] / (t.rows[0] + t.rows[2]);
+  // Back exactly as before: every cell at its old width and height (2 px), filling its own column and row track, and the
+  // rows in the same proportion. Only compared when no cell's status or banner changed in between.
+  const restored = (before, now, { heights }) =>
+    Math.abs(rowShare(now.tracks) - rowShare(before.tracks)) < 0.005 &&
+    now.sizes.every(
+      ([w, h], i) =>
+        Math.abs(w - before.sizes[i][0]) < 2 &&
+        (!heights || Math.abs(h - before.sizes[i][1]) < 2) &&
+        Math.abs(w - now.tracks.cols[(i % 2) * 2]) < 2 &&
+        Math.abs(h - now.tracks.rows[Math.floor(i / 2) * 2]) < 2,
+    );
+  const ready = async () => {
+    for (const i of [0, 1, 2, 3]) await expect(cell(page, i).getByTestId('chart-status')).toBeVisible();
+  };
+  await ready();
+  // The first reading is the reference for everything content can't move: widths and the rows' proportion, every cycle.
+  const original = await snapshot();
+  // A cycle whose cells changed status or banner between its two readings has no height to compare with. The next
+  // cycle opens the grid afresh, never from the layout just restored, and that fresh start must itself match the first
+  // reading (heights too, when its content is the same), so a broken restore can't become the next cycle's baseline.
+  // At most three cycles; a cycle with the same content that doesn't come back fails at once.
+  let outcome = 'content changed';
+  for (let cycle = 0; cycle < 3 && outcome === 'content changed'; cycle++) {
+    if (cycle > 0) {
+      await openGrid(page);
+      await ready();
+    }
+    const before = cycle === 0 ? original : await snapshot();
+    expect(restored(original, before, { heights: before.keys === original.keys }), 'the grid opens as it first did').toBe(true);
+    await canvasOf(page, 1).focus();
+    await page.keyboard.press('Alt+Enter');
+    await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '1');
+    for (const i of [0, 2, 3]) await expect(cell(page, i)).toBeHidden();
+    await expect(cell(page, 1)).toBeVisible();
+    expect(await width(page, 1)).toBeGreaterThan(1000);
+    await page.keyboard.press('Alt+Enter');
+    await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
+    for (const i of [0, 1, 2, 3]) await expect(cell(page, i)).toBeVisible();
+    await expect
+      .poll(async () => {
+        const now = await snapshot();
+        // Widths and proportion against the first reading whatever the content; heights against this cycle's own.
+        if (!restored(original, now, { heights: false })) outcome = 'not restored';
+        else if (now.keys !== before.keys) outcome = withinChrome(before, now) ? 'content changed' : 'not restored';
+        else outcome = restored(before, now, { heights: true }) ? 'restored' : 'not restored';
+        return outcome;
+      })
+      .not.toBe('not restored');
+  }
+  expect(outcome, "every cycle saw a chart's data status or banner change, so no size held still to compare").toBe('restored');
+  // The others stayed alive: their bars are still drawn.
   for (const i of [0, 2, 3]) await expect.poll(async () => Number(await canvasOf(page, i).getAttribute('data-bars'))).toBeGreaterThan(0);
 });
 

@@ -7,6 +7,7 @@ import {
   REASON_MAX,
   REASON_MIN,
   validReason,
+  type CardFundingKind,
   type CardStatus,
   type ResidencyDecision,
   type VendorDecision,
@@ -15,7 +16,7 @@ import type { StepReply } from '@/lib/desk/approval-types';
 import { ambassadorVerb, disputeEscalationOffered, listingTakedownOffered, rowText, vendorDecisions } from '@/lib/ops-desk/actions-model';
 import { postDirect } from '@/lib/ops-desk/direct-browser';
 import { describeDirect, newRequestKey } from '@/lib/ops-desk/direct-model';
-import type { Row } from '@/lib/ops-desk/types';
+import type { ReadOutcome, Row } from '@/lib/ops-desk/types';
 import './desk.css';
 
 /**
@@ -427,5 +428,132 @@ export function DisputeActions({ row, onChanged }: { row: Row; userId: string; o
       </div>
       {reply && <StepReplyView reply={reply} />}
     </form>
+  );
+}
+
+const FUNDING_COPY: Record<CardFundingKind, { label: string; verb: string }> = {
+  fund: { label: 'Fund', verb: 'fund the programme' },
+  defund: { label: 'Defund', verb: 'defund the programme' },
+  auto_reload: { label: 'Auto reload', verb: 'set auto reload' },
+};
+const FUNDING_KEYS: Record<CardFundingKind, string> = { fund: 'fund', defund: 'defund', auto_reload: 'autoReload' };
+const POSITIVE = /^(?:0|[1-9]\d{0,19})(?:\.\d{1,18})?$/;
+
+/** Each kind's offer state, from the desk's own read of svc-bank (`bank.card-funding-offers`); null when that read failed. */
+export function fundingOffers(outcome: ReadOutcome | undefined): Record<CardFundingKind, string> | null {
+  if (!outcome || outcome.part.kind !== 'ok' || outcome.part.data.shape !== 'record') return null;
+  const cells = outcome.part.data.cells;
+  const of = (key: string) => {
+    const v = cells.find((c) => c.key === `offers.${key}`)?.value;
+    return typeof v === 'string' ? v : 'not_known';
+  };
+  return { fund: of('fund'), defund: of('defund'), auto_reload: of('auto_reload') };
+}
+
+/**
+ * Fund, defund or set auto reload at the card partner (J-bank-26 #6), only where the partner offers it: each kind it does
+ * not offer, or has not said, is a switched-off button with the reason beside it. A founder-level request: the second founder
+ * signs the kind, the amount and the threshold. svc-bank checks the partner's offer again before the approval is used.
+ */
+export function CardFundingAction({
+  userId,
+  onChanged,
+  offers,
+}: {
+  userId: string;
+  onChanged: () => void;
+  offers: ReadOutcome | undefined;
+}) {
+  const states = fundingOffers(offers);
+  const [kind, setKind] = useState<CardFundingKind | null>(null);
+  const [amount, setAmount] = useState('');
+  const [threshold, setThreshold] = useState('');
+  const offered = (k: CardFundingKind) => states?.[k] === 'offered';
+  const why = (k: CardFundingKind) =>
+    states === null
+      ? 'The partner’s offers could not be read, so nothing can be sent.'
+      : states[k] === 'not_offered'
+        ? 'Not offered by the partner.'
+        : 'Not known: the partner has not said whether it offers this.';
+  const amountOk = POSITIVE.test(amount) && /[1-9]/.test(amount);
+  const thresholdOk = kind !== 'auto_reload' || (POSITIVE.test(threshold) && /[1-9]/.test(threshold));
+  const action: ControlAction | null = kind
+    ? {
+        heading: `${FUNDING_COPY[kind].label} at the card partner`,
+        submitLabel: `Ask the other founder to approve: ${FUNDING_COPY[kind].verb}`,
+        needsReason: true,
+        reasonLabel: `Why (kept with the instruction, ${REASON_MIN} to ${REASON_MAX} characters)`,
+        build: (reason) => ({
+          kind: 'bank.card.funding',
+          fundingKind: kind,
+          amount,
+          threshold: kind === 'auto_reload' ? threshold : '',
+          reason,
+        }),
+        danger: true,
+      }
+    : null;
+  return (
+    <div className="dk-stack" data-testid="card-funding-action">
+      <h3>Fund, defund or auto reload</h3>
+      <div className="dk-stack" role="group" aria-label="Programme funding at the card partner">
+        {(Object.keys(FUNDING_COPY) as CardFundingKind[]).map((k) => (
+          <div key={k} className="dk-row" data-testid={`card-funding-${FUNDING_KEYS[k]}`} data-offer={states?.[k] ?? 'unread'}>
+            <button
+              type="button"
+              className="adm-btn"
+              aria-pressed={kind === k}
+              disabled={!offered(k)}
+              aria-describedby={`why-funding-${k}`}
+              onClick={() => setKind(k)}
+            >
+              {FUNDING_COPY[k].label}
+            </button>
+            <span id={`why-funding-${k}`} className="dk-why">
+              {offered(k) ? 'Offered by the partner.' : why(k)}
+            </span>
+          </div>
+        ))}
+      </div>
+      {kind && action && (
+        <>
+          <div className="adm-field">
+            <label htmlFor="card-funding-amount">Amount of the funding stablecoin</label>
+            <input
+              id="card-funding-amount"
+              className="adm-input"
+              inputMode="decimal"
+              autoComplete="off"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value.trim())}
+            />
+          </div>
+          {kind === 'auto_reload' && (
+            <div className="adm-field">
+              <label htmlFor="card-funding-threshold">Reload when the programme falls below</label>
+              <input
+                id="card-funding-threshold"
+                className="adm-input"
+                inputMode="decimal"
+                autoComplete="off"
+                value={threshold}
+                onChange={(e) => setThreshold(e.target.value.trim())}
+              />
+            </div>
+          )}
+          <ControlDesk
+            key={`${kind}:${amountOk ? amount : ''}:${thresholdOk ? threshold : ''}`}
+            endpoint="/api/bank-ops"
+            userId={userId}
+            blockedReason={null}
+            formHold={amountOk && thresholdOk ? null : 'Enter a positive amount first (for example 1000 or 250.5).'}
+            action={action}
+            consequence="The card partner moves the money under its own licence; nothing posts to INTAFACED’s ledger. Two different founders must agree, and identity checks both are current founders. It goes to the bank service on this console’s treasury credential, as the posting freeze does. The approver signs the kind, the amount and the threshold; the reason is recorded with the instruction."
+            blockedButtonLabel="Programme funding unavailable"
+            onChanged={onChanged}
+          />
+        </>
+      )}
+    </div>
   );
 }

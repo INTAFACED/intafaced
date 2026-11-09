@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -44,7 +45,7 @@ function otcMakerDirectory() {
   return JSON.stringify(directory);
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY }) => ({
   name: 'trade',
   env: () => ({
     ...c('svc-trade', PORTS.trade),
@@ -89,6 +90,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // (J-cex-spot-20 #5). Seeding itself stays off: TRADE_MM_SEED_ENABLED is unset and no market has an approved row
     // until a journey writes one. Every 5 s (the env's floor) so J-cex-spot-20 #4 sees the seed soon.
     TRADE_MM_SEED_INTERVAL_MS: '5000',
+    // The seed job's last-run record, in the stack's own state folder. Its default is relative to the service's folder in
+    // the checkout, where the build stamp reads it as a source edit, so the next restart rebuilds everything (#7463).
+    TRADE_MM_SEED_STATE_PATH: path.join(P.data, 'mm-seed-last-run.json'),
     // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
     TRADE_CONVERT_QUOTE_TTL_MS: '15000',
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in

@@ -5,7 +5,7 @@
  * Reads the diff against origin/main and fails on:
  *   1. a skip, todo, only or fixme added to a test (`.skip(`, `xit(`, `it.todo(`, `test.fixme(` …);
  *   2. a test file deleted while its source file still exists (a journey or harness file, `*.pw.mjs`, has no one
- *      source file, so deleting one always counts);
+ *      source file, so deleting one always counts, a journey step file included);
  *   3. a modified test file with fewer assertions than before (`expect(` and
  *      `assert*(` calls removed outnumber those added);
  *   4. a matcher swapped for a weaker one on a changed line (toBe/toEqual/toBeVisible →
@@ -18,7 +18,12 @@
  *
  * Tests are `.test.`/`.spec.` files, `__tests__/` folders, and the browser journeys and harnesses (`*.pw.mjs`).
  *
- * A PR that does one of 1-5 on purpose says so in its description with a line
+ * Checks 1 (all but a focus: `.only`, `fit(`, `fdescribe(`, which drops every other test and stays here), 3, 4 and 5 leave an added or modified journey step file (`apps/customer/tests/real-app/J-*.pw.mjs`) to the test
+ * judge on a pull request its job runs for (same repository, base main): the seal needs the judge's verdict on the exact
+ * head, and the judge reads each changed test against the step it proves, which no line in the description can stand
+ * in for (judged-paths.mjs leftToJudge; R3 C6). A deleted journey file, look sweeps, harnesses, configs, unit tests and
+ * any pull request the judge doesn't run for stay here: a PR that does one of 1-5 there on purpose says so in its
+ * description with a line
  *   Test-change: <the reason a reviewer can check>
  * which turns the failure into a printed notice. The reviewer sees both. A Test-change line never covers 6.
  *
@@ -33,12 +38,20 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
 const BROWSER_TEST = /\.pw\.mjs$/;
 // A Playwright config sets screenshot tolerances for a whole suite; only its tolerance lines are judged.
 const PW_CONFIG = /(?:^|\/)(?:[\w.-]+\.)?playwright\.config\.[cm]?[jt]s$/;
+// A focus marker runs one test and drops every other test in the run. The test judge reads only the steps a change
+// touches, and a focused step still proves itself, so a focus stays the guard's in every file (review 7550-R1).
+// Any `.only` member at all (`test.describe.serial.only(`, `test.only.each(`, a chained `.only(` on its own line,
+// `test.only` with its `(` on the next line, an alias `const t = test.only;`), a bracketed one (`test['only'](`),
+// `fit(` and `fdescribe(` (reviews 7550-R3 and the CI review on 6a5f1389): every form SKIP caught and more. The
+// journeys config's forbidOnly backs it up.
+const FOCUS = /\.only\b|\[\s*['"`]only['"`]\s*\]|\bf(?:it|describe)\s*\(/;
 const SKIP = /\b(?:(?:it|test|describe|suite)\.(?:skip|todo|only|fixme|skipIf|runIf)\b|x(?:it|describe|test)\s*\(|f(?:it|describe)\s*\()/;
 // The repo's journalled no-database branch: `describe.skip('<suite> (Postgres unavailable)', ...)`. The suite
 // runs in full when the database is up; the skip-honesty gates account for the skip. Exact title shape only.
@@ -56,9 +69,16 @@ const BASELINE_DECLARED = /^\s*Baseline-change:\s*(\S+)\s+[—–:-]+\s*(\S.{7,}
 const count = (lines) => lines.reduce((n, l) => n + (l.match(ASSERT)?.length ?? 0), 0);
 
 /** @param {{path:string, status:string, removed:string[], added:string[], sourceExists:boolean}[]} changes */
-export function judge(changes) {
+/** `judgeRuns`: the test judge's job runs for this pull request (judged-paths.mjs leftToJudge). */
+export function judge(changes, { judgeRuns = false } = {}) {
   const problems = [];
   for (const c of changes) {
+    // The test judge always rules on these, and the seal needs its verdict: neither these findings nor a Test-change line.
+    if (leftToJudge(c, { judgeRuns })) {
+      for (const l of c.added)
+        if (FOCUS.test(l)) problems.push({ path: c.path, why: `focus added (runs this test alone): ${l.trim().slice(0, 100)}` });
+      continue;
+    }
     if (PW_CONFIG.test(c.path) && c.status === 'M') {
       const raised = toleranceRaised(c.path, c.removed, c.added);
       if (raised) problems.push({ path: c.path, why: `screenshot tolerance raised: ${raised}` });
@@ -204,9 +224,62 @@ function selfTest() {
   eq(judge([{ path: 'a/x.ts', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }]).length, 0, 'non-test ignored');
   eq(DECLARED.test('Why\n\nTest-change: removed the legacy vue snapshot test'), true, 'declared line');
   eq(DECLARED.test('Test-change: n/a'), false, 'declaration needs a real reason');
-  // Browser journeys and harnesses.
+  // Browser tests and harnesses outside the judged paths (a room's look sweep): the guard still holds them.
   const pw = (c) =>
-    judge([{ path: 'apps/customer/tests/real-app/J-x-01.pw.mjs', status: 'M', removed: [], added: [], sourceExists: true, ...c }]);
+    judge([{ path: 'apps/customer/src/screens/home/home.pw.mjs', status: 'M', removed: [], added: [], sourceExists: true, ...c }]);
+  // A journey step file changed on a pull request the judge runs for is the judge's (judged-paths.mjs leftToJudge, R3 C6).
+  const runs = { judgeRuns: true };
+  const jf = (c, opts = runs, path = 'apps/customer/tests/real-app/J-x-01.pw.mjs') =>
+    judge([{ path, status: 'M', removed: [], added: [], sourceExists: true, ...c }], opts);
+  const skipLine = ["  test.skip(!process.env.X, 'no stack');"];
+  eq(jf({ added: skipLine }).length, 0, 'journey step file: left to the test judge');
+  eq(jf({ removed: ["  await expect(page.getByRole('button')).toBeVisible();"] }).length, 0, 'journey assertion: the judge');
+  // Planted (review 7550-R1): a focus in a journey step file drops every other test, which the judge can't see.
+  eq(jf({ added: ['test.only(`${J} #2 pays`, async ({ page }) => {'] }).length, 1, 'journey test.only: the guard');
+  eq(jf({ added: ["test.describe.only('J-x-01', () => {"] }).length, 1, 'journey describe.only: the guard');
+  for (const line of [
+    "test.describe.serial.only('x', () => {",
+    "test.describe.parallel.only('x', () => {",
+    '  .only(',
+    "test['only']('x', () => {",
+    'test.only.each(rows)(',
+    'test.only',
+    'const t = test.only;',
+    "describe.only ('x', () => {",
+  ])
+    eq(jf({ added: [line] }).length, 1, `journey focus ${line.trim()}: the guard`);
+  eq(jf({ added: ["  test('only the owner sees it', async () => {"] }).length, 0, 'the word only in a title is fine');
+  // Planted: everything the judge does not always rule on stays the guard's.
+  eq(jf({ added: skipLine }, {}).length, 1, 'no judge job (a fork, another base): the guard');
+  eq(jf({ status: 'D', sourceExists: false }).length, 1, 'a deleted journey file: the guard');
+  eq(jf({ added: skipLine }, runs, 'apps/customer/tests/real-app/look-sweep-390.pw.mjs').length, 1, 'a look sweep in real-app: the guard');
+  eq(
+    jf({ added: ["  it.skip('x', () => {})"] }, runs, 'apps/customer/tests/real-app/harness.test.mjs').length,
+    1,
+    'a unit test in real-app: the guard',
+  );
+  eq(
+    jf(
+      { removed: ['  use: { maxDiffPixelRatio: 0.01 },'], added: ['  use: { maxDiffPixelRatio: 0.5 },'] },
+      runs,
+      'apps/customer/tests/real-app/real-app.playwright.config.mjs',
+    ).length,
+    1,
+    'the journeys config tolerance: the guard',
+  );
+  eq(
+    judge([
+      { path: 'tooling/scripts/journey-shards.test.mjs', status: 'M', removed: ['assert.equal(a, 1)'], added: [], sourceExists: true },
+    ]).length,
+    1,
+    "a unit test under tooling/scripts/, which the judge skips, is still the guard's",
+  );
+  eq(
+    judge([{ path: 'services/svc-pay/src/a.test.ts', status: 'M', removed: [], added: ["  it.skip('x', () => {})"], sourceExists: true }])
+      .length,
+    1,
+    "a service unit test is still the guard's",
+  );
   eq(pw({ added: ["  test.skip(!process.env.X, 'no stack');"] }).length, 1, 'journey skip added');
   eq(pw({ added: ["test.describe.fixme('J-x-01', () => {"] }).length, 1, 'journey fixme added');
   eq(pw({ removed: ["  await expect(page.getByRole('button')).toBeVisible();"], added: [] }).length, 1, 'journey assertion removed');
@@ -258,7 +331,8 @@ function selfTest() {
     'a new file may set its tolerance',
   );
   eq(
-    judge([{ path: 'apps/customer/tests/real-app/stack.mjs', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }]).length,
+    judge([{ path: 'apps/customer/src/screens/home/stack.mjs', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }])
+      .length,
     0,
     'helper ignored',
   );
@@ -308,7 +382,7 @@ function selfTest() {
     2,
     'assertion delta counted',
   );
-  console.log('✓ test-diff-guard --self-test OK (45 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (62 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {
@@ -324,7 +398,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(
       `  assertions ${d.path}: ${d.removed} removed, ${d.added} added (net ${d.added - d.removed >= 0 ? '+' : ''}${d.added - d.removed})`,
     );
-  const problems = judge(changes);
+  // ci-review.yml's judge job runs for a same-repository pull request into main (its `judge` job condition).
+  const judgeRuns = judgeRunsFor({
+    baseRef: process.env.GITHUB_BASE_REF,
+    headRepo: process.env.PR_HEAD_REPO,
+    repo: process.env.GITHUB_REPOSITORY,
+  });
+  if (judgeRuns) console.log("journey step files (J-*.pw.mjs) changed here are the test judge's (its verdict is required by the seal)");
+  const problems = judge(changes, { judgeRuns });
   const baselines = judgeBaselines(changes, body);
   for (const n of baselines.notices) console.log(`⚠ ${n.path}\n    → ${n.why}`);
   const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
