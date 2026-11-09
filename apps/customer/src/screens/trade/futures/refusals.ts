@@ -464,6 +464,11 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'That is more than the position',
     body: 'Together with your other reduce-only orders, this would close more than the position holds. Lower the size.',
   },
+  'trade.futures_one_closing_order': {
+    title: 'This position already has a closing order',
+    body: 'One closing order per position: an order on the book already closes all of it. Cancel the one that rests, in Orders, before placing another.',
+    retryable: false,
+  },
   'trade.futures_reduce_past_bankruptcy': {
     title: 'That price would lose more than the margin',
     body: 'A reduce at this price would lose more than the margin on the position. Choose a price closer to the mark.',

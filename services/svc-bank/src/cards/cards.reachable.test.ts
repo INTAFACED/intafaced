@@ -67,6 +67,7 @@ const MIGRATIONS = [
   '0035_card_controls.sql',
   '0040_bank_ops_reads.sql',
   '20261106013335_card_orders.sql',
+  '20261108230236_card_blocks.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const EDGE_SECRET = 'a-bank-cards-reachability-edge-secret-long-enough';
