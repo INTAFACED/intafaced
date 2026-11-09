@@ -62,6 +62,11 @@ import { createAlertDeskRoutes } from './alerts/overview.js';
 import type { AlertDeskStore } from './alerts/desk-store.js';
 import { ConsoleModeDesk } from './console-mode/desk.js';
 import { createConsoleModeRouter } from './console-mode/router.js';
+import { CapitalDesk } from './capital/desk.js';
+import { createCapitalRouter } from './capital/router.js';
+import { createCapitalSources, type CapitalSources } from './capital/sources.js';
+import type { CapitalStore } from './capital/store.js';
+import type { OpsCapitalVenues } from '@intafaced/contracts';
 import type { ConsoleModeStore } from './console-mode/store.js';
 import { AnnouncementDesk } from './console-announcements/desk.js';
 import { createAnnouncementsRouter } from './console-announcements/router.js';
@@ -69,6 +74,8 @@ import type { AnnouncementStore } from './console-announcements/store.js';
 import { createPreferencesRouter } from './console-preferences/router.js';
 import type { PreferenceStore } from './console-preferences/store.js';
 import { createServiceRecordsRouter } from './service-records/router.js';
+import { createIncidentsRouter } from './incidents/router.js';
+import type { IncidentStore } from './incidents/store.js';
 import { StaffHoldDesk } from './staff-holds/desk.js';
 import { createStaffHoldsRouter } from './staff-holds/router.js';
 import type { ServiceRecordStore } from './service-records/store.js';
@@ -252,10 +259,20 @@ export interface OperatorDeskConfig {
   readonly preferences?: PreferenceStore;
   /** Service records per module (owner, dependencies, runbook). Absent means every call refuses `ops.service_storage_unconfigured`. */
   readonly serviceRecords?: ServiceRecordStore;
+  /** Staff incidents. Absent means every call refuses `ops.incident_storage_unconfigured`. */
+  readonly incidents?: IncidentStore;
+  /** The owner's incident severities (`OPS_INCIDENT_SEVERITIES`). Absent or null: blank. */
+  readonly incidentSeverities?: readonly string[] | null;
   /** Staff holds on funds. Absent means every call refuses `ops.hold_storage_unconfigured`. */
   readonly staffHolds?: StaffHoldDesk;
   /** Home's owner values for the public `home.config` read. Absent means every value is blank. */
   readonly homeConfig?: HomeConfig;
+  /** The capital monitor's thresholds and breach alerts. Absent means every capital call refuses `ops.capital.storage_unconfigured`. */
+  readonly capital?: CapitalStore;
+  /** The capital monitor's ledger and bank reads. Absent reads every source as not wired ("unknown"). */
+  readonly capitalSources?: CapitalSources;
+  /** The capital monitor's venue reads (`capital/venues.ts`). Absent says `ops.capital.venue_not_connected`. */
+  readonly capitalVenues?: () => Promise<OpsCapitalVenues>;
 }
 
 export function createOpsRouter(
@@ -840,6 +857,16 @@ export function createOpsRouter(
 
     compliance: createComplianceRouter(desks.compliance, now),
 
+    capital: createCapitalRouter(
+      new CapitalDesk({
+        store: desks.capital,
+        sources: desks.capitalSources ?? createCapitalSources({}),
+        approvals: desks.approvals,
+        ...(desks.capitalVenues ? { venues: desks.capitalVenues } : {}),
+        now: () => new Date(now()),
+      }),
+    ),
+
     consoleMode: createConsoleModeRouter(new ConsoleModeDesk({ store: desks.consoleMode, approvals: desks.approvals, now })),
 
     announcements: createAnnouncementsRouter(new AnnouncementDesk({ store: desks.announcements, now })),
@@ -847,6 +874,8 @@ export function createOpsRouter(
     preferences: createPreferencesRouter({ store: desks.preferences, now }),
 
     services: createServiceRecordsRouter({ store: desks.serviceRecords, now }),
+
+    incidents: createIncidentsRouter({ store: desks.incidents, severities: desks.incidentSeverities ?? null, now }),
 
     staffHolds: createStaffHoldsRouter(
       desks.staffHolds ??

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
-import { buildLadder, DEFAULT_DOM, depthCurve, isDomSetting, spreadOf, stepOf, tapeView } from './order-flow';
+import { buildLadder, DEFAULT_DOM, depthCurve, isDomSetting, queueReadout, spreadOf, stepOf, tapeView } from './order-flow';
 
 const book = {
   bids: [
@@ -140,5 +140,40 @@ describe('spread and settings', () => {
     expect(isDomSetting({ ...DEFAULT_DOM, stepTicks: 3 })).toBe(false);
     expect(isDomSetting({ ...DEFAULT_DOM, minAmount: 'abc' })).toBe(false);
     expect(isDomSetting(null)).toBe(false);
+  });
+});
+
+describe('queueReadout (J-charts-desk-14 #8)', () => {
+  const base = {
+    orderId: 'o-1',
+    marketId: 'BTC-USDT',
+    symbol: 'BTC/USDT',
+    side: 'buy' as const,
+    price: '100',
+    ordersAhead: 2,
+    sizeAhead: '0.003',
+    remaining: '0.001',
+    asOfSequence: 9,
+    source: 'native_l3' as const,
+  };
+  it('with the window blank: the place in the queue and "not set", never a percent', () => {
+    const view = queueReadout({ ...base, fillProbabilityRefused: { code: 'trade.queue_probability_unset', message: 'unset' } });
+    expect(view).toEqual({ ahead: { kind: 'many', n: 2, size: '0.003' }, chance: { kind: 'unset' } });
+  });
+  it('an estimate without its basis is not shown', () => {
+    expect(queueReadout({ ...base, fillProbability: '0.5' }).chance).toEqual({ kind: 'unset' });
+  });
+  it('with the estimate and its basis: both, as the service sent them', () => {
+    const view = queueReadout({
+      ...base,
+      ordersAhead: 1,
+      fillProbability: '0.25',
+      fillProbabilityBasis: { method: 'traded_through_window', windowSeconds: 300, tradedThrough: '0.001', sizeToFill: '0.004' },
+    });
+    expect(view.ahead).toEqual({ kind: 'one', size: '0.003' });
+    expect(view.chance).toEqual({ kind: 'estimate', ratio: '0.25', windowSeconds: 300, tradedThrough: '0.001', sizeToFill: '0.004' });
+  });
+  it('nothing ahead is first in the queue', () => {
+    expect(queueReadout({ ...base, ordersAhead: 0, sizeAhead: '0' }).ahead).toEqual({ kind: 'first' });
   });
 });

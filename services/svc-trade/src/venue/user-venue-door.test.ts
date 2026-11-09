@@ -412,6 +412,55 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     expect(() => parseBuilderFee('not-an-address', '1')).toThrow(/0x address/);
   });
 
+  it('a withdrawal or a grant of authority is refused from an API key or a sub-account token, before anything is asked or stored', async () => {
+    const asked = stepUp('approve');
+    const { d, store, connects } = door({ stepUp: asked.check });
+    const keyPrincipal = { ...principal, kid: 'key-1' } as Principal;
+    const subPrincipal = { ...principal, sub_account: '44444444-4444-4444-8444-4444444444a4' } as Principal;
+    const withdraw: VenueIntent = {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('10'),
+      destination: owner,
+      withdrawalKey: `withdraw:${USER}:key`,
+    };
+    for (const who of [keyPrincipal, subPrincipal]) {
+      await expect(d.prepare(who, { owner, signer, intent: withdraw, stepUpApprovalId: 'appr-1' })).rejects.toMatchObject({
+        code: 'scope.interactive_only',
+      });
+      await expect(
+        d.prepare(who, {
+          owner,
+          signer,
+          intent: { kind: 'approve_agent', agentAddress: owner, agentName: 'bot', validUntil: null } as VenueIntent,
+          actionKey: `agent:${USER}:1`,
+        }),
+      ).rejects.toMatchObject({ code: 'scope.interactive_only' });
+    }
+    expect(await store.find(USER, `withdraw:${USER}:key`)).toBeNull();
+    expect(await store.find(USER, `agent:${USER}:1`)).toBeNull();
+    expect(asked.calls).toHaveLength(0);
+    expect(connects()).toBe(0);
+    // A key still trades: an order from the same key is prepared as usual.
+    const order1 = await d.prepare(keyPrincipal, { owner, signer, intent: order(1) });
+    expect(order1.actionKey).toBe(order(1).clientOrderKey);
+  });
+
+  it('a withdrawal prepared in the session cannot be submitted from an API key', async () => {
+    const { d } = door();
+    const withdraw: VenueIntent = {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('10'),
+      destination: owner,
+      withdrawalKey: `withdraw:${USER}:sub`,
+    };
+    const p = await d.prepare(principal, { owner, signer, intent: withdraw, stepUpApprovalId: 'appr-1' });
+    await expect(d.submit({ ...principal, kid: 'key-1' } as Principal, p.actionKey, await sign(p.prepared))).rejects.toMatchObject({
+      code: 'scope.interactive_only',
+    });
+  });
+
   it('a withdrawal spends the step-up first: refused, nothing is prepared, stored or asked of the venue', async () => {
     const refused = stepUp('required');
     const { d, store, connects } = door({ stepUp: refused.check });

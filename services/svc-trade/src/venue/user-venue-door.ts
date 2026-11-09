@@ -1,8 +1,9 @@
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
-import type { Principal } from '@intafaced/auth';
+import { AuthError, isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
+  OWNER_ONLY_INTENTS,
   VenueRefusalError,
   assertSignatureMatches,
   encodeVenueWire,
@@ -34,6 +35,22 @@ import type { PreparedActionStore, StoredVenueAction } from './prepared-action-s
  *     `builder_fee_not_published` before the venue is asked (AGENTS.md floor 8).
  *   · The ledger posts nothing and no event is sent: the venue is the record of balances, locks, fills and withdrawals.
  */
+
+/**
+ * A withdrawal, and every grant of authority over the venue account (builder fee, agent approve or revoke), is the person's
+ * own, from an interactive session: never from an API key or a sub-account token. This is the rule `trade:withdraw` keeps
+ * on the custodial side (an interactive-only scope no key may hold), so a leaked `trade:write` key can trade but can never
+ * send funds out or hand the account to someone else. Checked at prepare and again at submit.
+ */
+export function assertInteractive(principal: Principal, kind: VenueIntent['kind']): void {
+  if (!OWNER_ONLY_INTENTS.has(kind)) return;
+  if (isApiKeyPrincipal(principal) || principal.sub_account) {
+    throw new AuthError(
+      `a venue ${kind} needs the person's own signed-in session and cannot be made from an API key or a sub-account`,
+      'scope.interactive_only',
+    );
+  }
+}
 
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
 
@@ -258,6 +275,7 @@ export class UserVenueDoor {
     ) {
       invalid('signer must be { role: owner|agent, address: 0x... }');
     }
+    assertInteractive(principal, intent.kind);
     const key = this.businessKey(intent, req.actionKey);
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
@@ -348,6 +366,7 @@ export class UserVenueDoor {
     const row = await this.deps.store.find(principal.userId, key);
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
+    assertInteractive(principal, row.prepared.intent.kind);
     if (
       !signature ||
       typeof signature.signature !== 'string' ||

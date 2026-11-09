@@ -96,6 +96,7 @@ export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwire
         {reads.map((spec) => (
           <ReadBlock key={spec.id} spec={spec} outcome={outcomes[spec.id]} ctx={ctx} openKey={openKey} onOpen={setOpenKey} />
         ))}
+        {tab === 'documents' ? <KycCaseLinks base={base} outcome={outcomes['identity.kyc-cases']} /> : null}
         {unwired.map((u) => (
           <article key={u.id} className="adm-callout" data-tone="warn" data-testid={`unwired-${u.id}`} data-state="unwired">
             <strong>{u.label}: no source</strong>
@@ -105,5 +106,27 @@ export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwire
         ))}
       </section>
     </div>
+  );
+}
+
+/** One link per KYC case identity listed for this person, to the case's own page with its documents. */
+function KycCaseLinks({ base, outcome }: { base: string; outcome: ReadOutcome | undefined }) {
+  if (outcome?.part.kind !== 'ok' || outcome.part.data.shape !== 'list' || outcome.part.data.rows.length === 0) return null;
+  const text = (cells: readonly { key: string; value: unknown }[], key: string) => {
+    const v = cells.find((c) => c.key === key)?.value;
+    return typeof v === 'string' ? v : '';
+  };
+  return (
+    <nav aria-label="Verification cases" data-testid="kyc-case-links">
+      <ul className="dk-row" role="list">
+        {outcome.part.data.rows.map((row) => (
+          <li key={row.id}>
+            <Link href={`${base}/kyc/${encodeURIComponent(row.id)}`} data-testid={`kyc-case-link-${row.id}`} className="adm-btn">
+              Open case: {text(row.cells, 'tier')} verification, {text(row.cells, 'state')}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

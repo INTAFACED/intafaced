@@ -31,6 +31,8 @@ const CONTROL_HISTORY_LIMIT = 50;
 const DOCUMENT_LIMIT = 50;
 /** identity's own cap on one selfie list (`kyc.selfie.listFor`, max 50). */
 const SELFIE_LIMIT = 50;
+/** How many of a person's KYC cases are read: identity's own ceiling for one read. */
+const KYC_CASE_LIMIT = 200;
 const SELFIE_STATUS_WORDS: Record<KycSelfieForCompliance['status'], string> = {
   provided: 'Waiting for a person to compare it',
   accepted: 'Accepted',
@@ -243,6 +245,80 @@ function customerCards(userId: string): ReadSpec {
   };
 }
 
+/**
+ * Identity's document list for one account (`kyc.listDocuments`), each row with the status of the verification it is
+ * attached to, and the two-founder request that opens one in the KYC document viewer. With `recordId`, only the documents
+ * attached to that verification: the KYC case detail lists its own documents from the same read, with the same viewer.
+ */
+export function identityDocumentsRead(userId: string, recordId?: string): ReadSpec {
+  return {
+    id: 'identity.documents',
+    title: 'Identity documents',
+    note: 'Every document identity’s vault holds for this account, newest first: what it is, when it was stored, and the status of the verification it is attached to. Only the description is read here; open a row to ask a second founder to approve opening its contents.',
+    module: 'identity',
+    plainName: 'identity’s document vault',
+    procedure: 'kyc.listDocuments',
+    input: { userId, limit: DOCUMENT_LIMIT },
+    ...(recordId === undefined ? {} : { rowsWhere: { key: 'reviewRecordId', equals: recordId } }),
+    shape: 'list',
+    idKey: 'id',
+    page: DOCUMENT_LIMIT,
+    columns: [
+      col('createdAt', 'Stored', 'time'),
+      col('contentType', 'Type', 'text'),
+      col('reviewStatus', 'Status', 'text'),
+      col('byteLength', 'Size (bytes)', 'int'),
+      col('storedBy', 'Stored by', 'text', { nullable: true }),
+      col('reviewTier', 'Verification level', 'text', { nullable: true, detail: true }),
+      col('reviewRecordId', 'Verification id', 'text', { nullable: true, detail: true }),
+      col('id', 'Document id', 'text', { detail: true }),
+    ],
+    rowAction: 'identity.kyc_document.open',
+    emptyText: 'Identity’s vault holds no document for this account: none has been uploaded or stored for it.',
+    forbiddenText:
+      'Identity did not accept your founder session for this read (the document list is for an enabled founder with the compliance permission and a second factor).',
+    refusals: {
+      'kyc_doc.unwired':
+        'Identity’s document vault is switched off on this deployment: its encryption key (IDENTITY_KYC_DOC_KEY) is not set, so no document can be stored or listed for anyone.',
+      'kyc_doc.reviews_unwired':
+        'Identity’s document vault is on, but its lookup of the verification each document is attached to is not wired, so it refuses the list rather than show every document as not attached.',
+    },
+  };
+}
+
+/**
+ * Identity's KYC cases of one person (`kyc.historyFor`), newest first: each request and what was decided on it. With `caseId`,
+ * that one case, for its detail page.
+ */
+export function kycCasesRead(userId: string, caseId?: string): ReadSpec {
+  return {
+    id: caseId === undefined ? 'identity.kyc-cases' : 'identity.kyc-case',
+    title: 'Verification cases',
+    note: 'Each identity verification this person asked for, newest first, as identity holds it: the level, the state and when it was decided. Open a case to see its documents.',
+    module: 'identity',
+    plainName: 'identity’s verification cases',
+    procedure: 'kyc.historyFor',
+    input: { userId, limit: KYC_CASE_LIMIT },
+    shape: 'list',
+    rowsKey: 'cases',
+    idKey: 'id',
+    ...(caseId === undefined ? {} : { rowsWhere: { key: 'id', equals: caseId } }),
+    page: KYC_CASE_LIMIT,
+    columns: [
+      col('submittedAt', 'Asked', 'time'),
+      col('tier', 'Level', 'text'),
+      col('state', 'State', 'text'),
+      col('decidedAt', 'Decided', 'time', { nullable: true }),
+      col('jurisdiction', 'Jurisdiction', 'text', { detail: true }),
+      col('recordId', 'Verification id', 'text', { detail: true }),
+      col('id', 'Case id', 'text', { detail: true }),
+    ],
+    emptyText: 'This person has asked for no identity verification.',
+    forbiddenText:
+      'Identity did not accept your founder session for this read (verification cases are for an enabled founder with the compliance permission).',
+  };
+}
+
 export interface CustomerTabPlan {
   readonly reads: readonly ReadSpec[];
   /** What this tab cannot show for one account, and why. */
@@ -329,38 +405,8 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
     case 'documents':
       return {
         reads: [
-          {
-            id: 'identity.documents',
-            title: 'Identity documents',
-            note: 'Every document identity’s vault holds for this account, newest first: what it is, when it was stored, and the status of the verification it is attached to. Only the description is read here; open a row to ask a second founder to approve opening its contents.',
-            module: 'identity',
-            plainName: 'identity’s document vault',
-            procedure: 'kyc.listDocuments',
-            input: { userId, limit: DOCUMENT_LIMIT },
-            shape: 'list',
-            idKey: 'id',
-            page: DOCUMENT_LIMIT,
-            columns: [
-              col('createdAt', 'Stored', 'time'),
-              col('contentType', 'Type', 'text'),
-              col('reviewStatus', 'Status', 'text'),
-              col('byteLength', 'Size (bytes)', 'int'),
-              col('storedBy', 'Stored by', 'text', { nullable: true }),
-              col('reviewTier', 'Verification level', 'text', { nullable: true, detail: true }),
-              col('reviewRecordId', 'Verification id', 'text', { nullable: true, detail: true }),
-              col('id', 'Document id', 'text', { detail: true }),
-            ],
-            rowAction: 'identity.kyc_document.open',
-            emptyText: 'Identity’s vault holds no document for this account: none has been uploaded or stored for it.',
-            forbiddenText:
-              'Identity did not accept your founder session for this read (the document list is for an enabled founder with the compliance permission and a second factor).',
-            refusals: {
-              'kyc_doc.unwired':
-                'Identity’s document vault is switched off on this deployment: its encryption key (IDENTITY_KYC_DOC_KEY) is not set, so no document can be stored or listed for anyone.',
-              'kyc_doc.reviews_unwired':
-                'Identity’s document vault is on, but its lookup of the verification each document is attached to is not wired, so it refuses the list rather than show every document as not attached.',
-            },
-          },
+          identityDocumentsRead(userId),
+          kycCasesRead(userId),
           {
             id: 'identity.selfies',
             title: 'Selfies',

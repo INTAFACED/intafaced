@@ -240,8 +240,12 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   });
 });
 
-test(`${J} #6 opens account details: each currency needs a banking partner, rail.bank, and no number is shown`, async ({ page }) => {
-  await signIn(page, person());
+test(`${J} #6 opens account details: the TEST partner's details labelled TEST, and with no partner each currency needs one, rail.bank, and no number is shown`, async ({
+  page,
+}) => {
+  const who = person();
+  await signIn(page, who);
+  // With no banking partner for account details (the TEST partner's default): the notice, rail.bank, no number.
   await page.goto('/bank');
   for (const currency of ['EUR', 'GBP', 'USD']) {
     const block = page.getByTestId(`account-details-${currency}`);
@@ -250,6 +254,29 @@ test(`${J} #6 opens account details: each currency needs a banking partner, rail
     await expect(block.getByTestId('account-details-set')).toHaveCount(0);
   }
   await expect(page.locator('main')).not.toContainText(/IBAN|Sort code|Account number/);
+
+  // On the TEST partner adapter, with details issued to this person: for each currency, exactly the partner's details as
+  // its own answer gives them, labelled TEST, with no rail.bank notice.
+  await withPartner(who, { accountDetails: 'issued' }, async () => {
+    const answer = await (await bank(who)).query('accountDetails.list');
+    expect(answer.ok, JSON.stringify(answer).slice(0, 300)).toBe(true);
+    await page.goto('/bank');
+    for (const currency of ['EUR', 'GBP', 'USD']) {
+      const row = answer.data.currencies.find((c) => c.currency === currency);
+      expect(row, `${currency} in the partner's answer`).toMatchObject({ state: 'done', blocker: null });
+      expect(row.sets.length, `${currency}: the partner issued a set`).toBeGreaterThan(0);
+      const block = page.getByTestId(`account-details-${currency}`);
+      await expect(block).not.toContainText('rail.bank');
+      const shown = block.getByTestId('account-details-set');
+      await expect(shown).toHaveCount(row.sets.length);
+      for (const [i, set] of row.sets.entries()) {
+        expect(set.partnerBank, 'the issuing bank is the TEST partner').toMatch(/TEST/);
+        expect(set.accountNumber, 'the number is labelled TEST').toMatch(/^TEST-/);
+        await expect(shown.nth(i)).toContainText(set.accountNumber);
+        await expect(shown.nth(i)).toContainText(set.partnerBank);
+      }
+    }
+  });
 });
 
 /** The bank reads the page made, each with the input it sent. `business.list` is the profile picker's own list. */
