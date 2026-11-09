@@ -365,6 +365,22 @@ const bankSections: readonly DeskSection[] = [
     ],
   },
   {
+    id: 'card-disputes',
+    title: 'Card disputes',
+    intro:
+      'Cardholders’ disputes of settled card payments: the queue by state, each case’s timeline, evidence, representment and arbitration, the card partner’s provisional credit and the decision with who bears the loss.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/bank-ops/cards/disputes',
+        label: 'Card disputes',
+        why: 'The dispute queue and each case are on their own pages.',
+      },
+    ],
+  },
+  {
     id: 'customer-balances',
     title: 'Customer balances',
     intro:
@@ -1681,25 +1697,50 @@ const academySections: readonly DeskSection[] = [
     reads: [
       {
         id: 'academy.grant-audit',
-        title: 'Certificate grants',
-        note: 'Newest first, fifty a page. A grant is the learner’s own record: this list reads it, nothing here grants or takes one away.',
+        title: 'Grants and revokes',
+        note: 'Newest first, at the page size the owner set. Course access granted, revoked, expired or reinstated, and certificates issued or revoked, each with who did it, when and why. This list reads the records: nothing here grants or takes one away.',
         module: 'academy',
         procedure: 'admin.grantAudit',
-        input: { limit: 50 },
+        sendEmptyInput: true,
         shape: 'list',
         rowsKey: 'items',
         idKey: 'reference',
-        page: 50,
         cursorKey: 'nextCursor',
         columns: [
+          time('at', 'When'),
+          text('kind', 'What happened', {
+            words: {
+              access_granted: 'Course access granted',
+              access_revoked: 'Course access revoked',
+              access_expired: 'Course access ran out',
+              access_reinstated: 'Course access reinstated',
+              certificate_granted: 'Certificate issued',
+              certificate_revoked: 'Certificate revoked',
+            },
+          }),
           text('accountId', 'Learner'),
-          text('certificateId', 'Certificate'),
-          time('grantedAt', 'Granted'),
-          text('status', 'Status'),
+          text('target', 'Course or certificate'),
+          text('actorId', 'Who', { nullable: true }),
+          text('reason', 'Why', { nullable: true }),
+          text('source', 'How it came about', {
+            nullable: true,
+            words: {
+              staff: 'Granted by staff',
+              purchase: 'Bought',
+              free: 'Free course',
+              bundle: 'Part of a bundle',
+              membership: 'Part of a membership',
+              issue: 'Certificate',
+            },
+          }),
           text('reference', 'Reference', { detail: true }),
         ],
-        emptyText: 'svc-academy records no certificate grants.',
+        emptyText: 'svc-academy records no grants or revokes yet.',
         forbiddenText: FORBID_ACADEMY_ADMIN,
+        refusals: {
+          'academy.grant_audit_list_limit_unset':
+            'The grant audit page size is not set. The owner sets it (ACADEMY_GRANT_AUDIT_PAGE_SIZE), and svc-academy shows no lines until then.',
+        },
       },
       {
         id: 'academy.enrolments',

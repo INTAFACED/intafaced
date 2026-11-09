@@ -1035,6 +1035,28 @@ export const cardControlsSchema = z.object({
 });
 export type CardControls = z.infer<typeof cardControlsSchema>;
 
+/**
+ * svc-bank card details, PIN and phone wallets (J-bank-14 #3 #4, BK-cctl-03, BK-cctl-04): which the issuer offers, the
+ * revealed details and PIN with when to drop them, and the wallets the card was added to. `test` marks the TEST
+ * partner's stand-ins, which the screen labels TEST.
+ */
+export const cardSecretsOfferedSchema = z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean() });
+export const cardRevealSchema = z.object({
+  pan: z.string(),
+  expiry: z.string(),
+  cvv: z.string(),
+  expiresAt: z.string(),
+  test: z.boolean(),
+});
+export const cardPinRevealSchema = z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() });
+export const cardWalletTokensSchema = z.object({
+  test: z.boolean(),
+  tokens: z.array(
+    z.object({ id: z.string(), wallet: z.enum(['apple', 'google']), state: z.enum(['added', 'paused', 'closed']), addedAt: z.string() }),
+  ),
+});
+export type CardWalletTokens = z.infer<typeof cardWalletTokensSchema>;
+
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -1136,6 +1158,8 @@ export const bankReads = {
   'cards.uses': z.object({ cardId: z.string(), usesAllowed: z.number().int().nullable(), usesMade: z.number().int() }),
   'cards.list': z.array(cardSchema),
   'cards.controls.get': cardControlsSchema,
+  'cards.secretsOffered': cardSecretsOfferedSchema,
+  'cards.walletTokens': cardWalletTokensSchema,
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
@@ -1243,6 +1267,10 @@ export const bankWrites = {
   'cards.setChannels': cardSchema,
   'cards.controls.block': cardControlsSchema,
   'cards.controls.lift': cardControlsSchema,
+  'cards.reveal': cardRevealSchema,
+  'cards.pin.reveal': cardPinRevealSchema,
+  'cards.pin.set': z.object({ ok: z.literal(true) }),
+  'cards.walletProvision': z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }),
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,

@@ -475,13 +475,43 @@ export function missingArtifact(stderr) {
 }
 /** A JSON file from a run's journeys artifact (report.json by default). When `optional`, a run with no such artifact, or an
  *  artifact without the file, gives null; a download that fails for any other reason, or a malformed file, throws. */
-export function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json') {
+/** A refusal (401, 403, 429 or a rate limit) is never retried: it is honoured. */
+export function refusedDownload(stderr) {
+  return /HTTP 40[13]|HTTP 429|rate limit/i.test(String(stderr ?? ''));
+}
+/** The last non-empty line gh wrote, so a failed read names gh's own error, not only "Command failed". */
+export function lastLine(stderr) {
+  return (
+    String(stderr ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .pop() ?? ''
+  );
+}
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** `gh run download` with up to `tries` attempts. A missing artifact or a refusal fails at once; any other failure (a
+ *  dropped connection to the artifact store, a 5xx) is tried again after a pause, and the last one throws with gh's own
+ *  last line in its first line. */
+export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, pauses = [5_000, 15_000] } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) {
+      if (missingArtifact(e.stderr) || refusedDownload(e.stderr) || attempt >= tries) {
+        const said = lastLine(e.stderr);
+        if (said) e.message = `${e.message.split('\n')[0]}: ${said} (attempt ${attempt} of ${tries})\n${e.message}`;
+        throw e;
+      }
+      wait(pauses[Math.min(attempt - 1, pauses.length - 1)]);
+    }
+  }
+}
+export function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json', opts = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   try {
     try {
-      execFileSync('gh', ['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], {
-        stdio: ['ignore', 'ignore', 'pipe'],
-      });
+      ghDownload(['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], opts);
     } catch (e) {
       if (optional && missingArtifact(e.stderr)) return null;
       throw e;

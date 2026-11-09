@@ -25,6 +25,7 @@ import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
 import { readOrderLinks } from './spot/order-links.js';
 import { readOrderHolds } from './spot/order-holds.js';
+import { createMarketMaintenanceReader } from './market-maintenance-read.js';
 import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
 import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
@@ -36,6 +37,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
+import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
@@ -108,8 +110,15 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
-import { VenueRefusalError } from '@intafaced/venue-contracts';
-import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
+import { builderFeesAt } from './venue/builder-fee-versions.js';
+import { VenueRefusalError, isTestVenue } from '@intafaced/venue-contracts';
+import {
+  parseDataTerms,
+  parseDeveloperHosts,
+  parseRegionalRule,
+  parseBotPolicy,
+  registerDeveloperPortalRest,
+} from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
@@ -281,6 +290,7 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 installRouteInventory(app, { edgeSecret: env.EDGE_PRINCIPAL_SECRET, edgeTrust: edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+registerSupportOrderRead(app, { read: (orderId) => readSupportOrder(sql, orderId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
 // live engine at this moment. A stale, one-sided or thin book still gives no mark.
 const trailingMarkSource = markSourceFromDepth(async (marketId) => ({
@@ -448,6 +458,8 @@ const userVenue = userVenueUrl
       store: new SqlPreparedActionStore(sql),
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
+      builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
     })
   : null;
@@ -609,6 +621,19 @@ export const appRouter = createTradeRouter(
       quoteTtlMs: env.TRADE_CONVERT_QUOTE_TTL_MS,
       // A malformed setting refuses both flows above, so the read shows both as not set.
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
+    },
+    // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
+    venueMarkets: async () => {
+      if (!userVenue) return null;
+      const venue = await userVenue.venue();
+      const markets = await venue.markets(null);
+      return {
+        venueId: venue.venue.id,
+        displayName: venue.venue.displayName,
+        test: isTestVenue(venue.venue),
+        markets: markets.value,
+        asOf: markets.asOf,
+      };
     },
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
@@ -1126,6 +1151,7 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  maintenanceBoard: createMarketMaintenanceReader({ notifyUrl: env.NOTIFY_URL }),
   rulebook: createMatchingRulebookReader(env.MATCHING_URL),
   bookHalt: async (market) => {
     const board = await matching.listMarkets();
@@ -1341,6 +1367,7 @@ registerDeveloperPortalRest(app, {
   hosts: parseDeveloperHosts(env.TRADE_DEVELOPER_HOSTS),
   dataTerms: parseDataTerms(env.TRADE_DEVELOPER_DATA_TERMS),
   regionalRule: parseRegionalRule(env.TRADE_DEVELOPER_REGIONAL_RULE),
+  botPolicy: parseBotPolicy(env.TRADE_DEVELOPER_BOT_POLICY),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

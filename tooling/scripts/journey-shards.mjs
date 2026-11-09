@@ -42,10 +42,14 @@ export const SETUP_SPREAD_MINUTES = 10;
 export const MIN_TARGET_MINUTES = 10;
 // Never above this, so setup plus the journeys stays well inside the job's limit.
 export const MAX_TARGET_MINUTES = 25;
-// At least the 8 shards the suite ran on before. At most 48: a run on main takes 33 of the 500 runners today, runs on
-// main overlap (about four at once), and pull-request CI needs its own.
+// At least the 8 shards the suite ran on before. At most 32: the org's runners are not the 500 GitHub's limits page names
+// for its plan. Counted from the jobs' own start and end times (project-state #1906, 9 Nov 2026), about 180 jobs ran at
+// once (178 to 185 through 09:50-10:50 UTC, 175 to 179 through 13:16-13:28, peaks to about 230) while jobs that wait on
+// nothing queued for up to 37 minutes. A main run of 48 shards took over a quarter of that, and pull-request CI starved
+// behind it. The replay above puts the median run at about 36 minutes with
+// 32 shards and the same 36 with 40 or 56, so 32 costs main's verdict about nothing and leaves the rest for CI.
 export const MIN_SHARDS = 8;
-export const MAX_SHARDS = 48;
+export const MAX_SHARDS = 32;
 // The workflow stops a shard's journeys after this (Playwright's globalTimeout), so the shard still reports.
 const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
 // A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts

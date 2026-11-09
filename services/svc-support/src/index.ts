@@ -1,4 +1,6 @@
 import postgres from 'postgres';
+import { createIdentityWithdrawalFreezeClient, WithdrawalFreezes } from './withdrawal-freeze.js';
+import { createPayOwnershipClient, SqlLinkBook, TicketLinks } from './ticket-links.js';
 import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
 import { officialChannelsFromEnv } from './official-channels.js';
@@ -260,6 +262,15 @@ const chat = new SupportChat(
   async () => (await contactBook.get()).chatHours,
 );
 const loop = createTicketKbLoopObserver();
+// A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay whose
+// a withdrawal or deposit is. An owner with no URL leaves its links refused as unverifiable.
+const links = new TicketLinks(
+  new SqlLinkBook(sql),
+  support,
+  env.TRADE_URL ? orders : null,
+  env.PAY_URL ? createPayOwnershipClient(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null,
+);
+support.useRecoveryLinks(() => links.recoveryTickets());
 const appRouter = createSupportRouter(
   support,
   loop,
@@ -284,6 +295,9 @@ const appRouter = createSupportRouter(
   new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
   chat,
   routing,
+  // Withdrawal freezes (J-support-public-20 #7): svc-identity records each one.
+  new WithdrawalFreezes(support, createIdentityWithdrawalFreezeClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)),
+  links,
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

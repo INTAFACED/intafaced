@@ -26,6 +26,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/login/returnUrl/:returnUrl': { template: 'flow' },
   '/register': { template: 'flow' },
   '/findPwd': { template: 'flow' },
+  '/completePasswordReset': { template: 'flow' },
   '/confirm-email': { template: 'flow' },
   '/cannot-sign-in': { template: 'flow' },
   '/recover-account': { template: 'flow' },
@@ -334,6 +335,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/wallet/accounts': { template: 'record-list' },
   '/wallet/safety': { template: 'reading' },
   '/wallet/venue': { template: 'flow', migrated: { file: 'features/protocol/venue-wallet/VenueWalletRoom.tsx' } },
+  '/wallet/embedded': { template: 'flow', migrated: { file: 'features/protocol/embedded-wallet/EmbeddedWalletRoom.tsx' } },
   '/wallet/groups/:groupId': { template: 'record-list' },
   '/chain': { template: 'monitor' },
   '/chain/blocks': { template: 'record-list' },
@@ -354,6 +356,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/protocol/*': 'fallback',
   '/wallet/*': 'fallback',
   '/copy/lead/apply': { template: 'flow', migrated: { file: 'features/trade/lead-apply/LeadApplyRoom.tsx' } },
+  '/trade/analytics/:pair': { template: 'monitor', migrated: { file: 'features/trade/market-analytics/MarketAnalyticsRoom.tsx' } },
   '/rulebook': { template: 'reading', migrated: { file: 'features/public/rulebook/RulebookRoom.tsx' } },
 };
 

@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  workspaceInputs,
   MONEY_SERVICES,
   MIN_RUNS,
   REACH_MAP_MODE,
@@ -26,7 +27,9 @@ import {
 import { journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, sealPull } from './journey-seal.mjs';
 import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -795,4 +798,33 @@ test('the committed map’s money list is REVIEW.md’s money code: ledger-clien
     direct,
     'apps/customer is money code exactly when it depends on ledger-client directly',
   );
+});
+
+test('planted: verify reads the workspace inputs from the checkout it is given, so a pull request adding a money package holds its own map (B1, #7724)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'reach-ws-'));
+  try {
+    const pkg = (d, name, deps = {}) => {
+      mkdirSync(join(dir, d, 'src'), { recursive: true });
+      writeFileSync(join(dir, d, 'package.json'), JSON.stringify({ name, dependencies: deps }));
+      writeFileSync(join(dir, d, 'src/index.ts'), 'export {};\n');
+    };
+    pkg('packages/ledger-client', '@intafaced/ledger-client');
+    pkg('packages/venue-new', '@intafaced/venue-new', { '@intafaced/ledger-client': 'workspace:*' });
+    pkg('services/svc-new', '@intafaced/svc-new', { '@intafaced/venue-new': 'workspace:*' });
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    execFileSync('git', ['add', '-A'], { cwd: dir });
+    const pr = workspaceInputs(dir);
+    assert.ok(pr.money.includes('packages/venue-new'), 'the given checkout’s new money package is in its money list');
+    assert.ok(pr.services.has('services/svc-new'));
+    assert.deepEqual(pr.dependents['packages/ledger-client']?.includes('packages/venue-new'), true);
+    // The default (this checkout) does not see it: reading the base's workspaces was the bug.
+    assert.equal(workspaceInputs().money.includes('packages/venue-new'), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // The verify command passes `--workspace` through to the build it compares against.
+  const src = readFileSync(join(ROOT_DIR, 'tooling/ci/journey-reach-map.mjs'), 'utf8');
+  assert.match(src, /opt\('--workspace'\)/);
+  assert.match(src, /buildFromMain\(\{ until, root \}\)/);
+  assert.match(src, /const inputs = workspaceInputs\(root\);/, 'the build reads its workspace inputs from the root it is given');
 });
