@@ -43,6 +43,7 @@ const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserV
   status: null,
   maxOrderQty: null,
   maxOrderNotional: null,
+  builderFeeCapBps: { known: false },
 });
 
 interface World {

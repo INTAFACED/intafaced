@@ -1,4 +1,4 @@
-import { add, compare, div, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   assertSignatureMatches,
@@ -78,6 +78,11 @@ export interface SimMarketConfig {
   readonly lotSize: Amount;
   readonly makerFeeBps: MaybeKnown<Amount>;
   readonly takerFeeBps: MaybeKnown<Amount>;
+  /**
+   * The venue's own published cap on a builder fee on this market (scaled bps). Absent: the venue publishes none, it
+   * reads `known: false` and the simulator enforces no cap.
+   */
+  readonly builderFeeCapBps?: MaybeKnown<Amount>;
   /** Perpetuals: maintenance margin as a fraction of notional (scaled decimal, `parseAmount('0.005')`). */
   readonly maintenanceMarginRate?: Amount;
   /** Perpetuals: the starting mark price. */
@@ -306,6 +311,7 @@ export class TestVenueSimulator implements UserVenue {
       status: this.marketState.get(m.symbol)!.status,
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
+      builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
     }));
     return this.asOf(list);
   }
@@ -460,6 +466,14 @@ export class TestVenueSimulator implements UserVenue {
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
         if (intent.builderFee) {
           if (compare(intent.builderFee.feeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee cannot be negative');
+          const cap = this.builderFeeCap(intent.symbol);
+          if (cap !== null && compare(intent.builderFee.feeBps, cap) > 0) {
+            refuse(
+              this.venue.id,
+              'builder_fee_above_cap',
+              `${intent.symbol} caps a builder fee at ${formatAmount(cap)} bps; the order carries more`,
+            );
+          }
           const approved = state.builderApprovals.get(intent.builderFee.builder.toLowerCase()) ?? ZERO;
           if (compare(approved, intent.builderFee.feeBps) < 0) {
             refuse(
@@ -982,6 +996,12 @@ export class TestVenueSimulator implements UserVenue {
   private marginPerUnit(intent: PlaceUserOrderIntent, setting: { leverageBps: number } | undefined): Amount {
     if (intent.reduceOnly) return ZERO;
     return div(mul(intent.price, BPS), parseAmount(String(setting!.leverageBps)), QUOTE_ROUND);
+  }
+
+  /** The venue's published builder-fee cap on `symbol`, or null when it publishes none. */
+  private builderFeeCap(symbol: string): Amount | null {
+    const cap = this.market(symbol).builderFeeCapBps;
+    return cap?.known ? cap.value : null;
   }
 
   /** One fee line on `basis`, the same rounding `fill` charges. */

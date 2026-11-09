@@ -70,6 +70,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     status: 'trading',
     maxOrderQty: parseAmount('50'),
     maxOrderNotional: parseAmount('5000000'),
+    // TEST: the venue's own cap on a builder fee, 1% on spot (the figure Hyperliquid publishes for its builder codes).
+    builderFeeCapBps: { known: true, value: parseAmount('100') },
   },
   {
     symbol: 'BTC-PERP',
@@ -84,6 +86,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     lotSize: parseAmount('0.0001'),
     makerFeeBps: { known: true, value: parseAmount('1.5') },
     takerFeeBps: { known: true, value: parseAmount('4.5') },
+    // TEST: the venue's own cap on a builder fee, 0.1% on perpetuals (the figure Hyperliquid publishes for its builder codes).
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
     maintenanceMarginRate: parseAmount('0.005'),
     markPrice: parseAmount('60000'),
     status: 'trading',
@@ -106,6 +110,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     status: 'trading',
     maxOrderQty: parseAmount('500'),
     maxOrderNotional: parseAmount('2000000'),
+    // TEST: the same spot builder-fee cap as BTC-USDC.
+    builderFeeCapBps: { known: true, value: parseAmount('100') },
   },
 ];
 
@@ -328,6 +334,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         status: 'trading',
         maxOrderQty: cap('maxOrderQty'),
         maxOrderNotional: cap('maxOrderNotional'),
+        // TEST: the same spot builder-fee cap as BTC-USDC.
+        builderFeeCapBps: { known: true, value: parseAmount('100') },
       });
       return { ok: true, symbol, label: 'TEST' };
     }

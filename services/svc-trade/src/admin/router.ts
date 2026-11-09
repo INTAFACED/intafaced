@@ -231,6 +231,8 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
           }),
         )
         .mutation(({ ctx, input }) => ready().feeScheduleSet(ctx.principal, input).catch(fail)),
+      /** The venue's own builder-fee cap per market, read from the venue through the user-venue door (J-cex-spot-17 #3). */
+      builderCaps: operator.query(({ ctx }) => ready().builderFeeCaps(ctx.principal).catch(fail)),
       /** Finished fee tier snapshot runs, newest first, with the figures each used (J-cex-spot-17 #4). */
       snapshots: operator
         .input(z.object({ limit: z.number().int().min(1).max(100) }).strict())
