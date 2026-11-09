@@ -36,7 +36,7 @@ import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
 import { cardDisputeProcedures } from '../ops/card-disputes.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
-import { amountString, actionApprovalFields, heldSendOutput, signedAmountString } from './shared.js';
+import { amountString, actionApprovalFields, heldSendOutput, partnerFiguresOutput, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
 import { accrualBoundary, accrualDate } from '../earn/interest.js';
 import type { BankRouterContext } from './context.js';
@@ -693,8 +693,15 @@ export function createOpsRouter(c: BankRouterContext) {
           /** WHAT LEFT THE BOOK, in the funding asset. */
           captured: amountString,
           returned: amountString,
-          captureLedgerTxId: z.string(),
+          /** Null on a partner-held authorisation: the partner moved it and posted nothing to our ledger. */
+          captureLedgerTxId: z.string().nullable(),
           reversalLedgerTxId: z.string().nullable(),
+          /** Whose book this capture moved in (OWNER 226). */
+          heldBy: z.enum(['ledger', 'partner']),
+          /** The partner's references and its figures as it reports them (TEST on the TEST partner card); else null. */
+          partner: z
+            .object({ captureRef: z.string(), releaseRef: z.string().nullable(), figures: partnerFiguresOutput.nullable() })
+            .nullable(),
           /**
            * What the merchant cleared and the FROZEN rate it converted at — the
            * rate the authorisation was decided on, re-read and never re-quoted.
@@ -742,6 +749,8 @@ export function createOpsRouter(c: BankRouterContext) {
             returned: formatAmount(result.returned),
             captureLedgerTxId: result.captureLedgerTxId,
             reversalLedgerTxId: result.reversalLedgerTxId,
+            heldBy: result.heldBy,
+            partner: result.partner,
             settlement: result.settlement
               ? {
                   assetId: result.settlement.assetId,
@@ -778,7 +787,18 @@ export function createOpsRouter(c: BankRouterContext) {
           ...actionApprovalFields,
         }),
       )
-      .output(z.object({ returned: amountString, ledgerTxId: z.string(), confirmOperatorId: z.string() }))
+      .output(
+        z.object({
+          returned: amountString,
+          /** Null on a partner-held authorisation: the partner released it. */
+          ledgerTxId: z.string().nullable(),
+          /** The partner's release, and whether it was our instruction or the partner's own hold time running out. */
+          partner: z
+            .object({ releaseRef: z.string(), by: z.enum(['instruction', 'expiry']), figures: partnerFiguresOutput.nullable() })
+            .optional(),
+          confirmOperatorId: z.string(),
+        }),
+      )
       .mutation(async ({ input }) =>
         guard(async () => {
           const confirmOperatorId = await consumeOpsApproval(input, 'bank.card_reverse', {
@@ -786,7 +806,12 @@ export function createOpsRouter(c: BankRouterContext) {
             authorizationRef: input.authorizationRef,
           });
           const result = await bank.cards.reverse({ cardId: input.cardId, authorizationRef: input.authorizationRef });
-          return { returned: formatAmount(result.returned), ledgerTxId: result.ledgerTxId, confirmOperatorId };
+          return {
+            returned: formatAmount(result.returned),
+            ledgerTxId: result.ledgerTxId,
+            ...(result.partner ? { partner: result.partner } : {}),
+            confirmOperatorId,
+          };
         }),
       ),
 
@@ -817,6 +842,7 @@ export function createOpsRouter(c: BankRouterContext) {
               amount: amountString,
               outcome: z.enum(['settled', 'failed']),
               ledgerTxId: z.string().optional(),
+              partnerRef: z.string().optional(),
               reason: z.string().optional(),
             }),
           ),
@@ -844,6 +870,7 @@ export function createOpsRouter(c: BankRouterContext) {
               amount: formatAmount(row.amount),
               outcome: row.outcome,
               ...(row.ledgerTxId === undefined ? {} : { ledgerTxId: row.ledgerTxId }),
+              ...(row.partnerRef === undefined ? {} : { partnerRef: row.partnerRef }),
               ...(row.reason === undefined ? {} : { reason: row.reason }),
             })),
             held: formatAmount(result.held),
