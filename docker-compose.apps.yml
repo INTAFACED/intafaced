@@ -1165,9 +1165,9 @@ services:
       HTTP_PORT: '4009'
       DATABASE_URL: postgres://svc_bank:${SVC_BANK_DB_PASSWORD:-svc_bank}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
-      # The custody switch, the same variable and default as svc-ledger's above (OWNER 226): svc-bank reads it so a card
-      # authorisation no partner holds refuses bank.partner_unset instead of meeting the ledger's raw refusal. One value
-      # for both services, so they never disagree about whether the custodial layer runs.
+      # The custody switch, the same variable and default as svc-ledger's above (OWNER 226): off unless the environment says
+      # on. Off, svc-bank refuses a customer-balance post by name (bank.no_partner_bank) before svc-ledger would, and a card
+      # authorisation no partner holds refuses bank.partner_unset. One value for both services, so they never disagree.
       LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Identity affiliate accrue/payout after loan house fees. env.ts is
       # optional with no localhost default; unset is a noop port. Fleet
@@ -1855,6 +1855,7 @@ services:
       ACADEMY_LESSON_IMPORT_MAX_BYTES: ${ACADEMY_LESSON_IMPORT_MAX_BYTES:-}
       ACADEMY_UPLOAD_MAX_BYTES: ${ACADEMY_UPLOAD_MAX_BYTES:-}
       ACADEMY_TOPICS_LIST_LIMIT: ${ACADEMY_TOPICS_LIST_LIMIT:-}
+      ACADEMY_GRANT_AUDIT_PAGE_SIZE: ${ACADEMY_GRANT_AUDIT_PAGE_SIZE:-}
       ACADEMY_GRADER_LEASE_SECONDS: ${ACADEMY_GRADER_LEASE_SECONDS:-}
       ACADEMY_CERT_ISSUE_SWEEP_SECONDS: ${ACADEMY_CERT_ISSUE_SWEEP_SECONDS:-}
       ACADEMY_PROGRAMME_MAX_COURSES: ${ACADEMY_PROGRAMME_MAX_COURSES:-}

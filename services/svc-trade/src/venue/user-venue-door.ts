@@ -55,6 +55,10 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
   }
 }
 
+const MARKET_KINDS_TTL_MS = 60_000;
+/** On a symbol the list doesn't hold, the list is read again at most this often, so unlisted symbols can't each cost a venue read. */
+const MARKET_MISS_REREAD_MS = 5_000;
+
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
 
 /** Identity's step-up request id is at most 128 characters. */
@@ -232,6 +236,27 @@ export class UserVenueDoor {
     return { venueId: venue.venue.id, owner: o, subAccount: subAccount ?? null };
   }
 
+  /** Each listed symbol's market kind, read once a minute, so an order costs no extra venue read. */
+  private marketKinds: { at: number; kinds: Map<string, 'spot' | 'perpetual'> } | null = null;
+
+  private async marketKind(venue: UserVenue, symbol: string): Promise<'spot' | 'perpetual'> {
+    const now = this.deps.now().getTime();
+    const fresh = this.marketKinds && now - this.marketKinds.at < MARKET_KINDS_TTL_MS ? this.marketKinds : null;
+    let kind = fresh?.kinds.get(symbol);
+    // A miss re-reads the list, so a market listed since the last read is found within seconds, but not more often than
+    // once per MARKET_MISS_REREAD_MS: inside that, an unlisted symbol is refused from the list just read.
+    const justRead = fresh !== null && now - fresh.at < MARKET_MISS_REREAD_MS;
+    if (!kind && !justRead) {
+      const kinds = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m.kind] as const));
+      this.marketKinds = { at: now, kinds };
+      kind = kinds.get(symbol);
+    }
+    if (!kind) {
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'unknown_market', detail: `${symbol} is not listed on this venue` });
+    }
+    return kind;
+  }
+
   /** Our builder address on the venue: the owner value, or null when it is blank. */
   private builderAddress(): string | null {
     return this.deps.builder?.address ?? null;
@@ -239,9 +264,14 @@ export class UserVenueDoor {
 
   /**
    * An order with our builder fee: the builder-fee version in force now for its venue and market group, else the boot
-   * owner value. Blank refuses before the venue is asked.
+   * owner value. Blank refuses before the venue is asked. A spot buy carries none and so never needs it published or
+   * approved: the venue charges builder fees only on a spot sell and on both sides of a perp ("builder codes do not
+   * apply to the buying side of spot trades", Hyperliquid's builder-codes page, read 9 Nov 2026; project-state #1888).
    */
-  private async withBuilderFee(venueId: string, intent: PlaceUserOrderIntent): Promise<PlaceUserOrderIntent> {
+  private async withBuilderFee(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<PlaceUserOrderIntent> {
+    const venueId = venue.venue.id;
+    const kind = await this.marketKind(venue, intent.symbol);
+    if (kind === 'spot' && intent.side === 'buy') return { ...intent, builderFee: null };
     const address = this.builderAddress();
     let feeBps: Amount | null = this.deps.builder?.feeBps ?? null;
     try {
@@ -258,7 +288,7 @@ export class UserVenueDoor {
     }
     if (!address || feeBps === null) {
       throw new VenueRefusalError({
-        venueId,
+        venueId: venue.venue.id,
         code: 'builder_fee_not_published',
         detail: 'our builder fee is not published (owner value blank), so no order is prepared',
       });
@@ -270,7 +300,7 @@ export class UserVenueDoor {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
     const venue = await this.venue();
     const account = await this.account(owner);
-    return venue.preview(account, await this.withBuilderFee(venue.venue.id, intent));
+    return venue.preview(account, await this.withBuilderFee(venue, intent));
   }
 
   /** The key the action is stored under: the intent's own business key where it has one. */
@@ -333,7 +363,7 @@ export class UserVenueDoor {
     const account = await this.account(req.owner, req.subAccount);
     const signer: VenueSigner = { role: req.signer.role, address: req.signer.address.toLowerCase() };
     let finalIntent: VenueIntent = intent;
-    if (intent.kind === 'place_order') finalIntent = await this.withBuilderFee(venue.venue.id, intent);
+    if (intent.kind === 'place_order') finalIntent = await this.withBuilderFee(venue, intent);
     if (intent.kind === 'approve_builder_fee') {
       const builder = this.builderAddress();
       if (!builder) {

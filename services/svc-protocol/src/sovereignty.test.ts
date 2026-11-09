@@ -29,7 +29,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const serviceRoot = join(here, '..');
 
 const ALL_REGIONS = ['*', 'GB', 'US', 'DE', 'NG', 'IN', 'BR', 'JP', 'AE', 'ZA', 'ZZ', 'gb', 'us', ...regionsWithEntries()];
-/** Served regions. A whole-region business block (the US, OWNER 237) refuses the hosted front on every plane. */
+/** Served regions. A business block (the US, OWNER 237; Ontario, OWNER 258) refuses the hosted front on every plane. */
 const REGIONS = ALL_REGIONS.filter((r) => businessBlockFor(r) === undefined);
 /** OWNER 237 (8 Nov 2026): "US block: the US is blocked at launch as well as sanctioned countries, on the existing per-country switch." */
 const BUSINESS_BLOCKED = ALL_REGIONS.filter((r) => businessBlockFor(r) !== undefined);
@@ -56,9 +56,9 @@ describe('§22 — zero KYC on the Protocol Plane, by architecture', () => {
     expect(decision.requiredTier).toBeUndefined();
   });
 
-  it('the filter keeps served regions and drops only the business-blocked US', () => {
+  it('the filter keeps served regions and drops only the business-blocked US and Ontario', () => {
     expect(REGIONS).toEqual(expect.arrayContaining(['*', 'GB', 'DE', 'NG', 'ZZ', 'gb']));
-    expect([...new Set(BUSINESS_BLOCKED.map((r) => r.toUpperCase()))]).toEqual(['US']);
+    expect([...new Set(BUSINESS_BLOCKED.map((r) => r.toUpperCase()))]).toEqual(['US', 'CA-ON']);
   });
 
   // §22 makes the protocol zero-KYC; it never makes a blocked region served. A business-blocked region is refused
