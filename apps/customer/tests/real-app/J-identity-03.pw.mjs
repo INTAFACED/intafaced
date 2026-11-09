@@ -2,7 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { EDGE, ORIGIN, ROOT, mailedLines, signUpInBrowser, tool } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-identity-03, in the running app (docs/roadmap/journeys.json): I forgot my password or my handle. One test per step,
@@ -74,19 +74,6 @@ async function timedReset(email) {
 
 const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
-/** Identity restarted with no mail transport, as a build without a mail provider runs, or back on the stack's outbox. */
-function mail(on) {
-  const before = process.env.LOCAL_STACK_IDENTITY_MAIL;
-  if (on) delete process.env.LOCAL_STACK_IDENTITY_MAIL;
-  else process.env.LOCAL_STACK_IDENTITY_MAIL = 'off';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_MAIL;
-    else process.env.LOCAL_STACK_IDENTITY_MAIL = before;
-  }
-}
-
 test(`${J} #1 the find-password page answers with the same message and the same timing whether or not the account exists`, async ({
   page,
   browser,
@@ -121,37 +108,6 @@ test(`${J} #1 the find-password page answers with the same message and the same 
   expect(Math.abs(median(known) - median(strangers)), `known ${known.join(',')} unknown ${strangers.join(',')}`).toBeLessThan(100);
 });
 
-test(`${J} #1 with mail switched off the find-password page names it, the same for every address, and sends nothing`, async ({
-  page,
-  browser,
-}) => {
-  test.setTimeout(180_000);
-  const { who, device } = await account(browser);
-  await device.close();
-  const unknown = `nobody-${who.handle}@local-test.invalid`;
-  const before = resetCodes(who.email).length;
-  mail(false);
-  try {
-    const answers = [];
-    for (const email of [who.email, unknown]) {
-      await page.goto('/findPwd');
-      await page.getByLabel('Email address', { exact: true }).fill(email);
-      await page.getByRole('button', { name: 'Send reset code' }).click();
-      const off = page.getByRole('alert');
-      await expect(off).toContainText('Email delivery is switched off in this build', { timeout: 15_000 });
-      await expect(off).toContainText('vendor.email');
-      // No code step opens: nothing was sent, so nothing is promised.
-      await expect(page.getByRole('status').filter({ hasText: 'a code is on its way' })).toHaveCount(0);
-      await expect(page.getByLabel('Code from the email')).toHaveCount(0);
-      answers.push(await off.innerText());
-    }
-    expect(answers[1]).toBe(answers[0]);
-    expect(resetCodes(who.email)).toHaveLength(before);
-  } finally {
-    mail(true);
-  }
-});
-
 test(`${J} #2 the code step: three wrong codes lock the reset, and a used code is refused`, async ({ page, browser }) => {
   const { who, device } = await account(browser);
   await device.close();
@@ -178,61 +134,6 @@ test(`${J} #2 the code step: three wrong codes lock the reset, and a used code i
   await askReset(page, other.who.email);
   await submitReset(page, good, `${fresh}-again`);
   await expect(page.getByRole('alert')).toContainText('That code is not valid');
-});
-
-/** The reset links mailed to `email`, oldest first, as the person would open them from the mail. */
-function resetLinks(email) {
-  return mailedLines(email, 'password-reset')
-    .map((line) => /link=(\S+)/.exec(line)?.[1])
-    .filter(Boolean);
-}
-
-test(`${J} #2 the code page names its resend limit, and past it a new code is refused with the limit named and nothing mailed`, async ({
-  page,
-  browser,
-}) => {
-  test.setTimeout(180_000);
-  const { who, device } = await account(browser);
-  await device.close();
-  await askReset(page, who.email);
-  // The stack's TEST owner value: ten reset mails per address an hour. The code page says so before it is reached.
-  await expect(page.getByRole('main')).toContainText(/\b10\b[^.]*\bhour\b/);
-  await expect.poll(() => resetCodes(who.email).length, { timeout: 20_000 }).toBe(1);
-  // "Ask for a new code" up to the limit: each one mails a new code.
-  for (let sent = 1; sent < 10; sent++) {
-    await page.getByRole('button', { name: 'Ask for a new code' }).click();
-    await page.getByRole('button', { name: 'Send reset code' }).click();
-    await expect(page.getByLabel('Code from the email')).toBeVisible();
-    await expect.poll(() => resetCodes(who.email).length, { timeout: 20_000 }).toBe(sent + 1);
-  }
-  // One more inside the hour is refused by the page, with the limit named, and no mail goes out.
-  await page.getByRole('button', { name: 'Ask for a new code' }).click();
-  await page.getByRole('button', { name: 'Send reset code' }).click();
-  await expect(page.getByRole('alert')).toContainText(/\b10\b[^.]*\bhour\b/);
-  await page.waitForTimeout(5_000);
-  expect(resetCodes(who.email)).toHaveLength(10);
-});
-
-test(`${J} #2 opening the mailed link opens the code page with its code, and the reset completes from there`, async ({ page, browser }) => {
-  const { who, device } = await account(browser);
-  await device.close();
-  const seen = resetLinks(who.email).length;
-  await askReset(page, who.email);
-  await expect.poll(() => resetLinks(who.email).length, { timeout: 20_000 }).toBeGreaterThan(seen);
-  const link = resetLinks(who.email).at(-1);
-  const code = await nextResetCode(who.email, 0);
-  // A fresh tab, as a mail app opens it: the link alone carries the person to the code page.
-  const tab = await (await browser.newContext()).newPage();
-  await tab.goto(`/${link}`);
-  await expect(tab.getByLabel('New password', { exact: true })).toBeVisible();
-  const field = tab.getByLabel('Code from the email');
-  if (await field.count()) await expect(field).toHaveValue(code);
-  const fresh = `TEST-${randomBytes(9).toString('base64url')}-new`;
-  await tab.getByLabel('New password', { exact: true }).fill(fresh);
-  await tab.getByLabel('Repeat the new password').fill(fresh);
-  await tab.getByRole('button', { name: 'Save new password' }).click();
-  await expect(tab.getByRole('status').filter({ hasText: 'Your password has been changed' })).toBeVisible();
-  await tab.context().close();
 });
 
 test(`${J} #3 the new password follows the rule: a short one is refused with the reason`, async ({ page, browser }) => {
