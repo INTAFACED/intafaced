@@ -39,6 +39,8 @@ export const LEDGER_DOOR_CALLERS = {
   assetsGet: READERS,
   /** svc-ops reads fee revenue for the venue report; besides this and the chain tip it only posts its staff holds and reads their keys. */
   feeRevenue: ['svc-ops'],
+  /** svc-ops reads INTAFACED's own funds (house and module accounts, customer money left out) for the capital monitor. */
+  ownFunds: ['svc-ops'],
   /** svc-ops reads the chain tip for the joint restore. */
   restoreWatermark: ['svc-ops'],
   /** svc-ops reads finished reconciliation evaluations for its alert store (OPS-reconciliation-03). */

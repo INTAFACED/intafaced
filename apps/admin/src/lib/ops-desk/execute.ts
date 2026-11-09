@@ -117,6 +117,21 @@ export function readVenueCostAnswer(raw: unknown): VenueCostAnswer | null {
     : null;
 }
 
+interface CapitalThresholdAnswer {
+  readonly assetId: string;
+  readonly minimum: string;
+  readonly contact: string;
+  readonly version: number;
+}
+
+export function readCapitalThresholdAnswer(raw: unknown): CapitalThresholdAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { assetId, minimum, contact, version } = raw;
+  return typeof assetId === 'string' && typeof minimum === 'string' && typeof contact === 'string' && typeof version === 'number'
+    ? { assetId, minimum, contact, version }
+    : null;
+}
+
 interface ListingAnswer {
   readonly action: string;
   readonly targetId: string;
@@ -373,6 +388,35 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.listingId !== request.listingId || a.status !== 'taken_down') return WRONG_STATE;
       return { ok: true, detail: 'svc-market answered and its returned listing is taken down.' };
+    }
+    if (request.kind === 'ops.capital.threshold.set') {
+      const result = await founderCall(
+        ctx,
+        'ops',
+        'capital.setThreshold',
+        'POST',
+        {
+          assetId: request.assetId,
+          minimum: request.minimum,
+          contact: request.contact,
+          reason: request.reason,
+          // One approval is one threshold version: running the same approved request twice returns the first.
+          idempotencyKey: `capital-threshold-approval:${ids.approvalId}`,
+          ...ids,
+        },
+        readCapitalThresholdAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
+      const a = result.data;
+      if (a.assetId !== request.assetId || a.contact !== request.contact || (request.minimum === '') !== (a.minimum === ''))
+        return WRONG_STATE;
+      return {
+        ok: true,
+        detail:
+          a.minimum === ''
+            ? `svc-ops answered: the ${a.assetId} threshold is cleared (version ${a.version}); it is not monitored.`
+            : `svc-ops answered: the ${a.assetId} minimum buffer is ${a.minimum} (version ${a.version}), escalated to ${a.contact}.`,
+      };
     }
     if (request.kind === 'ops.venue_cost.record') {
       const amount = normaliseCostAmount(request.amount);
