@@ -19,7 +19,7 @@ import { busCopyNotices } from './copy/copy-notices.js';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
-import { bookHaltFromBoard, createMatchingClient } from './spot/matching-client.js';
+import { bookHaltFromBoard, createMatchingClient, MatchingUnavailableError } from './spot/matching-client.js';
 import { createMatchingRulebookReader } from './spot/matching-rulebook.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
@@ -50,7 +50,8 @@ import { operatorSeedTargets } from './admin/seed-config.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
 import { parseMetricsWindowSeconds } from './admin/copy-bots-otc.js';
 import { parseSweepEnabled, parseSweepLimit, parseSweepMinAgeSeconds } from './admin/bust.js';
-import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
+import { chartOwnerValuesPublicReader, readChartScalars } from './admin/chart-owner-values.js';
+import { readQueuePosition } from './spot/queue-position.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { orderableForListedMarket, registerPublicRest } from './public-rest.js';
@@ -1382,6 +1383,22 @@ registerPrivateRest(app, {
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
   orderFills: (principal, orderId, limit) => trade.fillsForOrder(principal, orderId, limit),
   orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
+  orderQueue: (principal, orderId) =>
+    readQueuePosition(
+      {
+        getOrder: (p, id) => trade.getOrder(p, id),
+        marketById: (marketId) => trade.marketById(marketId),
+        l3Queue: async (marketId, limit) => {
+          if (!matching.l3Queue) throw new MatchingUnavailableError('the matching client has no native L3 read', 'trade.queue_unavailable');
+          return matching.l3Queue(marketId, limit);
+        },
+        queueFillWindowSeconds: async () => (await readChartScalars(sql)).values.queueFillWindowSeconds,
+        tradedThrough: (marketId, side, price, sinceMs) => trade.tradedThrough(marketId, side, price, sinceMs),
+        now: () => new Date(),
+      },
+      principal,
+      orderId,
+    ),
   placeOrder: (principal, input) =>
     trade.placeOrder(
       principal,

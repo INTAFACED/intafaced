@@ -171,6 +171,7 @@ beforeEach(() => {
     delayedBoundarySeconds: 30,
     renderBudgetMs: 500,
     orderProtectionBps: 500,
+    queueFillWindowSeconds: 300,
     dataClass: 'real_time',
   };
 });

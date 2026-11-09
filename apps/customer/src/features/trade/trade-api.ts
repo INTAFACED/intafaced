@@ -282,6 +282,35 @@ export function placeBody(draft: Draft): Record<string, unknown> {
   };
   return exit.kind === 'oco' ? { ...order, oco: true, ...legs } : { ...order, bracket: true, ...legs };
 }
+/**
+ * My place in the queue for one of my own resting orders (GET /orders/:id/queue, svc-trade spot/queue-position.ts): the
+ * orders and size ahead of it at its price in the native matching queue, and an estimated chance of a fill only when the
+ * owner has set the window. With the window blank there is no `fillProbability`, only the reason.
+ */
+export const queuePositionSchema = z.object({
+  orderId: z.string(),
+  marketId: z.string(),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  price: decimalSchema,
+  ordersAhead: z.number().int().nonnegative(),
+  sizeAhead: decimalSchema,
+  remaining: decimalSchema,
+  asOfSequence: z.number().int().nonnegative(),
+  source: z.literal('native_l3'),
+  fillProbability: decimalSchema.optional(),
+  fillProbabilityBasis: z
+    .object({
+      method: z.literal('traded_through_window'),
+      windowSeconds: z.number().int().positive(),
+      tradedThrough: decimalSchema,
+      sizeToFill: decimalSchema,
+    })
+    .optional(),
+  fillProbabilityRefused: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+export type QueuePosition = z.infer<typeof queuePositionSchema>;
+
 /** One amend or replace of an order, as GET /orders/:id/amendments lists it (oldest first). */
 export const orderChangeSchema = z.object({
   kind: z.enum(['amend', 'replace']),
@@ -494,6 +523,13 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema);
       return result.ok && (result.data.id !== id || result.data.symbol !== symbol)
+        ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
+        : result;
+    },
+    /** My place in the queue for one of my resting orders. A reply for another order is refused, never shown. */
+    async queue(orderId: string, signal?: AbortSignal): Promise<ApiResult<QueuePosition>> {
+      const result = await api.rest(`/orders/${encodeURIComponent(orderId)}/queue`, queuePositionSchema, { signal });
+      return result.ok && result.data.orderId.toLowerCase() !== orderId.toLowerCase()
         ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
         : result;
     },
