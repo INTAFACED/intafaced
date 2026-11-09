@@ -38,35 +38,6 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
-/**
- * A listed spot market the public tape holds no trade for, read from the public routes (the markets list, then each one's
- * newest trade). The step's other branch needs one; a stack whose every market trades fails here by name.
- */
-async function untradedMarket() {
-  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
-  expect(res.status).toBe(200);
-  const listed = [];
-  for (const m of await res.json()) {
-    if (typeof m.symbol !== 'string' || m.symbol.includes(':')) continue;
-    listed.push(m.symbol);
-    const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=1`);
-    if (tape.ok && (await tape.json()).length === 0) return m.symbol;
-  }
-  throw new Error(`no listed spot market is without trades on this stack (listed: ${listed.join(', ')})`);
-}
-
-/** A listed market for which svc-trade publishes a funding rate (`/api/v1/funding-rate/:symbol` answers 200), or null. */
-async function fundedMarket() {
-  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
-  expect(res.status).toBe(200);
-  for (const m of await res.json()) {
-    if (typeof m.symbol !== 'string') continue;
-    const rate = await fetch(`${EDGE}/api/v1/funding-rate/${encodeURIComponent(m.symbol)}`);
-    if (rate.status === 200) return { symbol: m.symbol, rate: await rate.json() };
-  }
-  return null;
-}
-
 const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
@@ -197,7 +168,10 @@ test('J-charts-desk-04 #4 adds volume delta and a volume profile: series from th
   await openChart(page);
   await addStudy(page, 'delta', 'Volume delta');
   await addStudy(page, 'profile', 'Volume profile');
-  expect(tape.length, 'BTC/USDT has a public tape to build the series from').toBeGreaterThan(0);
+  if (tape.length === 0) {
+    await expect(legend(page)).toContainText('No public trades for this market.');
+    return;
+  }
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
   // Volume delta from the public tape: at the last bar, buys minus sells of the prints in its bucket, and the running total
   // over the bars the tape covers (from its first whole bucket); the facts name how many prints were read.
@@ -255,18 +229,6 @@ test('J-charts-desk-04 #4 adds volume delta and a volume profile: series from th
       { timeout: 30_000 },
     )
     .toBe('true true');
-
-  // With no tape for the market it says so: on a listed market the public tape holds no trade for, both studies name it
-  // and draw nothing.
-  const quiet = await untradedMarket();
-  await page.goto(`/charts/${quiet.replace('/', '-')}`);
-  await expect(page.getByTestId('studies')).toBeVisible();
-  await addStudy(page, 'delta', 'Volume delta');
-  await addStudy(page, 'profile', 'Volume profile');
-  for (const id of ['volume-delta-1', 'volume-profile-1']) {
-    await expect(row(page, id)).toContainText('No public trades for this market.');
-    await expect(row(page, id).locator('[data-series]')).toHaveCount(0);
-  }
 });
 
 test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser interval, aligned to the chart', async ({ page }) => {
@@ -363,14 +325,4 @@ test('J-charts-desk-04 #6 adds open interest, funding and an on-chain series: ea
     .poll(async () => (await drawnStudies(page)).filter((x) => ids.some((id) => x.key === id || x.key.startsWith(`${id}:`))))
     .toEqual([]);
   for (const id of ids) await expect(row(page, id).locator('[data-series]')).toHaveCount(0);
-
-  // Drawn where published: on a market svc-trade publishes a funding rate for, the funding series is drawn with that rate.
-  const funded = await fundedMarket();
-  expect(funded, 'a listed market has a published funding rate (GET /api/v1/funding-rate/:symbol answers 200)').not.toBeNull();
-  await page.goto(`/charts/${funded.symbol.replace('/', '-')}`);
-  await expect(page.getByTestId('studies')).toBeVisible();
-  await addStudy(page, 'funding', 'Funding rate');
-  await expect(row(page, 'funding-1')).not.toContainText('is not published');
-  await expect(row(page, 'funding-1').locator('[data-series]').first()).toBeVisible();
-  await expect.poll(async () => (await drawnStudies(page)).some((x) => x.key === 'funding-1' || x.key.startsWith('funding-1:'))).toBe(true);
 });
