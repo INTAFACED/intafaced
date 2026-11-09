@@ -20,11 +20,11 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.10.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.301.0",
     "@opentelemetry/resources": "^2.12.0",
     "@opentelemetry/sdk-trace-base": "^2.12.0",
     "@opentelemetry/sdk-trace-node": "^2.12.0",
-    "@opentelemetry/semantic-conventions": "^1.43.0"
+    "@opentelemetry/semantic-conventions": "^1.44.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
