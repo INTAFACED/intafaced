@@ -86,9 +86,19 @@ function git(...args) {
 }
 
 /** Run the failing test files at the checked-out commit. true = they fail (twice). */
+/**
+ * Installs at the probed commit, trying twice. An install that fails twice says nothing about the commit (a registry or
+ * network flake looks the same), so it stops the search with no culprit instead of counting the commit as failing: a
+ * wrong culprit would open a revert of an innocent pull request.
+ */
+export function installOrStop(run = sh) {
+  for (let attempt = 1; attempt <= 2; attempt++) if (run('pnpm', ['install', '--frozen-lockfile']).status === 0) return;
+  throw new Error("can't probe: pnpm install --frozen-lockfile failed twice at this commit; stopping with no culprit");
+}
+
 function failsHere(tests, jobs = []) {
   if (jobs.length) {
-    if (sh('pnpm', ['install', '--frozen-lockfile']).status !== 0) return true;
+    installOrStop();
     for (const job of jobs) {
       const [cmd, ...args] = JOB_PROBES[job];
       if (sh(cmd, args).status !== 0 && sh(cmd, args).status !== 0) return true;
@@ -102,7 +112,7 @@ function failsHere(tests, jobs = []) {
     byPkg.set(dir, [...(byPkg.get(dir) ?? []), rel]);
   }
   if (!byPkg.size) return false;
-  if (sh('pnpm', ['install', '--frozen-lockfile']).status !== 0) return true; // a commit that cannot install is not good
+  installOrStop();
   for (const [dir, files] of byPkg) {
     const name = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).name;
     if (sh('pnpm', ['exec', 'turbo', 'run', 'build', `--filter=${name}^...`]).status !== 0) return true;
@@ -156,6 +166,18 @@ function selfTest() {
   const assert = (cond, msg) => {
     if (!cond) throw new Error(msg);
   };
+  // The install: one flake is retried, two stop the search, and nothing counts the commit as failing.
+  let calls = 0;
+  const flaky = () => ({ status: calls++ === 0 ? 1 : 0 });
+  installOrStop(flaky);
+  assert(calls === 2, 'a single install flake is retried');
+  let stopped = false;
+  try {
+    installOrStop(() => ({ status: 1 }));
+  } catch (e) {
+    stopped = /no culprit/.test(e.message);
+  }
+  assert(stopped, 'an install that fails twice stops the search with no culprit');
   const commits = Array.from({ length: 13 }, (_, i) => `c${i}`);
   for (let culpritIdx = 0; culpritIdx < commits.length; culpritIdx++) {
     let calls = 0;
