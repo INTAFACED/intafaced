@@ -1707,6 +1707,7 @@ const academySections: readonly DeskSection[] = [
           text('actorId', 'Who', { nullable: true }),
           text('reason', 'Why', { nullable: true }),
           text('source', 'How it came about', {
+            nullable: true,
             words: {
               staff: 'Granted by staff',
               purchase: 'Bought',

@@ -3896,10 +3896,13 @@ export function createAcademyRouter(
         .input(
           z
             .object({
-              limit: z.number().optional(),
+              limit: z.number().int().min(1).optional(),
               cursor: z.string().min(1).max(512).optional(),
-              target: z.string().min(1).max(120).optional(),
+              /** One course's lines (its slug) or one certificate's (its id); never both. */
+              course: z.string().min(1).max(120).optional(),
+              certificate: z.string().min(1).max(120).optional(),
             })
+            .refine((v) => !(v.course && v.certificate), { message: 'name a course or a certificate, not both' })
             .optional(),
         )
         .output(
@@ -3916,7 +3919,7 @@ export function createAcademyRouter(
                   'certificate_revoked',
                 ]),
                 target: z.string(),
-                source: z.string(),
+                source: z.string().nullable(),
                 actorId: z.string().nullable(),
                 reason: z.string().nullable(),
                 at: z.date(),
@@ -3930,7 +3933,14 @@ export function createAcademyRouter(
           const owner = settings.ACADEMY_GRANT_AUDIT_PAGE_SIZE;
           // The owner's size, or fewer when the caller asks for fewer: never more than the owner set, and never a default.
           const limit = owner === undefined ? undefined : Math.min(owner, input?.limit ?? owner);
-          return guard(() => academy.grantAudit({ limit, cursor: input?.cursor ?? null, target: input?.target ?? null }));
+          return guard(() =>
+            academy.grantAudit({
+              limit,
+              cursor: input?.cursor ?? null,
+              course: input?.course ?? null,
+              certificate: input?.certificate ?? null,
+            }),
+          );
         }),
       opsMetrics: scopedProcedure('admin:read', { module: 'academy' })
         .input(z.object({ from: z.string(), to: z.string() }))

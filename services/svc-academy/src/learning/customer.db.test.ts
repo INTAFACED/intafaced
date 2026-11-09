@@ -722,8 +722,25 @@ describe('academy customer learning reads and writes', () => {
     // A caller may ask for fewer than the owner's size, never more.
     expect((await operator.admin.grantAudit({ limit: 1 })).items).toHaveLength(1);
     expect((await operator.admin.grantAudit({ limit: 50 })).items).toHaveLength(2);
-    // One course's or one certificate's lines.
-    expect((await operator.admin.grantAudit({ target: 'markets' })).items.map((l) => l.kind)).toEqual(['access_revoked', 'access_granted']);
+    // One course's lines, or one certificate's, never the other's; and how it came about only on a grant.
+    const course = (await operator.admin.grantAudit({ course: 'markets' })).items;
+    expect(course.map((l) => [l.kind, l.source])).toEqual([
+      ['access_revoked', null],
+      ['access_granted', 'staff'],
+    ]);
+    const cert = await operator.admin.grantAudit({ certificate: 'foundations-v1', limit: 2 });
+    expect(cert.items.map((l) => [l.kind, l.source])).toEqual([
+      ['certificate_revoked', null],
+      ['certificate_granted', 'issue'],
+    ]);
+    const certRest = await operator.admin.grantAudit({ certificate: 'foundations-v1', cursor: cert.nextCursor ?? undefined });
+    expect(certRest.items.map((l) => [l.kind, l.at.toISOString()])).toEqual([['certificate_granted', '2026-10-17T03:00:00.000Z']]);
+    expect(certRest.nextCursor).toBeNull();
+    // A course and a certificate together, or a page size under 1, is a bad request, never "the page size is not set".
+    await expect(operator.admin.grantAudit({ course: 'markets', certificate: 'foundations-v1' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(operator.admin.grantAudit({ limit: 0 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     // A blank owner page size refuses with its own code, whatever the caller asks for.
     const unset = createAcademyRouter(academy).createCaller(signed());
     await expect(unset.admin.grantAudit({ limit: 10 })).rejects.toMatchObject({

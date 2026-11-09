@@ -72,8 +72,11 @@ export type GrantAuditRow = {
   kind: 'access_granted' | 'access_revoked' | 'access_expired' | 'access_reinstated' | 'certificate_granted' | 'certificate_revoked';
   /** The course slug for an access line, the certificate id for a certificate line. */
   target: string;
-  /** How an access grant came about (`staff`, `purchase`, `free`, `bundle`, `membership`); `issue` for a certificate line. */
-  source: string;
+  /**
+   * How a grant came about: an access grant's source (`staff`, `purchase`, `free`, `bundle`, `membership`), or `issue` for a
+   * certificate issued. Null on a revoke, an expiry or a reinstatement, which are not how anything was granted.
+   */
+  source: string | null;
   actorId: string | null;
   reason: string | null;
   at: Date;
@@ -143,7 +146,7 @@ function decodeGrantCursor(cursor: string): { atText: string; reference: string 
   const nl = raw.indexOf('\n');
   const atText = nl > 0 ? raw.slice(0, nl) : '';
   const reference = nl > 0 ? raw.slice(nl + 1) : '';
-  if (!/^\d{4}-\d{2}-\d{2}[ T][0-9:.]+(?:[+-]\d{2}(?::?\d{2})?|Z)$/.test(atText) || reference.length === 0) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(atText) || reference.length === 0) {
     throw new AcademyError('cursor is not valid', 'academy.cert_invalid');
   }
   return { atText, reference };
@@ -561,16 +564,28 @@ export class AcademyCustomerStore {
    * why. It reads the records themselves, never a copy. `limit` is the owner's page size; blank refuses
    * `academy.grant_audit_list_limit_unset`. `target` keeps the lines of one course or one certificate.
    */
-  async grantAudit(input: { limit: number | null | undefined; cursor?: string | null; target?: string | null }): Promise<GrantAuditPage> {
+  async grantAudit(input: {
+    limit: number | null | undefined;
+    cursor?: string | null;
+    course?: string | null;
+    certificate?: string | null;
+  }): Promise<GrantAuditPage> {
     const limit = assertCustomerListLimit(input.limit, 'academy.grant_audit_list_limit_unset', 'Grant audit');
     const cursor = input.cursor ? decodeGrantCursor(input.cursor) : null;
-    const target = input.target?.trim() || null;
+    const course = input.course?.trim() || null;
+    const certificate = input.certificate?.trim() || null;
+    const atCursor = cursor?.atText ?? null;
+    const refCursor = cursor?.reference ?? null;
+    // Each record is read on its own, filtered and cut to the page there, so a page reads at most `limit + 1` rows from
+    // each, not the whole history. A course filter reads no certificate line, and a certificate filter no course line.
+    const readAccess = certificate === null;
+    const readCerts = course === null;
     const rows = await this.sql<
       Array<{
         user_id: string;
         kind: GrantAuditRow['kind'];
         target: string;
-        source: string;
+        source: string | null;
         actor_id: string | null;
         reason: string | null;
         at: Date;
@@ -578,23 +593,37 @@ export class AcademyCustomerStore {
         reference: string;
       }>
     >`
-      WITH lines AS (
-        SELECT g.user_id, 'access_' || e.kind AS kind, g.path_slug AS target, g.source, e.actor_id::text AS actor_id,
-               e.reason, e.at, e.key AS reference
-          FROM academy.access_grant_events e
-          JOIN academy.access_grants g ON g.id = e.grant_id
-        UNION ALL
-        SELECT user_id, 'certificate_granted', cert_id, 'issue', NULL, NULL, granted_at, idempotency_key
-          FROM academy.cert_grants
-        UNION ALL
-        SELECT user_id, 'certificate_revoked', cert_id, 'issue', revoked_by::text, reason, revoked_at, 'revoke:' || public_id
-          FROM academy.cert_revocations
-      )
-      SELECT user_id, kind, target, source, actor_id, reason, at, at::text AS at_text, reference
-        FROM lines
-       WHERE (${target}::text IS NULL OR target = ${target})
-         AND (${cursor?.atText ?? null}::timestamptz IS NULL
-              OR (at, reference) < (${cursor?.atText ?? null}::timestamptz, ${cursor?.reference ?? null}::text))
+      SELECT user_id, kind, target, source, actor_id, reason, at,
+             to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at_text, reference
+        FROM (
+          (SELECT g.user_id, 'access_' || e.kind AS kind, g.path_slug AS target,
+                  CASE WHEN e.kind = 'granted' THEN g.source END AS source, e.actor_id::text AS actor_id, e.reason, e.at,
+                  e.key AS reference
+             FROM academy.access_grant_events e
+             JOIN academy.access_grants g ON g.id = e.grant_id
+            WHERE ${readAccess}
+              AND (${course}::text IS NULL OR g.path_slug = ${course})
+              AND (${atCursor}::timestamptz IS NULL OR (e.at, e.key) < (${atCursor}::timestamptz, ${refCursor}::text))
+            ORDER BY e.at DESC, e.key DESC
+            LIMIT ${limit + 1})
+          UNION ALL
+          (SELECT user_id, 'certificate_granted', cert_id, 'issue', NULL, NULL, granted_at, idempotency_key
+             FROM academy.cert_grants
+            WHERE ${readCerts}
+              AND (${certificate}::text IS NULL OR cert_id = ${certificate})
+              AND (${atCursor}::timestamptz IS NULL OR (granted_at, idempotency_key) < (${atCursor}::timestamptz, ${refCursor}::text))
+            ORDER BY granted_at DESC, idempotency_key DESC
+            LIMIT ${limit + 1})
+          UNION ALL
+          (SELECT user_id, 'certificate_revoked', cert_id, NULL, revoked_by::text, reason, revoked_at, 'revoke:' || public_id
+             FROM academy.cert_revocations
+            WHERE ${readCerts}
+              AND (${certificate}::text IS NULL OR cert_id = ${certificate})
+              AND (${atCursor}::timestamptz IS NULL
+                   OR (revoked_at, 'revoke:' || public_id) < (${atCursor}::timestamptz, ${refCursor}::text))
+            ORDER BY revoked_at DESC, public_id DESC
+            LIMIT ${limit + 1})
+        ) lines
        ORDER BY at DESC, reference DESC
        LIMIT ${limit + 1}
     `;

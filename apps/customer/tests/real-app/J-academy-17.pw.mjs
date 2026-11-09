@@ -148,7 +148,7 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
   // Every line shows its time, and they are newest first: the same lines as the service records them, in its order.
   for (let i = 0; i < 3; i++) await expect(rows.nth(i)).toContainText(/\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}/);
   const { ctx, token } = await founders();
-  const stored = await ctx.edge.query('academy', 'admin.grantAudit', { target: CERT }, token);
+  const stored = await ctx.edge.query('academy', 'admin.grantAudit', { certificate: CERT }, token);
   expect(stored.status, stored.text.slice(0, 300)).toBe(200);
   const mine = JSON.parse(stored.text).result.data.items.filter((l) => l.accountId === learnerId);
   expect(mine.map((l) => l.kind)).toEqual(['certificate_revoked', 'certificate_granted']);
@@ -165,7 +165,7 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
   }
 
   // With none for a course, the audit has no line for it: an empty answer, never an invented row.
-  const none = await ctx.edge.query('academy', 'admin.grantAudit', { target: `${J}-no-such-course` }, token);
+  const none = await ctx.edge.query('academy', 'admin.grantAudit', { course: `${J}-no-such-course` }, token);
   expect(none.status, none.text.slice(0, 300)).toBe(200);
   expect(JSON.parse(none.text).result.data).toEqual({ items: [], nextCursor: null });
 });

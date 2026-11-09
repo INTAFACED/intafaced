@@ -196,18 +196,15 @@ const schema = serviceEnvSchema
       ACADEMY_BULK_FILE_MAX_BYTES: blankAsUnset(z.coerce.number().int().min(1).max(900_000)),
 
       /**
+       * AC-access-grants-02: how many lines one page of the grant audit shows, at most the Academy's list ceiling (200).
+       * Blank / unset is unpublished: the audit refuses `academy.grant_audit_list_limit_unset`.
+       */
+      ACADEMY_GRANT_AUDIT_PAGE_SIZE: blankAsUnset(z.coerce.number().int().min(1).max(200)),
+
+      /**
        * AC-articles-01: how many topics the founder console's topic list shows. Blank / unset is unpublished: the list
        * refuses `academy.topics_list_limit_unset`.
        */
-      /**
-       * AC-access-grants-02: how many lines one page of the grant audit shows. Blank / unset is unpublished: the audit
-       * refuses `academy.grant_audit_list_limit_unset`.
-       */
-      ACADEMY_GRANT_AUDIT_PAGE_SIZE: z.preprocess(
-        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
-        z.union([z.undefined(), z.coerce.number().int().min(1).max(500)]),
-      ),
-
       ACADEMY_TOPICS_LIST_LIMIT: z.preprocess(
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),

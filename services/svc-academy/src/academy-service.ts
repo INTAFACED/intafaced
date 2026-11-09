@@ -2283,7 +2283,7 @@ export class AcademyService {
     return this.customer.sessionCalendar(input);
   }
 
-  grantAudit(input: { limit: number | null | undefined; cursor?: string | null; target?: string | null }) {
+  grantAudit(input: { limit: number | null | undefined; cursor?: string | null; course?: string | null; certificate?: string | null }) {
     return this.customer.grantAudit(input);
   }
 
