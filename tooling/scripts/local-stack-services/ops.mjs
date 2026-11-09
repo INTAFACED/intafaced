@@ -40,7 +40,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     // work list refuses home.work_list_cap_unset and the header search's Help group says no limit is set.
     OPS_HOME_WORK_LIST_CAP: testValue('OPS_HOME_WORK_LIST_CAP'),
     OPS_HOME_WORK_LIST_ORDER: testValue('OPS_HOME_WORK_LIST_ORDER'),
-    OPS_HOME_SEARCH_RESULT_CAP: testValue('OPS_HOME_SEARCH_RESULT_CAP'),
+    // `LOCAL_STACK_OPS_HOME_SEARCH_RESULT_CAP=off` on a start or restart leaves it blank, so the header search's Help group
+    // says no limit is set (J-home-ia-02 #5).
+    ...(process.env.LOCAL_STACK_OPS_HOME_SEARCH_RESULT_CAP === 'off'
+      ? {}
+      : { OPS_HOME_SEARCH_RESULT_CAP: testValue('OPS_HOME_SEARCH_RESULT_CAP') }),
     // Home's announcement strip count (J-home-ia-06), TEST in the same profile. `LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT=off`
     // on a start or restart leaves it blank, so the strip's refusal (home.notice_strip_limit_unset) can be seen.
     ...(process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT === 'off'

@@ -1,10 +1,12 @@
-// World: stack
+// World: stack, restart
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, verifiedBusiness } from './merchant.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, tool } from './stack.mjs';
+import { rooms } from '../../src/app/navigation.ts';
+import { isHiddenPath } from '../../src/app/feature-registry.ts';
 
 // J-home-ia-02, in the running app (docs/roadmap/journeys.json): I find any room I need. Tests titled "J-home-ia-02 #<n>"
 // prove a whole step. One TEST person, signed up once; the signed-out step uses a fresh browser. #7's Business half makes
@@ -47,6 +49,30 @@ async function dropdown(page, door) {
     .evaluateAll((links) =>
       links.map((link) => ({ href: link.getAttribute('href'), advanced: Boolean(link.closest('ul[aria-label="Advanced"]')) })),
     );
+}
+
+/**
+ * Runs `fn` with svc-ops restarted on one owner value blank (`LOCAL_STACK_OPS_<NAME>=off`,
+ * tooling/scripts/local-stack-services/ops.mjs), and restarts it on the TEST value after, even when `fn` fails.
+ */
+async function withOpsValueBlank(key, fn) {
+  const restart = (value) => {
+    const before = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+    try {
+      tool('local-test-stack.mjs', 'restart', 'ops');
+    } finally {
+      if (before === undefined) delete process.env[key];
+      else process.env[key] = before;
+    }
+  };
+  restart('off');
+  try {
+    return await fn();
+  } finally {
+    restart(undefined);
+  }
 }
 
 /** Type into the header search and return its open results panel. */
@@ -138,6 +164,30 @@ test(`${J} #2 More and All services list every room from the one route table, wi
   await expect(all).toBeVisible();
   for (const name of ['Earn', 'Loans', 'Futures', 'Send globally', 'Merchant home', 'Academy', 'Chain', 'DEX', 'Protocol', 'Help centre'])
     await expect(main.getByRole('link', { name, exact: true }).first()).toBeVisible();
+  // Every room of the one route table (apps/customer/src/app/navigation.ts `rooms`) has its row, and no row names a page
+  // outside it. A room is left out only for the reasons the table itself records: an alias, a parameter route, a hidden
+  // or founder page, or a merchant-portal page (reached from Merchant home and Business bank), or a hidden feature.
+  const listed = (
+    await main.locator('a[data-service]').evaluateAll((links) => links.map((link) => link.getAttribute('data-service')))
+  ).sort();
+  const portalWay = new Set(['/pay/merchant', '/bank/business']);
+  const expected = [
+    ...new Set(
+      rooms
+        .filter(
+          (room) =>
+            !room.alias &&
+            !room.hidden &&
+            room.area !== 'team' &&
+            !/[:*]/.test(room.path) &&
+            (!room.business || portalWay.has(room.path)) &&
+            !isHiddenPath(room.path),
+        )
+        .map((room) => room.path),
+    ),
+  ].sort();
+  expect(expected.length, 'the route table has rooms to list').toBeGreaterThan(20);
+  expect(listed, 'All services lists exactly the route table rooms').toEqual(expected);
   await expect(main.getByRole('link', { name: 'chain', exact: true })).toHaveCount(0);
 
   // Every tile opens its room.
@@ -176,29 +226,20 @@ test(`${J} #4 typing "chain" lists the parked room and says it opens to its bloc
 test(`${J} #5 typing a help article's title lists it under Help and opens it; with no help result limit set the search says so and still offers Help`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   await signIn(page, who);
-  // The result limit is an owner value. While it is blank (as it is until the owner sets it), Help says why it lists no
-  // articles and still offers Help itself. The stack publishes a TEST limit, so this part answers home.config as blank.
-  const blankCap = async (route) => {
-    if (!route.request().url().includes('home.config')) return route.continue();
-    const res = await route.fetch();
-    const body = await res.json();
-    // Only home.config's answer is changed; any other answer in a batch, or an error, goes through as it came.
-    const blank = (one) =>
-      one?.result?.data && 'searchResultCap' in one.result.data
-        ? { ...one, result: { ...one.result, data: { ...one.result.data, searchResultCap: null } } }
-        : one;
-    await route.fulfill({ response: res, json: Array.isArray(body) ? body.map(blank) : blank(body) });
-  };
-  await page.route('**/api/ops/trpc/**', blankCap);
-  await page.goto('/home');
-  const unset = await search(page, ARTICLE);
-  await expect(
-    unset.getByRole('status').filter({ hasText: 'Help articles are hidden: no limit for the number of results is set.' }),
-  ).toBeVisible();
-  await unset.getByRole('option', { name: 'Open Help', exact: true }).click();
-  await expect(page).toHaveURL(/\/support$/);
-  await page.unroute('**/api/ops/trpc/**', blankCap);
+  // The result limit is an owner value. With it blank on the running stack (svc-ops restarted without it), Help says
+  // why it lists no articles and still offers Help itself.
+  await withOpsValueBlank('LOCAL_STACK_OPS_HOME_SEARCH_RESULT_CAP', async () => {
+    await page.goto('/home');
+    const unset = await search(page, ARTICLE);
+    await expect(
+      unset.getByRole('status').filter({ hasText: 'Help articles are hidden: no limit for the number of results is set.' }),
+    ).toBeVisible();
+    await expect(unset.getByRole('option', { name: ARTICLE, exact: true })).toHaveCount(0);
+    await unset.getByRole('option', { name: 'Open Help', exact: true }).click();
+    await expect(page).toHaveURL(/\/support$/);
+  });
 
   // With the limit set, the article is listed under Help by the title a person reads, and opens.
   await page.goto('/home');
