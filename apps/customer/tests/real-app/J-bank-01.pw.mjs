@@ -215,6 +215,13 @@ test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is r
   await expect(dialog).toContainText(`already has ${LIMIT} spaces`);
   expect(named(await spaces(who), 'One too many TEST')).toBeUndefined();
 
+  // The at-limit create is settled before the bank restarts: the page holds no write whose outcome is unconfirmed, so a
+  // check of it can't meet the bank mid-restart.
+  const paused = page.getByRole('alert').filter({ hasText: 'Bank writes are paused' });
+  await page.goto('/bank/spaces');
+  await expect(page.getByRole('heading', { name: 'Spaces', level: 1 })).toBeVisible();
+  await expect(paused).toHaveCount(0);
+
   // With the owner's space limit blank: the create is refused, saying the limit is not set, and no space is made.
   await withBankValueBlank('LOCAL_STACK_BANK_SPACE_LIMIT', async () => {
     const before = (await spaces(who)).length;
@@ -223,6 +230,8 @@ test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is r
       code: 'bank.space_limit_unset',
     });
     await page.goto('/bank/spaces');
+    await expect(page.getByRole('heading', { name: 'Spaces', level: 1 })).toBeVisible();
+    await expect(paused).toHaveCount(0);
     await page.getByRole('button', { name: 'Create space' }).click();
     await dialog.getByLabel('Asset', { exact: true }).selectOption('USDT');
     await dialog.getByLabel('Space name').fill('No limit TEST');
