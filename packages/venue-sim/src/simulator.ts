@@ -358,7 +358,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     };
     const venueFee = line((r) => (r === 'maker' ? market.makerFeeBps : market.takerFeeBps));
     const zeroFee: MaybeKnown<Amount> = { known: true, value: ZERO };
-    const builderLine = line(() => (builderFee ? { known: true, value: builderFee.feeBps } : zeroFee));
+    // No builder fee on a spot buy (see `fill`): known zero, whatever the order carries.
+    const builderLine = line(() => (builderFee && !feeInBase ? { known: true, value: builderFee.feeBps } : zeroFee));
 
     let perpetual: VenueOrderPreview['perpetual'] = null;
     if (perp && setting) {
@@ -467,7 +468,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
             );
           }
           const approved = state.builderApprovals.get(intent.builderFee.builder.toLowerCase()) ?? ZERO;
-          if (compare(approved, intent.builderFee.feeBps) < 0) {
+          // A spot buy pays no builder fee (see `fill`), so it needs no approval either.
+          if (this.builderApplies(intent) && compare(approved, intent.builderFee.feeBps) < 0) {
             refuse(
               this.venue.id,
               'builder_fee_not_approved',
@@ -869,7 +871,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         if (builderFee) {
           if (compare(builderFee.feeBps, ZERO) < 0) return refused('venue_rejected', 'a builder fee cannot be negative');
           const approved = state.builderApprovals.get(builderFee.builder) ?? ZERO;
-          if (compare(approved, builderFee.feeBps) < 0)
+          if (this.builderApplies(intent) && compare(approved, builderFee.feeBps) < 0)
             return refused('builder_fee_not_approved', 'the builder fee approval no longer covers this order');
         }
         return this.place(state, intent, cloid, builderFee, refused, accepted);
@@ -1110,6 +1112,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return div(mul(intent.price, BPS), parseAmount(String(setting!.leverageBps)), QUOTE_ROUND);
   }
 
+  /** Whether the venue charges a builder fee on this order at all: never on a spot buy (project-state #1888). */
+  private builderApplies(intent: PlaceUserOrderIntent): boolean {
+    return !(this.market(intent.symbol).kind === 'spot' && intent.side === 'buy');
+  }
+
   /** The venue's published builder-fee cap on `symbol`, or null when it publishes none. */
   private builderFeeCap(symbol: string): Amount | null {
     const cap = this.market(symbol).builderFeeCapBps;
@@ -1137,7 +1144,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const feeInBase = market.kind === 'spot' && side.order.side === 'buy';
       const feeBasis = feeInBase ? qty : mul(price, qty, QUOTE_ROUND);
       const venueFeeDue = div(mul(feeBasis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
-      let builderFee = side.builderFee ? div(mul(feeBasis, side.builderFee.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
+      // As the venue does: a builder fee never applies to the buying side of a spot trade, only to a spot sell and to
+      // both sides of a perp ("builder codes do not apply to the buying side of spot trades", Hyperliquid's
+      // builder-codes page, read 9 Nov 2026; project-state #1888).
+      const builderApplies = side.builderFee !== null && !feeInBase;
+      let builderFee = builderApplies ? div(mul(feeBasis, side.builderFee!.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
       let venueFee = venueFeeDue;
       const { realisedPnl, uncharged } = this.settle(market, side, qty, price, add(venueFee, builderFee));
       // Report only what was charged: a fee the account could not pay is cut from our builder fee first.
