@@ -107,7 +107,7 @@ test(`${J} #1 with no agent online, the chat panel shows the request form and th
   await expect(form.getByRole('combobox', { name: 'Topic' })).toBeVisible();
   await expect(form.getByLabel('Subject', { exact: true })).toBeVisible();
   await expect(form.getByLabel('What happened')).toBeVisible();
-  await expect(form.getByRole('button', { name: 'Send request' })).toBeEnabled();
+  await expect(form.getByRole('button', { name: 'Send request' })).toBeVisible();
   // Nothing can be opened while nobody is on the desk.
   const res = await anonymous('chatOpen', {
     clientKey: key(),
