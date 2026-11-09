@@ -134,15 +134,42 @@ export interface SupportRatingSummaryView {
   readonly summary: Part<SupportRatingSummary>;
 }
 
-import type { StaffMemberView, StaffPolicyView } from './staff';
+import type { StaffDirectoryRow, StaffMemberView, StaffPolicyView } from './staff';
+import type { AvailabilityLogRow, GroupLogRow, RoutingOverview, TicketRoutingView, WaitingRow } from './routing';
 
-/** The staff roster and the automatic-offline policy. Each is its own part, so one failing never hides the other. */
+/**
+ * The staff roster (with each person's groups), the automatic-offline policy, routing (capacity and skills) and the
+ * availability log. Each is its own part, so one failing never hides another.
+ */
 export interface SupportStaffView {
   readonly asOf: string;
   /** The signed-in person's own id, so the page can tell which row is theirs. Taken from the session, not from the roster. */
   readonly meId: string;
-  readonly roster: Part<readonly StaffMemberView[]>;
+  readonly roster: Part<readonly StaffDirectoryRow[]>;
   readonly policy: Part<StaffPolicyView>;
+  readonly routing: Part<RoutingOverview>;
+  readonly log: Part<readonly AvailabilityLogRow[]>;
+}
+
+/** One group's log, oldest first. */
+export interface SupportGroupLogView {
+  readonly asOf: string;
+  readonly groupId: string;
+  readonly log: Part<readonly GroupLogRow[]>;
+}
+
+/** Requests in a routed group that no agent could take. */
+export interface SupportRoutingWaitingView {
+  readonly asOf: string;
+  readonly waiting: Part<readonly WaitingRow[]>;
+}
+
+/** One request's routing, and the roster to tell whether the signed-in person is a lead. */
+export interface SupportTicketRoutingView {
+  readonly asOf: string;
+  readonly meId: string;
+  readonly routing: Part<TicketRoutingView>;
+  readonly roster: Part<readonly StaffMemberView[]>;
 }
 
 import type { DeskGroupView, DeskScopeView } from './groups';
@@ -154,6 +181,8 @@ export interface SupportGroupsView {
   readonly groups: Part<readonly DeskGroupView[]>;
   readonly scope: Part<DeskScopeView>;
   readonly roster: Part<readonly StaffMemberView[]>;
+  /** Each group's routing mode and who was last given a request. */
+  readonly routing: Part<RoutingOverview>;
 }
 
 /** The desk's macros and the signed-in agent's own signature (SP-desk-02). Two reads, each its own part. */
