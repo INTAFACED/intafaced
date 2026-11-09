@@ -59,10 +59,10 @@ const en = {
   noReports: 'You have sent no reports.',
 
   scamTitle: 'Report a scam',
-  scamDescription: 'Tell us about a scam, whether you have sent money or not yet. We take one report per transfer and give it a reference.',
+  scamDescription: 'Tell us about a scam, before or after you send money. We take one report per transfer and give it a reference.',
   scamWhenLabel: 'Have you sent money',
   scamWhenAfter: 'Yes, I already sent money',
-  scamWhenBefore: 'Not yet, someone is asking me to',
+  scamWhenBefore: 'No, someone is asking me to',
   scamAmountLabel: 'Amount',
   scamAssetLabel: 'Currency or asset',
   scamTransferLabel: 'Transfer id',
