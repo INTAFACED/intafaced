@@ -30,7 +30,7 @@ import { createBankRouter } from '../router.js';
 import type { SecurityLockPort } from '../security-lock.js';
 import { CashOutService, cashOutWithdrawalId } from './cash-out.js';
 import { PAYOUT_SIM_RAIL, payoutSim, type CashOutPartner } from './payout-sim.js';
-import { partnerPayoutsAccount } from '../partner/partner-bank.js';
+import { partnerPayoutsAccount, type PostingFreeze } from '../partner/partner-bank.js';
 import { TEST_PARTNER_LABEL, testPartner, type TestPartner } from '../partner/test-partner.js';
 
 const SECRET = 'bank-cash-out-payout-edge-secret-long-enough';
@@ -86,12 +86,17 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
     );
   });
 
+  // svc-ledger's posting freeze, open: a partner move asks it first, and an unwired freeze refuses (bank.posting_frozen).
+  // partner-moves.db.test.ts proves the frozen, unreadable and unwired refusals.
+  const POSTING_ENABLED: PostingFreeze = { postingEnabled: async () => true };
+
   function services(partner: CashOutPartner | null = SIM, securityLock = OPEN) {
     return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       ramps: { addressBookCap: '10', offrampCoolingHours: '24', securityLock },
       cashOutPartner: partner,
       receiptSecret: RECEIPTS,
       testPartner: partnerBank,
+      postingFreeze: POSTING_ENABLED,
     });
   }
 
