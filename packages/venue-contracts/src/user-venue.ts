@@ -330,12 +330,6 @@ export type VenueRefusalCode =
   | 'test_venue_outside_test'
   /** The client order key is not a business key (blank, or a random id). */
   | 'invalid_client_order_key'
-  /**
-   * The venue refused the action's nonce for a reason that guarantees it was
-   * not applied (below the venue's kept set, or outside its time window).
-   * A "nonce already used" answer is never this: that is `already_submitted`.
-   */
-  | 'nonce_rejected'
   /** The venue refused for its own stated reason; the text is in `detail`. */
   | 'venue_rejected'
   /** An agent order would commit more than the room left under the person's cap (agent-cap.ts). Nothing signed. */
@@ -442,12 +436,7 @@ export interface UserVenueWithdrawal {
   readonly nonce: string;
   readonly asset: string;
   readonly amount: Amount;
-  /**
-   * Lowercase destination address, or `null` when the venue does not report
-   * it for this withdrawal (its record names none, and the reader did not
-   * send it). Never a made-up value (AGENTS.md floor 8).
-   */
-  readonly destination: string | null;
+  readonly destination: string;
   readonly status: UserVenueWithdrawalStatus;
   /** The venue's withdrawal fee, or `known: false` when it does not publish one. */
   readonly fee: MaybeKnown<Amount>;
