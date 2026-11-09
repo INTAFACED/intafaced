@@ -309,6 +309,30 @@ test(`${J} #7 the credit lands in the inbox once, however often the chain delive
   await notice.first().click();
   await expect(page).toHaveURL(/\/uc\/recharge\?asset=USDT&network=ethereum$/);
   await expect(assetPicker(page)).toHaveValue(ASSET);
+
+  // History: the deposit's record names its state in plain words, Credited, beside its 100 USDT.
+  const { tx } = state();
+  const row = recordRow(page, tx);
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('[data-status]')).toHaveAttribute('data-status', 'credited');
+  await expect(row.locator('[data-status]')).toHaveText('Credited');
+  await expect(row).toContainText(`100 ${ASSET}`);
+
+  // The email toggle: email is not connected on this stack, so svc-notify names vendor.email on every email cell, and
+  // each email switch is off and fixed with the not-connected notice beside it.
+  const prefs = await (await api(who)).get('/api/notify/trpc/notify.categoryPrefs');
+  expect(prefs.status).toBe(200);
+  const email = prefs.body.result.data.filter((r) => r.channel === 'email');
+  expect(email.length).toBeGreaterThan(0);
+  for (const r of email) expect(r.notConnected, `${r.category} email`).toBe('vendor.email');
+  await page.goto('/notifications?view=settings');
+  const grid = page.getByRole('region', { name: 'What reaches you, by category' });
+  const switches = grid.getByRole('switch', { name: /, Email$/ });
+  await expect(switches).toHaveCount(email.length);
+  for (const toggle of await switches.all()) {
+    await expect(toggle).toBeDisabled();
+    await expect(toggle.locator('xpath=ancestor::td[1]')).toContainText('Not connected on this platform, so nothing can be sent here.');
+  }
 });
 
 test(`${J} #4 creates another address and labels it: a list with labels and expiry, the cap refused with the cap shown, and a deposit to an expired address held for release`, async ({
