@@ -23,6 +23,8 @@ import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant/QuantRoutes';
 import { Support, supportPageTitleKey } from './Support';
+import { SupportChatRoom } from './SupportChat';
+import { chatCopy } from './support-chat-copy';
 import { supportRoute } from './support-desk';
 import { deskCopy } from './support-desk-copy';
 import { Token, type TokenTab } from './Token';
@@ -148,6 +150,10 @@ function MoreRooms({ path }: { path: string }) {
     content = <Token />;
   } else if (quant) {
     ({ title, description, content } = quant);
+  } else if (p === '/support/chat') {
+    title = <chatCopy.Copy k="pageTitle" />;
+    description = <chatCopy.Copy k="pageDescription" />;
+    content = <SupportChatRoom />;
   } else if (p === '/support' || p.startsWith('/support/')) {
     const key = supportPageTitleKey(supportRoute(p, url.search));
     title = key ? <deskCopy.Copy k={key} /> : copyText('moreroutes.support');
