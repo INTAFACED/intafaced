@@ -45,6 +45,7 @@ import { restoreWatermarkReadInputSchema, type RestoreWatermarkRead } from '@int
 import type { LedgerTransactionsExist, ReconciliationEvaluationFeed } from '@intafaced/contracts/ledger-reconciliation';
 import { transactionsExist } from './ledger/transactions-exist.js';
 import type { FeeRevenueRow } from './ledger/fee-revenue.js';
+import type { OwnFundsRow } from './ledger/own-funds.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import type { HoldingsHistory, HoldingsHistoryInput } from './ledger/holdings-history.js';
 import {
@@ -247,6 +248,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   /** Fee revenue per asset over one window. A read; same no-span reasoning as `history`. */
   feeRevenue(range: HistoryRange): Promise<FeeRevenueRow[]> {
     return this.engine.feeRevenue(range);
+  }
+
+  /** INTAFACED's own funds now, customer money left out (J-ops-console-24 #1). A read; same no-span reasoning as `history`. */
+  ownFunds(): Promise<{ asOf: Date; rows: OwnFundsRow[] }> {
+    return this.engine.ownFunds();
   }
 
   /** Finished reconciliation evaluations after a cursor, for svc-ops' alert store (OPS-reconciliation-03). A read. */

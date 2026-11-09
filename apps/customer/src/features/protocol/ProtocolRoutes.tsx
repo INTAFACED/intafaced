@@ -3,6 +3,7 @@ import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { ADDRESS_SHAPE, matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
 import { WalletRoom } from './wallet/WalletRoom';
+import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
@@ -21,6 +22,8 @@ export function ProtocolRoutes({ path }: { path: string }) {
   const found = matchWeb3Route(path);
   if (!found) return <NotFoundRoute path={path} />;
   const { route, params } = found;
+  // The venue account is its own room on the flow template (J-wallet-09), reached from the wallet room's tabs.
+  if (route.wallet === 'venue') return <VenueWalletRoom />;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
