@@ -450,10 +450,12 @@ test(`${J} #5 withdraws TEST USDC from the venue to the wallet: the user signs; 
     await expect(figure).toHaveText(`${deposited} TEST USDC`);
 
     // The user signs: the venue's withdrawal shows pending, then done, with the venue's fee and the network fee.
+    // One signature of the venue's withdrawal (typed data); a connection the wallet signs again first is a personal_sign.
     const signedBefore = wallet.requests.length;
     await withdrawWithCode(page, '10', code);
-    await expect.poll(() => wallet.requests.length).toBe(signedBefore + 1);
-    expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+    const withdrawalSigns = () => wallet.requests.slice(signedBefore).filter((r) => r.method !== 'personal_sign');
+    await expect.poll(() => withdrawalSigns().length).toBe(1);
+    expect(withdrawalSigns()[0].method).toBe('eth_signTypedData_v4');
     const withdrawal = page.getByTestId('venue-withdrawal');
     await expect(withdrawal.getByTestId('venue-withdrawal-status')).toHaveText('Pending', { timeout: 30_000 });
     await expect(withdrawal.getByTestId('venue-fee')).toHaveText(VENUE_FEE);
