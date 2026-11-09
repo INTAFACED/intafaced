@@ -295,9 +295,13 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   run.write({ secret, step });
   await page.goto(DESK);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  // The wallet may reconnect by itself while this reads the button: a plain click on a button that has just gone
+  // waits out the whole test (main run 42690025799). Retry the pair until the desk shows the owner's address.
   const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-  if (await connect.isVisible()) await connect.click();
-  await expect(page.getByTestId('venue-wallet-address')).toHaveText(owner);
+  await expect(async () => {
+    if (await connect.isVisible()) await connect.click({ timeout: 2_000 });
+    await expect(page.getByTestId('venue-wallet-address')).toHaveText(owner, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   const before = await venueBalance(owner, 'USDC');
 
   // A session that has not stepped up, driven in the desk: the confirmation's approval is taken off the prepare on its
