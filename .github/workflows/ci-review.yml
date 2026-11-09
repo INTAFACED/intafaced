@@ -107,7 +107,7 @@ jobs:
       # old and new images when the diff step attached them) and answers in the schema: one call per head answers both
       # parts. Run in an empty folder, so no CLAUDE.md is loaded. The key is in this
       # step's environment only. The model and effort are pinned (every INTAFACED thread runs Opus,
-      # OWNER 56; a review is judgment, so high), so the judge can't change with the account's default.
+      # OWNER 56; the effort is medium, the owner's "Drop to medium", OWNER 259 (3)), so the judge can't change with the account's default.
       - name: Review
         id: review
         env:
@@ -128,14 +128,14 @@ jobs:
             # Look-baseline images go with the prompt (ci-review.mjs streamInput): the same call, its input one stream
             # message, its answer a stream whose one `result` line the read step takes (readStreamOutput).
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
-              --model claude-opus-5-5 --effort high \
+              --model claude-opus-5-5 --effort medium \
               --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --input-format stream-json --output-format stream-json --verbose \
               --json-schema "$schema" \
               < "$dir/input.jsonl" > "$dir/answer.jsonl"
           else
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
-              --model claude-opus-5-5 --effort high \
+              --model claude-opus-5-5 --effort medium \
               --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$schema" \
               "Review the pull request in the input against the brief at its top. Answer with the structured verdict only." \
