@@ -62,8 +62,7 @@ test('pathKind: what needs the full run, what touches only its own journey file,
     'packages/ledger-client/src/recipes.ts',
     'packages/ui/src/tokens.ts',
     'services/svc-protocol/contracts/out/TestToken.json', // a journey reads it
-    'AGENTS.md',
-    'README.md',
+    'docs/runbooks/INCIDENT-MONEY-PATH-RUNBOOK.md', // a journey reads it
     'somewhere/new.txt',
   ])
     assert.equal(pathKind(p).kind, 'full', p);
@@ -75,8 +74,14 @@ test('pathKind: what needs the full run, what touches only its own journey file,
     'services/svc-bank/src/cards.test.ts',
     'apps/customer/src/features/more/Support.test.tsx',
     'packages/money-math/src/add.spec.ts',
+    'AGENTS.md',
+    'CLAUDE.md',
+    'README.md',
   ])
     assert.equal(pathKind(p).kind, 'none', p);
+  // Planted: Markdown below the root stays full, where journeys read it.
+  for (const p of ['docs/runbooks/INCIDENT-MONEY-PATH-RUNBOOK.md', 'docs/roadmap/x.md', 'apps/customer/public/developers/index.md'])
+    assert.equal(pathKind(p).kind, 'full', p);
   assert.deepEqual(pathKind('apps/customer/tests/real-app/J-bank-13.pw.mjs'), { kind: 'file', file: 'J-bank-13.pw.mjs' });
   assert.deepEqual(pathKind('apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs'), {
     kind: 'file',
