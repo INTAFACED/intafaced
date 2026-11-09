@@ -245,6 +245,10 @@ export const futuresOrderSchema = z.object({
   orderLabel: z.string().nullable().optional(),
 });
 export type FuturesOrder = z.infer<typeof futuresOrderSchema>;
+
+/** An amend's answer (J-derivatives-04 step 3): the original, now cancelled, and the order resting in its place. */
+export const futuresReplaceSchema = z.object({ replaced: futuresOrderSchema, replacement: futuresOrderSchema });
+export type FuturesReplace = z.infer<typeof futuresReplaceSchema>;
 export type FuturesOrderOrigin = (typeof FUTURES_ORDER_ORIGINS)[number];
 
 /** One change to a futures position a trade or the venue made: a fill through the book, or an ADL pair. */
@@ -515,6 +519,9 @@ export function createFuturesApi(api: ApiClient) {
     placeSplit: (input: PlaceOrderInput) =>
       api.rest('/futures/orders/split', futuresSplitSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' } }),
     cancelOrder: (orderId: string) => api.rest(`/futures/orders/${encodeURIComponent(orderId)}`, futuresOrderSchema, { method: 'DELETE' }),
+    /** A reviewed cancel-and-replace at a new price or size; sent again it finds the same replacement. */
+    amendOrder: (orderId: string, input: { price?: string; amount?: string }) =>
+      api.rest(`/futures/orders/${encodeURIComponent(orderId)}/amend`, futuresReplaceSchema, { method: 'POST', body: input }),
     orders: (scope: 'open' | 'all', signal?: AbortSignal) =>
       api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope, limit: 100 }, signal }),
     /** A page of the trader's orders, newest first; `before` is the last order of the page before. */

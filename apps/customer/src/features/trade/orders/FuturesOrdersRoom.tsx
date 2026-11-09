@@ -21,6 +21,7 @@ import { tabsCopy } from '../../../screens/trade/futures/tabs-copy';
 import { useSession } from '../../session/session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { appendPage } from './history-query';
+import { amendable, FuturesAmendDialog } from './FuturesAmendDialog';
 import { ordersCopy } from './orders-copy';
 import './orders.css';
 
@@ -108,6 +109,8 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
   const [olderFailed, setOlderFailed] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [cancelFailure, setCancelFailure] = useState<string | null>(null);
+  const [amending, setAmending] = useState<FuturesOrder | null>(null);
+  const [amended, setAmended] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const reads = useRef(0);
 
@@ -250,6 +253,11 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
           <a className="text-link" href={detailsHref(o.orderId)}>
             {t('details')}
           </a>
+          {amendable(o) ? (
+            <Button variant="secondary" size={28} onClick={() => setAmending(o)}>
+              {t('amend')}
+            </Button>
+          ) : null}
           {cancellable(o) ? (
             <Button variant="secondary" size={28} loading={cancelling === o.orderId} onClick={() => void cancel(o)}>
               {t('cancel')}
@@ -415,6 +423,22 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
             {t('deskLink')}
           </a>
         </p>
+        {amending ? (
+          <FuturesAmendDialog
+            order={amending}
+            onClose={() => setAmending(null)}
+            onDone={(answer) => {
+              setAmending(null);
+              setAmended(answer.replacement.orderId);
+              setRevision((n) => n + 1);
+            }}
+          />
+        ) : null}
+        {amended ? (
+          <p className="orders-note" role="status" aria-label={t('amendedLabel')}>
+            {t('amendedNote', { id: amended })}
+          </p>
+        ) : null}
         {cancelFailure ? (
           <p className="orders-note orders-note--bad" role="alert">
             {t('cancelFailed', { reason: cancelFailure })}

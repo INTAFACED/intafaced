@@ -1432,6 +1432,7 @@ registerPrivateRest(app, {
           place: (principal, input, context) => positions.placeMatchedOrder(principal, input, context),
           placeSplit: (principal, input, context) => positions.placeMatchedSplit(principal, input, context),
           cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
+          replace: (principal, orderId, input, context) => positions.replaceMatchedOrder(principal, orderId, input, context),
           list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
           get: (principal, orderId) => positions.getMatchedOrder(principal.userId, orderId),
           executions: (principal, input) => listFuturesExecutions(sql, principal.userId, input),

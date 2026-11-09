@@ -248,6 +248,30 @@ export interface FuturesOrderQuery {
 
 export type FuturesOrderListed = MatchedOrderView & { readonly symbol: string; readonly createdAt: string };
 
+/** An amend (`replace`): a new limit price, a new size, or both; the tier the trader accepts, as on a place. */
+export interface FuturesReplaceInput {
+  readonly limitPrice?: Amount;
+  readonly qty?: Amount;
+  readonly confirmTier?: number;
+}
+
+export interface FuturesReplaceResult {
+  /** The original, now cancelled. */
+  readonly replaced: MatchedOrderView;
+  /** The order that rests in its place, at the new terms. */
+  readonly replacement: MatchedOrderView;
+}
+
+export const FUTURES_ORDER_NOT_AMENDABLE = 'trade.futures_order_not_amendable';
+export const FUTURES_AMEND_INVALID = 'trade.futures_amend_invalid';
+export const FUTURES_AMEND_PARTLY_FILLED = 'trade.futures_amend_partly_filled';
+export const FUTURES_AMEND_NOT_CONFIRMED = 'trade.futures_amend_not_confirmed';
+
+/** The business key of an amend's replacement: one per original order, so a retry finds it. */
+export function replacementKey(orderId: string): string {
+  return `replace:${orderId}`;
+}
+
 /** What a split request placed: every child, in order, and the refusal that stopped it early, if one did. */
 export interface SplitPlacement {
   readonly parts: number;
@@ -2850,6 +2874,113 @@ export class MatchedFuturesOrders {
       await this.releaseWhenDone(orderId);
     }
     return presentOrder(await this.loadOrder(orderId));
+  }
+
+  /**
+   * Amend a resting futures order (J-derivatives-04 step 3). The book has no native amend for a futures order, so this is
+   * a reviewed cancel-and-replace: the trader has seen the new price and size and confirmed them, and only then does
+   * anything change. Before the original is touched, the new terms are checked against the price band and against what
+   * the trader could hold once the original's hold is released, so a replacement that could not rest is refused with
+   * the original still on the book. Then the original is cancelled through `cancel` (its hold released once) and the
+   * replacement placed through `place` under the business key `replace:<original id>`: sent again, it finds the same
+   * replacement and never places a second one. A partly filled original, or one still on its way off the book, is
+   * refused before anything is placed, and the answer names the original's state.
+   */
+  async replace(
+    principal: Principal,
+    orderId: string,
+    input: FuturesReplaceInput,
+    context: { readonly region?: string | null } = {},
+  ): Promise<FuturesReplaceResult> {
+    const row = await this.loadOrder(orderId).catch(() => null);
+    if (!row || row.user_id !== principal.userId) refuse('trade.futures_order_not_found', `futures order ${orderId} not found`, 404);
+    if (row.origin !== 'user' || row.order_type !== 'limit') {
+      refuse(
+        FUTURES_ORDER_NOT_AMENDABLE,
+        'only your own resting limit orders can be amended; a stop, liquidation or market order cannot',
+        409,
+      );
+    }
+    if (input.limitPrice === undefined && input.qty === undefined) {
+      refuse(FUTURES_AMEND_INVALID, 'name a new price, a new size, or both');
+    }
+    const market = await this.loadMarketById(row.market_id);
+    const key = replacementKey(orderId);
+    const qty = input.qty ?? parseAmount(row.qty);
+    const limitPrice = input.limitPrice ?? parseAmount(row.limit_price);
+    const replacement: PlaceMatchedOrderInput = {
+      userId: principal.userId,
+      symbol: market.symbol,
+      side: row.side,
+      type: 'limit',
+      qty,
+      limitPrice,
+      leverage: parseAmount(row.leverage),
+      clientOrderId: key,
+      marginMode: 'isolated',
+      ...(row.reduce_only ? { reduceOnly: true } : {}),
+      ...(row.order_label ? { orderLabel: row.order_label } : {}),
+      ...(input.confirmTier !== undefined ? { confirmTier: input.confirmTier } : {}),
+    };
+    // Sent again after the replacement was placed: the same replacement, found by its key.
+    const [placedBefore] = await this.deps.sql<{ id: string }[]>`
+      SELECT id FROM trade.futures_orders WHERE user_id = ${principal.userId} AND market_id = ${row.market_id} AND client_order_id = ${key}
+    `;
+    if (placedBefore) {
+      const again = await this.place(principal, replacement, context);
+      return { replaced: presentOrder(await this.loadOrder(orderId)), replacement: again };
+    }
+    if (row.status !== 'open') {
+      refuse(FUTURES_ORDER_NOT_AMENDABLE, `order ${orderId} is ${row.status}, not resting on the book; nothing was changed`, 409);
+    }
+    if (parseAmount(row.filled_qty) > 0n || (row.engine_filled_qty != null && parseAmount(row.engine_filled_qty) > 0n)) {
+      refuse(FUTURES_AMEND_PARTLY_FILLED, `order ${orderId} has partly filled; cancel what is left and place a new order`, 409);
+    }
+    if (qty === parseAmount(row.qty) && limitPrice === parseAmount(row.limit_price)) {
+      refuse(FUTURES_AMEND_INVALID, 'the new price and size are the order as it stands; nothing to change');
+    }
+    // The new terms must be able to rest before the original is touched.
+    const band = this.deps.priceBand;
+    if (band === null)
+      refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
+    const mark = await this.deps.markFor(market.id, market.symbol, this.deps.now(), qty);
+    const bandAt = priceBandAround(mark, await this.bandInForce(market.id, band));
+    if (!limitWithinBand(limitPrice, bandAt)) {
+      refuse(
+        'trade.futures_price_outside_band',
+        `the new price ${formatAmount(limitPrice)} is outside the price band; the order was not changed`,
+      );
+    }
+    if (!row.reduce_only) {
+      const need = holdOf({
+        ...row,
+        qty: formatAmount(qty),
+        limit_price: formatAmount(limitPrice),
+        mark_price: formatAmount(mark),
+        band_high: formatAmount(bandAt.high),
+      });
+      const free = (await this.deps.ledger.balance(userAvailable(principal.userId, row.hold_asset))).amount;
+      if (free + holdOf(row) < need) {
+        refuse(
+          'trade.futures_margin_insufficient',
+          `the amended order would hold ${formatAmount(need)}; ${formatAmount(free + holdOf(row))} would be free; the order was not changed`,
+        );
+      }
+    }
+    const cancelled = await this.cancel(principal, orderId);
+    if (cancelled.status !== 'cancelled') {
+      refuse(
+        FUTURES_AMEND_NOT_CONFIRMED,
+        `order ${orderId} is ${cancelled.status}: the book has not confirmed it off, so nothing new was placed`,
+        409,
+      );
+    }
+    const left = await this.loadOrder(orderId);
+    if (parseAmount(left.filled_qty) > 0n || (left.engine_filled_qty != null && parseAmount(left.engine_filled_qty) > 0n)) {
+      refuse(FUTURES_AMEND_PARTLY_FILLED, `order ${orderId} filled in part as it was cancelled; nothing new was placed`, 409);
+    }
+    const placed = await this.place(principal, replacement, context);
+    return { replaced: presentOrder(left), replacement: placed };
   }
 
   /**

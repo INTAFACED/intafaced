@@ -99,6 +99,7 @@ import {
   holdOf,
   MatchedFuturesOrders,
   type FuturesOrderQuery,
+  type FuturesReplaceInput,
   type MatchedFillEvent,
   type OrderRow,
   type PlaceMatchedOrderInput,
@@ -1197,6 +1198,16 @@ export class PositionService {
   /** Cancel a matched futures order the caller owns, and release the part of its hold no fill used. */
   async cancelMatchedOrder(principal: Principal, orderId: string) {
     return this.matched.cancel(principal, orderId);
+  }
+
+  /** A reviewed cancel-and-replace of a resting order (`MatchedFuturesOrders.replace`). */
+  async replaceMatchedOrder(
+    principal: Principal,
+    orderId: string,
+    input: FuturesReplaceInput,
+    context: { readonly region?: string | null },
+  ) {
+    return this.matched.replace(principal, orderId, input, context);
   }
 
   /** Settle matched fills that arrived while a position was busy (see `MatchedFuturesOrders.settleFillOrWait`). */

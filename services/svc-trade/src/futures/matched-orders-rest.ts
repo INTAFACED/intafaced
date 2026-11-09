@@ -12,6 +12,7 @@ import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { isDerivativesAccessError, presentDerivativesAccessError } from './derivatives-access.js';
 import { presentFuturesErrorWire } from './futures-error-wire.js';
 import {
+  FUTURES_AMEND_INVALID,
   FUTURES_ORDER_ORIGINS,
   MATCHED_ORDER_STATUSES,
   MatchedOrderError,
@@ -19,6 +20,8 @@ import {
   ORDER_LABEL_PATTERN,
   type FuturesOrderOrigin,
   type FuturesOrderQuery,
+  type FuturesReplaceInput,
+  type FuturesReplaceResult,
   type MatchedOrderStatus,
   type MatchedOrderView,
   type PlaceMatchedOrderInput,
@@ -60,6 +63,13 @@ export interface MatchedOrdersRestDeps {
     readonly stopped: { readonly child: number; readonly code: string; readonly message: string } | null;
   }>;
   readonly cancel?: (principal: Principal, orderId: string) => Promise<FuturesOrderWire>;
+  /** A reviewed cancel-and-replace at a new price or size (J-derivatives-04 step 3). Absent answers 503. */
+  readonly replace?: (
+    principal: Principal,
+    orderId: string,
+    input: FuturesReplaceInput,
+    context: { readonly region?: string | null },
+  ) => Promise<FuturesReplaceResult>;
   readonly list?: (principal: Principal, input: FuturesOrderQuery) => Promise<readonly FuturesOrderWire[]>;
   /** One of the caller's own orders; null answers 404. Absent answers 503 like `list`. */
   readonly get?: (principal: Principal, orderId: string) => Promise<FuturesOrderWire | null>;
@@ -113,6 +123,33 @@ function decimalField(value: unknown): Amount | null | undefined {
   } catch {
     return null;
   }
+}
+
+/**
+ * Reads an amend body: `price` and/or `amount` as decimal strings, and the `confirmTier` the trader accepts. A JSON
+ * number, a blank or a non-positive figure refuses. Exported for the route test.
+ */
+export function readReplaceBody(raw: unknown): { ok: true; input: FuturesReplaceInput } | { ok: false; code: string; message: string } {
+  const body = (raw ?? {}) as Record<string, unknown>;
+  const price = decimalField(body.price);
+  const amount = decimalField(body.amount);
+  if (price === null || (price !== undefined && price <= 0n))
+    return { ok: false, code: FUTURES_AMEND_INVALID, message: 'price is a positive decimal string' };
+  if (amount === null || (amount !== undefined && amount <= 0n))
+    return { ok: false, code: FUTURES_AMEND_INVALID, message: 'amount is a positive decimal string' };
+  if (price === undefined && amount === undefined)
+    return { ok: false, code: FUTURES_AMEND_INVALID, message: 'name a new price, a new amount, or both' };
+  const tier = readConfirmTier(body.confirmTier);
+  if (!tier.ok)
+    return { ok: false, code: CONFIRM_TIER_INVALID, message: 'confirmTier is the margin tier you accept, a whole number from 1' };
+  return {
+    ok: true,
+    input: {
+      ...(price !== undefined ? { limitPrice: price } : {}),
+      ...(amount !== undefined ? { qty: amount } : {}),
+      ...(tier.tier !== undefined ? { confirmTier: tier.tier } : {}),
+    },
+  };
 }
 
 /** Reads a place body into the service input, or answers why it cannot. Exported for the route test. */
@@ -391,6 +428,24 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
       if (!order)
         return reply.code(404).send({ error: 'trade.futures_order_not_found', message: `futures order ${req.params.id} not found` });
       return reply.code(200).send(order);
+    } catch (err) {
+      const sent = sendFuturesFailure(reply, err, gates);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  // An amend can raise exposure (a larger size, a nearer price), so it answers to the trading jurisdiction like a place.
+  app.post<{ Params: { id: string } }>('/api/v1/futures/orders/:id/amend', privateWrite, async (req, reply) => {
+    const principal = gates.requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!gates.requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.replace) return reply.code(503).send(UNMOUNTED);
+    try {
+      requireScope(principal, 'trade:write');
+      const read = readReplaceBody(req.body);
+      if (!read.ok) return bad(reply, read.code, read.message);
+      return reply.code(200).send(await deps.replace(principal, req.params.id, read.input, { region: gates.regionOf(req) ?? null }));
     } catch (err) {
       const sent = sendFuturesFailure(reply, err, gates);
       if (sent) return sent;

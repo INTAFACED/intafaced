@@ -384,3 +384,80 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   await expect(page.getByText(`Liquidation step ${fromLiq.originRef}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
 });
+
+test(`${J} #3 presses Amend on a futures order: a reviewed cancel-and-replace, nothing changed until confirmed`, async ({ page }) => {
+  test.setTimeout(240_000);
+  // Its own TEST account, so the orders it reads are only its own.
+  const who = await fundedTrader(page, 'jd4a', '1000');
+  const me = await api(who);
+  await signIn(page, who);
+  const label = 'amend-me';
+  const { mark, tier } = await markOf(me);
+  const placed = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    price: away(mark, -300),
+    amount: SIZE,
+    leverage: LEVERAGE,
+    marginMode: 'isolated',
+    confirmTier: tier,
+    clientOrderId: `${J}-amend-${Date.now()}`,
+    orderLabel: label,
+  });
+  expect(placed.status, JSON.stringify(placed.body)).toBe(200);
+  const original = placed.body;
+  expect(original.status).toBe('open');
+  const newPrice = away(mark, -350);
+
+  // Amend from the room: a new price, reviewed first.
+  await room(page, `&label=${label}`);
+  const row = table(page, 'Open orders').getByRole('row').filter({ hasText: label });
+  await row.getByRole('button', { name: 'Amend' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Limit price' }).fill(newPrice);
+  await dialog.getByRole('button', { name: 'Review amend' }).click();
+  const review = dialog.getByRole('region', { name: 'Your amend' });
+  await expect(review).toContainText('→');
+  await expect(review).toContainText('can’t change a futures order in place');
+  await expect(review).toContainText('back of the queue');
+  // Reviewed but not confirmed: nothing has changed on the book.
+  const unchanged = (await me.get(`/api/v1/futures/orders/${original.orderId}`)).body;
+  expect(unchanged).toMatchObject({ status: 'open', limitPrice: original.limitPrice });
+
+  const sent = page.waitForResponse((r) => r.url().endsWith(`/api/v1/futures/orders/${original.orderId}/amend`));
+  await dialog.getByRole('button', { name: 'Confirm amend' }).click();
+  const answer = await sent;
+  expect(answer.status(), await answer.text()).toBe(200);
+  expect(answer.request().postDataJSON()).toEqual({ price: newPrice });
+  const { replaced, replacement } = await answer.json();
+  await expect(page.getByRole('status', { name: 'Amended' })).toContainText(replacement.orderId);
+
+  // The original cancelled with its hold released; the replacement rests at the new price with the same label.
+  expect(replaced).toMatchObject({ orderId: original.orderId, status: 'cancelled' });
+  expect(toUnits(replaced.releasedAmount)).toBe(toUnits(original.holdAmount));
+  expect(replacement).toMatchObject({
+    status: 'open',
+    side: 'buy',
+    qty: SIZE,
+    orderLabel: label,
+    clientOrderId: `replace:${original.orderId}`,
+  });
+  expect(toUnits(replacement.limitPrice)).toBe(toUnits(newPrice));
+  await expect(table(page, 'Open orders').getByRole('row').filter({ hasText: label })).toHaveCount(1);
+
+  // The same amend sent again finds the same replacement; nothing more is placed.
+  const again = await me.post(`/api/v1/futures/orders/${original.orderId}/amend`, { price: newPrice });
+  expect(again.status, JSON.stringify(again.body)).toBe(200);
+  expect(again.body.replacement.orderId).toBe(replacement.orderId);
+  expect((await orders(me, `scope=open&limit=50&label=${label}`)).map((o) => o.orderId)).toEqual([replacement.orderId]);
+
+  // An amend that could not rest is refused, and the order stays as it was.
+  const far = await me.post(`/api/v1/futures/orders/${replacement.orderId}/amend`, { price: away(mark, -5000) });
+  expect(far.status, JSON.stringify(far.body)).toBe(400);
+  expect(far.body.error).toBe('trade.futures_price_outside_band');
+  expect((await me.get(`/api/v1/futures/orders/${replacement.orderId}`)).body).toMatchObject({ status: 'open' });
+
+  // Cleared off the book again, so nothing rests after the step.
+  expect((await me.delete(`/api/v1/futures/orders/${replacement.orderId}`)).status).toBe(200);
+});

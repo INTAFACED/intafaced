@@ -2,7 +2,13 @@ import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { parseAmount } from '@intafaced/ledger-client';
-import { attachMatchedOrderRoutes, readPlaceBody, type FuturesOrderWire, type MatchedOrdersRestDeps } from './matched-orders-rest.js';
+import {
+  attachMatchedOrderRoutes,
+  readPlaceBody,
+  readReplaceBody,
+  type FuturesOrderWire,
+  type MatchedOrdersRestDeps,
+} from './matched-orders-rest.js';
 import { MatchedOrderError, type PlaceMatchedOrderInput } from './matched-orders.js';
 import type { ReverseInput, ReverseView } from './reverse.js';
 
@@ -483,5 +489,35 @@ describe('futures orders through the book: REST', () => {
         (await (await app({ reverse }, { jurisdiction: false })).inject({ method: 'POST', url: '/api/v1/positions/p/reverse' })).statusCode,
       ).toBe(403);
     });
+  });
+});
+
+describe('futures amend: REST (J-derivatives-04 step 3)', () => {
+  it('reads a new price and/or amount as exact decimals, and refuses numbers, blanks, zero and nothing', () => {
+    expect(readReplaceBody({ price: '64000.5' })).toEqual({ ok: true, input: { limitPrice: parseAmount('64000.5') } });
+    expect(readReplaceBody({ amount: '0.02', confirmTier: 2 })).toEqual({ ok: true, input: { qty: parseAmount('0.02'), confirmTier: 2 } });
+    for (const bad of [{}, null, { price: 64000 }, { price: '' }, { amount: '0' }, { price: '-1' }, { amount: 'x' }]) {
+      expect(readReplaceBody(bad), JSON.stringify(bad)).toMatchObject({ ok: false, code: 'trade.futures_amend_invalid' });
+    }
+  });
+
+  it('answers the original and its replacement, and answers to the trading jurisdiction like a place', async () => {
+    const seen: unknown[] = [];
+    const replace: NonNullable<MatchedOrdersRestDeps['replace']> = async (_p, orderId, input, context) => {
+      seen.push({ orderId, input, region: context.region });
+      return { replaced: { ...order, status: 'cancelled' }, replacement: { ...order, orderId: 'new', limitPrice: '64000' } };
+    };
+    const server = await app({ replace });
+    const res = await server.inject({ method: 'POST', url: `/api/v1/futures/orders/${order.orderId}/amend`, payload: { price: '64000' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().replacement).toMatchObject({ orderId: 'new', limitPrice: '64000' });
+    expect(seen).toEqual([{ orderId: order.orderId, input: { limitPrice: parseAmount('64000') }, region: 'EU' }]);
+    expect((await server.inject({ method: 'POST', url: `/api/v1/futures/orders/x/amend`, payload: {} })).statusCode).toBe(400);
+    const barred = await app({ replace }, { jurisdiction: false });
+    expect((await barred.inject({ method: 'POST', url: `/api/v1/futures/orders/x/amend`, payload: { price: '1' } })).statusCode).toBe(403);
+    expect(seen).toHaveLength(1);
+    expect(
+      (await (await app({})).inject({ method: 'POST', url: '/api/v1/futures/orders/x/amend', payload: { price: '1' } })).statusCode,
+    ).toBe(503);
   });
 });

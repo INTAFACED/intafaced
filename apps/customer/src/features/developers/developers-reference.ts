@@ -759,6 +759,16 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     signedOutWithoutMatching: TRADE_UNAUTHENTICATED,
   },
   {
+    name: 'amendFuturesOrder',
+    method: 'POST',
+    path: '/api/v1/futures/orders/:id/amend',
+    product: 'derivatives',
+    access: 'private',
+    summary:
+      'Amend a resting futures order: a reviewed cancel-and-replace at a new price or size; sent again it finds the same replacement',
+    onlyWithFuturesMatching: true,
+  },
+  {
     name: 'createSplitFuturesOrder',
     method: 'POST',
     path: '/api/v1/futures/orders/split',

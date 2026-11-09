@@ -1081,6 +1081,19 @@
           }
         },
         {
+          "name": "amendFuturesOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/orders/:id/amend",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "orders", ":id", "amend"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "createSplitFuturesOrder",
           "request": {
             "method": "POST",
