@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 30
     environment: ci-review
     env:
-      APP_KEY_SET: ${{ secrets.INTAFACED_APP_PRIVATE_KEY != '' }} # true or false only; the key itself is read by one step
+      APP_KEY_SET: ${{ secrets.INTAFACED_APP_KEY != '' }} # true or false only; the key itself is read by one step
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
       checks: read # find the seal's check run on the head
@@ -71,7 +71,7 @@ jobs:
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: Iv23lihKJK3UhiuiTgLa
-          private-key: ${{ secrets.INTAFACED_APP_PRIVATE_KEY }}
+          private-key: ${{ secrets.INTAFACED_APP_KEY }}
           owner: INTAFACED
           repositories: project-state
           permission-contents: read
