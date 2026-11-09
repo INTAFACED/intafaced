@@ -64,6 +64,25 @@ export const GATES = [
       'those tests, and deleting it has to be a visible act. About 40 seconds, no network.',
   },
   {
+    id: 'truth-check',
+    script: 'tooling/scripts/truth-check.mjs',
+    doctrine: 'agent map honesty',
+    why:
+      'the agent entry files (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md) must not teach a retired rule (self-merge, forced ' +
+      'worktree removal, the Vue front end) and their links must resolve. It only ran in .githooks/pre-push, which a cloud push ' +
+      'never runs, so a stale rule could reach main unchecked. It reads only those entry files, so it cannot block product work.',
+  },
+  {
+    id: 'services-map',
+    script: 'tooling/scripts/services-map.mjs',
+    args: ['--check'],
+    doctrine: 'agent map honesty',
+    why:
+      'docs/SERVICES.md is the one table of services, ports and required env that agents read instead of opening 25 ' +
+      'compose blocks and env files. Hand-kept service counts had already drifted in three docs (eleven, twenty-one, 25). ' +
+      'Generated from the code, so a stale copy fails here, the same way the tracker does.',
+  },
+  {
     id: 'reachability',
     script: 'tooling/ci/reachability-scan.mjs',
     doctrine: 'L3 slice factory law, Reachability law',
@@ -103,6 +122,16 @@ export const GATES = [
     script: 'tooling/ci/secret-scan.mjs',
     doctrine: '§16',
     why: 'a committed credential is invisible in review — it reads as a config line',
+  },
+  {
+    id: 'invitation-outreach-golden',
+    script: 'tooling/ci/invitation-outreach-golden-scan.mjs',
+    doctrine: '§14 / desk honesty',
+    why:
+      'apps/invitation bundles six outreach modules (outreach-intake, outreach-review, outreach-public-info, ' +
+      'outreach-draft-storage, outreach-countries, config/intafaced.js), vendored in apps/invitation/src/vendored since ' +
+      'D-140. The goldens next to them (intake, review, draft-storage) only prove anything if CI runs them. Narrowed from the retired ' +
+      'shell-golden gate; refuses when it finds no outreach goldens.',
   },
   {
     id: 'test-db',
@@ -345,7 +374,7 @@ export const NOT_GATES = {
     'not a gate: the node:test file of factory-builder.mjs and builder.yml, with planted faults in the workflow and an end-to-end run against a fake CLI and a local switch. tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
-    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI no longer runs it: its reported, non-blocking step left the `gates` job in U4 (2026-11-09, OWNER 251 (2)), because it could not block anything.',
+    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
 
   'verify.mjs':
     'the verify runner itself — it CALLS this list. Listing it as a gate would make it invoke itself. It exists so the infrastructure verdict prints even when turbo halts early, which a `&&` chain cannot do.',

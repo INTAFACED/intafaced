@@ -141,6 +141,16 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
+  'services-map': {
+    kind: 'guard',
+    must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
+    note: 'refuses by name when services/ or the compose file is absent, instead of mapping nothing and calling it current.',
+  },
+  'truth-check': {
+    kind: 'guard',
+    must: /AGENTS\.md lost a core rule: file missing/,
+    note: 'refuses by name when the agent entry files are absent, instead of reporting no stale rule over nothing.',
+  },
   reachability: {
     kind: 'guard',
     must: /REACHABILITY - \d+ protected module\(s\) were deleted/,
@@ -175,6 +185,11 @@ export const ENFORCED = {
     kind: 'uncaught',
     must: /not a git repository/,
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
+  },
+  'invitation-outreach-golden': {
+    kind: 'guard',
+    must: /no outreach-\*\.golden\.js under/,
+    note: 'a golden suite that finds no goldens is the textbook version of this defect; it refuses instead.',
   },
   killswitch: {
     kind: 'guard',
