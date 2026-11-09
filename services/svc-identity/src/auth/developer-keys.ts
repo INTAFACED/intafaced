@@ -30,7 +30,13 @@ import type {
   ApiKeyScopeEntry,
   ApiKeySetExpiryInput,
 } from '@intafaced/contracts/api-keys';
-import { API_KEY_NAME_MAX, API_KEY_REVOKE_REASON_MAX, API_KEY_REVOKED_BY } from '@intafaced/contracts/api-keys';
+import {
+  AGENT_KEY_FORBIDDEN_SCOPES,
+  API_KEY_NAME_MAX,
+  API_KEY_REVOKE_REASON_MAX,
+  API_KEY_REVOKED_BY,
+  type ApiKeyKind,
+} from '@intafaced/contracts/api-keys';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
@@ -60,7 +66,8 @@ export type DeveloperKeyRefusal =
   | 'identity.key_account_denied'
   | 'identity.key_org_denied'
   | 'identity.portfolio_key_cap_unset'
-  | 'identity.portfolio_key_cap_reached';
+  | 'identity.portfolio_key_cap_reached'
+  | 'identity.agent_scope_forbidden';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -142,6 +149,7 @@ type Checked = {
   expiresAt: Date | null;
   accountId: string | null;
   orgId: string | null;
+  kind: ApiKeyKind;
   fingerprint: string;
 };
 
@@ -164,6 +172,15 @@ export function checkCreate(input: Omit<ApiKeyCreateInput, 'requestId'>, session
   const scopes = [...new Set(input.scopes)].sort();
   if (scopes.length === 0) throw new DeveloperKeyError('Choose at least one permission for the key', 'auth.scope_empty');
   if (scopes.some((scope) => !isScope(scope))) throw new DeveloperKeyError('A permission on this key does not exist', 'auth.scope_unknown');
+  const kind: ApiKeyKind = input.kind ?? 'personal';
+  // An agent key is restricted (DV-keys-05): it never holds a refund, payout, withdrawal or settings scope. Named before
+  // the general key rules, so the refusal says it is the agent restriction.
+  if (kind === 'agent' && scopes.some((scope) => (AGENT_KEY_FORBIDDEN_SCOPES as readonly string[]).includes(scope))) {
+    throw new DeveloperKeyError(
+      'An agent key cannot hold refund, payout, withdrawal or settings permissions',
+      'identity.agent_scope_forbidden',
+    );
+  }
   if (scopes.some((scope) => blockOf(scope as Scope) !== null)) {
     // Interactive-only, merchant step-up and operator scopes alike: none of them goes on a key made in this room.
     throw new DeveloperKeyError('A permission you chose cannot be put on a key made here', 'auth.scope_interactive_only');
@@ -193,10 +210,11 @@ export function checkCreate(input: Omit<ApiKeyCreateInput, 'requestId'>, session
   }
   // Fingerprinted only when present, so a request without them hashes as it did before they existed.
   const scoped = accountId === null && orgId === null ? [] : [accountId, orgId];
+  if (kind === 'agent') scoped.push('agent');
   const fingerprint = createHash('sha256')
     .update(JSON.stringify([name, scopes, ips, expiresAt?.toISOString() ?? null, ...scoped]))
     .digest('hex');
-  return { name, scopes, ips, expiresAt, accountId, orgId, fingerprint };
+  return { name, scopes, ips, expiresAt, accountId, orgId, kind, fingerprint };
 }
 
 export type KeyRow = {
@@ -215,11 +233,12 @@ export type KeyRow = {
   revoked_cause: string | null;
   revoke_reason: string | null;
   account_id: string | null;
+  kind: string | null;
 };
 
 /** The columns every key read takes, in the order `KeyRow` names them. Never the hash or a secret. */
 export const KEY_COLUMNS =
-  'id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked, revoked_at, revoked_cause, revoke_reason, account_id';
+  'id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked, revoked_at, revoked_cause, revoke_reason, account_id, kind';
 
 export function toRecord(row: KeyRow): ApiKeyRecord {
   return {
@@ -241,6 +260,7 @@ export function toRecord(row: KeyRow): ApiKeyRecord {
         : null,
     revokeReason: row.revoked && row.revoked_cause === 'owner' ? row.revoke_reason : null,
     accountId: row.account_id ?? null,
+    kind: row.kind === 'agent' ? 'agent' : 'personal',
   };
 }
 
@@ -286,7 +306,7 @@ async function capFor(deps: DeveloperKeysDeps, userId: string, sql: Sql): Promis
 async function replayOf(sql: Sql, userId: string, requestId: string, fingerprint: string): Promise<ApiKeyCreateOutput | null> {
   const rows = await sql<Array<KeyRow & { fingerprint: string }>>`
     SELECT r.fingerprint, k.id, k.name, k.key_prefix, k.mode, k.scopes, k.ip_allowlist, k.require_signature,
-           k.created_at, k.expires_at, k.last_used_at, k.revoked, k.revoked_at, k.revoked_cause, k.revoke_reason, k.account_id
+           k.created_at, k.expires_at, k.last_used_at, k.revoked, k.revoked_at, k.revoked_cause, k.revoke_reason, k.account_id, k.kind
     FROM api_key_create_requests r JOIN api_keys k ON k.id = r.key_id AND k.user_id = r.user_id
     WHERE r.user_id = ${userId} AND r.request_id = ${requestId}
   `;
@@ -402,6 +422,9 @@ export async function createDeveloperKey(
         });
         if (checked.accountId !== null) {
           await tx`UPDATE api_keys SET account_id = ${checked.accountId} WHERE id = ${minted.id} AND user_id = ${caller.userId}`;
+        }
+        if (checked.kind === 'agent') {
+          await tx`UPDATE api_keys SET kind = 'agent' WHERE id = ${minted.id} AND user_id = ${caller.userId}`;
         }
         if (checked.ips.length > 0) await bindApiKeyIpAllowlist(tx, caller.userId, minted.id, checked.ips);
         let signingSecret: string | null = null;

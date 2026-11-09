@@ -151,12 +151,14 @@ export function ApiKeyCreate() {
     const expiresAt = ends ? endOfDayUtc(ends) : undefined;
     const ips = ipLines(String(data.get('ips') ?? ''));
     const accountId = String(data.get('accountId') ?? '');
+    const agent = data.get('agent') === 'on';
     const asked = {
       name: String(data.get('name') ?? ''),
       scopes: [...ticked],
       ...(ips.length > 0 ? { ips } : {}),
       ...(expiresAt ? { expiresAt } : {}),
       ...(accountId ? { accountId } : {}),
+      ...(agent ? { kind: 'agent' as const } : {}),
     };
     const factor: Factor = how === 'passkey' ? { passkey: true } : code ? { code } : null;
     setBusy(true);
@@ -216,6 +218,13 @@ export function ApiKeyCreate() {
             {t('subaccountHint')}
           </small>
         </label>
+        <label className="api-keys__stored">
+          <input type="checkbox" name="agent" aria-describedby="api-key-agent-hint" />
+          <span>{t('agentKey')}</span>
+        </label>
+        <small id="api-key-agent-hint" className="muted">
+          {t('agentKeyHint')}
+        </small>
         <fieldset className="api-keys__scopes">
           <legend>{t('permissions')}</legend>
           <div className="api-keys__presets" role="radiogroup" aria-label={t('permissions')}>

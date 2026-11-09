@@ -153,3 +153,51 @@ test(`${J} #3 deleting a sub-account key: it stops verifying at once`, async () 
   await page.reload();
   await expect(row.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(0);
 });
+
+test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden scope is refused at create`, async () => {
+  test.setTimeout(180_000);
+  // A forbidden scope: an agent key asking for a settings permission (identity:write) is refused at create, and none is made.
+  await page.goto('/uc/safe/api-keys/new');
+  await expect(page.getByRole('heading', { name: 'Create an API key' })).toBeVisible();
+  await page.getByLabel('Key name').fill('agent-settings');
+  await page.getByLabel('This key is for an AI agent').check();
+  await page.getByLabel('Custom', { exact: true }).check();
+  await page.getByRole('checkbox', { name: /^trade:read/ }).check();
+  await page.getByRole('checkbox', { name: /^identity:write/ }).check();
+  await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
+  );
+
+  // The refusal is the service's own typed one, not only the form's: the same ask sent straight to identity is refused.
+  const asked = { name: 'agent-probe', scopes: ['identity:write'], kind: 'agent' };
+  const probe = await me.post('/api/identity/trpc/developerKeys.create', {
+    ...asked,
+    requestId: apiKeyCreateRequestId(me.userId, [], asked),
+  });
+  expect(probe.status, JSON.stringify(probe.body).slice(0, 300)).toBe(403);
+  expect(probe.body?.error?.data?.cause?.code).toBe('identity.agent_scope_forbidden');
+
+  // An agent key with a read permission is made, and the list tags it as an agent key holding only that permission.
+  await page.goto('/uc/safe/api-keys/new');
+  await page.getByLabel('Key name').fill('agent-reader');
+  await page.getByLabel('This key is for an AI agent').check();
+  await page.getByLabel('Custom', { exact: true }).check();
+  await page.getByRole('checkbox', { name: /^trade:read/ }).check();
+  await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+  const agentKey = await takeShownKey();
+  const row = keyRow('agent-reader');
+  await expect(row.getByTestId('api-keys__agent')).toHaveText('Agent');
+  await expect(row).toContainText('trade:read');
+  await expect(row).not.toContainText('identity:write');
+  await expect(keyRow('agent-settings')).toHaveCount(0);
+  // A person's own key carries no agent tag.
+  await expect(page.getByTestId('api-keys__agent')).toHaveCount(1);
+
+  // It works for what it holds: a read call runs. The service's record says it is an agent key with that one permission.
+  const read = await withKey(agentKey, { path: BALANCE });
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  const listed = await me.get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`);
+  const record = listed.body.result.data.keys.find((key) => key.name === 'agent-reader');
+  expect(record).toMatchObject({ kind: 'agent', scopes: ['trade:read'] });
+});

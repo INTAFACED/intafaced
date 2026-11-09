@@ -223,6 +223,14 @@ export function ApiKeys() {
                           <a className="text-link" href={`/uc/safe/api-keys/${key.id}`}>
                             <bdi lang="und">{key.name}</bdi>
                           </a>
+                          {key.kind === 'agent' && (
+                            <>
+                              {' '}
+                              <span data-testid="api-keys__agent" className="badge">
+                                {t('agentBadge')}
+                              </span>
+                            </>
+                          )}
                         </th>
                         <td>
                           <code lang="und">{key.prefix}</code>

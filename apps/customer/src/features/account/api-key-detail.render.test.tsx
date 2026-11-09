@@ -71,6 +71,7 @@ const live: ApiKeyRecord = {
   revokedBy: null,
   revokeReason: null,
   accountId: null,
+  kind: 'personal',
 };
 const frozen: ApiKeyRecord = {
   ...live,

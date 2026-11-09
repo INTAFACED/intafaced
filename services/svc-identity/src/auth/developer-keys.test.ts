@@ -91,3 +91,34 @@ describe('portfolio-scoped and organisation keys (J-developer-15 #2)', () => {
     for (const bad of ['-1', 'two', '2.5', '99999']) expect(() => parsePortfolioKeyCap(bad)).toThrow();
   });
 });
+
+describe('agent keys (J-developer-15 #5): tagged and restricted at create', () => {
+  const now = new Date('2026-10-23T00:00:00.000Z');
+  const session = ['identity:read', 'identity:write', 'trade:read', 'pay:write'];
+  const refusalOf = (input: Parameters<typeof checkCreate>[0]) => {
+    try {
+      checkCreate(input, session, now);
+    } catch (err) {
+      return err as DeveloperKeyError;
+    }
+    return null;
+  };
+
+  it('refuses a refund, payout, withdrawal or settings permission on an agent key, naming the agent restriction', () => {
+    for (const scope of ['identity:write', 'pay:write', 'pay:payout', 'pay:refund', 'trade:withdraw']) {
+      const refusal = refusalOf({ name: 'agent-1', scopes: ['trade:read', scope], kind: 'agent' });
+      expect(refusal, scope).toBeInstanceOf(DeveloperKeyError);
+      expect(refusal?.code, scope).toBe('identity.agent_scope_forbidden');
+    }
+  });
+
+  it('lets an agent key hold a read permission, tags it, and fingerprints it apart from the same personal key', () => {
+    const agent = checkCreate({ name: 'agent-1', scopes: ['trade:read'], kind: 'agent' }, session, now);
+    const personal = checkCreate({ name: 'agent-1', scopes: ['trade:read'] }, session, now);
+    expect(agent.kind).toBe('agent');
+    expect(personal.kind).toBe('personal');
+    expect(agent.fingerprint).not.toBe(personal.fingerprint);
+    // A personal key keeps the settings permission the agent key may not hold.
+    expect(checkCreate({ name: 'mine', scopes: ['identity:write'] }, session, now).scopes).toEqual(['identity:write']);
+  });
+});

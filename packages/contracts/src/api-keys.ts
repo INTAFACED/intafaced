@@ -34,8 +34,20 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_org_denied',
   'identity.portfolio_key_cap_unset',
   'identity.portfolio_key_cap_reached',
+  'identity.agent_scope_forbidden',
 ] as const;
 export type ApiKeyCreateRefusal = (typeof API_KEY_CREATE_REFUSALS)[number];
+
+/** A person's own key, or a key for an AI agent (DV-keys-05): tagged on the list and restricted at create. */
+export const API_KEY_KINDS = ['personal', 'agent'] as const;
+export type ApiKeyKind = (typeof API_KEY_KINDS)[number];
+
+/**
+ * The permissions an agent key never holds (DV-keys-05: "cannot hold refund, payout or configuration scopes"): refunds,
+ * payouts and withdrawals move money off the account, and the identity and merchant write scopes change its settings.
+ * Asking for one on an agent key refuses `identity.agent_scope_forbidden` at create.
+ */
+export const AGENT_KEY_FORBIDDEN_SCOPES = ['pay:refund', 'pay:payout', 'trade:withdraw', 'identity:write', 'pay:write'] as const;
 
 const isoInstant = z.string().refine((value) => {
   const time = Date.parse(value);
@@ -69,6 +81,8 @@ export const apiKeyCreateInputSchema = z
      * too, and omitting one refuses (`identity.key_account_required`); an org id never widens what the key reaches.
      */
     orgId: z.string().guid().optional(),
+    /** `agent`: a key for an AI agent, tagged and restricted (DV-keys-05). Absent: a person's own key. */
+    kind: z.enum(API_KEY_KINDS).optional(),
   })
   .strict();
 export type ApiKeyCreateInput = z.infer<typeof apiKeyCreateInputSchema>;
@@ -108,6 +122,8 @@ export const apiKeyRecordSchema = z
     revokeReason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).nullable(),
     /** The sub-account a portfolio-scoped key is bound to (it reaches only that account). Null on the account's own keys. */
     accountId: z.string().guid().nullable(),
+    /** A person's own key, or an agent key (DV-keys-05), which the list tags. */
+    kind: z.enum(API_KEY_KINDS),
   })
   .strict();
 export type ApiKeyRecord = z.infer<typeof apiKeyRecordSchema>;
@@ -272,6 +288,14 @@ export function apiKeyCreateRequestId(
     .map((key) => `${key.id}:${key.revoked ? 1 : 0}`)
     .sort()
     .join(',');
-  const asked = JSON.stringify([input.name, [...input.scopes].sort(), [...(input.ips ?? [])].sort(), input.expiresAt ?? null]);
+  // The sub-account, organisation and kind count only when asked, so a request without them keeps the id it had before.
+  const bound = [input.accountId ?? null, input.orgId ?? null, input.kind === 'agent' ? 'agent' : null];
+  const asked = JSON.stringify([
+    input.name,
+    [...input.scopes].sort(),
+    [...(input.ips ?? [])].sort(),
+    input.expiresAt ?? null,
+    ...(bound.every((part) => part === null) ? [] : bound),
+  ]);
   return `api-key-create:${userId.toLowerCase()}:${digest(seen)}:${digest(asked)}`;
 }

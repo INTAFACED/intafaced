@@ -113,6 +113,12 @@ const messages = {
   subaccountNone: 'None: a key for this account',
   subaccountHint: 'A key for a sub-account reaches only that sub-account. It can read its balance and nothing of this account.',
   colAccount: 'Account',
+  agentKey: 'This key is for an AI agent',
+  agentKeyHint:
+    'An agent key is tagged on your list. It cannot hold refund, payout, withdrawal or settings permissions, and an action that needs your approval waits for you.',
+  agentBadge: 'Agent',
+  'refused.identity.agent_scope_forbidden':
+    'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
   accountOwn: 'This account',
   'refused.identity.delegated_refused': 'Sign in on this device. An API key or a sub-account cannot make keys.',
   colActions: 'Actions',

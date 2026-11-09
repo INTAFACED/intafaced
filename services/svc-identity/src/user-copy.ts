@@ -175,6 +175,7 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.key_org_denied': 'Only an admin of this organisation may make its keys.',
   'identity.portfolio_key_cap_unset': 'Sub-account keys cannot be made yet. The number of keys a sub-account may hold is not set.',
   'identity.portfolio_key_cap_reached': 'This sub-account holds as many keys as it may. Revoke one to make another.',
+  'identity.agent_scope_forbidden': 'An agent key cannot hold refund, payout, withdrawal or settings permissions.',
   'identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
   'identity.rate_limits_unset': 'API rate limits are not set yet, so no limit can be asked for or granted.',
   'identity.limit_not_higher': 'Ask for more calls a minute than the key has now.',
