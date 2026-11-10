@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { parseAmount, sub } from '@intafaced/ledger-client/money';
+import { add, div, mul, parseAmount, sub } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   decodeVenueWire,
@@ -146,6 +146,49 @@ describe('preview', () => {
     expect(preview.perpetual?.liquidationPrice).toEqual(position?.liquidationPrice);
   });
 
+  it('fill: a spot sell across two bids gives the amount and its volume-weighted price, rounded down, as the fills land', async () => {
+    const { sim, account, run } = world();
+    await seedTestVenue(sim);
+    sim.deposit(account, 'BTC', a('2'), 'dep:btc');
+    // Bids rest at 59990 and 59980, 1 BTC each: 1.5 BTC at 59980 takes 1 at 59990 and 0.5 at 59980 = 89980 for 1.5.
+    const intent = order({
+      side: 'sell',
+      amount: a('1.5'),
+      price: a('59980'),
+      timeInForce: 'IOC',
+      clientOrderKey: 'order:preview-trader:sell',
+    });
+    const preview = (await sim.preview(account, intent)).value;
+    expect(preview.fill).toEqual({ known: true, value: { amount: a('1.5'), averagePrice: a('59986.666666666666666666') } });
+
+    await run(intent);
+    const fills = (await sim.fills(account, new Date(0))).value;
+    // The order then fills exactly as previewed: the same amount, at the same volume-weighted price.
+    const filled = fills.reduce((s, f) => add(s, f.amount), 0n);
+    const notional = fills.reduce((s, f) => add(s, mul(f.price, f.amount, 'floor')), 0n);
+    expect(filled).toBe(a('1.5'));
+    expect(div(notional, filled, 'floor')).toBe(a('59986.666666666666666666'));
+  });
+
+  it('fill: a buy rounds its price up; a resting remainder is not in it; nothing crossing is zero with no price', async () => {
+    const { sim, account } = world();
+    await seedTestVenue(sim);
+    // 1.5 at 60020 takes 1 at 60010 and 0.5 at 60020 = 90020 for 1.5.
+    expect((await sim.preview(account, order({ amount: a('1.5') }))).value.fill).toEqual({
+      known: true,
+      value: { amount: a('1.5'), averagePrice: a('60013.333333333333333334') },
+    });
+    // 3 at 60010 meets only the 1 BTC at 60010; the other 2 would rest.
+    expect((await sim.preview(account, order({ amount: a('3'), price: a('60010') }))).value.fill).toEqual({
+      known: true,
+      value: { amount: a('1'), averagePrice: a('60010') },
+    });
+    expect((await sim.preview(account, order({ price: a('59000') }))).value.fill).toEqual({
+      known: true,
+      value: { amount: 0n, averagePrice: null },
+    });
+  });
+
   it('refuses what prepare refuses on its face', async () => {
     const { sim, account } = world();
     // A market the TEST venue does not list (ETH-USDC is listed since J-cex-spot-16).
@@ -171,6 +214,11 @@ describe('HTTP answers', () => {
     const intent = order({ amount: a('1'), price: a('60010'), clientOrderKey: 'order:preview-trader:http' });
     const preview = await call('/preview', { account, intent });
     expect(preview.raw.value.lock.amount).toBe('60010');
+    // The fill travels as decimal strings and decodes back to bigints; an empty fill keeps its null price.
+    expect(preview.raw.value.fill).toEqual({ known: true, value: { amount: '1', averagePrice: '60010' } });
+    expect(preview.out.value.fill).toEqual({ known: true, value: { amount: a('1'), averagePrice: a('60010') } });
+    const resting = await call('/preview', { account, intent: { ...intent, price: a('59000') } });
+    expect(resting.out.value.fill).toEqual({ known: true, value: { amount: 0n, averagePrice: null } });
     const prepared = await call('/prepare', { account, signer: w.signer, intent });
     expect(prepared.status).toBe(200);
     expect(typeof prepared.raw.intent.amount).toBe('string');

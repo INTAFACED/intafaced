@@ -367,6 +367,14 @@ export class TestVenueSimulator implements UserVenue {
       }
       return { known: true, value: { asset: feeAsset, amount: total } };
     };
+    // What fills now, and its volume-weighted price, rounded against the customer (down on a sell, up on a buy).
+    const against = intent.side === 'sell' ? 'floor' : 'ceil';
+    const filled = takes.reduce((a, t) => add(a, t.qty), ZERO);
+    const notional = takes.reduce((a, t) => add(a, mul(t.price, t.qty, against)), ZERO);
+    const fill: VenueOrderPreview['fill'] = {
+      known: true,
+      value: { amount: filled, averagePrice: filled === ZERO ? null : div(notional, filled, against) },
+    };
     const venueFee = line((r) => (r === 'maker' ? market.makerFeeBps : market.takerFeeBps));
     const zeroFee: MaybeKnown<Amount> = { known: true, value: ZERO };
     // No builder fee on a spot buy (see `fill`): known zero, whatever the order carries.
@@ -414,6 +422,7 @@ export class TestVenueSimulator implements UserVenue {
       role,
       venueFee,
       builderFee: builderLine,
+      fill,
       perpetual,
     });
   }

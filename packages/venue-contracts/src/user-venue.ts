@@ -524,6 +524,12 @@ export interface VenueAssetAmount {
   readonly amount: Amount;
 }
 
+/** The part of a previewed order that would fill now (`VenueOrderPreview.fill`). */
+export interface VenuePreviewFill {
+  readonly amount: Amount;
+  readonly averagePrice: Amount | null;
+}
+
 /**
  * What an order would do, as the venue would compute it now, without sending
  * anything (the Review screen's figures). Every line is the venue's, never
@@ -547,6 +553,15 @@ export interface VenueOrderPreview {
   readonly venueFee: MaybeKnown<VenueAssetAmount>;
   /** Our builder fee on the same basis; known zero when the order carries none. */
   readonly builderFee: MaybeKnown<VenueAssetAmount>;
+  /**
+   * What the order would fill now against the venue's book, and at what price:
+   * `amount` in the base asset (zero when nothing crosses, then `averagePrice`
+   * is `null`), `averagePrice` the fill's volume-weighted price in the quote
+   * asset (rounded against the customer: down on a sell, up on a buy). A
+   * resting remainder is not in it. `known: false` where the venue does not
+   * say. Like the rest of a preview, it is not a quote: the book can move.
+   */
+  readonly fill: MaybeKnown<VenuePreviewFill>;
   /** Perpetuals only; `null` on spot. */
   readonly perpetual: {
     readonly leverageBps: number;
