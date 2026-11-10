@@ -106,7 +106,28 @@ export type UserVenueDoorCode =
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
   | 'trade.venue_agent_account_only'
+  | 'trade.venue_action_key_reserved'
+  | 'trade.venue_session_key_reused'
+  | 'trade.venue_session_pending'
+  | 'trade.venue_session_none'
+  | 'trade.venue_session_unavailable'
+  | 'trade.venue_session_superseded'
   | VenueRouteRefusalCode;
+
+/**
+ * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
+ * session key is stored under `session-key:<accountId>:<venueId>:<sessionId>`, and its `revoke_agent` under
+ * `session-key-end:` with the same tail. Only the session routes prepare under these keys, so the rule "a new session
+ * approves a new key, never one used before" cannot be walked around through the plain prepare route.
+ */
+export const SESSION_KEY_PREFIX = 'session-key:';
+export const SESSION_KEY_END_PREFIX = 'session-key-end:';
+const RESERVED_KEY_PREFIXES = [SESSION_KEY_PREFIX, SESSION_KEY_END_PREFIX] as const;
+
+export interface PrepareOptions extends DoorCaller {
+  /** Set only by the session routes (session-key.ts): lets the action be stored under a reserved session key. */
+  readonly sessionKey?: boolean;
+}
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -253,6 +274,11 @@ export class UserVenueDoor {
   private venuePromise: Promise<ConnectedUserVenue> | null = null;
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
+
+  /** The store and clock the trading-session routes read with (session-key.ts). */
+  get sessionDeps(): { readonly store: PreparedActionStore; readonly now: () => Date } {
+    return { store: this.deps.store, now: this.deps.now };
+  }
 
   /** The connected venue, checked against APP_ENV. A failed connect is retried on the next call. */
   async venue(): Promise<ConnectedUserVenue> {
@@ -412,7 +438,8 @@ export class UserVenueDoor {
     return k;
   }
 
-  async prepare(principal: Principal, req: PrepareRequest, caller?: DoorCaller): Promise<PreparedAnswer> {
+  async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
+    const caller: DoorCaller = opts;
     const intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
     assertDoorMay(intent.kind, caller);
@@ -430,6 +457,36 @@ export class UserVenueDoor {
     // under one, so the agent account reads back only what it prepared.
     if (key.startsWith('agent:') && !caller?.agentAccount) {
       throw new UserVenueDoorError(`the key ${key} belongs to the agent account`, 'trade.venue_agent_account_only', 403);
+    }
+    if (!opts.sessionKey && RESERVED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      throw new UserVenueDoorError(
+        `the action key ${JSON.stringify(key)} belongs to the trading session's own routes (/api/v1/venue/session/...)`,
+        'trade.venue_action_key_reserved',
+        409,
+      );
+    }
+    // An agent key (a session key) never signs a withdrawal or an approval: refused here, before a step-up is spent or
+    // the venue is asked, as the venue would refuse it (user-venue.ts `assertSignerMaySign`).
+    if (req.signer.role === 'agent' && OWNER_ONLY_INTENTS.has(intent.kind)) {
+      throw new VenueRefusalError({
+        venueId: (await this.venue()).venue.id,
+        code: 'agent_not_permitted',
+        detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
+      });
+    }
+    // An agent key is approved once, under one business key, and never again, on any venue account and by any route,
+    // the session routes included (user-venue.ts:177-180: a venue that prunes nonces could accept a replay of an old
+    // key's actions). The same key asked again is the same stored approval (`reuse` below), never a second one.
+    if (intent.kind === 'approve_agent') {
+      const address = (intent.agentAddress ?? '').toLowerCase();
+      const earlier = await this.deps.store.agentApprovals(principal.userId, address);
+      if (earlier.some((row) => row.businessKey !== key)) {
+        throw new UserVenueDoorError(
+          `${address} was approved as an agent before; a key is approved once and never again`,
+          'trade.venue_session_key_reused',
+          409,
+        );
+      }
     }
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
@@ -528,6 +585,30 @@ export class UserVenueDoor {
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertDoorMay(row.prepared.intent.kind, caller);
     assertInteractive(principal, row.prepared.intent.kind);
+    // A trading session's approval that was never signed, and that a later session of the same sign-in on the same venue
+    // account has replaced, is abandoned: it is never signed and sent later (a stale tab), where it would take the newer
+    // session's slot. A later session on another wallet takes no slot of this one's.
+    if (!row.signature && key.startsWith(SESSION_KEY_PREFIX)) {
+      const m = /^(.*\.)(\d+)$/.exec(key);
+      const later = m
+        ? (await this.deps.store.listByPrefix(principal.userId, m[1]!)).some((r) => {
+            const n = /\.(\d+)$/.exec(r.businessKey)?.[1];
+            return (
+              n !== undefined &&
+              r.businessKey.slice(0, -n.length) === m[1] &&
+              Number(n) > Number(m[2]) &&
+              r.prepared.account.owner.toLowerCase() === row.prepared.account.owner.toLowerCase()
+            );
+          })
+        : false;
+      if (later) {
+        throw new UserVenueDoorError(
+          'a newer trading session was started in this sign-in, so this approval is no longer asked for; nothing was sent',
+          'trade.venue_session_superseded',
+          409,
+        );
+      }
+    }
     if (
       !signature ||
       typeof signature.signature !== 'string' ||

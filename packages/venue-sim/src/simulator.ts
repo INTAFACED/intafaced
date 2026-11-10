@@ -51,6 +51,8 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *
  * Switches (CUSTODY-DELTA §4), each set through `switches`:
  *   · `venueDown` — every call refuses `venue_down`, nothing changes;
+ *   · `unlistPerpetuals` — the market list leaves out every perpetual, as a
+ *     venue that lists no contract for this account; nothing else changes;
  *   · a market's `orderTypes` / `timeInForce` / `marginModes` — anything not
  *     listed refuses `not_offered` at prepare, before the wallet is asked;
  *   · `makerFeeBps` / `takerFeeBps` `known: false` — the fee is not published;
@@ -118,6 +120,8 @@ export interface SimMarketConfig {
 
 export interface SimSwitches {
   venueDown: boolean;
+  /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
+  unlistPerpetuals: boolean;
   withdrawalFee: MaybeKnown<Amount>;
   /** The fee actually charged when `withdrawalFee` is not published (never 0 by default, so "not known" is never read as free). */
   unpublishedWithdrawalFee: Amount;
@@ -204,6 +208,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly marks = new Map<string, Amount>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
+  /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
+  private readonly lostAnswers = new Map<string, number>();
   private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
@@ -231,6 +237,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
+      unlistPerpetuals: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
       networkFee: { known: true, value: parseAmount('0.25') },
@@ -306,6 +313,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.marks.set(symbol, price);
   }
 
+  /** TEST: the next `count` submits on this account are applied and then answered `definite: false` (a lost answer). */
+  loseAnswersOn(account: UserVenueAccount, count: number): void {
+    if (!Number.isSafeInteger(count) || count < 0) throw new Error('count must be a whole number, zero or more');
+    this.lostAnswers.set(accountKey(account), count);
+  }
+
+  /**
+   * TEST: the expiry of this account's agent passes now, as it would when its time came: the venue's record keeps the
+   * agent with its expiry set to now, so it signs nothing more. Returns false when the account has no such agent.
+   */
+  expireAgent(account: UserVenueAccount, agentAddress: string): boolean {
+    const state = this.account(account);
+    const agent = state.agents.get(agentAddress.toLowerCase());
+    if (!agent) return false;
+    state.agents.set(agent.address, { ...agent, validUntil: this.clock() });
+    return true;
+  }
+
   /**
    * Settle every pending withdrawal: `done` (the chain confirmed it) or
    * `failed` (the venue returns the amount and its fee to free).
@@ -368,7 +393,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   async markets(_account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
     this.up();
-    const list: UserVenueMarket[] = [...this.marketsBySymbol.values()].map((m) => ({
+    const listed = [...this.marketsBySymbol.values()].filter((m) => !(this.switches.unlistPerpetuals && m.kind === 'perpetual'));
+    const list: UserVenueMarket[] = listed.map((m) => ({
       symbol: m.symbol,
       kind: m.kind,
       baseAsset: m.baseAsset,
@@ -692,6 +718,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
+      return { definite: false, reason: 'timeout' };
+    }
+    const lost = this.lostAnswers.get(key) ?? 0;
+    if (lost > 0) {
+      this.lostAnswers.set(key, lost - 1);
       return { definite: false, reason: 'timeout' };
     }
     return outcome;

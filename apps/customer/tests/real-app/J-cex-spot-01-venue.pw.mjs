@@ -323,8 +323,35 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   };
   await page.route('**/api/v1/venue/prepare', unstepped);
   await withdrawInDesk('10');
-  await expect(panel.getByTestId('venue-outcome')).toContainText('Refused before your wallet was asked:', { timeout: 15_000 });
+  // The desk names the refusal and its reason: identity's step-up was not given.
+  await expect(panel.getByTestId('venue-outcome')).toContainText(
+    'Refused before your wallet was asked: Confirm this with your passkey or authenticator code first',
+    { timeout: 15_000 },
+  );
   await page.unroute('**/api/v1/venue/prepare', unstepped);
+  expect(wallet.requests).toHaveLength(0);
+  expect(sameDecimal((await venueBalance(owner, 'USDC')).free, before.free)).toBe(true);
+
+  // A second session of the same person, signed in and never stepped up, asks the door to prepare the same withdrawal:
+  // the typed step-up refusal, before anything is prepared, and still no wallet asked and nothing moved.
+  const signIn = await nextCode(totp, secret, run.read().step);
+  run.write({ step: signIn.step });
+  const bare = await api(s.account, { totpCode: signIn.code });
+  const refused = await bare.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent: {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: '10',
+      destination: owner,
+      withdrawalKey: `withdraw:${owner}:usdc-10-not-stepped-up`,
+    },
+    actionKey: null,
+    stepUpApprovalId: null,
+  });
+  expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+  expect(refused.body.intafacedCode).toBe('identity.step_up_required');
   expect(wallet.requests).toHaveLength(0);
   expect(sameDecimal((await venueBalance(owner, 'USDC')).free, before.free)).toBe(true);
 
@@ -355,5 +382,9 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   await expect(shown).toHaveAttribute('data-status', 'done', { timeout: 15_000 });
   await expect(shown).toContainText('Done');
   const after = await venueBalance(owner, 'USDC');
-  expect(toUnits(before.free) - toUnits(after.free) >= toUnits('10')).toBe(true);
+  // The venue takes exactly 10 USDC and its fee. A fee it does not publish can't be checked to the unit, only that it
+  // took more than the 10.
+  const taken = toUnits(before.free) - toUnits(after.free);
+  if (fee.known) expect(taken).toBe(toUnits('10') + toUnits(fee.value));
+  else expect(taken > toUnits('10')).toBe(true);
 });

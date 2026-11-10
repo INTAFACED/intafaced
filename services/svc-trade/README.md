@@ -165,6 +165,15 @@ no event is sent: the venue is the record of balances, locks, fills and withdraw
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
 
+**The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
+`serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers
+one person's venue accounts with each one's balances and every spot fill, as the venue reports them at the moment of the
+call, with its as-of time. A venue account is the person's here only when its owner wallet signed an action they prepared
+through the door (`ownerSignedAccounts` over `trade.user_venue_actions`: owner role, signer equal to the account's owner,
+signature stored after the door checked it recovers); an account read only by address is not theirs, and an agent's
+signature names none. The fee is everything the venue charged (its fee and any builder fee), in the fee coin. Nothing is
+stored. The door off answers `{ state: 'off' }`; the venue down answers `SERVICE_UNAVAILABLE`, never an empty list.
+
 ### Our builder fee in the ledger (D-venue-07, J-derivatives-17)
 
 The one money the door's orders move for us. With the door on, the builder-fee poster (`src/builder-fee/builder-fee-poster.ts`,
