@@ -558,7 +558,7 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
 
   // A month nobody enters costs for: each of the seven lines is exactly "Not entered", which the incomplete notice names,
   // and net is the named blocker. A line nobody entered is never a zero.
-  const period = await page.getByLabel('Month').inputValue();
+  const period = await page.getByLabel('Month', { exact: true }).inputValue();
   await page.goto(`${ADMIN}/more-ops/venue-economics?period=${BLANK_MONTH}`);
   for (const { category, label } of COST_LINES) {
     await expect(page.getByTestId(`cost-${category}`).locator('td')).toHaveText([label, 'Not entered']);
