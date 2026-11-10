@@ -43,6 +43,16 @@ export interface PreparedActionStore {
    * recon reads it (J-derivatives-17 #4).
    */
   builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]): Promise<ReadonlyMap<string, Amount>>;
+  /**
+   * Among `venueClientOrderIds`, the ones of orders our door stored for this venue account with our builder fee attached
+   * and signed for sending (OWNER 288 change 1b). A fill of any other order carries a builder fee that is not ours. Unlike
+   * `builderFeeOrders`, an order whose submit answer was lost still counts: the venue's fill of it is the answer.
+   */
+  sentBuilderFeeOrders(
+    venueId: string,
+    account: { readonly owner: string; readonly subAccount: string | null },
+    venueClientOrderIds: readonly string[],
+  ): Promise<ReadonlySet<string>>;
 
   /**
    * The venue accounts on `venueId` whose OWNER wallet signed an action this person prepared: the door checked that each
@@ -78,6 +88,20 @@ function builderFeeRate({ prepared, signature, lastOutcome }: StoredVenueAction)
   return prepared.intent.kind === 'place_order' && prepared.venueClientOrderId !== null && prepared.builderFee
     ? prepared.builderFee.feeBps
     : null;
+}
+
+/** True for an order this door stored for `account` with our builder fee attached and signed for sending. */
+function sentWithOurFee(row: StoredVenueAction, venueId: string, account: { owner: string; subAccount: string | null }): boolean {
+  const p = row.prepared;
+  return (
+    !!row.signature &&
+    p.venueId === venueId &&
+    p.intent.kind === 'place_order' &&
+    p.venueClientOrderId !== null &&
+    !!p.builderFee &&
+    p.account.owner === account.owner &&
+    (p.account.subAccount ?? null) === account.subAccount
+  );
 }
 
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
@@ -147,6 +171,19 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
       const rate = builderFeeRate(row);
       const id = row.prepared.venueClientOrderId!;
       if (row.prepared.venueId === venueId && rate !== null && wanted.has(id) && !out.has(id)) out.set(id, rate);
+    }
+    return out;
+  }
+
+  async sentBuilderFeeOrders(
+    venueId: string,
+    account: { owner: string; subAccount: string | null },
+    venueClientOrderIds: readonly string[],
+  ) {
+    const wanted = new Set(venueClientOrderIds);
+    const out = new Set<string>();
+    for (const row of this.rows.values()) {
+      if (sentWithOurFee(row, venueId, account) && wanted.has(row.prepared.venueClientOrderId!)) out.add(row.prepared.venueClientOrderId!);
     }
     return out;
   }
@@ -252,6 +289,23 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       const id = row.prepared.venueClientOrderId!;
       if (rate !== null && !out.has(id)) out.set(id, rate);
     }
+    return out;
+  }
+
+  async sentBuilderFeeOrders(
+    venueId: string,
+    account: { owner: string; subAccount: string | null },
+    venueClientOrderIds: readonly string[],
+  ) {
+    const out = new Set<string>();
+    if (venueClientOrderIds.length === 0) return out;
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE venue_id = ${venueId} AND kind = 'place_order'
+        AND prepared->>'venueClientOrderId' = ANY(${this.sql.array([...venueClientOrderIds])})
+        AND prepared->'account'->>'owner' = ${account.owner}
+        AND signature IS NOT NULL`;
+    for (const row of rows.map(fromRow)) if (sentWithOurFee(row, venueId, account)) out.add(row.prepared.venueClientOrderId!);
     return out;
   }
 }

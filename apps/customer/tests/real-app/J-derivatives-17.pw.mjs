@@ -400,7 +400,10 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
   const id = await venueId();
   const to = new Date(Date.now() + 10 * 60_000);
   await expect.poll(async () => (await recon(start, to)).venues[0]?.matched ?? null, { timeout: 60_000 }).toBe(true);
-  const fills = await venueFills(start);
+  // The ledger records our builder fee only on fills of orders we routed (OWNER 288 change 1b): #4's order placed on the
+  // venue directly is listed as not ours and never posted, so it has no ledger record and no row in the file.
+  const notOurs = new Set((await recon(start, to)).venues[0].lines.filter((l) => l.status === 'not_our_order').map((l) => l.fillId));
+  const fills = (await venueFills(start)).filter((f) => !notOurs.has(f.fillId));
 
   await staffSignIn(page, browser, 'finance');
   const venue = await openRecon(page, start, to);
@@ -425,7 +428,7 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
   for (const f of fills) {
     const [txId, key, venueCol, , , asset, amount, postedAt] = byFill.get(f.fillId);
     expect(venueCol).toBe(id);
-    expect(key).toBe(`builder-fee:${id}:${f.fillId}`);
+    expect(key).toBe(`builder-fee:${id}:${owner}:${f.fillId}`);
     const tx = await ledgerRead(`/operator/transactions/${encodeURIComponent(txId)}`);
     expect(tx).toMatchObject({ txId, businessKey: key, reason: 'trade.builder_fee.earned', postedAt });
     const debit = tx.postings.find((p) => p.direction === 'debit');

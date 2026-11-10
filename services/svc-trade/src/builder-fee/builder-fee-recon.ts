@@ -1,12 +1,12 @@
 import { earnedBuilderFeeKey, venueBuilderFeeReceivable, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
 import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { isTestVenue, VenueRefusalError, type UserVenue, type UserVenueFill } from '@intafaced/venue-contracts';
-import type { BuilderFeeStore, LoggedBuilderFee } from './builder-fee-store.js';
+import { builderFeeVenueAccount, type BuilderFeeStop, type BuilderFeeStore, type LoggedBuilderFee } from './builder-fee-store.js';
 
 /**
  * THE BUILDER-FEE RECON (J-derivatives-17 #1 #2; D-venue-07, D-ops-02). For one period, the builder fees the venue
- * reports on our users' fills against the builder fees the ledger records as earned (`builder-fee:<venueId>:<fillId>`),
- * matched fill by fill. Read only: a break is a row for a person, never an entry to make the two agree; a correction is
+ * reports on our users' fills against the builder fees the ledger records as earned
+ * (`builder-fee:<venueId>:<venueAccount>:<fillId>`), matched fill by fill on each venue account. Read only: a break is a row for a person, never an entry to make the two agree; a correction is
  * a separate approved ledger action.
  *
  * - The venue's side is the venue's own fills, read now, each with its builder fee.
@@ -21,12 +21,18 @@ import type { BuilderFeeStore, LoggedBuilderFee } from './builder-fee-store.js';
  *   fee, against the builder fee the venue charged on them. The fee each fill should carry is its order's rate on the
  *   venue's fee basis; a fill whose charged fee differs, or a fee charged on a fill of no routed order, is a gap, named.
  * - `ledgerRecords`: the ledger's builder-fee transactions for the period's fills, as the export file lists them.
+ * - `poster`: when the builder-fee poster last completed a run on the venue, and its last stop (OWNER 288 change 1c).
+ *
+ * A fill the poster recorded as `not_our_order` (its order is none our door sent) is listed as such and is not a break:
+ * its builder fee is not ours, so it counts in neither total (OWNER 288 change 1b).
  */
 export type BuilderFeeLineStatus =
-  'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused' | 'ledger_missing';
+  'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused' | 'ledger_missing' | 'not_our_order';
 
 export interface BuilderFeeReconLine {
   readonly fillId: string;
+  /** The venue account of the fill, as the ledger key names it (the owner, or `<owner>/<subAccount>`). */
+  readonly venueAccount: string;
   readonly userId: string | null;
   readonly assetId: string;
   /** The venue's builder fee on the fill, or null when the venue doesn't report the fill. */
@@ -97,10 +103,20 @@ export interface BuilderFeeLedgerRecord {
   readonly ledgerTxId: string;
   readonly idempotencyKey: string;
   readonly fillId: string;
+  readonly venueAccount: string;
   readonly userId: string | null;
   readonly assetId: string;
   readonly amount: string;
   readonly postedAt: string;
+}
+
+/** The builder-fee poster's runs on the venue, for the operations desk. */
+export interface BuilderFeePosterState {
+  /** When a run last read every account and posted or recorded every fill; null when none is recorded. */
+  readonly lastCompleteAt: string | null;
+  /** The last stop, with the venue, the account and the fill it stopped at; null when none is recorded. */
+  readonly lastStopAt: string | null;
+  readonly lastStop: BuilderFeeStop | null;
 }
 
 export type BuilderFeeReconVenue =
@@ -117,6 +133,7 @@ export type BuilderFeeReconVenue =
       readonly volume: readonly BuilderFeeVolumeRow[];
       readonly volumeGaps: readonly BuilderFeeVolumeGap[];
       readonly ledgerRecords: readonly BuilderFeeLedgerRecord[];
+      readonly poster: BuilderFeePosterState;
     }
   | {
       readonly venueId: string | null;
@@ -201,9 +218,13 @@ export function assertReconPeriod(from: Date, to: Date): void {
 }
 
 interface Side {
+  venueAccount: string;
+  fillId: string;
   venue: (UserVenueFill & { userId: string }) | null;
   logged: LoggedBuilderFee | null;
 }
+
+const sideId = (venueAccount: string, fillId: string) => `${venueAccount}\u0000${fillId}`;
 
 export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to: Date): Promise<BuilderFeeRecon> {
   assertReconPeriod(from, to);
@@ -217,7 +238,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   }
 
   let venue: UserVenue;
-  let reported: (UserVenueFill & { userId: string })[] = [];
+  const reported: (UserVenueFill & { userId: string; venueAccount: string })[] = [];
   const inPeriod: UserVenueFill[] = [];
   let asOf = now;
   let markets: ReadonlyMap<string, FeeMarket>;
@@ -230,7 +251,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       for (const fill of fills.value) {
         if (fill.filledAt < from || fill.filledAt >= to) continue;
         inPeriod.push(fill);
-        if (fill.builderFee > 0n) reported.push({ ...fill, userId });
+        if (fill.builderFee > 0n) reported.push({ ...fill, userId, venueAccount: builderFeeVenueAccount(account) });
       }
     }
   } catch (error) {
@@ -245,11 +266,14 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
 
   const venueId = venue.venue.id;
   const sides = new Map<string, Side>();
-  for (const fill of reported) sides.set(fill.fillId, { venue: fill, logged: null });
+  for (const fill of reported) {
+    sides.set(sideId(fill.venueAccount, fill.fillId), { venueAccount: fill.venueAccount, fillId: fill.fillId, venue: fill, logged: null });
+  }
   for (const logged of await deps.store.inPeriod(venueId, from, to)) {
-    const side = sides.get(logged.fillId);
+    const venueAccount = builderFeeVenueAccount(logged.account);
+    const side = sides.get(sideId(venueAccount, logged.fillId));
     if (side) side.logged = logged;
-    else sides.set(logged.fillId, { venue: null, logged });
+    else sides.set(sideId(venueAccount, logged.fillId), { venueAccount, fillId: logged.fillId, venue: null, logged });
   }
 
   const lines: BuilderFeeReconLine[] = [];
@@ -260,15 +284,18 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   const txs = new Map<string, LedgerTx | null>();
   for (let i = 0; i < entries.length; i += LEDGER_READS_AT_ONCE) {
     const batch = entries.slice(i, i + LEDGER_READS_AT_ONCE);
-    const read = await Promise.all(batch.map(([fillId]) => deps.ledger.getTxByKey(earnedBuilderFeeKey(venueId, fillId))));
-    batch.forEach(([fillId], j) => txs.set(fillId, read[j] ?? null));
+    const read = await Promise.all(
+      batch.map(([, side]) => deps.ledger.getTxByKey(earnedBuilderFeeKey(venueId, side.venueAccount, side.fillId))),
+    );
+    batch.forEach(([id], j) => txs.set(id, read[j] ?? null));
   }
   const add = (assetId: string, venue: Amount, ledger: Amount) => {
     const sum = totals.get(assetId) ?? { venue: 0n, ledger: 0n };
     totals.set(assetId, { venue: sum.venue + venue, ledger: sum.ledger + ledger });
   };
-  for (const [fillId, side] of entries) {
-    const tx = txs.get(fillId) ?? null;
+  for (const [id, side] of entries) {
+    const { fillId, venueAccount } = side;
+    const tx = txs.get(id) ?? null;
     const ledgerAmount = tx ? earnedAmount(tx) : null;
     const ledgerAsset = tx ? earnedAsset(tx) : null;
     const venueAmount = side.venue ? side.venue.builderFee : null;
@@ -280,16 +307,20 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       if (side.logged?.status !== 'posted') continue;
       status = 'ledger_missing';
     } else if (venueAmount === null) status = 'not_reported_by_venue';
-    else if (ledgerAmount === null) status = side.logged?.status === 'refused' ? 'ledger_refused' : 'not_in_ledger';
+    else if (ledgerAmount === null)
+      status =
+        side.logged?.status === 'refused' ? 'ledger_refused' : side.logged?.status === 'not_our_order' ? 'not_our_order' : 'not_in_ledger';
     else status = ledgerAmount === venueAmount && ledgerAsset === side.venue!.feeAsset ? 'matched' : 'amounts_differ';
-    // Each side's amount counts in its own asset, so two assets never net against each other.
-    if (venueAmount !== null) add(side.venue!.feeAsset, venueAmount, 0n);
+    // Each side's amount counts in its own asset, so two assets never net against each other. A fee that is not ours
+    // counts in neither total.
+    if (venueAmount !== null && status !== 'not_our_order') add(side.venue!.feeAsset, venueAmount, 0n);
     if (ledgerAmount !== null) add(ledgerAsset ?? assetId, 0n, ledgerAmount);
     if (tx && ledgerAmount !== null) {
       ledgerRecords.push({
         ledgerTxId: tx.id,
         idempotencyKey: tx.idempotencyKey,
         fillId,
+        venueAccount,
         userId: typeof tx.meta.userId === 'string' ? tx.meta.userId : null,
         assetId: ledgerAsset ?? assetId,
         amount: formatAmount(ledgerAmount),
@@ -298,6 +329,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
     }
     lines.push({
       fillId,
+      venueAccount,
       userId: side.venue?.userId ?? side.logged?.userId ?? null,
       assetId,
       venueAmount: venueAmount === null ? null : formatAmount(venueAmount),
@@ -308,15 +340,20 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       refusalCode: status === 'ledger_refused' ? (side.logged?.refusalCode ?? null) : null,
     });
   }
-  lines.sort((a, b) => a.filledAt.localeCompare(b.filledAt) || a.fillId.localeCompare(b.fillId));
-  ledgerRecords.sort((a, b) => a.postedAt.localeCompare(b.postedAt) || a.fillId.localeCompare(b.fillId));
+  lines.sort(
+    (a, b) => a.filledAt.localeCompare(b.filledAt) || a.fillId.localeCompare(b.fillId) || a.venueAccount.localeCompare(b.venueAccount),
+  );
+  ledgerRecords.sort(
+    (a, b) => a.postedAt.localeCompare(b.postedAt) || a.fillId.localeCompare(b.fillId) || a.venueAccount.localeCompare(b.venueAccount),
+  );
 
   // What the venue owes us now (the receivable's own balance, negative while fees are earned and not yet paid out), and
   // the orders we routed among the period's fills: two reads that share nothing, run together.
   const ids = [...new Set(inPeriod.map((f) => f.venueClientOrderId).filter((id): id is string => id !== null))];
-  const [balances, rates] = await Promise.all([
+  const [balances, rates, runs] = await Promise.all([
     deps.ledger.balances('treasury', venueBuilderFeeReceivable(venueId, '').ownerId),
     deps.routedOrders(venueId, ids),
+    deps.store.runState(venueId),
   ]);
   const owed: BuilderFeeOwed[] = balances
     .filter((b) => b.account.kind === 'available' && b.amount !== 0n)
@@ -414,13 +451,18 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
         test: isTestVenue(venue.venue),
         state: 'read',
         asOf: asOf.toISOString(),
-        matched: lines.every((l) => l.status === 'matched'),
+        matched: lines.every((l) => l.status === 'matched' || l.status === 'not_our_order'),
         totals: totalRows,
         lines,
         owed,
         volume,
         volumeGaps,
         ledgerRecords,
+        poster: {
+          lastCompleteAt: runs.lastCompleteAt?.toISOString() ?? null,
+          lastStopAt: runs.lastStopAt?.toISOString() ?? null,
+          lastStop: runs.lastStop,
+        },
       },
     ],
   };
