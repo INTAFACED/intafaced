@@ -450,6 +450,8 @@ describe('preview reads the venue and sends nothing', () => {
     // 0.2 × 1999 = 399.8 at 4.5 bps = 0.17991; 0.3 × 2000 = 600 at 1.5 bps = 0.09.
     expect(p.venueFee).toEqual({ known: true, value: { asset: 'USDC-PERP', amount: a('0.26991') } });
     expect(p.builderFee).toEqual({ known: true, value: { asset: 'USDC-PERP', amount: a('0') } });
+    // The book is not walked at this size yet, so what fills now is not known, never zero.
+    expect(p.fill).toEqual({ known: false });
   });
 
   it('a spot buy locks its quote notional and pays the fee in the base it receives; an unpublished rate is not known', async () => {
@@ -820,6 +822,7 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect((await venue.markets(account)).value.find((m) => m.symbol === 'PURR-USDC')!.takerFeeBps).toEqual({ known: false });
     // The venue publishes no builder-fee cap through info, so none is typed in: every market reads "not known".
     expect(anon.map((m) => m.builderFeeCapBps)).toEqual(anon.map(() => ({ known: false })));
+    expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => [null, null, null]));
   });
 });
 

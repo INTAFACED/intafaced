@@ -495,6 +495,10 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       // The info API publishes no per-market builder-fee cap, so it is not known: the door then writes no builder-fee
       // version for this venue and a fee'd order refuses, rather than trusting a number we typed in.
       builderFeeCapBps: { known: false },
+      // The listing drops delisted markets and reports no halt or cancel-only state, nor a largest order: none is guessed.
+      status: null,
+      maxOrderQty: null,
+      maxOrderNotional: null,
     }));
     return this.asOf(list);
   }
@@ -633,6 +637,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       venueFee: line(taker, maker),
       builderFee: line(builderRate, builderRate),
       perpetual,
+      // What would fill now needs a walk of the venue's book (l2Book) at this size; until it is read, not known.
+      fill: { known: false },
     });
   }
 
