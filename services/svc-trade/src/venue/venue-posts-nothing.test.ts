@@ -15,11 +15,20 @@ import { describe, expect, it } from 'vitest';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const roots = [here, path.resolve(here, '../../../../packages/venue-sim/src')];
 
-const sources = roots.flatMap((root) =>
+/**
+ * Our own builder fee's posting path (D-venue-07, J-derivatives-17, #7690): it posts `builderFeeEarn` on each venue fill
+ * through ledger-client recipes, by design, with finance's recon and its admin read, and is not the user's deposit or
+ * withdrawal. It is not guarded here; its own money tests are `builder-fee.money.test.ts`. Every other file is still
+ * guarded, and none of them may import these three, so the door cannot reach a posting through them.
+ */
+const OWN_FEE_POSTING = new Set(['builder-fee-poster.ts', 'builder-fee-recon.ts', 'builder-fee-admin.ts']);
+
+const all = roots.flatMap((root) =>
   readdirSync(root)
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
     .map((f) => ({ file: path.join(root, f), text: readFileSync(path.join(root, f), 'utf8') })),
 );
+const sources = all.filter((s) => !(path.dirname(s.file) === here && OWN_FEE_POSTING.has(path.basename(s.file))));
 
 /**
  * Every module a source imports at run time. A whole-statement `import type` / `export type` is erased when it compiles,
@@ -48,6 +57,21 @@ describe('the venue door and the TEST venue post nothing to the ledger (J-wallet
     const reached = sources.flatMap((s) =>
       imports(s.text)
         .filter((m) => !m.startsWith('node:') && !LEDGER_ALLOWED.has(m) && POSTS.some((re) => re.test(m)))
+        .map((m) => `${path.basename(s.file)} → ${m}`),
+    );
+    expect(reached).toEqual([]);
+  });
+
+  it('sets aside only the three builder-fee files, and no guarded file imports them', () => {
+    expect(
+      all
+        .filter((s) => !sources.includes(s))
+        .map((s) => path.basename(s.file))
+        .sort(),
+    ).toEqual([...OWN_FEE_POSTING].sort());
+    const reached = sources.flatMap((s) =>
+      imports(s.text)
+        .filter((m) => [...OWN_FEE_POSTING].some((f) => m.endsWith(`/${f.replace(/\.ts$/, '.js')}`)))
         .map((m) => `${path.basename(s.file)} → ${m}`),
     );
     expect(reached).toEqual([]);
