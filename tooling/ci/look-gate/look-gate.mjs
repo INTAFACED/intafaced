@@ -266,7 +266,11 @@ function measure({ maxText }) {
 
   const CONTROL =
     'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [role="switch"], [tabindex]:not([tabindex="-1"])';
-  const controls = [...document.querySelectorAll(CONTROL)].filter(visible).map((el) => ({ el, r: el.getBoundingClientRect() }));
+  // The kit gallery's picture of a page (inert, marked data-look-gate-picture) can't be focused or pressed: it holds
+  // no targets. Only that marker counts; inert content anywhere else is measured as usual.
+  const controls = [...document.querySelectorAll(CONTROL)]
+    .filter((el) => visible(el) && !el.closest('[inert][data-look-gate-picture]'))
+    .map((el) => ({ el, r: el.getBoundingClientRect() }));
   const inText = (el) =>
     el.tagName === 'A' && [...el.parentElement.childNodes].some((n) => n !== el && n.nodeType === 3 && n.textContent.trim());
   const small = [];
@@ -467,15 +471,9 @@ async function check(context, origin, target, vpName, opts) {
     row.lit ||= m.lit;
 
     // axe
-    const { default: AxeBuilder } = await import('@axe-core/playwright');
-    const axeBuilder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
-    if (target.scope) axeBuilder.include(target.scope);
-    const axe = await axeBuilder.analyze();
     add(
       'axe',
-      axe.violations
-        .filter((v) => v.impact === 'serious' || v.impact === 'critical')
-        .map((v) => `${v.id} ×${v.nodes.length}: ${v.nodes[0]?.target?.join(' ') ?? ''}`),
+      (await axeSerious(page, target.scope)).map((v) => `${v.id} ×${v.nodes.length}: ${v.nodes[0]?.target?.join(' ') ?? ''}`),
     );
 
     // worst-pixel contrast, from the shot taken with all text hidden
@@ -656,6 +654,9 @@ const CLIPPED_COPY = (generatedId) => {
   const cuts = (v) => v === 'hidden' || v === 'clip';
   const out = new Map();
   for (const own of document.querySelectorAll('[data-look-gate-copy]')) {
+    // The kit gallery's picture of a page (scaled down, cut by its frame on purpose) is not copy a person reads there.
+    // Only that marker counts: inert content anywhere else is still read, so cut copy there is still a finding.
+    if (own.closest('[inert][data-look-gate-picture]')) continue;
     // An inline or display: contents element has no box of its own: judge the block that holds it.
     let el = own;
     while (el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
@@ -712,6 +713,45 @@ const CLIPPED_COPY = (generatedId) => {
   return [...out];
 };
 
+/** Marks the elements that keep their author colours under forced colours (`forced-color-adjust: none`). */
+const FORCED_KEEPS = 'data-look-gate-keeps-colour';
+
+/**
+ * axe's serious and critical findings on `scope` (or the page). Under forced colours the browser paints every text run
+ * in system colours (CanvasText on Canvas), but axe's color-contrast reads the author's colours, so on its own it reports
+ * contrast the person never sees (#909090 on white, on a page painted black on white). There, color-contrast is run only
+ * on what keeps its author colours, `forced-color-adjust: none`, which is exactly where forced colours can't help; every
+ * other rule runs as it does on the plain page.
+ */
+async function axeSerious(page, scope, { forced = false } = {}) {
+  const { default: AxeBuilder } = await import('@axe-core/playwright');
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'];
+  const main = new AxeBuilder({ page }).withTags(tags);
+  if (scope) main.include(scope);
+  if (forced) main.disableRules(['color-contrast']);
+  const violations = [...(await main.analyze()).violations];
+  if (forced) {
+    const kept = await page.evaluate(
+      ([attr, sel]) => {
+        const root = sel ? document.querySelector(sel) : document.body;
+        let n = 0;
+        for (const el of root ? [root, ...root.querySelectorAll('*')] : [])
+          if (getComputedStyle(el).forcedColorAdjust === 'none') {
+            el.setAttribute(attr, '');
+            n++;
+          }
+        return n;
+      },
+      [FORCED_KEEPS, scope ?? null],
+    );
+    if (kept > 0) {
+      const own = await new AxeBuilder({ page }).withRules(['color-contrast']).include(`[${FORCED_KEEPS}]`).analyze();
+      violations.push(...own.violations);
+    }
+  }
+  return violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+}
+
 /**
  * The phone-only variants: right-to-left, 200% text, forced colours and 130% copy. axe, sideways overflow and obscured
  * focus; for 130% copy also text its box cuts off, and a shot in the artifact (`shots/<room>/phone-copy-130.png`).
@@ -750,11 +790,7 @@ async function variants(browser, origin, target, opts) {
       if (!(await settle(page))) row.notes.push('layout still moving after 6 s');
       // What a re-render wrote back in English while the layout settled.
       if (setup.pseudo && (await pseudoCopy(page)) && !(await settle(page))) row.notes.push('layout still moving after 6 s');
-      const { default: AxeBuilder } = await import('@axe-core/playwright');
-      const axeBuilder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
-      if (target.scope) axeBuilder.include(target.scope);
-      const axe = await axeBuilder.analyze();
-      const serious = axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+      const serious = await axeSerious(page, target.scope, { forced: !!setup.forced });
       if (serious.length) row.findings.axe = serious.map((v) => `${v.id} ×${v.nodes.length}`);
       const overflow = await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - innerWidth));
       if (overflow > 0) row.findings.overflow = [`${overflow}px wider than the screen`];
@@ -1023,6 +1059,59 @@ async function selfTestBrowser(eq) {
     eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'a fixed bar escapes the row around it');
     await cut(`<div class="row" style="${box}"><div style="transform:translateX(300px)">%</div></div>`);
     eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'text wholly outside the row is hidden, not cut');
+    await cut(`<div inert data-look-gate-picture><div class="row" style="${box}">%</div></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'the gallery picture of a page is not copy that is cut');
+    await cut(`<div inert><div class="row" style="${box}">%</div></div>`);
+    eq(
+      await page.evaluate(CLIPPED_COPY, GENERATED_ID),
+      [['span.label', 'is cut by div.row']],
+      'inert copy outside the picture marker is still cut',
+    );
+    await cut(`<div data-look-gate-picture><div class="row" style="${box}">%</div></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by div.row']], 'the marker without inert is no exemption');
+
+    // Targets: two 16 px buttons stacked edge to edge clash; the same inside an inert picture of a page are no targets.
+    const pair =
+      '<button style="display:block;width:20px;height:16px;padding:0">+</button><button style="display:block;width:20px;height:16px;padding:0">-</button>';
+    await page.setContent(`<body style="margin:40px">${pair}</body>`);
+    eq((await page.evaluate(measure, { maxText: 50 })).small.length, 2, 'two stacked 16 px buttons are small targets');
+    await page.setContent(`<body style="margin:40px"><div inert data-look-gate-picture>${pair}</div></body>`);
+    eq((await page.evaluate(measure, { maxText: 50 })).small, [], 'inside the gallery picture of a page they are no targets');
+    await page.setContent(`<body style="margin:40px"><div inert>${pair}</div></body>`);
+    eq((await page.evaluate(measure, { maxText: 50 })).small.length, 2, 'inert buttons outside the picture marker are still measured');
+
+    // Forced colours: the browser paints authored grey as CanvasText, so it is no finding; a box that keeps its own
+    // colours (forced-color-adjust: none) is measured as painted, and low contrast there is.
+    const forced = await browser.newContext({ viewport: { width: 400, height: 400 }, forcedColors: 'active' });
+    const fp = await forced.newPage();
+    const grey = 'color:#909090;font-size:13px';
+    const contrastOn = async (html) => {
+      await fp.setContent(`<html lang="en"><body style="background:#fff"><main>${html}</main></body></html>`);
+      return (await axeSerious(fp, null, { forced: true })).filter((v) => v.id === 'color-contrast').map((v) => v.nodes.length);
+    };
+    eq(
+      await contrastOn(`<p style="${grey}">Secondary text the browser repaints</p>`),
+      [],
+      'forced colours: repainted grey text is no finding',
+    );
+    eq(
+      await contrastOn(
+        `<p style="${grey}">Repainted</p><p style="forced-color-adjust:none;${grey};background:#fff">Kept grey on white</p>`,
+      ),
+      [1],
+      'forced colours: grey that keeps its own colours is a finding, and only it',
+    );
+    await forced.close();
+    // The plain page still measures every text run.
+    const plain = await browser.newContext({ viewport: { width: 400, height: 400 } });
+    const pp = await plain.newPage();
+    await pp.setContent(`<html lang="en"><body style="background:#fff"><main><p style="${grey}">Grey on white</p></main></body></html>`);
+    eq(
+      (await axeSerious(pp, null)).filter((v) => v.id === 'color-contrast').map((v) => v.nodes.length),
+      [1],
+      'plain colours: grey on white is a finding',
+    );
+    await plain.close();
   } finally {
     await browser.close();
   }

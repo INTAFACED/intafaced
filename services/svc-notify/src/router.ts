@@ -14,6 +14,7 @@ import {
   STATUS_COMPONENTS_MAX,
   NOTICE_CATEGORY_ID,
   noticeCategorySchema,
+  marketMaintenanceReadSchema,
 } from '@intafaced/contracts';
 import {
   NotifyAnnouncementUnsetError,
@@ -442,6 +443,11 @@ const noticeWireOutput = z.object({
   category: noticeCategorySchema.nullable(),
   audience: z.enum(NOTICE_AUDIENCES),
 });
+
+/** A notice read in one language: its text in that language or the source text, and which language it is in. */
+const localizedNoticeOutput = noticeWireOutput.extend({ language: z.string() });
+/** A language code as the app names one (`es`, `pt-BR`); one the app does not offer reads the source text. */
+const noticeLanguage = z.string().min(2).max(8);
 
 const noticeAsset = z.string().regex(NOTICE_ASSET_PATTERN);
 const noticeNetwork = z.string().regex(NOTICE_NETWORK_PATTERN);
@@ -1278,14 +1284,21 @@ export function createNotifyRouter(
             area: changelogArea.optional(),
             breaking: z.boolean().optional(),
             limit: z.number().int().min(1),
+            /** The reader's chosen language: each entry comes in it when the operator wrote it, and names its language. */
+            language: noticeLanguage.optional(),
           }),
         )
-        .output(z.array(noticeWireOutput))
+        .output(z.array(localizedNoticeOutput))
         .query(async ({ input }) => {
           if (!notify.notices) return [];
           try {
             return [
-              ...(await notify.notices.changelog({ area: input.area ?? null, breaking: input.breaking ?? null, limit: input.limit })),
+              ...(await notify.notices.changelog({
+                area: input.area ?? null,
+                breaking: input.breaking ?? null,
+                limit: input.limit,
+                language: input.language ?? null,
+              })),
             ];
           } catch (err) {
             typedRefusal(err);
@@ -1298,17 +1311,18 @@ export function createNotifyRouter(
        * entry retires. Signed-out.
        */
       upcomingChanges: publicProcedure
+        .input(z.object({ language: noticeLanguage.optional() }).optional())
         .output(
           z.object({
-            upcoming: z.array(noticeWireOutput),
+            upcoming: z.array(localizedNoticeOutput),
             retired: z.array(
               z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: changelogDay.nullable() }),
             ),
           }),
         )
-        .query(async () => {
+        .query(async ({ input }) => {
           if (!notify.notices) return { upcoming: [], retired: [] };
-          const read = await notify.notices.upcomingChanges();
+          const read = await notify.notices.upcomingChanges(undefined, input?.language ?? null);
           return { upcoming: [...read.upcoming], retired: [...read.retired] };
         }),
 
@@ -1325,6 +1339,13 @@ export function createNotifyRouter(
           const status = await notify.notices.noticeStatus();
           return { incidents: [...status.incidents], maintenance: [...status.maintenance] };
         }),
+
+      /** Maintenance windows that name a market and have not ended, for svc-trade's lifecycle read (J-cex-spot-14 #5). Signed-out. */
+      marketMaintenance: publicProcedure.output(marketMaintenanceReadSchema).query(async () => {
+        // No board wired: refuse, so the lifecycle read says unavailable rather than claiming no maintenance.
+        if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+        return notify.notices.marketMaintenance();
+      }),
 
       /**
        * Open funding incidents and maintenance for one asset on one network, for
@@ -1389,6 +1410,14 @@ export function createNotifyRouter(
             category: z.string().regex(NOTICE_CATEGORY_ID).nullable().optional(),
             /** Announcements only: a member audience instead of everyone. */
             audience: z.enum(NOTICE_AUDIENCES).nullable().optional(),
+            /**
+             * The operator's own title and body in other languages the app offers, keyed by language code. Never machine
+             * text; approved with the source text (notices/translations.ts).
+             */
+            translations: z
+              .record(z.string().min(2).max(8), z.object({ title: z.string().min(1).max(200), body: z.string().min(1).max(8000) }))
+              .nullable()
+              .optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )

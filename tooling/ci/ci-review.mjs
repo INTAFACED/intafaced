@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * The CI review (.github/workflows/ci-review.yml, AGENTS.md, "Where a mistake costs more"): one pull request head's diff, judged against
- * tooling/ci/ci-review/REVIEW.md by the pinned reviewer CLI with no tools. The seal (review-marker.mjs
+ * tooling/ci/ci-review/REVIEW.md by the pinned reviewer CLI, whose only tools read the default branch's checkout. The seal (review-marker.mjs
  * ciReviewVerdict) accepts only this job's `Verdict` step passing on the exact head, in a pull_request_target run.
  *
  * It is the one AI judge a pull request has (U4, project-state #1574: "Fold the AI test judge into the one CI review, so
@@ -17,7 +17,6 @@
  *   node tooling/ci/ci-review.mjs read      <out dir>   the reviewer's JSON answer into verdict.json and tests/verdict.json
  *                                                       (no verdict: exit 1)
  *   node tooling/ci/ci-review.mjs judge     <out dir>   the Verdict step: exit 1 on FAIL, 0 on PASS
- *   node tooling/ci/ci-review.mjs rerun-seal            re-run a red CI merge seal on this head once the review passed
  *
  * The Test verdict step is `test-judge.mjs judge <out dir>/tests`.
  *
@@ -26,7 +25,7 @@
  * PNGs, which the text diff shows only as "Binary files differ", are read as blobs at those same shas and given to the
  * reviewer as images, old and new, each labelled as the pull request's own file (collectBaselineImages; project-state
  * #1819: intafaced#7628 failed three rounds for want of them). The diff and the images are untrusted:
- * the reviewer has no tools, so the most a diff can do is argue for a PASS, and REVIEW.md makes any line addressed to
+ * the reviewer's only tools read the default branch's tree, never the pull request's, and none runs or writes, so the most a diff can do is argue for a PASS, and REVIEW.md makes any line addressed to
  * the reviewer a blocking finding. Only the `read` step turns the answer into a verdict, and a missing or malformed
  * answer (either part) is no verdict (the job fails before `Verdict`, so a re-run can try again); only a well-formed
  * FAIL fails a verdict step, which then stands for that head and any head with the same tree (ciReviewVerdict).
@@ -40,6 +39,173 @@ import { roomOf } from './look-baselines.mjs';
 /** The largest diff the job sends to the reviewer; a larger one can't be reviewed whole and is a FAIL. */
 export const MAX_DIFF_BYTES = 400_000;
 const SHA40 = /^[0-9a-f]{40}$/;
+
+/**
+ * Generated one-line JSON files the reviewer gets as a summary of what changed, written by this job from the file's own
+ * old and new lines. The touched-journeys map is one line of about 320 KB, so any change to it rewrites the line and
+ * the diff passes MAX_DIFF_BYTES (intafaced #7624: 648976 bytes for one money-list entry), and a 320 KB line is not
+ * readable anyway. The summary lists every entry added, removed or changed, at every depth, so the reviewer reads the
+ * whole change (a money-list entry dropped, a journey narrowed). Each file's `readable` turns the stored form into the
+ * one the summary compares: the map stores journeys as indices into its `journeys` list, which shift whenever a journey
+ * is added, so they are compared by file name (#7624: 52762 changed indices, 3272 changed names), and only when every
+ * index is a whole number inside a `journeys` list of distinct names. Nothing is left out:
+ * a section that is not exactly one old and one new JSON line, or whose summary is no smaller, stays whole.
+ */
+const byJourneyName = (map) => {
+  if (map === null) return map; // a new or deleted map: compared whole
+  if (!map || typeof map !== 'object' || Array.isArray(map) || !Array.isArray(map.journeys)) return undefined;
+  const names = map.journeys;
+  if (!names.every((n) => typeof n === 'string') || new Set(names).size !== names.length) return undefined;
+  const index = (i) => Number.isInteger(i) && i >= 0 && i < names.length;
+  const out = { ...map };
+  for (const k of ['services', 'packages', 'customer']) {
+    if (map[k] === undefined) continue;
+    if (!map[k] || typeof map[k] !== 'object' || Array.isArray(map[k])) return undefined;
+    const lists = Object.values(map[k]);
+    if (!lists.every((ix) => Array.isArray(ix) && ix.every(index))) return undefined;
+    out[k] = Object.fromEntries(Object.entries(map[k]).map(([p, ix]) => [p, ix.map((i) => names[i])]));
+  }
+  return out;
+};
+export const GENERATED_JSON = {
+  'tooling/ci/journey-reach-map.json': {
+    readable: byJourneyName,
+    how: 'services, packages and customer list journeys by file name, not index',
+  },
+};
+
+const isPlain = (v) => v === null || typeof v !== 'object';
+const show = (v) => JSON.stringify(v);
+
+/** Every difference between two JSON values, one line each: `+ path value`, `- path value`, `~ path: old -> new`. */
+export function jsonChanges(before, after, path = '') {
+  const at = path || '(root)';
+  if (show(before) === show(after)) return [];
+  if (Array.isArray(before) && Array.isArray(after) && before.every(isPlain) && after.every(isPlain)) {
+    const was = new Set(before.map(show));
+    const now = new Set(after.map(show));
+    const out = [...now].filter((v) => !was.has(v)).map((v) => `+ ${at}[] ${v}`);
+    out.push(...[...was].filter((v) => !now.has(v)).map((v) => `- ${at}[] ${v}`));
+    // The entries both sides keep, in order and with repeats: any difference there is reported too.
+    const keptBefore = before.map(show).filter((v) => now.has(v));
+    const keptAfter = after.map(show).filter((v) => was.has(v));
+    if (keptBefore.join('\n') !== keptAfter.join('\n')) out.push(`~ ${at}: order or repeats ${show(before)} -> ${show(after)}`);
+    return out;
+  }
+  const obj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+  if (obj(before) && obj(after)) {
+    const out = [];
+    for (const k of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+      const sub = path ? `${path}.${show(k)}` : show(k);
+      if (!Object.hasOwn(after, k)) out.push(`- ${sub} ${show(before[k])}`);
+      else if (!Object.hasOwn(before, k)) out.push(`+ ${sub} ${show(after[k])}`);
+      else out.push(...jsonChanges(before[k], after[k], sub));
+    }
+    return out;
+  }
+  return [`~ ${at}: ${show(before)} -> ${show(after)}`];
+}
+
+/**
+ * jsonChanges of two maps, with one step more for a map rebuilt from new runs: when many paths of one section (such as
+ * `customer`) gain and lose exactly the same journeys, they become one line naming every such path, instead of one line
+ * per path and journey (#7724: 1,488 customer paths each gaining the same journeys, about 1.5 MB of lines). Nothing is
+ * left out: each grouped line lists every path it covers and the exact entries each gains (+) and loses (-), and a
+ * path with any other change (an order or repeat change, a path added or removed) keeps its own lines.
+ */
+export function groupedChanges(before, after) {
+  const obj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+  if (!obj(before) || !obj(after)) return jsonChanges(before, after);
+  const out = [];
+  for (const k of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+    const sub = show(k);
+    const [b, a] = [before[k], after[k]];
+    if (!Object.hasOwn(after, k) || !Object.hasOwn(before, k) || !obj(b) || !obj(a)) {
+      // Added, removed, or not a section of paths: exactly as jsonChanges writes it.
+      const one = (o, has) => (has ? { [k]: o[k] } : {});
+      out.push(...jsonChanges(one(before, Object.hasOwn(before, k)), one(after, Object.hasOwn(after, k))));
+      continue;
+    }
+    const groups = new Map();
+    const lines = [];
+    for (const p of [...new Set([...Object.keys(b), ...Object.keys(a)])].sort()) {
+      const pick = (o) => (Object.hasOwn(o, p) ? { [p]: o[p] } : {});
+      const own = jsonChanges(pick(b), pick(a), sub);
+      if (own.length === 0) continue;
+      const once = (v) => Array.isArray(v) && v.every(isPlain) && new Set(v.map(show)).size === v.length;
+      const plain = Object.hasOwn(a, p) && Object.hasOwn(b, p) && once(b[p]) && once(a[p]);
+      if (!plain || own.some((l) => l.startsWith('~'))) {
+        lines.push(...own);
+        continue;
+      }
+      const was = new Set(b[p].map(show));
+      const now = new Set(a[p].map(show));
+      const gain = [...now].filter((v) => !was.has(v)).sort();
+      const lose = [...was].filter((v) => !now.has(v)).sort();
+      const sig = JSON.stringify([gain, lose]);
+      if (!groups.has(sig)) groups.set(sig, { gain, lose, paths: [], own: [] });
+      const g = groups.get(sig);
+      g.paths.push(p);
+      g.own.push(...own);
+    }
+    for (const g of groups.values()) {
+      if (g.paths.length < 2) {
+        lines.push(...g.own);
+        continue;
+      }
+      const list = (vs) => `[${vs.join(',')}]`;
+      lines.push(
+        `~ ${sub}: ${g.paths.length} entries each gain (+) ${list(g.gain)} and lose (-) ${list(g.lose)}, nothing else: ${show(g.paths)}`,
+      );
+    }
+    out.push(...lines);
+  }
+  return out;
+}
+
+/**
+ * The diff with each GENERATED_JSON file's two lines replaced by jsonChanges of them. Only a section whose
+ * `diff --git` header names that exact path on both sides is summarised: a rename into or out of it, or any other
+ * path, stays whole, so nothing else can hide behind the name. git's header lines (new, deleted, mode, index) stay.
+ */
+export function summarizeGenerated(diff) {
+  return diff
+    .split(/^(?=diff --git )/m)
+    .map((part) => {
+      const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(part);
+      if (!m || m[1] !== m[2] || !Object.hasOwn(GENERATED_JSON, m[1])) return part;
+      const lines = part.replace(/\n$/, '').split('\n');
+      const at = lines.findIndex((l) => l.startsWith('@@'));
+      if (at < 0) return part;
+      const body = lines.slice(at + 1).filter((l) => l !== '\\ No newline at end of file');
+      const olds = body.filter((l) => l.startsWith('-'));
+      const news = body.filter((l) => l.startsWith('+'));
+      if (olds.length + news.length !== body.length || olds.length > 1 || news.length > 1) return part;
+      if (lines.slice(at + 1).some((l) => l.startsWith('@@'))) return part;
+      let before;
+      let after;
+      try {
+        before = olds.length ? JSON.parse(olds[0].slice(1)) : null;
+        after = news.length ? JSON.parse(news[0].slice(1)) : null;
+      } catch {
+        return part;
+      }
+      const { readable, how } = GENERATED_JSON[m[1]];
+      const [was, now] = [readable(before), readable(after)];
+      if (was === undefined || now === undefined) return part; // not in the form `readable` can translate: whole
+      const changes = groupedChanges(was, now);
+      const head = lines.slice(1, at).filter((l) => !/^(--- |\+\+\+ )/.test(l));
+      const out = [
+        `diff --git a/${m[1]} b/${m[1]}`,
+        ...head,
+        `[generated one-line JSON, ${Buffer.byteLength(part)} bytes of diff; summarised by the CI review job from its old and new lines: every entry added (+), removed (-) or changed (~), ${changes.length} in all; ${how}; paths of one section that gain and lose exactly the same entries are one ~ line naming every such path]`,
+        ...changes,
+        '',
+      ].join('\n');
+      return Buffer.byteLength(out) < Buffer.byteLength(part) ? out : part;
+    })
+    .join('');
+}
 
 /** The structured answer the reviewer must give (the reviewer CLI, -p --json-schema). */
 export const VERDICT_SCHEMA = {
@@ -405,7 +571,7 @@ async function cmdDiff(dir) {
   };
   console.log(
     await writeReviewInputs(dir, {
-      diff: r.text,
+      diff: summarizeGenerated(r.text),
       base: pull.base,
       head: pull.head,
       pr: pull.number,
@@ -488,20 +654,13 @@ function cmdJudge(dir) {
   }
 }
 
-async function cmdRerunSeal() {
-  const { rerunSeal } = await import('./seal-rerun.mjs');
-  const pull = eventPull(JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')), process.env.GITHUB_REPOSITORY);
-  console.log(await rerunSeal(process.env.GITHUB_REPOSITORY, pull.head, { number: pull.number }));
-}
-
 async function main() {
   const [cmd, dir] = process.argv.slice(2);
   if (cmd === 'index') return indexHead(dir);
   if (cmd === 'diff') return cmdDiff(dir);
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
-  if (cmd === 'rerun-seal') return cmdRerunSeal();
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | rerun-seal');
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir>');
   process.exit(2);
 }
 

@@ -456,11 +456,18 @@ export function changedNames(text, lines) {
 
 // ── The step words ────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** One acceptance file's steps: Map<'J-x-01 #3', { title, does, sees }>. Only the "does" and "sees" cells. */
+/** The journey lines the proof reader reads besides the step's row (step-read.mjs; project-state READER.md step 3). */
+export const WORD_FIELDS = ['Starts', 'Ends', 'Money', 'Outside'];
+
+/**
+ * One acceptance file's steps: Map<'J-x-01 #3', { title, does, sees, fields }>: the "does" and "sees" cells, and the
+ * journey's Starts, Ends, Money and Outside lines (`fields`, the first of each), which only the proof read uses.
+ */
 export function parseStepWords(md) {
   const out = new Map();
   let journey = null;
   let title = '';
+  let fields = {};
   let cols = null;
   const cells = (line) =>
     line
@@ -475,9 +482,13 @@ export function parseStepWords(md) {
       journey = h[1];
       title = h[2].trim();
       cols = null;
+      fields = {};
       continue;
     }
     if (/^#{1,2}\s/.test(line)) journey = null;
+    const f = journey && /^- ([A-Za-z]+):\s*(.*)$/.exec(line);
+    // The journey's lines sit above its table, so each step row shares the same object, filled in before it.
+    if (f && WORD_FIELDS.includes(f[1]) && !(f[1] in fields)) fields[f[1]] = f[2].replace(/\s+/g, ' ').trim();
     if (!journey || !line.trim().startsWith('|')) continue;
     const c = cells(line);
     if (c[0] === '#') {
@@ -486,7 +497,7 @@ export function parseStepWords(md) {
       continue;
     }
     if (!cols || !/^\d+$/.test(c[0])) continue;
-    out.set(`${journey} #${Number(c[0])}`, { title, does: c[cols.does] ?? '', sees: c[cols.sees] ?? '' });
+    out.set(`${journey} #${Number(c[0])}`, { title, does: c[cols.does] ?? '', sees: c[cols.sees] ?? '', fields });
   }
   return out;
 }

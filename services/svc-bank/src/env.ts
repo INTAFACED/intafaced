@@ -1,5 +1,6 @@
 import { TEST_PARTNER_SETTINGS } from './partner/test-partner.js';
 import { z } from 'zod';
+import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
@@ -248,6 +249,26 @@ const schema = serviceEnvSchema
        * Refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production (`partner/test-partner.ts`).
        */
       BANK_TEST_PARTNER: z.enum(TEST_PARTNER_SETTINGS).default('off'),
+
+      /**
+       * THE CUSTODY SWITCH (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any
+       * value but `on` or `off` refuses to start. Off: INTAFACED holds no customer money, so svc-bank posts no customer
+       * balance and refuses `bank.no_partner_bank` by name before svc-ledger would refuse `ledger.custody_layer_off`, and a card
+       * authorisation for a person whose money no partner holds refuses `bank.partner_unset`. A
+       * person the TEST partner holds money for (`custody: 'off'`) is read and moved at the partner either way. The local
+       * TEST stack pins `on`, as it does for svc-ledger, so the custodial journeys marked Later still run.
+       */
+      LEDGER_CUSTODY_LAYER: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseCustodyLayer(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : String(err) });
+            return z.NEVER;
+          }
+        }),
 
       /**
        * WHO PRICES ADD MONEY ON A TEST STACK. `none` (default) | `ramp-sim` (J-bank-02 #4).
@@ -515,6 +536,18 @@ const schema = serviceEnvSchema
       BANK_CARD_SPEND_ASSETS: z.string().optional(),
 
       /**
+       * The owner's count of wrong PIN tries in a row that block a card's PIN (J-bank-14 #3), a whole number from 1 to 10.
+       * NO DEFAULT. Blank or malformed → an authorisation that carries a PIN declines `bank.card_pin_try_limit_unset`.
+       */
+      BANK_CARD_PIN_TRY_LIMIT: z.string().optional(),
+
+      /**
+       * The owner's count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5), a whole number from 1 to 10.
+       * NO DEFAULT. Blank or malformed → answering a challenge refuses `bank.card_3ds_try_limit_unset`.
+       */
+      BANK_CARD_3DS_TRY_LIMIT: z.string().optional(),
+
+      /**
        * The owner's card dispute cap per asset as JSON (J-bank-27 #4): `{ "USDC": "100.00" }`, the most one dispute may be
        * provisionally credited or decided for the cardholder. NO DEFAULT. Blank, or an asset it leaves out, refuses
        * `bank.card_dispute_cap_unset`; a malformed value refuses to start.
@@ -527,6 +560,13 @@ const schema = serviceEnvSchema
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
        */
       BANK_EARN_RISK_WORDING_JSON: z.string().optional(),
+
+      /**
+       * The owner's notice for a person in a blocked region who opens a transfer (BK-safe-01, J-bank-18 #1): plain text.
+       * NO DEFAULT. Blank / unset → the notice names the restriction and says the wording is not published; the bank's
+       * doors refuse there either way (`denied.region_blocked`), so the wording never decides who is blocked.
+       */
+      BANK_BLOCKED_REGION_NOTICE: z.string().optional(),
 
       /**
        * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /

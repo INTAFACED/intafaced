@@ -1,9 +1,24 @@
 name: Main bisect
 
-# Started by Main trust when a main run has failed twice. Walks the commits between the last green and the red one with
-# a binary search, running only the failing test files at each probe, and comments the first commit where they fail on
-# its pull request and on the "Main is red" issue. It reverts nothing and changes no test.
-# See tooling/ci/bisect-main.mjs. workflow_dispatch can only be started by a person with write access or by Main trust.
+# Two searches, both started by Main trust; workflow_dispatch can only be started by a person with write access or by
+# Main trust.
+#
+# CI (`tests`, `jobs`): when a CI run on main has failed twice. Walks the commits between the last green and the red one
+# with a binary search, running only the failing test files, or a failed job's own command (bisect-main.mjs
+# JOB_PROBES: Doctrine gates runs `pnpm gates`), at each probe, and comments the first commit where they fail on its
+# pull request and on the "Main is red" issue. With the red run named (`red_run`, which Main trust passes), the same
+# revert job as the journeys opens that commit's revert, so a red CI on main is undone within OWNER 180's 2 hours too.
+# It changes no test. See tooling/ci/bisect-main.mjs.
+#
+# Real-app journeys (`journeys`): when a journey step that passed on main failed outright in two runs in a row (Main
+# trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
+# and the first failing commit that broke it (one commit; else the commits whose files reach the failing journeys; else
+# a binary search that runs those journey files on a stack), and opens its revert with squash auto-merge, through the
+# normal merge seal (OWNER 249 (3): "a red main is reverted"). Never more than one revert per red, never a revert of a
+# revert, never a push to main. The revert opens with a token of the App intafaced-mac-agents, minted from its key in
+# the `ci-review` environment (INTAFACED_APP_KEY, the key ci-review.yml mints with), whose deployment rule allows main
+# alone, so only main's copy of this file can open one; `base` lets a person prove it on a test branch.
+# (Failure it prevents: before this, a red journeys run on main named its commits in an issue and nothing reverted.)
 on:
   workflow_dispatch:
     inputs:
@@ -14,20 +29,41 @@ on:
         description: Red commit (full sha)
         required: true
       tests:
-        description: Failing test files, one repo-relative path per line
-        required: true
+        description: Failing unit test files, one repo-relative path per line (the unit-test bisect)
+        required: false
+        default: ''
+      jobs:
+        description: 'Failed CI jobs searched by their own command, comma-separated (bisect-main.mjs JOB_PROBES, e.g. Doctrine gates)'
+        required: false
+        default: ''
+      journeys:
+        description: 'Failing journey steps, comma-separated, e.g. J-wallet-05#2 (the journeys revert)'
+        required: false
+        default: ''
+      red_run:
+        description: The run that failed on the bad commit (Real-app journeys for the journeys revert, CI for the unit-test bisect)
+        required: false
+        default: ''
+      base:
+        description: The branch the red run ran on, and the revert targets (the journeys revert)
+        required: false
+        default: main
 
 permissions: {}
 
 concurrency:
-  group: main-bisect
+  # The unit-test bisect keeps its one group; each journeys red gets its own, so one red never replaces another's.
+  group: ${{ inputs.journeys != '' && format('main-bisect-journeys-{0}-{1}', inputs.base, inputs.bad) || 'main-bisect' }}
   cancel-in-progress: false
 
 jobs:
   bisect:
     name: Bisect main
+    if: inputs.journeys == '' && (inputs.tests != '' || inputs.jobs != '')
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      culprit: ${{ steps.bisect.outputs.culprit }}
     permissions:
       contents: read
       issues: write # comment on the "Main is red" issue
@@ -62,7 +98,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/test-infra
@@ -70,9 +106,149 @@ jobs:
       - name: Keep the bisect script outside the checkout
         run: cp tooling/ci/bisect-main.mjs "$RUNNER_TEMP/bisect-main.mjs"
       - name: Bisect
+        id: bisect
         env:
           GOOD: ${{ inputs.good }}
           BAD: ${{ inputs.bad }}
           TESTS: ${{ inputs.tests }}
+          JOBS: ${{ inputs.jobs }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node "$RUNNER_TEMP/bisect-main.mjs"
+
+  revert-find:
+    name: 'Journeys revert: find the culprit'
+    if: inputs.journeys != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: under a minute
+    permissions:
+      contents: read
+      actions: read # the red run and its journey report
+    outputs:
+      culprit: ${{ steps.find.outputs.culprit }}
+      probe: ${{ steps.find.outputs.probe }}
+      candidates: ${{ steps.find.outputs.candidates }}
+      files: ${{ steps.find.outputs.files }}
+      steps: ${{ steps.find.outputs.steps }}
+    steps:
+      # This workflow's own commit, never the red one: the red commit is only read through git.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Find the culprit
+        id: find
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOD: ${{ inputs.good }}
+          BAD: ${{ inputs.bad }}
+          STEPS: ${{ inputs.journeys }}
+          RED_RUN: ${{ inputs.red_run }}
+          BASE: ${{ inputs.base }}
+        run: node tooling/ci/journeys-revert.mjs find
+
+  # Several commits can reach the failing journeys: run those journey files on them by binary search, each probe on a
+  # fresh stack set up as a Real-app journeys shard sets it up. Old commits run as code here, so no GitHub token.
+  revert-probe:
+    name: 'Journeys revert: probe the candidates'
+    needs: revert-find
+    if: needs.revert-find.outputs.probe == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300 # about 20 minutes a probe; 200 commits take at most 9 probes
+    permissions:
+      contents: read
+    outputs:
+      culprit: ${{ steps.probe.outputs.culprit }}
+    env:
+      INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+      INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+    steps:
+      - name: Paths
+        run: |
+          {
+            echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
+            echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
+            echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
+            echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
+            echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
+          } >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The search checks out older commits; keep the probe (from this workflow's commit) out of the way.
+      - name: Keep the probe outside the checkout
+        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      - name: Fetch the base
+        env:
+          BASE: ${{ inputs.base }}
+        run: git fetch --quiet --no-tags origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Put pnpm next to node
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      - name: Get a nats-server binary
+        run: |
+          docker create --name nats-src nats:2.10.24-alpine
+          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
+          docker rm nats-src
+          chmod +x "$LOCAL_STACK_NATS_BIN"
+      - name: Get an anvil launcher
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOF
+          chmod +x "$LOCAL_STACK_ANVIL_BIN"
+      - name: Install, and the browser's system packages
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Probe
+        id: probe
+        env:
+          CANDIDATES: ${{ needs.revert-find.outputs.candidates }}
+          FILES: ${{ needs.revert-find.outputs.files }}
+          STEPS: ${{ needs.revert-find.outputs.steps }}
+        run: PROBE_SH="$RUNNER_TEMP/journeys-revert-probe.sh" node "$RUNNER_TEMP/journeys-revert-probe.mjs"
+      - name: Stop the stack
+        if: always()
+        run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  revert-open:
+    name: 'Revert on main: open the revert'
+    # One revert for both reds on main: a journeys step (revert-find, revert-probe) or a CI job (bisect, with red_run).
+    needs: [revert-find, revert-probe, bisect]
+    if: ${{ !cancelled() && (needs.revert-find.outputs.culprit != '' || needs.revert-probe.outputs.culprit != '' || (needs.bisect.outputs.culprit != '' && inputs.red_run != '')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: under a minute
+    # An App token: a pull request opened with GITHUB_TOKEN starts no workflow, so its seal would never run. The App's
+    # key is INTAFACED_APP_KEY in the `ci-review` environment, which allows main alone (the `factory` environment holds
+    # no FACTORY_APP_KEY, so the revert could never open: run 42637865386).
+    environment: ci-review
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Open the revert
+        env:
+          FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
+          CULPRIT: ${{ needs.revert-find.outputs.culprit || needs.revert-probe.outputs.culprit || needs.bisect.outputs.culprit }}
+          KIND: ${{ inputs.journeys != '' && 'journeys' || 'ci' }}
+          STEPS: ${{ needs.revert-find.outputs.steps }}
+          TESTS: ${{ inputs.tests }}
+          JOBS: ${{ inputs.jobs }}
+          RED_RUN: ${{ inputs.red_run }}
+          BASE: ${{ inputs.base }}
+        run: node tooling/ci/journeys-revert.mjs open

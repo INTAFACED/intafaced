@@ -66,6 +66,14 @@
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
     },
+    "./protocol-liquidity": {
+      "types": "./dist/protocol-liquidity.d.ts",
+      "default": "./dist/protocol-liquidity.js"
+    },
+    "./protocol-swap-v2": {
+      "types": "./dist/protocol-swap-v2.d.ts",
+      "default": "./dist/protocol-swap-v2.js"
+    },
     "./protocol-dex-orders": {
       "types": "./dist/protocol-dex-orders.d.ts",
       "default": "./dist/protocol-dex-orders.js"
@@ -77,6 +85,14 @@
     "./protocol-address-risk": {
       "types": "./dist/protocol-address-risk.d.ts",
       "default": "./dist/protocol-address-risk.js"
+    },
+    "./protocol-embedded-wallet": {
+      "types": "./dist/protocol-embedded-wallet.d.ts",
+      "default": "./dist/protocol-embedded-wallet.js"
+    },
+    "./protocol-sessions": {
+      "types": "./dist/protocol-sessions.d.ts",
+      "default": "./dist/protocol-sessions.js"
     },
     "./protocol-venue-wallet": {
       "types": "./dist/protocol-venue-wallet.d.ts",
@@ -298,6 +314,10 @@
       "types": "./dist/agents-own.d.ts",
       "default": "./dist/agents-own.js"
     },
+    "./agents-onchain": {
+      "types": "./dist/agents-onchain.d.ts",
+      "default": "./dist/agents-onchain.js"
+    },
     "./agents-usage-limits": {
       "types": "./dist/agents-usage-limits.d.ts",
       "default": "./dist/agents-usage-limits.js"
@@ -357,6 +377,10 @@
     "./trade-errors": {
       "types": "./dist/trade-errors.d.ts",
       "default": "./dist/trade-errors.js"
+    },
+    "./spot-order-types": {
+      "types": "./dist/spot-order-types.d.ts",
+      "default": "./dist/spot-order-types.js"
     },
     "./auth-errors": {
       "types": "./dist/auth-errors.d.ts",

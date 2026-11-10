@@ -43,6 +43,7 @@ export interface SettingsEnv {
   readonly ACADEMY_LESSON_IMPORT_MAX_BYTES?: number | undefined;
   readonly ACADEMY_UPLOAD_MAX_BYTES?: number | undefined;
   readonly ACADEMY_TOPICS_LIST_LIMIT?: number | undefined;
+  readonly ACADEMY_GRANT_AUDIT_PAGE_SIZE?: number | undefined;
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
   readonly ACADEMY_GRADE_REPORT_ROWS?: number | undefined;
   readonly ACADEMY_BULK_FILE_MAX_BYTES?: number | undefined;
@@ -205,6 +206,13 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.import_limit_unset',
+    },
+    {
+      key: 'grant_audit_page_size',
+      state: state(positiveInt(env.ACADEMY_GRANT_AUDIT_PAGE_SIZE)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.grant_audit_list_limit_unset',
     },
     {
       key: 'topics_list_limit',

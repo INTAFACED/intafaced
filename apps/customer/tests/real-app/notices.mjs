@@ -46,12 +46,15 @@ export async function draftNotice({
   asset = null,
   network = null,
   phase = null,
+  noEnd = false,
+  translations = null,
+  changelog = null,
 }) {
   // A fee change names the time it takes effect and has no end; every other notice gets a short window.
   const feeChange = kind === 'fee_change';
   if (feeChange && !startsAt) throw new Error('a fee_change notice needs the `startsAt` it takes effect');
   if (feeChange && endsAt !== null) throw new Error('a fee_change notice has no `endsAt`: svc-notify refuses one');
-  if (!feeChange && endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
+  if (!feeChange && !noEnd && endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes`, an `endsAt` or `noEnd`');
   const { ctx, pair } = await founders();
   const now = Date.now();
   const res = await ctx.edge.mutate(
@@ -62,7 +65,8 @@ export async function draftNotice({
       title,
       body,
       startsAt: startsAt ?? new Date(now - 60_000).toISOString(),
-      ...(feeChange ? {} : { endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString() }),
+      // `noEnd`: a window published with no end time (the page reads "End time not set", J-cex-spot-14 #5).
+      ...(feeChange || noEnd ? {} : { endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString() }),
       ...(impact ? { impact } : {}),
       ...(components.length ? { components } : {}),
       ...(parentId ? { parentId } : {}),
@@ -71,11 +75,18 @@ export async function draftNotice({
       ...(audience ? { audience } : {}),
       ...(asset ? { asset, network } : {}),
       ...(phase ? { phase } : {}),
+      ...(translations ? { translations } : {}),
+      ...(changelog ? { changelog } : {}),
       clientRequestId: `journey:notice-draft:${key}`,
     },
     await pair.a.tradeOpsToken(),
   );
-  return { ...data(res, 'notify.draftNotice'), statusFields: { impact, components, parentId, resolves } };
+  // The draft's answer leaves its other-language text out; the hash needs it as sent (already trimmed by the caller).
+  return {
+    ...data(res, 'notify.draftNotice'),
+    statusFields: { impact, components, parentId, resolves },
+    ...(translations ? { translations } : {}),
+  };
 }
 
 /** Four-eyes publish of a draft: A proposes, B approves, A publishes. Returns the published row. */
@@ -110,6 +121,18 @@ export async function publishNotice(row, key) {
     await pair.a.tradeOpsToken(),
   );
   return data(res, 'notify.publishNotice');
+}
+
+/** An operator cancels a published maintenance window (svc-notify `statusPage.maintenance.move`), so it is served no more. */
+export async function cancelMaintenance(row, reason) {
+  const { ctx, pair } = await founders();
+  const res = await ctx.edge.mutate(
+    'notify',
+    'statusPage.maintenance.move',
+    { id: row.id, to: 'cancelled', reason },
+    await pair.a.tradeOpsToken(),
+  );
+  return data(res, 'statusPage.maintenance.move');
 }
 
 /** What the public board holds open right now: { incidents, maintenance, announcement }. */

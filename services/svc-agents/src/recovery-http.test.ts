@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAgentsRouter, type AgentsRouterDeps } from './router.js';
 import { NO_TIER_LAWS } from './tier-laws.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 const SECRET = 'agents-recovery-http-fixture-edge-secret';
 const USER = '11111111-1111-4111-8111-111111111111';
 const NOW = '2026-10-12T00:00:00.000Z';

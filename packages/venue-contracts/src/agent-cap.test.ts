@@ -40,6 +40,15 @@ const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserV
   lotSize: A('0.0001'),
   makerFeeBps: { known: false },
   takerFeeBps: { known: false },
+  status: null,
+  maxOrderQty: null,
+  maxOrderNotional: null,
+  builderFeeCapBps: { known: false },
+  listedBy: { known: false },
+  oracleRule: { known: false },
+  markRule: { known: false },
+  tradingHours: { known: false },
+  feed: { known: false },
 });
 
 interface World {

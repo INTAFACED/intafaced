@@ -11,6 +11,7 @@ import {
   NOTHING_REPORTED,
   NOT_KNOWN,
   cardSimPartnerFor,
+  parsePinTryLimit,
   parseSpendAssets,
   partnerTermsView,
   payFromAssets,
@@ -27,6 +28,7 @@ const UNKNOWN = {
   funder: null,
   balances: null,
   programmeFigures: null,
+  figuresAsOf: null,
   fundingAssetId: null,
   fundingOffers: null,
 };
@@ -80,11 +82,28 @@ describe('programme reserve switch: unknown is "not known", never 0 (J-bank-26 #
   });
 
   it('a required reserve shows its amount; none required says so in words, not as 0', () => {
-    const required = partnerTermsView(cardSimPartnerFor(json({ reserve: { required: true, amount: '25000.00', assetId: 'USDC' } }), DEV));
+    const required = partnerTermsView(
+      cardSimPartnerFor(json({ figuresAsOf: 'now', reserve: { required: true, amount: '25000.00', assetId: 'USDC' } }), DEV),
+    );
     expect(required.reserve).toBe('25000.00 USDC, as the partner reports');
-    const none = partnerTermsView(cardSimPartnerFor(json({ reserve: { required: false } }), DEV));
+    const none = partnerTermsView(cardSimPartnerFor(json({ figuresAsOf: 'now', reserve: { required: false } }), DEV));
     expect(none.reserve).toBe('None required, as the partner reports');
     expect(none.reserveStatus).toBe('reported');
+  });
+
+  it('b2 change 6: a reserve the partner sent with no time for it reads "not known", required or not', () => {
+    for (const reserve of [{ required: true, amount: '25000.00', assetId: 'USDC' }, { required: false }]) {
+      const view = partnerTermsView(cardSimPartnerFor(json({ reserve }), DEV));
+      expect(view).toMatchObject({ reserve: NOT_KNOWN, reserveStatus: 'not_known' });
+    }
+  });
+
+  it('b2 change 6: the partner time is now, an ISO time, or null; anything else refuses boot, and the limit is declared', () => {
+    expect(cardSimPartnerFor(json({ figuresAsOf: '2026-11-10T08:00:00.000Z' }), DEV).figuresAsOf).toBe('2026-11-10T08:00:00.000Z');
+    expect(cardSimPartnerFor(json({ figuresAsOf: 'now' }), DEV).figuresStaleAfterMs).toBeGreaterThan(0);
+    expect(() => cardSimPartnerFor(json({ figuresAsOf: 'yesterday' }), DEV)).toThrow(/figuresAsOf/);
+    const { figuresAsOf: _dropped, ...missing } = UNKNOWN;
+    expect(() => cardSimPartnerFor(JSON.stringify(missing), DEV)).toThrow(/figuresAsOf/);
   });
 
   it('a required reserve of zero is refused: a partner that requires none says required: false', () => {
@@ -198,5 +217,30 @@ describe('Pay from names the real blocker first', () => {
   it('card-sim on a test posture and no owner list: bank.card_spend_assets_unset', async () => {
     const cards = new CardService(noSql, ledger, { issuer: cardIssuerFor('card-sim', { live: false }), spendAssets: null });
     await expect(cards.payFrom('u')).rejects.toMatchObject({ code: 'bank.card_spend_assets_unset' });
+  });
+});
+
+describe('the TEST partner card details, PIN and wallet switch (J-bank-14 #3, #4)', () => {
+  it('offers TEST card details, PIN and wallet only with secrets: "test"; absent offers none', () => {
+    const withSecrets = cardSim({ partner: cardSimPartnerFor(json({ secrets: 'test' }), DEV) });
+    expect(withSecrets.testSecrets).toBe(true);
+    expect(withSecrets.revealCredentials && withSecrets.setPin && withSecrets.verifyPin && withSecrets.provisionWallet).toBeTruthy();
+    const without = cardSim({ partner: cardSimPartnerFor(json({}), DEV) });
+    expect(without.testSecrets).toBeUndefined();
+    expect(
+      without.revealCredentials ?? without.revealPin ?? without.setPin ?? without.verifyPin ?? without.provisionWallet,
+    ).toBeUndefined();
+  });
+
+  it('refuses any other secrets value, and the switch outside dev or test', () => {
+    expect(() => cardSimPartnerFor(json({ secrets: 'live' }), DEV)).toThrow(/not in shape/);
+    expect(() => cardSimPartnerFor(json({ secrets: 'test' }), { APP_ENV: 'prod' })).toThrow(/refuses to start/);
+    expect(() => cardSimPartnerFor(json({ secrets: 'test' }), { APP_ENV: 'dev', NODE_ENV: 'production' })).toThrow(/refuses to start/);
+  });
+
+  it('the owner PIN try limit is a whole number 1 to 10, else not set', () => {
+    expect(parsePinTryLimit('3')).toBe(3);
+    expect(parsePinTryLimit(' 10 ')).toBe(10);
+    for (const bad of [undefined, null, '', '0', '11', '2.5', '-1', 'three']) expect(parsePinTryLimit(bad)).toBeNull();
   });
 });

@@ -113,6 +113,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
   // Spot: public
   { name: 'fetchMarkets', method: 'GET', path: '/api/v1/markets', product: 'spot', access: 'public', summary: 'Listed markets' },
   {
+    name: 'fetchOrderTypes',
+    method: 'GET',
+    path: '/api/v1/order-types',
+    product: 'spot',
+    access: 'public',
+    summary: 'The spot order types the ticket shows, how each is sent and its times in force, then each type refused',
+  },
+  {
     name: 'fetchTicker',
     method: 'GET',
     path: '/api/v1/ticker/:symbol',
@@ -127,6 +135,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'public',
     summary: 'Tickers of every market with a book',
+  },
+  {
+    name: 'fetchSpreads',
+    method: 'GET',
+    path: '/api/v1/spreads',
+    product: 'spot',
+    access: 'public',
+    summary: 'The bid-ask spread of every market with a book',
+  },
+  {
+    name: 'fetchMarketAnalytics',
+    method: 'GET',
+    path: '/api/v1/analytics/:symbol',
+    product: 'spot',
+    access: 'public',
+    summary: 'One market’s aggressor differential and trade count over a named window',
   },
   {
     name: 'fetchOrderBook',
@@ -921,6 +945,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The most your wallet has approved for our builder fee on the venue',
   },
   {
+    name: 'venueMarketVenues',
+    method: 'GET',
+    path: '/api/v1/venue/markets/:symbol/venues',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Every venue for one market: its price, depth and fees as it reports them, whether you can sign there, and whether it is up',
+  },
+  {
+    name: 'venueRoutePreview',
+    method: 'POST',
+    path: '/api/v1/venue/route-preview',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Which venue your order goes to, its expected fill and fees, and why that venue',
+  },
+  {
     name: 'venueWithdrawal',
     method: 'GET',
     path: '/api/v1/venue/withdrawals/:nonce',
@@ -935,6 +975,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'What an order would lock and its fee lines, from the venue’s own figures. Sends nothing',
+  },
+  {
+    name: 'venueConvertSellQuote',
+    method: 'POST',
+    path: '/api/v1/venue/convert/sell-quote',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The venue’s own price for selling an amount on your venue account now: what fills, its average price and fees, or "not known". Sends nothing',
   },
   {
     name: 'venuePrepare',
@@ -952,6 +1001,47 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'Send the signed action. An answer that is not definite comes back with how to read it back; it is never sent as a new action',
+  },
+  {
+    name: 'venueOrders',
+    method: 'GET',
+    path: '/api/v1/venue/orders',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your orders sent through the venue door, oldest first, a page at a time by cursor; each order once',
+  },
+  {
+    name: 'venueOrderByKey',
+    method: 'GET',
+    path: '/api/v1/venue/orders/by-key',
+    product: 'accounts',
+    access: 'private',
+    summary: 'One order by its Idempotency-Key or action key: accepted with the venue’s record, or unknown until the venue answers',
+  },
+  {
+    name: 'venueSession',
+    method: 'GET',
+    path: '/api/v1/venue/session',
+    product: 'accounts',
+    access: 'private',
+    summary: 'This sign-in’s trading session: its key’s address and expiry, read against the venue’s own agent list',
+  },
+  {
+    name: 'venueSessionStart',
+    method: 'POST',
+    path: '/api/v1/venue/session/start',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Your wallet’s one approval for a fresh session key that can trade and never withdraw. Takes the key’s address only; signed-in session only',
+  },
+  {
+    name: 'venueSessionEnd',
+    method: 'POST',
+    path: '/api/v1/venue/session/end',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your wallet’s revoke of this sign-in’s session key. A key once used is never approved again',
   },
   // Accounts
   {

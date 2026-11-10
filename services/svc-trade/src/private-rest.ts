@@ -86,6 +86,7 @@ import { orderIdFor } from './spot/ids.js';
 import type { OrderHold } from './spot/order-holds.js';
 import type { EdgeTrust } from './edge-trust.js';
 import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
+import { refuseRetailPriceImprovement } from './spot/rpi.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
 import type { OrderLink } from './spot/order-links.js';
 import { readOcoFromBody } from './spot/oco-place.js';
@@ -94,7 +95,8 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
-import type { UserVenueDoor } from './venue/user-venue-door.js';
+import type { UserVenueRouter } from './venue/venue-router.js';
+import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -200,7 +202,9 @@ export interface PrivateRestDeps {
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
-  userVenue?: UserVenueDoor | null;
+  userVenue?: UserVenueRouter | null;
+  /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
+  venueSellQuotes?: VenueSellQuotes | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -302,6 +306,8 @@ export interface PrivateRestDeps {
    * self-only is enforced here at the edge of this surface.
    */
   userBalances(userId: string): Promise<readonly Balance[]>;
+  /** The ledger projection for one sub-account (`ownerType 'subaccount'`). Absent: a sub-account principal is refused. */
+  subAccountBalances?(subAccountId: string): Promise<readonly Balance[]>;
   /** Open futures positions for the principal (empty [] when none). Optional clientOpenId is the caller's own key. */
   listPositions(principal: Principal, symbol?: string, clientOpenId?: string): Promise<Position[]>;
   /** Closed/liquidated rows for the principal (empty [] when none). */
@@ -1345,7 +1351,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
-  attachUserVenueRoutes(app, deps.userVenue ?? null, { requirePrincipal, requireTradeJurisdiction });
+  attachUserVenueRoutes(app, deps.userVenue ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    sellQuotes: deps.venueSellQuotes ?? null,
+  });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {
@@ -1699,7 +1709,19 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     try {
       requireScope(principal, 'trade:read');
-      const rows = await deps.userBalances(principal.userId);
+      // A sub-account-bound key's token names its key and its sub-account: it reads that account's balance and no other
+      // (DV-sub-accounts-01). A missing sub-account door refuses rather than answering with the person's own balance.
+      // A signed-in tab using a sub-account (no key) keeps reading the person's own balance, as before this journey:
+      // the copy wizard's free-balance check reads it (J-copy-bots-otc-01 #5).
+      const keySubAccount = principal.kid ? principal.sub_account : undefined;
+      if (keySubAccount && !deps.subAccountBalances) {
+        return sendCcxt(reply, {
+          status: 403,
+          body: { code: 'PermissionDenied', message: 'Sub-account balances are not served here', intafacedCode: 'ownership.denied' },
+        });
+      }
+      const rows =
+        keySubAccount && deps.subAccountBalances ? await deps.subAccountBalances(keySubAccount) : await deps.userBalances(principal.userId);
       const serverTime = stampServerTime(reply, deps);
       return reply.code(200).send({ ...presentCcxtBalances(rows, new Date(serverTime)), serverTime });
     } catch (err) {
@@ -2560,6 +2582,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       try {
         refuseExitLegs(rawItem);
         const now = (deps.now ?? (() => new Date()))();
+        refuseRetailPriceImprovement(rawItem);
         const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
         refuseUnsupportedPlacementOptions(parsed.data, now, replay);
         input = withFeeCurrency(mapCreateOrderBody(parsed.data), await feeCurrencyFor(deps, parsed.data, rawItem));
@@ -2890,6 +2913,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let stopTrigger: string | null = null;
     try {
       const now = (deps.now ?? (() => new Date()))();
+      refuseRetailPriceImprovement(rawBody);
       const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
       refuseUnsupportedPlacementOptions(parsed.data, now, replay);
       const feeCurrency = await feeCurrencyFor(deps, parsed.data, rawBody);
@@ -3213,6 +3237,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let input: PlaceOrderInput;
     try {
       refuseOptionsOnReplacement(parsed.data);
+      refuseRetailPriceImprovement(rawBody);
       if (hasSpentExpiry(parsed.data, (deps.now ?? (() => new Date()))())) {
         throw new TradeError('the order expiry is not in the future; nothing was replaced', 'trade.invalid_expiry');
       }

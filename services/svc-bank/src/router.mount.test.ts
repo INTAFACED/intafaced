@@ -548,6 +548,8 @@ describe('svc-bank mount — treasury value mutates identity consume', () => {
             returned: parseAmount('0'),
             captureLedgerTxId: 'tx-cap',
             reversalLedgerTxId: null,
+            heldBy: 'ledger',
+            partner: null,
             settlement: null,
             cashback: { status: 'none', amount: parseAmount('0') },
             roundUp: { status: 'none', amount: parseAmount('0') },
