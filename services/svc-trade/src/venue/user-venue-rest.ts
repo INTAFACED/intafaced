@@ -13,10 +13,9 @@
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
  *   POST /api/v1/venue/submit    { actionKey, signature }
  *
- * Reads need trade:read, writes trade:write. The venue's market data (`markets`, `best-prices`) needs only that, as
- * today's market list is open to every signed-in person: a desk can open, and refuse an order in plain words, before
- * the person is verified (J-cex-spot-01 #2). Every account read and every write also needs the trade jurisdiction (as
- * the grid's routes do). Every Amount travels as a decimal string (`encodeVenueWire`). A venue refusal answers 422 with
+ * Reads need trade:read, writes trade:write, and every route but `status` the trade jurisdiction (as the grid's
+ * routes do). An unverified person's desk reads the `denied.kyc_required` refusal and shows its form with Verify
+ * (J-cex-spot-01 #2), never the venue's figures. Every Amount travels as a decimal string (`encodeVenueWire`). A venue refusal answers 422 with
  * `intafacedCode: trade.venue.<code>` and the venue's `refusal` (503 for `venue_down`); a step-up refusal 403.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -80,8 +79,7 @@ export function venueRefusalReply(reply: FastifyReply, err: unknown) {
 }
 
 export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor | null, deps: UserVenueRestDeps): void {
-  /** Signed in with the scope; market data stops here, everything else also needs the trade jurisdiction. */
-  function scoped(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
+  function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
     try {
@@ -90,11 +88,6 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
       void venueRefusalReply(reply, error);
       return null;
     }
-    return principal;
-  }
-  function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
-    const principal = scoped(req, reply, scope);
-    if (!principal) return null;
     return deps.requireTradeJurisdiction(req, reply, principal) ? principal : null;
   }
 
@@ -131,14 +124,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
   });
 
   app.get('/api/v1/venue/markets', privateRead, async (req, reply) => {
-    // Market data needs only a signed-in read, never the trade jurisdiction: an unverified desk still shows its form.
-    if (!scoped(req, reply, 'trade:read')) return;
+    if (!admit(req, reply, 'trade:read')) return;
     // Only the markets two operators listed, each with our listing beside the venue's own state (J-cex-spot-16).
     return answer(reply, async (d) => d.markets());
   });
 
   app.get<{ Querystring: Query }>('/api/v1/venue/best-prices', privateRead, async (req, reply) => {
-    if (!scoped(req, reply, 'trade:read')) return;
+    if (!admit(req, reply, 'trade:read')) return;
     return answer(reply, async (d) => {
       if (!req.query.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();

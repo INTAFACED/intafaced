@@ -81,21 +81,26 @@ import {
   type VenueSide,
 } from './venue-desk';
 
+/** The trade jurisdiction's refusal for a person below the tier trading needs (svc-trade, packages/config). */
+const KYC_REQUIRED = 'denied.kyc_required';
+
 /** The desk's own symbol form ("BTC-USDC"), whichever way the address writes it. */
 export const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
 
 /**
  * Which spot page shows in venue mode: a neutral reading state while the venue's markets are still being read (never
  * today's custodial desk, which could take an order in that window); today's desk only when the venue does not list this
- * pair as spot; the venue's notice when the venue is down or its market list could not be read; otherwise the venue desk.
+ * pair as spot; the desk's form with Verify, and no venue figure, when the trade jurisdiction refuses the market list
+ * because the person is not verified yet; the venue's notice when the venue is down or its market list could not be read
+ * for any other reason; otherwise the venue desk.
  */
 export function spotGateChoice(
   available: boolean,
-  markets: { status: 'loading' } | { status: 'failed' } | { status: 'ready'; listed: boolean },
-): 'loading' | 'today' | 'down' | 'venue' {
+  markets: { status: 'loading' } | { status: 'failed'; code?: string } | { status: 'ready'; listed: boolean },
+): 'loading' | 'today' | 'down' | 'verify' | 'venue' {
   if (!available) return 'down';
   if (markets.status === 'loading') return 'loading';
-  if (markets.status === 'failed') return 'down';
+  if (markets.status === 'failed') return markets.code === KYC_REQUIRED ? 'verify' : 'down';
   return markets.listed ? 'venue' : 'today';
 }
 
@@ -120,10 +125,11 @@ export function VenueSpotGate({
     r.status === 'ready'
       ? { status: 'ready', listed: market !== undefined }
       : r.status === 'failed'
-        ? { status: 'failed' }
+        ? { status: 'failed', code: r.failure.code }
         : { status: 'loading' },
   );
   if (choice === 'today') return <>{fallback}</>;
+  if (choice === 'verify' && mode.status.available) return <VenueVerifyDesk status={mode.status} symbol={symbol} />;
   if (choice === 'loading') {
     return (
       <div data-testid="if-desk" className="if-desk" data-venue="on">
@@ -524,7 +530,6 @@ function VenueSideForm({
   const canSend = access === 'verified' && owner !== null && intent !== null && !busy;
   const amountPlaces = placesOf(market.lotSize);
   const pricePlaces = placesOf(market.tickSize);
-  const verify = refusalCopy('denied.kyc_required', {});
 
   async function startReview(event?: FormEvent) {
     event?.preventDefault();
@@ -620,15 +625,7 @@ function VenueSideForm({
       </Button>
       <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
         {access === 'verify' ? (
-          <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
-            <p className="dk-note-title">{verify.title}</p>
-            <p>{verify.body}</p>
-            {verify.action ? (
-              <a className="dk-link" href={verify.action.href}>
-                {verify.action.label}
-              </a>
-            ) : null}
-          </div>
+          <VerifyNote />
         ) : access === 'loading' ? (
           <p className="dk-note">{t('Checking verification')}</p>
         ) : access === 'unread' ? (
@@ -699,6 +696,107 @@ function VenueSideForm({
     </form>
   );
 }
+
+/** Why an unverified person's order button is off, with the way to Verify. */
+function VerifyNote() {
+  const verify = refusalCopy(KYC_REQUIRED, {});
+  return (
+    <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
+      <p className="dk-note-title">{verify.title}</p>
+      <p>{verify.body}</p>
+      {verify.action ? (
+        <a className="dk-link" href={verify.action.href}>
+          {verify.action.label}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The venue spot desk for a person not verified for trading. The trade jurisdiction refuses them the venue's market list
+ * and best prices, so the desk shows its layout and every control without a venue figure (fees read Not known): the
+ * order types, the buy and sell forms with Price and Amount, and each order button off with the way to Verify. Nothing
+ * here reads or sends to the venue.
+ */
+export function VenueVerifyDesk({ status, symbol }: { status: VenueUp; symbol: string }) {
+  const { t } = spotVenueCopy.useCopy();
+  const v = venueCopy.useCopy().t;
+  const d = deskCopy.useCopy().t;
+  const [type, setType] = useState<VenueOrderType>('limit');
+  const [base = symbol, quote = ''] = symbol.split('-');
+  const feeLine = v('Fee line spot', {
+    symbol,
+    maker: v('Not known'),
+    taker: v('Not known'),
+    builder: status.builder ? v('Fee bps', { bps: status.builder.feeBps }) : v('Builder fee blank spot'),
+  });
+  return (
+    <div data-testid="if-desk" className="if-desk" data-market={symbol} data-venue="on" data-access="verify">
+      <VenueHeader status={status} title={t('Spot on venue', { symbol })} feeLine={feeLine} />
+      <Tabs value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="dk-panel dk-order">
+        <div className="dk-order-head">
+          <TabsList className="dk-tabs" aria-label={t('Order type')}>
+            <TabsTab value="limit">{d('Limit')}</TabsTab>
+            <TabsTab value="market">{d('Market')}</TabsTab>
+          </TabsList>
+        </div>
+        <TabsPanel value={type} className="dk-order-body">
+          <div className="dk-forms">
+            {(['buy', 'sell'] as const).map((side) => (
+              <VerifySideForm key={side} side={side} type={type} base={base} quote={quote} />
+            ))}
+          </div>
+        </TabsPanel>
+      </Tabs>
+    </div>
+  );
+}
+
+function VerifySideForm({ side, type, base, quote }: { side: VenueSide; type: VenueOrderType; base: string; quote: string }) {
+  const d = deskCopy.useCopy().t;
+  const [price, setPrice] = useState('');
+  const [amount, setAmount] = useState('');
+  return (
+    <form
+      data-testid="dk-form"
+      className="dk-form"
+      data-side={side}
+      aria-label={side === 'buy' ? d('Buy form', { asset: base }) : d('Sell form', { asset: base })}
+      onSubmit={(event) => event.preventDefault()}
+    >
+      <AmountInput
+        label={d('Price')}
+        value={type === 'limit' ? price : ''}
+        onValueChange={setPrice}
+        precision={VERIFY_PLACES}
+        readOnly={type === 'market'}
+        disabled={type === 'market'}
+        unit={quote}
+        placeholder={type === 'market' ? d('Market price word') : undefined}
+        aria-label={d('Price')}
+      />
+      <AmountInput
+        label={d('Amount')}
+        value={amount}
+        onValueChange={setAmount}
+        precision={VERIFY_PLACES}
+        unit={base}
+        placeholder="0"
+        aria-label={d('Amount')}
+      />
+      <Button type="submit" variant={side} shape="rounded" size={40} fullWidth disabled aria-describedby={`dk-reason-${side}`}>
+        {side === 'buy' ? d('Buy asset', { asset: base }) : d('Sell asset', { asset: base })}
+      </Button>
+      <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
+        <VerifyNote />
+      </div>
+    </form>
+  );
+}
+
+/** Places a typed figure keeps on the unverified desk, where the venue's own steps were not read. */
+const VERIFY_PLACES = 8;
 
 /**
  * The review's lines, every one the venue's own preview: what it locks, the venue's fee, our builder fee as its own

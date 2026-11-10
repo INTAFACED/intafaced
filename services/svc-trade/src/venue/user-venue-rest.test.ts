@@ -63,10 +63,14 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve', slippageCapBps
 }
 
 describe('/api/v1/venue/*', () => {
-  it('unverified: the venue market data answers, so the desk opens and refuses in plain words; account reads and writes refuse', async () => {
+  it('unverified: every route but status refuses with the trade jurisdiction, market data included', async () => {
     await mount(door(), 50, false);
-    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/markets' })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/status' })).statusCode).toBe(200);
+    for (const path of ['/api/v1/venue/markets', '/api/v1/venue/best-prices?symbol=BTC-USDC']) {
+      const res = await app.inject({ method: 'GET', url: path });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().intafacedCode).toBe('denied.kyc_required');
+    }
     const balances = await app.inject({ method: 'GET', url: `/api/v1/venue/balances?owner=${owner}` });
     expect(balances.statusCode).toBe(403);
     expect(balances.json().intafacedCode).toBe('denied.kyc_required');

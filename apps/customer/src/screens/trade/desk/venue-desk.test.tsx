@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { AsOf, OrderIntent, VenueMarket, VenuePreview } from '../../../features/trade/venue-api';
-import { VenueReviewRows, WithdrawalLine } from './VenueSpotDesk';
+import type { AsOf, OrderIntent, VenueMarket, VenuePreview, VenueUp } from '../../../features/trade/venue-api';
+import { VenueReviewRows, VenueVerifyDesk, WithdrawalLine } from './VenueSpotDesk';
 import {
   HeldDraft,
   depositTransfer,
@@ -248,5 +248,32 @@ describe('a withdrawal confirms it’s you before the wallet is asked', () => {
     expect(pending).toContain('data-nonce="1731"');
     expect(text(pending)).toContain('Pending on the venue');
     expect(text(pending)).toContain('Venue withdrawal fee not known');
+  });
+});
+
+describe('a person not verified for trading', () => {
+  it('sees the venue desk’s forms with Price and Amount, each order button off with the way to Verify, and no venue figure', () => {
+    const status = {
+      available: true,
+      venue: { id: 'test-venue', displayName: 'TEST venue' },
+      test: true,
+      builder: null,
+    } as unknown as VenueUp;
+    const html = renderToStaticMarkup(<VenueVerifyDesk status={status} symbol="BTC-USDC" />);
+    const shown = text(html);
+    expect(html).toContain('data-access="verify"');
+    expect(html.match(/aria-label="Price"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Amount"/g)).toHaveLength(2);
+    expect(html).toMatch(
+      /<button[^>]*disabled[^>]*aria-describedby="dk-reason-buy"[^>]*>|<button[^>]*aria-describedby="dk-reason-buy"[^>]*disabled/,
+    );
+    expect(shown).toContain('Buy BTC');
+    expect(shown).toContain('Sell BTC');
+    expect(html.match(/id="dk-reason-(buy|sell)"/g)).toHaveLength(2);
+    expect(shown).toContain('Verify your identity first');
+    expect(shown).toContain('Verify now');
+    // The venue's fees were not read: they read Not known, never a figure.
+    expect(shown).toContain('maker not known, taker not known');
+    expect(shown).not.toMatch(/\d+(\.\d+)? bps/);
   });
 });
