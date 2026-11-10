@@ -18,9 +18,13 @@ import {
   retainRawBody,
   SUPPORT_WITHDRAWAL_FREEZE_CALLERS,
   SUPPORT_WITHDRAWAL_FREEZE_PATH,
+  SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH,
   supportWithdrawalFreezeInputSchema,
+  supportWithdrawalFreezeRecordsInputSchema,
   type ServiceBodyBindMode,
   type SupportWithdrawalFreezeInput,
+  type SupportWithdrawalFreezeRecordsInput,
+  type SupportWithdrawalFreezeRecordsResult,
   type SupportWithdrawalFreezeResult,
 } from '@intafaced/contracts';
 import { SecurityLockError, type SecurityLock } from './security-lock.js';
@@ -51,6 +55,30 @@ export async function freezeWithdrawalsForSupport(
   };
 }
 
+/** The audit rows one request's freezes wrote for its customer, oldest first. A request of another customer reads none. */
+export async function supportWithdrawalFreezeRecords(
+  sql: Sql,
+  input: SupportWithdrawalFreezeRecordsInput,
+): Promise<SupportWithdrawalFreezeRecordsResult> {
+  const rows = await sql<
+    Array<{ id: string; ticket_id: string; operator_id: string; reason: string; lock_set: boolean; recorded_at: Date }>
+  >`
+    SELECT id, ticket_id, operator_id, reason, lock_set, recorded_at FROM support_withdrawal_freezes
+     WHERE user_id = ${input.userId} AND ticket_id = ${input.ticketId}
+     ORDER BY recorded_at, id LIMIT 50`;
+  return {
+    recordedBy: 'svc-identity',
+    records: rows.map((row) => ({
+      id: row.id,
+      ticketId: row.ticket_id,
+      operatorId: row.operator_id,
+      reason: row.reason,
+      lockSet: row.lock_set,
+      recordedAt: row.recorded_at.toISOString(),
+    })),
+  };
+}
+
 export function registerSupportWithdrawalFreezeRoute(
   app: FastifyInstance,
   deps: {
@@ -59,6 +87,8 @@ export function registerSupportWithdrawalFreezeRoute(
     bodyBind?: ServiceBodyBindMode;
     installRawBody?: boolean;
     freeze: (input: SupportWithdrawalFreezeInput) => Promise<SupportWithdrawalFreezeResult>;
+    /** The read-back of one request's audit rows; without it the door is not registered. */
+    records?: (input: SupportWithdrawalFreezeRecordsInput) => Promise<SupportWithdrawalFreezeRecordsResult>;
   },
 ): void {
   if (deps.installRawBody !== false) retainRawBody(app);
@@ -78,6 +108,25 @@ export function registerSupportWithdrawalFreezeRoute(
     } catch (err) {
       if (err instanceof SecurityLockError && err.code === 'identity.security_lock_not_found')
         return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+      return reply.code(503).send({ error: 'withdrawal freeze unavailable', code: 'identity.support_freeze_unavailable' });
+    }
+  });
+  const records = deps.records;
+  if (!records) return;
+  // The read-back: the same signed, body-bound door, svc-support only. It reads the audit rows and writes nothing.
+  app.post(SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH, async (req, reply) => {
+    const { service } = serviceOfRequest(req, deps.internalSecret, 'require', deps.s2s);
+    if (service === null) return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+    if (!(SUPPORT_WITHDRAWAL_FREEZE_CALLERS as readonly string[]).includes(service))
+      return reply
+        .code(403)
+        .send({ error: 'the withdrawal freeze is for the support service only', code: 'identity.support_freeze_forbidden' });
+    const parsed = supportWithdrawalFreezeRecordsInputSchema.safeParse(req.body);
+    if (!parsed.success)
+      return reply.code(400).send({ error: 'withdrawal freeze input is invalid', code: 'identity.support_freeze_input' });
+    try {
+      return await records(parsed.data);
+    } catch {
       return reply.code(503).send({ error: 'withdrawal freeze unavailable', code: 'identity.support_freeze_unavailable' });
     }
   });

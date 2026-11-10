@@ -15,6 +15,8 @@ import {
   retainRawBody,
   serviceAuthHeadersForBody,
   SUPPORT_WITHDRAWAL_FREEZE_PATH,
+  SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH,
+  supportWithdrawalFreezeRecordsResultSchema,
   supportWithdrawalFreezeResultSchema,
 } from '@intafaced/contracts';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
@@ -23,7 +25,11 @@ import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import { RankService } from '../rank/rank-service.js';
 import { SecurityLock } from './security-lock.js';
-import { freezeWithdrawalsForSupport, registerSupportWithdrawalFreezeRoute } from './support-withdrawal-freeze.js';
+import {
+  freezeWithdrawalsForSupport,
+  registerSupportWithdrawalFreezeRoute,
+  supportWithdrawalFreezeRecords,
+} from './support-withdrawal-freeze.js';
 
 function testDatabaseUrl(): string {
   const raw = process.env.TEST_DATABASE_URL?.trim();
@@ -116,6 +122,31 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect((await audit(waiting))[0]!.lock_set).toBe(true);
     });
 
+    it("reads back one request's audit rows for its own customer only, as the freeze answered them", async () => {
+      const userId = await person();
+      const input = ask(userId);
+      const first = await freezeWithdrawalsForSupport(lock, input);
+      await freezeWithdrawalsForSupport(lock, input);
+      const read = await supportWithdrawalFreezeRecords(db.sql, { userId, ticketId: input.ticketId });
+      expect(supportWithdrawalFreezeRecordsResultSchema.parse(read)).toEqual(read);
+      expect(read).toEqual({
+        recordedBy: 'svc-identity',
+        records: [
+          {
+            id: first.auditId,
+            ticketId: input.ticketId,
+            operatorId: OPERATOR,
+            reason: 'TEST withdrawal missing',
+            lockSet: true,
+            recordedAt: first.recordedAt,
+          },
+        ],
+      });
+      // Another customer, or another request, reads none.
+      expect((await supportWithdrawalFreezeRecords(db.sql, { userId: await person(), ticketId: input.ticketId })).records).toEqual([]);
+      expect((await supportWithdrawalFreezeRecords(db.sql, { userId, ticketId: randomUUID() })).records).toEqual([]);
+    });
+
     it('refuses an unknown customer and writes nothing', async () => {
       const ghost = randomUUID();
       await expect(freezeWithdrawalsForSupport(lock, ask(ghost))).rejects.toMatchObject({ code: 'identity.security_lock_not_found' });
@@ -145,15 +176,19 @@ if (!(await postgresAvailable(TEST_URL))) {
             if (failWrite) throw new Error('database down');
             return freezeWithdrawalsForSupport(lock, input);
           },
+          records: async (input) => {
+            if (failWrite) throw new Error('database down');
+            return supportWithdrawalFreezeRecords(db.sql, input);
+          },
         });
         await a.ready();
         return a;
       }
-      const post = (body: unknown, service: 'svc-support' | 'svc-pay' = 'svc-support') => {
+      const post = (body: unknown, service: 'svc-support' | 'svc-pay' = 'svc-support', url = SUPPORT_WITHDRAWAL_FREEZE_PATH) => {
         const payload = JSON.stringify(body);
         return {
           method: 'POST' as const,
-          url: SUPPORT_WITHDRAWAL_FREEZE_PATH,
+          url,
           headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody(service, SECRET, payload) },
           payload,
         };
@@ -173,6 +208,27 @@ if (!(await postgresAvailable(TEST_URL))) {
         expect((await a.inject(post(ask(randomUUID())))).json().code).toBe('identity.account_not_found');
         failWrite = true;
         const down = await a.inject(post(ask(userId)));
+        failWrite = false;
+        expect([down.statusCode, down.json().code]).toEqual([503, 'identity.support_freeze_unavailable']);
+        await a.close();
+      });
+
+      it("reads svc-support's request back, and refuses an unsigned caller, any other service and bad input", async () => {
+        const userId = await person();
+        const a = await app();
+        const input = ask(userId);
+        const made = (await a.inject(post(input))).json();
+        const want = { userId, ticketId: input.ticketId };
+        const ok = await a.inject(post(want, 'svc-support', SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH));
+        expect(ok.statusCode).toBe(200);
+        expect(ok.json()).toMatchObject({ recordedBy: 'svc-identity', records: [{ id: made.auditId, ticketId: input.ticketId }] });
+        expect((await a.inject({ method: 'POST', url: SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH, payload: want })).statusCode).toBe(401);
+        const other = await a.inject(post(want, 'svc-pay', SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH));
+        expect([other.statusCode, other.json().code]).toEqual([403, 'identity.support_freeze_forbidden']);
+        const bad = await a.inject(post({ ...want, operatorId: OPERATOR }, 'svc-support', SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH));
+        expect([bad.statusCode, bad.json().code]).toEqual([400, 'identity.support_freeze_input']);
+        failWrite = true;
+        const down = await a.inject(post(want, 'svc-support', SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH));
         failWrite = false;
         expect([down.statusCode, down.json().code]).toEqual([503, 'identity.support_freeze_unavailable']);
         await a.close();
