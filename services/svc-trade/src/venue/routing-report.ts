@@ -1,4 +1,4 @@
-import { add, mul, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, formatAmount, mul, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { VenueRefusalError, isTestVenue } from '@intafaced/venue-contracts';
 import type { PreparedActionStore } from './prepared-action-store.js';
 import type { UserVenueDoor } from './user-venue-door.js';
@@ -169,5 +169,44 @@ function down(venueId: string, displayName: string | null, err: unknown, test = 
     builderFees: [],
     houseExposure: HOUSE_EXPOSURE_ROUTED,
     asOf: null,
+  };
+}
+
+/** An amount by asset as it travels: a decimal string, never a number or a bigint (floor rule 2). */
+export interface AssetTotalWire {
+  readonly asset: string;
+  readonly amount: string;
+}
+
+export type VenueRoutingRowWire = Omit<VenueRoutingRow, 'volume' | 'builderFees' | 'asOf'> & {
+  readonly volume: readonly AssetTotalWire[];
+  readonly builderFees: readonly AssetTotalWire[];
+  readonly asOf: string | null;
+};
+
+export type VenueRoutingReportWire = Omit<VenueRoutingReport, 'from' | 'to' | 'venues' | 'volume' | 'builderFees'> & {
+  readonly from: string;
+  readonly to: string;
+  readonly venues: readonly VenueRoutingRowWire[];
+  readonly volume: readonly AssetTotalWire[];
+  readonly builderFees: readonly AssetTotalWire[];
+};
+
+const wireTotals = (list: readonly AssetTotal[]): AssetTotalWire[] => list.map((t) => ({ asset: t.asset, amount: formatAmount(t.amount) }));
+
+/** The report as the operator console reads it over tRPC: amounts as decimal strings, times as ISO strings. */
+export function routingReportWire(r: VenueRoutingReport): VenueRoutingReportWire {
+  return {
+    ...r,
+    from: r.from.toISOString(),
+    to: r.to.toISOString(),
+    venues: r.venues.map((v) => ({
+      ...v,
+      volume: wireTotals(v.volume),
+      builderFees: wireTotals(v.builderFees),
+      asOf: v.asOf ? v.asOf.toISOString() : null,
+    })),
+    volume: wireTotals(r.volume),
+    builderFees: wireTotals(r.builderFees),
   };
 }

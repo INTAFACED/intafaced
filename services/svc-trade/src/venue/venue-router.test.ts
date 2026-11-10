@@ -12,7 +12,7 @@ import { StoreVenueRoutingGate, type VenueRoutingGate } from './venue-listing.js
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError } from './user-venue-door.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue-router.js';
-import { HOUSE_EXPOSURE_ROUTED, routingReport } from './routing-report.js';
+import { HOUSE_EXPOSURE_ROUTED, routingReport, routingReportWire } from './routing-report.js';
 
 // J-derivatives-28 #1 to #5 against two TEST venue simulators over loopback HTTP: A with a thin TEST ladder (1 BTC a
 // level, as the stack's first venue) and B with a deep one (5 BTC a level). Every figure is TEST.
@@ -263,6 +263,13 @@ describe('UserVenueRouter', () => {
     expect(rowB.builderFees).toEqual([{ asset: fills[0]!.feeAsset, amount: fees }]);
     expect(report.venues.find((v) => v.venueId === A)).toMatchObject({ orders: 0, volume: [], builderFees: [] });
     expect(report.houseExposure).toBe('none: routed');
+    // As the operator console reads it over tRPC: plain JSON, every amount a decimal string, never a bigint.
+    const wire = JSON.parse(JSON.stringify(routingReportWire(report)));
+    const wireB = wire.venues.find((v: { venueId: string }) => v.venueId === B);
+    expect(wireB.volume).toEqual([{ asset: 'USDC', amount: formatAmount(volume) }]);
+    expect(wireB.builderFees).toEqual([{ asset: fills[0]!.feeAsset, amount: formatAmount(fees) }]);
+    expect(wire.volume).toEqual([{ asset: 'USDC', amount: formatAmount(volume) }]);
+    expect([typeof wire.from, typeof wire.to, typeof wireB.asOf]).toEqual(['string', 'string', 'string']);
 
     sim(B).switches.venueDown = true;
     try {

@@ -50,12 +50,21 @@ export function venueForThisFile(test, value = 'on') {
 
 /** One call to the TEST venue: its JSON answer and status. Amounts travel as decimal strings. */
 export async function testVenue(path, body) {
-  const res = await fetch(`${TEST_VENUE}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return { status: res.status, body: await res.json() };
+  return testVenueAt(TEST_VENUE, path, body);
+}
+
+/**
+ * A read sent again once when the keep-alive socket it went out on had already been closed by the venue
+ * (`SocketError: other side closed`, as after a stack restart left the connection idle). Only a GET: it changes
+ * nothing, so sending it twice can't double anything. A write is never sent again here.
+ */
+async function venueFetch(url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    if (init.method !== 'GET' || err?.cause?.code !== 'UND_ERR_SOCKET') throw err;
+    return fetch(url, init);
+  }
 }
 
 /** The stack's second TEST venue (local-test-stack.mjs PORTS['test-venue-b']), on with LOCAL_STACK_USER_VENUE=two. */
@@ -63,7 +72,7 @@ export const TEST_VENUE_B = 'http://127.0.0.1:14562';
 
 /** One call to either TEST venue by its base URL. */
 export async function testVenueAt(base, path, body) {
-  const res = await fetch(`${base}${path}`, {
+  const res = await venueFetch(`${base}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),

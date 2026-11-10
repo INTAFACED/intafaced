@@ -4,7 +4,12 @@
  * of an account writes one append-only audit row. Money figures stay exact
  * decimal strings.
  */
-import { VenueRoutingReportError, type VenueRoutingReport } from '../venue/routing-report.js';
+import {
+  VenueRoutingReportError,
+  routingReportWire,
+  type VenueRoutingReport,
+  type VenueRoutingReportWire,
+} from '../venue/routing-report.js';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -496,11 +501,11 @@ export class TradeOpsAdmin {
    * The routing view (J-derivatives-28 #6): per venue, our users' routed volume and the builder fees the venue charged in
    * the period, and house exposure "none: routed". Read-only, for an operator; the door off refuses `trade.user_venue_off`.
    */
-  async venueRoutingReport(principal: Principal, input: { from: string; to: string }): Promise<VenueRoutingReport> {
+  async venueRoutingReport(principal: Principal, input: { from: string; to: string }): Promise<VenueRoutingReportWire> {
     requireOperator(principal);
     if (!this.deps.venueRouting) throw new TradeOpsError('trade.user_venue_off', 'the user-venue door is off on this deployment');
     try {
-      return await this.deps.venueRouting(new Date(input.from), new Date(input.to));
+      return routingReportWire(await this.deps.venueRouting(new Date(input.from), new Date(input.to)));
     } catch (err) {
       if (err instanceof VenueRoutingReportError) throw new TradeOpsError(err.code, err.message);
       throw err;
