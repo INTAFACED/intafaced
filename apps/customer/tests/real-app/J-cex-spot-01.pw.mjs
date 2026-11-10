@@ -675,6 +675,7 @@ test(`${J} #9 places a market buy: it fills on the venue inside its slippage lim
   await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
   await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await expect(reviewSheet(page)).toBeVisible();
   const asked = wallet.requests.length;
   await confirm(page, 'buy');
   await continueInWallet(page);
@@ -710,6 +711,7 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   const away = fromUnits((bid / 2n / toUnits('1')) * toUnits('1'));
   await venueReviewLimit(page, 'buy', away, '0.001');
   await confirm(page, 'buy');
+  await continueInWallet(page);
   await expect.poll(async () => (await venueOpenOrders(who, owner)).length, { timeout: 20_000 }).toBe(1);
   const [order] = await venueOpenOrders(who, owner);
   expect(toUnits(order.price)).toBe(toUnits(away));
