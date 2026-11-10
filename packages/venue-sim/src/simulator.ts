@@ -1,4 +1,4 @@
-import { add, compare, div, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   assertSignatureMatches,
@@ -16,6 +16,7 @@ import {
   type UserVenueFill,
   type UserVenueLeverage,
   type UserVenueMarket,
+  type UserVenueMarketStatus,
   type UserVenueOrder,
   type UserVenuePosition,
   type UserVenueWithdrawal,
@@ -50,9 +51,17 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     listed refuses `not_offered` at prepare, before the wallet is asked;
  *   · `makerFeeBps` / `takerFeeBps` `known: false` — the fee is not published;
  *   · `withdrawalFee` `known: false` — the withdrawal fee is shown as not known;
+ *   · `networkFee` `known: false` — the withdrawal's network fee is shown as
+ *     not known (what arrives is still the amount less the fee charged);
  *   · an agent key is always refused a withdrawal (`agent_not_permitted`);
  *   · `loseAnswers` — the next N submits are applied and then answered
- *     `definite: false`, so a caller's read-back is exercised.
+ *     `definite: false`, so a caller's read-back is exercised;
+ *   · a market's own state (`setMarketStatus`: trading, halted, cancel_only,
+ *     delisted, or `null` for "not reported") and its largest order
+ *     (`setMarketLimits`, `null` for "not reported"). A new order its state does
+ *     not admit refuses `market_halted` / `market_cancel_only` /
+ *     `market_delisted`, one above its largest `order_above_venue_max`; cancels
+ *     always pass.
  */
 
 const BPS = parseAmount('10000');
@@ -71,10 +80,20 @@ export interface SimMarketConfig {
   readonly lotSize: Amount;
   readonly makerFeeBps: MaybeKnown<Amount>;
   readonly takerFeeBps: MaybeKnown<Amount>;
+  /**
+   * The venue's own published cap on a builder fee on this market (scaled bps). Absent: the venue publishes none, it
+   * reads `known: false` and the simulator enforces no cap.
+   */
+  readonly builderFeeCapBps?: MaybeKnown<Amount>;
   /** Perpetuals: maintenance margin as a fraction of notional (scaled decimal, `parseAmount('0.005')`). */
   readonly maintenanceMarginRate?: Amount;
   /** Perpetuals: the starting mark price. */
   readonly markPrice?: Amount;
+  /** The market's own state at start; absent is `trading`. */
+  readonly status?: UserVenueMarketStatus | null;
+  /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
+  readonly maxOrderQty?: Amount | null;
+  readonly maxOrderNotional?: Amount | null;
 }
 
 export interface SimSwitches {
@@ -82,6 +101,10 @@ export interface SimSwitches {
   withdrawalFee: MaybeKnown<Amount>;
   /** The fee actually charged when `withdrawalFee` is not published (never 0 by default, so "not known" is never read as free). */
   unpublishedWithdrawalFee: Amount;
+  /** The network fee a withdrawal reports, taken from what arrives at its destination. */
+  networkFee: MaybeKnown<Amount>;
+  /** The network fee actually taken when `networkFee` is not published (never 0 by default, as `unpublishedWithdrawalFee`). */
+  unpublishedNetworkFee: Amount;
   /** The trading fees actually charged, and reported on fills, on a market whose fee is not published. */
   unpublishedMakerFeeBps: Amount;
   unpublishedTakerFeeBps: Amount;
@@ -158,9 +181,16 @@ export class TestVenueSimulator implements UserVenue {
   private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
+  private readonly networkFeeCharged = new Map<string, Amount>();
+  private readonly withdrawalSubmittedAt = new Map<string, Date>();
   private seqCounter = 0;
   private fillCounter = 0;
   private venueOrderCounter = 0;
+  /** Each market's own state and largest order, changed by the TEST controls. */
+  private readonly marketState = new Map<
+    string,
+    { status: UserVenueMarketStatus | null; maxOrderQty: Amount | null; maxOrderNotional: Amount | null }
+  >();
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
@@ -177,6 +207,8 @@ export class TestVenueSimulator implements UserVenue {
       venueDown: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
+      networkFee: { known: true, value: parseAmount('0.25') },
+      unpublishedNetworkFee: parseAmount('0.5'),
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
       loseAnswers: 0,
@@ -186,7 +218,44 @@ export class TestVenueSimulator implements UserVenue {
       this.marketsBySymbol.set(market.symbol, market);
       this.book.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+      this.marketState.set(market.symbol, {
+        status: market.status === undefined ? 'trading' : market.status,
+        maxOrderQty: market.maxOrderQty ?? null,
+        maxOrderNotional: market.maxOrderNotional ?? null,
+      });
     }
+  }
+
+  /**
+   * TEST control: list one more market on the venue, so a journey can review a market nobody else trades. Refused when the
+   * symbol is already listed (a market's config is never replaced under its orders). Starts `trading` unless told.
+   */
+  addMarket(market: SimMarketConfig): void {
+    if (this.marketsBySymbol.has(market.symbol)) {
+      refuse(this.venue.id, 'not_offered', `${market.symbol} is already listed on ${this.venue.displayName}`);
+    }
+    this.marketsBySymbol.set(market.symbol, market);
+    this.book.set(market.symbol, []);
+    if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+    this.marketState.set(market.symbol, {
+      status: market.status === undefined ? 'trading' : market.status,
+      maxOrderQty: market.maxOrderQty ?? null,
+      maxOrderNotional: market.maxOrderNotional ?? null,
+    });
+  }
+
+  /** TEST control: the market's own state (`null`: the venue reports none). Changes no order. */
+  setMarketStatus(symbol: string, status: UserVenueMarketStatus | null): void {
+    this.market(symbol);
+    this.marketState.get(symbol)!.status = status;
+  }
+
+  /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
+  setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
+    this.market(symbol);
+    const state = this.marketState.get(symbol)!;
+    state.maxOrderQty = limits.maxOrderQty;
+    state.maxOrderNotional = limits.maxOrderNotional;
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
@@ -217,19 +286,56 @@ export class TestVenueSimulator implements UserVenue {
    */
   settleWithdrawals(outcome: 'done' | 'failed' = 'done'): number {
     let settled = 0;
-    for (const state of this.accounts.values()) {
-      for (const [nonce, withdrawal] of state.withdrawals) {
-        if (withdrawal.status === 'pending') {
-          if (outcome === 'failed') {
-            const balance = this.balance(state, withdrawal.asset);
-            balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
-          }
-          state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
-          settled += 1;
-        }
-      }
+    for (const pending of this.pendingWithdrawals()) {
+      if (this.settleWithdrawal(pending.account, pending.nonce, outcome)) settled += 1;
     }
     return settled;
+  }
+
+  /**
+   * Every pending withdrawal, oldest first, with what is to arrive at its destination: the amount less the network fee
+   * taken (published or not). What a chain sender pays out before it settles one `done` (chain-deposits.ts).
+   */
+  pendingWithdrawals(): Array<{
+    readonly account: UserVenueAccount;
+    readonly nonce: string;
+    readonly withdrawal: UserVenueWithdrawal;
+    readonly arrives: Amount;
+    readonly submittedAt: Date;
+  }> {
+    const out: ReturnType<TestVenueSimulator['pendingWithdrawals']> = [];
+    for (const state of this.accounts.values()) {
+      for (const [nonce, withdrawal] of state.withdrawals) {
+        if (withdrawal.status !== 'pending') continue;
+        const taken = this.networkFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO;
+        const arrives = compare(withdrawal.amount, taken) > 0 ? sub(withdrawal.amount, taken) : ZERO;
+        const subAccount = state.key.slice(state.key.indexOf('/') + 1);
+        out.push({
+          account: { venueId: this.venue.id, owner: state.owner, subAccount: subAccount === '' ? null : subAccount },
+          nonce,
+          withdrawal,
+          arrives,
+          submittedAt: this.withdrawalSubmittedAt.get(`${state.key}#${nonce}`) ?? new Date(0),
+        });
+      }
+    }
+    return out.sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
+  }
+
+  /**
+   * Settle one pending withdrawal: `done` (the chain confirmed it) or `failed` (the venue returns the amount and its fee
+   * to free). False when it is not pending (already settled, or unknown): settling twice changes nothing.
+   */
+  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed'): boolean {
+    const state = this.account(account);
+    const withdrawal = state.withdrawals.get(nonce);
+    if (!withdrawal || withdrawal.status !== 'pending') return false;
+    if (outcome === 'failed') {
+      const balance = this.balance(state, withdrawal.asset);
+      balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
+    }
+    state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
+    return true;
   }
 
   // ── UserVenue: market reads ────────────────────────────────────────────
@@ -249,6 +355,10 @@ export class TestVenueSimulator implements UserVenue {
       lotSize: m.lotSize,
       makerFeeBps: m.makerFeeBps,
       takerFeeBps: m.takerFeeBps,
+      status: this.marketState.get(m.symbol)!.status,
+      maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
+      maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
+      builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
     }));
     return this.asOf(list);
   }
@@ -304,9 +414,18 @@ export class TestVenueSimulator implements UserVenue {
       }
       return { known: true, value: { asset: feeAsset, amount: total } };
     };
+    // What fills now, and its volume-weighted price, rounded against the customer (down on a sell, up on a buy).
+    const against = intent.side === 'sell' ? 'floor' : 'ceil';
+    const filled = takes.reduce((a, t) => add(a, t.qty), ZERO);
+    const notional = takes.reduce((a, t) => add(a, mul(t.price, t.qty, against)), ZERO);
+    const fill: VenueOrderPreview['fill'] = {
+      known: true,
+      value: { amount: filled, averagePrice: filled === ZERO ? null : div(notional, filled, against) },
+    };
     const venueFee = line((r) => (r === 'maker' ? market.makerFeeBps : market.takerFeeBps));
     const zeroFee: MaybeKnown<Amount> = { known: true, value: ZERO };
-    const builderLine = line(() => (builderFee ? { known: true, value: builderFee.feeBps } : zeroFee));
+    // No builder fee on a spot buy (see `fill`): known zero, whatever the order carries.
+    const builderLine = line(() => (builderFee && !feeInBase ? { known: true, value: builderFee.feeBps } : zeroFee));
 
     let perpetual: VenueOrderPreview['perpetual'] = null;
     if (perp && setting) {
@@ -350,6 +469,7 @@ export class TestVenueSimulator implements UserVenue {
       role,
       venueFee,
       builderFee: builderLine,
+      fill,
       perpetual,
     });
   }
@@ -403,8 +523,17 @@ export class TestVenueSimulator implements UserVenue {
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
         if (intent.builderFee) {
           if (compare(intent.builderFee.feeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee cannot be negative');
+          const cap = this.builderFeeCap(intent.symbol);
+          if (cap !== null && compare(intent.builderFee.feeBps, cap) > 0) {
+            refuse(
+              this.venue.id,
+              'builder_fee_above_cap',
+              `${intent.symbol} caps a builder fee at ${formatAmount(cap)} bps; the order carries more`,
+            );
+          }
           const approved = state.builderApprovals.get(intent.builderFee.builder.toLowerCase()) ?? ZERO;
-          if (compare(approved, intent.builderFee.feeBps) < 0) {
+          // A spot buy pays no builder fee (see `fill`), so it needs no approval either.
+          if (this.builderApplies(intent) && compare(approved, intent.builderFee.feeBps) < 0) {
             refuse(
               this.venue.id,
               'builder_fee_not_approved',
@@ -626,6 +755,15 @@ export class TestVenueSimulator implements UserVenue {
 
   private checkOrderOnItsFace(state: AccountState, intent: PlaceUserOrderIntent): void {
     const market = this.market(intent.symbol);
+    const own = this.marketState.get(market.symbol)!;
+    if (own.status === 'halted') refuse(this.venue.id, 'market_halted', `${market.symbol} is halted on ${this.venue.displayName}`);
+    if (own.status === 'cancel_only')
+      refuse(this.venue.id, 'market_cancel_only', `${market.symbol} takes cancels only on ${this.venue.displayName}`);
+    if (own.status === 'delisted') refuse(this.venue.id, 'market_delisted', `${market.symbol} is delisted on ${this.venue.displayName}`);
+    if (own.maxOrderQty !== null && compare(intent.amount, own.maxOrderQty) > 0)
+      refuse(this.venue.id, 'order_above_venue_max', `size is above the largest order on ${market.symbol}`);
+    if (own.maxOrderNotional !== null && compare(mul(intent.amount, intent.price, 'ceil'), own.maxOrderNotional) > 0)
+      refuse(this.venue.id, 'order_above_venue_max', `notional is above the largest order on ${market.symbol}`);
     if (!market.orderTypes.includes(intent.type))
       refuse(this.venue.id, 'not_offered', `${intent.type} orders are not offered on ${market.symbol}`);
     if (intent.type === 'limit' && !market.timeInForce.includes(intent.timeInForce)) {
@@ -718,7 +856,7 @@ export class TestVenueSimulator implements UserVenue {
         if (builderFee) {
           if (compare(builderFee.feeBps, ZERO) < 0) return refused('venue_rejected', 'a builder fee cannot be negative');
           const approved = state.builderApprovals.get(builderFee.builder) ?? ZERO;
-          if (compare(approved, builderFee.feeBps) < 0)
+          if (this.builderApplies(intent) && compare(approved, builderFee.feeBps) < 0)
             return refused('builder_fee_not_approved', 'the builder fee approval no longer covers this order');
         }
         return this.place(state, intent, cloid, builderFee, refused, accepted);
@@ -746,6 +884,12 @@ export class TestVenueSimulator implements UserVenue {
           return refused('insufficient_balance', `free ${intent.asset} does not cover the withdrawal and its fee`);
         balance.free = sub(balance.free, needed);
         this.withdrawalFeeCharged.set(`${state.key}#${prepared.nonce}`, fee);
+        const networkFee = this.switches.networkFee;
+        this.networkFeeCharged.set(
+          `${state.key}#${prepared.nonce}`,
+          networkFee.known ? networkFee.value : this.switches.unpublishedNetworkFee,
+        );
+        this.withdrawalSubmittedAt.set(`${state.key}#${prepared.nonce}`, this.clock());
         const withdrawal: UserVenueWithdrawal = {
           nonce: prepared.nonce,
           asset: intent.asset,
@@ -753,6 +897,7 @@ export class TestVenueSimulator implements UserVenue {
           destination: intent.destination.toLowerCase(),
           status: 'pending',
           fee: this.switches.withdrawalFee,
+          networkFee,
         };
         state.withdrawals.set(prepared.nonce, withdrawal);
         return accepted(prepared.nonce, null);
@@ -918,6 +1063,17 @@ export class TestVenueSimulator implements UserVenue {
     return div(mul(intent.price, BPS), parseAmount(String(setting!.leverageBps)), QUOTE_ROUND);
   }
 
+  /** Whether the venue charges a builder fee on this order at all: never on a spot buy (project-state #1888). */
+  private builderApplies(intent: PlaceUserOrderIntent): boolean {
+    return !(this.market(intent.symbol).kind === 'spot' && intent.side === 'buy');
+  }
+
+  /** The venue's published builder-fee cap on `symbol`, or null when it publishes none. */
+  private builderFeeCap(symbol: string): Amount | null {
+    const cap = this.market(symbol).builderFeeCapBps;
+    return cap?.known ? cap.value : null;
+  }
+
   /** One fee line on `basis`, the same rounding `fill` charges. */
   private feeOn(basis: Amount, feeBps: Amount): Amount {
     return div(mul(basis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
@@ -939,7 +1095,11 @@ export class TestVenueSimulator implements UserVenue {
       const feeInBase = market.kind === 'spot' && side.order.side === 'buy';
       const feeBasis = feeInBase ? qty : mul(price, qty, QUOTE_ROUND);
       const venueFeeDue = div(mul(feeBasis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
-      let builderFee = side.builderFee ? div(mul(feeBasis, side.builderFee.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
+      // As the venue does: a builder fee never applies to the buying side of a spot trade, only to a spot sell and to
+      // both sides of a perp ("builder codes do not apply to the buying side of spot trades", Hyperliquid's
+      // builder-codes page, read 9 Nov 2026; project-state #1888).
+      const builderApplies = side.builderFee !== null && !feeInBase;
+      let builderFee = builderApplies ? div(mul(feeBasis, side.builderFee!.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
       let venueFee = venueFeeDue;
       const { realisedPnl, uncharged } = this.settle(market, side, qty, price, add(venueFee, builderFee));
       // Report only what was charged: a fee the account could not pay is cut from our builder fee first.

@@ -1,5 +1,16 @@
+import { randomBytes } from 'node:crypto';
 import { isExplicitDevOrTest } from '@intafaced/config';
+import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import {
+  PARTNER_PAYOUTS_OWNER,
+  type PartnerAccountRef,
+  type PartnerBalance,
+  type PartnerBank,
+  type PartnerMove,
+  type PartnerMoveRequest,
+  type PartnerMovesQuery,
+} from './partner-bank.js';
 import type { AccountDetailSet, AccountDetailsPartner } from '../account-details/account-details.js';
 
 /**
@@ -12,6 +23,10 @@ import type { AccountDetailSet, AccountDetailsPartner } from '../account-details
  *   bank: a feature "not offered by the partner" (currency accounts, spaces, pots, joint accounts); a fee that is not
  *         known; a reserve the partner requires of us, of an amount not known; the partner down.
  *   ramp: the partner's quote expired; the partner's fee not known.
+ *   custody: `off` puts this person's bank money at the partner (OWNER 226): their balances are the partner's figures and
+ *         a move is one partner instruction, with nothing posted to the ledger. `on` (the default) is the custodial
+ *         layer, exactly as before, for the journeys marked Later. With it off, `nextReply: 'lost'` makes the next move
+ *         and then loses the partner's answer once, so a retry under the same key can be shown to make one move.
  *
  * The switches are per person and live in this process only, so one journey's switch never reaches another's account,
  * and a restart puts every switch back off. They are set through the person's own `testPartner.set` on the TEST stack.
@@ -48,6 +63,20 @@ export interface TestPartnerSwitches {
   /** `unknown`: the ramp gives no fee, so no pay amount: the quote reads "not known" and nothing can be asked. */
   readonly rampFee: 'known' | 'unknown';
   /**
+   * `off`: this person's money is partner-held (OWNER 226; B3's decision on project-state #1790). Bank balances are the
+   * TEST partner bank's figures and moves are partner instructions; a card authorisation is held, captured, released and
+   * refunded by the TEST partner card (`cards/partner-card-holds.ts`). INTAFACED's ledger posts nothing for either. `on`
+   * (the default) runs the custodial layer exactly as before, for the journeys marked Later.
+   */
+  readonly custody: 'on' | 'off';
+  /** `lost`: the partner makes this person's next move and its answer is lost, once; then it goes back to `answered`. */
+  readonly nextReply: 'answered' | 'lost';
+  /**
+   * `expired`: the TEST partner card reports every hold of this person's that is still open as past its hold time, and
+   * releases it, as a partner does when a merchant never captures. `live` (the default): a hold runs its TEST hold time.
+   */
+  readonly cardHold: 'live' | 'expired';
+  /**
    * `issued`: the partner has issued this person TEST account details, labelled TEST (J-bank-01 #6). `none`, the default,
    * is a stack with no banking partner for account details: every currency answers `rail.bank` and no number is shown.
    */
@@ -61,17 +90,34 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   down: false,
   rampQuote: 'live',
   rampFee: 'known',
+  custody: 'on',
+  nextReply: 'answered',
+  cardHold: 'live',
   accountDetails: 'none',
 });
 
 /** The partner's reserve as it reports it. An amount it has not told us is null, read as "not known", never 0. */
 export type PartnerReserve = { readonly required: false } | { readonly required: true; readonly amount: null };
 
+export interface TestPartnerFund {
+  /** The business key of this TEST funding: the same id is the same funding, once. */
+  readonly fundId: string;
+  readonly assetId: string;
+  readonly amount: Amount;
+}
+
 export interface TestPartner {
   readonly label: string;
   switches(userId: string): TestPartnerSwitches;
   /** Sets some switches for one person and returns them all. Unnamed switches keep their value. */
   set(userId: string, change: Partial<TestPartnerSwitches>): TestPartnerSwitches;
+  /** The TEST partner bank's book: balances it reports and moves it makes. It holds no money. */
+  readonly bank: PartnerBank;
+  /**
+   * Credits TEST money to the person's main balance at the TEST partner (the journey's "a partner account funded with
+   * TEST money"). Once per `fundId`; the same id with another body refuses `bank.partner_move_conflict`.
+   */
+  fund(userId: string, funding: TestPartnerFund): PartnerBalance;
 }
 
 /**
@@ -80,23 +126,172 @@ export interface TestPartner {
  */
 const MAX_PEOPLE = 10_000;
 
+/**
+ * The most moves the TEST book keeps. Past it a move refuses `bank.partner_unavailable` (nothing moves) rather than
+ * forget one: money state is never evicted. A restart empties the book, as it puts every switch back off.
+ */
+const MAX_MOVES = 200_000;
+
+function accountKey(ref: PartnerAccountRef): string {
+  return `${ref.userId}|${ref.assetId}|${ref.spaceId ?? 'main'}`;
+}
+
+function sameAccount(a: PartnerAccountRef, b: PartnerAccountRef): boolean {
+  return accountKey(a) === accountKey(b);
+}
+
+function partnerDown(): BankError {
+  return new BankError('The partner bank is not answering. Nothing was sent or changed.', 'bank.partner_unavailable');
+}
+
+function moveConflict(key: string): BankError {
+  return new BankError(`The partner already holds a different move under ${key}, so this one was not made.`, 'bank.partner_move_conflict');
+}
+
 export function testPartner(): TestPartner {
   const kept = new Map<string, TestPartnerSwitches>();
-  return {
+  /** Scaled bigint per partner account. An account the partner holds and nobody has paid into holds 0. */
+  const held = new Map<string, bigint>();
+  const byKey = new Map<string, PartnerMove>();
+  /** Each person's moves, oldest first; a move between two people is on both lists. */
+  const byPerson = new Map<string, PartnerMove[]>();
+  const funds = new Map<string, { readonly userId: string; readonly assetId: string; readonly amount: Amount }>();
+  let seq = 0;
+  /**
+   * Unique to this process, so a move reference is never reused after a restart: a note kept in svc-bank's database
+   * against an earlier process's move must never attach to a new move with the same sequence number.
+   */
+  const boot = randomBytes(6).toString('hex');
+
+  const switches = (userId: string) => kept.get(userId) ?? SWITCHES_OFF;
+  const set = (userId: string, change: Partial<TestPartnerSwitches>): TestPartnerSwitches => {
+    const next: TestPartnerSwitches = Object.freeze({
+      ...(kept.get(userId) ?? SWITCHES_OFF),
+      ...change,
+      ...(change.notOffered ? { notOffered: Object.freeze([...new Set(change.notOffered)]) } : {}),
+    });
+    kept.delete(userId);
+    kept.set(userId, next);
+    if (kept.size > MAX_PEOPLE) kept.delete(kept.keys().next().value!);
+    return next;
+  };
+  const report = (account: PartnerAccountRef): PartnerBalance =>
+    Object.freeze({ account, amount: held.get(accountKey(account)) ?? 0n, asOf: new Date(), label: TEST_PARTNER_LABEL });
+  const remember = (move: PartnerMove) => {
+    byKey.set(move.key, move);
+    for (const userId of new Set([move.from.userId, move.to.userId])) {
+      const list = byPerson.get(userId) ?? [];
+      list.push(move);
+      byPerson.set(userId, list);
+    }
+  };
+
+  const bank: PartnerBank = {
     label: TEST_PARTNER_LABEL,
-    switches: (userId) => kept.get(userId) ?? SWITCHES_OFF,
-    set(userId, change) {
-      const next: TestPartnerSwitches = Object.freeze({
-        ...(kept.get(userId) ?? SWITCHES_OFF),
-        ...change,
-        ...(change.notOffered ? { notOffered: Object.freeze([...new Set(change.notOffered)]) } : {}),
+    balance: async (account) => report(account),
+    async balances(userId) {
+      const out: PartnerBalance[] = [];
+      for (const key of held.keys()) {
+        const [owner, assetId, space] = key.split('|') as [string, string, string];
+        if (owner === userId) out.push(report({ userId, assetId, spaceId: space === 'main' ? null : space }));
+      }
+      return out;
+    },
+    async move(request: PartnerMoveRequest) {
+      // The partner deduplicates on the key first: a retry is answered with the move it made, even while it is down.
+      const prior = byKey.get(request.key);
+      if (prior) {
+        if (!sameAccount(prior.from, request.from) || !sameAccount(prior.to, request.to) || prior.amount !== request.amount) {
+          throw moveConflict(request.key);
+        }
+        return prior;
+      }
+      // The person whose switches apply: the source's owner, or, for an amount the partner gives back out of its own
+      // outbound-payments account, the person it goes to.
+      const person = request.from.userId === PARTNER_PAYOUTS_OWNER ? request.to.userId : request.from.userId;
+      if (switches(person).down) throw partnerDown();
+      if (byKey.size >= MAX_MOVES) throw partnerDown();
+      if (request.amount <= 0n) throw new BankError('A partner move needs an amount above zero.', 'bank.partner_amount_invalid');
+      if (request.from.assetId !== request.to.assetId) {
+        throw new BankError('A partner move stays in one currency; convert first.', 'bank.asset_mismatch');
+      }
+      if (sameAccount(request.from, request.to)) throw new BankError('A transfer needs two different spaces', 'bank.same_space');
+      const fromKey = accountKey(request.from);
+      const has = held.get(fromKey) ?? 0n;
+      if (has < request.amount) {
+        throw new BankError(
+          `The partner reports ${formatAmount(has)} ${request.from.assetId} in this account, less than ${formatAmount(request.amount)}. Nothing was moved.`,
+          'bank.partner_insufficient_funds',
+        );
+      }
+      // One step, nothing awaited: the debit, the credit and the record are made together or not at all.
+      seq += 1;
+      const move: PartnerMove = Object.freeze({
+        id: `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`,
+        key: request.key,
+        from: Object.freeze({ ...request.from }),
+        to: Object.freeze({ ...request.to }),
+        amount: request.amount,
+        movedAt: new Date(),
+        label: TEST_PARTNER_LABEL,
       });
-      kept.delete(userId);
-      kept.set(userId, next);
-      if (kept.size > MAX_PEOPLE) kept.delete(kept.keys().next().value!);
-      return next;
+      held.set(fromKey, has - request.amount);
+      held.set(accountKey(request.to), (held.get(accountKey(request.to)) ?? 0n) + request.amount);
+      remember(move);
+      if (switches(person).nextReply === 'lost') {
+        set(person, { nextReply: 'answered' });
+        throw new BankError(
+          'The partner bank did not answer, so whether this move was made is not known. Try again with the same request: it is made at most once.',
+          'bank.partner_reply_lost',
+        );
+      }
+      return move;
+    },
+    moveByKey: async (key) => byKey.get(key) ?? null,
+    async moves(userId: string, query: PartnerMovesQuery) {
+      const list = byPerson.get(userId) ?? [];
+      const out: PartnerMove[] = [];
+      let passed = query.before === undefined;
+      for (let i = list.length - 1; i >= 0 && out.length < query.limit; i -= 1) {
+        const move = list[i]!;
+        if (!passed) {
+          if (move.id === query.before) passed = true;
+          continue;
+        }
+        if (query.assetId === undefined || move.from.assetId === query.assetId) out.push(move);
+      }
+      return out;
     },
   };
+
+  return {
+    label: TEST_PARTNER_LABEL,
+    switches,
+    set,
+    bank,
+    fund(userId, funding) {
+      const account: PartnerAccountRef = { userId, assetId: funding.assetId, spaceId: null };
+      // Per person: one person's fund id never collides with, or tells anything about, another's.
+      const fundKey = `${userId}|${funding.fundId}`;
+      const prior = funds.get(fundKey);
+      if (prior) {
+        if (prior.assetId !== funding.assetId || prior.amount !== funding.amount) {
+          throw moveConflict(funding.fundId);
+        }
+        return report(account);
+      }
+      if (switches(userId).down) throw partnerDown();
+      if (funding.amount <= 0n) throw new BankError('TEST funding needs an amount above zero.', 'bank.partner_amount_invalid');
+      funds.set(fundKey, { userId, assetId: funding.assetId, amount: funding.amount });
+      held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + funding.amount);
+      return report(account);
+    },
+  };
+}
+
+/** The partner custody the TEST partner decides: a person with `custody: 'off'` is held at it; everyone else, as before. */
+export function testPartnerCustody(partner: TestPartner | null | undefined): { bankFor(userId: string): PartnerBank | null } {
+  return { bankFor: (userId) => (partner && partner.switches(userId).custody === 'off' ? partner.bank : null) };
 }
 
 /** Why the service will not start with the adapter chosen. */
@@ -182,6 +377,27 @@ export function programmeReserve(partner: TestPartner | null | undefined): Partn
 /** Whether the ramp says a quote it gave has expired, whatever its own time said. */
 export function rampQuoteExpired(partner: TestPartner | null | undefined, userId: string): boolean {
   return !!partner && partner.switches(userId).rampQuote === 'expired';
+}
+
+/**
+ * Whose book holds this person's money: `partner` when the TEST partner's custody switch is off for them, else the
+ * custodial layer (`ledger`) when it is switched on, else nobody: `none`, which every customer-balance door refuses with
+ * `bank.partner_unset` (no partner is set and INTAFACED holds no customer money). `custodyLayer` is the same switch
+ * svc-ledger reads (`LEDGER_CUSTODY_LAYER`, `parseCustodyLayer`).
+ */
+export type MoneyHeldBy = 'ledger' | 'partner' | 'none';
+
+export function moneyHeldBy(partner: TestPartner | null | undefined, userId: string, custodyLayer: 'on' | 'off'): MoneyHeldBy {
+  if (partner && partner.switches(userId).custody === 'off') return 'partner';
+  return custodyLayer === 'on' ? 'ledger' : 'none';
+}
+
+/** The refusal for `none`: no partner holds this person's money, and the custodial layer is switched off. */
+export function partnerUnset(): BankError {
+  return new BankError(
+    'No partner is set to hold this money, and INTAFACED holds no customer money (the custodial layer is off). Nothing was sent or changed.',
+    'bank.partner_unset',
+  );
 }
 
 /** Refuses a ramp quote whose fee the ramp does not give: no fee, so no pay amount, and nothing is kept. */

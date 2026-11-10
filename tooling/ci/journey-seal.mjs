@@ -82,7 +82,7 @@ import {
   rootInputs,
 } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
-import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
@@ -556,8 +556,36 @@ export function currentReportArtifact(run, artifacts) {
 
 // ---- GitHub reads (GET only; a refusal or an unreadable list fails the seal closed) ----
 
+/** Statuses a GET is tried again on: GitHub's own short outages, never a refusal (a 403 or 429 stops at once). */
+const TRANSIENT = new Set([502, 503, 504]);
+
+/**
+ * One GET, tried up to `tries` times when the request itself fails (Node's "fetch failed": a reset or a timeout on the
+ * way) or GitHub answers 502, 503 or 504, `waitMs` apart, then the last answer or error as it is, so the seal still fails
+ * closed. A thrown error keeps its cause's code, which Node's "fetch failed" alone hides (intafaced#7707, seal run
+ * 42698308612: "which reds main already had couldn't be read (fetch failed)" on two attempts in a row).
+ */
+export async function getTried(
+  url,
+  init,
+  { fetchImpl = fetch, tries = 3, waitMs = 3000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
+) {
+  for (let n = 1; ; n++) {
+    try {
+      const res = await fetchImpl(url, init);
+      if (!TRANSIENT.has(res.status) || n >= tries) return res;
+    } catch (e) {
+      if (n >= tries) {
+        const code = e?.cause?.code ?? e?.cause?.message;
+        throw new Error(`${e?.message ?? e}${code ? ` (${code})` : ''} after ${n} tries`, { cause: e });
+      }
+    }
+    await sleep(waitMs * n);
+  }
+}
+
 async function api(path, token, { raw = false } = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await getTried(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
     redirect: 'follow',
   });
@@ -607,8 +635,15 @@ export function makeIo(repo, token) {
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
+    // The map the touch job used (journey-touch.mjs): the newest build main's map workflow verified no later than `before`,
+    // else the committed copy beside this script.
+    reachMap: async (before) =>
+      newerMap(
+        await builtMap({ get: (path) => api(path, token), raw: (path) => api(path, token, { raw: true }), before, repo }),
+        loadMap(),
+      ),
     mainRuns: async () => {
-      const r = await api(`/repos/${repo}/actions/workflows/${file}/runs?branch=main&status=completed&per_page=30`, token);
+      const r = await api(`/repos/${repo}/actions/workflows/${file}/runs?branch=main&status=completed&per_page=100`, token);
       if (!Array.isArray(r?.workflow_runs)) throw new Error(`${file} runs on main: not a list`);
       return r.workflow_runs;
     },
@@ -631,7 +666,7 @@ export function makeIo(repo, token) {
     },
     async text(path, ref) {
       const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
-      const res = await fetch(`https://api.github.com${url}`, {
+      const res = await getTried(`https://api.github.com${url}`, {
         headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw+json' },
         redirect: 'follow',
       });
@@ -995,14 +1030,20 @@ export async function rangeFromCommits(get, repo, from, to) {
  * request changes no product path or the seal can't read main's runs or the head's journey files (then product code is
  * full). The map is this script's own copy (the default branch's); its age is counted from main's runs; the journey
  * files and whether a changed service file subscribes to bus events are read at the head. A read that fails leaves
- * the input unknown, which the map reads as full.
+ * the input unknown, which the map reads as full. The map is the build the head's newest journeys run chose when it
+ * was created (io.reachMap(before)), so the seal holds the run to the journeys it was told to run.
  */
 export async function reachInputs({ io, paths, head, text }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
   // Any other full path makes the whole change full, so nothing below would be used: read nothing.
   if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
-  const map = io.reachMap ? await io.reachMap() : loadMap();
+  let before = Date.now();
+  try {
+    const made = ((io.runs ? await io.runs(head) : []) ?? []).map((r) => Date.parse(r?.created_at)).filter(Number.isFinite);
+    if (made.length) before = Math.max(...made);
+  } catch {}
+  const map = io.reachMap ? await io.reachMap(before) : loadMap();
   let behind = null;
   try {
     behind = runsBehind(map, await io.mainRuns());
@@ -1033,7 +1074,25 @@ export async function reachInputs({ io, paths, head, text }) {
 export async function sealPull({ repo, number, sha, io: given, requireOpen = true, waitOnRunning = true }) {
   // Main's runs are read once: for the map's age (reachInputs) and for inherited reds (mainReference).
   let mainRuns;
-  const io = given.mainRuns ? { ...given, mainRuns: () => (mainRuns ??= Promise.resolve().then(() => given.mainRuns())) } : given;
+  const headRuns = new Map();
+  const io = {
+    ...given,
+    ...(given.mainRuns ? { mainRuns: () => (mainRuns ??= Promise.resolve().then(() => given.mainRuns())) } : {}),
+    // The head's journeys runs are read once: for the map's build (reachInputs) and for the steps (judgeSteps).
+    ...(given.runs
+      ? {
+          runs: (h) =>
+            headRuns.has(h)
+              ? headRuns.get(h)
+              : headRuns
+                  .set(
+                    h,
+                    Promise.resolve().then(() => given.runs(h)),
+                  )
+                  .get(h),
+        }
+      : {}),
+  };
   const pull = await io.pull(number);
   const head = String(pull?.head?.sha ?? '');
   if (!SHA40.test(head)) return { ok: false, lines: [`#${number}: its head could not be read`] };
