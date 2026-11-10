@@ -10,8 +10,8 @@
  *   - full: the pull request needs a clean full run on its exact head. The journey stack's shared setup (SHARED_SETUP in
  *     journey-seal.mjs), every script under tooling/scripts (the stack, the TEST market maker, the seed, world-restore,
  *     the shard planner and the scripts journeys import), the journeys workflow and its actions, the seal and this file,
- *     the journeys verdict and the baseline, build and environment files, every doc (journeys read docs/roadmap and
- *     docs/runbooks), and every product path (apps/, services/, packages/) other than a unit test, unless the next
+ *     the journeys verdict and the baseline, build and environment files, every doc the journeys run can read (DOCS_READ:
+ *     docs/roadmap, docs/runbooks and the docs code names), and every product path (apps/, services/, packages/) other than a unit test, unless the next
  *     kind takes it. A static guess at which journeys reach which code would miss journeys (a journey runs through the
  *     customer app, svc-edge and whatever services they call and the events those raise), so only evidence narrows it;
  *   - reach (the touched-journeys map, journey-reach-map.mjs, with --reach): a product path runs only the journeys main's
@@ -79,6 +79,28 @@ export const JOURNEY_CI = [
   'tooling/ci/test-judge/JUDGE.md',
 ];
 
+/**
+ * The docs a journeys run can read: the journeys index and the baseline (docs/roadmap, docs/runbooks), and every doc a
+ * product source, a journey file or a script the journeys run executes names by path. A file ends without `/`, a folder
+ * with it. Every other path under docs/ runs no journeys (the 9 Nov 09:41 UTC item on project-state#1574: a docs-only
+ * pull request paid for the whole suite). journey-touch.test.mjs fails when that code names a doc this list misses.
+ */
+export const DOCS_READ = [
+  'docs/roadmap/',
+  'docs/runbooks/',
+  'docs/audits/',
+  'docs/agents/',
+  'docs/decisions/s2s-body-bind.md',
+  'docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md',
+  'docs/CODEOWNERS',
+  'docs/OPS-KILL-SWITCH-RUNBOOK.md',
+  'docs/OWNER-OPS-CHECKLIST-2026-07-31.md',
+  'docs/OWNER-SETTINGS.md',
+  'docs/ROADMAP.md',
+  'docs/RUNNING.md',
+  'docs/THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md',
+];
+
 const FULL_RULES = [
   [
     /^tooling\/scripts\//,
@@ -86,7 +108,10 @@ const FULL_RULES = [
   ],
   [/^\.github\/workflows\/real-app-journeys\.yml$/, 'the journeys workflow'],
   [/^\.github\/actions\//, 'an action the journeys workflow uses'],
-  [/^docs\//, 'a doc (journeys read docs/roadmap and docs/runbooks, and the verdict reads the baseline)'],
+  [
+    { test: (p) => DOCS_READ.some((d) => (d.endsWith('/') ? p.startsWith(d) : p === d)) },
+    'a doc the journeys run, the stack or a service reads or names (DOCS_READ)',
+  ],
   [/^tooling\/(profiles|infra)\//, 'the stack’s environment (tooling/profiles, tooling/infra)'],
   [
     /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|tsconfig[^/]*\.json|\.npmrc|\.nvmrc|\.node-version|\.env\.example|docker-compose[^/]*\.ya?ml)$/,
@@ -99,9 +124,10 @@ const NONE_RULES = [
   (p) => p.startsWith('tooling/ci/') && !JOURNEY_CI.includes(p),
   (p) => /^(apps|services|packages)\//.test(p) && /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) && !p.startsWith('apps/customer/tests/real-app/'),
   // Markdown at the repository root (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md): no journey, stack script or
-  // harness file reads it (U6 on project-state#1574: an AGENTS.md-only PR paid for a full run, 42547155694). docs/ stays
-  // full: journeys read docs/roadmap and docs/runbooks.
+  // harness file reads it (U6 on project-state#1574: an AGENTS.md-only PR paid for a full run, 42547155694).
   (p) => /^[^/]+\.md$/.test(p),
+  // A doc outside DOCS_READ (that list is full, and is checked first).
+  (p) => p.startsWith('docs/'),
 ];
 
 const PRODUCT = 'product code, and no map recorded from real runs says which journeys reach it yet';
