@@ -562,6 +562,13 @@ const schema = serviceEnvSchema
       BANK_EARN_RISK_WORDING_JSON: z.string().optional(),
 
       /**
+       * The owner's notice for a person in a blocked region who opens a transfer (BK-safe-01, J-bank-18 #1): plain text.
+       * NO DEFAULT. Blank / unset → the notice names the restriction and says the wording is not published; the bank's
+       * doors refuse there either way (`denied.region_blocked`), so the wording never decides who is blocked.
+       */
+      BANK_BLOCKED_REGION_NOTICE: z.string().optional(),
+
+      /**
        * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /
        * unset → adding a currency refuses `bank.account_currencies_unset`; an asset not on the list refuses
        * `bank.asset_unknown`. Removing a currency needs no list.
