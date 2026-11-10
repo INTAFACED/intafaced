@@ -1044,22 +1044,21 @@ test('the review job runs only on pull requests into main, and again when one is
   assert.match(wf, /github\.event\.action != 'edited' \|\| github\.event\.changes\.base/);
 });
 
-test("the seal re-run step can't void a PASS: it runs after Verdict and its failure can't fail the job", async () => {
+test("starting the seal can't void a PASS: it is a job of its own after the review, never a step of it", async () => {
   const { readFileSync } = await import('node:fs');
   const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
-  const verdict = wf.indexOf('- name: Verdict\n');
-  const rerun = wf.indexOf('- name: Re-run a red seal on this head\n');
-  assert.ok(verdict > 0 && rerun > verdict, 'the re-run step comes after Verdict');
-  const step = wf.slice(rerun, wf.indexOf('\n\n', rerun) === -1 ? undefined : wf.indexOf('\n\n', rerun));
-  assert.match(step, /\n\s+continue-on-error: true\n/);
-  // Why it must: with Verdict success, a job that concluded success seals, and one that concluded failure (the re-run
-  // step threw) is no verdict at all.
+  const review = wf.slice(wf.indexOf('\n  review:\n'), wf.lastIndexOf('\n\n', wf.indexOf('\n  seal-start:\n')));
+  assert.ok(wf.indexOf('\n  seal-start:\n') > 0, 'a seal-start job');
+  assert.doesNotMatch(review, /--recheck|rerun-seal|actions: write/, 'the review job neither starts the seal nor can re-run a run');
+  const start = wf.slice(wf.indexOf('\n  seal-start:\n'));
+  assert.match(start, /\n    needs: \[review, read\]\n/);
+  // A step of the review job that failed would void its PASS; a job of its own can't (planted: the step that did).
   const read = (job) =>
     ciReviewVerdict({ sha: HEAD, base: 'main', number: 7, runs: [run({ jobs: [[job]] })], attempts: async (r) => r.jobs });
-  const rerunFailed = { ...reviewJob(HEAD, 'success'), conclusion: 'failure' };
-  rerunFailed.steps = [...rerunFailed.steps, { name: 'Re-run a red seal on this head', status: 'completed', conclusion: 'failure' }];
+  const stepFailed = { ...reviewJob(HEAD, 'success'), conclusion: 'failure' };
+  stepFailed.steps = [...stepFailed.steps, { name: 'Start the seal', status: 'completed', conclusion: 'failure' }];
   assert.equal((await read(reviewJob(HEAD, 'success'))).state, 'pass');
-  assert.equal((await read(rerunFailed)).state, 'none');
+  assert.equal((await read(stepFailed)).state, 'none');
 });
 
 test("fails: a branch's own copy of the workflow, or another workflow, can't seal", async () => {
