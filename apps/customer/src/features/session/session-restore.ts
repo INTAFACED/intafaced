@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createApiClient, type ApiResult } from '../../shared/api';
+import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -499,6 +500,8 @@ export function createSessionController(
     epoch += 1;
     failures = 0;
     disarm();
+    // A trading session's key on this device ends with the sign-out (J-wallet-22 #8): nothing here signs with it again.
+    forgetDeviceSessionKeys();
     set({ session: null, restoring: false, restoreFailed: false, notice });
   }
   function clear() {
