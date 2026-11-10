@@ -394,23 +394,6 @@ async function operators() {
 }
 
 /**
- * The seller's escrow pot for one trade as svc-ledger itself books it (`user:<seller>`, kind `escrow`, purpose
- * `trade:<tradeId>`), read by the stack's founder A as a treasury operator. Null when the ledger has no such account.
- */
-export async function ledgerTradeEscrow(sellerId, asset, tradeId) {
-  const { ctx, pair } = await operators();
-  const prefix = `user:${sellerId}`;
-  const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(prefix)}`, {
-    headers: { authorization: `Bearer ${await pair.a.treasuryToken()}` },
-  });
-  const text = await res.text();
-  if (res.status !== 200) throw new Error(`ledger accounts under ${prefix} refused (${res.status}): ${text.slice(0, 300)}`);
-  const page = JSON.parse(text);
-  if (page.nextCursor !== null) throw new Error(`more than one page of ledger accounts under ${prefix}`);
-  return page.accounts.find((row) => row.kind === 'escrow' && row.assetId === asset && row.purpose === `trade:${tradeId}`) ?? null;
-}
-
-/**
  * A svc-p2p staff mutation made by the stack's founder A as a compliance operator (support reviewing a person's case),
  * one person, no approval pair. Returns the answer, or with `raw` the refusal `{ status, code }` instead of throwing.
  */

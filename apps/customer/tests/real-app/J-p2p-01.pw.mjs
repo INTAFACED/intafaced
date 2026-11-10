@@ -20,11 +20,34 @@ import {
   registerSlowMethod,
   retireRetiringMethod,
   holderOf,
-  ledgerTradeEscrow,
   testInstrument,
   testPasskey,
   unconfirmedAccount,
 } from './p2p.mjs';
+
+/**
+ * The seller's escrow pot for one trade as svc-ledger itself books it (`user:<seller>`, kind `escrow`, purpose
+ * `trade:<tradeId>`), read by the stack's founder A as a treasury operator. Null when the ledger has no such account.
+ * Kept in this file, not the shared P2P helpers, since only this journey reads it.
+ */
+let ledgerOperators;
+async function ledgerTradeEscrow(sellerId, asset, tradeId) {
+  if (!ledgerOperators) {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    ledgerOperators = { ctx, pair: await gates.approverSessions(ctx) };
+  }
+  const { ctx, pair } = ledgerOperators;
+  const prefix = `user:${sellerId}`;
+  const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(prefix)}`, {
+    headers: { authorization: `Bearer ${await pair.a.treasuryToken()}` },
+  });
+  const text = await res.text();
+  if (res.status !== 200) throw new Error(`ledger accounts under ${prefix} refused (${res.status}): ${text.slice(0, 300)}`);
+  const page = JSON.parse(text);
+  if (page.nextCursor !== null) throw new Error(`more than one page of ledger accounts under ${prefix}`);
+  return page.accounts.find((row) => row.kind === 'escrow' && row.assetId === asset && row.purpose === `trade:${tradeId}`) ?? null;
+}
 
 // J-p2p-01, in the running app (docs/roadmap/journeys.json): I buy crypto from an ad, pay the seller outside, and
 // receive the coins. One test per step, titled "J-p2p-01 #<n>", run in order on one verified TEST buyer. The other side
