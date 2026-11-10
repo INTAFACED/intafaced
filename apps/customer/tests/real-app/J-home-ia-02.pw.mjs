@@ -184,13 +184,17 @@ test(`${J} #1 the top bar has five doors with full dropdowns, the same five on t
     advanced.push(...simple.filter((row) => row.advanced));
   }
 
-  // Every room in Simple is still reachable by its address and by the header search, the advanced ones included.
+  // Every room in Simple is still reachable by its address and by the header search, the advanced ones included. A
+  // Business-only room (Business approvals, /bank/business) is the exception for search in Personal mode, as #7 says; it
+  // is still reached by its address here.
+  const BUSINESS_ONLY = new Set(['/bank/business']);
   const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const { href, title } of advanced) {
     expect(title, `${href} has a title in its row`).not.toBe('');
     await page.goto(href);
     await expect(page, `${href} by address`).toHaveURL(new RegExp(`${escape(href.split('?')[0])}(\\?|$)`));
     await expect(page.locator('main'), `${href} by address`).not.toBeEmpty();
+    if (BUSINESS_ONLY.has(href)) continue;
     await page.goto('/home');
     const panel = await search(page, title);
     await expect(panel.getByRole('option', { name: new RegExp(escape(title)) }).first(), `${title} (${href}) by search`).toBeVisible();
