@@ -344,14 +344,15 @@ export async function runReconciliation(sql: ReconciliationDb, custodyLayer: Cus
     const failed = checks.find((check) => check.status === 'rejected');
     if (failed?.status === 'rejected') throw failed.reason;
   }
+  const ok = !mismatch;
   return {
-    ok: !mismatch,
+    ok,
     ranAt: new Date(),
     balances,
     chain,
     totals,
     unbalancedAssets,
-    result: proofResult(!mismatch, balances, chain),
+    result: proofResult({ ok, balances, chain, incompleteChecks }),
     ...(customerBalances ? { customerBalances } : {}),
     ...(incompleteChecks.length ? { incompleteChecks } : {}),
     ...(corruptAmountFields.length ? { corruptAmountFields } : {}),
@@ -363,10 +364,20 @@ export function openCustomerBalances(report: ReconciliationReport): number | nul
   return report.customerBalances?.custodyLayer === 'off' ? report.customerBalances.open.length : null;
 }
 
-/** `nothing_to_compare` when an ok proof read no account and no transaction: an empty book proves nothing. */
-export function proofResult(ok: boolean, balances: ReconcileResult, chain: ChainResult): ReconciliationReport['result'] {
-  if (!ok) return 'mismatch';
-  return balances.accountsChecked === 0 && chain.length === 0 ? 'nothing_to_compare' : 'matched';
+/**
+ * The proof's word, from the report's own fields: a not-ok report is `mismatch`; a check that did not finish rules out
+ * `matched` (a report that carries one is a mismatch, as `runReconciliation` returns no other kind); an ok proof that read
+ * no account and no transaction is `nothing_to_compare`. Only an ok proof with every check finished and something read is
+ * `matched`.
+ */
+export function proofResult(report: {
+  readonly ok: boolean;
+  readonly balances: ReconcileResult;
+  readonly chain: ChainResult;
+  readonly incompleteChecks?: readonly unknown[];
+}): ReconciliationReport['result'] {
+  if (!report.ok || (report.incompleteChecks?.length ?? 0) > 0) return 'mismatch';
+  return report.balances.accountsChecked === 0 && report.chain.length === 0 ? 'nothing_to_compare' : 'matched';
 }
 
 // ── The snapshot runner ──────────────────────────────────────────────────────

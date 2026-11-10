@@ -7,7 +7,7 @@ import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { hashTx, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { LedgerService } from '../service.js';
-import { runScheduledReconciliation, runSnapshotReconciliation } from './reconcile.js';
+import { proofResult, runReconciliation, runScheduledReconciliation, runSnapshotReconciliation } from './reconcile.js';
 import { createReconcileTickState, runScheduledReconciliationTick } from './scheduled-reconcile-tick.js';
 import { truncateBook, withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 
@@ -451,6 +451,42 @@ describe('the hourly proof with the custodial layer off (OWNER 288)', () => {
       `;
       expect(row?.outcome).toBe('mismatch');
       expect(row?.detail).toMatchObject({ result: 'mismatch', customerBalancesOpen: 1, firstCustomerBalanceAccountId: customer!.id });
+    } finally {
+      await sql.end();
+    }
+  });
+});
+
+describe('the proof result never reads matched for a proof that did not finish (OWNER 288; CI review)', () => {
+  it('derives result from the report: not ok or an unfinished check is mismatch, an empty ok book is nothing to compare', () => {
+    const balances = { ok: true as const, accountsChecked: 2 };
+    const chain = { ok: true as const, length: 3 };
+    expect(proofResult({ ok: true, balances, chain })).toBe('matched');
+    expect(proofResult({ ok: true, balances: { ok: true, accountsChecked: 0 }, chain: { ok: true, length: 0 } })).toBe(
+      'nothing_to_compare',
+    );
+    expect(proofResult({ ok: false, balances, chain })).toBe('mismatch');
+    expect(proofResult({ ok: true, balances, chain, incompleteChecks: [{ check: 'customer_balances', errorCode: '57014' }] })).toBe(
+      'mismatch',
+    );
+  });
+
+  it('a customer check that cannot finish on a consistent book throws (incomplete), never a matched report', async () => {
+    const sql = connect();
+    try {
+      const { svc } = service(sql);
+      await svc.post(deposit(USER_A));
+      // Planted fault: the customer-balance read fails (its column is gone), every other check finishes clean.
+      await sql.unsafe('ALTER TABLE accounts RENAME COLUMN owner_type TO owner_type_hidden');
+      try {
+        await expect(runReconciliation(sql, 'off')).rejects.toThrow();
+        // With the layer on the check reads nothing, so the same book proves matched.
+        await sql.unsafe('ALTER TABLE accounts RENAME COLUMN owner_type_hidden TO owner_type');
+        const on = await runReconciliation(sql, 'on');
+        expect(on).toMatchObject({ ok: true, result: 'matched' });
+      } finally {
+        await sql.unsafe('ALTER TABLE accounts RENAME COLUMN owner_type_hidden TO owner_type').catch(() => undefined);
+      }
     } finally {
       await sql.end();
     }
