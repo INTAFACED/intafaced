@@ -1,7 +1,7 @@
 import { buildCsv } from '../merchants/csv';
 
 /**
- * The shape of svc-trade's builder-fee recon (services/svc-trade/src/builder-fees/builder-fee-recon.ts), read strictly: a field
+ * The shape of svc-trade's builder-fee recon (services/svc-trade/src/venue/builder-fee-recon.ts), read strictly: a field
  * of the wrong type makes the whole answer invalid, never a guessed zero. Amounts stay decimal strings.
  */
 export type BuilderFeeLineStatus =

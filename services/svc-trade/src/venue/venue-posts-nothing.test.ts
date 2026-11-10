@@ -15,11 +15,19 @@ import { describe, expect, it } from 'vitest';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const roots = [here, path.resolve(here, '../../../../packages/venue-sim/src')];
 
-const sources = roots.flatMap((root) =>
+/**
+ * The one posting a venue path makes, by design and outside the door: our builder fee, posted once per venue fill by its
+ * own job and checked by finance's recon and its admin read (D-venue-07, J-derivatives-17, #7690). Neither is the door or the TEST venue,
+ * and no guarded file may import them, so no deposit, withdrawal or order reaches a posting through them.
+ */
+const BUILDER_FEE_POSTING = new Set(['builder-fee-poster.ts', 'builder-fee-recon.ts', 'builder-fee-admin.ts']);
+
+const all = roots.flatMap((root) =>
   readdirSync(root)
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
     .map((f) => ({ file: path.join(root, f), text: readFileSync(path.join(root, f), 'utf8') })),
 );
+const sources = all.filter((s) => !BUILDER_FEE_POSTING.has(path.basename(s.file)));
 
 /**
  * Every module a source imports at run time. A whole-statement `import type` / `export type` is erased when it compiles,
@@ -53,10 +61,11 @@ describe('the venue door and the TEST venue post nothing to the ledger (J-wallet
     expect(reached).toEqual([]);
   });
 
-  it('reaches our builder-fee posting from no guarded file: it is its own job in src/builder-fees, never the door', () => {
+  it('reaches the builder-fee posting from no guarded file: it runs as its own job, never from the door', () => {
+    expect(all.map((s) => path.basename(s.file))).toEqual(expect.arrayContaining([...BUILDER_FEE_POSTING]));
     const reached = sources.flatMap((s) =>
       imports(s.text)
-        .filter((m) => /(^|\/)builder-fees\//.test(m) || /builder-fee-(poster|recon|admin|store)(\.js)?$/.test(m))
+        .filter((m) => [...BUILDER_FEE_POSTING].some((f) => m.endsWith(f.replace(/\.ts$/, '.js')) || m.endsWith(f.replace(/\.ts$/, ''))))
         .map((m) => `${path.basename(s.file)} → ${m}`),
     );
     expect(reached).toEqual([]);
