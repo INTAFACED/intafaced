@@ -205,9 +205,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: ci-review
-    # The proof reader's model (OWNER 250 (2): cheaper models run proof readers) at medium; switching it is this one line.
+    # The proof reader's model (project-state OWNER 282: proof readers run on Opus) at medium; switching it is this one line.
     env:
-      READER_MODEL: claude-sonnet-5-5
+      READER_MODEL: claude-opus-5-5
       READER_EFFORT: medium
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text
