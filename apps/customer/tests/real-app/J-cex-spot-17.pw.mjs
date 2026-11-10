@@ -1,5 +1,6 @@
 // World: book, gates, restart
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -262,6 +263,14 @@ function tradeDb(ctx) {
   });
 }
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** The TEST ramp partner's own catalogue, as the stack loads it (tooling/profiles/test-owner-values/bank.json). */
+function partnerRampCatalogue() {
+  const values = JSON.parse(readFileSync(path.join(REPO, 'tooling', 'profiles', 'test-owner-values', 'bank.json'), 'utf8'));
+  const entry = values.values?.BANK_ONRAMP_SIM_JSON ?? values.BANK_ONRAMP_SIM_JSON;
+  expect(entry?.value, 'the TEST ramp catalogue the stack loads').toBeTruthy();
+  return JSON.parse(entry.value).quotes;
+}
 
 /** The door's status for a signed-in customer: on, the TEST venue it reaches, and our builder address. */
 async function venueDoor(client) {
@@ -899,6 +908,7 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
     expect(venueOwn.fill, JSON.stringify(venueOwn).slice(0, 400)).toMatchObject({ known: true });
     expect(toUnits(venueOwn.fill.value.amount), 'the book takes some of the sell').toBeGreaterThan(0n);
     expect(venueOwn.builderFee, 'our builder fee, as the venue figures it').toMatchObject({ known: true });
+    expect(venueOwn.venueFee, "the venue's own fee: the TEST venue publishes BTC-USDC's").toMatchObject({ known: true });
     expect(vq).toMatchObject({
       quoteId: `venue-sell:${client.userId}:${quoteKey}`,
       userId: client.userId,
@@ -909,7 +919,7 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
       baseAsset: 'BTC',
       quoteAsset: 'USDC',
       fill: { known: true },
-      venueFee: { known: venueOwn.venueFee.known },
+      venueFee: { known: true, asset: venueOwn.venueFee.value.asset },
       builderFee: { known: true, asset: venueOwn.builderFee.value.asset },
     });
     expect(sameAmount(vq.amount, SELL)).toBe(true);
@@ -918,10 +928,10 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
       sameAmount(vq.fill.averagePrice, venueOwn.fill.value.averagePrice),
       `average ${vq.fill.averagePrice} vs ${venueOwn.fill.value.averagePrice}`,
     ).toBe(true);
-    if (venueOwn.venueFee.known) {
-      expect(vq.venueFee.asset).toBe(venueOwn.venueFee.value.asset);
-      expect(sameAmount(vq.venueFee.amount, venueOwn.venueFee.value.amount)).toBe(true);
-    }
+    expect(
+      sameAmount(vq.venueFee.amount, venueOwn.venueFee.value.amount),
+      `venue fee ${vq.venueFee.amount} vs ${venueOwn.venueFee.value.amount}`,
+    ).toBe(true);
     expect(sameAmount(vq.builderFee.amount, venueOwn.builderFee.value.amount)).toBe(true);
     // A retry under the same key gives the quote first given; the same key for another sell refuses.
     const retried = await client.post('/api/v1/venue/convert/sell-quote', {
@@ -956,7 +966,7 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
         `${vq.amount} BTC on ${VENUE_SPOT}`,
         `${vq.fill.amount} BTC`,
         `${vq.fill.averagePrice} USDC`,
-        vq.venueFee.known ? `${vq.venueFee.amount} ${vq.venueFee.asset}` : 'not known',
+        `${vq.venueFee.amount} ${vq.venueFee.asset}`,
         `${vq.builderFee.amount} ${vq.builderFee.asset}`,
         shown(vq.asOf),
       ]);
@@ -977,7 +987,20 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
 
       // Each fiat buy price with its fee, exactly as the bank gave it to the customer.
       const fiat = a.page.locator('[data-fees=fiat-buy]');
+      // The partner's own figures: the TEST ramp stand-in's catalogue the stack loads (BANK_ONRAMP_SIM_JSON), read here from
+      // its source, not from the bank. Each price's fee and rate are the partner's, and it pays amount × rate, rounded up,
+      // plus the fee.
+      const partnerQuotes = partnerRampCatalogue();
       for (const { quote: q } of priced) {
+        const own = partnerQuotes.find((p) => p.country === 'NL' && p.method === q.method && p.asset === q.assetId);
+        expect(own, `the TEST partner's own price for ${q.method}`).toBeTruthy();
+        expect(own.payCurrency).toBe(q.payCurrency);
+        expect(sameAmount(q.fee, own.fee), `fee ${q.fee} vs the partner's ${own.fee}`).toBe(true);
+        expect(sameAmount(q.rate, own.rate), `rate ${q.rate} vs the partner's ${own.rate}`).toBe(true);
+        const scale = toUnits('1');
+        const product = toUnits(q.amount) * toUnits(own.rate);
+        const payUnits = (product + scale - 1n) / scale + toUnits(own.fee);
+        expect(toUnits(q.payAmount), `pay ${q.payAmount} = ${q.amount} × ${own.rate}, rounded up, + ${own.fee}`).toBe(payUnits);
         await expect(fiat.locator(`tr[data-onramp-quote="${q.quoteId}"] td`)).toHaveText([
           client.userId,
           `${q.amount} ${q.assetId}`,
