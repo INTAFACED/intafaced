@@ -14,6 +14,8 @@
  * the permission table) or carry the envelope's default link, and the trading service's missing-key reply carries none.
  */
 
+import type { ErrorCategory, ErrorSeverity } from './trade-errors.js';
+
 export const AUTH_ERRORS_PATH = '/developers/errors/auth' as const;
 
 export type AuthErrorCause =
@@ -41,8 +43,32 @@ export interface AuthErrorEntry {
   readonly intafacedCode: string | null;
   /** Who answers: the edge, or the trading service the edge forwarded the call to. */
   readonly answeredBy: 'edge' | 'trade';
+  /** How a client treats it (trade-errors.ts ERROR_SEVERITIES) and what it is about (ERROR_CATEGORIES). */
+  readonly severity: ErrorSeverity;
+  readonly category: ErrorCategory;
   readonly anchor: string;
 }
+
+/**
+ * Severity and category per cause. A stale, future or replayed signature is an `error`: the call must be signed again
+ * (a fresh timestamp and nonce) before it can succeed. The edge's own outages are `temporary` and `platform`.
+ */
+const CLASS: Readonly<Record<AuthErrorCause, readonly [ErrorSeverity, ErrorCategory]>> = {
+  missing: ['error', 'authentication'],
+  denied: ['error', 'authentication'],
+  revoked: ['error', 'authentication'],
+  expired: ['error', 'authentication'],
+  frozen: ['error', 'account'],
+  scope: ['error', 'permission'],
+  environment: ['error', 'permission'],
+  unsigned: ['error', 'signature'],
+  stale: ['error', 'signature'],
+  future: ['error', 'signature'],
+  tampered: ['error', 'signature'],
+  replay: ['error', 'signature'],
+  window_unset: ['temporary', 'platform'],
+  authority_unavailable: ['temporary', 'platform'],
+};
 
 const entry = (
   cause: AuthErrorCause,
@@ -51,7 +77,7 @@ const entry = (
   intafacedCode: string | null,
   answeredBy: AuthErrorEntry['answeredBy'] = 'edge',
   anchor: string = code,
-): AuthErrorEntry => ({ cause, code, status, intafacedCode, answeredBy, anchor });
+): AuthErrorEntry => ({ cause, code, status, intafacedCode, answeredBy, severity: CLASS[cause][0], category: CLASS[cause][1], anchor });
 
 export const AUTH_ERROR_CATALOGUE: readonly AuthErrorEntry[] = [
   entry('missing', 'AuthenticationError', 401, 'auth.required', 'trade'),

@@ -14,6 +14,8 @@ import {
   regressionState,
   manifestsAt,
   missingArtifact,
+  ghDownload,
+  refusedDownload,
   setAsideGuard,
   setAsideSteps,
   isAncestor,
@@ -571,6 +573,52 @@ test('downloadReport gives null only for a missing artifact, so a refused downlo
   const body = src.slice(src.indexOf('function downloadReport('), src.indexOf('export function manifestsAt('));
   assert.match(body, /if \(optional && missingArtifact\(e\.stderr\)\) return null;/);
   assert.doesNotMatch(body, /if \(optional\) return null;\n\s*throw e;/);
+});
+
+/** A stand-in for execFileSync that fails with each given stderr in turn, then succeeds. */
+function flakyGh(...stderrs) {
+  const calls = [];
+  const run = (cmd, args) => {
+    calls.push(args);
+    const said = stderrs[calls.length - 1];
+    if (said === undefined) return Buffer.from('');
+    throw Object.assign(new Error(`Command failed: ${cmd} ${args.join(' ')}`), { stderr: Buffer.from(said) });
+  };
+  return { run, calls };
+}
+
+test('a report download that drops its connection is tried again, so one flaky read of the pass history is not a red verdict', () => {
+  const waits = [];
+  const { run, calls } = flakyGh('error downloading artifact: read: connection reset by peer\n', 'HTTP 502: Bad Gateway\n');
+  ghDownload(['run', 'download', '1'], { run, wait: (ms) => waits.push(ms) });
+  assert.equal(calls.length, 3);
+  assert.deepEqual(waits, [5_000, 15_000]);
+});
+
+test("a download that keeps failing still throws after its tries, and names gh's own error", () => {
+  const { run, calls } = flakyGh('x\n', 'y\n', 'error downloading artifact: unexpected EOF\n');
+  assert.throws(
+    () => ghDownload(['run', 'download', '1'], { run, wait: () => {} }),
+    (e) => /^Command failed: gh run download 1: error downloading artifact: unexpected EOF \(attempt 3 of 3\)/.test(e.message),
+  );
+  assert.equal(calls.length, 3);
+});
+
+test('a refused download (403, 429, a rate limit) or a missing artifact is never retried', () => {
+  assert.equal(refusedDownload('HTTP 403: API rate limit exceeded for user ID 1'), true);
+  assert.equal(refusedDownload('HTTP 429: Too Many Requests'), true);
+  assert.equal(refusedDownload('HTTP 502: Bad Gateway'), false);
+  for (const said of [
+    'HTTP 403: Resource not accessible by integration\n',
+    'HTTP 429: Too Many Requests\n',
+    'no valid artifacts found to download\n',
+  ]) {
+    const { run, calls } = flakyGh(said, said, said);
+    let waited = 0;
+    assert.throws(() => ghDownload(['run', 'download', '1'], { run, wait: () => waited++ }), /attempt 1 of 3/);
+    assert.equal(calls.length, 1, said);
+    assert.equal(waited, 0, said);
+  }
 });
 
 // ── CI review on #7363, 7a3b0af: the set-aside only on main, and a fresh list only when main never had one ──

@@ -838,6 +838,8 @@ export const cashOutQuoteSchema = z.object({
   assetId: z.string(),
   amount: money,
   available: money,
+  /** Who holds the balance read: the partner bank's label when it holds this person's money, else null (the ledger). */
+  heldAt: z.string().nullable().default(null),
   account: linkedAccountSchema,
   rail: z.literal('rail.bank'),
   fee: money.nullable(),
@@ -849,7 +851,7 @@ export const cashOutQuoteSchema = z.object({
   standIn: z.string().nullable().default(null),
 });
 export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
-export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'returned'] as const;
+export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'cancelled', 'returned'] as const;
 export const cashOutRequestSchema = z.object({
   requestId: z.string(),
   assetId: z.string(),
@@ -863,19 +865,24 @@ export const cashOutRequestSchema = z.object({
   receiveCurrency: z.string().nullable().default(null),
   payoutRef: z.string().nullable().default(null),
   ledgerTxId: z.string().nullable().default(null),
+  heldAt: z.string().nullable().default(null),
+  partnerMoveId: z.string().nullable().default(null),
   failureCode: z.string().nullable().default(null),
   returnedAmount: money.nullable().default(null),
   remainsPaidOut: money.nullable().default(null),
   createdAt: z.string(),
   completedAt: z.string().nullable().default(null),
   failedAt: z.string().nullable().default(null),
+  cancelledAt: z.string().nullable().default(null),
   returnedAt: z.string().nullable().default(null),
 });
 export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
 export const cashOutReceiptSchema = z.object({
   fileName: z.string(),
   text: z.string(),
-  ledgerTxId: z.string(),
+  /** The ledger transaction that paid it out; null when the partner bank holds the money and the ledger posted nothing. */
+  ledgerTxId: z.string().nullable(),
+  partnerMoveId: z.string().nullable().default(null),
   sha256: z.string(),
   signature: z.string(),
 });

@@ -9,14 +9,27 @@
 // URL is UNUSED, so every chain read refuses as unreachable (rail.crypto).
 // PROTOCOL_AMM_FACTORY_ADDRESS is the seeded TEST pool factory on that chain; with no chain it stays the zero default.
 // PROTOCOL_ENTRYPOINT_ADDRESS is the ERC-4337 v0.7 EntryPoint, the address the Base Sepolia deploy requires
-// (src/deployments/sepolia-deploy-env.ts). The account factories stay the zero default (not deployed), so their paths
-// refuse by name. INDEXER_URL and DEX_URL stay unset (not started here): the blockers say "not connected". DATABASE_URL
+// (src/deployments/sepolia-deploy-env.ts). PROTOCOL_FACTORY_ADDRESS and PROTOCOL_IMPLEMENTATION_ADDRESS are the TEST
+// chain's seeded smart account factory and implementation (J-dex-protocol-08's session keys); with no chain they stay the
+// zero default (not deployed) and their paths refuse by name. INDEXER_URL and DEX_URL stay unset (not started here): the blockers say "not connected". DATABASE_URL
 // is this stack's svc_protocol role; protocol is in SCHEMAS, so db:migrate runs before the process listens.
 // PROTOCOL_FEE_RELAY_*: the TEST network-fee relay (RC-dex-protocol-02) the seed deployed, the TEST relayer stand-in
 // local-test-chain.mjs serves, and the gas a relayed swap is priced for. With no chain all three stay blank and paying
 // the fee in a token refuses protocol.fee_relay_unset.
 import { createHash } from 'node:crypto';
-import { RELAY_URL } from '../local-test-chain.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { chainRecordPath, RELAY_URL } from '../local-test-chain.mjs';
+
+/**
+ * Router v2's TEST parts from the chain's own record (J-dex-protocol-03): the router, SovereignPermit and TEST Wrapped
+ * ETH the seed deployed. Read here so the stack's shared chain summary stays as it is; null with no record.
+ */
+function routerV2Parts() {
+  const file = chainRecordPath();
+  if (!existsSync(file)) return null;
+  const record = JSON.parse(readFileSync(file, 'utf8'));
+  return record.routerV2 && record.sovereignPermit && record.wrappedNative ? record : null;
+}
 
 export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
   name: 'protocol',
@@ -98,6 +111,25 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // Production stays blank and they refuse protocol.claim_escrow_unset, protocol.fee_bump_unset and
       // protocol.fee_ceiling_unset.
       ...(chain?.claimEscrow ? { PROTOCOL_CLAIM_ESCROW_ADDRESS: chain.claimEscrow } : {}),
+      // LOCAL TEST only: the TEST chain's smart account factory and implementation (seed-test-chain.ts ensureAccountParts),
+      // so a wallet's smart account and its session keys are real on the TEST chain. With no chain both stay zero.
+      ...(chain?.accountFactory && chain?.accountImplementation
+        ? { PROTOCOL_FACTORY_ADDRESS: chain.accountFactory, PROTOCOL_IMPLEMENTATION_ADDRESS: chain.accountImplementation }
+        : {}),
+      // LOCAL TEST only, labelled in the same file: router v2, SovereignPermit and TEST Wrapped ETH as the seed deployed
+      // them (D-swap-03, D-swap-intents-01, -02), and the TEST cap on how long a permit or standing allowance may last.
+      // Production stays blank and the v2 swap refuses protocol.router_v2_unset and protocol.permit.lifetime_unset.
+      ...(() => {
+        const v2 = chain ? routerV2Parts() : null;
+        return v2
+          ? {
+              PROTOCOL_ROUTER_V2_ADDRESS: v2.routerV2,
+              PROTOCOL_SOVEREIGN_PERMIT_ADDRESS: v2.sovereignPermit,
+              PROTOCOL_WRAPPED_NATIVE_ADDRESS: v2.wrappedNative,
+            }
+          : {};
+      })(),
+      PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS: '2592000',
       PROTOCOL_TX_FEE_BUMP_BPS: '2000',
       PROTOCOL_TX_FEE_CEILING_WEI: '100000000000',
     };

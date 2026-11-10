@@ -80,7 +80,6 @@ const en = {
   revokeReverted: 'The revoke failed on the network, so the allowance is unchanged.',
   revokeBuildFailed: 'The revoke could not be built, so nothing was sent. Try again.',
   revokeNotMined: 'The revoke was not mined in time. Your wallet may still send it; reload this section to read the chain again.',
-  empty_sessionKeys: 'No session keys. Session keys and connected apps are built in a later slice.',
   needsWallet: 'Connect a wallet to see this section.',
   hdr_time: 'Time',
   hdr_event: 'Event',
@@ -103,6 +102,8 @@ const en = {
   sheetContinue: 'Continue in wallet',
   seqSends:
     'Your wallet will ask you to send these {count} transactions, one after another. Each waits for the one before it to be mined. Once sent, they cannot be undone from here.',
+  seqSignsAndSends:
+    'Your wallet will ask you to sign {signs} message(s) that move nothing on their own, then send {count} transaction(s), in this order. Each transaction waits for the one before it to be mined. Once sent, they cannot be undone from here.',
   seqReverted: 'A step failed on the network, so the steps after it were not sent.',
   seqNotMined: 'A step was not mined in time, so the steps after it were not sent. Your wallet may still send it.',
   sheetCancel: 'Cancel',

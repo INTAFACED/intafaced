@@ -595,8 +595,8 @@ describe('a business block cannot satisfy the screening guard', () => {
    * baseline — rather than the tests below quietly starting to pass for the
    * wrong reason.
    */
-  it('the shipped matrix stages only the US (OWNER 237), never the staged QQ, so an unstaged test would prove nothing about QQ', () => {
-    expect(SHIPPED_BUSINESS_BLOCKS.map((b) => b.region)).toEqual(['US']);
+  it('the shipped matrix stages only the US (OWNER 237) and Ontario (OWNER 258), never the staged QQ, so an unstaged test would prove nothing about QQ', () => {
+    expect(SHIPPED_BUSINESS_BLOCKS.map((b) => b.region)).toEqual(['US', 'CA-ON']);
     expect(businessBlockFor('QQ', SHIPPED_BUSINESS_BLOCKS)).toBeUndefined();
     expect(COMMERCIAL_BLOCKS).toHaveLength(1);
   });
@@ -716,10 +716,10 @@ describe('a business block cannot satisfy the screening guard', () => {
    * get the shipped matrix, exactly as before it existed.
    */
   it('production callers pass nothing and get the shipped matrix', () => {
-    expect(businessBlockedRegions()).toEqual(['US']);
+    expect(businessBlockedRegions()).toEqual(['US', 'CA-ON']);
     expect(businessBlockFor('QQ')).toBeUndefined();
-    expect(screeningStatus(UNSET_SCREENING_LIST).businessBlockedRegions).toEqual(['US']);
-    // The shipped US block (OWNER 237) is a real business block in front of the guard, and the guard still refuses.
+    expect(screeningStatus(UNSET_SCREENING_LIST).businessBlockedRegions).toEqual(['US', 'CA-ON']);
+    // The shipped US and Ontario blocks (OWNER 237, 258) are a real business block in front of the guard, and the guard still refuses.
     expect(() => assertScreeningConfigured({ APP_ENV: 'prod' })).toThrow(UnscreenedJurisdictionError);
   });
 });
@@ -1029,15 +1029,44 @@ describe('what ships', () => {
   });
 
   /**
-   * And ships one business block, the US (OWNER 237). If this fails, somebody
+   * And ships two business blocks, the US (OWNER 237) and Ontario (OWNER 258). If this fails, somebody
    * changed `blocked: true` in the matrix — which is allowed, and is a
    * commercial decision — and this test is where they confirm they meant a
    * commercial block and not a sanctions one, which belongs in `screening.ts`.
    */
-  it('ships the US business block only (OWNER 237) — a commercial decision, not a legal one', () => {
+  it('ships the US and Ontario business blocks only (OWNER 237, 258) — a commercial decision, not a legal one', () => {
     const status = screeningStatus(UNSET_SCREENING_LIST);
-    expect(status.businessBlockedRegions).toEqual(['US']);
+    expect(status.businessBlockedRegions).toEqual(['US', 'CA-ON']);
     expect(status.blockedRegions).toEqual([]);
     expect(status.configured).toBe(false);
+  });
+});
+
+/** The counsel-set list takes ISO 3166-2 subdivision rows (OWNER 258 (1); Hyperliquid terms 1.6, read 9 Nov 2026). */
+describe('subdivision rows in the screening list', () => {
+  it('parses a subdivision code next to a country code, upper-cased, reason kept', () => {
+    const list = parseScreeningList('qm-01:TEST row, QM-B2 ,QN', 'counsel-memo-TEST');
+    expect(list.regions.map((r) => r.region)).toEqual(['QM-01', 'QM-B2', 'QN']);
+    expect(list.regions[0]!.reason).toBe('TEST row');
+    expect(list.declaration).toBe('listed');
+  });
+
+  it('still refuses malformed codes without printing them', () => {
+    for (const raw of ['QM-', 'QM-ABCD', 'QMX-1', 'QM_01', '-01']) {
+      expect(() => parseScreeningList(raw, 'x'), raw).toThrow(ScreeningListError);
+      try {
+        parseScreeningList(raw, 'x');
+      } catch (e) {
+        expect((e as Error).message).not.toContain(raw);
+      }
+    }
+  });
+
+  it('consults a subdivision against its own row and its country row, never the other way', () => {
+    const list = parseScreeningList('QM-01:sub,QN:country', 'counsel-memo-TEST');
+    expect(consultScreeningList(list, 'qm-01').outcome).toBe('hit');
+    expect(consultScreeningList(list, 'QN-05').outcome).toBe('hit');
+    expect(consultScreeningList(list, 'QM').outcome).toBe('clear');
+    expect(consultScreeningList(list, 'QM-02').outcome).toBe('clear');
   });
 });
