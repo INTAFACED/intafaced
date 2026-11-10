@@ -75,6 +75,22 @@ describe('rotateApiKey', () => {
     await expect(newDoor.assertApiKeyLive('k1')).resolves.toEqual({ id: 'k1', userId: 'u' });
   });
 
+  it('an agent key stays an agent key on the new key (DV-keys-05)', async () => {
+    const { minter } = makeMinter();
+    const writes: string[] = [];
+    let i = 0;
+    const queue: unknown[][] = [[{ ...oldRow, kind: 'agent' }]];
+    const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?');
+      if (/^\s*UPDATE api_keys/.test(text) && text.includes('kind =')) writes.push(String(values[values.length - 3]));
+      const rows = queue[i] ?? [];
+      i += 1;
+      return rows;
+    }) as unknown as Parameters<typeof rotateApiKey>[1];
+    await rotateApiKey(minter, sql, { userId: 'u', keyId: 'old', grantorScopes: ['identity:read'] });
+    expect(writes).toEqual(['agent']);
+  });
+
   it('copies the bound account onto the new key; bind fail revokes the mint', async () => {
     const { minter, revoked } = makeMinter();
     await expect(

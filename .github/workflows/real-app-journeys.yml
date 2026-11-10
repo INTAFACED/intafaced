@@ -15,7 +15,8 @@
 # project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a test that fails and then
 # passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
 # its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
-# doesn't turn main red. A money step that is flaky is red. (Failure it prevents: with no retry and no way to set a test
+# doesn't turn main red. A money step that is flaky is never set aside or proven: it stays red, opens a `flaky` issue,
+# and the merge seal holds only the pull requests in its area (project-state OWNER 278). (Failure it prevents: with no retry and no way to set a test
 # aside, one flaky test turned main red, or a red was left standing and read as noise.) The cost: each failed test runs
 # twice; the failed tests of runs 1635, 1636 and 1639 took 83 to 102 journey-minutes of a run, spread over its shards.
 #
@@ -158,9 +159,14 @@ jobs:
           path: .base
           sparse-checkout: tooling
           persist-credentials: false
+      # Main's Node runs main's rules: the version comes from .base (a cone-mode sparse checkout keeps root files), never
+      # the pull request's own .node-version. Until main has the file (only on the run of the pull request that adds it),
+      # the branch's copy stands in.
+      - name: Main's Node version
+        run: '[ -f .base/.node-version ] || { mkdir -p .base && cp .node-version .base/.node-version; }'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .base/.node-version
       - name: What this run runs
         id: touch
         env:
@@ -356,7 +362,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .base/.node-version
       - name: Let deferred runs go
         continue-on-error: true
         env:
@@ -383,7 +389,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .base/.node-version
       - name: Let deferred runs go
         continue-on-error: true
         env:
@@ -411,7 +417,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       # The stack runs its builds with a clean PATH that holds node's own folder, not the folder pnpm/action-setup uses.
       - name: Put pnpm next to node
@@ -519,7 +525,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
 
       # The stack refuses to start under 14 GB free; the runner image ships toolchains this job never uses. Removing them
@@ -766,7 +772,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       # A pull request that touches nothing a journeys run reads (or a draft): no shard ran, the report is empty, and
       # the run is green. The seal reads an empty report as saying nothing about any step or journey file.

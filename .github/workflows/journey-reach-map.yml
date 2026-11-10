@@ -60,7 +60,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
 
       # Exit 3 is the builder's refusal (fewer than 3 whole runs): it still writes a map, whose mode is 'full'.
       - name: Build the map

@@ -3,6 +3,9 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import nodePath from 'node:path';
+import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { ORIGIN, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
@@ -18,6 +21,50 @@ const VIDEO_FIXTURE = fileURLToPath(new URL('../../../../tooling/scripts/local-s
 let courseUrl = null;
 
 test.describe.configure({ mode: 'serial' });
+
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** One query on svc-academy's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+async function academyDb(read) {
+  const ctx = await makeContext({ log: () => undefined });
+  const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-academy', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  const sql = postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await read(sql);
+  } finally {
+    await sql.end();
+  }
+}
+
+/**
+ * Every learner, enrolment and progress record svc-academy keeps, as row counts per table: what learners did,
+ * enrolments (staff-made courses and curriculum paths), item completions, quiz and assessment attempts, hand-ins and
+ * video positions. A preview that wrote any of them
+ * changes a count.
+ */
+const LEARNER_TABLES = [
+  'learner_events',
+  'course_enrolments',
+  'cert_enrollments',
+  'item_completion_events',
+  'cert_item_completions',
+  'course_quiz_attempts',
+  'quiz_attempts',
+  'assessment_attempts',
+  'assignment_submissions',
+  'video_progress',
+];
+const learnerRecords = () =>
+  academyDb(async (sql) => {
+    const counts = {};
+    for (const table of LEARNER_TABLES)
+      counts[table] = Number((await sql`SELECT count(*)::int AS n FROM ${sql('academy')}.${sql(table)}`)[0].n);
+    return counts;
+  });
 
 /** Founder A on the console, in a context of its own. */
 async function console_(browser) {
@@ -558,7 +605,9 @@ test(`${J} #9 Preview as new learner shows the real syllabus with locks and reco
   const before = await history.allTextContents();
   expect(before.length).toBeGreaterThan(0);
 
-  // Preview as new learner: the stored syllabus, each item with its lock; nothing is recorded.
+  // Preview as new learner: the stored syllabus, each item with its lock; nothing is recorded. The learner, enrolment and
+  // progress records svc-academy keeps are counted before and after, so a write the course history does not list shows.
+  const recordsBefore = await learnerRecords();
   await page.getByRole('link', { name: 'Preview as new learner', exact: true }).click();
   await page.waitForURL(/\/preview$/);
   await expect(page.getByTestId('preview-note')).toContainText('Opening it records nothing');
@@ -570,6 +619,7 @@ test(`${J} #9 Preview as new learner shows the real syllabus with locks and reco
   await expect(item('TEST Check yourself')).toHaveAttribute('data-lock', 'not_released');
   await expect(item('TEST Reading list')).toHaveAttribute('data-lock', 'enrolment_closed');
   await expect(item('TEST Part 1')).toHaveAttribute('data-lock', 'none');
+  expect(await learnerRecords(), 'learner, enrolment and progress records after the preview').toEqual(recordsBefore);
   await page.goto(courseUrl);
   await expect(history).toHaveText(before);
 

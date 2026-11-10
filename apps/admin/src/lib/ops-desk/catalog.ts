@@ -312,6 +312,8 @@ const bankSections: readonly DeskSection[] = [
           amount('appCaptured', 'Captured (app)'),
           amount('appFigure', 'Held plus captured (app)'),
           amount('partnerFigure', 'Partner’s figure'),
+          text('partnerAsOf', 'Partner’s time'),
+          text('partnerState', 'Partner’s figure is', { words: { known: 'current', stale: 'stale', unknown: 'not known' } }),
           amount('difference', 'Difference'),
           text('status', 'Reconciliation', { words: { matches: 'matches', break: 'break', not_known: 'not known' } }),
           amount('fundingRate', 'Rate in the funding stablecoin'),

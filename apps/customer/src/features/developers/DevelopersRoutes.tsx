@@ -34,6 +34,7 @@ import { AuthErrorsCatalogue } from './errors/AuthErrorsCatalogue';
 import { SandboxRoutes } from './sandbox/SandboxRoutes';
 import { ErrorsPage } from './errors/TradeErrorsCatalogue';
 import { RateLimitsPage } from './rate-limits/RateLimitsPage';
+import { ExplorerPage } from './explorer/ExplorerPage';
 import { BotPolicyPage } from './trading/BotPolicyPage';
 import { OrderTypesPage } from './trading/OrderTypesPage';
 import { IdempotencyPage } from './idempotency/IdempotencyPage';
@@ -57,6 +58,7 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   authentication: AuthenticationPage,
   errors: ErrorsPage,
   'rate-limits': RateLimitsPage,
+  explorer: ExplorerPage,
   'order-types': OrderTypesPage,
   'bot-policy': BotPolicyPage,
   idempotency: IdempotencyPage,
