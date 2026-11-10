@@ -25,6 +25,7 @@ import {
   eventPull,
   indexHead,
   summarizeGenerated,
+  groupedChanges,
   jsonChanges,
   VERDICT_SCHEMA,
   MAX_DIFF_BYTES,
@@ -1152,7 +1153,7 @@ test('the generated map reaches the reviewer as every entry it adds, removes or 
     assert.ok(out.split('\n').includes(line), line);
   assert.match(
     out,
-    /summarised by the CI review job from its old and new lines: every entry added \(\+\), removed \(-\) or changed \(~\), 5 in all; services, packages and customer list journeys by file name, not index\]/,
+    /summarised by the CI review job from its old and new lines: every entry added \(\+\), removed \(-\) or changed \(~\), 5 in all; services, packages and customer list journeys by file name, not index; paths of one section that gain and lose exactly the same entries are one ~ line naming every such path\]/,
   );
   // Planted: a dropped money entry shows as one, and so does a journey taken off the full list.
   const fullBefore = { ...now, full: { 'J-a.pw.mjs': 'partial' } };
@@ -1557,4 +1558,62 @@ test('the Review step streams the call only when input.jsonl exists, and runs as
     assert.match(part, /--json-schema "\$schema"/);
   }
   assert.match(step, /\n {10}fi\n {10}node "\$GITHUB_WORKSPACE\/tooling\/ci\/ci-review\.mjs" read "\$dir"\n/);
+});
+
+test('a map rebuilt from new runs groups the paths that gain and lose the same journeys, and leaves nothing out (#7724)', () => {
+  const paths = (n, v) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`apps/customer/src/f${i}.tsx`, v]));
+  const before = {
+    money: ['packages/ledger-client'],
+    full: { 'J-c.pw.mjs': 'x' },
+    customer: { ...paths(3, ['J-a.pw.mjs']), 'apps/customer/src/odd.tsx': ['J-a.pw.mjs'], 'apps/customer/src/gone.tsx': ['J-a.pw.mjs'] },
+  };
+  const after = {
+    money: ['packages/ledger-client', 'packages/venue-hyperliquid'],
+    full: {},
+    customer: {
+      ...paths(3, ['J-a.pw.mjs', 'J-c.pw.mjs']),
+      'apps/customer/src/odd.tsx': ['J-b.pw.mjs'],
+      'apps/customer/src/new.tsx': ['J-c.pw.mjs'],
+    },
+  };
+  const out = groupedChanges(before, after);
+  assert.deepEqual(out, [
+    '- "customer"."apps/customer/src/gone.tsx" ["J-a.pw.mjs"]',
+    '+ "customer"."apps/customer/src/new.tsx" ["J-c.pw.mjs"]',
+    '~ "customer": 3 entries each gain (+) ["J-c.pw.mjs"] and lose (-) [], nothing else: ["apps/customer/src/f0.tsx","apps/customer/src/f1.tsx","apps/customer/src/f2.tsx"]',
+    '+ "customer"."apps/customer/src/odd.tsx"[] "J-b.pw.mjs"',
+    '- "customer"."apps/customer/src/odd.tsx"[] "J-a.pw.mjs"',
+    '- "full"."J-c.pw.mjs" "x"',
+    '+ "money"[] "packages/venue-hyperliquid"',
+  ]);
+  // Planted: a path whose order also changes is never folded into a group; it keeps its own lines.
+  const twice = { ...before, customer: { ...before.customer, 'apps/customer/src/f1.tsx': ['J-a.pw.mjs', 'J-b.pw.mjs'] } };
+  const reordered = { ...after, customer: { ...after.customer, 'apps/customer/src/f1.tsx': ['J-b.pw.mjs', 'J-a.pw.mjs', 'J-c.pw.mjs'] } };
+  const lines = groupedChanges(twice, reordered);
+  assert.ok(
+    lines.includes(
+      '~ "customer": 2 entries each gain (+) ["J-c.pw.mjs"] and lose (-) [], nothing else: ["apps/customer/src/f0.tsx","apps/customer/src/f2.tsx"]',
+    ),
+    lines.join('\n'),
+  );
+  assert.ok(lines.some((l) => l.startsWith('~ "customer"."apps/customer/src/f1.tsx": order or repeats')));
+  // Planted: a list with a repeat is never grouped, so the repeat can't hide in a set.
+  const repeat = { ...after, customer: { ...after.customer, 'apps/customer/src/f1.tsx': ['J-a.pw.mjs', 'J-c.pw.mjs', 'J-c.pw.mjs'] } };
+  assert.ok(groupedChanges(before, repeat).includes('+ "customer"."apps/customer/src/f1.tsx"[] "J-c.pw.mjs"'));
+  // Planted: a section added or removed whole, and values that aren't objects, read exactly as jsonChanges writes them.
+  assert.deepEqual(groupedChanges({ v: 1 }, { v: 2, s: { a: [1] } }), ['+ "s" {"a":[1]}', '~ "v": 1 -> 2']);
+  assert.deepEqual(groupedChanges(null, { v: 1 }), jsonChanges(null, { v: 1 }));
+  // Every grouped line expands back to exactly jsonChanges' lines: nothing is dropped.
+  const expand = (ls) =>
+    ls.flatMap((l) => {
+      const m = /^~ ("[^"]+"): \d+ entries each gain \(\+\) (\[.*?\]) and lose \(-\) (\[.*?\]), nothing else: (\[.*\])$/.exec(l);
+      if (!m) return [l];
+      const [gain, lose, ps] = [JSON.parse(m[2]), JSON.parse(m[3]), JSON.parse(m[4])];
+      return ps.flatMap((p) => [
+        ...gain.map((g) => `+ ${m[1]}.${JSON.stringify(p)}[] ${JSON.stringify(g)}`),
+        ...lose.map((g) => `- ${m[1]}.${JSON.stringify(p)}[] ${JSON.stringify(g)}`),
+      ]);
+    });
+  assert.deepEqual(expand(out).sort(), jsonChanges(before, after).sort());
+  assert.deepEqual(expand(lines).sort(), jsonChanges(twice, reordered).sort());
 });
