@@ -33,9 +33,6 @@ export const whereCopy = defineCopy('money.where', {
   'As of': 'As of {time}',
   TEST: 'TEST',
   'TEST note': 'Every venue figure here is a TEST figure from a TEST venue.',
-  'Partner title': 'With a payment partner',
-  'Partner holds':
-    'Held back by a payment partner: not reported by the partner. No partner reports a hold here, so nothing is taken off what you can withdraw for one.',
   'Connect first': 'Connect your wallet to see what it holds and your venue account.',
   Reading: 'Reading…',
 });

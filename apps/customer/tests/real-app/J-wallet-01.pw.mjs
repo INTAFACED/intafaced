@@ -324,15 +324,35 @@ test(`${J} #3 opens Withdraw: what can be withdrawn leaves out the venue's lock,
   page,
 }) => {
   const { owner, resting, ledgerStart } = state();
-  await openAssets(page);
-  const { venue } = await venueRowAgrees(page, owner, 'USDC');
-  // The resting order still locks part of it, so what can be withdrawn is the venue's free figure, below the total.
+  // Withdraw is the venue account's room in Wallet: the wallet connects, then signs the connection to this account.
+  await withWallet(page);
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
+  await expect(page).toHaveURL(/\/wallet\/venue$/);
+  const connected = page.getByRole('heading', { name: 'Connected' });
+  const connectAccount = page.getByRole('button', { name: 'Connect to my account' });
+  await connectWhenAsked(page, connected.or(connectAccount));
+  if (await connectAccount.isVisible()) {
+    await connectAccount.click();
+    await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+  }
+  await expect(connected).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Venue actions' }).getByRole('button', { name: 'Withdraw TEST USDC' })).toBeVisible();
+  // What Withdraw offers is the venue's free figure: the resting order still locks part of it, so it is below the total.
+  let venue;
+  await expect
+    .poll(
+      async () => {
+        venue = await venueBalance(owner, 'USDC');
+        // The room prints the venue's decimal as it is, trailing zeros dropped.
+        const plain = venue.free.includes('.') ? venue.free.replace(/0+$/, '').replace(/\.$/, '') : venue.free;
+        return (await page.getByTestId('venue-balance').textContent()) === `${plain} TEST USDC`;
+      },
+      { timeout: 30_000, intervals: [1_000] },
+    )
+    .toBe(true);
   expect(toUnits(venue.locked)).toBeGreaterThan(0n);
   expect(toUnits(venue.free)).toBeLessThan(toUnits(venue.total));
-  await expect(page.getByTestId('source-partner')).toHaveAttribute('data-reported', 'false');
-  await expect(page.getByTestId('source-partner')).toContainText('not reported by the partner');
-  // Can withdraw is the venue's free figure, which leaves out the resting order's lock.
-  await expect(page.getByTestId('source-venue').locator('tr[data-asset="USDC"] [data-cell="withdrawable"]')).toHaveText(shown(venue.free));
   // A card or bank purchase needs a payment partner, which is not connected: nothing is bought, and nothing is held.
   await page.goto('/uc/recharge');
   await expect(page.locator('main').first()).toContainText('Needs a payment partner, which is not connected.');

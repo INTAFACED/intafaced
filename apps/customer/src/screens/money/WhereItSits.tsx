@@ -45,11 +45,6 @@ function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
           <>
             <WalletSource owner={owner} chainId={chainId} t={t} />
             <VenueSource owner={owner} status={status} t={t} />
-            <Panel title={t('Partner title')}>
-              <p data-testid="source-partner" data-source="partner" data-reported="false">
-                {t('Partner holds')}
-              </p>
-            </Panel>
             <p className="muted" data-testid="assets-no-price-note">
               {t('No price note')}
             </p>
