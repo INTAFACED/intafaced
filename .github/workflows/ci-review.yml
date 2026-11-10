@@ -56,7 +56,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
 
       # The project-state read goes through the Mac agents' GitHub App (intafaced-mac-agents, its own quota), not the
       # PROJECT_STATE_READ_TOKEN secret, which spends the shared ZenYoda3 login's 5,000 calls an hour: on 9 Nov, 9 of the
@@ -220,7 +220,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
 
       # The reviewer CLI at the version and tarball hashes in .github/workflows/ci-review/package-lock.json (npm ci refuses any
       # other bytes), installed outside the checkout so the repository's .npmrc and workspace play no part.
