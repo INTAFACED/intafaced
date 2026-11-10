@@ -78,6 +78,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row for the seller when the buyer marks paid',
   },
   {
+    event: 'p2pTraderPosted',
+    durable: 'notify-p2p-trader-posted',
+    subject: 'intafaced.p2p.trader.posted',
+    effect: 'Inbox row for each follower when a trader they follow posts a new public ad',
+  },
+  {
     event: 'p2pOfferPaused',
     durable: 'notify-p2p-offer-paused',
     subject: 'intafaced.p2p.offer.paused',
@@ -205,6 +211,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     durable: 'notify-ledger-freeze-updated',
     subject: 'intafaced.ledger.freeze.updated',
     effect: 'One audience-all inbox notice when the posting freeze is set or cleared (reason and actor never shown)',
+  },
+  {
+    event: 'venueDelistingScheduled',
+    durable: 'notify-venue-delisting',
+    subject: 'intafaced.trade.venue_delisting.created',
+    effect: 'One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key',
   },
 ] as const;
 

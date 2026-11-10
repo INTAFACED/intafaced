@@ -1,8 +1,8 @@
-// World: book
+// World: book, restart
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, json } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, json, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -13,9 +13,17 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // #1 (BK-cctl-01): blocks by category, merchant and country, each declining with a plain reason in the feed and
 // nothing held, and the temporary lock (the freeze) with its history. #2 (BK-cctl-02): the per-purchase cap is an exact
 // figure above zero, the other caps may be blank but never zero, and a purchase over a cap declines naming it.
-// #3 to #7 are not built: card details, PIN and mobile wallets need a TEST issuer path, and 3D Secure, the decline
-// guide, recurring payments, refunds and fraud reports are not built; an approved purchase's hold moves to the partner
-// with B3's partner-held card authorisations (project-state #1790). Their tests come with them.
+// #3 (BK-cctl-03): the TEST card partner (the stack's partner switches say `secrets: "test"`) shows a TEST card number,
+// expiry and security code after a fresh authenticator code, drops them from the screen when svc-bank's 60 seconds are
+// up, and asks again for the next reveal; a TEST PIN is set and viewed the same way, and wrong PINs typed at a terminal
+// block it at the owner's TEST count of 3 (BANK_CARD_PIN_TRY_LIMIT). The owner's step-up rule is on for #3 only, by a
+// bank restart (World: restart), which also forgets the TEST partner's PINs. #4 (BK-cctl-04): the card goes into a phone
+// wallet as one token row in state added, shown paused while the card is frozen.
+// #5 (BK-cpay-01): the TEST card partner asks for a 3D Secure check on an online purchase through the same four-eyes
+// door; its TEST code, shown TEST in the card room, completes the authorisation once, and the owner's TEST count of 3
+// wrong codes (BANK_CARD_3DS_TRY_LIMIT) locks the check with nothing authorised. #7 (BK-cpay-01): reporting fraud on a
+// payment locks the card, opens one case for it, and shows the safety messages. #6 is not built: the decline guide,
+// recurring payments and refunds.
 const J = 'J-bank-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -99,6 +107,21 @@ async function signInPerson(page) {
   await page.fill('input[name=password]', who.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).not.toHaveURL(/\/login/);
+}
+
+/** The owner's step-up rule on or off, by a bank restart (as J-bank-13 does). A restart forgets the TEST partner's PINs. */
+function stepUpRule(required) {
+  const key = 'LOCAL_STACK_BANK_STEP_UP_MONEY_OUT';
+  const before = process.env[key];
+  if (required) process.env[key] = 'required';
+  else delete process.env[key];
+  try {
+    tool('local-test-stack.mjs', 'restart', 'bank');
+  } finally {
+    if (before === undefined) delete process.env[key];
+    else process.env[key] = before;
+  }
+  kept.clear();
 }
 
 let gatesCtx;
@@ -374,4 +397,237 @@ test(`${J} #2 sets a per-purchase cap and other limits: an exact figure above ze
     'Over this card’s per-purchase limit',
   );
   await expect(decision(page, refOf(overDay.authorizationId)).getByTestId('decline-reason')).toContainText('Over this card’s daily limit');
+});
+
+const cardPanel = (page, name) => page.locator(`[data-card="${cardId()}"]`).getByRole('region', { name, exact: true });
+/** The fresh confirmation inside a panel: a new authenticator code each time. */
+async function confirmIn(region) {
+  await region.getByLabel('Authenticator code').fill(await code());
+  await region.getByRole('button', { name: 'Confirm', exact: true }).click();
+}
+
+test(`${J} #3 reveals card details and sets a PIN: details clear after 60 seconds and a second reveal needs a new step-up; wrong-PIN block at the owner's count`, async ({
+  page,
+}) => {
+  test.setTimeout(420_000);
+  expect((await cardOf(cardId())).status).toBe('active');
+  stepUpRule(true);
+  try {
+    // Without a fresh confirmation the bank refuses, and shows nothing.
+    const bare = await (await bank()).mutate('cards.reveal', { cardId: cardId(), revealId: randomUUID() });
+    expect(bare).toMatchObject({ ok: false, code: 'bank.step_up_required' });
+    expect(await (await bank()).query('cards.secretsOffered')).toMatchObject({
+      ok: true,
+      data: { details: true, pin: true, wallet: true, test: true },
+    });
+
+    await openCards(page);
+    const details = cardPanel(page, 'Card details');
+    const show = details.getByRole('button', { name: 'Show card number and security code' });
+    await show.click();
+    await confirmIn(details);
+    const pan = details.getByTestId('card-pan');
+    await expect(pan).toHaveText(/^999999\d{10}$/);
+    await expect(details.getByTestId('card-expiry')).toHaveText(/^(0[1-9]|1[0-2])\/\d{2}$/);
+    await expect(details.getByTestId('card-cvv')).toHaveText(/^\d{3}$/);
+    await expect(details).toContainText('TEST card details from a stand-in card partner');
+    const shownAt = Date.now();
+    const number = await pan.textContent();
+    // svc-bank's 60 seconds: still shown a little before, gone after.
+    await page.waitForTimeout(Math.max(0, 50_000 - (Date.now() - shownAt)));
+    await expect(pan).toBeVisible();
+    await expect(pan).toHaveCount(0, { timeout: 20_000 });
+    expect(Date.now() - shownAt).toBeGreaterThanOrEqual(55_000);
+    // The next reveal asks again: the button opens a new confirmation, and only a new code shows the number.
+    await show.click();
+    await expect(details.getByLabel('Authenticator code')).toBeVisible();
+    await expect(pan).toHaveCount(0);
+    await confirmIn(details);
+    await expect(pan).toHaveText(number);
+
+    // A TEST PIN, set and viewed, each after its own confirmation.
+    const pinPanel = cardPanel(page, 'PIN');
+    await pinPanel.getByLabel('New PIN (4 to 12 digits)').fill('2468');
+    await pinPanel.getByRole('button', { name: 'Set this PIN' }).click();
+    await confirmIn(pinPanel);
+    await expect(pinPanel).toContainText('PIN set.');
+    await pinPanel.getByRole('button', { name: 'View PIN' }).click();
+    await confirmIn(pinPanel);
+    await expect(pinPanel.getByTestId('card-pin-shown')).toHaveText('2468');
+    await expect(pinPanel).toContainText('TEST PIN kept by a stand-in card partner');
+
+    // At a terminal: the right PIN goes through; wrong PINs block at the owner's TEST count of 3, and then even the right
+    // PIN declines. Nothing is held for a decline.
+    expect(await buy(cardId(), '0.01', { pin: '2468' })).toMatchObject({ decision: 'approved' });
+    const before = await (await bank()).usdt();
+    const first = await buy(cardId(), '0.01', { pin: '1111' });
+    expect(first).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_wrong' });
+    expect(await buy(cardId(), '0.01', { pin: '1111' })).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_wrong' });
+    const third = await buy(cardId(), '0.01', { pin: '1111' });
+    expect(third).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_blocked' });
+    expect(await buy(cardId(), '0.01', { pin: '2468' })).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_blocked' });
+    expect(await (await bank()).usdt()).toEqual(before);
+    await page.reload();
+    await showCard(page);
+    const rows = await feed();
+    const refOf = (id) => rows.find((row) => row.id === id).authorizationRef;
+    await expect(decision(page, refOf(first.authorizationId)).getByTestId('decline-reason')).toContainText('Wrong PIN.');
+    await expect(decision(page, refOf(third.authorizationId)).getByTestId('decline-reason')).toContainText('The PIN is blocked');
+  } finally {
+    stepUpRule(false);
+  }
+});
+
+test(`${J} #4 adds the card to a mobile wallet: one token row in state added; a frozen card shows its tokens paused`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const api = await bank();
+  expect((await cardOf(cardId())).status).toBe('active');
+  await openCards(page);
+  const wallets = cardPanel(page, 'Phone wallets');
+  await expect(wallets).toContainText('This card is in no phone wallet.');
+  await wallets.getByRole('button', { name: 'Add to Apple Wallet' }).click();
+  const apple = wallets.locator('li[data-wallet="apple"]');
+  await expect(apple).toHaveText('Apple Wallet: Added');
+  await expect(wallets).toContainText('TEST wallet tokens from a stand-in card partner');
+  // The same wallet again is the same token: once the second add is answered (the buttons free again), still one row.
+  const addApple = wallets.getByRole('button', { name: 'Add to Apple Wallet' });
+  const second = page.waitForResponse((res) => res.url().includes('cards.walletProvision') && res.request().method() === 'POST');
+  await addApple.click();
+  expect((await second).ok()).toBe(true);
+  await expect(addApple).toBeEnabled();
+  await page.reload();
+  await showCard(page);
+  await expect(apple).toHaveCount(1);
+  const added = await api.query('cards.walletTokens', { cardId: cardId() });
+  expect(added).toMatchObject({ ok: true, data: { test: true } });
+  expect(added.data.tokens).toEqual([expect.objectContaining({ wallet: 'apple', state: 'added' })]);
+
+  // Frozen: the token shows paused, and no wallet takes the card.
+  expect(await api.mutate('cards.setStatus', { cardId: cardId(), status: 'frozen' })).toMatchObject({ ok: true });
+  try {
+    expect((await api.query('cards.walletTokens', { cardId: cardId() })).data.tokens).toEqual([
+      expect.objectContaining({ wallet: 'apple', state: 'paused' }),
+    ]);
+    const refused = await api.mutate('cards.walletProvision', {
+      cardId: cardId(),
+      provisionId: randomUUID(),
+      wallet: 'google',
+      nonce: randomUUID(),
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.card_not_active' });
+    await page.reload();
+    await showCard(page);
+    await expect(apple).toHaveText('Apple Wallet: Paused while the card is frozen');
+    await expect(wallets.getByRole('button', { name: 'Add to Google Wallet' })).toHaveCount(0);
+    await expect(wallets).toContainText('A frozen or closed card cannot be added to a phone wallet.');
+  } finally {
+    expect(await api.mutate('cards.setStatus', { cardId: cardId(), status: 'active' })).toMatchObject({ ok: true });
+  }
+  expect((await api.query('cards.walletTokens', { cardId: cardId() })).data.tokens).toEqual([
+    expect.objectContaining({ wallet: 'apple', state: 'added' }),
+  ]);
+});
+
+/** The issuer's 3D Secure request for an online purchase, through the ops door with the founders' approval. */
+function challengeFor(amount, merchant) {
+  // The founders' approval binds the whole purchase the cardholder is asked about, merchant parts too.
+  const bound = {
+    cardId: cardId(),
+    challengeId: randomUUID(),
+    challengeRef: `jb14-3ds-${randomUUID()}`,
+    amount,
+    merchant,
+    merchantCountry: 'DE',
+  };
+  return cardEvent('bank.card_3ds_challenge', 'ops.cardThreeDSChallenge', bound).then((opened) => ({ ...opened, ref: bound.challengeRef }));
+}
+/** The TEST partner's code for one challenge, as the card room shows it. */
+async function testCodeIn(item) {
+  const said = await item.getByText(/TEST code from a stand-in card partner: \d{6}\./).textContent();
+  return said.match(/(\d{6})\./)[1];
+}
+const notCode = (code) => (code === '000000' ? '111111' : '000000');
+
+test(`${J} #5 approves a 3D Secure challenge: the authorisation completes once; too many wrong codes lock the challenge`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const api = await bank();
+  expect((await cardOf(cardId())).status).toBe('active');
+  const ok = await challengeFor('1', 'TEST Online Shop');
+  expect(ok.state).toBe('open');
+  await openCards(page);
+  const checks = cardPanel(page, '3D Secure checks');
+  const item = checks.locator(`li[data-challenge="${ok.ref}"]`);
+  await expect(item).toContainText('1 USDT at TEST Online Shop');
+  await expect(item).toContainText('Waiting for your code. 3 tries left.');
+  const right = await testCodeIn(item);
+
+  // One wrong code counts; the right one makes the purchase go through.
+  await item.getByLabel('Code from the card partner').fill(notCode(right));
+  await item.getByRole('button', { name: 'Confirm this purchase' }).click();
+  await expect(item).toContainText('Wrong code. 2 tries left before this check locks.');
+  await item.getByLabel('Code from the card partner').fill(right);
+  await item.getByRole('button', { name: 'Confirm this purchase' }).click();
+  await expect(item).toContainText('Confirmed. The purchase went through once.');
+
+  // Once: one approved authorisation under the challenge's key, and answering again reaches the same one.
+  const authRef = `3ds:${ok.ref}`;
+  const completed = (await feed()).filter((row) => row.authorizationRef === authRef);
+  expect(completed).toHaveLength(1);
+  expect(completed[0]).toMatchObject({ decision: 'approved' });
+  const again = await api.mutate('cards.threeDS.answer', { cardId: cardId(), challengeId: ok.challengeId, code: right });
+  expect(again).toMatchObject({ ok: true, data: { state: 'approved', authorizationId: completed[0].id } });
+  expect((await feed()).filter((row) => row.authorizationRef === authRef)).toHaveLength(1);
+  await page.reload();
+  await showCard(page);
+  await expect(decision(page, authRef)).toBeVisible();
+
+  // Three wrong codes (the owner's TEST count) lock the next challenge: nothing is authorised, and the right code no
+  // longer helps.
+  const locked = await challengeFor('1', 'TEST Other Shop');
+  await page.reload();
+  await showCard(page);
+  const lockedItem = checks.locator(`li[data-challenge="${locked.ref}"]`);
+  const code = await testCodeIn(lockedItem);
+  for (const left of [2, 1]) {
+    await lockedItem.getByLabel('Code from the card partner').fill(notCode(code));
+    await lockedItem.getByRole('button', { name: 'Confirm this purchase' }).click();
+    await expect(lockedItem).toContainText(`Wrong code. ${left} tries left before this check locks.`);
+  }
+  await lockedItem.getByLabel('Code from the card partner').fill(notCode(code));
+  await lockedItem.getByRole('button', { name: 'Confirm this purchase' }).click();
+  await expect(lockedItem).toContainText('Locked after too many wrong codes. The purchase did not go through, and nothing was held.');
+  const late = await api.mutate('cards.threeDS.answer', { cardId: cardId(), challengeId: locked.challengeId, code });
+  expect(late).toMatchObject({ ok: true, data: { state: 'locked', authorizationId: null } });
+  expect((await feed()).filter((row) => row.authorizationRef === `3ds:${locked.ref}`)).toHaveLength(0);
+});
+
+test(`${J} #7 reports fraud on a card payment: the card is locked, a fraud case opens, and safety messages show`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const api = await bank();
+  expect((await cardOf(cardId())).status).toBe('active');
+  const paid = (await feed()).find((row) => row.decision === 'approved');
+  if (!paid) throw new Error(`${J} #7 found no approved payment on the card to report`);
+  await openCards(page);
+  const fraud = cardPanel(page, 'Report fraud');
+  await fraud.getByRole('button', { name: `Report fraud on ${paid.authorizationRef}` }).click();
+  await expect(fraud).toContainText('The card is locked. No new payment goes through while it is locked.');
+  await expect(fraud.getByRole('list', { name: 'Open fraud cases' }).getByRole('listitem')).toHaveCount(1);
+  await expect(fraud.locator(`li[data-authorization="${paid.authorizationRef}"]`)).toContainText('is open for this payment.');
+  const safety = cardPanel(page, 'Keep your money safe');
+  await expect(safety).toContainText('We never ask for your PIN, your card number or a check code');
+  await expect(safety).toContainText('Never open a payment link someone sent you out of the blue.');
+
+  // Locked, with one case for the payment: reporting it again is the same case, and the next purchase declines.
+  expect((await cardOf(cardId())).status).toBe('frozen');
+  const listed = await api.query('cards.fraud.list', { cardId: cardId() });
+  expect(listed).toMatchObject({ ok: true });
+  expect(listed.data.reports).toEqual([expect.objectContaining({ authorizationId: paid.id, state: 'open' })]);
+  const again = await api.mutate('cards.fraud.report', { cardId: cardId(), authorizationId: paid.id });
+  expect(again).toMatchObject({ ok: true, data: { id: listed.data.reports[0].id } });
+  expect(await buy(cardId(), '1')).toMatchObject({ decision: 'declined' });
+  await page.reload();
+  await showCard(page);
+  await expect(cardPanel(page, 'Report fraud').getByRole('list', { name: 'Open fraud cases' }).getByRole('listitem')).toHaveCount(1);
 });

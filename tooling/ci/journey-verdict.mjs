@@ -74,6 +74,11 @@ export const HISTORY_MAX = 150;
 export const SET_ASIDE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
+/** A test title's journey step (`J-tax-01#3`), or null for a test that is not a numbered step (setup, `starts:`). */
+export const stepOf = (title) => {
+  const m = STEP_TITLE.exec(title ?? '');
+  return m ? `${m[1]}#${Number(m[2])}` : null;
+};
 const MEMBERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const REGRESSION_TITLE = /^(Journey broken on main|Broken on main): /;
 const STATE_LINE = /^Regression state: (fixed|reverted|parked)\b/;
@@ -99,23 +104,43 @@ export const passedAfterFailing = (t) => {
   const firstFail = r.findIndex((x) => FAILED_ATTEMPT.has(x));
   return firstFail !== -1 && r.slice(firstFail + 1).includes('passed');
 };
+/** Whether one Playwright test passed by this rule: it ended expected (a `test.fail()` that failed is expected), or
+ *  Playwright called it flaky and an attempt passed after a failing one. journey-reach-map.mjs reads tests by it too. */
+export const testPassed = (t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t));
+/** A journey test file, as the real-app folder names them. */
+const PARTIAL_JOURNEY_FILE = /^J-[a-z0-9-]+\.pw\.mjs$/;
 export function readReport(report) {
   const states = {};
   const files = {};
   const retried = new Set();
   const ran = new Set();
+  const partial = new Set();
+  const partialFailed = new Set();
   const walk = (suite, file) => {
     const here = suite.file ?? file;
     for (const spec of suite.specs ?? []) {
-      const m = STEP_TITLE.exec(spec.title ?? '');
-      if (!m) continue;
-      const key = `${m[1]}#${Number(m[2])}`;
+      const key = stepOf(spec.title);
+      if (!key) {
+        // A test that proves part of a step says so in its title ("J-identity-15, part of #1: …") and is no step's
+        // state. Its file still ran: listed only when every such test in it passed, so a failing one is never "ran"
+        // and the seal's touched-journeys check fails closed on it. Without this a file with no whole-step test was
+        // never listed, and every pull request the map sends to it was held for good (#7750's seal, run 42743957395).
+        // Journey files only: another spec in the report (the look sweep) stays off the list, as before.
+        const tests = spec.tests ?? [];
+        const f = String(spec.file ?? here ?? '')
+          .split('/')
+          .pop();
+        if (!PARTIAL_JOURNEY_FILE.test(f)) continue;
+        if (tests.length && tests.every(testPassed)) partial.add(f);
+        else partialFailed.add(f);
+        continue;
+      }
       const tests = spec.tests ?? [];
       if (tests.some((t) => t.status === 'flaky')) retried.add(key);
       const state =
         tests.length && tests.every((t) => t.status === 'skipped')
           ? 'skipped'
-          : tests.length && tests.every((t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t)))
+          : tests.length && tests.every(testPassed)
             ? tests.some((t) => t.status === 'flaky')
               ? 'flaky'
               : 'passed'
@@ -129,6 +154,7 @@ export function readReport(report) {
     for (const child of suite.suites ?? []) walk(child, here);
   };
   for (const suite of report?.suites ?? []) walk(suite, suite.file);
+  for (const f of partial) if (!partialFailed.has(f) && !ran.has(f)) ran.add(f);
   return { states, files, ran: [...ran].sort(), retried };
 }
 
@@ -468,13 +494,43 @@ export function missingArtifact(stderr) {
 }
 /** A JSON file from a run's journeys artifact (report.json by default). When `optional`, a run with no such artifact, or an
  *  artifact without the file, gives null; a download that fails for any other reason, or a malformed file, throws. */
-export function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json') {
+/** A refusal (401, 403, 429 or a rate limit) is never retried: it is honoured. */
+export function refusedDownload(stderr) {
+  return /HTTP 40[13]|HTTP 429|rate limit/i.test(String(stderr ?? ''));
+}
+/** The last non-empty line gh wrote, so a failed read names gh's own error, not only "Command failed". */
+export function lastLine(stderr) {
+  return (
+    String(stderr ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .pop() ?? ''
+  );
+}
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** `gh run download` with up to `tries` attempts. A missing artifact or a refusal fails at once; any other failure (a
+ *  dropped connection to the artifact store, a 5xx) is tried again after a pause, and the last one throws with gh's own
+ *  last line in its first line. */
+export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, pauses = [5_000, 15_000] } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) {
+      if (missingArtifact(e.stderr) || refusedDownload(e.stderr) || attempt >= tries) {
+        const said = lastLine(e.stderr);
+        if (said) e.message = `${e.message.split('\n')[0]}: ${said} (attempt ${attempt} of ${tries})\n${e.message}`;
+        throw e;
+      }
+      wait(pauses[Math.min(attempt - 1, pauses.length - 1)]);
+    }
+  }
+}
+export function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json', opts = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   try {
     try {
-      execFileSync('gh', ['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], {
-        stdio: ['ignore', 'ignore', 'pipe'],
-      });
+      ghDownload(['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], opts);
     } catch (e) {
       if (optional && missingArtifact(e.stderr)) return null;
       throw e;

@@ -1,5 +1,7 @@
 # ADR: algo execution — a schedule is not a position, and progress is not a fill
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about child orders filling through ledger recipes and halting on a ledger balance applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed. **Amended 2026-08-14:** VWAP/POV may run from the existing non-seeded fill-tape volume series; they still refuse when that series is empty. Icebergs remain out. `trade.algo` is still not Done (jobs default OFF).
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-04.

@@ -12,7 +12,7 @@
  *   - runs of exactly JOURNEYS_WORKFLOW, from this repository, whose head is this exact sha (a run on an older head of the
  *     same branch counts for nothing, however green);
  *   - any such run not finished yet (a first attempt or a re-run) when the seal runs holds it: it fails then and is re-run
- *     when the run finishes (journey-seal-recheck.yml). A run dispatched after a green seal does not turn it red until it
+ *     when the run finishes (its last job, START_JOB, starts the seal). A run dispatched after a green seal does not turn it red until it
  *     finishes, so a merge in between rests on the finished run that sealed it. On a merge queue's commit nothing waits:
  *     only finished runs are read;
  *   - cancelled and skipped runs say nothing and are passed over;
@@ -29,8 +29,8 @@
  * heading, an indented line, a fence inside a list. A `## Left or replaced` heading is prose and exempts nothing.)
  *
  * The title and body are read from the API at seal time, not from the event, so a re-run reads an edited title.
- * journey-seal-recheck.yml re-runs the seal when a journeys run on a pull request's head finishes and when a title or
- * body that names steps is edited. On a merge queue's commit every queued pull request is judged on its own head the
+ * The last job of each seal input (START_JOB) re-runs the seal when its run on a pull request's head finishes, and
+ * merge-seal.yml runs again on an edit. On a merge queue's commit every queued pull request is judged on its own head the
  * same way, without waiting.
  *
  * A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs a clean full run: the
@@ -82,7 +82,7 @@ import {
   rootInputs,
 } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
-import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
@@ -253,7 +253,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
       state: 'wait',
       lines: [
         ...lines,
-        `Real-app journeys run ${ids} on this head has not finished; the seal reads the steps once it does (journey-seal-recheck.yml re-runs it)`,
+        `Real-app journeys run ${ids} on this head has not finished; the seal reads the steps once it does (its last job, ${START_JOB}, starts it)`,
         leaveLine(needed),
       ],
     };
@@ -556,8 +556,36 @@ export function currentReportArtifact(run, artifacts) {
 
 // ---- GitHub reads (GET only; a refusal or an unreadable list fails the seal closed) ----
 
+/** Statuses a GET is tried again on: GitHub's own short outages, never a refusal (a 403 or 429 stops at once). */
+const TRANSIENT = new Set([502, 503, 504]);
+
+/**
+ * One GET, tried up to `tries` times when the request itself fails (Node's "fetch failed": a reset or a timeout on the
+ * way) or GitHub answers 502, 503 or 504, `waitMs` apart, then the last answer or error as it is, so the seal still fails
+ * closed. A thrown error keeps its cause's code, which Node's "fetch failed" alone hides (intafaced#7707, seal run
+ * 42698308612: "which reds main already had couldn't be read (fetch failed)" on two attempts in a row).
+ */
+export async function getTried(
+  url,
+  init,
+  { fetchImpl = fetch, tries = 3, waitMs = 3000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
+) {
+  for (let n = 1; ; n++) {
+    try {
+      const res = await fetchImpl(url, init);
+      if (!TRANSIENT.has(res.status) || n >= tries) return res;
+    } catch (e) {
+      if (n >= tries) {
+        const code = e?.cause?.code ?? e?.cause?.message;
+        throw new Error(`${e?.message ?? e}${code ? ` (${code})` : ''} after ${n} tries`, { cause: e });
+      }
+    }
+    await sleep(waitMs * n);
+  }
+}
+
 async function api(path, token, { raw = false } = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await getTried(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
     redirect: 'follow',
   });
@@ -584,8 +612,12 @@ export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
-    runs: (sha) =>
-      listWhole(`/repos/${repo}/actions/workflows/${file}/runs?head_sha=${sha}`, 'workflow_runs', token, `${file} runs on ${sha}`),
+    // A run whose last job (START_JOB) is what started this seal is read as finished (settledRun).
+    runs: async (sha) =>
+      settleRuns(
+        await listWhole(`/repos/${repo}/actions/workflows/${file}/runs?head_sha=${sha}`, 'workflow_runs', token, `${file} runs on ${sha}`),
+        (id) => listWhole(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, 'jobs', token, `run ${id}'s jobs`),
+      ),
     async reportOf(run) {
       const arts = await listWhole(
         `/repos/${repo}/actions/runs/${run.id}/artifacts?name=${JOURNEYS_ARTIFACT}`,
@@ -607,8 +639,15 @@ export function makeIo(repo, token) {
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
+    // The map the touch job used (journey-touch.mjs): the newest build main's map workflow verified no later than `before`,
+    // else the committed copy beside this script.
+    reachMap: async (before) =>
+      newerMap(
+        await builtMap({ get: (path) => api(path, token), raw: (path) => api(path, token, { raw: true }), before, repo }),
+        loadMap(),
+      ),
     mainRuns: async () => {
-      const r = await api(`/repos/${repo}/actions/workflows/${file}/runs?branch=main&status=completed&per_page=30`, token);
+      const r = await api(`/repos/${repo}/actions/workflows/${file}/runs?branch=main&status=completed&per_page=100`, token);
       if (!Array.isArray(r?.workflow_runs)) throw new Error(`${file} runs on main: not a list`);
       return r.workflow_runs;
     },
@@ -631,7 +670,7 @@ export function makeIo(repo, token) {
     },
     async text(path, ref) {
       const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
-      const res = await fetch(`https://api.github.com${url}`, {
+      const res = await getTried(`https://api.github.com${url}`, {
         headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw+json' },
         redirect: 'follow',
       });
@@ -995,14 +1034,20 @@ export async function rangeFromCommits(get, repo, from, to) {
  * request changes no product path or the seal can't read main's runs or the head's journey files (then product code is
  * full). The map is this script's own copy (the default branch's); its age is counted from main's runs; the journey
  * files and whether a changed service file subscribes to bus events are read at the head. A read that fails leaves
- * the input unknown, which the map reads as full.
+ * the input unknown, which the map reads as full. The map is the build the head's newest journeys run chose when it
+ * was created (io.reachMap(before)), so the seal holds the run to the journeys it was told to run.
  */
 export async function reachInputs({ io, paths, head, text }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
   // Any other full path makes the whole change full, so nothing below would be used: read nothing.
   if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
-  const map = io.reachMap ? await io.reachMap() : loadMap();
+  let before = Date.now();
+  try {
+    const made = ((io.runs ? await io.runs(head) : []) ?? []).map((r) => Date.parse(r?.created_at)).filter(Number.isFinite);
+    if (made.length) before = Math.max(...made);
+  } catch {}
+  const map = io.reachMap ? await io.reachMap(before) : loadMap();
   let behind = null;
   try {
     behind = runsBehind(map, await io.mainRuns());
@@ -1033,7 +1078,25 @@ export async function reachInputs({ io, paths, head, text }) {
 export async function sealPull({ repo, number, sha, io: given, requireOpen = true, waitOnRunning = true }) {
   // Main's runs are read once: for the map's age (reachInputs) and for inherited reds (mainReference).
   let mainRuns;
-  const io = given.mainRuns ? { ...given, mainRuns: () => (mainRuns ??= Promise.resolve().then(() => given.mainRuns())) } : given;
+  const headRuns = new Map();
+  const io = {
+    ...given,
+    ...(given.mainRuns ? { mainRuns: () => (mainRuns ??= Promise.resolve().then(() => given.mainRuns())) } : {}),
+    // The head's journeys runs are read once: for the map's build (reachInputs) and for the steps (judgeSteps).
+    ...(given.runs
+      ? {
+          runs: (h) =>
+            headRuns.has(h)
+              ? headRuns.get(h)
+              : headRuns
+                  .set(
+                    h,
+                    Promise.resolve().then(() => given.runs(h)),
+                  )
+                  .get(h),
+        }
+      : {}),
+  };
   const pull = await io.pull(number);
   const head = String(pull?.head?.sha ?? '');
   if (!SHA40.test(head)) return { ok: false, lines: [`#${number}: its head could not be read`] };
@@ -1141,7 +1204,9 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
 
 export const SEAL = 'CI merge seal';
 const SEAL_POLL_MS = 20_000;
-const SEAL_POLLS = 75; // 25 minutes: a running seal may be waiting out the CI review (review-marker.mjs, 20 minutes)
+// 4 minutes, inside the 6-minute limit of each input's START_JOB. A seal still running when the last input ends has
+// nothing left to wait for (the CI review is one of the inputs, so review-marker.mjs's wait is over): seconds.
+const SEAL_POLLS = 12;
 
 /** The workflow file that holds the seal job a pull request runs in its own version. */
 export const CI_WORKFLOW = 'ci.yml';
@@ -1157,6 +1222,123 @@ export const SEAL_WORKFLOWS = [
   { workflow: CI_WORKFLOW, event: 'pull_request' },
   { workflow: 'merge-seal.yml', event: 'pull_request_target' },
 ];
+
+/**
+ * The seal gives one verdict once its inputs have finished (INTAFACED/project-state#1574, 9 Nov 2026). On a push, open,
+ * reopen or edit, merge-seal.yml's first attempt skips its seal job, whose check run then carries the raw text of the
+ * job's name expression, never `CI merge seal` (probe intafaced#7679), so it neither passes nor fails anything: the
+ * required check is simply not there yet, and a missing required check blocks the merge. When the last input finishes
+ * (CI, the CI review, and the journeys run when the change needs one), the re-check re-runs that run, and its next
+ * attempt is the verdict. Before this, the seal was red from every push until a re-run (375 of 510 runs in a day).
+ *
+ * A pull request could add its own job named `CI merge seal` and pass it while the real seal waits. So the first attempt
+ * seals at once, as before, whenever the change touches `.github/` or its head's ci.yml still names its seal job
+ * `CI merge seal` on a pull request (sealNow); on a pull request ci.yml's job is named `CI jobs` (CI_JOBS_NAME).
+ */
+export const CI_JOBS_NAME = "${{ github.event_name == 'merge_group' && 'CI merge seal' || 'CI jobs' }}";
+
+/** A skipped first attempt of merge-seal.yml's seal job: the check run's name is its expression's raw text. */
+export const isWaitingSeal = (j) =>
+  j?.name !== SEAL && j?.status === 'completed' && j?.conclusion === 'skipped' && String(j?.name ?? '').includes("'CI merge seal'");
+
+/** The workflows whose runs on a head are the seal's inputs, with the event their pull request runs carry. */
+export const SEAL_INPUTS = [
+  { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
+  { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review' },
+  { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
+];
+
+/**
+ * The job each seal input ends with (ci.yml, ci-review.yml, real-app-journeys.yml): it needs every other job of its
+ * run, and runs `--recheck` from the default branch, which starts or re-runs the seal once the last input on the head
+ * has finished. Before 9 Nov 2026 a separate workflow did this on each input's `workflow_run`, and each of those was a
+ * run of its own whether it did anything or not: 129 in the 53 minutes after 13:51 UTC that day, 50 of them skipped
+ * (INTAFACED/project-state#1574). The seal reads an input run whose only job still going is this one as finished
+ * (settledRun), since this job is what starts it.
+ */
+export const START_JOB = 'Start the seal';
+
+/**
+ * `run` as the seal reads it, given its latest-attempt `jobs`: a run still going only because its START_JOB is (queued
+ * or running, so every job it needs has ended) is read as finished, with the conclusion its other jobs give; any other
+ * run is returned as it is. Pure.
+ */
+export function settledRun(run, jobs) {
+  if (run?.status === 'completed' || !Array.isArray(jobs)) return run;
+  const start = jobs.filter((j) => j?.name === START_JOB);
+  const rest = jobs.filter((j) => j?.name !== START_JOB);
+  if (!start.length || !start.every((j) => ['queued', 'in_progress'].includes(j?.status))) return run;
+  if (!rest.length || rest.some((j) => j?.status !== 'completed')) return run;
+  const c = rest.map((j) => j?.conclusion);
+  const conclusion = c.some((x) => ['failure', 'timed_out', 'startup_failure'].includes(x))
+    ? 'failure'
+    : c.includes('cancelled')
+      ? 'cancelled'
+      : 'success';
+  return { ...run, status: 'completed', conclusion, settled: true };
+}
+
+/** `runs` with each one still going read through settledRun; `jobsOf(id)` lists a run's latest-attempt jobs. */
+export async function settleRuns(runs, jobsOf) {
+  const out = [];
+  for (const r of runs ?? []) out.push(r?.status === 'completed' ? r : settledRun(r, await jobsOf(r.id)));
+  return out;
+}
+
+/**
+ * The input runs still going on `sha` (`runsOf[workflow]`, each workflow's runs on the head), as lines; [] when every
+ * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
+ * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. Pure.
+ */
+export function inputsGoing({ sha, runsOf, needJourneys }) {
+  const out = [];
+  for (const { workflow, event, what, journeys } of SEAL_INPUTS) {
+    if (journeys && !needJourneys) continue;
+    for (const r of runsOf?.[workflow] ?? [])
+      if (r?.head_sha === sha && (!event || r?.event === event) && r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+  }
+  return out;
+}
+
+/** Whether the change needs a journeys run: its title names steps, or its paths reach a journey (journey-touch.mjs). */
+export const needsJourneys = (pull, files) => namesSteps(pull?.title ?? '') || journeyTouch(files).mode !== 'none';
+
+/**
+ * Whether merge-seal.yml's first attempt seals at once rather than waiting for its inputs (see CI_JOBS_NAME), with why.
+ * `files` are the change's paths; `headCi` the text of ci.yml at the head (null when it has none); `going` what
+ * inputsGoing returns. Pure.
+ */
+export function sealNow({ files, headCi, going, verdict = false }) {
+  const gh = (files ?? []).filter((f) => f.startsWith('.github/'));
+  if (gh.length)
+    return {
+      now: true,
+      why: `the change touches ${gh[0]}${gh.length > 1 ? ` and ${gh.length - 1} more under .github/` : ''}, which could add its own seal`,
+    };
+  if (!String(headCi ?? '').includes(`name: ${CI_JOBS_NAME}`))
+    return { now: true, why: "the head's ci.yml still names its seal job `CI merge seal` on a pull request" };
+  if (!going.length) return { now: true, why: 'every input on this head has finished' };
+  // A verdict already on the head (an edit, a reopen): judge again at once, so the old verdict never stands while an
+  // input is re-running (CI review on e1ba6699: an edit naming a red step must never merge on the earlier green).
+  if (verdict) return { now: true, why: 'a seal verdict is already on this head, so this change re-judges it now' };
+  return { now: false, why: `waiting for ${going.join(', ')}; the re-check starts the seal when the last one finishes` };
+}
+
+/**
+ * ci.yml's seal steps that read what a re-check or the CI review changes (the named steps, the review). Since 9 Nov 2026
+ * ci.yml runs them only on a merge queue's commit; on a pull request they are merge-seal.yml's alone, the default
+ * branch's copy (INTAFACED/project-state#1574). A head whose own ci.yml predates that still runs them in ci.yml's seal.
+ */
+export const PR_READ_STEPS = new Set(['Require the named journey steps on this exact head', 'Require the CI review on this exact head']);
+
+/**
+ * Whether a re-check or the CI review re-runs ci.yml's seal job `job` (its jobs-API object, with `steps`): only when it
+ * is red on a PR_READ_STEPS step, which only an older ci.yml on the head runs. Red on CI's own jobs, a re-run reads the
+ * same jobs, and as a new attempt of the CI run it would start another re-check when it ends (the loop of #1574). Green,
+ * merge-seal.yml's re-run decides: every `CI merge seal` on the head must pass (probe #7547). Pure.
+ */
+export const ciSealReads = (job) =>
+  job?.conclusion !== 'success' && (job?.steps ?? []).some((s) => PR_READ_STEPS.has(s?.name) && s?.conclusion === 'failure');
 
 /**
  * What to do about a head's seal once its steps' inputs changed (a journeys run finished, a title or body was edited):
@@ -1178,6 +1360,9 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
     if (seal?.status === 'completed' && seal?.conclusion === 'skipped') continue;
     if (!seal || ['queued', 'waiting', 'pending', 'requested'].includes(seal.status)) {
       if (run.status === 'completed') continue;
+      // merge-seal.yml's run deciding whether to seal now (sealNow, seconds): wait, so a seal it skips is then started.
+      if (event === 'pull_request_target' && run.status === 'in_progress')
+        return { act: 'wait', runId, msg: `run ${runId} is deciding whether its seal waits for its inputs` };
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
     }
     if (seal.status !== 'completed')
@@ -1185,6 +1370,12 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
     if (run.status !== 'completed') return { act: 'wait', runId, msg: `run ${runId} is still finishing` };
     return { act: 'rerun', runId, jobId: String(seal.id) };
   }
+  // No verdict yet: the newest run whose first attempt waits for its inputs is started (re-run whole), once they have.
+  const read = prs.filter((r) => jobsByRun.has(String(r.id)));
+  const waiting = read.find((r) => r.status === 'completed' && jobsByRun.get(String(r.id)).some(isWaitingSeal));
+  if (waiting) return { act: 'start', runId: String(waiting.id), msg: `run ${waiting.id} waits for its inputs` };
+  if (read.some((r) => jobsByRun.get(String(r.id)).some((j) => j?.name === 'CI jobs')))
+    return { act: 'done', msg: "ci.yml's job on this head is `CI jobs`, not a seal; merge-seal.yml's seal decides" };
   return { act: 'fail', msg: `no CI run on this head has a ${SEAL} job (${prs.map((r) => r.id).join(', ')} finished with none)` };
 }
 
@@ -1265,6 +1456,22 @@ export async function rerunSealJob({
     }
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);
+    if (step.act === 'start') {
+      const held = await blocker();
+      if (held?.act === 'skip') return `not started: ${held.msg}`;
+      if (held?.act !== 'wait') {
+        const { status, message = '' } = await post(`/repos/${repo}/actions/runs/${step.runId}/rerun`);
+        if (status === 403 && /already running/i.test(message)) return `run ${step.runId} is already starting (${message})`;
+        if (status !== 201) throw new Error(`could not start the seal run ${step.runId}: HTTP ${status} ${message}`);
+        return `started the seal: run ${step.runId}, whose first attempt waited for its inputs`;
+      }
+      step = { act: 'wait', runId: step.runId, msg: held.msg };
+    }
+    if (step.act === 'rerun' && workflow === CI_WORKFLOW) {
+      const job = (jobsByRun.get(step.runId) ?? []).find((j) => String(j?.id) === step.jobId);
+      if (!ciSealReads(job))
+        return `not re-run: ci.yml's seal job ${step.jobId} reads only CI's own jobs on this head (${job?.conclusion}); merge-seal.yml's reads the steps and the review`;
+    }
     if (step.act === 'rerun') {
       const held = await blocker();
       if (held?.act === 'skip') return `not re-run: ${held.msg}`;
@@ -1278,6 +1485,7 @@ export async function rerunSealJob({
       let said2 = `re-ran the seal job ${step.jobId} of run ${step.runId}`;
       for (const o of await otherSeals({ repo, runs, skip: step.runId, event, get })) {
         if (o.seal.conclusion === 'success') continue;
+        if (workflow === CI_WORKFLOW && !ciSealReads(o.seal)) continue;
         const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
         if (r.status === 403 && /already running/i.test(r.message ?? '')) continue;
         if (r.status !== 201)
@@ -1324,63 +1532,171 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
 }
 
 /** The seals a re-check re-runs: after CI finished (`finished` = 'CI'), only the default branch's (see recheck). */
-export const sealsToRecheck = (finished) => SEAL_WORKFLOWS.filter((w) => finished !== 'CI' || w.workflow !== CI_WORKFLOW);
+export const sealsToRecheck = (finished) =>
+  SEAL_WORKFLOWS.filter((w) => !['CI', REVIEWED].includes(finished) || w.workflow !== CI_WORKFLOW);
 
-/**
- * `finished` when auto-merge was just armed on the pull request (journey-seal-recheck.yml, `auto_merge_enabled`): its
- * seals are re-run whatever its title names, since no re-check touched them while it was not armed (armed).
- */
-export const ARMED = 'armed';
+/** `finished` after the CI review's run on the head ended: like CI, every armed pull request on the head is re-sealed. */
+export const REVIEWED = 'CI review';
 
 /**
  * Whether a re-check touches this pull request: only one with auto-merge armed (GitHub's `auto_merge`, set on the pull
  * request objects both the commit's pull request list and the pull request read return). Only an armed pull request
- * merges on its seal, so only its seal is read when it turns; one that is not armed is re-sealed when it is armed
- * (ARMED), and every push and edit still runs a fresh seal (merge-seal.yml). (Failure it prevents: at 02:45 UTC on
+ * merges on its seal, so only its seal is read when it turns; arming runs merge-seal.yml afresh (`auto_merge_enabled`),
+ * and so does every push and edit. (Failure it prevents: at 02:45 UTC on
  * 9 Nov 2026, 29 re-checks were queued, each of which can hold a runner up to 25 minutes waiting out a running seal,
  * for pull requests that no merge was waiting on; INTAFACED/project-state#1574 item 4.)
  */
 export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefined;
 
 /**
- * The open pull requests a re-check re-seals, of those with auto-merge armed (armed): after CI finished (`finished` =
- * 'CI') or on arming (`finished` = ARMED), every open pull request into this repository on `sha`, since the default
- * branch's seal reads CI's jobs; otherwise those recheckPulls takes (named steps, an exemption line, or a change the
- * journeys run judges).
+ * The open pull requests a re-check re-seals, of those with auto-merge armed (armed): after CI or the CI review finished
+ * (`finished` = 'CI' or REVIEWED), every open pull request into this repository on `sha`, since the default branch's
+ * seal reads both; otherwise those recheckPulls takes (named steps, an exemption line, or a change the journeys run
+ * judges).
  */
 export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = '', oldBody = '', filesOf }) {
   const live = (pulls ?? []).filter(armed);
-  if (finished === 'CI' || finished === ARMED)
+  if (finished === 'CI' || finished === REVIEWED)
     return live.filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo);
   return recheckPulls({ pulls: live, sha, repo, oldTitle, oldBody, shared: await sharedPulls({ pulls: live, sha, repo, filesOf }) });
 }
 
 /**
- * journey-seal-recheck.yml: the open pull requests with auto-merge armed whose head is `sha` and whose title names steps
- * now (or named them before an edit, OLD_TITLE), or every armed one after CI or on arming (recheckTargets), each with its
- * seal re-run. A head no such pull request is on is left alone.
+ * Whether merge-seal.yml already gave a verdict on `sha`, and whether one is green: the latest-attempt `CI merge seal`
+ * jobs of its finished pull_request_target runs there.
+ */
+export async function readVerdicts({ get, repo, sha }) {
+  const runs = (await get(`/repos/${repo}/actions/workflows/merge-seal.yml/runs?head_sha=${sha}&event=pull_request_target&per_page=100`))
+    ?.workflow_runs;
+  if (!Array.isArray(runs)) throw new Error(`merge-seal.yml runs on ${sha}: not a list`);
+  const out = { any: false, green: false };
+  for (const r of runs.filter((x) => x?.head_sha === sha)) {
+    const jobs = (await get(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    if (!Array.isArray(jobs)) throw new Error(`run ${r.id}'s jobs: not a list`);
+    for (const j of jobs.filter((x) => x?.name === SEAL)) {
+      out.any = true;
+      if (j.status === 'completed' && j.conclusion === 'success') out.green = true;
+    }
+  }
+  return out;
+}
+
+/**
+ * What a re-check does with merge-seal.yml's seal while an input on the head is still going: leave it (the input's own
+ * end starts the re-check again), unless a green verdict is on the head, which is re-run now so it can't stand while its
+ * inputs change (CI review on e1ba6699). A red one already blocks. Pure.
+ */
+export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green ? 'rerun-green' : 'leave');
+
+/** inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys). */
+export async function readGoing({ get, repo, sha, pulls }) {
+  const runsOf = {};
+  for (const { workflow, event } of SEAL_INPUTS) {
+    const runs = (
+      await get(`/repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${sha}${event ? `&event=${event}` : ''}&per_page=100`)
+    )?.workflow_runs;
+    if (!Array.isArray(runs)) throw new Error(`${workflow} runs on ${sha}: not a list`);
+    runsOf[workflow] = await settleRuns(
+      runs.filter((r) => r?.head_sha === sha),
+      async (id) => {
+        const jobs = (await get(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100`))?.jobs;
+        if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
+        return jobs;
+      },
+    );
+  }
+  let needJourneys = false;
+  for (const p of pulls ?? []) if (!needJourneys && needsJourneys(p, await pullFiles(get, repo, p.number))) needJourneys = true;
+  return inputsGoing({ sha, runsOf, needJourneys });
+}
+
+/**
+ * merge-seal.yml's first job: whether this attempt seals now or waits for its inputs (sealNow), written to
+ * GITHUB_OUTPUT as `now=true|false`. Only a first attempt asks; any error fails this job, and the seal then runs at once.
+ */
+async function sealNowStep({ repo, token }) {
+  const { HEAD_SHA, PR_NUMBER, GITHUB_OUTPUT } = process.env;
+  if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(PR_NUMBER ?? '')) throw new Error('--seal-now needs HEAD_SHA and PR_NUMBER');
+  const get = (path) => api(path, token);
+  const pull = await get(`/repos/${repo}/pulls/${PR_NUMBER}`);
+  const files = await pullFiles(get, repo, Number(PR_NUMBER));
+  let headCi = null;
+  try {
+    const c = await get(`/repos/${repo}/contents/.github/workflows/ci.yml?ref=${HEAD_SHA}`);
+    headCi = Buffer.from(String(c?.content ?? ''), 'base64').toString('utf8');
+  } catch (e) {
+    if (!/HTTP 404/.test(e.message)) throw e;
+  }
+  const going = await readGoing({ get, repo, sha: HEAD_SHA, pulls: [pull] });
+  const v = sealNow({ files, headCi, going, verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false });
+  console.log(`${v.now ? 'seals now' : 'waits'}: ${v.why}`);
+  if (GITHUB_OUTPUT) writeFileSync(GITHUB_OUTPUT, `now=${v.now}\n`, { flag: 'a' });
+}
+
+/** A POST to the API that returns { status, message } and never throws on an HTTP error, so the caller decides. */
+const poster = (token) => async (path) => {
+  const res = await fetch(`https://api.github.com${path}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+  });
+  const text = await res.text();
+  let message = text;
+  try {
+    message = JSON.parse(text)?.message ?? text;
+  } catch {}
+  return { status: res.status, message: String(message).slice(0, 200) };
+};
+
+/**
+ * The older red seals a green verdict on `sha` re-runs (merge-seal.yml's last step, `--clear-older`): every
+ * `CI merge seal` on a head must pass (probe #7547), so a red left by an earlier run on the same head (an edit, a reopen,
+ * a push before the title named the right steps) would block a head that now passes. Each such job of merge-seal.yml's
+ * other runs there is re-run, and judges again what this one just judged. A re-run that also passes re-runs no other
+ * green, and one that fails re-runs nothing, so it ends. ci.yml's own red seals on a branch cut before 9 Nov 2026 13:50
+ * UTC are left to the inputs' re-check (ciSealReads): re-running one starts that CI run again. Returns the lines said.
+ */
+export async function clearOlderReds({ repo, sha, self, get, post }) {
+  const runs = (await get(`/repos/${repo}/actions/workflows/merge-seal.yml/runs?head_sha=${sha}&event=pull_request_target&per_page=100`))
+    ?.workflow_runs;
+  if (!Array.isArray(runs)) throw new Error(`merge-seal.yml runs on ${sha}: not a list`);
+  const out = [];
+  const mine = runs.filter((r) => r?.head_sha === sha);
+  for (const o of await otherSeals({ repo, runs: mine, skip: self, event: 'pull_request_target', get })) {
+    if (o.seal.conclusion === 'success') continue;
+    const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
+    if (r.status === 403 && /already running/i.test(r.message ?? '')) {
+      out.push(`run ${o.runId}'s seal is already re-running`);
+      continue;
+    }
+    if (r.status !== 201)
+      throw new Error(`could not re-run the older red seal job ${o.seal.id} of run ${o.runId}: HTTP ${r.status} ${r.message ?? ''}`);
+    out.push(`re-ran the older red seal job ${o.seal.id} of run ${o.runId}`);
+  }
+  return out.length ? out : ['no older red seal on this head'];
+}
+
+async function clearOlderStep({ repo, token }) {
+  const { HEAD_SHA, RUN_ID } = process.env;
+  if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(RUN_ID ?? '')) throw new Error('--clear-older needs HEAD_SHA and RUN_ID');
+  for (const l of await clearOlderReds({ repo, sha: HEAD_SHA, self: RUN_ID, get: (path) => api(path, token), post: poster(token) }))
+    console.log(l);
+}
+
+/**
+ * `--recheck`, the last job of each seal input (START_JOB, `FINISHED` naming the input): the open pull requests with
+ * auto-merge armed on `SHA` that the input judges (recheckTargets), each with its seal started or re-run once every input
+ * on the head has finished. A head no such pull request is on is left alone.
  */
 async function recheck({ repo, token }) {
   const { SHA, PR_NUMBER, OLD_TITLE = '', OLD_BODY = '', FINISHED = '' } = process.env;
   if (!SHA40.test(SHA ?? '')) throw new Error('recheck needs SHA');
   const get = (path) => api(path, token);
-  const post = async (path) => {
-    const res = await fetch(`https://api.github.com${path}`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
-    });
-    const text = await res.text();
-    let message = text;
-    try {
-      message = JSON.parse(text)?.message ?? text;
-    } catch {}
-    return { status: res.status, message: String(message).slice(0, 200) };
-  };
+  const post = poster(token);
   const pulls = PR_NUMBER
     ? [await get(`/repos/${repo}/pulls/${PR_NUMBER}`)]
     : await get(`/repos/${repo}/commits/${SHA}/pulls?per_page=100`);
-  // CI finished (FINISHED=CI) or auto-merge armed (ARMED): the default branch's seal reads CI's jobs (ci-jobs-seal.mjs),
-  // so every open pull request with auto-merge armed on the head is re-sealed, whatever it names (recheckTargets).
+  // CI or the CI review finished: the default branch's seal reads both (ci-jobs-seal.mjs, review-marker.mjs), so every
+  // open pull request with auto-merge armed on the head is re-sealed, whatever it names (recheckTargets).
   const named = await recheckTargets({
     finished: FINISHED,
     pulls,
@@ -1400,7 +1716,17 @@ async function recheck({ repo, token }) {
   // After CI finished, ci.yml's own seal ran in that same run after its needs, so only the default branch's seal is
   // re-run: re-running ci.yml's would start a new attempt of that CI run, the default branch's seal would read CI as
   // running, and the next CI completion would start it all again (the CI review on 7a7eb9a0, 8 Nov 2026).
+  // The seal's inputs on this head (SEAL_INPUTS): while one is still going, merge-seal.yml's seal is left alone, since
+  // that input's own end starts this re-check again; so the seal gives one verdict, once they have all finished.
+  const going = await readGoing({ get, repo, sha: SHA, pulls: named });
   for (const { workflow, event } of sealsToRecheck(FINISHED)) {
+    if (
+      workflow !== CI_WORKFLOW &&
+      whileGoing({ going, green: going.length ? (await readVerdicts({ get, repo, sha: SHA })).green : false }) === 'leave'
+    ) {
+      outcomes.push(`${workflow}: not re-run: waiting for ${going.join(', ')}; its end starts the seal`);
+      continue;
+    }
     const blocker = async () => {
       const now = await Promise.all(named.map((p) => get(`/repos/${repo}/pulls/${p.number}`)));
       const headRuns = (await get(`/repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${SHA}&event=${event}&per_page=100`))
@@ -1457,6 +1783,8 @@ async function main() {
     process.exit(1);
   }
   if (process.argv.includes('--recheck')) return recheck({ repo: REPO, token: GH_TOKEN });
+  if (process.argv.includes('--seal-now')) return sealNowStep({ repo: REPO, token: GH_TOKEN });
+  if (process.argv.includes('--clear-older')) return clearOlderStep({ repo: REPO, token: GH_TOKEN });
   const io = makeIo(REPO, GH_TOKEN);
   const dry = process.argv.indexOf('--dry-run');
   if (dry > 0) {

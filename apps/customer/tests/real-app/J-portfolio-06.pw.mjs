@@ -91,6 +91,9 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   await open.getByLabel('Amount (USDT)').fill(SAVED);
   await open.getByRole('button', { name: 'Review' }).click();
   await open.getByRole('button', { name: 'Open instant-access savings' }).click();
+  // The dialog's own answer first: leaving the page while its reply is still in flight keeps the original journaled
+  // as unconfirmed, and the app then rightly pauses every bank write, so the space below could not be created (#7572).
+  await expect(open.getByText('Confirmed by the service')).toBeVisible();
   await expect
     .poll(async () => (await me.query('earn.positions', { limit: 50 })).filter((p) => p.poolId === pool.id).map((p) => p.principal))
     .toEqual([SAVED]);

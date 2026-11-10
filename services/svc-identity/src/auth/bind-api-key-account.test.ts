@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { AuthError, type AuthService } from './auth-service.js';
 import { apiKeyAccountAllowed } from './api-key-account.js';
-import { assertApiKeyAccount, bindApiKeyAccount, installApiKeyAccountExchange, requestAccountAls } from './bind-api-key-account.js';
+import {
+  assertApiKeyAccount,
+  assertPortfolioKeyRoom,
+  bindApiKeyAccount,
+  installApiKeyAccountExchange,
+  requestAccountAls,
+} from './bind-api-key-account.js';
 
 function fakeSql(queue: unknown[][]) {
   let i = 0;
@@ -50,6 +56,25 @@ describe('bindApiKeyAccount', () => {
     await expect(
       bindApiKeyAccount(fakeSql([[{ id: ACC, parent_user_id: USER, revoked: false }], []]), USER, KEY, ACC),
     ).rejects.toMatchObject({ code: 'auth.not_found' });
+  });
+});
+
+describe('assertPortfolioKeyRoom (the bind door keeps the sub-account key cap)', () => {
+  it('blank refuses, full refuses, room passes, and the key being bound is not counted', async () => {
+    await expect(assertPortfolioKeyRoom(fakeSql([]), USER, ACC, null, KEY)).rejects.toMatchObject({
+      code: 'identity.portfolio_key_cap_unset',
+    });
+    await expect(assertPortfolioKeyRoom(fakeSql([[{ n: 2 }]]), USER, ACC, 2, KEY)).rejects.toMatchObject({
+      code: 'identity.portfolio_key_cap_reached',
+    });
+    await expect(assertPortfolioKeyRoom(fakeSql([[{ n: 1 }]]), USER, ACC, 2, KEY)).resolves.toBeUndefined();
+    const seen: unknown[][] = [];
+    const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      seen.push(values);
+      return [{ n: 0 }];
+    }) as unknown as Parameters<typeof bindApiKeyAccount>[0];
+    await assertPortfolioKeyRoom(sql, USER, ACC, 2, KEY);
+    expect(seen[0]).toEqual([USER, ACC, KEY]);
   });
 });
 

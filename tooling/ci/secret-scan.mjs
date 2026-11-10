@@ -210,6 +210,10 @@ const PLACEHOLDER_VALUES = [
   //   ${{ github.event.inputs.token }}   still fails: attacker-supplied
   //
   /^\$\{\{\s*(?:secrets|vars)\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}$/,
+  // A step's output, alone or with `||` fallbacks to other references (a minted App token, else the old secret:
+  // ci-review.yml, project-state #1571). Every operand is a reference into GitHub's store, never a literal; a quoted
+  // literal anywhere in the expression still fails this pattern and stays a finding.
+  /^\$\{\{\s*(?:(?:secrets|vars)\.[A-Za-z_][A-Za-z0-9_]*|steps\.[A-Za-z_][A-Za-z0-9_-]*\.outputs\.[A-Za-z_][A-Za-z0-9_-]*)(?:\s*\|\|\s*(?:(?:secrets|vars)\.[A-Za-z_][A-Za-z0-9_]*|steps\.[A-Za-z_][A-Za-z0-9_-]*\.outputs\.[A-Za-z_][A-Za-z0-9_-]*))*\s*\}\}$/,
   /^[a-z0-9_-]*dev[_-]?only[a-z0-9_-]*$/i,
   /^(changeme|change_me|placeholder|example|sample|dummy|redacted|removed|none|null|todo|tbd|xxx+|x{3,})$/i,
   /placeholder/i,

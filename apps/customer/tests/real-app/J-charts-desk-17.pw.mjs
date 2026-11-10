@@ -1,7 +1,7 @@
 // World: none
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { EDGE, signOutBrowser } from './stack.mjs';
+import { EDGE, api, signOutBrowser } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 
 // J-charts-desk-17, in the running app (docs/roadmap/journeys.json): compare markets on one chart, arrange its indicator
@@ -34,6 +34,12 @@ async function others(page) {
     .allTextContents();
 }
 
+/** Whether the public candle route holds bars for a market at the chart's interval (15m), so its line has points to draw. */
+async function hasBars(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent(symbol)}?timeframe=15m&limit=5`);
+  return res.ok && (await res.json()).length > 0;
+}
+
 test(`${J} #1 adds symbols to a BTC chart, each a removable line; past the cap the add is refused`, async ({ page }) => {
   await openChart(page);
   const offered = await others(page);
@@ -42,21 +48,33 @@ test(`${J} #1 adds symbols to a BTC chart, each a removable line; past the cap t
   const cap = (await ownerValues()).compareCap;
   expect(Number.isInteger(cap) && cap > 0, `the compare cap is set (${cap})`).toBe(true);
   expect(offered.length).toBeGreaterThan(cap);
+  // Three symbols, as the step says, each with bars on the public candle route, so each must draw a line of its own.
+  const traded = [];
+  for (const symbol of offered) if (traded.length < 3 && (await hasBars(symbol))) traded.push(symbol);
+  expect(traded, 'three listed markets have bars to draw').toHaveLength(3);
+  expect(cap, 'the cap admits the three symbols the step adds').toBeGreaterThanOrEqual(3);
   const list = tools(page).getByRole('list', { name: 'Compared markets' });
   let added = 0;
-  for (const symbol of offered.slice(0, cap)) {
+  const order = [...traded, ...offered.filter((s) => !traded.includes(s))];
+  for (const symbol of order.slice(0, cap)) {
     await tools(page)
       .getByRole('combobox', { name: /Compare with/ })
       .selectOption(symbol);
     await tools(page).getByRole('button', { name: 'Add', exact: true }).click();
     added += 1;
     await expect(list.getByRole('listitem')).toHaveCount(added);
-    await expect(list.getByRole('listitem').nth(added - 1)).toHaveAttribute('data-state', /ready|empty/);
+  }
+  // Each of the three is its own row, named by its symbol, whose line was drawn with its bars (ready, never empty).
+  for (const [n, symbol] of traded.entries()) {
+    const item = list.getByRole('listitem').nth(n);
+    await expect(item).toContainText(symbol);
+    await expect(item).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+    await expect(item.getByRole('button', { name: `Remove ${symbol}` })).toBeVisible();
   }
   for (let i = 0; i < added; i += 1) await expect(list.getByRole('button', { name: /^Remove / }).nth(i)).toBeVisible();
   await tools(page)
     .getByRole('combobox', { name: /Compare with/ })
-    .selectOption(offered[cap]);
+    .selectOption(order[cap]);
   await tools(page).getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByTestId('compare-note')).toContainText(`A chart can compare ${cap} markets`);
   await expect(page.getByTestId('compare-note')).toHaveAttribute('data-code', 'trade.chart.compare_cap_reached');
@@ -123,9 +141,21 @@ test(`${J} #4 takes a snapshot, copies a share link and prints, with no account 
   expect(Math.abs(image.width - box.width * ratio)).toBeLessThanOrEqual(2 * ratio);
   expect(Math.abs(image.height - box.height * ratio)).toBeLessThanOrEqual(2 * ratio);
   expect(image.colours).toBeGreaterThan(5);
+  // The image carries no account detail: none of the account's handle, email or id is written in the file (its text
+  // chunks or anywhere else), and the chart it is drawn from shows none of them either.
+  const userId = (await (await api(who)).get('/api/identity/trpc/rank.get')).body.result.data.userId;
+  expect(userId).toMatch(/^[0-9a-f-]{36}$/);
+  const details = [who.handle, who.email, encodeURIComponent(who.email), userId];
+  const asText = bytes.toString('latin1');
+  for (const detail of details) expect(asText).not.toContain(detail);
+  const drawnText = await canvas(page).evaluate((el) => el.textContent ?? '');
+  for (const detail of details) expect(drawnText).not.toContain(detail);
   await tools(page).getByRole('button', { name: 'Copy link' }).click();
   await expect(page.getByTestId('compare-note')).toContainText('/charts/BTC-USDT?interval=1h&style=candles');
-  const link = (await page.getByTestId('compare-note').textContent()).replace(/^.*?(http\S+)$/, '$1');
+  // The link is the one on the clipboard, as copied, and the note shows that same link.
+  const link = await page.evaluate(() => navigator.clipboard.readText());
+  expect((await page.getByTestId('compare-note').textContent()).replace(/^.*?(http\S+)$/, '$1')).toBe(link);
+  for (const detail of details) expect(link).not.toContain(detail);
   expect(link).not.toMatch(/user|account|email|token|session/i);
   // Nothing of the signed-in account: not its handle, its email or its id.
   for (const detail of [who.handle, who.email, encodeURIComponent(who.email)]) expect(link).not.toContain(detail);

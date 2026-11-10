@@ -22,7 +22,6 @@ import { SafetyPanel } from './SafetyPanel';
 import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
 import { SessionKeysPanel } from './SessionKeysPanel';
-import { EmbeddedKeysPanel } from './embedded/EmbeddedKeysPanel';
 import { WalletGroupPanel } from './WalletGroupPanel';
 import { WALLET_SECTIONS, type WalletSection } from '../routes';
 import { useWallet } from './WalletProvider';
@@ -167,8 +166,6 @@ export function WalletRoom({
       <SafetyPanel />
     ) : section === 'sessionKeys' ? (
       <SessionKeysPanel />
-    ) : section === 'keys' ? (
-      <EmbeddedKeysPanel />
     ) : section === 'addressBook' ? (
       groupId === undefined ? (
         <AddressBookPanel />

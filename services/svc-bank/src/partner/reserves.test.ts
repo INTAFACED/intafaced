@@ -26,12 +26,35 @@ describe('partnerReservesRead (J-ops-console-24 #1)', () => {
   });
 
   it('carries a card partner reserve it reports, and one it says is not required', () => {
-    const reported = { ...NOTHING_REPORTED, reserve: { required: true as const, amount: '25000.00', assetId: 'USDC' } };
+    const reported = {
+      ...NOTHING_REPORTED,
+      figuresAsOf: '2026-11-10T08:00:00.000Z',
+      reserve: { required: true as const, amount: '25000.00', assetId: 'USDC' },
+    };
     expect(partnerReservesRead({ testPartner: null, cardTerms: reported, now: NOW }).partners).toEqual([
-      { partner: 'card', label: 'TEST partner card', test: true, reserve: { status: 'reported', assetId: 'USDC', amount: '25000.00' } },
+      {
+        partner: 'card',
+        label: 'TEST partner card',
+        test: true,
+        // The partner's own time for the reserve, not our read time (b2 change 6).
+        reserve: { status: 'reported', assetId: 'USDC', amount: '25000.00', asOf: '2026-11-10T08:00:00.000Z' },
+      },
     ]);
-    const none = { ...NOTHING_REPORTED, reserve: { required: false as const } };
+    const none = { ...NOTHING_REPORTED, figuresAsOf: 'now', reserve: { required: false as const } };
     expect(partnerReservesRead({ testPartner: null, cardTerms: none, now: NOW }).partners[0]!.reserve).toEqual({ status: 'none' });
+  });
+
+  it('b2 change 6: a reserve the card partner sent with no time is "not known", never stamped with our read time', () => {
+    for (const reserve of [{ required: true as const, amount: '25000.00', assetId: 'USDC' }, { required: false as const }]) {
+      const terms = { ...NOTHING_REPORTED, figuresAsOf: null, reserve };
+      expect(partnerReservesRead({ testPartner: null, cardTerms: terms, now: NOW }).partners[0]!.reserve).toEqual({ status: 'not_known' });
+    }
+    // `now` is the TEST partner reporting with its own clock at the read.
+    const live = { ...NOTHING_REPORTED, figuresAsOf: 'now', reserve: { required: true as const, amount: '1', assetId: 'USDC' } };
+    expect(partnerReservesRead({ testPartner: null, cardTerms: live, now: NOW }).partners[0]!.reserve).toMatchObject({
+      status: 'reported',
+      asOf: NOW.toISOString(),
+    });
   });
 
   it('lists no partner a deployment has no adapter for', () => {

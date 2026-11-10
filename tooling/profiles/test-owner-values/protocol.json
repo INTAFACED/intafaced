@@ -11,6 +11,11 @@
       "value": "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
       "note": "TEST wording only. Counsel writes the real text; blank in production refuses compliance.representation_unset."
     },
+    "PROTOCOL_AMM_FEE_TIERS_BPS": {
+      "service": "protocol",
+      "value": "5,30,100",
+      "note": "TEST fee tiers (0.05%, 0.30%, 1.00%) the new-pool form offers on the local TEST chain. Blank in production refuses amm.fee_tiers_unset and the form offers only a custom fee."
+    },
     "PROTOCOL_SWAP_SLIPPAGE_BPS": {
       "service": "protocol",
       "value": "300",
@@ -45,6 +50,11 @@
       "service": "protocol",
       "value": "TEST:0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83",
       "note": "TEST wallet sanctions list: one TEST address, derived from the TEST seed 'INTAFACED LOCAL TEST sanctioned wallet (J-wallet-09)', so the journey can show a listed wallet refused. Not a real sanctions list. Blank in production refuses every connect with protocol.wallet_sanctions_unset."
+    },
+    "PROTOCOL_EMBEDDED_WALLET_PROVIDER": {
+      "service": "protocol",
+      "value": "TEST:test",
+      "note": "TEST embedded-wallet provider (J-wallet-22): the labelled TEST provider the local stack runs (tooling/scripts/local-test-wallet-provider.mjs), which keeps its TEST keys in its own process and state file, never in a svc-* database. Not the owner's pick (OWNER 237: Turnkey or Privy after the testnet trial). Refused at boot outside APP_ENV dev or test. Blank in production refuses wallet.embedded_provider_unset."
     },
     "PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS": {
       "service": "protocol",
@@ -110,6 +120,11 @@
       "service": "protocol",
       "value": "100000000000",
       "note": "TEST: a speed-up or cancel is never built above 100 gwei per gas (RC-dex-protocol-01). Blank in production refuses protocol.fee_ceiling_unset."
+    },
+    "PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS": {
+      "service": "protocol",
+      "value": "2592000",
+      "note": "TEST cap (30 days) on how long a permit signature or a standing allowance may last (D-swap-intents-01, J-dex-protocol-03). Blank in production refuses protocol.permit.lifetime_unset."
     }
   }
 }

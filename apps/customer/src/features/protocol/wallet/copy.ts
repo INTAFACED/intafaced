@@ -50,9 +50,9 @@ const en = {
   section_sessionKeys: 'Session keys',
   section_accounts: 'Accounts',
   section_safety: 'Safety',
-  section_keys: 'Keys',
   section_claimLinks: 'Claim links',
   section_venue: 'Venue account',
+  section_embedded: 'My wallet',
   sections: 'Wallet sections',
   empty_activity: 'No wallet activity to show. Activity appears once the indexer reads this address.',
   empty_approvals: 'No live approvals: this wallet has not allowed anyone to move the tokens the network’s pools trade.',
@@ -102,6 +102,8 @@ const en = {
   sheetContinue: 'Continue in wallet',
   seqSends:
     'Your wallet will ask you to send these {count} transactions, one after another. Each waits for the one before it to be mined. Once sent, they cannot be undone from here.',
+  seqSignsAndSends:
+    'Your wallet will ask you to sign {signs} message(s) that move nothing on their own, then send {count} transaction(s), in this order. Each transaction waits for the one before it to be mined. Once sent, they cannot be undone from here.',
   seqReverted: 'A step failed on the network, so the steps after it were not sent.',
   seqNotMined: 'A step was not mined in time, so the steps after it were not sent. Your wallet may still send it.',
   sheetCancel: 'Cancel',

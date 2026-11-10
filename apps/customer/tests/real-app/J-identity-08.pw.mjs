@@ -951,8 +951,26 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
     // 10 USDT at a fixed TEST price: over the market's minimum, under the TEST balance; the book is not needed.
     const review = await reviewLimit(page, 'buy', '10000.00', '0.001');
-    await review.getByRole('button', { name: 'Confirm buy' }).click();
-    const answer = await sent;
+    // A requote ("The price, fee or amount we hold changed") sends nothing and asks again, so Confirm is pressed until
+    // the order is sent, at most three times. One press waited out the test on a requote (#7420's run 42686371018).
+    const confirmBuy = review.getByRole('button', { name: 'Confirm buy' });
+    let answer = null;
+    sent.then(
+      (response) => (answer = response),
+      () => {},
+    );
+    for (let press = 0; press < 3 && !answer; press++) {
+      await expect
+        .poll(async () => answer !== null || (await confirmBuy.isEnabled({ timeout: 1000 }).catch(() => false)), { timeout: 60_000 })
+        .toBe(true);
+      if (answer) break;
+      await confirmBuy.click({ timeout: 10_000 });
+      await expect
+        .poll(() => answer !== null, { timeout: 5_000 })
+        .toBe(true)
+        .catch(() => {});
+    }
+    answer ??= await sent;
     expect(answer.status()).toBe(400);
     // svc-trade names a freeze that stopped the order before the engine `posting_frozen` (a refusal: nothing was held).
     const refusal = await answer.json();

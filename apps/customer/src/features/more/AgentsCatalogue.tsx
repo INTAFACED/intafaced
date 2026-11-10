@@ -26,6 +26,7 @@ import {
 } from './agents-catalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { MadeAgents } from './AgentBuilder';
+import { NavigatorOnChain } from './NavigatorOnChain';
 import { downloadCsv, toCsv } from './depth-csv';
 import { usePreferences } from '../../shared/preferences';
 import type { UiLocale } from '../../shared/i18n';
@@ -266,6 +267,7 @@ function AgentDetail({
           }
         </Read>
       ) : null}
+      {agent.id === 'navigator' ? <NavigatorOnChain /> : null}
     </>
   );
 }

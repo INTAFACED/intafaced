@@ -1,5 +1,7 @@
 # The vendored exchange UI: what to take, and what to leave
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about the ledger as the book of record for customer balances applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** Assessment. Decision is the repo owner's.
 **Context:** direction given — _"the vendored exchange UI and app is better built so we use that ui, add all of our other features to it."_
 

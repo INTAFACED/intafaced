@@ -36,7 +36,29 @@ test.afterAll(async () => {
 });
 
 test(`${J} #1 opens the drawing toolbar and picks the trend line, then two clicks place it as bar times and decimal prices`, async () => {
-  await pick(page, 'Trend line');
+  // Tool groups: the drawing toolbar holds each group, by name, with its own tools, and the trend line is in Lines.
+  const toolbar = page.getByRole('toolbar', { name: 'Drawing tools' });
+  const groups = {
+    Cursors: ['Select', 'Dot cursor', 'Arrow cursor', 'Eraser'],
+    Lines: ['Horizontal line', 'Ray', 'Vertical line', 'Cross line', 'Trend line', 'Info line'],
+    'Channels and Fibonacci': ['Parallel channel', 'Pitchfork', 'Fib retracement', 'Fib extension'],
+    Gann: ['Gann fan', 'Gann box'],
+    Patterns: ['Pattern ABCD', 'Pattern XABCD'],
+    Positions: ['Long position', 'Short position'],
+    Measure: ['Measure'],
+    Shapes: ['Rectangle', 'Ellipse'],
+    Brush: ['Brush'],
+    Annotation: ['Text'],
+  };
+  for (const [name, tools] of Object.entries(groups)) {
+    const group = toolbar.getByRole('group', { name, exact: true });
+    await expect(group, `tool group ${name}`).toBeVisible();
+    await expect(group.getByRole('button')).toHaveText(tools);
+  }
+  const trendTool = toolbar.getByRole('group', { name: 'Lines', exact: true }).getByRole('button', { name: 'Trend line', exact: true });
+  await expect(trendTool).toHaveAttribute('aria-pressed', 'false');
+  await trendTool.click();
+  await expect(trendTool).toHaveAttribute('aria-pressed', 'true');
   // What the chart reads under each click: the bar's time and the price at that height.
   const trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
   // Each click, then what the chart reads at that same pixel (read after it, so both see the page as it was clicked).
@@ -137,9 +159,15 @@ test(`${J} #4 drags a line's middle handle, and both points move by the same bar
   expect(ta[0] - tb[0]).toBe(ta[1] - tb[1]);
   expect(ta[0] - tb[0]).not.toBe(0);
   expect((ta[0] - tb[0]) % (15 * 60_000)).toBe(0);
-  const deltaA = Number(after[0]) - Number(before[0]);
-  const deltaB = Number(after[1]) - Number(before[1]);
-  expect(deltaA).toBeCloseTo(deltaB, 2);
+  // Staying on the tick size: every moved price is written at the tick's places (two for BTC-USDT's 0.01 tick), so each
+  // is a whole number of ticks, and both points moved by the same whole number of ticks.
+  expect(after).toHaveLength(2);
+  before.forEach((price, i) => expect(price, `point ${i + 1} before the drag`).toMatch(/^\d+\.\d{2}$/));
+  after.forEach((price, i) => expect(price, `moved point ${i + 1}`).toMatch(/^\d+\.\d{2}$/));
+  const cents = (price) => BigInt(price.replace('.', ''));
+  const deltaA = cents(after[0]) - cents(before[0]);
+  const deltaB = cents(after[1]) - cents(before[1]);
+  expect(deltaA).toBe(deltaB);
 });
 
 test(`${J} #5 locks a drawing so it cannot move, and turns magnet on`, async () => {
@@ -181,37 +209,54 @@ test(`${J} #5 locks a drawing so it cannot move, and turns magnet on`, async () 
 async function magnetSnapsToClose() {
   const x = await centred(page, await plot(page, 0.5, 0.3));
   const bar = await pointerAt(page, x);
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&limit=240`);
-  const rows15 = (await res.json()).sort((p, q) => p[0] - q[0]);
-  // The bar's open, high, low and close: its own candle's, or the previous close four times when the bucket had no trade
-  // (a filled bar).
-  const candle = rows15.filter((r) => r[0] <= bar.time * 1000).at(-1);
-  expect(candle, `Edge serves a 15m candle at or before ${barTimeText(bar.time)}`).toBeDefined();
-  const ohlc = candle[0] === bar.time * 1000 ? candle.slice(1, 5).map(Number) : Array(4).fill(Number(candle[4]));
-  const close = ohlc[3];
-  // The height the close is drawn at, read from the chart (the price pane is the chart's top pane).
   const host = page.getByTestId('cw').getByTestId('wc-host');
   const box = await host.boundingBox();
-  const closeY = await host.evaluate((el, price) => el.readPriceY?.(price) ?? null, close);
-  expect(closeY, 'the close is drawn on the price pane').not.toBeNull();
-  const best = { y: box.y + closeY };
-  // Three pixels off the close: the price there is not the close at the tick, so only the magnet can store the close.
-  const off = await pointerAt(page, { x: x.x, y: best.y + 3 });
-  expect(atTick(close.toFixed(2), off.price), 'three pixels off the close reads another price').toBe(false);
-  await pick(page, 'Horizontal line');
-  await page.mouse.click(x.x, best.y + 3);
-  const placed = page.locator('[data-drawing-id][data-selected]');
-  await expect(placed).toHaveAttribute('data-kind', 'horizontal');
-  // Stored at one of the bar's four prices (the nearest within the magnet's reach), not at the pointer's own price.
-  const placedText = await pointText(placed).textContent();
-  const [stored] = pricesOf(placedText);
-  expect(timesOf(placedText)).toEqual([barTimeText(bar.time)]);
-  expect(
-    ohlc.map((p) => p.toFixed(2)),
-    `stored ${stored}; pointer ${off.price}`,
-  ).toContain(stored);
-  expect(atTick(stored, off.price)).toBe(false);
-  await page.getByRole('group', { name: 'Drawing actions' }).getByRole('button', { name: 'Delete', exact: true }).click();
+  const actions = page.getByRole('group', { name: 'Drawing actions' });
+  // The bar's open, high, low and close from Edge's candles: its own candle's, or the previous close four times when the
+  // bucket had no trade (a filled bar).
+  const barPricesNow = async () => {
+    const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&limit=240`);
+    const rows15 = (await res.json()).sort((p, q) => p[0] - q[0]);
+    const candle = rows15.filter((r) => r[0] <= bar.time * 1000).at(-1);
+    expect(candle, `Edge serves a 15m candle at or before ${barTimeText(bar.time)}`).toBeDefined();
+    return candle[0] === bar.time * 1000 ? candle.slice(1, 5).map(Number) : Array(4).fill(Number(candle[4]));
+  };
+  // The height the close is drawn at, read from the chart (the price pane is the chart's top pane).
+  const closeYOf = (price) => host.evaluate((el, p) => el.readPriceY?.(p) ?? null, price);
+  // The shared stack trades on this book while the step runs: a trade can move this bar's prices, or rescale the price
+  // axis, between the read of the close's height and the click (run 42723613808 stored 65193.56, a price no snap from
+  // three pixels off a 64976.46 close can reach). A placement during which the bar or the axis moved is deleted and
+  // made again; the check below is only made on a placement both stayed still for.
+  for (let attempt = 1; ; attempt += 1) {
+    const ohlc = await barPricesNow();
+    const close = ohlc[3];
+    const closeY = await closeYOf(close);
+    expect(closeY, 'the close is drawn on the price pane').not.toBeNull();
+    // Three pixels off the close: the price there is not the close at the tick, so only the magnet can store the close.
+    const off = await pointerAt(page, { x: x.x, y: box.y + closeY + 3 });
+    expect(atTick(close.toFixed(2), off.price), 'three pixels off the close reads another price').toBe(false);
+    await pick(page, 'Horizontal line');
+    await page.mouse.click(x.x, box.y + closeY + 3);
+    const placed = page.locator('[data-drawing-id][data-selected]');
+    await expect(placed).toHaveAttribute('data-kind', 'horizontal');
+    const placedText = await pointText(placed).textContent();
+    const still = JSON.stringify(await barPricesNow()) === JSON.stringify(ohlc) && Math.abs((await closeYOf(close)) - closeY) < 0.5;
+    if (!still && attempt < 3) {
+      await actions.getByRole('button', { name: 'Delete', exact: true }).click();
+      continue;
+    }
+    expect(still, `the bar and the price axis stayed still for one of ${attempt} placements`).toBe(true);
+    // Stored at one of the bar's four prices (the nearest within the magnet's reach), not at the pointer's own price.
+    const [stored] = pricesOf(placedText);
+    expect(timesOf(placedText)).toEqual([barTimeText(bar.time)]);
+    expect(
+      ohlc.map((p) => p.toFixed(2)),
+      `stored ${stored}; pointer ${off.price}`,
+    ).toContain(stored);
+    expect(atTick(stored, off.price)).toBe(false);
+    await actions.getByRole('button', { name: 'Delete', exact: true }).click();
+    return;
+  }
 }
 
 test(`${J} #6 lists every drawing in the object tree, and hides a group together`, async () => {

@@ -20,6 +20,10 @@ export const PAGE_SECTION_IDS = [
   'authentication',
   'errors',
   'rate-limits',
+  'explorer',
+  'order-types',
+  'bot-policy',
+  'idempotency',
 ] as const;
 /** A section whose page is written in this portal. DevelopersRoutes keeps one component per id (a typed record). */
 export type PageSectionId = (typeof PAGE_SECTION_IDS)[number];
@@ -42,7 +46,9 @@ export const SECTIONS: readonly Section[] = [
   { id: 'websocket', audience: 'exchange', waitsFor: 'DV-websocket-01' },
   { id: 'rate-limits', audience: 'exchange', page: true },
   { id: 'errors', audience: 'exchange', page: true },
-  { id: 'idempotency', audience: 'exchange', waitsFor: 'DV-auth-03' },
+  { id: 'order-types', audience: 'exchange', page: true },
+  { id: 'bot-policy', audience: 'exchange', page: true },
+  { id: 'idempotency', audience: 'exchange', page: true },
   { id: 'versioning', audience: 'exchange', waitsFor: 'DV-versioning-01' },
   { id: 'changelog', audience: 'exchange', page: true },
   { id: 'data-terms', audience: 'exchange', page: true },
@@ -56,7 +62,7 @@ export const SECTIONS: readonly Section[] = [
   { id: 'sdks', audience: 'practice', waitsFor: 'DV-tools-01' },
   { id: 'cli', audience: 'practice', waitsFor: 'DV-tools-02' },
   { id: 'mcp', audience: 'practice', waitsFor: 'DV-tools-02' },
-  { id: 'explorer', audience: 'practice', waitsFor: 'DV-console-01' },
+  { id: 'explorer', audience: 'practice', page: true },
   { id: 'openapi', audience: 'practice', page: true },
   { id: 'support', audience: 'practice', waitsFor: 'DV-portal-03' },
   { id: 'status', audience: 'practice', page: true },

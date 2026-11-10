@@ -768,7 +768,11 @@
       { "n": 12, "slices": ["AG-outside-02"], "noSlice": false },
       { "n": 13, "slices": ["AG-outside-01"], "noSlice": false },
       { "n": 14, "slices": ["AG-outside-01"], "noSlice": false },
-      { "n": 15, "slices": ["AG-outside-04", "AG-control-02"], "noSlice": false }
+      { "n": 15, "slices": ["AG-outside-04", "AG-control-02"], "noSlice": false },
+      { "n": 16, "slices": ["AG-outside-01"], "noSlice": false },
+      { "n": 17, "slices": ["AG-outside-03"], "noSlice": false },
+      { "n": 18, "slices": ["AG-outside-03"], "noSlice": false },
+      { "n": 19, "slices": ["AG-outside-02"], "noSlice": false }
     ]
   },
   {
@@ -1958,7 +1962,9 @@
       { "n": 5, "slices": ["SP-fees-vip-02", "SP-lifecycle-history-02"], "noSlice": false },
       { "n": 6, "slices": ["SP-lifecycle-history-02", "SP-conditional-algo-01"], "noSlice": false },
       { "n": 7, "slices": ["SP-lifecycle-history-01"], "noSlice": false },
-      { "n": 8, "slices": ["SP-fees-vip-02"], "noSlice": false }
+      { "n": 8, "slices": ["SP-fees-vip-02"], "noSlice": false },
+      { "n": 9, "slices": ["SP-order-01", "SP-lifecycle-history-01"], "noSlice": false },
+      { "n": 10, "slices": ["SP-lifecycle-history-01"], "noSlice": false }
     ]
   },
   {
@@ -2055,7 +2061,8 @@
       { "n": 9, "slices": ["SP-convert-buy-01"], "noSlice": false, "later": "custody" },
       { "n": 10, "slices": ["SP-convert-buy-03"], "noSlice": false },
       { "n": 11, "slices": ["SP-convert-buy-03"], "noSlice": false },
-      { "n": 12, "slices": ["SP-convert-buy-03"], "noSlice": false }
+      { "n": 12, "slices": ["SP-convert-buy-03"], "noSlice": false },
+      { "n": 13, "slices": ["SP-convert-buy-03"], "noSlice": false }
     ]
   },
   {

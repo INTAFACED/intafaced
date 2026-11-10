@@ -1,10 +1,10 @@
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError, type StepUpCheck, type StepUpCheckRequest } from '@intafaced/contracts';
-import { parseAmount } from '@intafaced/ledger-client/money';
+import { add, div, mul, parseAmount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   type PlaceUserOrderIntent,
@@ -13,7 +13,9 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
-import { HttpUserVenue } from './http-user-venue.js';
+import { HttpUserVenue, readDepositRoute } from './http-user-venue.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, type BuilderFeeValue } from './user-venue-door.js';
 
@@ -173,10 +175,13 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     const { seedTestVenue } = await import('@intafaced/venue-sim');
     await seedTestVenue(sim);
     sim.deposit({ venueId: sim.venue.id, owner, subAccount: null }, 'USDC', a('200000'), 'deposit:test:1');
+    sim.deposit({ venueId: sim.venue.id, owner, subAccount: null }, 'BTC', a('1'), 'deposit:test:btc');
   });
   afterAll(async () => closeServer(server));
 
-  function door(opts: { store?: PreparedActionStore; builder?: BuilderFeeValue | null; stepUp?: StepUpCheck; appEnv?: string } = {}) {
+  function door(
+    opts: { store?: PreparedActionStore; builder?: BuilderFeeValue | null; stepUp?: StepUpCheck; appEnv?: string; now?: () => Date } = {},
+  ) {
     const store = opts.store ?? new InMemoryPreparedActionStore();
     let connects = 0;
     const d = new UserVenueDoor({
@@ -188,7 +193,8 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       store,
       stepUp: opts.stepUp ?? stepUp('approve').check,
       builder: opts.builder === undefined ? BUILDER : opts.builder,
-      now: () => new Date(),
+      now: opts.now ?? (() => new Date()),
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
     return { d, store, connects: () => connects };
   }
@@ -224,12 +230,17 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       accepted: true,
     });
 
+    // A spot buy carries no builder fee: the venue charges none on the buying side of a spot trade (project-state #1888).
     const preview = await d.preview(principal, owner, order(1));
     expect(preview.value.role).toBe('taker');
-    expect(preview.value.builderFee).toEqual({ known: true, value: { asset: 'BTC', amount: a('0.00001') } });
+    expect(preview.value.builderFee).toEqual({ known: true, value: { asset: 'BTC', amount: 0n } });
+    const bought = await d.prepare(principal, { owner, signer, intent: order(1, { builderFee: { builder: owner, feeBps: a('5') } }) });
+    expect(bought.prepared.builderFee).toBeNull();
+    expect((await d.submit(principal, bought.actionKey, await sign(bought.prepared))).outcome).toMatchObject({ accepted: true });
 
-    // The request's own builder fee is replaced by the owner value.
-    const prepared = await d.prepare(principal, { owner, signer, intent: order(1, { builderFee: { builder: owner, feeBps: a('0') } }) });
+    // A spot sell carries ours, and the request's own builder fee is replaced by the owner value.
+    const sell = order(11, { side: 'sell', price: a('59000'), builderFee: { builder: owner, feeBps: a('0') } });
+    const prepared = await d.prepare(principal, { owner, signer, intent: sell });
     expect(prepared.prepared.builderFee).toEqual({ builder: BUILDER.address, feeBps: a('1') });
     expect((prepared.prepared.typedData as TestVenueTypedData).domain.chainId).toBe(84532);
     const submitted = await d.submit(principal, prepared.actionKey, await sign(prepared.prepared));
@@ -242,7 +253,11 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     const fills = (await venue.fills(account, new Date(0))).value.filter(
       (f) => f.venueClientOrderId === prepared.prepared.venueClientOrderId,
     );
-    expect(fills.reduce((s, f) => s + f.builderFee, 0n)).toBe(a('0.00001'));
+    // 1 bps of each fill's quote notional, in USDC.
+    const owed = fills.reduce((s, f) => add(s, div(mul(mul(f.price, f.amount), a('1')), a('10000'))), 0n);
+    expect(owed > 0n).toBe(true);
+    expect(fills.reduce((s, f) => s + f.builderFee, 0n)).toBe(owed);
+    expect(fills.every((f) => f.feeAsset === 'USDC')).toBe(true);
   });
 
   it('council round 1: a send that landed but lost its answer, then a resend that hits a refused connection, stays not definite with its read-back', async () => {
@@ -264,6 +279,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       stepUp: stepUp('approve').check,
       builder: BUILDER,
       now: () => new Date(),
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
     const actionKey = `approve-builder:${USER}:council-r1`;
     const prepared = await d.prepare(principal, {
@@ -304,7 +320,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
 
     // The same key for another intent is refused, never a second action.
     await expect(d.prepare(principal, { owner, signer, intent: order(2, { price: a('58000') }) })).rejects.toMatchObject({
-      code: 'trade.venue_action_key_reused',
+      code: 'idempotency.conflict',
     });
 
     const signature = await sign(first.prepared);
@@ -360,7 +376,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
   it('a definite outcome is never replaced by a later not-definite one (in-memory store)', async () => {
     const store = new InMemoryPreparedActionStore();
     const k = `order:${USER}:door-test:outcome`;
-    await store.insertOnce(USER, k, somePrepared('v'));
+    await store.insertOnce(USER, k, somePrepared('v'), new Date());
     const accepted = await store.recordOutcome(USER, k, { definite: false, reason: 'timeout' });
     expect(accepted).toEqual({ definite: false, reason: 'timeout' });
     const definite: VenueSubmitOutcome = {
@@ -384,25 +400,70 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       actionKey: `approve-builder:${USER}:fee-change`,
     });
     await before.d.submit(principal, approve.actionKey, await sign(approve.prepared));
-    await before.d.prepare(principal, { owner, signer, intent: order(7, { price: a('58300') }) });
+    // A spot sell: a spot buy carries no builder fee, so its fee can't change.
+    const sellAt = (price: string) => order(7, { side: 'sell', amount: a('0.01'), price: a(price) });
+    await before.d.prepare(principal, { owner, signer, intent: sellAt('71300') });
     const after = door({ store, builder: { address: BUILDER.address, feeBps: a('2') } });
-    await expect(after.d.prepare(principal, { owner, signer, intent: order(7, { price: a('58300') }) })).rejects.toMatchObject({
+    await expect(after.d.prepare(principal, { owner, signer, intent: sellAt('71300') })).rejects.toMatchObject({
       code: 'trade.venue_builder_fee_changed',
       status: 409,
     });
     // Another change to the order is still "key reused".
-    await expect(after.d.prepare(principal, { owner, signer, intent: order(7, { price: a('58400') }) })).rejects.toMatchObject({
-      code: 'trade.venue_action_key_reused',
+    await expect(after.d.prepare(principal, { owner, signer, intent: sellAt('71400') })).rejects.toMatchObject({
+      code: 'idempotency.conflict',
     });
   });
 
-  it('blank builder fee: every order refuses builder_fee_not_published before the venue is asked', async () => {
+  it('an unlisted symbol is refused unknown_market, never as a blank builder fee; the market list is read once for many orders', async () => {
+    const { d } = door({ builder: null });
+    await expect(d.prepare(principal, { owner, signer, intent: order(21, { symbol: 'NOPE-USDC' }) })).rejects.toMatchObject({
+      refusal: { code: 'unknown_market' },
+    });
+    await expect(d.preview(principal, owner, order(22, { symbol: 'btc-usdc' }))).rejects.toMatchObject({
+      refusal: { code: 'unknown_market' },
+    });
+    const venue = await d.venue();
+    const markets = vi.spyOn(venue, 'markets');
+    await d.preview(principal, owner, order(23, { price: a('50000') }));
+    await d.preview(principal, owner, order(24, { price: a('50001') }));
+    // The two refusals above already read the list; two more orders inside the minute read nothing more.
+    expect(markets).toHaveBeenCalledTimes(0);
+  });
+
+  it('unlisted symbols re-read the market list at most once every 5 seconds, and a market listed since is found after that', async () => {
+    let t = Date.UTC(2026, 10, 9, 12);
+    const { d } = door({ builder: null, now: () => new Date(t) });
+    const venue = await d.venue();
+    const markets = vi.spyOn(venue, 'markets');
+    // A sell: once its market is found, the blank builder fee refuses it, before the venue is asked.
+    const unlisted = (n: number) => d.preview(principal, owner, order(n, { symbol: 'NEW-USDC', side: 'sell' }));
+    await expect(unlisted(31)).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
+    expect(markets).toHaveBeenCalledTimes(1);
+    // Many more misses inside 5 seconds are refused from the list just read: no venue read each.
+    for (let n = 32; n < 42; n += 1) await expect(unlisted(n)).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
+    t += 4_999;
+    await expect(unlisted(42)).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
+    expect(markets).toHaveBeenCalledTimes(1);
+    // After 5 seconds a miss reads the list again, so a market the venue lists now is found.
+    t += 1;
+    markets.mockImplementationOnce(async (account) => {
+      const list = await HttpUserVenue.prototype.markets.call(venue, account);
+      return { ...list, value: [...list.value, { ...list.value.find((m) => m.symbol === 'BTC-USDC')!, symbol: 'NEW-USDC' }] };
+    });
+    await expect(unlisted(43)).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
+    expect(markets).toHaveBeenCalledTimes(2);
+  });
+
+  it('blank builder fee: every order that would carry one refuses builder_fee_not_published, nothing stored; a spot buy carries none and goes ahead', async () => {
     const { d, store } = door({ builder: null });
-    await expect(d.prepare(principal, { owner, signer, intent: order(4) })).rejects.toMatchObject({
+    const sell = order(4, { side: 'sell', amount: a('0.01'), price: a('72000') });
+    await expect(d.prepare(principal, { owner, signer, intent: sell })).rejects.toMatchObject({
       refusal: { code: 'builder_fee_not_published' },
     });
-    await expect(d.preview(principal, owner, order(4))).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
-    expect(await store.find(USER, order(4).clientOrderKey)).toBeNull();
+    await expect(d.preview(principal, owner, sell)).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
+    expect(await store.find(USER, sell.clientOrderKey)).toBeNull();
+    const buy = await d.prepare(principal, { owner, signer, intent: order(14, { price: a('50000') }) });
+    expect(buy.prepared.builderFee).toBeNull();
     expect(parseBuilderFee('', '1')).toBeNull();
     expect(parseBuilderFee(BUILDER.address, '  ')).toBeNull();
     expect(parseBuilderFee(BUILDER.address.toUpperCase().replace('0X', '0x'), '0.5')).toEqual({
@@ -513,5 +574,72 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
         intent: { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100_000, marginMode: 'isolated' },
       }),
     ).rejects.toMatchObject({ code: 'trade.venue_action_key_invalid' });
+  });
+});
+
+describe('the deposit route and a withdrawal read back through the door (J-wallet-09 #3, #5)', () => {
+  const ROUTE = {
+    chainId: 84532,
+    token: '0x000000000000000000000000000000000000d011',
+    tokenDecimals: 6,
+    address: '0x00000000000000000000000000000000de905170',
+    asset: 'USDC',
+  };
+  let server: http.Server;
+  let sim: TestVenueSimulator;
+  let url: string;
+  beforeAll(async () => {
+    ({ server, sim, url } = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532, deposit: ROUTE }));
+  });
+  afterAll(async () => closeServer(server));
+  const door = () =>
+    new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
+      appEnv: 'test',
+      store: new InMemoryPreparedActionStore(),
+      stepUp: stepUp('approve').check,
+      builder: BUILDER,
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      now: () => new Date(),
+    });
+
+  it('status names the venue’s deposit route: where the customer’s own wallet sends the token', async () => {
+    expect(await door().status()).toMatchObject({ enabled: true, available: true, label: 'TEST', deposit: ROUTE });
+  });
+
+  it('a withdrawal reads back over HTTP pending, then done, with the venue fee and the network fee or "not known"', async () => {
+    const d = door();
+    sim.deposit({ venueId: sim.venue.id, owner, subAccount: null }, 'USDC', a('25'), `84532:${'0x'.padEnd(66, '1')}:0`);
+    sim.switches.networkFee = { known: false };
+    const prepared = await d.prepare(principal, {
+      owner,
+      signer,
+      intent: { kind: 'withdraw', asset: 'USDC', amount: a('10'), destination: owner, withdrawalKey: `venue-withdraw:${owner}:route-1` },
+      stepUpApprovalId: 'approval-1',
+    });
+    const submitted = await d.submit(principal, prepared.actionKey, await sign(prepared.prepared));
+    expect(submitted.outcome).toMatchObject({ definite: true, accepted: true });
+    const venue = await d.venue();
+    const account = await d.account(owner);
+    expect((await venue.withdrawal(account, prepared.prepared.nonce)).value).toEqual({
+      nonce: prepared.prepared.nonce,
+      asset: 'USDC',
+      amount: a('10'),
+      destination: owner,
+      status: 'pending',
+      fee: { known: true, value: a('1') },
+      networkFee: { known: false },
+    });
+    sim.settleWithdrawals();
+    expect((await venue.withdrawal(account, prepared.prepared.nonce)).value?.status).toBe('done');
+  });
+
+  it('a route that is named but malformed is not used: no deposit is offered rather than a wrong address', () => {
+    expect(readDepositRoute(ROUTE)).toEqual(ROUTE);
+    expect(readDepositRoute(null)).toBeNull();
+    expect(readDepositRoute({ ...ROUTE, address: 'nowhere' })).toBeNull();
+    expect(readDepositRoute({ ...ROUTE, tokenDecimals: 19 })).toBeNull();
+    expect(readDepositRoute({ ...ROUTE, chainId: '84532' })).toBeNull();
+    expect(readDepositRoute({ ...ROUTE, asset: ' ' })).toBeNull();
   });
 });

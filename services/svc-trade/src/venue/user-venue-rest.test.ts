@@ -7,9 +7,12 @@ import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError } from '@intafaced/contracts';
 import { startTestVenueServer, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
+import { UserVenueRouter } from './venue-router.js';
 
 const USER = { userId: '11111111-1111-4111-8111-1111111111c1', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue rest')));
@@ -26,7 +29,9 @@ afterEach(async () => app?.close());
 
 async function mount(door: UserVenueDoor | null) {
   app = Fastify();
-  attachUserVenueRoutes(app, door, {
+  // One door behind the router, as a deployment with one venue has it.
+  const router = door ? new UserVenueRouter({ doors: [door], store: new InMemoryPreparedActionStore(), now: () => new Date() }) : null;
+  attachUserVenueRoutes(app, router, {
     requirePrincipal: () => USER,
     requireTradeJurisdiction: () => true,
   });
@@ -47,6 +52,7 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve') {
     },
     builder: null,
     now: () => new Date(),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
   });
 }
 
@@ -91,10 +97,11 @@ describe('/api/v1/venue/*', () => {
 
   it('orders refuse builder_fee_not_published (422); a withdrawal without its step-up refuses 403; a money number refuses 400', async () => {
     await mount(door('required'));
+    // A spot sell: a spot buy carries no builder fee, so a blank one never refuses it (project-state #1888).
     const order = {
       kind: 'place_order',
       symbol: 'BTC-USDC',
-      side: 'buy',
+      side: 'sell',
       type: 'limit',
       amount: '0.1',
       price: '60000',

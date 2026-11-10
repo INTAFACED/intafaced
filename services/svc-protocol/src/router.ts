@@ -43,6 +43,7 @@ import {
 import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from './accounts/address.js';
 import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/registry.js';
 import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLimitUnsetError } from './accounts/my-accounts-list-limit.js';
+import { createLiquidityProcedures } from './liquidity/procedures.js';
 import type { ProtocolChain } from './chain/client.js';
 import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, classifyChainError, isZeroAddress } from './chain/availability.js';
 import { GasPercentilesUnsetError, type GasPercentileSetting } from './chain/gas-price.js';
@@ -83,6 +84,7 @@ import { bridgeRoutesLoader } from './bridge/routes.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
 import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
+import { createSwapV2Procedures, type SwapV2Setting } from './amm/swap-v2.js';
 import { tokenLogsChain } from './amm/token-reader.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
@@ -104,7 +106,6 @@ import { loadProductAudits } from './audit/products.js';
 import { createAddressReportsRouter, createAddressRiskRouter, type AddressRiskDeps } from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
 import { listSessions } from './session/list.js';
-import { createEmbeddedRouter, type EmbeddedDeps } from './embedded/router.js';
 import { protocolSessionsListInputSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
 import { protocolAuditProductsSchema, protocolPredictedAccountSchema } from '@intafaced/contracts/protocol-blockers';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
@@ -146,6 +147,8 @@ import {
 } from './address-book/router.js';
 import { createVenueWalletRouter, unwiredVenueConnectionStore } from './venue-wallet/router.js';
 import type { VenueConnectionDeps } from './venue-wallet/connection.js';
+import { createEmbeddedWalletRouter, unwiredEmbeddedWalletStore } from './embedded-wallet/router.js';
+import type { EmbeddedWalletDeps } from './embedded-wallet/embedded.js';
 import {
   issueChallenge,
   LISTING_CHALLENGE_TTL_UNSET,
@@ -456,11 +459,22 @@ export interface ProtocolRouterDeps {
   relayEnabled: () => boolean;
   /** Pool factory address on PROTOCOL_CHAIN_ID (0x0 = not deployed yet). */
   ammFactoryAddress: () => Address;
+  /** `PROTOCOL_LIQUIDITY_ROUTER_ADDRESS` (D-liquidity-02..04). Absent or zero: liquidity calls refuse. */
+  liquidityRouter?: () => Address | null;
+  /** `PROTOCOL_AMM_FEE_TIERS_BPS` (D-liquidity-03). Absent or null: `amm.feeTiers` refuses `amm.fee_tiers_unset`. */
+  feeTiers?: () => number[] | null;
   /**
    * `PROTOCOL_SWAP_SLIPPAGE_BPS`. Null when blank. The swap builder and the
    * session check refuse — they do not invent a tolerance.
    */
   swapSlippageBps: () => number | null;
+  /**
+   * Router v2, SovereignPermit and the wrapped native token (D-swap-03, D-swap-intents-01, -02). Null or absent: the v2
+   * swap procedures refuse `protocol.router_v2_unset`.
+   */
+  swapV2?: () => SwapV2Setting | null;
+  /** `PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS`. Null or absent: `amm.buildPermit` refuses `protocol.permit.lifetime_unset`. */
+  permitLifetimeCapSeconds?: () => number | null;
   /** `PROTOCOL_SWAP_QUOTE_TTL_SECONDS`. Null or absent: `amm.swapSettings` refuses. */
   swapQuoteTtlSeconds?: () => number | null;
   /** `PROTOCOL_SWAP_CONFIRMATIONS`. Null or absent: `amm.swapSettings` refuses. */
@@ -526,13 +540,16 @@ export interface ProtocolRouterDeps {
   addressBook?: Omit<AddressBookDeps, 'chainId'>;
   /** The address risk card's label store and the scam report queue (D-developer-compliance-01). Absent = not wired. */
   addressRisk?: Omit<AddressRiskDeps, 'chainId'>;
-  /** The embedded login's export fact (RC-dex-protocol-05). Absent = not wired. */
-  embedded?: Omit<EmbeddedDeps, 'chainId'>;
   /**
    * The venue wallet connection (J-wallet-09): a signed-in person's own wallet, connected by its signature. Absent = not
    * wired: every setting reads blank and connecting refuses by name.
    */
   venueWallet?: Omit<VenueConnectionDeps, 'chainId'>;
+  /**
+   * The embedded self-custody wallet (J-wallet-22): the owner's provider makes the person's wallet with their passkey.
+   * Absent = not wired: the provider setting reads blank and creating refuses `wallet.embedded_provider_unset`.
+   */
+  embeddedWallet?: EmbeddedWalletDeps;
   /**
    * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
@@ -1307,15 +1324,10 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     addressReports: createAddressReportsRouter(addressRiskDeps),
     // ── Venue wallet connection (J-wallet-09): src/venue-wallet/router.ts ──
     venueWallet: createVenueWalletRouter(venueWalletDeps),
-
-    // ── The embedded login's key export, once (RC-dex-protocol-05): src/embedded/ ──
-    embedded: createEmbeddedRouter({
-      chainId: () => chain.config.chainId,
-      store: deps.embedded?.store ?? {
-        find: () => Promise.reject(new Error('embedded export store is not wired')),
-        put: () => Promise.reject(new Error('embedded export store is not wired')),
-      },
-    }),
+    // ── Embedded self-custody wallet (J-wallet-22): src/embedded-wallet/router.ts ──
+    embeddedWallet: createEmbeddedWalletRouter(
+      deps.embeddedWallet ?? { store: unwiredEmbeddedWalletStore, setting: () => ({ kind: 'unset' }) },
+    ),
 
     // ── Session keys list (D-portfolio-wallet-02): src/session/list.ts ──
     sessions: router({
@@ -1525,6 +1537,17 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     }),
 
     amm: router({
+      ...createLiquidityProcedures({
+        client: () => chain.client,
+        rpcUrl: () => chain.config.rpcUrl,
+        factory: () => deps.ammFactoryAddress(),
+        router: () => deps.liquidityRouter?.() ?? null,
+        feeTiers: () => deps.feeTiers?.() ?? null,
+        quoteTtlSeconds: () => deps.swapQuoteTtlSeconds?.() ?? null,
+        slippageBps: () => deps.swapSlippageBps(),
+        readPairs: (factory) => readPairs(factory),
+        toTrpcError,
+      }),
       ...createPoolFeesProcedures({
         chain: poolFeesChain(
           () => chain.client,
@@ -1533,6 +1556,26 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         ),
         factory: () => deps.ammFactoryAddress(),
         toTrpcError,
+      }),
+      ...createSwapV2Procedures({
+        client: () => chain.client,
+        chainId: () => chain.config.chainId,
+        setting: () => deps.swapV2?.() ?? null,
+        permitLifetimeCapSeconds: () => deps.permitLifetimeCapSeconds?.() ?? null,
+        slippageCeilingBps: () => requireSwapSlippageBps(deps.swapSlippageBps()),
+        pairs: async () => {
+          const factory = deps.ammFactoryAddress();
+          if (isZeroAddress(factory))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+            });
+          return readPairs(factory);
+        },
+        toTrpcError: (err) =>
+          err instanceof TRPCError || err instanceof SwapSlippageError
+            ? toTrpcError(err)
+            : toTrpcError(classifyChainError(err, 'amm.v2', chain.config.rpcUrl)),
       }),
       /**
        * PURE MATH OVER RESERVES THE CALLER SUPPLIES. Not a market quote.
