@@ -16,9 +16,12 @@
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
  * MIN_RUNS whole runs the builder refuses: it writes a map whose mode is 'full', and nothing narrows.
- * A journey's reach comes only from the runs where every one of its tests passed (a failed step stops it short); with
- * no such run it reaches everything. Open edge, not covered: a service that publishes an event from background work
- * without logging while a journey runs is not tied to the journey that sees the subscriber's effect (review 7561-R1 #3;
+ * A journey's reach comes only from the runs where every one of its tests passed, or where each test that didn't pass is
+ * a step main's journey baseline calls unbuilt (or a test skipped after one), red in every run the map is built from,
+ * all of which hold the file (speaksFor); with no such run it reaches everything. The baseline is the checkout's own
+ * copy, so `verify` on main rebuilds it from the same baseline. Open edge, not covered: a service that publishes an
+ * event from background work without logging while a journey runs is not tied to the journey that sees the
+ * subscriber's effect (review 7561-R1 #3;
  * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
  * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
  * map names and compares it byte for byte, so a hand-edited map, or one built from hand-picked runs, fails (review
@@ -53,7 +56,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { isMainRun, manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
+import { isMainRun, manifestsAt, moneyCodeDirs, rootInputs, stepOf, testPassed } from './journey-verdict.mjs';
 
 /**
  * The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map.
@@ -63,6 +66,7 @@ import { isMainRun, manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 export const REACH_MAP_MODE = 'reach';
 /** Money code beyond moneyCodeDirs (journey-verdict.mjs): the ledger service itself. */
 export const MONEY_SERVICES = ['services/svc-ledger'];
+// Not bumped for project-state#1574: a new version makes the committed map unusable, so every PR would run full until rebuilt.
 export const MAP_VERSION = 1;
 /** The plan's "build the map from the next 3 full main runs": fewer whole runs build no map. */
 export const MIN_RUNS = 3;
@@ -149,26 +153,98 @@ export function reportFiles(report) {
 }
 
 /**
- * The journey files a report ran that did not pass whole: a test with no result, or whose last result is not `passed`
- * (failed, timedOut, interrupted, skipped). A failed step stops its journey, so its record holds less than the journey
- * reaches (review 7561-R1): buildMap takes a file's reach only from runs where it passed whole. Returns a Set of names.
+ * Each journey file's tests in a report, in the report's order: Map(file -> { broken, tests: Map(test key -> { passed,
+ * skipped, step, project }) }). A test's key is its title path (describe titles and the spec's title) and project;
+ * `passed` is journey-verdict.mjs testPassed (ended expected, or flaky with a pass after a failed attempt), `skipped`
+ * that Playwright skipped it, and `step` its journey step (`J-tax-01#3`) or null (a setup or end test). `broken`: a
+ * spec of the file holds no test, so what ran can't be told. Every file reportFiles finds is here.
  */
-export function reportUnclean(report) {
-  const bad = new Set();
-  const walk = (s, file) => {
+export function reportTests(report) {
+  const out = new Map();
+  const walk = (s, file, titles) => {
     const here = s.file ?? file;
+    const path = s.title && !JOURNEY_FILE.test(String(s.title).split('/').pop()) ? [...titles, s.title] : titles;
     for (const sp of s.specs ?? []) {
       const f = String(sp.file ?? here ?? '')
         .split('/')
         .pop();
       if (!JOURNEY_FILE.test(f)) continue;
+      const o = out.get(f) ?? out.set(f, { broken: false, tests: new Map() }).get(f);
       const tests = sp.tests ?? [];
-      if (!tests.length || tests.some((t) => (t.results ?? []).at(-1)?.status !== 'passed')) bad.add(f);
+      if (!tests.length) o.broken = true;
+      for (const t of tests) {
+        const project = t.projectName ?? '';
+        const key = JSON.stringify([...path, sp.title ?? '', project]);
+        const had = o.tests.get(key);
+        o.tests.set(key, {
+          passed: (had?.passed ?? true) && testPassed(t),
+          skipped: (had?.skipped ?? true) && t.status === 'skipped',
+          step: stepOf(sp.title),
+          project,
+        });
+      }
     }
-    for (const c of s.suites ?? []) walk(c, here);
+    for (const c of s.suites ?? []) walk(c, here, path);
   };
-  for (const s of report?.suites ?? []) walk(s, s.file);
-  return bad;
+  for (const s of report?.suites ?? []) walk(s, s.file, []);
+  return out;
+}
+
+/**
+ * The steps main's journey baseline (journey-verdict.mjs BASELINE_PATH, read by rootInputs) calls unbuilt, as
+ * Map(step -> journey file name). A step listed twice, or also in `notBaselined`, is left out, as the verdict counts it
+ * failing (journey-verdict.mjs judge).
+ */
+export function unbuiltSteps(baseline) {
+  const seen = new Map();
+  const dupes = new Set();
+  for (const e of baseline?.steps ?? []) seen.has(e.step) ? dupes.add(e.step) : seen.set(e.step, e);
+  const not = new Set((baseline?.notBaselined ?? []).map((e) => e.step));
+  const out = new Map();
+  for (const [step, e] of seen)
+    if (e.state === 'unbuilt' && !dupes.has(step) && !not.has(step) && typeof e.file === 'string') out.set(step, e.file.split('/').pop());
+  return out;
+}
+
+/**
+ * Whether each whole run can speak for a journey file: an array of booleans, one per run in `whole` (false where the run
+ * doesn't hold the file). `unbuilt`: unbuiltSteps of the baseline. A run counts when the file is not broken in it and
+ * every test of it passed there, or when each test that didn't pass is excused:
+ *   - it is a numbered step of this file the baseline calls unbuilt, or a test skipped after such a step in the same
+ *     file and project; and
+ *   - it didn't pass in any whole run, and every whole run the map is built from (at least MIN_RUNS) holds the file.
+ * Every other test that didn't pass stops the journey short, so the run doesn't count (review 7561-R1): a setup or end
+ * test, a `regression` step, a step the baseline doesn't list, a test skipped with no excused step before it, a test
+ * that passed in another run (flaky), a test another run lacks, and any red test of a file some whole run doesn't hold.
+ *
+ * Why an excused red test leaves the run's reach sound (project-state#1574): the reach taken is still every record of
+ * the file in that run (runReach), never only the passing tests' records, since each record holds only what its worker
+ * hadn't sent yet (journey-reach.mjs take()).
+ *   - A pull request can't make an unbuilt step redder: the journey's verdict already holds it red on main.
+ *   - The green tests before it ran whole, and everything they reached is recorded, so a change they can see selects them.
+ *   - An unbuilt step that turns green on main can reach code the map doesn't know until the map is rebuilt from runs
+ *     where it passed; from then on it passed in some run, so it is excused nowhere, and a map older than STALE_RUNS
+ *     main runs is not used at all.
+ *   - The pull request that builds the step runs its journey anyway: a journey named in the pull request's title always
+ *     runs (real-app-journeys.yml, the "What this run runs" step: `named=` holds the title's journey files, joined to
+ *     the files the map selects, and run alone when the map selects none).
+ *   - Main's full run after every merge runs every journey, and is the backstop.
+ */
+export function speaksFor(whole, f, unbuilt = new Map()) {
+  const held = whole.map((r) => (r.files.has(f) ? r.tests.get(f) : null));
+  const everyRun = whole.length >= MIN_RUNS && held.every(Boolean);
+  const persistent = (key) => everyRun && held.every((o) => o.tests.get(key)?.passed === false);
+  return held.map((o) => {
+    if (!o || o.broken) return false;
+    const after = new Set(); // projects in which an excused unbuilt step came before
+    for (const [key, t] of o.tests) {
+      if (t.passed) continue;
+      const isUnbuilt = !!t.step && unbuilt.get(t.step) === f;
+      if (!persistent(key) || !(isUnbuilt || (t.skipped && after.has(t.project)))) return false;
+      if (isUnbuilt) after.add(t.project);
+    }
+    return true;
+  });
 }
 
 /**
@@ -340,7 +416,18 @@ export function subscribers(root = ROOT) {
  * lost shard), is not whole and is passed over. In a whole run, a journey file it ran with no record of its own is
  * full in the map (it runs with every change). The newest MIN_RUNS whole runs build it; fewer, and its mode is 'full'.
  */
-export function buildMap({ runs, services, consumers, dependents = {}, harness, subscribers: subs, money, minRuns = MIN_RUNS }) {
+export function buildMap({
+  runs,
+  services,
+  consumers,
+  dependents = {},
+  harness,
+  subscribers: subs,
+  money,
+  baseline = null,
+  minRuns = MIN_RUNS,
+}) {
+  const unbuilt = unbuiltSteps(baseline);
   const whole = [];
   const skipped = [];
   for (const r of runs) {
@@ -349,7 +436,7 @@ export function buildMap({ runs, services, consumers, dependents = {}, harness, 
     const lost = [...r.files].filter((f) => !ran.has(f));
     if (!records.length) skipped.push(`${r.id}: no journey-reach records (before the recorder)`);
     else if (lost.length) skipped.push(`${r.id}: its report lacks ${lost.length} journey file(s) at its head (a lost shard)`);
-    else whole.push({ ...r, ran, records, unclean: reportUnclean(r.report) });
+    else whole.push({ ...r, ran, records, tests: reportTests(r.report) });
     if (whole.length === minRuns) break;
   }
   const base = { v: MAP_VERSION, runs: whole.map(({ id, head, created }) => ({ id, head, created })), skipped };
@@ -370,19 +457,24 @@ export function buildMap({ runs, services, consumers, dependents = {}, harness, 
     let why = null;
     let clean = 0;
     const union = { services: new Set(), packages: new Set(), customer: new Set() };
+    const counts = speaksFor(whole, f, unbuilt);
     whole.forEach((r, i) => {
       if (why || !r.files.has(f)) return;
       const x = reach[i][f];
       if (!x) why = `run ${r.id} holds no record of it`;
       else if (x.full) why = `run ${r.id}: ${x.full}`;
-      else if (r.unclean.has(f))
-        return; // a step that didn't pass stopped the journey short: this run can't speak for it
+      else if (!counts[i])
+        return; // a test that didn't pass here stopped the journey short (speaksFor): a broken spec, a red test other than an
+      // unbuilt step red in every run that holds the file, a skip with no such step before it, a red test another run
+      // lacks or passed, or a red test of a file some whole run doesn't hold. This run can't speak for it.
       else {
         clean += 1;
         for (const k of Object.keys(union)) for (const v of x[k]) union[k].add(v);
       }
     });
-    if (!why && !clean) why = 'no run the map is built from passed every one of its tests';
+    if (!why && !clean)
+      why =
+        "no run the map is built from speaks for it: in each, a spec held no test, or a test didn't pass that is not an unbuilt step of main's baseline (or skipped after one) red in every run, all of which hold the file";
     if (why) {
       full[f] = why;
       continue;
@@ -640,7 +732,13 @@ function buildFromMain({ ids, until, root = ROOT } = {}) {
     const ran = reportFiles(report);
     if ([...files].every((f) => ran.has(f)) && ++whole === MIN_RUNS) break;
   }
-  return buildMap({ runs, ...inputs });
+  return buildMap({
+    runs,
+    ...inputs,
+    // main's baseline, never the pull request's: `verify` runs main's builder from a worktree of main (ROOT), and the code
+    // keys alone follow `--workspace`, so a pull request can't edit the baseline to narrow what its map selects.
+    baseline: rootInputs(ROOT).baseline,
+  });
 }
 
 /**
