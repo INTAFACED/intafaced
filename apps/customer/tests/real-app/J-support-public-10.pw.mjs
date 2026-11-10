@@ -158,19 +158,35 @@ test(`${J} #1 /support lists unassigned open and pending requests by score, "not
     await expect(queue.getByRole('columnheader', { name: 'Score' })).toBeVisible();
     await expect(queue.getByRole('columnheader', { name: /due/i })).toHaveCount(0);
     await expect(page.getByTestId('queue-metrics')).toContainText('it is not a response-time promise');
-    // Ranked by score, highest first.
-    const scores = (await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[4]?.textContent ?? ''))).map(
-      Number,
-    );
-    expect(scores).toEqual([...scores].sort((a, b) => b - a));
-    // Only open and pending requests.
-    for (const status of await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[3]?.textContent ?? '')))
-      expect(['open', 'pending']).toContain(status);
     // Only unassigned ones: the page lists the queue page svc-support answers, and none of its tickets has an assignee.
     const answered = await desk('lead', 'query', 'listQueue', { limit: 100 });
     const entries = answered.status === 'ok' ? answered.entries : [];
     expect(entries.length).toBeGreaterThan(0);
     await expect(queue.getByRole('row')).toHaveCount(entries.length + 1);
+    // Each row says score, not a promise: svc-support labels every row's score `score_not_promise` with no SLA (the
+    // console drops a row that isn't), and the page says it beside the table.
+    for (const entry of entries) {
+      expect(entry.timingKind, entry.subject).toBe('score_not_promise');
+      expect(entry.sla, entry.subject).toBe(false);
+    }
+    // Each row shows its own score as svc-support gave it, never a blank, ranked highest first; only open and pending.
+    const rows = await queue.getByRole('row').evaluateAll((all) => {
+      const head = [...all[0].cells].map((c) => c.textContent?.trim() ?? '');
+      const at = (name) => head.indexOf(name);
+      return all.slice(1).map((row) => ({
+        subject: row.cells[at('Subject')]?.textContent?.trim() ?? '',
+        status: row.cells[at('Status')]?.textContent?.trim() ?? '',
+        score: row.cells[at('Score')]?.textContent?.trim() ?? '',
+      }));
+    });
+    expect(rows.map((r) => r.subject)).toEqual(entries.map((e) => e.subject));
+    for (const [i, row] of rows.entries()) {
+      expect(row.score, row.subject).toMatch(/^-?\d+(\.\d+)?$/);
+      expect(Number(row.score), row.subject).toBe(entries[i].score);
+      expect(['open', 'pending']).toContain(row.status);
+    }
+    const scores = rows.map((r) => Number(r.score));
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
     for (const entry of entries) expect((await desk('lead', 'query', 'get', { ticketId: entry.ticketId })).assigneeId ?? null).toBeNull();
   } finally {
     await desk('lead', 'mutation', 'unclaim', { ticketId: held.id, idempotencyKey: `${J}:${RUN}:held` });
