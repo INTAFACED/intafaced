@@ -44,6 +44,9 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'networkFee',
   'maxOrderQty',
   'maxOrderNotional',
+  // VenueBuilderTotal (OWNER 288 1e)
+  'earned',
+  'unclaimed',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);

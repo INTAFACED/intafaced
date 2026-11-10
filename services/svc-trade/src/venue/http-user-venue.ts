@@ -4,6 +4,8 @@ import {
   decodeVenueWire,
   encodeVenueWire,
   type AsOf,
+  type MaybeKnown,
+  type VenueBuilderTotals,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -260,6 +262,11 @@ export class HttpUserVenue implements UserVenue {
 
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
     return this.read('/builder-fee-approval', { account, builder });
+  }
+
+  /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
+  builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
+    return this.read('/builder-totals', { builder });
   }
 
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {

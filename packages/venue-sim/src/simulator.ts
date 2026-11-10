@@ -7,6 +7,7 @@ import {
   venueClientOrderId,
   type AsOf,
   type MaybeKnown,
+  type VenueBuilderTotals,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -122,6 +123,8 @@ export interface SimMarketConfig {
 
 export interface SimSwitches {
   venueDown: boolean;
+  /** The venue's builder totals read as not known (OWNER 288 1e), as on a venue that publishes none. */
+  builderTotalsUnknown: boolean;
   /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
   unlistPerpetuals: boolean;
   withdrawalFee: MaybeKnown<Amount>;
@@ -219,6 +222,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly withdrawalSubmittedAt = new Map<string, Date>();
   private seqCounter = 0;
   private fillCounter = 0;
+  /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
+  private readonly builderEarned = new Map<string, Map<string, Amount>>();
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
@@ -239,6 +244,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
+      builderTotalsUnknown: false,
       unlistPerpetuals: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
@@ -836,6 +842,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).builderApprovals.get(builder.toLowerCase()) ?? ZERO);
   }
 
+  /**
+   * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
+   * carried that builder, per fee asset. No builder claims here, so all of it is unclaimed. The `builderTotalsUnknown`
+   * switch answers not known.
+   */
+  async builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
+    this.up();
+    if (this.switches.builderTotalsUnknown) return this.asOf({ known: false });
+    const b = builder.toLowerCase();
+    const assets = [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()]
+      .sort(([x], [y]) => x.localeCompare(y))
+      .map(([asset, earned]) => ({ asset, earned, unclaimed: earned }));
+    return this.asOf({ known: true, value: { builder: b, assets } });
+  }
+
   async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     this.up();
     this.market(symbol);
@@ -1341,6 +1362,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       side.order = { ...o, filled, remaining, averagePrice, status: remaining === ZERO ? 'filled' : 'partially_filled' };
       if (remaining === ZERO) this.release(side, 'filled');
 
+      if (builderFee > ZERO) {
+        const b = side.builderFee!.builder.toLowerCase();
+        const asset = feeInBase ? market.baseAsset : market.quoteAsset;
+        const byAsset = this.builderEarned.get(b) ?? new Map<string, Amount>();
+        byAsset.set(asset, add(byAsset.get(asset) ?? ZERO, builderFee));
+        this.builderEarned.set(b, byAsset);
+      }
       this.fillCounter += 1;
       side.account.fills.push({
         fillId: `sim-fill-${this.fillCounter}`,
