@@ -104,6 +104,7 @@ export * from './protocol-liquidity.js';
 export * from './protocol-address-book.js';
 export * from './protocol-dex-orders.js';
 export * from './protocol-address-risk.js';
+export * from './protocol-sessions.js';
 export * from './protocol-wallet-tx.js';
 export * from './protocol-venue-wallet.js';
 export * from './outcome-markets.js';

@@ -1580,6 +1580,9 @@ function testChain() {
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
     liquidityRouter: record.liquidityRouter ?? null,
+    // The smart account factory and implementation (J-dex-protocol-08's session keys).
+    accountFactory: record.accountFactory ?? null,
+    accountImplementation: record.accountImplementation ?? null,
   };
 }
 

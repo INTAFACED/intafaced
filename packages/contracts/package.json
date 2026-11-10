@@ -90,6 +90,10 @@
       "types": "./dist/protocol-embedded-wallet.d.ts",
       "default": "./dist/protocol-embedded-wallet.js"
     },
+    "./protocol-sessions": {
+      "types": "./dist/protocol-sessions.d.ts",
+      "default": "./dist/protocol-sessions.js"
+    },
     "./protocol-venue-wallet": {
       "types": "./dist/protocol-venue-wallet.d.ts",
       "default": "./dist/protocol-venue-wallet.js"
