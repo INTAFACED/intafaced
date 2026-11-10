@@ -25,6 +25,7 @@ import {
   eventPull,
   indexHead,
   summarizeGenerated,
+  groupedChanges,
   jsonChanges,
   VERDICT_SCHEMA,
   MAX_DIFF_BYTES,
@@ -1043,22 +1044,21 @@ test('the review job runs only on pull requests into main, and again when one is
   assert.match(wf, /github\.event\.action != 'edited' \|\| github\.event\.changes\.base/);
 });
 
-test("the seal re-run step can't void a PASS: it runs after Verdict and its failure can't fail the job", async () => {
+test("starting the seal can't void a PASS: it is a job of its own after the review, never a step of it", async () => {
   const { readFileSync } = await import('node:fs');
   const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
-  const verdict = wf.indexOf('- name: Verdict\n');
-  const rerun = wf.indexOf('- name: Re-run a red seal on this head\n');
-  assert.ok(verdict > 0 && rerun > verdict, 'the re-run step comes after Verdict');
-  const step = wf.slice(rerun, wf.indexOf('\n\n', rerun) === -1 ? undefined : wf.indexOf('\n\n', rerun));
-  assert.match(step, /\n\s+continue-on-error: true\n/);
-  // Why it must: with Verdict success, a job that concluded success seals, and one that concluded failure (the re-run
-  // step threw) is no verdict at all.
+  const review = wf.slice(wf.indexOf('\n  review:\n'), wf.lastIndexOf('\n\n', wf.indexOf('\n  seal-start:\n')));
+  assert.ok(wf.indexOf('\n  seal-start:\n') > 0, 'a seal-start job');
+  assert.doesNotMatch(review, /--recheck|rerun-seal|actions: write/, 'the review job neither starts the seal nor can re-run a run');
+  const start = wf.slice(wf.indexOf('\n  seal-start:\n'));
+  assert.match(start, /\n    needs: \[review, read\]\n/);
+  // A step of the review job that failed would void its PASS; a job of its own can't (planted: the step that did).
   const read = (job) =>
     ciReviewVerdict({ sha: HEAD, base: 'main', number: 7, runs: [run({ jobs: [[job]] })], attempts: async (r) => r.jobs });
-  const rerunFailed = { ...reviewJob(HEAD, 'success'), conclusion: 'failure' };
-  rerunFailed.steps = [...rerunFailed.steps, { name: 'Re-run a red seal on this head', status: 'completed', conclusion: 'failure' }];
+  const stepFailed = { ...reviewJob(HEAD, 'success'), conclusion: 'failure' };
+  stepFailed.steps = [...stepFailed.steps, { name: 'Start the seal', status: 'completed', conclusion: 'failure' }];
   assert.equal((await read(reviewJob(HEAD, 'success'))).state, 'pass');
-  assert.equal((await read(rerunFailed)).state, 'none');
+  assert.equal((await read(stepFailed)).state, 'none');
 });
 
 test("fails: a branch's own copy of the workflow, or another workflow, can't seal", async () => {
@@ -1153,7 +1153,7 @@ test('the generated map reaches the reviewer as every entry it adds, removes or 
     assert.ok(out.split('\n').includes(line), line);
   assert.match(
     out,
-    /summarised by the CI review job from its old and new lines: every entry added \(\+\), removed \(-\) or changed \(~\), 5 in all; services, packages and customer list journeys by file name, not index\]/,
+    /summarised by the CI review job from its old and new lines: every entry added \(\+\), removed \(-\) or changed \(~\), 5 in all; services, packages and customer list journeys by file name, not index; paths of one section that gain and lose exactly the same entries are one ~ line naming every such path\]/,
   );
   // Planted: a dropped money entry shows as one, and so does a journey taken off the full list.
   const fullBefore = { ...now, full: { 'J-a.pw.mjs': 'partial' } };
@@ -1558,4 +1558,62 @@ test('the Review step streams the call only when input.jsonl exists, and runs as
     assert.match(part, /--json-schema "\$schema"/);
   }
   assert.match(step, /\n {10}fi\n {10}node "\$GITHUB_WORKSPACE\/tooling\/ci\/ci-review\.mjs" read "\$dir"\n/);
+});
+
+test('a map rebuilt from new runs groups the paths that gain and lose the same journeys, and leaves nothing out (#7724)', () => {
+  const paths = (n, v) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`apps/customer/src/f${i}.tsx`, v]));
+  const before = {
+    money: ['packages/ledger-client'],
+    full: { 'J-c.pw.mjs': 'x' },
+    customer: { ...paths(3, ['J-a.pw.mjs']), 'apps/customer/src/odd.tsx': ['J-a.pw.mjs'], 'apps/customer/src/gone.tsx': ['J-a.pw.mjs'] },
+  };
+  const after = {
+    money: ['packages/ledger-client', 'packages/venue-hyperliquid'],
+    full: {},
+    customer: {
+      ...paths(3, ['J-a.pw.mjs', 'J-c.pw.mjs']),
+      'apps/customer/src/odd.tsx': ['J-b.pw.mjs'],
+      'apps/customer/src/new.tsx': ['J-c.pw.mjs'],
+    },
+  };
+  const out = groupedChanges(before, after);
+  assert.deepEqual(out, [
+    '- "customer"."apps/customer/src/gone.tsx" ["J-a.pw.mjs"]',
+    '+ "customer"."apps/customer/src/new.tsx" ["J-c.pw.mjs"]',
+    '~ "customer": 3 entries each gain (+) ["J-c.pw.mjs"] and lose (-) [], nothing else: ["apps/customer/src/f0.tsx","apps/customer/src/f1.tsx","apps/customer/src/f2.tsx"]',
+    '+ "customer"."apps/customer/src/odd.tsx"[] "J-b.pw.mjs"',
+    '- "customer"."apps/customer/src/odd.tsx"[] "J-a.pw.mjs"',
+    '- "full"."J-c.pw.mjs" "x"',
+    '+ "money"[] "packages/venue-hyperliquid"',
+  ]);
+  // Planted: a path whose order also changes is never folded into a group; it keeps its own lines.
+  const twice = { ...before, customer: { ...before.customer, 'apps/customer/src/f1.tsx': ['J-a.pw.mjs', 'J-b.pw.mjs'] } };
+  const reordered = { ...after, customer: { ...after.customer, 'apps/customer/src/f1.tsx': ['J-b.pw.mjs', 'J-a.pw.mjs', 'J-c.pw.mjs'] } };
+  const lines = groupedChanges(twice, reordered);
+  assert.ok(
+    lines.includes(
+      '~ "customer": 2 entries each gain (+) ["J-c.pw.mjs"] and lose (-) [], nothing else: ["apps/customer/src/f0.tsx","apps/customer/src/f2.tsx"]',
+    ),
+    lines.join('\n'),
+  );
+  assert.ok(lines.some((l) => l.startsWith('~ "customer"."apps/customer/src/f1.tsx": order or repeats')));
+  // Planted: a list with a repeat is never grouped, so the repeat can't hide in a set.
+  const repeat = { ...after, customer: { ...after.customer, 'apps/customer/src/f1.tsx': ['J-a.pw.mjs', 'J-c.pw.mjs', 'J-c.pw.mjs'] } };
+  assert.ok(groupedChanges(before, repeat).includes('+ "customer"."apps/customer/src/f1.tsx"[] "J-c.pw.mjs"'));
+  // Planted: a section added or removed whole, and values that aren't objects, read exactly as jsonChanges writes them.
+  assert.deepEqual(groupedChanges({ v: 1 }, { v: 2, s: { a: [1] } }), ['+ "s" {"a":[1]}', '~ "v": 1 -> 2']);
+  assert.deepEqual(groupedChanges(null, { v: 1 }), jsonChanges(null, { v: 1 }));
+  // Every grouped line expands back to exactly jsonChanges' lines: nothing is dropped.
+  const expand = (ls) =>
+    ls.flatMap((l) => {
+      const m = /^~ ("[^"]+"): \d+ entries each gain \(\+\) (\[.*?\]) and lose \(-\) (\[.*?\]), nothing else: (\[.*\])$/.exec(l);
+      if (!m) return [l];
+      const [gain, lose, ps] = [JSON.parse(m[2]), JSON.parse(m[3]), JSON.parse(m[4])];
+      return ps.flatMap((p) => [
+        ...gain.map((g) => `+ ${m[1]}.${JSON.stringify(p)}[] ${JSON.stringify(g)}`),
+        ...lose.map((g) => `- ${m[1]}.${JSON.stringify(p)}[] ${JSON.stringify(g)}`),
+      ]);
+    });
+  assert.deepEqual(expand(out).sort(), jsonChanges(before, after).sort());
+  assert.deepEqual(expand(lines).sort(), jsonChanges(twice, reordered).sort());
 });

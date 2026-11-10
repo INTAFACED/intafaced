@@ -240,6 +240,7 @@ const appRouter = createAgentsRouter({
   ownLinkedWallets: linkedWallets,
   ownAssistantModel: env.AGENTS_OWN_ASSISTANT_MODEL ?? null,
   ownApprovalTtlSeconds: env.AGENTS_APPROVAL_TTL_SECONDS ?? null,
+  navigatorOnchainSigner: env.AGENTS_NAVIGATOR_ONCHAIN_SIGNER ?? null,
   ownReviewerModel: env.AGENTS_REVIEWER_MODEL ?? null,
   gateway,
   meter,

@@ -63,6 +63,14 @@ describe('partner-held card authorisations (PG)', () => {
   let holds: PartnerCardHolds;
   let layer: 'on' | 'off';
   let cards: CardService;
+  /** svc-ledger's posting freeze as svc-bank reads it; open unless a test freezes it. */
+  let posting: boolean | 'unreadable';
+  const freeze = {
+    postingEnabled: async () => {
+      if (posting === 'unreadable') throw new Error('svc-ledger /health answered 503');
+      return posting;
+    },
+  };
 
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'bank', url: DB_URL, migrations });
@@ -78,6 +86,7 @@ describe('partner-held card authorisations (PG)', () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       testPartner: partner,
       custodyLayer: layer,
+      postingFreeze: freeze,
       cards: {
         issuer: cardSim({ partner: terms }),
         ...(over.holds ? { partnerHolds: over.holds } : {}),
@@ -92,6 +101,7 @@ describe('partner-held card authorisations (PG)', () => {
     partner = testPartner();
     terms = PARTNER;
     layer = 'on';
+    posting = true;
     holds = testPartnerCardHolds({ terms: () => terms, switches: (u) => partner.switches(u) });
     cards = build({ holds }).cards;
   });
@@ -532,6 +542,139 @@ describe('partner-held card authorisations (PG)', () => {
     });
   });
 
+  describe("svc-ledger's posting freeze on partner card money", () => {
+    beforeEach(() => {
+      partner.set(ADA, { custody: 'off' });
+    });
+
+    /** Every row of this authorisation's partner claims, by table. */
+    async function claims(authorizationId: string) {
+      const settlements = await sql<Array<{ sequence: number; kind: string; status: string; rejection_code: string | null }>>`
+        SELECT sequence, kind, status, rejection_code FROM bank.card_settlements WHERE authorization_id = ${authorizationId} ORDER BY sequence
+      `;
+      const refunds = await sql<Array<{ status: string; rejection_code: string | null }>>`
+        SELECT status, rejection_code FROM bank.card_partner_refunds WHERE authorization_id = ${authorizationId}
+      `;
+      return { settlements: [...settlements], refunds: [...refunds] };
+    }
+
+    it('PLANTED: frozen, a hold is a decline naming the freeze, and the partner holds nothing', async () => {
+      const card = await issue();
+      posting = false;
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'freeze-hold', amount: amt('40') });
+      expect(auth).toMatchObject({ decision: 'declined', declineCode: 'bank.posting_frozen', status: 'rejected', heldBy: 'partner' });
+      expect(await holds.holdState({ holdKey: partnerCardKey('hold', auth.id) })).toBeNull();
+      expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '100', held: '0' });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('a freeze that cannot be read, or none wired, declines a hold the same way', async () => {
+      const card = await issue();
+      posting = 'unreadable';
+      const unreadable = await cards.authorize({ cardId: card.id, authorizationRef: 'freeze-unreadable', amount: amt('10') });
+      expect(unreadable).toMatchObject({ decision: 'declined', declineCode: 'bank.posting_frozen' });
+      const unwired = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        testPartner: partner,
+        custodyLayer: layer,
+        cards: { issuer: cardSim({ partner: terms }), partnerHolds: holds },
+      }).cards;
+      const card2 = await issue(unwired);
+      const refused = await unwired.authorize({ cardId: card2.id, authorizationRef: 'freeze-unwired', amount: amt('10') });
+      expect(refused).toMatchObject({ decision: 'declined', declineCode: 'bank.posting_frozen' });
+      expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '100', held: '0' });
+    });
+
+    it('a redelivery after a hold the partner made (reply lost), now frozen, stays pending, then approves once posting is back', async () => {
+      const card = await issue();
+      let drops = 1;
+      const lossy: PartnerCardHolds = {
+        ...holds,
+        hold: async (input) => {
+          const answer = await holds.hold(input);
+          if (drops-- > 0) throw new Error('socket hang up');
+          return answer;
+        },
+      };
+      const svc = build({ holds: lossy }).cards;
+      await expect(svc.authorize({ cardId: card.id, authorizationRef: 'freeze-lost', amount: amt('40') })).rejects.toThrow(
+        'socket hang up',
+      );
+      posting = false;
+      await expect(codeOf(svc.authorize({ cardId: card.id, authorizationRef: 'freeze-lost', amount: amt('40') }))).resolves.toBe(
+        'bank.posting_frozen',
+      );
+      const [row] = await sql<Array<{ status: string; decision: string }>>`
+        SELECT status, decision FROM bank.card_authorizations WHERE authorization_ref = 'freeze-lost'
+      `;
+      expect(row).toEqual({ status: 'pending', decision: 'approved' });
+      posting = true;
+      const redriven = await svc.authorize({ cardId: card.id, authorizationRef: 'freeze-lost', amount: amt('40') });
+      expect(redriven).toMatchObject({ decision: 'approved', status: 'settled' });
+      expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '60', held: '40' });
+    });
+
+    it('frozen, a capture and its release stay pending, never rejected, and resumeSettlements re-sends them under the same keys once posting is back', async () => {
+      const card = await issue();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'freeze-capture', amount: amt('40') });
+      posting = false;
+      await expect(codeOf(cards.capture({ cardId: card.id, authorizationRef: 'freeze-capture', amount: amt('30') }))).resolves.toBe(
+        'bank.posting_frozen',
+      );
+      expect((await claims(auth.id)).settlements).toEqual([{ sequence: 0, kind: 'capture', status: 'pending', rejection_code: null }]);
+      expect(await holds.holdState({ holdKey: partnerCardKey('hold', auth.id) })).toMatchObject({ status: 'held', open: '40' });
+      // Still frozen: the re-send is refused again, and the claim is still pending.
+      const stillFrozen = await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'freeze-capture' });
+      expect(stillFrozen.resumed).toEqual([expect.objectContaining({ sequence: 0, outcome: 'failed' })]);
+      expect((await claims(auth.id)).settlements[0]).toMatchObject({ status: 'pending', rejection_code: null });
+      posting = true;
+      const resumed = await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'freeze-capture' });
+      expect(resumed.resumed).toEqual([expect.objectContaining({ sequence: 0, kind: 'capture', outcome: 'settled' })]);
+      expect(await holds.holdState({ holdKey: partnerCardKey('hold', auth.id) })).toMatchObject({ status: 'captured', captured: '30' });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('frozen, a release stays pending and is re-sent under the same key, once', async () => {
+      const card = await issue();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'freeze-release', amount: amt('40') });
+      posting = false;
+      await expect(codeOf(cards.reverse({ cardId: card.id, authorizationRef: 'freeze-release' }))).resolves.toBe('bank.posting_frozen');
+      expect((await claims(auth.id)).settlements).toEqual([{ sequence: 0, kind: 'reversal', status: 'pending', rejection_code: null }]);
+      posting = true;
+      await cards.reverse({ cardId: card.id, authorizationRef: 'freeze-release' });
+      expect((await claims(auth.id)).settlements).toEqual([{ sequence: 0, kind: 'reversal', status: 'settled', rejection_code: null }]);
+      expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '100', held: '0' });
+    });
+
+    it('frozen, a merchant refund stays pending, not rejected, and the same ask refunds once posting is back', async () => {
+      const card = await issue();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'freeze-refund', amount: amt('40') });
+      await cards.capture({ cardId: card.id, authorizationRef: 'freeze-refund', amount: amt('40') });
+      posting = false;
+      await expect(codeOf(cards.refund({ cardId: card.id, authorizationRef: 'freeze-refund', amount: amt('10') }))).resolves.toBe(
+        'bank.posting_frozen',
+      );
+      expect((await claims(auth.id)).refunds).toEqual([{ status: 'pending', rejection_code: null }]);
+      // A different amount while the first is pending is a conflict, not a fresh ask: the pending one is not retired.
+      posting = true;
+      await expect(codeOf(cards.refund({ cardId: card.id, authorizationRef: 'freeze-refund', amount: amt('5') }))).resolves.toBe(
+        'bank.card_refund_amount_conflict',
+      );
+      const refunded = await cards.refund({ cardId: card.id, authorizationRef: 'freeze-refund', amount: amt('10') });
+      expect(refunded).toMatchObject({ refunded: amt('10') });
+      expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '70' });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('frozen, reads stay open: figures and the partner-held view', async () => {
+      const card = await issue();
+      await cards.authorize({ cardId: card.id, authorizationRef: 'freeze-read', amount: amt('40') });
+      posting = false;
+      const view = await cards.partnerHeld(card.id, 10);
+      expect(view).toMatchObject({ heldBy: 'partner', figures: { available: '60', held: '40' } });
+      expect(view.authorizations[0]?.report).toMatchObject({ status: 'held' });
+    });
+  });
+
   describe('the doors a journey uses', () => {
     function as(bank: ReturnType<typeof createBankServices>, userId = ADA) {
       const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
@@ -561,6 +704,7 @@ describe('partner-held card authorisations (PG)', () => {
       const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
         testPartner: partner,
         custodyLayer: 'on',
+        postingFreeze: freeze,
         cards: { issuer: cardSim({ partner: PARTNER }) },
       });
       const caller = as(bank);
@@ -585,6 +729,7 @@ describe('partner-held card authorisations (PG)', () => {
       const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
         testPartner: partner,
         custodyLayer: 'on',
+        postingFreeze: freeze,
         cards: { issuer: cardSim({ partner: PARTNER }) },
       });
       const caller = as(bank);

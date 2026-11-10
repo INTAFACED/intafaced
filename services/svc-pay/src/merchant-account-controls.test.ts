@@ -30,7 +30,7 @@ describe('merchant founder controls real PostgreSQL', () => {
   let enabled: boolean;
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'pay', migrations });
-  });
+  }, 120_000);
   beforeEach(async () => {
     await truncatePayForTest(db.sql, 'pay', `TRUNCATE pay.account_control_audit,pay.account_control_requests,pay.merchants CASCADE`);
     enabled = true;
@@ -40,8 +40,8 @@ describe('merchant founder controls real PostgreSQL', () => {
     });
   });
   afterAll(async () => {
-    await db.drop();
-  });
+    await db?.drop();
+  }, 30_000);
   async function merchant(status = 'active') {
     const id = randomUUID();
     await db.sql`INSERT INTO pay.merchants(id,user_id,status) VALUES(${id},${randomUUID()},${status}::pay.merchant_status)`;

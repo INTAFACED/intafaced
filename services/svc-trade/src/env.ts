@@ -19,12 +19,19 @@ const schema = serviceEnvSchema
        * unless the raw APP_ENV is exactly dev or test (`refuseTestVenueOutsideTest`).
        */
       TRADE_USER_VENUE_URL: z.string().default(''),
+      // J-derivatives-28: more user-signed venues beside TRADE_USER_VENUE_URL, comma-separated; the ticket routes over all.
+      TRADE_USER_VENUE_URLS: z.string().default(''),
       /** Per call to the venue, milliseconds. A submit that times out is `definite: false` and is read back. */
       TRADE_USER_VENUE_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(5_000),
       /** Owner value: our builder address on the venue (lowercase 0x). Blank refuses orders `builder_fee_not_published`. */
       TRADE_USER_VENUE_BUILDER_ADDRESS: z.string().default(''),
       /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
       TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
+      /**
+       * Owner value: the largest page of GET /api/v1/venue/orders (J-developer-05 #6), a whole number 1 to 1000. Blank
+       * refuses every list `trade.venue_orders_page_max_unset`, never a guessed page size.
+       */
+      TRADE_USER_VENUE_ORDERS_PAGE_MAX: z.string().default(''),
       /**
        * D-venue-07 builder-fee poster (src/builder-fee/builder-fee-poster.ts): with the door on, how often it reads our users'
        * venue fills and posts our builder fee on each to the ledger. `off` stops it, so fills wait unposted (the recon then
