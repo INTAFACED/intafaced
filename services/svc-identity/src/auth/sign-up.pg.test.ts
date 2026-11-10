@@ -103,7 +103,13 @@ if (!available) {
   let counter = 0;
   const unique = () => `su${process.pid}x${++counter}`;
   const saved: Record<string, string | undefined> = {};
-  const SCREENING_ENV = ['INTAFACED_SANCTIONS_REGIONS', 'INTAFACED_SANCTIONS_LIST_SOURCE', 'INTAFACED_SCREENING_FAIL_CLOSED', 'APP_ENV'];
+  const SCREENING_ENV = [
+    'INTAFACED_SANCTIONS_REGIONS',
+    'INTAFACED_SANCTIONS_LIST_SOURCE',
+    'INTAFACED_SCREENING_FAIL_CLOSED',
+    'APP_ENV',
+    'INTAFACED_UNSIGNED_SANCTIONS_ROWS',
+  ];
 
   const form = (over: Record<string, unknown> = {}) => {
     const handle = unique();
@@ -141,6 +147,8 @@ if (!available) {
     process.env.INTAFACED_SANCTIONS_LIST_SOURCE = 'TEST fixture for the sign-up test';
     process.env.INTAFACED_SCREENING_FAIL_CLOSED = 'off';
     process.env.APP_ENV = 'test';
+    // Keep the unsigned config rows out, so the blank-list case below still proves the blank-list refusal.
+    process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
   });
   beforeEach(async () => {
     bus.reset();

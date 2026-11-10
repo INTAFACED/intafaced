@@ -201,6 +201,7 @@ async function seed(out: string) {
       factory: Address;
       oracle?: Address;
       claimEscrow?: Address;
+      liquidityRouter?: Address;
       tokens: typeof TEST_TOKENS;
       accountFactory?: Address;
     };
@@ -228,6 +229,10 @@ async function seed(out: string) {
         const v2 = await seedRouterV2Parts(clients(), record.factory);
         writeFileSync(out, `${JSON.stringify({ ...current, tokens: TEST_TOKENS, ...v2 }, null, 2)}\n`);
       }
+      // A chain seeded before the liquidity v2 contracts has a v1 factory, whose pools' shares cannot be moved, so no
+      // liquidity router is added to it: the liquidity rooms refuse protocol.liquidity_router_unset until it is reseeded.
+      if (!record.liquidityRouter)
+        console.log('this TEST chain predates the liquidity contracts: stop the chain and start it again to reseed it');
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
       return;
@@ -257,10 +262,12 @@ async function seed(out: string) {
   await publicClient.request({ method: 'anvil_setCode', params: [TEST_CONTRACT, '0x00'] } as never);
 
   // Factory and router: deterministic by the deployer's nonce on a fresh node; the pools by CREATE2 from the factory.
-  const factory = await deploy('PoolFactory');
+  // The factory is the liquidity v2 one (D-liquidity-01, J-dex-protocol-12): its pools keep the v1 pool's swap, mint,
+  // burn and event signatures, so every swap journey reads them as before, and their shares are ERC-20 tokens.
+  const factory = await deploy('LiquidityFactory');
   const router = await deploy('SovereignRouter');
-  const factoryAbi = artifact('PoolFactory').abi;
-  const poolAbi = artifact('ConstantProductPool').abi;
+  const factoryAbi = artifact('LiquidityFactory').abi;
+  const poolAbi = artifact('LiquidityPool').abi;
   const { A, B, THIN, USD, EUR } = TEST_TOKENS;
   const pools = [
     // Two A/B pools, one better: deeper reserves and the lower fee win any quote.
@@ -357,6 +364,8 @@ async function seed(out: string) {
 
   const claimEscrow = await seedClaimLinkParts(all);
   const v2 = await seedRouterV2Parts(all, factory);
+  // Last, so every address seeded before it stays where it was.
+  const liquidityRouter = await deploy('LiquidityRouter', [factory]);
 
   const record = {
     node: version,
@@ -374,6 +383,7 @@ async function seed(out: string) {
     claimEscrow,
     claimExpiryBounds: TEST_CLAIM_EXPIRY_BOUNDS,
     ...v2,
+    liquidityRouter,
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);

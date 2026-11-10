@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { SupportTicket, SupportWithdrawalFreezeInput, SupportWithdrawalFreezeResult } from '@intafaced/contracts';
+import type {
+  SupportTicket,
+  SupportWithdrawalFreezeInput,
+  SupportWithdrawalFreezeRecordsInput,
+  SupportWithdrawalFreezeRecordsResult,
+  SupportWithdrawalFreezeResult,
+} from '@intafaced/contracts';
 import { WithdrawalFreezes, type IdentityWithdrawalFreeze } from './withdrawal-freeze.js';
 
 /**
@@ -24,15 +30,32 @@ const answer = (userId: string, locked = true): SupportWithdrawalFreezeResult =>
   recordedAt: '2026-11-09T03:00:00.000Z',
 });
 
-function identity(reply: (input: SupportWithdrawalFreezeInput) => SupportWithdrawalFreezeResult | null) {
+const row = (ticketId = TICKET) => ({
+  id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  ticketId,
+  operatorId: OPERATOR,
+  reason: 'TEST withdrawal missing',
+  lockSet: true,
+  recordedAt: '2026-11-09T03:00:00.000Z',
+});
+
+function identity(
+  reply: (input: SupportWithdrawalFreezeInput) => SupportWithdrawalFreezeResult | null,
+  records: (input: SupportWithdrawalFreezeRecordsInput) => SupportWithdrawalFreezeRecordsResult | null = () => null,
+) {
   const asked: SupportWithdrawalFreezeInput[] = [];
+  const read: SupportWithdrawalFreezeRecordsInput[] = [];
   const port: IdentityWithdrawalFreeze = {
     async freeze(input) {
       asked.push(input);
       return reply(input);
     },
+    async records(input) {
+      read.push(input);
+      return records(input);
+    },
   };
-  return { asked, port };
+  return { asked, read, port };
 }
 const desk = (t: SupportTicket, port: IdentityWithdrawalFreeze | null) => new WithdrawalFreezes({ getTicket: async () => t }, port);
 const code = (p: Promise<unknown>) =>
@@ -62,5 +85,30 @@ describe('a withdrawal freeze asked from a request', () => {
       'support.ticket_closed',
     );
     expect(asked).toEqual([]);
+  });
+
+  it("reads the request's audit rows back from svc-identity, for the request's own customer", async () => {
+    const { read, port } = identity(
+      () => null,
+      () => ({ recordedBy: 'svc-identity', records: [row()] }),
+    );
+    expect(await desk(ticket({ status: 'closed' }), port).records(OPERATOR, { ticketId: TICKET })).toEqual({
+      recordedBy: 'svc-identity',
+      records: [row()],
+    });
+    expect(read).toEqual([{ userId: CUSTOMER, ticketId: TICKET }]);
+  });
+
+  it('claims no record when svc-identity gives no answer, is not wired, or answers rows of another request', async () => {
+    const elsewhere = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    for (const port of [
+      identity(() => null).port,
+      null,
+      identity(
+        () => null,
+        () => ({ recordedBy: 'svc-identity', records: [row(elsewhere)] }),
+      ).port,
+    ])
+      expect(await code(desk(ticket(), port).records(OPERATOR, { ticketId: TICKET }))).toBe('support.withdrawal_freeze_unavailable');
   });
 });
