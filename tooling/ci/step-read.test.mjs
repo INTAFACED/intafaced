@@ -215,9 +215,9 @@ test("the workflow: the read is a job of its own after the review, never fails a
   for (const cmd of reads.match(/^ {10}(node|had=|for pid) .*$/gm)) assert.match(cmd, /\|\| no "/, cmd);
   assert.match(job, /\|\| echo "::warning::the proof read status wasn't posted"/);
   // The review's two calls keep their pinned model at main's effort (medium since OWNER 259, #7676), and the reader runs on
-  // Opus too (project-state OWNER 282), so the count can't overstate through a more lenient reader.
+  // the review's model too (project-state OWNER 282), so the count can't overstate through a more lenient reader.
   const models = [...review.matchAll(/--model (\S+) --effort medium/g)].map((m) => m[1]);
   assert.equal(models.length, 2);
-  assert.deepEqual(models, ['claude-opus-5-5', 'claude-opus-5-5']);
-  assert.equal(/\n {6}READER_MODEL: (\S+)\n/.exec(job)[1], 'claude-opus-5-5');
+  assert.equal(models[1], models[0]);
+  assert.equal(/\n {6}READER_MODEL: (\S+)\n/.exec(job)[1], models[0]);
 });
