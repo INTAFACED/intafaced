@@ -87,11 +87,29 @@ describe('a prepared grant', () => {
 
 describe('the trade rule: the Navigator never trades unasked', () => {
   it('makes an ask that names a trade an approval request, as a whole word in any case', () => {
-    for (const ask of ['TEST: swap 0.1 TEST Token A for TEST Token B on-chain', 'Buy some', 'SELL it all', 'trade now', 'place an order'])
+    for (const ask of [
+      'TEST: swap 0.1 TEST Token A for TEST Token B on-chain',
+      'Buy some',
+      'SELL it all',
+      'trade now',
+      'place an order',
+      'Can you buy 1 TEST Token A?',
+      'TEST: please could you sell it all?',
+    ])
       expect(navigatorAskIsTrade(ask)).toBe(true);
   });
   it('leaves any other ask to the ordinary run', () => {
-    for (const ask of ['what moved today?', 'swapping words is not swaps', 'buyer', 'disorder', 'tradeoffs', 'reorder the list'])
+    for (const ask of [
+      'what moved today?',
+      'swapping words is not swaps',
+      'buyer',
+      'disorder',
+      'tradeoffs',
+      'reorder the list',
+      'Where do I place a limit order?',
+      'TEST: what is a market order?',
+      'TEST: and a stop order?',
+    ])
       expect(navigatorAskIsTrade(ask)).toBe(false);
   });
 });

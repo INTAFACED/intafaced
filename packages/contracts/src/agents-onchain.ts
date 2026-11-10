@@ -77,11 +77,16 @@ export const navigatorOnchainBindingReadSchema = z.object({ binding: navigatorOn
 /**
  * The words that make an ask a trade (whole words, any case). The Navigator never trades unasked: any ask that names a
  * trade becomes an approval request for the person, and nothing runs. A session key is a ceiling, not consent.
+ * A question about trading ("where do I place a limit order?") asks for an answer, not a trade, so it goes to the
+ * ordinary run, which only answers in words; a request put as a question ("can you buy ...?") is still a trade.
  */
 export const NAVIGATOR_TRADE_WORDS = ['swap', 'buy', 'sell', 'trade', 'order'] as const;
 const TRADE_RULE = new RegExp(`\\b(?:${NAVIGATOR_TRADE_WORDS.join('|')})\\b`, 'i');
+const QUESTION = /\?\s*$/;
+const REQUEST_AS_QUESTION = /^\s*(?:TEST:\s*)?(?:please\s+)?(?:can|could|would|will)\s+you\b/i;
 export function navigatorAskIsTrade(text: string): boolean {
-  return TRADE_RULE.test(text);
+  if (!TRADE_RULE.test(text)) return false;
+  return !QUESTION.test(text) || REQUEST_AS_QUESTION.test(text);
 }
 
 export const navigatorAskInputSchema = z.object({
