@@ -198,6 +198,7 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
     // Sections per audience, with an access statement each: the card states who may use it, the same words as the portal's index.
     await expect(region.getByRole('heading', { name: audience, level: 2 })).toBeVisible();
     expect(access).toBe(ACCESS[audience]);
+    await expect(region.getByTestId('developers-access')).toBeVisible();
     await expect(region.getByTestId('developers-access')).toHaveText(ACCESS[audience]);
     // No section hidden: the card lists exactly the portal's sections for this audience, each once, with its state.
     await expect(region.getByRole('listitem')).toHaveCount(sections.length);
