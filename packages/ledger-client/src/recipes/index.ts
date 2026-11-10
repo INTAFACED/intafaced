@@ -28,6 +28,7 @@ import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelea
 import { tradeFillFeeCorrection } from './fill-correction.js';
 import { tradeFillMakerRebate } from './fill-rebate.js';
 import { builderFeeEarn, builderFeeReceive } from './builder-fee.js';
+import { ownFundsMove } from './own-funds.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -71,6 +72,14 @@ export {
   type BuilderFeeEarnInput,
   type BuilderFeeReceiveInput,
 } from './builder-fee.js';
+export {
+  OWN_FUNDS_MODULE,
+  ownFundsMove,
+  ownFundsMoveKey,
+  ownFundsPlaceAccount,
+  type OwnFundsMoveInput,
+  type OwnFundsPlace,
+} from './own-funds.js';
 
 /**
  * LEDGER RECIPES (§4.2).
@@ -1419,6 +1428,7 @@ export const recipes = {
   tradeFillMakerRebate,
   builderFeeEarn,
   builderFeeReceive,
+  ownFundsMove,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,

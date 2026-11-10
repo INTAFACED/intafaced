@@ -9,7 +9,10 @@ import {
   LINE_WORDS,
   posterWords,
   reconPeriod,
+  TOTALS_UNKNOWN_WORDS,
+  VERDICT_WORDS,
   type BuilderFeeReconVenue,
+  type BuilderFeeReconVerdict,
 } from '@/lib/ledger/builder-fee-recon-parse';
 import '@/components/desk.css';
 
@@ -41,6 +44,70 @@ function PosterLine({ venue }: { venue: Extract<BuilderFeeReconVenue, { state: '
   );
 }
 
+const VERDICT_STATE: Readonly<Record<BuilderFeeReconVerdict, string>> = {
+  matched: 'green',
+  break: 'break',
+  nothing_to_compare: 'nothing-to-compare',
+  totals_unknown: 'unknown',
+};
+
+/** The venue's own totals for our builder address against the ledger's (J-derivatives-17 #1 #3; OWNER 288 change 1e). */
+function VenueTotals({ venue }: { venue: Extract<BuilderFeeReconVenue, { state: 'read' }> }) {
+  const t = venue.venueTotals;
+  if (t.state === 'unknown') {
+    return (
+      <p data-testid="builder-fee-venue-totals" data-state="unknown">
+        The venue&apos;s own totals for our builder address are not known: {TOTALS_UNKNOWN_WORDS[t.reason]}. Nothing is shown as zero.
+      </p>
+    );
+  }
+  const green = t.rows.every((r) => r.earnedMatched && r.owedMatched);
+  return (
+    <div data-testid="builder-fee-venue-totals" data-state={green ? 'green' : 'break'} data-builder={t.builder}>
+      <p>
+        The ledger&apos;s whole book at this venue against the venue&apos;s own figures for our builder address {t.builder}, read{' '}
+        {when(t.asOf)}.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Asset</th>
+            <th scope="col">The ledger records as earned</th>
+            <th scope="col">The venue&apos;s own earned total</th>
+            <th scope="col">The ledger says the venue owes</th>
+            <th scope="col">The venue&apos;s own unclaimed figure</th>
+            <th scope="col">State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {t.rows.length === 0 ? (
+            <tr>
+              <td colSpan={6}>Neither the venue nor the ledger holds a builder fee for our address.</td>
+            </tr>
+          ) : (
+            t.rows.map((r) => (
+              <tr key={r.assetId} data-asset={r.assetId} data-state={r.earnedMatched && r.owedMatched ? 'green' : 'break'}>
+                <td>{r.assetId}</td>
+                <td>{r.ledgerEarned}</td>
+                <td>{r.venueEarned}</td>
+                <td>{r.ledgerOwed}</td>
+                <td>{r.venueUnclaimed}</td>
+                <td>
+                  {r.earnedMatched && r.owedMatched
+                    ? 'Matched'
+                    : !r.earnedMatched
+                      ? "Break: the ledger's earned total and the venue's differ"
+                      : "Break: what the ledger says is owed and the venue's unclaimed figure differ"}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string; to: string }) {
   if (venue.state === 'unknown') {
     return (
@@ -51,20 +118,15 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
     );
   }
   return (
-    <section
-      className="dk-panel"
-      data-testid="builder-fee-venue"
-      data-venue-id={venue.venueId}
-      data-state={venue.matched ? 'green' : 'break'}
-    >
+    <section className="dk-panel" data-testid="builder-fee-venue" data-venue-id={venue.venueId} data-state={VERDICT_STATE[venue.verdict]}>
       <h2>
         {venue.displayName} {venue.test ? <span data-testid="builder-fee-test">TEST</span> : null}
       </h2>
       <p data-testid="builder-fee-verdict">
-        {venue.matched
-          ? 'Green: every builder fee the venue reports matches the ledger.'
-          : 'Break: the venue and the ledger do not agree. Each break is listed below.'}{' '}
-        Venue id {venue.venueId}, read {when(venue.asOf)}.
+        {VERDICT_WORDS[venue.verdict]} Venue id {venue.venueId}, read {when(venue.asOf)}.
+      </p>
+      <p data-testid="builder-fee-compared" data-compared={venue.compared} data-read-through={venue.asOf}>
+        {venue.compared} {venue.compared === 1 ? 'fill' : 'fills'} compared, read through {when(venue.asOf)}.
       </p>
       <PosterLine venue={venue} />
       <table data-testid="builder-fee-totals">
@@ -93,6 +155,7 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
           )}
         </tbody>
       </table>
+      <VenueTotals venue={venue} />
       <table data-testid="builder-fee-lines">
         <thead>
           <tr>
@@ -159,7 +222,13 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
       <h3>Routed volume</h3>
       <div
         data-testid="builder-fee-volume"
-        data-state={venue.volume.every((v) => v.matched) && venue.volumeGaps.length === 0 ? 'green' : 'gap'}
+        data-state={
+          venue.volume.length === 0 && venue.volumeGaps.length === 0
+            ? 'nothing_to_compare'
+            : venue.volume.every((v) => v.matched) && venue.volumeGaps.length === 0
+              ? 'green'
+              : 'gap'
+        }
       >
         <p>
           The volume of the period&apos;s fills on orders we routed with our builder fee, against the builder fee the venue charged on them.

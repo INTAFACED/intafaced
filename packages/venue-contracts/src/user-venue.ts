@@ -445,6 +445,24 @@ export class VenueRefusalError extends Error {
 /** A figure the venue may not publish. `known: false` is shown as "not known", never as 0. */
 export type MaybeKnown<T> = { readonly known: true; readonly value: T } | { readonly known: false };
 
+/**
+ * The venue's own figures for one builder address (OWNER 288 change 1e), per fee asset: what it has credited the builder
+ * in builder fees since the start, and what of that the builder has not yet claimed. The recon compares them with the
+ * ledger's builder-fee totals for the venue, so a fee we never read, a dropped side or a foreign fee shows as a break.
+ */
+export interface VenueBuilderTotals {
+  readonly builder: string;
+  readonly assets: readonly VenueBuilderTotal[];
+}
+
+export interface VenueBuilderTotal {
+  readonly asset: string;
+  /** Every builder fee the venue has credited the builder, since the start. */
+  readonly earned: Amount;
+  /** What of `earned` the builder has not claimed yet. */
+  readonly unclaimed: Amount;
+}
+
 export interface UserVenueBalance {
   readonly asset: string;
   /** Free to trade or withdraw. */
@@ -595,6 +613,12 @@ export interface AsOf<T> {
   readonly value: T;
   /** The venue's own timestamp for the record, or when we read it if the venue gives none. */
   readonly asOf: Date;
+  /**
+   * The venue's own time for the record, as the displayed-figure contract reads it (b2 change 6; held-figure.ts): `null`
+   * when the venue sent none (then `asOf` is only our read time). An adapter that leaves it out has not said, and its
+   * figures read "not known", never known at our read time.
+   */
+  readonly reportedAt?: Date | null;
 }
 
 /**
@@ -752,6 +776,11 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * (AGENTS.md floor 8). One field, so the two can never disagree.
    */
   readonly proofLevel: 'simulator' | 'partner-sandbox' | 'live';
+  /**
+   * How old this venue's figures may be before they are shown as old (b2 change 6): each venue declares its own. A venue
+   * that declares none has its figures refused (`venueFigure` throws), never given a silent default.
+   */
+  readonly figureStaleAfterMs?: number;
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */
@@ -832,6 +861,12 @@ export interface UserVenue {
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
+  /**
+   * The venue's own builder-fee totals for `builder` (OWNER 288 change 1e), or not known: a venue that publishes none,
+   * or a figure whose meaning is not settled yet, answers `{ known: false }`, never a zero. Absent on an adapter that
+   * does not read them; the recon then reads the venue's totals as not known.
+   */
+  builderTotals?(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
   /**
    * The account's leverage setting on `symbol`, or `null` when none is set

@@ -96,6 +96,33 @@ describe('the TEST provider client', () => {
     expect(await refused.signMessage('w1', 'm')).toEqual({ ok: false, failure: 'refused' });
   });
 
+  it('J-dex-protocol-08 #9 an export the provider already gave out fails spent, before any passkey prompt or with no key', async () => {
+    let prompts = 0;
+    const assert = async () => {
+      prompts += 1;
+      return { ok: true as const, data: ASSERTION };
+    };
+    const spent = { status: 410, body: { error: 'export_spent', exportedAt: '2026-11-10T00:00:00.000Z' } };
+    const atChallenge = testProviderClient({ post: async () => spent, assert });
+    expect(await atChallenge.exportKey('w1')).toEqual({ ok: false, failure: 'spent' });
+    expect(prompts).toBe(0);
+    // A second tab's challenge issued before the first export: the passkey answers and the provider still gives no key.
+    const atExport = testProviderClient({
+      post: async (path) => (path === 'challenge' ? { status: 200, body: { challenge: 'Y2g', allowCredentials: [] } } : spent),
+      assert,
+    });
+    expect(await atExport.exportKey('w1')).toEqual({ ok: false, failure: 'spent' });
+    // A 410 that is not the provider's spent answer stays a plain refusal.
+    const other = testProviderClient({ post: async () => ({ status: 410, body: { error: 'gone' } }), assert });
+    expect(await other.exportKey('w1')).toEqual({ ok: false, failure: 'refused' });
+    expect(clientRefusal('spent', TEST, t)).toEqual({
+      variant: 'refused',
+      title: 'This key was already exported',
+      body: 'TEST wallet provider shows your key only once, and it was already shown. No key was shown or sent this time.',
+      reference: 'wallet.export_spent',
+    });
+  });
+
   it('a recovery passkey is made on this device and approved with the bound passkey', async () => {
     const calls: Array<[string, unknown]> = [];
     const client = testProviderClient({
