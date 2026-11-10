@@ -77,7 +77,8 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
     const rows = list.locator('tbody > tr');
     // Newest first: the PDF, then the image. Each row's own Status cell holds that document's status: the image's
     // verification is pending, and the PDF is attached to none.
-    const headers = (await list.locator('thead th').allInnerTexts()).map((h) => h.trim());
+    // Read as written (textContent): the headers are drawn in capitals by the page's style only.
+    const headers = (await list.locator('thead th').allTextContents()).map((h) => h.trim());
     const typeAt = headers.indexOf('Type');
     const statusAt = headers.indexOf('Status');
     expect(typeAt, `a Type column among ${headers.join(', ')}`).toBeGreaterThanOrEqual(0);

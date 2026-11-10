@@ -331,11 +331,14 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
   for (const i of [0, 1, 2, 3]) await expect(cell(page, i)).toBeVisible();
   // The next layout, each press: from the grid round the whole list (single, two across, two down) and back to the grid.
+  // A new layout draws its charts afresh, so each press is made on a chart in focus, as the keys need.
   for (const next of ['single', 'two-across', 'two-down', 'grid']) {
+    await canvasOf(page, 0).focus();
     await page.keyboard.press('Alt+G');
     await expect(page.getByTestId('cg-area')).toHaveAttribute('data-layout', next);
     await expect(page.getByRole('combobox', { name: /^Layout/ })).toHaveValue(next);
   }
+  await canvasOf(page, 0).focus();
   await page.keyboard.press('Alt+G');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-layout', 'single');
   // ? opens the list again.

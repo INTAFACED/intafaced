@@ -248,7 +248,16 @@ test(`${J} #1 the bell shows the unread count (capped at 99+) and a popover of r
 
   // Read again on page change: everything is marked read behind the page's back, then the person moves to another page
   // inside the app. The count is asked for again at once (long before the next timed read) and the badge goes.
-  expect((await session.post('/api/notify/trpc/notify.markAllRead', {})).status).toBe(200);
+  // Marked until svc-notify itself holds nothing unread, so a notice that lands just after (the sign-in's own) is read too.
+  await expect
+    .poll(
+      async () => {
+        expect((await session.post('/api/notify/trpc/notify.markAllRead', {})).status).toBe(200);
+        return (await told(session)).unread;
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(0);
   await expect(bell(page).getByTestId('tb-badge')).toHaveText('99+');
   await bell(page).click();
   const before = reads.length;

@@ -119,10 +119,12 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
 
   // svc-trade down: the trade tab's read refuses as unavailable, and every other tab (money, pay, cards, documents and
   // tickets) keeps the state it had before, so only the trade tab refuses.
-  /** A tab's whole state: each read's state, and its panel's words with read times left out. */
+  /** A tab's whole state: each read's state, and its panel's words with the moments of reading left out. */
   const tabSnapshot = async (tab) => {
     const reads = await tabStates(page, tab);
-    const words = (await page.getByTestId(`customer-panel-${tab}`).innerText()).replace(/As of [^\n]*/g, '');
+    const words = (await page.getByTestId(`customer-panel-${tab}`).innerText())
+      .replace(/As of [^\n]*/g, '')
+      .replace(/as read at \d{1,2} \w{3} \d{4}, \d{2}:\d{2}:\d{2} UTC/g, 'as read at <time>');
     return { reads, words };
   };
   const before = {
