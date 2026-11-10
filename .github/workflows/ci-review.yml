@@ -39,16 +39,14 @@ jobs:
       github.event.pull_request.base.ref == 'main' &&
       (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-24.04
-    # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB, and the seal
-    # re-run below waits up to 4 minutes for a running seal.
+    # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB.
     timeout-minutes: 30
     environment: ci-review
     env:
       APP_KEY_SET: ${{ secrets.INTAFACED_APP_KEY != '' }} # true or false only; the key itself is read by one step
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
-      checks: read # find the seal's check run on the head
-      actions: write # re-run a red seal once the review passes; read this run's tree index
+      actions: read # read this run's tree index
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -180,18 +178,6 @@ jobs:
         if: ${{ !cancelled() && steps.review.outcome == 'success' }}
         run: node tooling/ci/test-judge.mjs judge "$RUNNER_TEMP/review/tests"
 
-      # Best effort, after the verdicts, once either part passed: the seal counts a pass only in a job that concluded
-      # success or failed only in its other verdict step (review-marker.mjs), so this step's own failure must not fail
-      # the job. (Failure it prevents: a review that finishes while the seal is already polling waits here up to 4
-      # minutes for the seal, which waits for this job; the step threw, the job ended failure, and the PASS was lost
-      # until a fresh review. Found by /code-review on #7132, finding 1.)
-      - name: Re-run a red seal on this head
-        if: ${{ !cancelled() && (steps.verdict.outcome == 'success' || steps.tests.outcome == 'success') }}
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node tooling/ci/ci-review.mjs rerun-seal
-
   # The proof read, a check on the pull request that blocks nothing (project-state OWNER.md items 251 (3) and 250 (2);
   # OWNER 257: nothing new may block a merge). A job of its own after the review, so the review job the seal reads
   # (REVIEW_JOB) neither waits for it nor changes with it, and no required check reads it. For each step the title
@@ -303,3 +289,34 @@ jobs:
             ${{ runner.temp }}/read/read-second.json
           if-no-files-found: ignore
           overwrite: false
+
+  # The CI review ends here: whatever its verdict, the seal reads it (review-marker.mjs).
+  # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
+  # review, and the journeys run the change needs (journey-seal.mjs --recheck, START_JOB). It needs every other job
+  # here, the proof read included, so the seal reads this run as finished while only this job is going (settledRun). It checks out and runs the
+  # default branch's script, never the pull request's code. It replaced journey-seal-recheck.yml, a workflow_run
+  # workflow that was a run of its own on every finished input, whether it did anything or not
+  # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
+  seal-start:
+    name: Start the seal
+    needs: [review, read]
+    if: ${{ !cancelled() && needs.review.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
+    permissions:
+      contents: read
+      actions: write # start or re-run merge-seal.yml's seal on this head through the Actions API
+      pull-requests: read # the pull requests on the head, their titles and changed files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Start the seal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          FINISHED: CI review
+        run: node tooling/ci/journey-seal.mjs --recheck
