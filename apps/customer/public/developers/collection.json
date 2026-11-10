@@ -1366,6 +1366,38 @@
           }
         },
         {
+          "name": "venueSession",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/session", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "session"] }
+          }
+        },
+        {
+          "name": "venueSessionStart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/session/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "session", "start"]
+            }
+          }
+        },
+        {
+          "name": "venueSessionEnd",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/session/end",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "session", "end"]
+            }
+          }
+        },
+        {
           "name": "fetchBalance",
           "request": {
             "method": "GET",

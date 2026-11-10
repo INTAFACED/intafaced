@@ -438,6 +438,19 @@ describe('TEST venue simulator: switches and labels', () => {
     expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC').free).toBe(a('1000'));
   });
 
+  it('unlistPerpetuals leaves every perpetual out of the market list, and back when it is off', async () => {
+    const w = world();
+    const kinds = async () => (await w.sim.markets(null)).value.map((m) => m.kind);
+    const before = await kinds();
+    expect(before).toContain('perpetual');
+    w.sim.switches.unlistPerpetuals = true;
+    const unlisted = await kinds();
+    expect(unlisted).not.toContain('perpetual');
+    expect(unlisted).toEqual(before.filter((k) => k !== 'perpetual'));
+    w.sim.switches.unlistPerpetuals = false;
+    expect(await kinds()).toEqual(before);
+  });
+
   it('an unpublished fee is reported as not known, never as 0', async () => {
     const sim = new TestVenueSimulator({ clock: () => new Date(0), markets: [{ ...SPOT, takerFeeBps: { known: false } }] });
     expect((await sim.markets(null)).value[0]!.takerFeeBps).toEqual({ known: false });
