@@ -6,8 +6,8 @@ import type { FleetAction } from './model';
 
 /**
  * The agent fleet desk's hops (AG-registry-01, AG-control-02), always as the signed-in founder through svc-edge:
- * svc-agents reads the registry and runs each switch, writing its own audit row; identity names the accounts the page
- * shows (owners, publishers and the operators who set a switch) by handle, in one audited lookup per read. Nothing is
+ * svc-agents reads the registry and its audit log and runs each switch, writing its own audit row; identity names the
+ * accounts the page shows (owners, publishers and the operators who set a switch or wrote an audit row) by handle, in one audited lookup per read. Nothing is
  * cached or kept here.
  */
 
@@ -41,6 +41,21 @@ const parseRegistry = (raw: unknown): Json | null =>
     : null;
 const parseExport = (raw: unknown): Json | null =>
   isObject(raw) && isString(raw.csv) && isInt(raw.rows) && isInt(raw.auditRows) ? raw : null;
+const isAuditRow = (v: unknown): boolean =>
+  isObject(v) &&
+  isString(v.id) &&
+  isString(v.at) &&
+  isString(v.operatorId) &&
+  isString(v.action) &&
+  nullableString(v.agentRef) &&
+  nullableString(v.kind) &&
+  nullableString(v.reason) &&
+  isObject(v.filter) &&
+  Object.values(v.filter).every(isString) &&
+  (v.rowCount === null || isInt(v.rowCount)) &&
+  isString(v.requestId);
+const parseAudit = (raw: unknown): Json | null =>
+  isObject(raw) && Array.isArray(raw.rows) && raw.rows.every(isAuditRow) && isInt(raw.limit) ? raw : null;
 const parseAny = (raw: unknown): Json | null => (isObject(raw) ? raw : null);
 const parseHandles = (raw: unknown): { id: string; handle: string }[] | null =>
   isObject(raw) && Array.isArray(raw.rows) && raw.rows.every((r) => isObject(r) && isString(r.id) && isString(r.handle))
@@ -54,14 +69,23 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Identity takes at most this many ids in one lookup. */
 const HANDLES_CAP = 200;
 
-/** The handles of the accounts a registry page names. An id identity does not answer for stays an id on the page. */
-async function handlesFor(ctx: FounderCallContext, rows: readonly Json[]): Promise<{ handles: Record<string, string>; unread: boolean }> {
-  const ids = new Set<string>();
+/** The account ids a registry page names: owners, publishers and the operators who set or lifted a switch. */
+function registryIds(rows: readonly Json[]): unknown[] {
+  const ids: unknown[] = [];
   for (const row of rows) {
-    for (const id of [row.ownerId, row.publisherId]) if (isString(id) && UUID.test(id)) ids.add(id.toLowerCase());
-    for (const sw of [row.quarantine, row.kindSwitch])
-      if (isObject(sw)) for (const id of [sw.setBy, sw.restoreRequestedBy]) if (isString(id) && UUID.test(id)) ids.add(id.toLowerCase());
+    ids.push(row.ownerId, row.publisherId);
+    for (const sw of [row.quarantine, row.kindSwitch]) if (isObject(sw)) ids.push(sw.setBy, sw.restoreRequestedBy);
   }
+  return ids;
+}
+
+/** The handles of the accounts a page names. An id identity does not answer for stays an id on the page. */
+async function handlesFor(
+  ctx: FounderCallContext,
+  named: readonly unknown[],
+): Promise<{ handles: Record<string, string>; unread: boolean }> {
+  const ids = new Set<string>();
+  for (const id of named) if (isString(id) && UUID.test(id)) ids.add(id.toLowerCase());
   const all = [...ids];
   const handles: Record<string, string> = {};
   for (let at = 0; at < all.length; at += HANDLES_CAP) {
@@ -90,8 +114,18 @@ export async function runFleet(ctx: FounderCallContext, action: FleetAction): Pr
     case 'registry': {
       const result = await founderCall(ctx, 'agents', 'fleet.registry', 'GET', filterOf(action), parseRegistry);
       if (result.kind !== 'ok') return refusalOf(result);
-      const { handles, unread } = await handlesFor(ctx, result.data.rows as Json[]);
+      const { handles, unread } = await handlesFor(ctx, registryIds(result.data.rows as Json[]));
       return { kind: 'ok', data: { ...result.data, handles, handlesUnread: unread, me: ctx.session.userId.toLowerCase() } };
+    }
+    case 'audit': {
+      const result = await founderCall(ctx, 'agents', 'fleet.audit', 'GET', {}, parseAudit);
+      if (result.kind !== 'ok') return refusalOf(result);
+      const rows = result.data.rows as Json[];
+      const { handles, unread } = await handlesFor(
+        ctx,
+        rows.map((row) => row.operatorId),
+      );
+      return { kind: 'ok', data: { ...result.data, handles, handlesUnread: unread } };
     }
     case 'export': {
       const result = await founderCall(

@@ -3,7 +3,7 @@ import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Field, Page, Panel, Tabs } from '../../../shared/ui';
+import { Button, EmptyState, Field, Page, Panel, Tabs } from '../../../shared/ui';
 import { createProtocolApi } from '../api';
 import { networkLabel, type ProtocolSnapshot } from '../blockers';
 import { protocolCopy } from '../copy';
@@ -21,16 +21,13 @@ import { ReceivePanel } from './ReceivePanel';
 import { SafetyPanel } from './SafetyPanel';
 import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
+import { SessionKeysPanel } from './SessionKeysPanel';
 import { WalletGroupPanel } from './WalletGroupPanel';
 import { WALLET_SECTIONS, type WalletSection } from '../routes';
 import { useWallet } from './WalletProvider';
 
 const SECTIONS = Object.keys(WALLET_SECTIONS) as WalletSection[];
 type Section = WalletSection;
-/** The sections that show a table of what the wallet holds or did; the others are their own panels. */
-const HEADERS: Partial<Record<Section, readonly string[]>> = {
-  sessionKeys: ['hdr_name', 'hdr_address', 'hdr_status'],
-};
 
 /** The remote-connect relay project id is an owner setting. Blank hides the QR path and shows owner.decision. */
 const relayProjectId: string = ((import.meta.env.VITE_WALLET_RELAY_PROJECT_ID as string | undefined) ?? '').trim();
@@ -150,7 +147,6 @@ export function WalletRoom({
     </>
   );
 
-  const headers = HEADERS[section];
   const body =
     section === 'overview' ? (
       overview
@@ -168,6 +164,8 @@ export function WalletRoom({
       <AccountsPanel />
     ) : section === 'safety' ? (
       <SafetyPanel />
+    ) : section === 'sessionKeys' ? (
+      <SessionKeysPanel />
     ) : section === 'addressBook' ? (
       groupId === undefined ? (
         <AddressBookPanel />
@@ -181,18 +179,6 @@ export function WalletRoom({
             <ApprovalsPanel />
             <PermitForm />
           </>
-        )}
-        {headers && (
-          <Panel title={t(`section_${section}`)}>
-            {wallet.status !== 'connected' && <p className="muted">{t('needsWallet')}</p>}
-            <DataTable label={t(`section_${section}`)} headers={headers.map((key) => t(key as 'hdr_time'))}>
-              <tr>
-                <td colSpan={headers.length}>
-                  <EmptyState title={t(`empty_${section}` as 'empty_activity')} />
-                </td>
-              </tr>
-            </DataTable>
-          </Panel>
         )}
       </>
     );
