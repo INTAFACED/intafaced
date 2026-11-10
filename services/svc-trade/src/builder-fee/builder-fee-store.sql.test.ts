@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import type { PreparedVenueAction } from '@intafaced/venue-contracts';
+import type { PreparedVenueAction, UserVenueAccount } from '@intafaced/venue-contracts';
 import { SqlPreparedActionStore } from '../venue/prepared-action-store.js';
 import { BUILDER_FEE_READ_OVERLAP_MS, SqlBuilderFeeStore } from './builder-fee-store.js';
 
@@ -59,7 +59,7 @@ describe('SqlBuilderFeeStore on Postgres (trade.venue_builder_fees)', () => {
     await db?.drop();
   }, 30_000);
 
-  const account = { venueId: 'test-venue-sim', owner: OWNER, subAccount: null };
+  const account: UserVenueAccount = { venueId: 'test-venue-sim', owner: OWNER, subAccount: null };
   const fee = (fillId: string, at: string, status: 'posted' | 'refused' | 'not_our_order', acct = account) => ({
     venueId: 'test-venue-sim',
     fillId,

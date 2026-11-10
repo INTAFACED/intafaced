@@ -33,14 +33,13 @@ const prepared = (venueClientOrderId: string, builderFee: boolean): PreparedVenu
 describe('InMemoryPreparedActionStore.sentBuilderFeeOrders', () => {
   it('names signed orders with our fee for the account in any letter case, and nothing else', async () => {
     const store = new InMemoryPreparedActionStore();
-    const at = new Date('2026-11-10T00:00:00.000Z');
     for (const [id, fee, sign] of [
       ['0x01', true, true],
       ['0x02', true, false],
       ['0x03', false, true],
     ] as const) {
-      await store.insertOnce(USER, `order:${USER}:${id}`, prepared(id, fee), at);
-      if (sign) await store.signOnce(USER, `order:${USER}:${id}`, { digest: `0xdigest${id}`, signature: '0xsig', signedBy: OWNER }, at);
+      await store.insertOnce(USER, `order:${USER}:${id}`, prepared(id, fee));
+      if (sign) await store.signOnce(USER, `order:${USER}:${id}`, { digest: `0xdigest${id}`, signature: '0xsig', signedBy: OWNER });
     }
     const ids = ['0x01', '0x02', '0x03', '0x04'];
     for (const owner of [OWNER, OWNER.toLowerCase(), OWNER.toUpperCase().replace('0X', '0x')]) {
