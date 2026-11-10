@@ -221,7 +221,9 @@ test.beforeAll(async ({ browser }) => {
 test(`${J} #1 opens Assets: the wallet's assets read from the chain and the venue account's read from the venue, each with an as-of time, grouped by where they sit, free and locked apart, and no INTAFACED balance`, async ({
   page,
 }) => {
-  const { resting, ledgerStart } = state();
+  const { resting, ledgerStart, owner: who } = state();
+  // The venue's own clock before Assets opens: every venue read the page shows is stamped by the venue after this.
+  const venueBefore = Date.parse((await venueRecord(who, '/balances')).asOf);
   const { sources, owner } = await openAssets(page, {
     via: async () => {
       await page.goto('/');
@@ -250,8 +252,13 @@ test(`${J} #1 opens Assets: the wallet's assets read from the chain and the venu
   const venueSection = page.getByTestId('source-venue');
   await expect(venueSection).toHaveAttribute('data-source', 'venue');
   await expect(venueSection.getByTestId('source-venue-test')).toHaveText('TEST');
-  await expect(venueSection.getByTestId('source-as-of')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
   const { row, venue } = await venueRowAgrees(page, owner, 'USDC');
+  // The as-of shown is the venue's own stamp on a read the page made: after the venue's clock before Assets opened, and
+  // no later than the venue's clock now.
+  const shownAsOf = Date.parse(await venueSection.getByTestId('source-as-of').getAttribute('datetime'));
+  const venueNow = Date.parse((await venueRecord(owner, '/balances')).asOf);
+  expect(shownAsOf).toBeGreaterThanOrEqual(venueBefore);
+  expect(shownAsOf).toBeLessThanOrEqual(venueNow);
   expect(sameDecimal(venue.total, START_USDC)).toBe(true);
   const [order] = await openOrders(owner);
   expect(order.venueClientOrderId).toBe(resting);
