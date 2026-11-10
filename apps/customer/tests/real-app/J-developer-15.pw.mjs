@@ -158,13 +158,25 @@ test(`${J} #2 an organisation key without an account id is refused; a blank sub-
   // With the owner's cap on keys per sub-account blank, one more key for sub-account B is refused, and none is made.
   restartWith('identity', 'LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP', false);
   try {
+    // The refusal is identity's own typed answer to the form's create, caught on the wire.
+    const capAnswer = page.waitForResponse(
+      (r) => r.url().includes('/api/identity/trpc/developerKeys.create') && r.request().method() === 'POST',
+    );
     await createOnForm({ name: 'sub-b-second', account: 'Sub B' });
+    const capRefused = await capAnswer;
+    const capBody = await capRefused.json();
+    expect(capRefused.status(), JSON.stringify(capBody).slice(0, 300)).toBe(412);
+    expect(capBody?.error?.data?.cause?.code).toBe('identity.portfolio_key_cap_unset');
     await expect(page.getByRole('alert')).toHaveText(
       'The number of keys a sub-account may hold is not set, so sub-account keys are refused. Nothing was created.',
     );
     await page.goto('/uc/safe/api-keys');
     await expect(keyRow('sub-b-reader')).toHaveCount(1);
     await expect(keyRow('sub-b-second')).toHaveCount(0);
+    // None is made: identity's own key list holds no such key.
+    const keysAfter = await me.get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`);
+    expect(keysAfter.status).toBe(200);
+    expect(keysAfter.body.result.data.keys.map((key) => key.name)).not.toContain('sub-b-second');
   } finally {
     restartWith('identity', 'LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP', true);
   }
