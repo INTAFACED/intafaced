@@ -22,6 +22,7 @@ import {
   type UserVenueTransfer,
   type UserVenueWithdrawal,
   type VenueIntent,
+  type VenueBook,
   type VenueOrderPreview,
   type VenueRefusal,
   type VenueSignature,
@@ -200,6 +201,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
     return this.read('/markets', { account });
+  }
+
+  book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    return this.read('/book', { symbol, depth });
   }
 
   preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {

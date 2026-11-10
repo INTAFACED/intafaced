@@ -50,7 +50,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-Done is defined by 450 journeys (2970 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 49 steps still need a capability no slice covers yet.
+Done is defined by 450 journeys (2977 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 49 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -61,12 +61,12 @@ Done is defined by 450 journeys (2970 steps) in `modules/<module>/acceptance/jou
 | derivatives    | 28       | 15      | 5       | 8       | 203   | 0                   |
 | wallet         | 23       | 4       | 12      | 7       | 123   | 12                  |
 | support-public | 22       | 1       | 15      | 6       | 171   | 14                  |
-| agents         | 21       | 4       | 9       | 8       | 134   | 3                   |
+| agents         | 21       | 4       | 9       | 8       | 138   | 3                   |
 | identity       | 21       | 7       | 9       | 5       | 134   | 2                   |
 | p2p            | 21       | 0       | 16      | 5       | 117   | 0                   |
 | pay            | 21       | 0       | 14      | 7       | 121   | 1                   |
 | campaigns      | 20       | 0       | 13      | 7       | 123   | 0                   |
-| cex-spot       | 20       | 9       | 7       | 4       | 169   | 0                   |
+| cex-spot       | 20       | 9       | 7       | 4       | 172   | 0                   |
 | ops-console    | 20       | 3       | 16      | 1       | 175   | 0                   |
 | charts-desk    | 19       | 3       | 8       | 8       | 120   | 0                   |
 | developer      | 18       | 2       | 11      | 5       | 116   | 0                   |

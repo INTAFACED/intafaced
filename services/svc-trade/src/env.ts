@@ -19,6 +19,8 @@ const schema = serviceEnvSchema
        * unless the raw APP_ENV is exactly dev or test (`refuseTestVenueOutsideTest`).
        */
       TRADE_USER_VENUE_URL: z.string().default(''),
+      // J-derivatives-28: more user-signed venues beside TRADE_USER_VENUE_URL, comma-separated; the ticket routes over all.
+      TRADE_USER_VENUE_URLS: z.string().default(''),
       /** Per call to the venue, milliseconds. A submit that times out is `definite: false` and is read back. */
       TRADE_USER_VENUE_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(5_000),
       /** Owner value: our builder address on the venue (lowercase 0x). Blank refuses orders `builder_fee_not_published`. */

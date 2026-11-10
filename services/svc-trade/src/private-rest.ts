@@ -98,6 +98,7 @@ import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
 import type { AgentAccounts } from './venue/agent-account.js';
 import type { UserVenueDoor } from './venue/user-venue-door.js';
+import type { UserVenueRouter } from './venue/venue-router.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -203,7 +204,7 @@ export interface PrivateRestDeps {
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
-  userVenue?: UserVenueDoor | null;
+  userVenue?: UserVenueRouter | null;
   /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
   agentAccounts?: AgentAccounts | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
