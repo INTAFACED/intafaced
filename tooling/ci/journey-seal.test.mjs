@@ -1833,6 +1833,9 @@ function startJobProblems(text, finished) {
   const needs = new Set((/\n    needs: \[([^\]]*)\]/.exec(`\n${job}`)?.[1] ?? '').split(',').map((x) => x.trim()));
   const missing = names.filter((n) => n !== 'seal-start' && !needs.has(n));
   if (missing.length) out.push(`does not need ${missing.join(', ')}, so the seal could read the run as going`);
+  // GitHub refuses a workflow whose job needs a job that does not exist, so the run never starts and nothing is proven.
+  const unknown = [...needs].filter((n) => n && !names.includes(n));
+  if (unknown.length) out.push(`needs ${unknown.join(', ')}, which is not a job here`);
   if (!/\n    if: \$\{\{ !cancelled\(\) && /.test(`\n${job}`)) out.push('runs for a cancelled run');
   if (!/ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n\s+persist-credentials: false/.test(job))
     out.push("does not check out the default branch's script");
@@ -1862,6 +1865,11 @@ test('#1574: each seal input ends with Start the seal, after every other job, fr
         startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs.split(', ').slice(1).join(', ')}]`), f).join(),
         /does not need/,
       );
+    // Planted: a job that is not in the workflow (a removed planner) fails.
+    assert.match(
+      startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs}, plan]`), f).join(),
+      /needs plan, which is not a job here/,
+    );
     assert.match(
       startJobProblems(
         text.replace(/(\n  seal-start:\n[\s\S]*?)ref: \$\{\{ github\.event\.repository\.default_branch \}\}/, '$1ref: ${{ github.sha }}'),

@@ -872,7 +872,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [touch, release, release-after-dispatch, plan, build, journeys, scoreboard]
+    needs: [touch, release, release-after-dispatch, build, journeys, scoreboard]
     if: ${{ !cancelled() && github.ref != 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
