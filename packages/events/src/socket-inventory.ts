@@ -155,6 +155,7 @@ export const EVENT_BUS_MATRIX = {
   copySkipped: { kind: 'live' },
   copyFailed: { kind: 'socket', socketClass: 'A' },
   copyStopped: { kind: 'live' },
+  venueDelistingScheduled: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;
