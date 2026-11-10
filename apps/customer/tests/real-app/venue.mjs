@@ -22,7 +22,7 @@ const SWITCH = 'LOCAL_STACK_USER_VENUE';
  * switches the door off on its way out, so the next file in the shard does not start with it on. A worker killed outright
  * (SIGKILL, out of memory) runs no handler, so that case is not covered.
  */
-export function venueForThisFile(test) {
+export function venueForThisFile(test, value = 'on') {
   let on = false;
   const offOnExit = () => {
     if (!on) return;
@@ -37,7 +37,8 @@ export function venueForThisFile(test) {
     test.setTimeout(240_000);
     on = true;
     process.once('exit', offOnExit);
-    restartWithSetting('trade', SWITCH, 'on');
+    // `on` is the one TEST venue; `two` adds the second (J-derivatives-28), started and stopped the same way.
+    restartWithSetting('trade', SWITCH, value);
   });
   test.afterAll(() => {
     test.setTimeout(240_000);
@@ -50,6 +51,19 @@ export function venueForThisFile(test) {
 /** One call to the TEST venue: its JSON answer and status. Amounts travel as decimal strings. */
 export async function testVenue(path, body) {
   const res = await fetch(`${TEST_VENUE}${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+/** The stack's second TEST venue (local-test-stack.mjs PORTS['test-venue-b']), on with LOCAL_STACK_USER_VENUE=two. */
+export const TEST_VENUE_B = 'http://127.0.0.1:14562';
+
+/** One call to either TEST venue by its base URL. */
+export async function testVenueAt(base, path, body) {
+  const res = await fetch(`${base}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
