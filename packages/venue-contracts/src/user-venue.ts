@@ -595,6 +595,12 @@ export interface AsOf<T> {
   readonly value: T;
   /** The venue's own timestamp for the record, or when we read it if the venue gives none. */
   readonly asOf: Date;
+  /**
+   * The venue's own time for the record, as the displayed-figure contract reads it (b2 change 6; held-figure.ts): `null`
+   * when the venue sent none (then `asOf` is only our read time). An adapter that leaves it out has not said, and its
+   * figures read "not known", never known at our read time.
+   */
+  readonly reportedAt?: Date | null;
 }
 
 /**
@@ -752,6 +758,11 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * (AGENTS.md floor 8). One field, so the two can never disagree.
    */
   readonly proofLevel: 'simulator' | 'partner-sandbox' | 'live';
+  /**
+   * How old this venue's figures may be before they are shown as old (b2 change 6): each venue declares its own. A venue
+   * that declares none has its figures refused (`venueFigure` throws), never given a silent default.
+   */
+  readonly figureStaleAfterMs?: number;
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */

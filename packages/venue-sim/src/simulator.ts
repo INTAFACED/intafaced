@@ -141,6 +141,12 @@ export interface SimMarketConfig {
   readonly oracle?: { readonly staleRule?: string };
 }
 
+/**
+ * TEST: how old the TEST venue says its figures may be before they are stale (b2 change 6). A real venue's adapter
+ * declares its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_VENUE_FIGURE_STALE_AFTER_MS = 60_000;
+
 export interface SimSwitches {
   venueDown: boolean;
   /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
@@ -257,6 +263,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       kind: 'external-dex',
       sequencedDepth: true,
       proofLevel: 'simulator',
+      figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -958,7 +965,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   private asOf<T>(value: T): AsOf<T> {
-    return { venueId: this.venue.id, value, asOf: this.clock() };
+    const at = this.clock();
+    // The venue's own clock is the time of every read it gives (b2 change 6).
+    return { venueId: this.venue.id, value, asOf: at, reportedAt: at };
   }
 
   private account(account: UserVenueAccount): AccountState {
