@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { assertScreeningConfigured, parseScreeningList, ScreeningListError, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import { logScreeningAtBoot } from './screening-boot-log.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 /**
  * Edge's screening boot line must carry key names, presence and counts only.
  *
@@ -91,9 +95,15 @@ describe('Edge screening boot log carries no secret value', () => {
   });
 
   it('unconfigured still warns plainly in dev and test', () => {
-    const { lines } = bootLog({ APP_ENV: 'test' });
+    const { lines } = bootLog({ APP_ENV: 'test', INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off' });
     expect(lines[0]).toMatchObject({ level: 40, configured: false, declaration: 'unset', blocked: 0, sourceSet: false });
     expect(String(lines[0]!.msg)).toContain('NOT CONFIGURED');
+  });
+
+  it("a test stack with no env list logs the owner's unsigned rows, marked unsigned", () => {
+    const { lines } = bootLog({ APP_ENV: 'test' });
+    expect(lines[0]).toMatchObject({ configured: true, declaration: 'listed', sourceSet: false });
+    expect(String(lines[0]!.msg)).toContain('UNSIGNED: dev/test only');
   });
 
   it('the boot refusal for a malformed list names entries by position, never by value', () => {

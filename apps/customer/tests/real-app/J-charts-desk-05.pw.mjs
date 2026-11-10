@@ -36,7 +36,29 @@ test.afterAll(async () => {
 });
 
 test(`${J} #1 opens the drawing toolbar and picks the trend line, then two clicks place it as bar times and decimal prices`, async () => {
-  await pick(page, 'Trend line');
+  // Tool groups: the drawing toolbar holds each group, by name, with its own tools, and the trend line is in Lines.
+  const toolbar = page.getByRole('toolbar', { name: 'Drawing tools' });
+  const groups = {
+    Cursors: ['Select', 'Dot cursor', 'Arrow cursor', 'Eraser'],
+    Lines: ['Horizontal line', 'Ray', 'Vertical line', 'Cross line', 'Trend line', 'Info line'],
+    'Channels and Fibonacci': ['Parallel channel', 'Pitchfork', 'Fib retracement', 'Fib extension'],
+    Gann: ['Gann fan', 'Gann box'],
+    Patterns: ['Pattern ABCD', 'Pattern XABCD'],
+    Positions: ['Long position', 'Short position'],
+    Measure: ['Measure'],
+    Shapes: ['Rectangle', 'Ellipse'],
+    Brush: ['Brush'],
+    Annotation: ['Text'],
+  };
+  for (const [name, tools] of Object.entries(groups)) {
+    const group = toolbar.getByRole('group', { name, exact: true });
+    await expect(group, `tool group ${name}`).toBeVisible();
+    await expect(group.getByRole('button')).toHaveText(tools);
+  }
+  const trendTool = toolbar.getByRole('group', { name: 'Lines', exact: true }).getByRole('button', { name: 'Trend line', exact: true });
+  await expect(trendTool).toHaveAttribute('aria-pressed', 'false');
+  await trendTool.click();
+  await expect(trendTool).toHaveAttribute('aria-pressed', 'true');
   // What the chart reads under each click: the bar's time and the price at that height.
   const trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
   // Each click, then what the chart reads at that same pixel (read after it, so both see the page as it was clicked).
@@ -137,9 +159,15 @@ test(`${J} #4 drags a line's middle handle, and both points move by the same bar
   expect(ta[0] - tb[0]).toBe(ta[1] - tb[1]);
   expect(ta[0] - tb[0]).not.toBe(0);
   expect((ta[0] - tb[0]) % (15 * 60_000)).toBe(0);
-  const deltaA = Number(after[0]) - Number(before[0]);
-  const deltaB = Number(after[1]) - Number(before[1]);
-  expect(deltaA).toBeCloseTo(deltaB, 2);
+  // Staying on the tick size: every moved price is written at the tick's places (two for BTC-USDT's 0.01 tick), so each
+  // is a whole number of ticks, and both points moved by the same whole number of ticks.
+  expect(after).toHaveLength(2);
+  before.forEach((price, i) => expect(price, `point ${i + 1} before the drag`).toMatch(/^\d+\.\d{2}$/));
+  after.forEach((price, i) => expect(price, `moved point ${i + 1}`).toMatch(/^\d+\.\d{2}$/));
+  const cents = (price) => BigInt(price.replace('.', ''));
+  const deltaA = cents(after[0]) - cents(before[0]);
+  const deltaB = cents(after[1]) - cents(before[1]);
+  expect(deltaA).toBe(deltaB);
 });
 
 test(`${J} #5 locks a drawing so it cannot move, and turns magnet on`, async () => {
