@@ -275,9 +275,14 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
   expect(answer.rows.find((r) => r.assetId === 'USDT')).toMatchObject({ endPriceUsd: '1', endValueUsd: fromUnits(now.USDT) });
 
   // What fell: TEST 0.0005 BTC sold on the desk for USDT. Over a range that starts just before the sale, BTC fell by
-  // exactly what the ledger lost of it and USDT rose by exactly what it gained.
-  const startAt = Date.now() - 1_000;
+  // exactly what the ledger lost of it and USDT rose by exactly what it gained. The bank starts a range at the edge of the
+  // ledger's five-minute bucket the start falls in, so the range starts on a fresh edge: nothing moves between that edge
+  // and the sale, and what was held there is what was held just before the sale.
+  test.setTimeout(600_000);
+  const BUCKET = 5 * 60_000;
+  const startAt = Math.ceil((Date.now() + 1_000) / BUCKET) * BUCKET;
   const before = await (await api(who)).balances();
+  await page.waitForTimeout(startAt - Date.now() + 2_000);
   await page.goto(deskPath('BTC/USDT'));
   const { bid } = await bestPrices('BTC/USDT');
   const priceDown = fromUnits(((toUnits(bid) * 99n) / 100n / 10n ** 16n) * 10n ** 16n);
