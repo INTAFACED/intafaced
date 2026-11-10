@@ -137,7 +137,7 @@ jobs:
     outputs:
       # A deferred run (main-first.mjs) runs nothing now: its report is empty, so the seal reads it as saying nothing.
       mode: ${{ steps.first.outputs.deferred == 'true' && 'none' || steps.touch.outputs.mode }}
-      target: ${{ steps.first.outputs.deferred != 'true' && steps.touch.outputs.target || '' }}
+      target: ${{ github.ref != 'refs/heads/main' && steps.first.outputs.deferred != 'true' && steps.touch.outputs.target || '' }}
       shards: ${{ steps.plan.outputs.shards }}
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
@@ -173,6 +173,13 @@ jobs:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
         run: |
+          # Main always runs the full suite (main's full run is the backstop, never narrowed): a push, a scheduled run or
+          # a manual run on main, whatever its journeys input, decides nothing here and keeps an empty target.
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            echo "main runs the full suite"
+            { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" != pull_request ]; then
             # A manual run's input reaches the outputs only as journey file names, so it can't write another output.
             if ! [[ "$JOURNEYS_TARGET" =~ ^[A-Za-z0-9._,\ -]*$ ]]; then
@@ -295,7 +302,7 @@ jobs:
         if: ${{ !cancelled() && env.PLANS == 'true' && steps.touch.outputs.mode != 'none' && steps.first.outputs.deferred != 'true' }}
         continue-on-error: true
         env:
-          JOURNEYS_TARGET: ${{ steps.touch.outputs.target }}
+          JOURNEYS_TARGET: ${{ github.ref != 'refs/heads/main' && steps.touch.outputs.target || '' }}
         run: |
           node --test tooling/scripts/journey-shards.test.mjs
           reports=()

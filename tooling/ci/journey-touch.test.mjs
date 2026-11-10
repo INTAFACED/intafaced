@@ -411,6 +411,63 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
   assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.touch\.outputs\.target \}\}/);
 });
 
+test('real-app-journeys.yml on main: the touch step decides nothing, so a push, a scheduled run or a dispatch with a journeys input keeps an empty target and the full suite', () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  // The touch step's own script, run as GitHub runs it.
+  const at = t.indexOf('\n        id: touch\n');
+  assert.ok(at > 0, 'the touch step');
+  const from = t.indexOf('\n        run: |\n', at) + '\n        run: |\n'.length;
+  const lines = [];
+  for (const l of t.slice(from).split('\n')) {
+    if (l !== '' && !l.startsWith('          ')) break;
+    lines.push(l.slice(10));
+  }
+  const script = lines.join('\n');
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  try {
+    const touch = (env) => {
+      const out = join(dir, `out-${Math.random().toString(36).slice(2)}`);
+      execFileSync('bash', ['-c', script], {
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, GITHUB_OUTPUT: out, RUNNER_TEMP: dir, ...env },
+      });
+      return Object.fromEntries(
+        readFileSync(out, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+      );
+    };
+    // Planted: the journeys input reaches the step on main (as if the workflow-level guard were lost).
+    for (const EVENT of ['push', 'schedule', 'workflow_dispatch'])
+      assert.deepEqual(
+        touch({ GITHUB_REF: 'refs/heads/main', EVENT, JOURNEYS_TARGET: 'j-wallet-01.pw.mjs' }),
+        { mode: 'run', target: '' },
+        EVENT,
+      );
+    // Off main a dispatch's input still targets its journeys.
+    assert.deepEqual(touch({ GITHUB_REF: 'refs/heads/x', EVENT: 'workflow_dispatch', JOURNEYS_TARGET: 'j-wallet-01.pw.mjs' }), {
+      mode: 'run',
+      target: 'j-wallet-01.pw.mjs',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // And every way a target leaves the touch job is empty on main: the workflow's input, the job's output and the plan's.
+  assert.match(
+    t,
+    /\n  JOURNEYS_TARGET: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.ref != 'refs\/heads\/main' && inputs\.journeys \|\| '' \}\}\n/,
+  );
+  assert.match(
+    t,
+    /\n {6}target: \$\{\{ github\.ref != 'refs\/heads\/main' && steps\.first\.outputs\.deferred != 'true' && steps\.touch\.outputs\.target \|\| '' \}\}\n/,
+  );
+  assert.match(
+    t,
+    /\n {6}- name: Plan\n(?: {8}[^\n]*\n)*? {10}JOURNEYS_TARGET: \$\{\{ github\.ref != 'refs\/heads\/main' && steps\.touch\.outputs\.target \|\| '' \}\}\n/,
+  );
+});
+
 test('an empty report (nothing to run) seals nothing and blocks nothing', async () => {
   const { readReport } = await import('./journey-verdict.mjs');
   const empty = readReport({ suites: [], errors: [], stats: { expected: 0, unexpected: 0 } });
