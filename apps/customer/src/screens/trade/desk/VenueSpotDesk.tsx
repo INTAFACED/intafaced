@@ -129,7 +129,12 @@ export function VenueSpotGate({
         : { status: 'loading' },
   );
   if (choice === 'today') return <>{fallback}</>;
-  if (choice === 'verify' && mode.status.available) return <VenueVerifyDesk status={mode.status} symbol={symbol} />;
+  if (choice === 'verify' && mode.status.available)
+    return (
+      <VenueFrame mode={mode}>
+        <VenueVerifyDesk status={mode.status} symbol={symbol} />
+      </VenueFrame>
+    );
   if (choice === 'loading') {
     return (
       <div data-testid="if-desk" className="if-desk" data-venue="on">
@@ -341,7 +346,6 @@ function VenueAccountPanel({
 }) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
-  const wallet = useWallet();
   const owner = useOwner();
   const clock = useClock();
   const rowOf = (asset: string) => balances?.value.find((b) => b.asset === asset) ?? null;
@@ -351,40 +355,7 @@ function VenueAccountPanel({
         {t('Venue account')} <TestMark test={status.test} />
       </h2>
       <p className="muted">{t('Venue account note')}</p>
-      {wallet.status === 'connected' && wallet.address ? (
-        <div>
-          <p>
-            {t('Connected')}:{' '}
-            <span className="numeric" data-testid="venue-wallet-address" title={wallet.address.toLowerCase()}>
-              {shortAddress(wallet.address.toLowerCase())}
-            </span>{' '}
-            <KitButton variant="secondary" onClick={wallet.disconnect}>
-              {v('Disconnect')}
-            </KitButton>
-          </p>
-          {wallet.guard && !wallet.guard.ok ? (
-            <p role="alert">
-              {v('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
-              <KitButton onClick={() => void wallet.switchNetwork()}>{v('Switch network')}</KitButton>
-            </p>
-          ) : null}
-        </div>
-      ) : wallet.wallets.length === 0 ? (
-        <p className="muted">{v('No wallet')}</p>
-      ) : (
-        <p>
-          {wallet.wallets.map((entry) => (
-            <KitButton key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
-              {v('Connect wallet', { name: entry.info.name })}
-            </KitButton>
-          ))}
-        </p>
-      )}
-      {wallet.problem ? (
-        <p className="failure" role="alert">
-          {wallet.problem}
-        </p>
-      ) : null}
+      <VenueWalletRow />
       {owner && balances
         ? [market.quoteAsset, market.baseAsset].map((asset) => {
             const row = rowOf(asset);
@@ -424,6 +395,51 @@ function VenueAccountPanel({
       </p>
       {withdrawal}
     </section>
+  );
+}
+
+/** The wallet that owns the venue account: Connect until connected, then its short address, Disconnect and the network guard. */
+function VenueWalletRow() {
+  const { t } = spotVenueCopy.useCopy();
+  const v = venueCopy.useCopy().t;
+  const wallet = useWallet();
+  return (
+    <>
+      {wallet.status === 'connected' && wallet.address ? (
+        <div>
+          <p>
+            {t('Connected')}:{' '}
+            <span className="numeric" data-testid="venue-wallet-address" title={wallet.address.toLowerCase()}>
+              {shortAddress(wallet.address.toLowerCase())}
+            </span>{' '}
+            <KitButton variant="secondary" onClick={wallet.disconnect}>
+              {v('Disconnect')}
+            </KitButton>
+          </p>
+          {wallet.guard && !wallet.guard.ok ? (
+            <p role="alert">
+              {v('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
+              <KitButton onClick={() => void wallet.switchNetwork()}>{v('Switch network')}</KitButton>
+            </p>
+          ) : null}
+        </div>
+      ) : wallet.wallets.length === 0 ? (
+        <p className="muted">{v('No wallet')}</p>
+      ) : (
+        <p>
+          {wallet.wallets.map((entry) => (
+            <KitButton key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
+              {v('Connect wallet', { name: entry.info.name })}
+            </KitButton>
+          ))}
+        </p>
+      )}
+      {wallet.problem ? (
+        <p className="failure" role="alert">
+          {wallet.problem}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -716,8 +732,9 @@ function VerifyNote() {
 /**
  * The venue spot desk for a person not verified for trading. The trade jurisdiction refuses them the venue's market list
  * and best prices, so the desk shows its layout and every control without a venue figure (fees read Not known): the
- * order types, the buy and sell forms with Price and Amount, and each order button off with the way to Verify. Nothing
- * here reads or sends to the venue.
+ * venue account panel with the wallet's Connect (so a closed Buy is the refusal, never a missing wallet) and Deposit and
+ * Withdraw off, the order types, the buy and sell forms with Price and Amount, and each order button off with the way to
+ * Verify. Nothing here reads or sends to the venue; the wallet only connects.
  */
 export function VenueVerifyDesk({ status, symbol }: { status: VenueUp; symbol: string }) {
   const { t } = spotVenueCopy.useCopy();
@@ -734,6 +751,19 @@ export function VenueVerifyDesk({ status, symbol }: { status: VenueUp; symbol: s
   return (
     <div data-testid="if-desk" className="if-desk" data-market={symbol} data-venue="on" data-access="verify">
       <VenueHeader status={status} title={t('Spot on venue', { symbol })} feeLine={feeLine} />
+      <section className="dk-panel form-stack" aria-label={t('Venue account')} data-testid="venue-account" data-access="verify">
+        <h2 className="dk-tab-title">
+          {t('Venue account')} <TestMark test={status.test} />
+        </h2>
+        <p className="muted">{t('Venue account verify')}</p>
+        <VenueWalletRow />
+        <p>
+          <KitButton disabled>{t('Deposit')}</KitButton>{' '}
+          <KitButton variant="secondary" disabled>
+            {t('Withdraw')}
+          </KitButton>
+        </p>
+      </section>
       <Tabs value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="dk-panel dk-order">
         <div className="dk-order-head">
           <TabsList className="dk-tabs" aria-label={t('Order type')}>

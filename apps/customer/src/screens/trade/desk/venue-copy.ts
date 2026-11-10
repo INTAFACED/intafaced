@@ -30,6 +30,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   // The venue account panel
   'Venue account': 'Your venue account',
   'Venue account note': 'Your own account on the venue. These are the venue’s figures; INTAFACED holds none of it.',
+  'Venue account verify': 'Your own account on the venue. Verify for trading to see the venue’s figures, deposit and withdraw.',
   Free: 'Free',
   Used: 'Used',
   'As of': 'As of',

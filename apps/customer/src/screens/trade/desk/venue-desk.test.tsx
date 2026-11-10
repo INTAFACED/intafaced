@@ -275,5 +275,12 @@ describe('a person not verified for trading', () => {
     // The venue's fees were not read: they read Not known, never a figure.
     expect(shown).toContain('maker not known, taker not known');
     expect(shown).not.toMatch(/\d+(\.\d+)? bps/);
+    // The venue account panel is there, so a closed Buy is the refusal and never a missing wallet: the wallet row, no
+    // venue figure, and Deposit and Withdraw off.
+    expect(html).toMatch(/<section[^>]*aria-label="Your venue account"[^>]*data-access="verify"/);
+    expect(shown).toContain('Verify for trading to see the venue’s figures');
+    expect(html).not.toContain('data-cell="free"');
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Deposit<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Withdraw<\/button>/);
   });
 });
