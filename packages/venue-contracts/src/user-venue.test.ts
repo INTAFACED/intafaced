@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseAmount } from '@intafaced/ledger-client/money';
 import {
   OWNER_ONLY_INTENTS,
   VenueRefusalError,
@@ -105,8 +106,53 @@ describe('assertSignerMaySign', () => {
     },
   );
 
-  it('keeps withdrawal and every approval owner-only', () => {
-    expect([...OWNER_ONLY_INTENTS].sort()).toEqual(['approve_agent', 'approve_builder_fee', 'revoke_agent', 'withdraw']);
+  it('keeps withdrawal, every approval and every sub-account action owner-only', () => {
+    expect([...OWNER_ONLY_INTENTS].sort()).toEqual([
+      'approve_agent',
+      'approve_builder_fee',
+      'create_sub_account',
+      'revoke_agent',
+      'sub_account_transfer',
+      'withdraw',
+    ]);
+  });
+
+  const move = (extra: Partial<Extract<VenueIntent, { kind: 'sub_account_transfer' }>> = {}): VenueIntent => ({
+    kind: 'sub_account_transfer',
+    subAccount: '0xsub',
+    direction: 'into_sub_account',
+    asset: 'USDC',
+    amount: parseAmount('150'),
+    moveKey: 'agent:move:m-1',
+    ...extra,
+  });
+  const create: VenueIntent = { kind: 'create_sub_account', name: 'TEST agent', subAccountKey: 'agent:account:a-1' };
+
+  it('refuses an agent key a sub-account create or move, on any account', () => {
+    expect(refusalCode(() => assertSignerMaySign(account, agent, create))).toBe('agent_not_permitted');
+    expect(refusalCode(() => assertSignerMaySign(account, agent, move()))).toBe('agent_not_permitted');
+    const sub = { ...account, subAccount: '0xsub' };
+    expect(refusalCode(() => assertSignerMaySign(sub, agent, move({ direction: 'out_of_sub_account' })))).toBe('agent_not_permitted');
+  });
+
+  it('signs a sub-account create or move on the main account only', () => {
+    const sub = { ...account, subAccount: '0xsub' };
+    expect(refusalCode(() => assertSignerMaySign(sub, owner, create))).toBe('not_offered');
+    expect(refusalCode(() => assertSignerMaySign(sub, owner, move()))).toBe('not_offered');
+    expect(() => assertSignerMaySign(account, owner, create)).not.toThrow();
+    expect(() => assertSignerMaySign(account, owner, move())).not.toThrow();
+  });
+
+  it('refuses a zero or negative move, and a key that is not a business key', () => {
+    expect(refusalCode(() => assertSignerMaySign(account, owner, move({ amount: parseAmount('0') })))).toBe('venue_rejected');
+    expect(refusalCode(() => assertSignerMaySign(account, owner, move({ amount: parseAmount('-1') })))).toBe('venue_rejected');
+    expect(refusalCode(() => assertSignerMaySign(account, owner, move({ moveKey: '6f1c2c6e-0b7a-4c39-9f0e-6f2f3f3c9a11' })))).toBe(
+      'invalid_client_order_key',
+    );
+    expect(refusalCode(() => assertSignerMaySign(account, owner, move({ moveKey: ' ' })))).toBe('invalid_client_order_key');
+    expect(refusalCode(() => assertSignerMaySign(account, owner, { ...create, subAccountKey: 'nokind' } as VenueIntent))).toBe(
+      'invalid_client_order_key',
+    );
   });
 });
 

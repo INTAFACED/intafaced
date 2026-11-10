@@ -244,3 +244,64 @@ test('its state survives a restart through its own file, and unanswered challeng
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('signs a venue action’s EIP-712 typed data only after a passkey assertion for that exact payload (J-wallet-22 #8)', async () => {
+  const { provider, pk, wallet } = setup();
+  const req = createRequire(new URL('../../services/svc-protocol/package.json', import.meta.url));
+  const { recoverTypedDataAddress } = await import(pathToFileURL(req.resolve('viem')).href);
+  const typedData = {
+    domain: { name: 'INTAFACED TEST venue simulator', version: '1', chainId: 1337000 },
+    types: {
+      Action: [
+        { name: 'kind', type: 'string' },
+        { name: 'payload', type: 'string' },
+      ],
+    },
+    primaryType: 'Action',
+    message: { kind: 'approve_agent', payload: '{"agentAddress":"0x00000000000000000000000000000000000000a1"}' },
+  };
+  const ch = provider.challenge({ walletId: wallet.walletId, action: 'signtyped', payload: { typedData } });
+  assert.equal(ch.status, 200);
+  const signed = await provider.act('signtyped', {
+    walletId: wallet.walletId,
+    payload: { typedData },
+    challenge: ch.body.challenge,
+    assertion: assertion(pk, ch.body.challenge),
+  });
+  assert.equal(signed.status, 200);
+  assert.equal(
+    (await recoverTypedDataAddress({ ...typedData, signature: signed.body.signature })).toLowerCase(),
+    wallet.address.toLowerCase(),
+  );
+
+  // Planted faults: an assertion for one payload never signs another, and a message challenge never signs typed data.
+  const other = {
+    ...typedData,
+    message: { ...typedData.message, payload: '{"agentAddress":"0x00000000000000000000000000000000000000b2"}' },
+  };
+  const ch2 = provider.challenge({ walletId: wallet.walletId, action: 'signtyped', payload: { typedData } });
+  const swapped = await provider.act('signtyped', {
+    walletId: wallet.walletId,
+    payload: { typedData: other },
+    challenge: ch2.body.challenge,
+    assertion: assertion(pk, ch2.body.challenge),
+  });
+  assert.equal(swapped.body.error, 'challenge_invalid');
+  const ch3 = provider.challenge({ walletId: wallet.walletId, action: 'sign', payload: { typedData } });
+  const crossed = await provider.act('signtyped', {
+    walletId: wallet.walletId,
+    payload: { typedData },
+    challenge: ch3.body.challenge,
+    assertion: assertion(pk, ch3.body.challenge),
+  });
+  assert.equal(crossed.body.error, 'challenge_invalid');
+  // Without the passkey's own check (user verified), nothing is signed.
+  const ch4 = provider.challenge({ walletId: wallet.walletId, action: 'signtyped', payload: { typedData } });
+  const unverified = await provider.act('signtyped', {
+    walletId: wallet.walletId,
+    payload: { typedData },
+    challenge: ch4.body.challenge,
+    assertion: assertion(pk, ch4.body.challenge, { flags: 0x01 }),
+  });
+  assert.equal(unverified.status, 403);
+});
