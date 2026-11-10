@@ -465,11 +465,24 @@ test(`${J} #7 the API explorer with a live key builds a write: a typed refusal; 
     }
 
     // A live key: the write is refused with the typed reason, before it reaches the service, and no payment exists.
+    // The business's payments as svc-pay lists them, read by its owner before and after the live write.
+    const owner = await payApiOf(sbWho, (next) => {
+      sbWho.step = next;
+    });
+    const payments = async () => (await owner.query('payment.list', { merchantId, limit: 25 })).items.map((item) => item.id);
+    const paymentsBefore = await payments();
+    // The refusal is the stack's own answer: the edge's response to the explorer's request, caught on the wire.
+    const liveAnswer = page.waitForResponse((r) => r.url().includes('/api/pay/v1/payments') && r.request().method() === 'POST');
     const live = await sendWrite(page, agentKey);
+    const refusedOnWire = await liveAnswer;
+    expect(refusedOnWire.status()).toBe(403);
+    expect(codeOf(await refusedOnWire.json())).toBe('edge.explorer_live_write_refused');
     await expect(page.getByTestId('explorer-key-mode')).toHaveText('Live key: reads only.');
     await expect(live.getByTestId('explorer-status')).toHaveText('Status 403');
     await expect(live.getByTestId('explorer-refused')).toContainText('Refused: edge.explorer_live_write_refused');
     await expect(live.getByTestId('explorer-refused')).toContainText('Nothing was sent.');
+    // No payment exists: svc-pay lists the same payments for the business as before the live write.
+    expect(await payments()).toEqual(paymentsBefore);
 
     // A sandbox key: the same write runs, at the sandbox address, as a sandbox payment.
     const ran = await sendWrite(sbPage, sandboxKey);
