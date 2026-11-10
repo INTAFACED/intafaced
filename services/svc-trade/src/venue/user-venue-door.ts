@@ -13,6 +13,7 @@ import {
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
+  type UserVenueDepositRoute,
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
@@ -135,9 +136,12 @@ export function parseBuilderFee(address: string | undefined, feeBps: string | un
   return { address: a, feeBps: fee };
 }
 
+/** A venue the door reaches, with the chain its actions name and its deposit route when it has one. */
+export type ConnectedUserVenue = UserVenue & { readonly chainId?: number; readonly depositRoute?: UserVenueDepositRoute | null };
+
 export interface UserVenueDoorDeps {
   /** Reach the venue. Called until it succeeds; its descriptor is checked against APP_ENV each time it connects. */
-  readonly connect: () => Promise<UserVenue & { readonly chainId?: number }>;
+  readonly connect: () => Promise<ConnectedUserVenue>;
   /** The RAW `process.env.APP_ENV`. */
   readonly appEnv: string | undefined;
   readonly store: PreparedActionStore;
@@ -240,7 +244,7 @@ async function assertSignatureRecovers(prepared: PreparedVenueAction, signature:
 }
 
 export class UserVenueDoor {
-  private venuePromise: Promise<UserVenue & { readonly chainId?: number }> | null = null;
+  private venuePromise: Promise<ConnectedUserVenue> | null = null;
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
 
@@ -250,7 +254,7 @@ export class UserVenueDoor {
   }
 
   /** The connected venue, checked against APP_ENV. A failed connect is retried on the next call. */
-  async venue(): Promise<UserVenue & { readonly chainId?: number }> {
+  async venue(): Promise<ConnectedUserVenue> {
     if (!this.venuePromise) {
       this.venuePromise = this.deps.connect().then((v) => {
         refuseTestVenueOutsideTest(v.venue, this.deps.appEnv);
@@ -264,7 +268,7 @@ export class UserVenueDoor {
   }
 
   async status() {
-    let venue: UserVenue & { readonly chainId?: number };
+    let venue: ConnectedUserVenue;
     try {
       venue = await this.venue();
     } catch (err) {
@@ -279,6 +283,8 @@ export class UserVenueDoor {
       test,
       ...(test ? { label: 'TEST' } : {}),
       chainId: venue.chainId ?? null,
+      // Where the customer's own wallet sends a token to fund this venue account: the customer's transfer, never ours.
+      deposit: venue.depositRoute ?? null,
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
     };
   }

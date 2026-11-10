@@ -591,10 +591,27 @@ async function fundStable(address: Address) {
   console.log(`funded ${address}: ${STABLE_ONLY_FUNDING} ${TEST_TOKENS.USD.name} only, no TEST ETH`);
 }
 
+/** What `fund <address> venue` gives (J-wallet-09 #3): TEST ETH for gas and TEST USD to deposit into the TEST venue. */
+const VENUE_FUNDING = '100';
+async function fundVenue(address: Address) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  await publicClient.request({ method: 'anvil_setBalance', params: [address, toHex(parseUnits('10', 18))] } as never);
+  const hash = await walletClient.writeContract({
+    address: TEST_TOKENS.USD.address,
+    abi: artifact('TestToken').abi,
+    functionName: 'mint',
+    args: [address, parseUnits(VENUE_FUNDING, TEST_TOKENS.USD.decimals)],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`funded ${address}: 10 TEST ETH, ${VENUE_FUNDING} ${TEST_TOKENS.USD.name}`);
+}
+
 const [command, arg, kind] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
+else if (command === 'fund' && arg && kind === 'venue') await fundVenue(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'plain') await fundPlain(getAddress(arg));
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|plain]');
+else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|venue|plain]');

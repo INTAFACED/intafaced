@@ -220,7 +220,9 @@ test(`${J} #5 requests a statement of orders, trades and ledger lines for a date
   await page.getByRole('tab', { name: 'Ledger' }).click();
   await page.getByRole('button', { name: 'Statement…' }).click();
   const box = page.getByRole('alertdialog').filter({ hasText: 'Download a statement' });
-  const today = new Date().toISOString().slice(0, 10);
+  // The trade's own day: a try that starts just before midnight UTC ends after it, and a statement of the new day has no
+  // settled time yet, so it never reads ready.
+  const today = new Date(placedAt).toISOString().slice(0, 10);
   await box.getByLabel('From').fill(today);
   await box.getByLabel('To (included)').fill(today);
   const asks = [];

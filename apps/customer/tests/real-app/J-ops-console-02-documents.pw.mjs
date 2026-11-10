@@ -75,11 +75,19 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
     await expect(list.getByRole('table')).toBeVisible({ timeout: 60_000 });
     await expect(list.locator('tbody tr')).toHaveCount(2);
     const rows = list.locator('tbody > tr');
-    // Newest first: the PDF, then the image.
-    await expect(rows.nth(0)).toContainText('application/pdf');
-    await expect(rows.nth(0)).toContainText('Not attached to a verification');
-    await expect(rows.nth(1)).toContainText('image/png');
-    await expect(rows.nth(1)).toContainText('pending');
+    // Newest first: the PDF, then the image. Each row's own Status cell holds that document's status: the image's
+    // verification is pending, and the PDF is attached to none.
+    // Read as written (textContent): the headers are drawn in capitals by the page's style only.
+    const headers = (await list.locator('thead th').allTextContents()).map((h) => h.trim());
+    const typeAt = headers.indexOf('Type');
+    const statusAt = headers.indexOf('Status');
+    expect(typeAt, `a Type column among ${headers.join(', ')}`).toBeGreaterThanOrEqual(0);
+    expect(statusAt, `a Status column among ${headers.join(', ')}`).toBeGreaterThanOrEqual(0);
+    const cell = (row, at) => rows.nth(row).locator(':scope > td').nth(at);
+    await expect(cell(0, typeAt)).toHaveText('application/pdf');
+    await expect(cell(0, statusAt)).toHaveText('Not attached to a verification');
+    await expect(cell(1, typeAt)).toHaveText('image/png');
+    await expect(cell(1, statusAt)).toHaveText('pending');
     await expect(a.getByTestId('unwired-documents.decisions')).toContainText('no source');
 
     // A opens the image's row and asks to open it.

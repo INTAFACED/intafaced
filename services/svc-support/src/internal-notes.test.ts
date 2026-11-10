@@ -148,6 +148,10 @@ const READS_NO_REQUEST = [
   'safety.complain',
   'safety.reportBereavement',
   'safety.mine',
+  // A scam report answers the same acknowledgement with its case note, written by the service from the report's own
+  // words, never a staff note; the money mule policy is the owner's published text (J-bank-18 #3).
+  'safety.reportScam',
+  'safety.mulePolicy',
 ] as const;
 
 describe('internal notes', () => {
