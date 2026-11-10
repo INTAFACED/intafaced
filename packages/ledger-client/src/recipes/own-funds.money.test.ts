@@ -48,10 +48,16 @@ describe('ownFundsMove', () => {
     await ledger.post(sweep);
     await ledger.post(move(WALLET, RESERVE, '3', 'stmt-2026-11-10-001'));
     expect(sweep.idempotencyKey).toBe(ownFundsMoveKey(BUILDER, 'USDC', '0xsweep1'));
-    expect(sweep.idempotencyKey).toBe(`own-funds-move:venue-builder-account:${VENUE}:0xsweep1`);
+    expect(sweep.idempotencyKey).toBe(`own-funds-move:venue-builder-account:${VENUE}:USDC:0xsweep1`);
     expect(await bal(venueBuilderAccount(VENUE, 'USDC'))).toBe('-3');
     expect(await bal(treasuryWallet('base:ops', 'USDC'))).toBe('-4');
     expect(await bal(partnerReserve('card-partner', 'USDC'))).toBe('-3');
+  });
+
+  it('one chain transaction that moves two assets posts two moves', () => {
+    const usdc = recipes.ownFundsMove({ from: BUILDER, to: WALLET, assetId: 'USDC', amount: amt('1'), reference: '0xbatch' });
+    const usdt = recipes.ownFundsMove({ from: BUILDER, to: WALLET, assetId: 'USDT', amount: amt('1'), reference: '0xbatch' });
+    expect(usdc.idempotencyKey).not.toBe(usdt.idempotencyKey);
   });
 
   it('invariant: what we hold across every place equals what we collected, and revenue does not move', async () => {

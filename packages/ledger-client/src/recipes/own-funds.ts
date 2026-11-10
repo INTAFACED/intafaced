@@ -9,7 +9,8 @@ import { isOwnFundsPlace, partnerReserve, treasuryWallet, venueBuilderAccount } 
  * `ownFundsMove` records INTAFACED's own money leaving one named place and arriving at another: collected builder fees
  * swept from our builder account at a venue to our treasury wallet, or our treasury wallet funding our reserve at a
  * partner. It is keyed on the outside world's own record of the move: the chain transaction, or the partner's statement
- * line (`own-funds-move:<from place>:<reference>`), so the same transfer read twice posts once.
+ * line (`own-funds-move:<from place>:<asset>:<reference>`), so the same transfer read twice posts once, and one transaction
+ * that moves two assets posts two moves.
  *
  * - Both sides must be own-funds places (`isOwnFundsPlace`), so no customer account is ever touched and the recipe is not
  *   in the custody-layer inventory.
@@ -52,7 +53,7 @@ export function ownFundsPlaceAccount(place: OwnFundsPlace, assetId: string): Acc
 }
 
 export function ownFundsMoveKey(from: OwnFundsPlace, assetId: string, reference: string): string {
-  return `own-funds-move:${ownFundsPlaceAccount(from, assetId).ownerId}:${reference}`;
+  return `own-funds-move:${ownFundsPlaceAccount(from, assetId).ownerId}:${assetId}:${reference}`;
 }
 
 export function ownFundsMove(input: OwnFundsMoveInput): PostRequest {
