@@ -11,7 +11,9 @@
  *     assertion from a passkey bound to the wallet, and only then is a message or EIP-712 typed data (a venue action:
  *     the trading session's one approval, J-wallet-22 #8) signed, the key exported to the person, or a recovery passkey
  *     added. A session without that passkey cannot sign anything.
- * No seed phrase exists anywhere: the key is a fresh random secp256k1 key, and export hands the person the key itself.
+ * No seed phrase exists anywhere: the key is a fresh random secp256k1 key, and export hands the person the key itself,
+ * once (J-dex-protocol-08 #9, the export policy the owner's provider is set up with): the first export after a passkey
+ * check is recorded on the wallet, and every later export request, from any device, is refused `export_spent` with no key.
  *
  * It refuses to start unless APP_ENV is exactly `dev` or `test`. Never part of a real environment.
  *
@@ -63,7 +65,7 @@ export function createTestWalletProvider({
   onChange = () => {},
 }) {
   const allowed = new Set(origins);
-  // walletId -> { walletId, ownerRef, privateKey, address, passkeys: Map(credentialId -> { spki, key: KeyObject }) }
+  // walletId -> { walletId, ownerRef, privateKey, address, exportedAt: number | null, passkeys: Map(credentialId -> { spki, key: KeyObject }) }
   const wallets = new Map();
   const byOwner = new Map();
   const challenges = new Map(); // challenge -> { walletId, action, hash, expiresAt }
@@ -97,6 +99,7 @@ export function createTestWalletProvider({
       ownerRef,
       privateKey,
       address: accounts.privateKeyToAccount(privateKey).address,
+      exportedAt: null,
       passkeys: new Map([[passkey.credentialId, { spki: passkey.publicKey, key }]]),
     };
     wallets.set(wallet.walletId, wallet);
@@ -115,6 +118,8 @@ export function createTestWalletProvider({
     const w = wallets.get(walletId);
     if (!w) return { status: 404, body: { error: 'not_found' } };
     if (!ACTIONS.has(action)) return { status: 400, body: { error: 'bad_request' } };
+    // The key was already given out: no challenge, so no passkey prompt, and no key.
+    if (action === 'export' && w.exportedAt !== null) return spent(w);
     // Expired challenges go, and the oldest open ones for this wallet beyond the cap.
     const t = now();
     for (const [k, c] of challenges) if (c.expiresAt <= t) challenges.delete(k);
@@ -130,6 +135,9 @@ export function createTestWalletProvider({
    * action and payload; the page origin is listed; the relying party is that origin's host; the person was present and
    * verified; and the signature verifies under a passkey bound to the wallet. Spends the challenge either way.
    */
+  /** The answer to any export after the first: when it was given out, and never the key. */
+  const spent = (w) => ({ status: 410, body: { error: 'export_spent', exportedAt: new Date(w.exportedAt).toISOString() } });
+
   function checkAssertion({ walletId, action, payload, challenge: value, assertion }) {
     const entry = typeof value === 'string' ? challenges.get(value) : undefined;
     if (entry) challenges.delete(value);
@@ -205,7 +213,13 @@ export function createTestWalletProvider({
       }
       return { status: 200, body: { signature, address: w.address } };
     }
-    if (action === 'export') return { status: 200, body: { privateKey: w.privateKey, address: w.address, label: 'TEST' } };
+    if (action === 'export') {
+      // Checked again here: two challenges issued before the first export are both spent by it.
+      if (w.exportedAt !== null) return spent(w);
+      w.exportedAt = now();
+      onChange();
+      return { status: 200, body: { privateKey: w.privateKey, address: w.address, label: 'TEST' } };
+    }
     // recovery: a second passkey the person registered, added only with an assertion from a passkey already bound.
     const key = importPasskey(payload?.passkey);
     if (!key) return { status: 400, body: { error: 'passkey_invalid' } };
@@ -222,6 +236,7 @@ export function createTestWalletProvider({
         walletId: w.walletId,
         ownerRef: w.ownerRef,
         privateKey: w.privateKey,
+        exportedAt: w.exportedAt,
         passkeys: [...w.passkeys].map(([credentialId, p]) => ({ credentialId, publicKey: p.spki })),
       })),
     };
@@ -234,7 +249,8 @@ export function createTestWalletProvider({
       if (key) passkeys.set(p.credentialId, { spki: p.publicKey, key });
     }
     const address = accounts.privateKeyToAccount(w.privateKey).address;
-    wallets.set(w.walletId, { walletId: w.walletId, ownerRef: w.ownerRef, privateKey: w.privateKey, address, passkeys });
+    const exportedAt = typeof w.exportedAt === 'number' ? w.exportedAt : null;
+    wallets.set(w.walletId, { walletId: w.walletId, ownerRef: w.ownerRef, privateKey: w.privateKey, address, exportedAt, passkeys });
     byOwner.set(w.ownerRef, w.walletId);
   }
 
