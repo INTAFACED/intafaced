@@ -31,8 +31,6 @@ export const PROTOCOL_VENUE_WALLET_REFUSALS = [
   'protocol.venue_connection_none',
   /** The connection's expiry has passed: every signed action refuses until the wallet signs again. */
   'protocol.venue_connection_expired',
-  /** No venue is wired to this stack yet, so nothing was asked of the wallet. */
-  'protocol.venue_unwired',
 ] as const;
 export type ProtocolVenueWalletRefusal = (typeof PROTOCOL_VENUE_WALLET_REFUSALS)[number];
 
@@ -72,5 +70,15 @@ export const protocolVenueWalletStatusOutputSchema = z.object({
 export const protocolVenueWalletAddressInputSchema = z.object({ address });
 export const protocolVenueWalletDisconnectedOutputSchema = z.object({ address: z.string(), disconnected: z.literal(true) });
 export const protocolVenueWalletAuthorizeInputSchema = z.object({ address, action: z.enum(VENUE_WALLET_ACTIONS) });
+/**
+ * The connection is live for this action: the wallet may now be asked to sign it. A check, not a permission the venue
+ * reads: the venue verifies the wallet's own signature on every action.
+ */
+export const protocolVenueWalletAuthorizedOutputSchema = z.object({
+  address: z.string(),
+  action: z.enum(VENUE_WALLET_ACTIONS),
+  live: z.literal(true),
+  expiresAt: z.string(),
+});
 
 export type ProtocolVenueWalletConnection = z.infer<typeof protocolVenueWalletConnectionSchema>;

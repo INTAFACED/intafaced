@@ -1,3 +1,4 @@
+import { builderFeeAdminRouter, type BuilderFeeReconReader } from './venue/builder-fee-admin.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
 import type { GridService } from './grid/grid-service.js';
@@ -895,6 +896,7 @@ export function createTradeRouter(
   leadDesk?: LeadDesk,
   grid?: GridService,
   platformPauses?: PlatformPauseDesk,
+  builderFees?: BuilderFeeReconReader,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -940,7 +942,7 @@ export function createTradeRouter(
   const pauseScope = z.object({ kind: z.enum(['lead', 'bot_type', 'symbol']), value: z.string().trim().min(1).max(80) }).strict();
   return router({
     accountControls: tradingControlsRouter(controls),
-    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
+    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups), builderFeeAdminRouter(builderFees)),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
