@@ -69,8 +69,21 @@ export const JUDGE_CHECK = {
   label: 'test judge',
   standingFails: [{ job: JUDGE_JOB, step: VERDICT_STEP }],
 };
+/**
+ * The step REVIEW_JOB runs instead of its verdicts when the reviewer call failed for a reason that is not the change
+ * (reviewer-error.mjs classify `down`; project-state OWNER 289 point 11: "No PR merges without its judge."): the job
+ * then concludes success with its verdict steps skipped, which `passed` below never reads as a pass (no verdict step
+ * concluded success), and the seal waits for the judge as for a review still running (journey-seal.mjs inputsGoing).
+ */
+export const JUDGE_DOWN_STEP = 'Judge down';
 /** The verdict steps of REVIEW_JOB: a FAIL in one never voids the other's PASS. */
 export const VERDICT_STEPS = [VERDICT_STEP, TEST_VERDICT_STEP];
+/** Whether a REVIEW_JOB job ended with the judge down: its Judge down step ran and no verdict step concluded. */
+export const isJudgeDown = (job) =>
+  job?.name === REVIEW_JOB &&
+  job?.status === 'completed' &&
+  (job.steps ?? []).some((s) => s?.name === JUDGE_DOWN_STEP && s?.conclusion === 'success') &&
+  !(job.steps ?? []).some((s) => VERDICT_STEPS.includes(s?.name) && ['success', 'failure'].includes(s?.conclusion));
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -198,6 +211,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
     };
   let passedIn = null;
   let pending = false;
+  let down = null;
   for (const run of own) {
     for (const [i, jobs] of (await attempts(run)).entries()) {
       for (const job of jobs ?? []) {
@@ -213,12 +227,19 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
         const step = (job.steps ?? []).find((s) => s?.name === STEP);
         if (job.status !== 'completed') pending = true;
         else if (passed(job, step)) passedIn ??= `run ${run.id} attempt ${i + 1}`;
+        else if (isJudgeDown(job)) down = `run ${run.id} attempt ${i + 1}`;
       }
     }
   }
   if (passedIn) return { ok: true, state: 'pass', why: `${label} passed on ${want} (${passedIn})` };
-  return pending
-    ? { ok: false, state: 'pending', why: `the ${label} on ${want} is still running` }
+  if (pending) return { ok: false, state: 'pending', why: `the ${label} on ${want} is still running` };
+  // A down judge is no verdict: never a pass, and the seal waits for the judge (journey-seal.mjs inputsGoing).
+  return down
+    ? {
+        ok: false,
+        state: 'none',
+        why: `the judge was down in ${down}, so ${want} has no ${label} verdict yet; the review re-runs when the judge is back`,
+      }
     : {
         ok: false,
         state: 'none',

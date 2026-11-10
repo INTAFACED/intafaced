@@ -83,7 +83,7 @@ import {
 } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls } from './review-marker.mjs';
+import { REVIEW_JOB, groupPulls, isJudgeDown, requiredChecks } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -1238,21 +1238,29 @@ export const isWaitingSeal = (j) =>
 /** The workflows whose runs on a head are the seal's inputs, with the event their pull request runs carry. */
 export const SEAL_INPUTS = [
   { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
-  { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review' },
+  { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
 ];
 
 /**
  * The input runs still going on `sha` (`runsOf[workflow]`, each workflow's runs on the head), as lines; [] when every
  * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
- * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. Pure.
+ * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
+ * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
+ * still going for a change that needs the review (`needJudge`), so its seal waits for the judge exactly as for a review
+ * still running, and is started when a review on the head next finishes (project-state OWNER 289 point 11: "A judge
+ * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). Pure.
  */
-export function inputsGoing({ sha, runsOf, needJourneys }) {
+export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false }) {
   const out = [];
-  for (const { workflow, event, what, journeys } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
-    for (const r of runsOf?.[workflow] ?? [])
-      if (r?.head_sha === sha && (!event || r?.event === event) && r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+    for (const r of runsOf?.[workflow] ?? []) {
+      if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+      if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+      else if (judge && needJudge && r?.judgeDown === true)
+        out.push(`${what} run ${r.id} (judge down: no verdict; it re-runs when the judge is back)`);
+    }
   }
   return out;
 }
@@ -1556,7 +1564,11 @@ export async function readVerdicts({ get, repo, sha }) {
  */
 export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green ? 'rerun-green' : 'leave');
 
-/** inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys). */
+/**
+ * inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys), and a down
+ * judge when any needs the review (review-marker.mjs requiredChecks): only then is the head's newest finished CI review
+ * run's job read (one more GET).
+ */
 export async function readGoing({ get, repo, sha, pulls }) {
   const runsOf = {};
   for (const { workflow, event } of SEAL_INPUTS) {
@@ -1567,8 +1579,23 @@ export async function readGoing({ get, repo, sha, pulls }) {
     runsOf[workflow] = runs;
   }
   let needJourneys = false;
-  for (const p of pulls ?? []) if (!needJourneys && needsJourneys(p, await pullFiles(get, repo, p.number))) needJourneys = true;
-  return inputsGoing({ sha, runsOf, needJourneys });
+  let needJudge = false;
+  for (const p of pulls ?? []) {
+    if (needJourneys && needJudge) break;
+    const files = await pullFiles(get, repo, p.number);
+    needJourneys ||= needsJourneys(p, files);
+    needJudge ||= requiredChecks(files).length > 0;
+  }
+  if (needJudge) {
+    const { workflow, event } = SEAL_INPUTS.find((i) => i.judge);
+    const newest = runsOf[workflow].filter((r) => r?.head_sha === sha && r?.event === event).sort((a, b) => b.id - a.id)[0];
+    if (newest?.status === 'completed') {
+      const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+      newest.judgeDown = jobs.some((j) => j?.name === REVIEW_JOB && isJudgeDown(j));
+    }
+  }
+  return inputsGoing({ sha, runsOf, needJourneys, needJudge });
 }
 
 /**

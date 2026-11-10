@@ -1,0 +1,224 @@
+#!/usr/bin/env node
+/**
+ * JUDGE DOWN: what ci-review.yml does when a reviewer call fails for a reason that is not the change (reviewer-error.mjs
+ * classify `down`), and when the judge is back (project-state OWNER 289 point 11: "A judge that stops shows as 'judge
+ * down', with the one action it needs, never as red PRs. No PR merges without its judge."). (Failure it prevents: from
+ * about 04:39 UTC on 10 Nov every review failed on the account's weekly limit, so every open PR showed a red check, and
+ * each red woke a builder who could do nothing; project-state research/fable-blueprint-2026-11-10/changes/10-D-one-verdict.md.)
+ *
+ *   node tooling/ci/judge-down.mjs down "<source>" status   the `judge` status pending on the head
+ *   node tooling/ci/judge-down.mjs down "<source>" issue    one project-state issue, none while one is open
+ *   node tooling/ci/judge-down.mjs back "<source>" status   the `judge` status this source set, cleared
+ *   node tooling/ci/judge-down.mjs back "CI review" issue   the issue closed and the heads left without a verdict re-run
+ *
+ * The status is for people only, and posted from the proof read job, so the review job the seal reads holds no
+ * statuses permission: the seal never reads a status (review-marker.mjs reads the job's steps), so a forged `judge`
+ * status can neither pass nor block anything. Env: GH_TOKEN (this repository's statuses and runs), REPO, HEAD_SHA,
+ * RUN_URL, and for `down` LINE, ACTION and SIGN_IN from reviewer-error.mjs --outputs and SIGN_IN_URL; for `issue`, ISSUE_TOKEN (the
+ * App token, issues on project-state) and, optionally, RERUN_TOKEN (the App token, actions on this repository; without
+ * it the re-runs use GH_TOKEN). Every failure warns: this runs only in steps that can't fail their job
+ * (continue-on-error), and the seal waits whatever it does.
+ */
+import { fileURLToPath } from 'node:url';
+import { REVIEW_JOB, VERDICT_STEPS } from './review-marker.mjs';
+
+export const CONTEXT = 'judge';
+export const ISSUE_REPO = 'INTAFACED/project-state';
+export const ISSUE_TITLE = 'Judge down: CI review';
+export const LABEL = 'judge-down';
+/** The most CI review runs one success re-runs: each re-run spends the App's and Actions' quota (and one review call). */
+export const CATCH_UP_CAP = 10;
+/** The most heads' jobs read to find them: one GET each. */
+const JOBS_READ_CAP = 40;
+/** For a sign-in: the reviewer account's sign-in page (`signInUrl`, ci-review.yml's SIGN_IN_URL, where the vendor may be named), then the key. */
+const signInLines = (signInUrl) =>
+  `Sign in: ${signInUrl || '(no SIGN_IN_URL set in ci-review.yml)'}. Then an agent makes a new key with the reviewer CLI's \`setup-token\` and sets it as the \`CLAUDE_CODE_OAUTH_TOKEN\` secret of the \`ci-review\` environment: https://github.com/INTAFACED/intafaced/settings/environments`;
+
+/** The status description, at most GitHub's 140 characters. */
+export const describe = (source, action) => `judge down: ${source}. One action: ${action}`.slice(0, 140);
+
+/** Bali time (WITA, UTC+8) and UTC for the issue. */
+export function times(now = new Date()) {
+  const bali = new Date(now.getTime() + 8 * 3_600_000).toISOString().replace('T', ' ').slice(0, 16);
+  return `${bali} Bali time (${now.toISOString().replace('T', ' ').slice(0, 16)} UTC)`;
+}
+
+/** The issue's body: the error line, the time, the one action, and for a sign-in the exact link (OWNER 203). */
+export function issueBody({ source, line, action, signIn, signInUrl, runUrl, now = new Date() }) {
+  return [
+    `The judge is down: the ${source} reviewer call failed for a reason that is not the change, so no PR gets a verdict and none merges (OWNER 289 point 11). Open PRs show the pending \`judge\` status, not a red check.`,
+    '',
+    `- **Error:** \`${String(line).replace(/`/g, "'")}\``,
+    `- **Since:** ${times(now)}, ${runUrl}`,
+    `- **One action:** ${action}`,
+    ...(signIn ? [`- ${signInLines(signInUrl)}`] : []),
+    '',
+    `Later down runs add nothing here. The first CI review whose reviewer call succeeds closes this and re-runs the CI review on the oldest ${CATCH_UP_CAP} open PR heads that have no verdict (tooling/ci/judge-down.mjs).`,
+  ].join('\n');
+}
+
+/** Whether a CI review job has a verdict: a verdict step that concluded success or failure. */
+export const hasVerdict = (job) =>
+  (job?.steps ?? []).some((s) => VERDICT_STEPS.includes(s?.name) && ['success', 'failure'].includes(s?.conclusion));
+
+/**
+ * The CI review runs to re-run when the judge is back: for each open in-repo pull request into main (`pulls`), the
+ * newest pull_request_target run on its head (`runs`, newest first as GitHub lists them), when it finished with no
+ * verdict (`jobsOf(run)` gives its latest attempt's jobs); oldest run first, at most `cap`. Runs still going, heads with
+ * no run, and this run's own head are left. Returns { targets, left }: `left` counts heads past the cap found without a
+ * verdict (heads whose jobs were not read, past JOBS_READ_CAP, are not counted).
+ */
+export async function catchUpTargets({ pulls, runs, jobsOf, repo, skipSha, cap = CATCH_UP_CAP }) {
+  const newest = new Map();
+  for (const r of runs ?? []) {
+    if (r?.event !== 'pull_request_target' || r?.path !== '.github/workflows/ci-review.yml') continue;
+    const prev = newest.get(r.head_sha);
+    if (!prev || prev.id < r.id) newest.set(r.head_sha, r);
+  }
+  const heads = (pulls ?? [])
+    .filter((p) => p?.state === 'open' && p?.base?.ref === 'main' && p?.head?.repo?.full_name === repo && p?.head?.sha !== skipSha)
+    .map((p) => ({ pull: p, run: newest.get(p.head.sha) }))
+    .filter((h) => h.run?.status === 'completed')
+    .sort((a, b) => String(a.run.created_at).localeCompare(String(b.run.created_at)) || a.run.id - b.run.id);
+  const targets = [];
+  let left = 0;
+  for (const [i, h] of heads.entries()) {
+    if (i >= JOBS_READ_CAP) break;
+    const job = (await jobsOf(h.run)).find((j) => j?.name === REVIEW_JOB);
+    if (!job || hasVerdict(job)) continue;
+    if (targets.length < cap) targets.push(h);
+    else left++;
+  }
+  return { targets, left };
+}
+
+async function call(token, method, path, body) {
+  const res = await fetch(`https://api.github.com${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: 'application/vnd.github+json',
+      'x-github-api-version': '2022-11-28',
+      'content-type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await res.text();
+  // A refusal or a limit stops this script: never retried here (AGENTS.md, GitHub and git).
+  if ((res.status === 403 && !/already running/i.test(text)) || res.status === 429)
+    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
+  return { status: res.status, json: text ? JSON.parse(text) : null };
+}
+
+const openIssues = async (token) => {
+  const r = await call(token, 'GET', `/repos/${ISSUE_REPO}/issues?state=open&labels=${LABEL}&per_page=100`);
+  if (r.status !== 200) throw new Error(`could not list ${ISSUE_REPO}'s ${LABEL} issues: HTTP ${r.status}`);
+  return (r.json ?? []).filter((i) => !i.pull_request && i.title === ISSUE_TITLE).sort((a, b) => a.number - b.number);
+};
+
+async function downStatus(source) {
+  const { GH_TOKEN, REPO, HEAD_SHA, RUN_URL = '', ACTION = '' } = process.env;
+  const s = await call(GH_TOKEN, 'POST', `/repos/${REPO}/statuses/${HEAD_SHA}`, {
+    state: 'pending',
+    context: CONTEXT,
+    description: describe(source, ACTION),
+    target_url: RUN_URL || undefined,
+  });
+  console.log(s.status === 201 ? `posted: ${CONTEXT} pending` : `::warning::the ${CONTEXT} status wasn't posted: HTTP ${s.status}`);
+}
+
+async function downIssue(source) {
+  const { RUN_URL = '', LINE = '', ACTION = '', SIGN_IN, SIGN_IN_URL = '', ISSUE_TOKEN } = process.env;
+  if (!ISSUE_TOKEN) return console.log(`::warning::no project-state issues token, so no "${ISSUE_TITLE}" issue is read or opened`);
+  const open = await openIssues(ISSUE_TOKEN);
+  if (open.length) return console.log(`${ISSUE_REPO}#${open[0].number} is already open; nothing added`);
+  const signIn = SIGN_IN === 'true';
+  const made = await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues`, {
+    title: ISSUE_TITLE,
+    labels: signIn ? [LABEL, 'nino'] : [LABEL],
+    body: issueBody({ source, line: LINE, action: ACTION, signIn, signInUrl: SIGN_IN_URL, runUrl: RUN_URL }),
+  });
+  if (made.status !== 201) return console.log(`::warning::the "${ISSUE_TITLE}" issue wasn't opened: HTTP ${made.status}`);
+  console.log(`opened ${ISSUE_REPO}#${made.json.number}`);
+  // Two runs that went down at once may both have opened one: the newer closes its own, so one stays.
+  const all = await openIssues(ISSUE_TOKEN);
+  if (all.length > 1 && all[0].number !== made.json.number) {
+    await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues/${made.json.number}/comments`, {
+      body: `Duplicate of #${all[0].number}, opened at the same time.`,
+    });
+    await call(ISSUE_TOKEN, 'PATCH', `/repos/${ISSUE_REPO}/issues/${made.json.number}`, { state: 'closed', state_reason: 'not_planned' });
+    console.log(`closed ${ISSUE_REPO}#${made.json.number} as a duplicate of #${all[0].number}`);
+  }
+}
+
+async function backStatus(source) {
+  const { GH_TOKEN, REPO, HEAD_SHA, RUN_URL = '' } = process.env;
+  // The newest `judge` status on the head is cleared only when this source set it.
+  const st = await call(GH_TOKEN, 'GET', `/repos/${REPO}/commits/${HEAD_SHA}/statuses?per_page=100`);
+  const latest = (st.json ?? []).find((x) => x?.context === CONTEXT);
+  if (latest?.state === 'pending' && String(latest.description).startsWith(`judge down: ${source}.`)) {
+    const s = await call(GH_TOKEN, 'POST', `/repos/${REPO}/statuses/${HEAD_SHA}`, {
+      state: 'success',
+      context: CONTEXT,
+      description: `judge back: ${source}`,
+      target_url: RUN_URL || undefined,
+    });
+    console.log(s.status === 201 ? `posted: ${CONTEXT} success` : `::warning::the ${CONTEXT} status wasn't cleared: HTTP ${s.status}`);
+  }
+}
+
+async function backIssue(source) {
+  const { GH_TOKEN, REPO, HEAD_SHA, RUN_URL = '', ISSUE_TOKEN, RERUN_TOKEN } = process.env;
+  // Only the CI review's success catches up: the proof read's verdicts are not what the seal waits for.
+  if (source !== 'CI review') return;
+  if (!ISSUE_TOKEN) return console.log('::warning::no project-state issues token, so no judge-down issue is read or closed');
+  const open = await openIssues(ISSUE_TOKEN);
+  if (!open.length) return console.log('the judge is up and no judge-down issue is open');
+  // Closed first, so a second success at the same time finds none and re-runs nothing.
+  for (const i of open) {
+    const c = await call(ISSUE_TOKEN, 'PATCH', `/repos/${ISSUE_REPO}/issues/${i.number}`, { state: 'closed', state_reason: 'completed' });
+    if (c.status !== 200) return console.log(`::warning::${ISSUE_REPO}#${i.number} wasn't closed: HTTP ${c.status}; nothing re-run`);
+  }
+  const pulls = await call(GH_TOKEN, 'GET', `/repos/${REPO}/pulls?state=open&base=main&sort=created&direction=asc&per_page=100`);
+  const runs = await call(GH_TOKEN, 'GET', `/repos/${REPO}/actions/workflows/ci-review.yml/runs?event=pull_request_target&per_page=100`);
+  if (pulls.status !== 200 || runs.status !== 200) throw new Error(`could not list the open PRs or the review runs`);
+  const { targets, left } = await catchUpTargets({
+    pulls: pulls.json,
+    runs: runs.json?.workflow_runs,
+    repo: REPO,
+    skipSha: HEAD_SHA,
+    jobsOf: async (run) =>
+      (await call(GH_TOKEN, 'GET', `/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`)).json?.jobs ?? [],
+  });
+  // A re-run asked with the App token starts the seal re-check when it ends (journey-seal-recheck.yml, workflow_run);
+  // one asked with GITHUB_TOKEN may not, since GitHub starts no workflow from that token's events.
+  const done = [];
+  for (const { pull, run } of targets) {
+    const r = await call(RERUN_TOKEN || GH_TOKEN, 'POST', `/repos/${REPO}/actions/runs/${run.id}/rerun`);
+    done.push(`#${pull.number} (run ${run.id}: ${r.status === 201 ? 're-run' : `HTTP ${r.status}`})`);
+  }
+  const note = [
+    `The judge is back: the CI review's reviewer call succeeded at ${times()} (${RUN_URL}).`,
+    done.length
+      ? `Re-ran the CI review on the oldest ${done.length} open PR heads with no verdict: ${done.join(', ')}.`
+      : 'No open PR head was left without a verdict.',
+    left ? `${left} more head(s) have no verdict past the cap of ${CATCH_UP_CAP}; each is reviewed on its next push.` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  for (const i of open) await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues/${i.number}/comments`, { body: note });
+  console.log(note);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const [cmd, source, part] = process.argv.slice(2);
+  const run = { 'down status': downStatus, 'down issue': downIssue, 'back status': backStatus, 'back issue': backIssue }[`${cmd} ${part}`];
+  if (!run || !source) {
+    console.error('usage: judge-down.mjs down|back "<source>" status|issue');
+    process.exit(1);
+  }
+  // Exits 0 even when it fails: the Judge down step is the seal's marker (review-marker.mjs isJudgeDown reads that it
+  // concluded success), so a refused issue call must not turn the marker into a failed step.
+  run(source).catch((e) => console.log(`::warning::judge-down ${cmd} ${part}: ${e.message}`));
+}
