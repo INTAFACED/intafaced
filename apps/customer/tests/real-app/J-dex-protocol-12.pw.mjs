@@ -4,6 +4,7 @@ import {
   createPublicClient,
   createWalletClient,
   defineChain,
+  decodeEventLog,
   encodeFunctionData,
   formatUnits,
   getAddress,
@@ -63,6 +64,13 @@ const POOL = parseAbi([
   'function swapExactIn(address tokenIn, uint256 amountIn, uint256 minAmountOut, address to) returns (uint256)',
 ]);
 const FACTORY = parseAbi(['function getPool(address, address, uint16) view returns (address)']);
+const POOL_EVENTS = parseAbi([
+  'event Transfer(address indexed from, address indexed to, uint256 value)',
+  'event Mint(address indexed sender, uint256 amount0, uint256 amount1, uint256 liquidity)',
+  'event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)',
+]);
+const ZERO = '0x0000000000000000000000000000000000000000';
+const DAY_S = 86_400n;
 const ROUTER = parseAbi([
   'function createAndSeed(address tokenA, address tokenB, uint16 feeBps, uint256 amountA, uint256 amountB, uint256 minShares, address to, uint256 deadline) returns (address, uint256)',
 ]);
@@ -126,6 +134,76 @@ async function balances(who) {
 const sharesOf = async (pool, who) =>
   chainParts().reader.readContract({ address: pool, abi: POOL, functionName: 'balanceOf', args: [who] });
 const supplyOf = async (pool) => chainParts().reader.readContract({ address: pool, abi: POOL, functionName: 'totalSupply' });
+/** Integer square root, rounded down, as the position figures take it. */
+function isqrt(y) {
+  if (y < 4n) return y === 0n ? 0n : 1n;
+  let z = y;
+  let x = y / 2n + 1n;
+  while (x < z) {
+    z = x;
+    x = (y / x + x) / 2n;
+  }
+  return z;
+}
+/** A raw amount as the position page writes it: up to six places, trailing zeros dropped. */
+function pageAmount(raw, decimals) {
+  const [int, frac = ''] = formatUnits(raw, decimals).split('.');
+  const cut = frac.slice(0, 6).replace(/0+$/, '');
+  return `${int}${cut ? `.${cut}` : ''}`;
+}
+/** The pool's two tokens in its own order (token0, token1), as TEST Token A and B. */
+async function tokensOf(pool) {
+  const t0 = getAddress(await chainParts().reader.readContract({ address: pool, abi: POOL, functionName: 'token0' }));
+  return t0 === getAddress(TOKEN_A.address) ? [TOKEN_A, TOKEN_B] : [TOKEN_B, TOKEN_A];
+}
+const tokenName = (t) => (t === TOKEN_A ? 'TEST Token A' : 'TEST Token B');
+
+/**
+ * The fees a wallet's shares earned, worked out from the chain alone: its entry is every share minted to it with the
+ * deposit (the pool's Mint in the same transaction) behind it; swap fees stay in the reserves, so what grew is √k per
+ * share since those deposits, applied to what the shares are worth now. Returns the raw amounts in the pool's token
+ * order, and the √k per share now and at entry (scaled by both supplies, so the two compare exactly).
+ */
+async function feesOnChain(pool, who) {
+  const { reader } = chainParts();
+  const [shares, supply, [[r0, r1]], incoming] = await Promise.all([
+    sharesOf(pool, who),
+    supplyOf(pool),
+    Promise.all([reader.readContract({ address: pool, abi: POOL, functionName: 'getReserves' })]),
+    reader.getLogs({ address: pool, event: POOL_EVENTS[0], args: { to: who }, fromBlock: 0n }),
+  ]);
+  let entryShares = 0n;
+  let rootK = 0n;
+  for (const log of incoming) {
+    expect(getAddress(log.args.from), 'every share came to this wallet by a deposit').toBe(ZERO);
+    const receipt = await reader.getTransactionReceipt({ hash: log.transactionHash });
+    const mint = receipt.logs
+      .filter((l) => getAddress(l.address) === getAddress(pool))
+      .map((l) => {
+        try {
+          return decodeEventLog({ abi: POOL_EVENTS, data: l.data, topics: l.topics });
+        } catch {
+          return null;
+        }
+      })
+      .find((e) => e?.eventName === 'Mint' && e.args.liquidity === log.args.value);
+    expect(mint, `the deposit behind ${log.transactionHash}`).toBeDefined();
+    entryShares += log.args.value;
+    rootK += isqrt(mint.args.amount0 * mint.args.amount1);
+  }
+  const amount0 = (shares * r0) / supply;
+  const amount1 = (shares * r1) / supply;
+  const now = isqrt(r0 * r1) * entryShares;
+  const entry = rootK * supply;
+  const grown = now > entry ? now - entry : 0n;
+  return { fee0: (amount0 * grown) / now, fee1: (amount1 * grown) / now, now, entry, shares, supply, r0, r1 };
+}
+/** The fees text the page must show for those raw amounts. */
+async function feesText(pool, fee0, fee1) {
+  const [t0, t1] = await tokensOf(pool);
+  return `${pageAmount(fee0, t0.decimals)} ${tokenName(t0)} · ${pageAmount(fee1, t1.decimals)} ${tokenName(t1)}`;
+}
+
 /** "1,234.5 TEST Token A · 6.7 TEST Token B" → [1234.5, 6.7]. */
 const pairNumbers = (text) => {
   const m = /^(-?[\d.]+) TEST Token A · (-?[\d.]+) TEST Token B$/.exec(text.trim());
@@ -188,7 +266,37 @@ test(`${J} #1 opens the pool list: pools with fee tier, reserves in token amount
     const { a, b } = await reservesAB(deep);
     await expect(row).toContainText(`${formatUnits(a, 6)} TESTA · ${formatUnits(b, 18)} TESTB`, { timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
-  await expect(row).toContainText(/[\d.]+ TESTB, \d+ swaps/);
+  // Volume: an outside TEST trader swaps 1 TEST Token A through the pool first, so the day has a swap of its own. The
+  // pool's volume is then its last day's swaps as the chain logged them: their count, and the token1 side of each (in
+  // plus out), in token1's units and symbol.
+  const trader = outsider();
+  await trader.send(TOKEN_A.address, encodeFunctionData({ abi: ERC20, functionName: 'approve', args: [deep, maxUint256] }));
+  await trader.send(
+    deep,
+    encodeFunctionData({ abi: POOL, functionName: 'swapExactIn', args: [TOKEN_A.address, 1n * A, 1n, trader.account.address] }),
+  );
+  const [, token1] = await tokensOf(deep);
+  const symbol1 = token1 === TOKEN_A ? 'TESTA' : 'TESTB';
+  const { reader } = chainParts();
+  const dayOnChain = async () => {
+    const latest = await reader.getBlock();
+    const swaps = await reader.getLogs({ address: deep, event: POOL_EVENTS[2], fromBlock: 0n });
+    let volume = 0n;
+    let count = 0;
+    for (const log of swaps) {
+      const { timestamp } = await reader.getBlock({ blockNumber: log.blockNumber });
+      if (timestamp + DAY_S <= latest.timestamp) continue;
+      volume += log.args.amount1In + log.args.amount1Out;
+      count += 1;
+    }
+    return { volume, count };
+  };
+  await expect(async () => {
+    await page.reload();
+    const day = await dayOnChain();
+    expect(day.count).toBeGreaterThanOrEqual(1);
+    await expect(row).toContainText(`${formatUnits(day.volume, token1.decimals)} ${symbol1}, ${day.count} swaps`, { timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
 });
 
 test(`${J} #2 starts a pool for a pair that already has one at 30 basis points: "This pool exists" and Add liquidity instead`, async ({
@@ -351,7 +459,10 @@ test(`${J} #5 opens the position: LP shares, share of the pool and fees earned; 
       .getByRole('definition')
       .filter({ hasText: /^99\.99%$/ }),
   ).toBeVisible();
-  await expect(position(page).getByTestId('fees-earned')).toContainText('TEST Token A');
+  // Fees earned: the amounts the chain gives for these shares (no swap has gone through this pool yet, so exactly what
+  // the chain works out, none grown), written as the page writes amounts.
+  const fees = await feesOnChain(pool, person());
+  await expect(position(page).getByTestId('fees-earned')).toHaveText(await feesText(pool, fees.fee0, fees.fee1));
 
   // A tenth of the shares moves to another wallet: that wallet now holds them, as its own position.
   const other = await otherWallet(browser);
@@ -476,11 +587,22 @@ test(`${J} #8 collects fees, then removes all shares: fees compound into the pos
 }) => {
   const { pool } = dex.run.read();
   await openPosition(page);
-  // The position earned fees (the price move in #6 was a swap through it), and collecting says they are already in it.
+  // The position earned fees (the price move in #6 was a swap through it): on the chain √k per share grew since the
+  // deposits, so the shares are worth more than the deposits' own √k, and the page shows exactly those fees.
+  const fees = await feesOnChain(pool, person());
+  expect(fees.now, 'swap fees grew √k per share on the chain').toBeGreaterThan(fees.entry);
+  expect(fees.fee0 + fees.fee1).toBeGreaterThan(0n);
+  await expect(position(page).getByTestId('fees-earned')).toHaveText(await feesText(pool, fees.fee0, fees.fee1));
   const [feeA, feeB] = pairNumbers(await position(page).getByTestId('fees-earned').innerText());
   expect(feeA + feeB).toBeGreaterThan(0);
+  // Compounded: collecting moves nothing on the chain (the fees are already in the reserves behind the shares), and the
+  // page says they are in the position.
+  const [reservesBefore, sharesBefore, heldBefore] = await Promise.all([reservesAB(pool), sharesOf(pool, person()), balances(person())]);
   await position(page).getByRole('button', { name: 'Collect fees' }).click();
   await expect(position(page).getByRole('status')).toContainText('Fees added to your position');
+  expect(await reservesAB(pool)).toEqual(reservesBefore);
+  expect(await sharesOf(pool, person())).toBe(sharesBefore);
+  expect(await balances(person())).toEqual(heldBefore);
 
   // Remove all: both tokens come back pro rata to the shares, and the position goes.
   const [shares, supply, reserves, before] = await Promise.all([
