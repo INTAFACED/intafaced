@@ -1983,6 +1983,24 @@
         }
       }
     },
+    "/api/v1/venue/convert/sell-quote": {
+      "post": {
+        "operationId": "venueConvertSellQuote",
+        "summary": "The venue’s own price for selling an amount on your venue account now: what fills, its average price and fees, or \"not known\". Sends nothing",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/venue/prepare": {
       "post": {
         "operationId": "venuePrepare",

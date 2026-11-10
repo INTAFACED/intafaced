@@ -165,6 +165,15 @@ no event is sent: the venue is the record of balances, locks, fills and withdraw
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
 
+**Convert sell quotes on the venue (J-cex-spot-17 #8).** `POST /api/v1/venue/convert/sell-quote`
+`{ owner, symbol, amount, quoteKey }` (trade:write, as the preview) prices a spot sell by the venue's own preview of a
+market IOC sell of that size on the customer's venue account (`src/venue/venue-sell-quotes.ts`): what fills now, its
+average price, the venue fee, our builder fee and the venue's time, stored exactly as given in `trade.venue_sell_quotes`
+under `venue-sell:<userId>:<quoteKey>`, a figure the venue does not give kept "not known". A retry returns the first
+quote; the same key for another ask refuses `trade.venue_sell_quote_key_reused` (409); a perp refuses
+`trade.venue_sell_quote_not_spot`, an unknown market `trade.venue_sell_quote_market_unknown`. Nothing is sent and the
+ledger posts nothing. Finance reads them in `admin.convertDesk.venueSellQuotes`.
+
 **Venue markets we list (J-cex-spot-16).** The venue lists what it lists; `GET /api/v1/venue/markets` shows only markets
 two operators listed, each with our `listing` (`opensAt`, `delistsAt`, `routing`, `open`, `delisted`, our `maxOrderQty` /
 `maxOrderNotional` or `null`) beside the venue's own `status` and largest order. A new order (preview, prepare, and again
