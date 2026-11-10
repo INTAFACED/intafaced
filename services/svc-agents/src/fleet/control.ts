@@ -262,7 +262,18 @@ export async function productKindOff(sql: Sql): Promise<boolean> {
   return rows[0]?.off === true;
 }
 
-type Action = 'export' | 'quarantine' | 'restore_request' | 'restore' | 'kill_kind' | 'restore_kind_request' | 'restore_kind' | 'reassign';
+/** What an audit row records. */
+export const FLEET_ACTIONS = [
+  'export',
+  'quarantine',
+  'restore_request',
+  'restore',
+  'kill_kind',
+  'restore_kind_request',
+  'restore_kind',
+  'reassign',
+] as const;
+type Action = (typeof FLEET_ACTIONS)[number];
 
 /** One action's business key: the same request again writes no second row and changes nothing a second time. */
 export const fleetKey = (action: string, operatorId: string, requestId: string): string =>
@@ -471,6 +482,60 @@ export class FleetStore {
   }
 }
 
+/** One row of the fleet's audit log, as it is stored: who did what to which agent or kind, under which filter. */
+export interface FleetAuditRow {
+  readonly id: string;
+  readonly at: string;
+  readonly operatorId: string;
+  readonly action: Action;
+  readonly agentRef: string | null;
+  readonly kind: string | null;
+  readonly reason: string | null;
+  readonly filter: Record<string, string>;
+  readonly rowCount: number | null;
+  /** The request id the operator's page sent, read back from the row's business key. */
+  readonly requestId: string;
+}
+
+/** The request id inside a business key `agents:fleet:<action>:<operator>:<request id>` (fleetKey). */
+export function requestIdOf(businessKey: string, action: string, operatorId: string): string {
+  const prefix = fleetKey(action, operatorId, '');
+  return businessKey.startsWith(prefix) ? businessKey.slice(prefix.length) : businessKey;
+}
+
+/** The newest `limit` rows of the fleet's audit log, newest first. */
+export async function readFleetAudit(sql: Sql, limit: number): Promise<FleetAuditRow[]> {
+  const rows = await sql<
+    {
+      id: string;
+      at: Date;
+      business_key: string;
+      operator_id: string;
+      action: Action;
+      agent_ref: string | null;
+      kind: string | null;
+      reason: string | null;
+      filter: Record<string, unknown> | null;
+      row_count: number | null;
+    }[]
+  >`
+    SELECT id::text AS id, at, business_key, operator_id, action, agent_ref, kind, reason, filter, row_count
+      FROM agents.agent_fleet_audit ORDER BY at DESC, id DESC LIMIT ${limit}
+  `;
+  return rows.map((row) => ({
+    id: row.id,
+    at: row.at.toISOString(),
+    operatorId: row.operator_id,
+    action: row.action,
+    agentRef: row.agent_ref,
+    kind: row.kind,
+    reason: row.reason,
+    filter: Object.fromEntries(Object.entries(row.filter ?? {}).map(([k, v]) => [k, String(v)])),
+    rowCount: row.row_count,
+    requestId: requestIdOf(row.business_key, row.action, row.operator_id),
+  }));
+}
+
 async function kindCount(sql: Sql, kind: FleetKind): Promise<number> {
   const [row] =
     kind === 'product'
@@ -552,6 +617,34 @@ export function fleetRouter(sql: Sql | undefined, settings: FleetSettings) {
             more: matched.length > settings.registryLimit,
             limit: settings.registryLimit,
           };
+        }),
+      ),
+
+    /** The newest rows of the fleet's audit log (one read shows AGENTS_REGISTRY_LIST_LIMIT rows), newest first. */
+    audit: operator('admin:read')
+      .output(
+        z.object({
+          rows: z.array(
+            z.object({
+              id: z.string(),
+              at: z.string(),
+              operatorId: z.string(),
+              action: z.enum(FLEET_ACTIONS),
+              agentRef: z.string().nullable(),
+              kind: z.string().nullable(),
+              reason: z.string().nullable(),
+              filter: z.record(z.string(), z.string()),
+              rowCount: z.number().int().nullable(),
+              requestId: z.string(),
+            }),
+          ),
+          limit: z.number().int(),
+        }),
+      )
+      .query(() =>
+        guard(async () => {
+          if (settings.registryLimit === null) throw new FleetRefusal('agents.registry_list_limit_unset');
+          return { rows: await readFleetAudit(sqlOf(sql), settings.registryLimit), limit: settings.registryLimit };
         }),
       ),
 
