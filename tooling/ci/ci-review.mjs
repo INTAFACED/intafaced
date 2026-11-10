@@ -143,7 +143,7 @@ export function groupedChanges(before, after) {
       const now = new Set(a[p].map(show));
       const gain = [...now].filter((v) => !was.has(v)).sort();
       const lose = [...was].filter((v) => !now.has(v)).sort();
-      const sig = `${gain.join(',')}|${lose.join(',')}`;
+      const sig = JSON.stringify([gain, lose]);
       if (!groups.has(sig)) groups.set(sig, { gain, lose, paths: [], own: [] });
       const g = groups.get(sig);
       g.paths.push(p);
