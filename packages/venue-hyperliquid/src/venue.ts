@@ -21,8 +21,9 @@ import {
   type UserVenuePosition,
   type UserVenueWithdrawal,
   type VenueAssetAmount,
-  type VenueBook,
   type VenueIntent,
+  type VenueBook,
+  type VenueBookLevel,
   type VenueOrderPreview,
   type VenueOrderStatus,
   type VenueRefusalCode,
@@ -531,14 +532,15 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
   }
 
   /**
-   * The top `depth` levels a side of the venue's own book for `symbol` (`UserVenue.book`), read from `l2Book`: bids high
-   * to low, asks low to high, each level's amount the size the venue shows resting there. `unknown_market` for a
-   * symbol it does not list.
+   * `UserVenue.book`: the top `depth` levels of each side of the venue's own book for `symbol`, from `l2Book`, best
+   * first. `unknown_market` for a symbol it does not list, `venue_down` when the read fails.
    */
   async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    if (!Number.isSafeInteger(depth) || depth < 1) throw new RangeError(`book depth must be a whole number above 0, not ${depth}`);
     const read = await this.l2Book(symbol);
-    const top = (levels: readonly HlBookLevel[]) => levels.slice(0, Math.max(0, depth)).map((l) => ({ price: l.price, amount: l.size }));
-    return { ...read, value: { symbol: read.value.symbol, bids: top(read.value.bids), asks: top(read.value.asks) } };
+    const side = (levels: readonly HlBookLevel[]): VenueBookLevel[] =>
+      levels.slice(0, depth).map((l) => ({ price: l.price, amount: l.size }));
+    return { ...read, value: { symbol: read.value.symbol, bids: side(read.value.bids), asks: side(read.value.asks) } };
   }
 
   /** The venue's mid price of every listed market (`allMids`), by our symbol. A coin we do not list is left out. */

@@ -1146,6 +1146,40 @@ describe('book reads for the hand-run tools', () => {
     await expect(venueWith(fakeVenue()).l2Book('NOPE-USDC')).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
   });
 
+  it('book (UserVenue) is the top depth levels of l2Book as price and amount, best first, with its venue time', async () => {
+    const fake = fakeVenue();
+    fake.info.l2Book = () => ({
+      coin: 'PURR/USDC',
+      time: NOW,
+      levels: [
+        [
+          { px: '0.2001', sz: '100', n: 1 },
+          { px: '0.2', sz: '5', n: 2 },
+        ],
+        [
+          { px: '0.2005', sz: '7', n: 1 },
+          { px: '0.201', sz: '9', n: 1 },
+        ],
+      ],
+    });
+    const book = await venueWith(fake).book('PURR-USDC', 1);
+    expect(book.value).toEqual({
+      symbol: 'PURR-USDC',
+      bids: [{ price: a('0.2001'), amount: a('100') }],
+      asks: [{ price: a('0.2005'), amount: a('7') }],
+    });
+    expect(book.asOf.getTime()).toBe(NOW);
+    expect(book.venueId).toBe(HL_TESTNET_VENUE_ID);
+    expect((await venueWith(fake).book('PURR-USDC', 5)).value.asks).toHaveLength(2);
+  });
+
+  it('book of an unknown symbol is refused unknown_market, and a depth below 1 is refused before any read', async () => {
+    await expect(venueWith(fakeVenue()).book('NOPE-USDC', 5)).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
+    const fake = fakeVenue();
+    await expect(venueWith(fake).book('PURR-USDC', 0)).rejects.toThrow(RangeError);
+    expect(fake.infoTypes).not.toContain('l2Book');
+  });
+
   it('mids maps coins to our symbols and leaves out coins we do not list', async () => {
     const fake = fakeVenue();
     fake.info.allMids = () => ({ ETH: '2000.5', 'PURR/USDC': '0.2003', '@999': '1' });
@@ -1154,49 +1188,5 @@ describe('book reads for the hand-run tools', () => {
       ['ETH-PERP', a('2000.5')],
       ['PURR-USDC', a('0.2003')],
     ]);
-  });
-});
-
-describe('book reads the venue own levels (UserVenue.book)', () => {
-  const levels = (rows: Array<[string, string]>) => rows.map(([px, sz]) => ({ px, sz, n: 1 }));
-
-  it('the top `depth` levels a side, best first, each amount the size resting there; nothing is sent', async () => {
-    const fake = fakeVenue();
-    fake.info.l2Book = () => ({
-      coin: 'ETH',
-      time: NOW,
-      levels: [
-        levels([
-          ['1999', '1.5'],
-          ['1998', '2'],
-          ['1997', '3'],
-        ]),
-        levels([
-          ['2001', '0.5'],
-          ['2002', '4'],
-        ]),
-      ],
-    });
-    const read = await venueWith(fake).book('ETH-PERP', 2);
-    expect(read.value).toEqual({
-      symbol: 'ETH-PERP',
-      bids: [
-        { price: a('1999'), amount: a('1.5') },
-        { price: a('1998'), amount: a('2') },
-      ],
-      asks: [
-        { price: a('2001'), amount: a('0.5') },
-        { price: a('2002'), amount: a('4') },
-      ],
-    });
-    expect(read.asOf).toEqual(new Date(NOW));
-    expect(fake.exchangeBodies).toHaveLength(0);
-  });
-
-  it('refuses unknown_market for a symbol the venue does not list, before any book is read', async () => {
-    const fake = fakeVenue();
-    fake.info.l2Book = () => ({ coin: 'X', time: NOW, levels: [[], []] });
-    await refusedWith(venueWith(fake).book('NOPE-PERP', 5), 'unknown_market');
-    expect(fake.infoTypes).not.toContain('l2Book');
   });
 });
