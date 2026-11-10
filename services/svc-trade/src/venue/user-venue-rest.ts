@@ -2,7 +2,7 @@
  * The user-venue door's REST routes (B1; src/venue/user-venue-door.ts), for the signed-in customer:
  *
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
- *   GET  /api/v1/venue/markets
+ *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
@@ -131,8 +131,10 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
   });
 
   app.get('/api/v1/venue/markets', privateRead, async (req, reply) => {
+    // Market data needs only a signed-in read, never the trade jurisdiction: an unverified desk still shows its form.
     if (!scoped(req, reply, 'trade:read')) return;
-    return answer(reply, async (d) => (await d.venue()).markets(null));
+    // Only the markets two operators listed, each with our listing beside the venue's own state (J-cex-spot-16).
+    return answer(reply, async (d) => d.markets());
   });
 
   app.get<{ Querystring: Query }>('/api/v1/venue/best-prices', privateRead, async (req, reply) => {

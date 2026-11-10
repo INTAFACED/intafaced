@@ -1579,6 +1579,9 @@ function testChain() {
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
+    // The smart account factory and implementation (J-dex-protocol-08's session keys).
+    accountFactory: record.accountFactory ?? null,
+    accountImplementation: record.accountImplementation ?? null,
   };
 }
 

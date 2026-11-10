@@ -8,6 +8,8 @@ import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError } from '@intafaced/contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
@@ -56,6 +58,7 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve', slippageCapBps
     builder: null,
     slippageCapBps,
     now: () => new Date(),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
   });
 }
 

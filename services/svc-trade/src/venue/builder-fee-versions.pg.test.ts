@@ -5,6 +5,8 @@
  * order after a later version takes effect.
  */
 import http from 'node:http';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -116,6 +118,8 @@ describe('builder-fee versions (PG-hard, TEST venue over loopback)', () => {
       builderFeesAt: async (at) => (await builderFeesAt(db.sql, at)).book,
       // The owner's market price protection is blank: these tests place limit orders only.
       slippageCapBps: null,
+      // The stack's TEST listings (J-cex-spot-16): our listing gate shows the two markets these orders use.
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => now,
     });
     const venueMarkets = async (): Promise<VenueMarketsRead | null> => {
@@ -172,6 +176,7 @@ describe('builder-fee versions (PG-hard, TEST venue over loopback)', () => {
     expect(caps.markets).toEqual([
       { symbol: 'BTC-USDC', kind: 'spot', capBps: '100' },
       { symbol: 'BTC-PERP', kind: 'perpetual', capBps: '10' },
+      { symbol: 'ETH-USDC', kind: 'spot', capBps: '100' },
     ]);
     doorOn = false;
     await expect(admin.builderFeeCaps(writer())).rejects.toMatchObject({ code: 'trade.user_venue_off' });
