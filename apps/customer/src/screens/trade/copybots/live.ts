@@ -16,7 +16,7 @@ export type Live<T> = {
 
 export function useLive<T>(load: (signal: AbortSignal) => Promise<ApiResult<T>>, key: string, intervalMs: number | null): Live<T> {
   // Trade rooms paint before the boot refresh has answered. A read sent then carries no token, svc-edge answers
-  // UNAUTHORIZED, and that refusal stood until the next refresh (60 s on a leader's page; #7355). So no read goes out until
+  // UNAUTHORIZED, and that refusal stood until the next refresh (60 s on a leader's page; issue 7355). So no read goes out until
   // the session is known; the room shows loading meanwhile.
   const { restoring } = useSession();
   const [state, setState] = useState<{
