@@ -1,0 +1,41 @@
+import { defineCopy } from '../../shared/i18n';
+
+// Assets on the launch model (J-wallet-01): where each asset sits, as its own source reports it. English source only.
+// No venue or partner brand is written here: the venue's name is the one its own status names.
+export const whereCopy = defineCopy('money.where', {
+  Title: 'Assets',
+  Lede: 'Where each of your assets sits, as its own source reports it. INTAFACED holds none of these funds and adds none of them into one balance.',
+  'Wallet title': 'In your wallet',
+  'Wallet source': 'Read from the chain at block {block}.',
+  'Wallet network': '{network} (chain {chainId})',
+  'Wallet network totals': 'Totals on {network}',
+  'Wallet empty': 'Your wallet holds none of the tokens this network lists.',
+  'Wallet unread': 'Not read from the chain: {tokens}. Shown as not known, never as 0.',
+  'Wallet read failed': 'Your wallet’s network did not answer, so nothing is shown for it.',
+  'Wallet address': 'Wallet',
+  'Venue title': 'In your venue account on {venue}',
+  'Venue source': 'The venue’s own figures.',
+  'Venue empty': 'Your venue account holds nothing.',
+  'Venue read failed': 'Couldn’t read the venue: {detail}',
+  Asset: 'Asset',
+  Amount: 'Amount',
+  Free: 'Free',
+  Locked: 'Locked',
+  'Locked note': 'Locked as collateral or by your open orders',
+  Total: 'Total',
+  'Can withdraw': 'Can withdraw',
+  Value: 'Value',
+  'No price published': 'No price published',
+  'No price note': 'No price is published for these assets here, so none is valued and nothing is totalled.',
+  'Order lock': 'Open order {id} ({side} {symbol}) locks {amount} {asset}',
+  buy: 'buy',
+  sell: 'sell',
+  'As of': 'As of {time}',
+  TEST: 'TEST',
+  'TEST note': 'Every venue figure here is a TEST figure from a TEST venue.',
+  'Partner title': 'With a payment partner',
+  'Partner holds':
+    'Held back by a payment partner: not reported by the partner. No partner reports a hold here, so nothing is taken off what you can withdraw for one.',
+  'Connect first': 'Connect your wallet to see what it holds and your venue account.',
+  Reading: 'Reading…',
+});
