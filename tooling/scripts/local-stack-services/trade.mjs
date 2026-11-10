@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { userVenueSwitchOn } from '../local-test-venue.mjs';
+import { userVenueCount, userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -230,6 +230,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     ...(userVenueSwitchOn(process.env.LOCAL_STACK_USER_VENUE)
       ? {
           TRADE_USER_VENUE_URL: urlOf('test-venue'),
+          // J-derivatives-28: LOCAL_STACK_USER_VENUE=two adds the second TEST venue; the ticket then routes over both.
+          ...(userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2 ? { TRADE_USER_VENUE_URLS: urlOf('test-venue-b') } : {}),
           // J-cex-spot-16: the TEST markets the other venue journeys trade, listed as a LOCAL TEST seed (svc-trade
           // venue/venue-listing.ts): the two BTC markets, and J-derivatives-21's TEST gold perpetual XAU-PERP. ETH-USDC
           // is left unlisted, for two operators to review.

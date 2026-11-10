@@ -28,6 +28,8 @@ import {
   type UserVenueWithdrawal,
   type VenueAssetAmount,
   type VenueIntent,
+  type VenueBook,
+  type VenueBookLevel,
   type VenueOrderPreview,
   type VenueMarginMode,
   type VenueRefusalCode,
@@ -233,7 +235,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
   /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
   private readonly lostAnswers = new Map<string, number>();
-  private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
+  private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
   private readonly networkFeeCharged = new Map<string, Amount>();
@@ -272,7 +274,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     };
     for (const market of options.markets) {
       this.marketsBySymbol.set(market.symbol, market);
-      this.book.set(market.symbol, []);
+      this.resting.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
       this.marketState.set(market.symbol, {
         status: market.status === undefined ? 'trading' : market.status,
@@ -291,7 +293,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is already listed on ${this.venue.displayName}`);
     }
     this.marketsBySymbol.set(market.symbol, market);
-    this.book.set(market.symbol, []);
+    this.resting.set(market.symbol, []);
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
     this.marketState.set(market.symbol, {
       status: market.status === undefined ? 'trading' : market.status,
@@ -306,6 +308,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.marketState.get(symbol)!.status = status;
   }
 
+  /** TEST control: the trading fees this market publishes; `known: false` publishes none (the venue still charges its unpublished rate). */
+  setMarketFees(symbol: string, fees: { makerFeeBps: MaybeKnown<Amount>; takerFeeBps: MaybeKnown<Amount> }): void {
+    const market = this.market(symbol);
+    this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+  }
+
   /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
   setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
     this.market(symbol);
@@ -315,6 +323,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
+
+  /**
+   * TEST control: every account's fills since a time, each with the account it belongs to, so a TEST journey can
+   * account for every fill on the venue in a period (never part of UserVenue; a real venue reports only your own).
+   */
+  testAllFills(since: Date): AsOf<readonly { owner: string; subAccount: string | null; fill: UserVenueFill }[]> {
+    const out: { owner: string; subAccount: string | null; fill: UserVenueFill }[] = [];
+    for (const a of this.accounts.values()) {
+      const sub = a.key.slice(a.key.indexOf('/') + 1);
+      for (const fill of a.fills)
+        if (fill.filledAt.getTime() >= since.getTime()) out.push({ owner: a.owner, subAccount: sub === '' ? null : sub, fill });
+    }
+    out.sort((x, y) => x.fill.filledAt.getTime() - y.fill.filledAt.getTime());
+    return this.asOf(out);
+  }
 
   /**
    * Credit a deposit the customer signed on their own chain. Idempotent by
@@ -457,6 +480,26 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       feed: m.oracle ? { known: true, value: this.feedOf(m) } : { known: false },
     }));
     return this.asOf(list);
+  }
+
+  async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    this.up();
+    this.market(symbol);
+    const levels = (side: 'buy' | 'sell'): VenueBookLevel[] => {
+      const out: VenueBookLevel[] = [];
+      const resting = this.bookOf(symbol)
+        .filter((o) => o.order.side === side && o.order.remaining > ZERO)
+        .sort((a, b) => (side === 'buy' ? compare(b.order.price, a.order.price) : compare(a.order.price, b.order.price)));
+      for (const o of resting) {
+        const last = out[out.length - 1];
+        if (last && compare(last.price, o.order.price) === 0)
+          out[out.length - 1] = { price: last.price, amount: add(last.amount, o.order.remaining) };
+        else if (out.length < depth) out.push({ price: o.order.price, amount: o.order.remaining });
+        else break;
+      }
+      return out;
+    };
+    return this.asOf({ symbol, bids: levels('buy'), asks: levels('sell') });
   }
 
   async preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
@@ -1333,7 +1376,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   private bookOf(symbol: string): OrderState[] {
-    return this.book.get(symbol) as OrderState[];
+    return this.resting.get(symbol) as OrderState[];
   }
 
   /** One fill between a resting maker and an incoming taker at the maker's price. */

@@ -668,6 +668,23 @@ export interface UserVenueMarket {
 export type UserVenueMarketStatus = 'trading' | 'halted' | 'cancel_only' | 'delisted';
 export const USER_VENUE_MARKET_STATUSES: readonly UserVenueMarketStatus[] = ['trading', 'halted', 'cancel_only', 'delisted'];
 
+/** One price level of a venue's book: the size resting there, in the base asset. */
+export interface VenueBookLevel {
+  readonly price: Amount;
+  readonly amount: Amount;
+}
+
+/**
+ * The top of a venue's own book for one market, as the venue reports it: bids best (highest) first, asks best (lowest)
+ * first, each level the total resting at that price. What a ticket shows as a venue's price and depth before an order
+ * is entered (J-derivatives-28 #1). An empty side is an empty list, never an invented level.
+ */
+export interface VenueBook {
+  readonly symbol: string;
+  readonly bids: readonly VenueBookLevel[];
+  readonly asks: readonly VenueBookLevel[];
+}
+
 /** One figure of a preview: an amount in a named asset. */
 export interface VenueAssetAmount {
   readonly asset: string;
@@ -748,6 +765,12 @@ export interface UserVenue {
   // ── market reads, no account ───────────────────────────────────────────
   /** Markets this venue lists for this account and region. Throws `VenueRefusalError('venue_down')` when down. */
   markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>>;
+
+  /**
+   * The top `depth` levels a side of the venue's own book for `symbol`. Throws `unknown_market` for a symbol it does not
+   * list and `venue_down` when down.
+   */
+  book(symbol: string, depth: number): Promise<AsOf<VenueBook>>;
 
   /**
    * What `intent` would lock and cost on `account` now, from the same rules
