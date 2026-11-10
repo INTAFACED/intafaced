@@ -39,6 +39,7 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,withdrawalFee?}       withdrawalFee: MaybeKnown<Amount>
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
+ *        /test/fills {since}                              every account's fills since a time, with its account
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC and BTC-PERP
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
  *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
@@ -304,6 +305,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
       sim.setMark(str(body, 'symbol'), price as Amount);
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/fills': {
+      const since = body.since;
+      if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
+      return { ...sim.testAllFills(since), label: 'TEST' };
     }
     case '/test/seed':
       return { ...(await seedTestVenue(sim)), label: 'TEST' };

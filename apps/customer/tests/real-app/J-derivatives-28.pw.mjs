@@ -1,5 +1,6 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
+import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, restartWithSetting, toUnits, fromUnits } from './stack.mjs';
@@ -242,8 +243,34 @@ test(`${J} #2 enters an order the first venue's shown depth can't fill at the sh
   const [fills, , of, , , , avg] = plain(await line(sheet, 'route-fill').innerText()).split(' ');
   expect(sameDecimal(fills, size) && sameDecimal(of, size)).toBe(true);
   expect(sameDecimal(avg, bAsk.price)).toBe(true);
-  await expect(line(sheet, 'venue-fee')).toContainText('USDC');
-  await expect(line(sheet, 'builder-fee')).toContainText('USDC');
+  // The fees, exactly as the chosen venue's own preview of this order prices them.
+  const builder = (await (await api(state().account)).get('/api/v1/venue/status')).body.builder;
+  const own = (
+    await at(v.b.base, '/preview', {
+      account: account(v.b, owner),
+      intent: {
+        kind: 'place_order',
+        symbol: SYMBOL,
+        side: 'buy',
+        type: 'market',
+        amount: size,
+        price: worst,
+        timeInForce: 'IOC',
+        reduceOnly: false,
+        clientOrderKey: (await line(sheet, 'client-id').innerText()).trim(),
+        builderFee: { builder: builder.address, feeBps: builder.feeBps },
+      },
+    })
+  ).value;
+  expect(own.venueFee.known && own.builderFee.known, 'the venue prices both fees for this order').toBe(true);
+  for (const [name, fee] of [
+    ['venue-fee', own.venueFee.value],
+    ['builder-fee', own.builderFee.value],
+  ]) {
+    const [amount, asset] = plain(await line(sheet, name).innerText()).split(' ');
+    expect(sameDecimal(amount, fee.amount), `${name}: ${amount} against the venue's ${fee.amount}`).toBe(true);
+    expect(asset).toBe(fee.asset);
+  }
   // Why: the first venue's shown depth fills only its best ask's size at its shown price; the chosen one costs less.
   const why = line(sheet, 'route-why');
   await expect(why).toContainText(`${v.a.displayName}'s shown depth fills`);
@@ -495,37 +522,36 @@ test(`${J} #6 an operator opens the routing view: our users' routed volume and b
     const table = page.getByTestId('routing-table');
     await expect(table).toBeVisible({ timeout: 30_000 });
     let ours = { fills: 0, volume: 0n, fees: 0n };
+    const makers = new Set(
+      ['bid', 'ask'].map((n) => privateKeyToAccount(keccak256(toHex(`intafaced TEST venue maker ${n}`))).address.toLowerCase()),
+    );
+    const cell = async (r, name) => {
+      const text = plain(await r.locator(`[data-cell="${name}"]`).innerText());
+      return text === 'none' ? 0n : toUnits(text.replace(/ USDC$/, ''));
+    };
     for (const venue of [v.a, v.b]) {
-      // This file's own routed orders on the venue, from the venue's fills (every order here went through our door).
-      const fills = (await fillsOf(venue, owner, s.startedAt)).filter((f) => f.symbol === SYMBOL && f.venueClientOrderId);
+      // Every fill on the venue in the period, from the venue: only this file's person and the TEST makers trade there
+      // while this file runs (one worker), so the row is exactly this person's routed fills.
+      const all = (await at(venue.base, '/test/fills', { since: s.startedAt })).value.filter((x) => x.fill.filledAt < to);
+      const strangers = all.filter((x) => x.owner !== owner && !makers.has(x.owner));
+      expect(strangers, `${venue.displayName}: only this file and the TEST makers fill in the period`).toEqual([]);
+      const fills = all.filter((x) => x.owner === owner && x.fill.venueClientOrderId).map((x) => x.fill);
       const volume = fills.reduce((t, f) => t + (toUnits(f.price) * toUnits(f.amount)) / 10n ** 18n, 0n);
       const fees = fills.reduce((t, f) => t + toUnits(f.builderFee), 0n);
       const r = table.locator(`tr[data-venue="${venue.id}"]`);
       await expect(r.locator('[data-cell="exposure"]')).toHaveText('none: routed');
       await expect(r).toHaveAttribute('data-state', 'up');
-      const shownVolume = toUnits(
-        plain(await r.locator('[data-cell="volume"]').innerText())
-          .replace(/ USDC$/, '')
-          .replace(/^none$/, '0'),
-      );
-      const shownFees = toUnits(
-        plain(await r.locator('[data-cell="builder-fees"]').innerText())
-          .replace(/ USDC$/, '')
-          .replace(/^none$/, '0'),
-      );
-      if (venue.id === v.b.id) {
-        // Only this file routes to the second TEST venue: its row is exactly this file's fills.
-        expect(fromUnits(shownVolume)).toBe(fromUnits(volume));
-        expect(fromUnits(shownFees)).toBe(fromUnits(fees));
-        expect(Number(await r.locator('[data-cell="fills"]').innerText())).toBe(fills.length);
-        expect(fees > 0n, 'our builder fee was charged on the routed fills').toBe(true);
-      } else {
-        // The first venue also carries other journeys' routed orders in the period: at least this file's.
-        expect(shownVolume >= volume).toBe(true);
-        expect(shownFees >= fees).toBe(true);
-      }
+      expect(fromUnits(await cell(r, 'volume')), `${venue.displayName} volume`).toBe(fromUnits(volume));
+      expect(fromUnits(await cell(r, 'builder-fees')), `${venue.displayName} builder fees`).toBe(fromUnits(fees));
+      expect(Number(await r.locator('[data-cell="fills"]').innerText())).toBe(fills.length);
+      expect(Number(await r.locator('[data-cell="orders"]').innerText())).toBe(new Set(fills.map((f) => f.venueClientOrderId)).size);
       ours = { fills: ours.fills + fills.length, volume: ours.volume + volume, fees: ours.fees + fees };
     }
+    expect(ours.fees > 0n, 'our builder fee was charged on the routed fills').toBe(true);
+    // The total row: the two venues added up, and house exposure "none: routed".
+    const total = table.locator('tr[data-row="total"]');
+    expect(fromUnits(await cell(total, 'volume'))).toBe(fromUnits(ours.volume));
+    expect(fromUnits(await cell(total, 'builder-fees'))).toBe(fromUnits(ours.fees));
     expect(ours.fills > 0).toBe(true);
     await expect(table.locator('tr[data-row="total"] [data-cell="exposure"]')).toHaveText('none: routed');
   } finally {
