@@ -188,6 +188,9 @@ test(`${J} #1 the top bar has five doors with full dropdowns, the same five on t
   // Business-only room (Business approvals, /bank/business) is the exception for search in Personal mode, as #7 says; it
   // is still reached by its address here.
   const BUSINESS_ONLY = new Set(['/bank/business']);
+  // Search lists a room by its name in the route table (apps/customer/src/app/navigation.ts). Two rows carry a menu label of
+  // their own: the room they open is named here.
+  const ROOM_NAME = { '/quant/editor': 'Code editor', '/money/activity?tab=orders': 'Activity' };
   const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const { href, title } of advanced) {
     expect(title, `${href} has a title in its row`).not.toBe('');
@@ -196,8 +199,9 @@ test(`${J} #1 the top bar has five doors with full dropdowns, the same five on t
     await expect(page.locator('main'), `${href} by address`).not.toBeEmpty();
     if (BUSINESS_ONLY.has(href)) continue;
     await page.goto('/home');
-    const panel = await search(page, title);
-    await expect(panel.getByRole('option', { name: new RegExp(escape(title)) }).first(), `${title} (${href}) by search`).toBeVisible();
+    const name = ROOM_NAME[href] ?? title;
+    const panel = await search(page, name);
+    await expect(panel.getByRole('option', { name: new RegExp(escape(name)) }).first(), `${name} (${href}) by search`).toBeVisible();
   }
 
   // On a phone the same five doors sit in the bottom bar, in the same order, More included.
