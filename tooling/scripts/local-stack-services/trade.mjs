@@ -239,6 +239,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-developer-05 #6: `LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off` leaves the largest page blank, so a list refuses.
           TRADE_USER_VENUE_ORDERS_PAGE_MAX:
             process.env.LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX === 'off' ? '' : testValue('TRADE_USER_VENUE_ORDERS_PAGE_MAX'),
+          // The builder-fee poster (J-derivatives-17): every 2 seconds on the stack; `LOCAL_STACK_BUILDER_FEE_POSTER=off`
+          // stops it, so a fill waits unposted and the recon lists it as a break.
+          TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
+          TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: '2000',
         }
       : {}),
   }),

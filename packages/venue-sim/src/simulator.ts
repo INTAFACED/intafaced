@@ -51,6 +51,8 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     listed refuses `not_offered` at prepare, before the wallet is asked;
  *   · `makerFeeBps` / `takerFeeBps` `known: false` — the fee is not published;
  *   · `withdrawalFee` `known: false` — the withdrawal fee is shown as not known;
+ *   · `networkFee` `known: false` — the withdrawal's network fee is shown as
+ *     not known (what arrives is still the amount less the fee charged);
  *   · an agent key is always refused a withdrawal (`agent_not_permitted`);
  *   · `loseAnswers` — the next N submits are applied and then answered
  *     `definite: false`, so a caller's read-back is exercised;
@@ -99,6 +101,10 @@ export interface SimSwitches {
   withdrawalFee: MaybeKnown<Amount>;
   /** The fee actually charged when `withdrawalFee` is not published (never 0 by default, so "not known" is never read as free). */
   unpublishedWithdrawalFee: Amount;
+  /** The network fee a withdrawal reports, taken from what arrives at its destination. */
+  networkFee: MaybeKnown<Amount>;
+  /** The network fee actually taken when `networkFee` is not published (never 0 by default, as `unpublishedWithdrawalFee`). */
+  unpublishedNetworkFee: Amount;
   /** The trading fees actually charged, and reported on fills, on a market whose fee is not published. */
   unpublishedMakerFeeBps: Amount;
   unpublishedTakerFeeBps: Amount;
@@ -175,6 +181,8 @@ export class TestVenueSimulator implements UserVenue {
   private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
+  private readonly networkFeeCharged = new Map<string, Amount>();
+  private readonly withdrawalSubmittedAt = new Map<string, Date>();
   private seqCounter = 0;
   private fillCounter = 0;
   private venueOrderCounter = 0;
@@ -199,6 +207,8 @@ export class TestVenueSimulator implements UserVenue {
       venueDown: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
+      networkFee: { known: true, value: parseAmount('0.25') },
+      unpublishedNetworkFee: parseAmount('0.5'),
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
       loseAnswers: 0,
@@ -276,19 +286,56 @@ export class TestVenueSimulator implements UserVenue {
    */
   settleWithdrawals(outcome: 'done' | 'failed' = 'done'): number {
     let settled = 0;
-    for (const state of this.accounts.values()) {
-      for (const [nonce, withdrawal] of state.withdrawals) {
-        if (withdrawal.status === 'pending') {
-          if (outcome === 'failed') {
-            const balance = this.balance(state, withdrawal.asset);
-            balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
-          }
-          state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
-          settled += 1;
-        }
-      }
+    for (const pending of this.pendingWithdrawals()) {
+      if (this.settleWithdrawal(pending.account, pending.nonce, outcome)) settled += 1;
     }
     return settled;
+  }
+
+  /**
+   * Every pending withdrawal, oldest first, with what is to arrive at its destination: the amount less the network fee
+   * taken (published or not). What a chain sender pays out before it settles one `done` (chain-deposits.ts).
+   */
+  pendingWithdrawals(): Array<{
+    readonly account: UserVenueAccount;
+    readonly nonce: string;
+    readonly withdrawal: UserVenueWithdrawal;
+    readonly arrives: Amount;
+    readonly submittedAt: Date;
+  }> {
+    const out: ReturnType<TestVenueSimulator['pendingWithdrawals']> = [];
+    for (const state of this.accounts.values()) {
+      for (const [nonce, withdrawal] of state.withdrawals) {
+        if (withdrawal.status !== 'pending') continue;
+        const taken = this.networkFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO;
+        const arrives = compare(withdrawal.amount, taken) > 0 ? sub(withdrawal.amount, taken) : ZERO;
+        const subAccount = state.key.slice(state.key.indexOf('/') + 1);
+        out.push({
+          account: { venueId: this.venue.id, owner: state.owner, subAccount: subAccount === '' ? null : subAccount },
+          nonce,
+          withdrawal,
+          arrives,
+          submittedAt: this.withdrawalSubmittedAt.get(`${state.key}#${nonce}`) ?? new Date(0),
+        });
+      }
+    }
+    return out.sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
+  }
+
+  /**
+   * Settle one pending withdrawal: `done` (the chain confirmed it) or `failed` (the venue returns the amount and its fee
+   * to free). False when it is not pending (already settled, or unknown): settling twice changes nothing.
+   */
+  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed'): boolean {
+    const state = this.account(account);
+    const withdrawal = state.withdrawals.get(nonce);
+    if (!withdrawal || withdrawal.status !== 'pending') return false;
+    if (outcome === 'failed') {
+      const balance = this.balance(state, withdrawal.asset);
+      balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
+    }
+    state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
+    return true;
   }
 
   // ── UserVenue: market reads ────────────────────────────────────────────
@@ -837,6 +884,12 @@ export class TestVenueSimulator implements UserVenue {
           return refused('insufficient_balance', `free ${intent.asset} does not cover the withdrawal and its fee`);
         balance.free = sub(balance.free, needed);
         this.withdrawalFeeCharged.set(`${state.key}#${prepared.nonce}`, fee);
+        const networkFee = this.switches.networkFee;
+        this.networkFeeCharged.set(
+          `${state.key}#${prepared.nonce}`,
+          networkFee.known ? networkFee.value : this.switches.unpublishedNetworkFee,
+        );
+        this.withdrawalSubmittedAt.set(`${state.key}#${prepared.nonce}`, this.clock());
         const withdrawal: UserVenueWithdrawal = {
           nonce: prepared.nonce,
           asset: intent.asset,
@@ -844,6 +897,7 @@ export class TestVenueSimulator implements UserVenue {
           destination: intent.destination.toLowerCase(),
           status: 'pending',
           fee: this.switches.withdrawalFee,
+          networkFee,
         };
         state.withdrawals.set(prepared.nonce, withdrawal);
         return accepted(prepared.nonce, null);

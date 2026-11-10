@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { Amount } from '@intafaced/ledger-client/money';
 import {
   decodeVenueWire,
   encodeVenueWire,
@@ -51,6 +52,21 @@ export interface PreparedActionStore {
     after: { createdAt: Date; businessKey: string } | null,
     limit: number,
   ): Promise<StoredVenueAction[]>;
+  /**
+   * The orders we routed on `venueId` with our builder fee attached, among `venueClientOrderIds`: each venue client order
+   * id with the fee rate it carried (scaled decimal bps). Only an order signed and accepted by the venue through our door
+   * counts; a prepared order never sent is not routed. Where two share an id, the first prepared wins. The routed-volume
+   * recon reads it (J-derivatives-17 #4).
+   */
+  builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]): Promise<ReadonlyMap<string, Amount>>;
+}
+
+/** The builder fee rate a routed order carried, or null for an action that is not an accepted order with our fee. */
+function builderFeeRate({ prepared, signature, lastOutcome }: StoredVenueAction): Amount | null {
+  if (!signature || !lastOutcome?.definite || !lastOutcome.accepted) return null;
+  return prepared.intent.kind === 'place_order' && prepared.venueClientOrderId !== null && prepared.builderFee
+    ? prepared.builderFee.feeBps
+    : null;
 }
 
 const afterCursor = (row: StoredVenueAction, after: { createdAt: Date; businessKey: string } | null) =>
@@ -145,6 +161,17 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
       )
       .slice(0, limit);
   }
+
+  async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {
+    const wanted = new Set(venueClientOrderIds);
+    const out = new Map<string, Amount>();
+    for (const row of this.rows.values()) {
+      const rate = builderFeeRate(row);
+      const id = row.prepared.venueClientOrderId!;
+      if (row.prepared.venueId === venueId && rate !== null && wanted.has(id) && !out.has(id)) out.set(id, rate);
+    }
+    return out;
+  }
 }
 
 interface Row {
@@ -236,5 +263,22 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       ORDER BY created_at, business_key
       LIMIT ${limit}`;
     return rows.map(fromRow);
+  }
+
+  async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {
+    const out = new Map<string, Amount>();
+    if (venueClientOrderIds.length === 0) return out;
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE venue_id = ${venueId} AND kind = 'place_order'
+        AND prepared->>'venueClientOrderId' = ANY(${this.sql.array([...venueClientOrderIds])})
+        AND signature IS NOT NULL
+      ORDER BY created_at, user_id, business_key`;
+    for (const row of rows.map(fromRow)) {
+      const rate = builderFeeRate(row);
+      const id = row.prepared.venueClientOrderId!;
+      if (rate !== null && !out.has(id)) out.set(id, rate);
+    }
+    return out;
   }
 }
