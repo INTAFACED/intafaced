@@ -14,7 +14,7 @@
  *
  *   node tooling/ci/step-read.mjs prepare <dir>          in the job: the event's pull request, read through the API
  *   node tooling/ci/step-read.mjs read <dir>             the reader's answers into read.json, read-second.json, status.tsv
- *   node tooling/ci/step-read.mjs local --repo <clone> --base <sha> --head <sha> --words <dir> [--title <t>] <dir>
+ *   node tooling/ci/step-read.mjs local --repo <clone> --base <sha> --head <sha> --words <dir> [--title <t>] [--run-id <n>] <dir>
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
