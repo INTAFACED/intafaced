@@ -427,6 +427,27 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: the mining pool can start with nothing published');
 }
 
+// Our own order book follows the custody switch (OWNER 288): svc-trade and svc-matching boot their own book only with
+// LEDGER_CUSTODY_LAYER on, and refuse "own book on, custody off". So every process of this stack that carries the switch
+// carries svc-ledger's value, trade and matching among them, and neither pins its own-book switch on by itself.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const envs = localTestServiceEnvs();
+  const ledgerCustody = envs.find((service) => service.name === 'ledger').env.LEDGER_CUSTODY_LAYER;
+  const carriers = envs.filter((service) => 'LEDGER_CUSTODY_LAYER' in service.env).map((service) => service.name);
+  for (const name of ['trade', 'matching']) assert.ok(carriers.includes(name), `${name} must carry LEDGER_CUSTODY_LAYER`);
+  for (const service of envs.filter((s) => 'LEDGER_CUSTODY_LAYER' in s.env)) {
+    assert.equal(service.env.LEDGER_CUSTODY_LAYER, ledgerCustody, `${service.name} carries a custody switch unlike svc-ledger's`);
+  }
+  assert.equal('TRADE_SPOT_ENABLED' in envs.find((s) => s.name === 'trade').env, false, 'trade must leave spot to the custody switch');
+  assert.equal(
+    'MATCHING_ENGINE_ENABLED' in envs.find((s) => s.name === 'matching').env,
+    false,
+    'matching must leave its engine to the custody switch',
+  );
+  console.log("local-test-stack: trade and matching carry svc-ledger's custody switch, so the own book runs only with custody on");
+}
+
 // The bank carries the one LOCAL TEST sanctioned destination (J-wallet-05 #2), never a real list and never blank here.
 {
   const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
