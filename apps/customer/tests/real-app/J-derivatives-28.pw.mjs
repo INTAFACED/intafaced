@@ -72,29 +72,36 @@ const desk = async (page) => {
   await expect(page.getByTestId('venue-routes')).toBeVisible({ timeout: 30_000 });
   return { ...s, wallet, owner: wallet.address };
 };
+/** The desk read afresh on the same page, with the TEST wallet already installed on it connected again. */
+async function reconnect(page, wallet) {
+  await page.reload();
+  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: 'Connect TEST Wallet' }).click();
+  await expect(page.getByTestId('venue-wallet-address')).toHaveText(wallet.address);
+  await expect(page.getByTestId('venue-routes')).toBeVisible({ timeout: 30_000 });
+}
 const strip = (page) => page.getByTestId('venue-routes');
 const row = (page, venue) => strip(page).locator(`tr[data-venue="${venue.id}"]`);
 const line = (sheet, name) => sheet.locator(`[data-line="${name}"]`);
 
-/** Both venue accounts funded and leverage set on each through our door (setup for the steps after #2). */
-async function ready(s) {
+/**
+ * Both venue accounts funded and leverage set on each through our door, signed by the person's own key (setup for the
+ * steps after #2). With `approve`, our builder fee is approved on each venue too, so a step that proves the order itself
+ * (#3, #5) doesn't stop at #8's one-time approval.
+ */
+async function ready(s, { approve = false } = {}) {
   const v = await both();
   const owner = privateKeyToAccount(s.walletKey).address.toLowerCase();
   const client = await api(s.account);
   const key = privateKeyToAccount(s.walletKey);
-  for (const venue of [v.a, v.b]) {
-    const balances = (await at(venue.base, '/balances', { account: account(venue, owner) })).value;
-    if (!balances.some((b) => b.asset === 'USDC' && toUnits(b.total) > 0n)) await deposit(venue, owner, 'USDC', FUNDS);
-    const lev = await client.get(`/api/v1/venue/leverage?owner=${owner}&symbol=${SYMBOL}&venueId=${venue.id}`);
-    expect(lev.status, JSON.stringify(lev.body).slice(0, 300)).toBe(200);
-    if (lev.body.value) continue;
-    const intent = { kind: 'update_leverage', symbol: SYMBOL, leverageBps: Number(LEVERAGE) * 10_000, marginMode: 'isolated' };
+  const builder = (await client.get('/api/v1/venue/status')).body.builder;
+  const signAndSend = async (venue, intent, actionKey) => {
     const prep = await client.post('/api/v1/venue/prepare', {
       venueId: venue.id,
       owner,
       signer: { role: 'owner', address: owner },
       intent,
-      actionKey: `leverage:${owner}:${SYMBOL}:isolated:${LEVERAGE}:setup-${venue.id}`,
+      actionKey,
     });
     expect(prep.status, JSON.stringify(prep.body).slice(0, 300)).toBe(200);
     const t = prep.body.prepared.typedData;
@@ -104,6 +111,26 @@ async function ready(s) {
       signature: { digest: prep.body.prepared.digest, signature, signedBy: owner },
     });
     expect(sent.body.outcome).toMatchObject({ definite: true, accepted: true });
+  };
+  for (const venue of [v.a, v.b]) {
+    const balances = (await at(venue.base, '/balances', { account: account(venue, owner) })).value;
+    if (!balances.some((b) => b.asset === 'USDC' && toUnits(b.total) > 0n)) await deposit(venue, owner, 'USDC', FUNDS);
+    const lev = await client.get(`/api/v1/venue/leverage?owner=${owner}&symbol=${SYMBOL}&venueId=${venue.id}`);
+    expect(lev.status, JSON.stringify(lev.body).slice(0, 300)).toBe(200);
+    if (!lev.body.value)
+      await signAndSend(
+        venue,
+        { kind: 'update_leverage', symbol: SYMBOL, leverageBps: Number(LEVERAGE) * 10_000, marginMode: 'isolated' },
+        `leverage:${owner}:${SYMBOL}:isolated:${LEVERAGE}:setup-${venue.id}`,
+      );
+    if (!approve) continue;
+    const approved = (await at(venue.base, '/builder-fee-approval', { account: account(venue, owner), builder: builder.address })).value;
+    if (toUnits(approved) >= toUnits(builder.feeBps)) continue;
+    await signAndSend(
+      venue,
+      { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
+      `builder-approval:${owner}:${venue.id}:${builder.address}:${builder.feeBps}`,
+    );
   }
   return { ...v, owner, client };
 }
@@ -164,7 +191,7 @@ test(`${J} #1 opens the ticket for a market two venues list: each venue with its
     await expect(r.getByTestId('venue-test')).toHaveText('TEST');
     await expect(r.locator('[data-cell="state"]')).toHaveText('Up');
     const market = (await at(venue.base, '/markets', {})).value.find((m) => m.symbol === SYMBOL);
-    const fee = (k) => (market[k].known ? `${market[k].value} bps` : 'Not known');
+    const fee = (k) => (market[k].known ? `${market[k].value} bps` : 'not known');
     await expect.poll(async () => plain(await r.locator('[data-fee="maker"]').innerText())).toBe(`Maker ${fee('makerFeeBps')}`);
     await expect.poll(async () => plain(await r.locator('[data-fee="taker"]').innerText())).toBe(`Taker ${fee('takerFeeBps')}`);
     await expect.poll(async () => plain(await r.locator('[data-cell="builder-fee"]').innerText())).toBe(`${status.builder.feeBps} bps`);
@@ -285,10 +312,10 @@ test(`${J} #2 enters an order the first venue's shown depth can't fill at the sh
   try {
     const again = await reviewLong(page, { size, worst });
     await expect(line(again, 'route-venue')).toHaveAttribute('data-venue', v.b.id);
-    await expect(line(again, 'venue-fee')).toHaveText('Not known');
+    await expect(line(again, 'venue-fee')).toHaveText('not known');
     await expect(line(again, 'route-total')).toContainText('counting known fees only');
     await expect(line(again, 'route-why')).toContainText('This venue does not publish its fee');
-    await expect(row(page, v.b).locator('[data-fee="taker"]')).toHaveText('Taker Not known');
+    await expect(row(page, v.b).locator('[data-fee="taker"]')).toHaveText('Taker not known');
     await closeReview(again);
   } finally {
     const market = (await at(v.a.base, '/markets', {})).value.find((m) => m.symbol === SYMBOL);
@@ -325,11 +352,12 @@ test(`${J} #8 confirms an order on a venue where they never approved our builder
   expect(agent.body.refusal?.code).toBe('agent_not_permitted');
 
   // A blank builder fee: no venue can take the order, the refusal names the blocker, and the wallet is asked nothing.
+  let blank = null;
   const savedVenue = process.env.LOCAL_STACK_USER_VENUE;
   process.env.LOCAL_STACK_USER_VENUE = 'two';
   try {
     restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE_BUILDER_FEE', 'off');
-    const blank = await desk(page);
+    blank = await desk(page);
     await expect(row(page, v.b).locator('[data-cell="builder-fee"]')).toContainText('Not published', { timeout: 15_000 });
     const sheet = await reviewLong(page, await sizeFor(v.a));
     const none = sheet.getByTestId('venue-route-none');
@@ -346,7 +374,9 @@ test(`${J} #8 confirms an order on a venue where they never approved our builder
     else process.env.LOCAL_STACK_USER_VENUE = savedVenue;
   }
 
-  const { wallet } = await desk(page);
+  // The fee is published again: the same page and wallet, read afresh.
+  const wallet = blank.wallet;
+  await reconnect(page, wallet);
   const order = await sizeFor(v.a);
   const sheet = await reviewLong(page, order);
   await expect(line(sheet, 'route-venue')).toHaveAttribute('data-venue', v.b.id);
@@ -392,7 +422,7 @@ test(`${J} #3 confirms and signs: one signed order sent once to the chosen venue
 }) => {
   test.setTimeout(300_000);
   const s = state();
-  await ready(s);
+  await ready(s, { approve: true });
   const { wallet, owner } = await desk(page);
   const v = await both();
   const submits = [];
@@ -427,7 +457,7 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
 }) => {
   test.setTimeout(300_000);
   const s = state();
-  await ready(s);
+  await ready(s, { approve: true });
   const { wallet, owner } = await desk(page);
   const v = await both();
   const submits = [];
