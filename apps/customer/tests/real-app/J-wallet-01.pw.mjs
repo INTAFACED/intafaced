@@ -8,7 +8,6 @@ import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
-  openVenueDesk,
   sameDecimal,
   testDeposit,
   testVenue,
@@ -110,19 +109,44 @@ async function signOnVenue(walletKey, intent) {
 
 const openOrders = async (owner) => (await venueRecord(owner, '/open-orders')).value;
 
-/** Signed in, the TEST wallet on the TEST chain in this page, Assets open with the wallet connected. */
-async function openAssets(page, { via = null } = {}) {
-  const { account: who, walletKey, owner } = state();
+/**
+ * Connects the TEST wallet when the page asks for it, until `connected` shows. A page opened again in the same tab may
+ * restore the connection itself, and then shows no Connect button.
+ */
+async function connectWhenAsked(page, connected) {
+  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  await expect
+    .poll(
+      async () => {
+        if (await connected.isVisible().catch(() => false)) return true;
+        if (await connect.isVisible().catch(() => false)) await connect.click().catch(() => undefined);
+        return false;
+      },
+      { timeout: 30_000, intervals: [500] },
+    )
+    .toBe(true);
+}
+
+/**
+ * Signed in with the TEST wallet on the TEST chain in this page: the wallet is installed once per page (a second install
+ * in the same page is refused), and the page's own reads go to the TEST chain's node.
+ */
+async function withWallet(page) {
+  const { account: who, walletKey } = state();
   await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
   await signIn(page, who);
+}
+
+/** Assets open with the wallet connected. `fresh` installs the wallet and signs in first; else the page already has both. */
+async function openAssets(page, { via = null, fresh = true } = {}) {
+  const { owner } = state();
+  if (fresh) await withWallet(page);
   if (via) await via();
   else await page.goto('/money');
   await page.mouse.move(0, 600);
   const sources = page.getByTestId('assets-by-source');
   await expect(sources).toBeVisible({ timeout: 30_000 });
-  const connect = sources.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  if (await connect.isVisible().catch(() => false)) await connect.click();
-  await expect(page.getByTestId('source-wallet')).toHaveAttribute('data-address', owner, { timeout: 30_000 });
+  await connectWhenAsked(page, page.locator(`[data-testid="source-wallet"][data-address="${owner}"]`));
   return { sources, owner };
 }
 
@@ -246,9 +270,12 @@ test(`${J} #1 opens Assets: the wallet's assets read from the chain and the venu
 test(`${J} #2 places an order, then looks again: the venue's lock shows as locked naming the order; cancelling it returns it to free, as the venue reports`, async ({
   page,
 }) => {
-  const { account: who, walletKey, owner, resting, ledgerStart } = state();
+  const { owner, resting, ledgerStart } = state();
   const before = await venueBalance(owner, 'USDC');
-  await openVenueDesk(page, who, DESK, walletKey);
+  await withWallet(page);
+  await page.goto(DESK);
+  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address').filter({ hasText: new RegExp(owner, 'i') }));
   const ticket = page.getByTestId('venue-ticket');
   await ticket.getByRole('button', { name: 'Buy', exact: true }).click();
   await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
@@ -263,7 +290,7 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
   expect(second?.status).toBe('open');
 
   // Assets: the venue's lock for the new order shows as locked, naming that order by its id.
-  await openAssets(page);
+  await openAssets(page, { fresh: false });
   const { row, venue } = await venueRowAgrees(page, owner, 'USDC');
   expect(sameDecimal(venue.total, before.total)).toBe(true);
   const lock = row.locator(`li[data-order="${second.venueClientOrderId}"]`);
@@ -284,7 +311,7 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
     'Cancelled on the venue; its lock is released.',
   );
   await expect.poll(async () => (await openOrders(owner)).map((o) => o.venueClientOrderId)).toEqual([resting]);
-  await openAssets(page);
+  await openAssets(page, { fresh: false });
   const after = await venueRowAgrees(page, owner, 'USDC');
   expect(sameDecimal(after.venue.free, before.free) && sameDecimal(after.venue.locked, before.locked)).toBe(true);
   await expect(after.row.locator(`li[data-order="${second.venueClientOrderId}"]`)).toHaveCount(0);
@@ -304,7 +331,7 @@ test(`${J} #3 opens Withdraw: what can be withdrawn leaves out the venue's lock,
   await expect(page.getByTestId('source-partner')).toContainText('not reported by the partner');
   // Withdraw from the venue account offers the venue's free figure.
   await page.goto('/wallet/venue');
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await connectWhenAsked(page, page.getByTestId('venue-balance'));
   await expect(page.getByTestId('venue-balance')).toHaveText(`${shown(venue.free)} TEST USDC`, { timeout: 30_000 });
   // A card or bank purchase needs a payment partner, which is not connected: nothing is bought, and nothing is held.
   await page.goto('/uc/recharge');
