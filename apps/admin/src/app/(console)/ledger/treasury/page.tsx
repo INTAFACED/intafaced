@@ -222,7 +222,13 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
       <h3>Routed volume</h3>
       <div
         data-testid="builder-fee-volume"
-        data-state={venue.volume.every((v) => v.matched) && venue.volumeGaps.length === 0 ? 'green' : 'gap'}
+        data-state={
+          venue.volume.length === 0 && venue.volumeGaps.length === 0
+            ? 'nothing_to_compare'
+            : venue.volume.every((v) => v.matched) && venue.volumeGaps.length === 0
+              ? 'green'
+              : 'gap'
+        }
       >
         <p>
           The volume of the period&apos;s fills on orders we routed with our builder fee, against the builder fee the venue charged on them.

@@ -428,6 +428,10 @@ export function describeRun(run: ReconciliationControlRunView): string {
     `As of ${run.asOf}; balances read at ${run.readAt}${run.margin.status === 'set' ? ` (margin ${run.margin.value} s)` : ''}.`,
     `Sources: ledger as of ${run.sources.ledger.asOf}; outside ${outside}; parity ${parity}. Outside side: ${run.outsideSide}.`,
     `${run.accounts.length} account${run.accounts.length === 1 ? '' : 's'} and ${run.assets.length} asset${run.assets.length === 1 ? '' : 's'} read.`,
+    `${run.compared} record${run.compared === 1 ? '' : 's'} compared, read through ${run.readAt}.`,
+    ...(run.status === 'NOTHING_TO_COMPARE'
+      ? ['Nothing to compare: no record was compared, so this run proves nothing and is not green.']
+      : []),
     ...(run.errorCode.status === 'set'
       ? [`Error: ${run.errorCode.value}${run.phase.status === 'set' ? ` at ${run.phase.value}` : ''}.`]
       : []),
@@ -453,7 +457,9 @@ export function describeRun(run: ReconciliationControlRunView): string {
 export function describeEvidence(asset: ReconciliationControlRunView['assets'][number]): string {
   const items =
     asset.reconcilingItems === undefined ? '' : `, reconciling items ${asset.reconcilingItems}, residual ${asset.residual ?? 'unset'}`;
-  return `${asset.assetId}: observed ${asset.observed}, expected ${asset.expected}, difference ${asset.difference}, tolerance ${asset.tolerance}${items}.`;
+  const missing =
+    asset.missing === undefined ? '' : ` ${asset.assetId} is missing on the ${asset.missing} side: a break, never read as a zero.`;
+  return `${asset.assetId}: observed ${asset.observed}, expected ${asset.expected}, difference ${asset.difference}, tolerance ${asset.tolerance}${items}.${missing}`;
 }
 
 /** What each move is called on screen. Where it may go from, and to, is the contract's one table. */
