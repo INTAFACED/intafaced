@@ -182,7 +182,7 @@ test(`${J} #4 sends two requests with the same key at once: the second gets the 
   expect(await venueOrdersWith(s.owner, prepared.body.prepared.venueClientOrderId)).toHaveLength(1);
 });
 
-test(`${J} #5 times out after the order is sent: the docs say accepted is not final; read by key it is unknown until the venue answers; a retry on the same key never creates a second venue order`, async ({
+test(`${J} #5 times out or gets a 5xx after the order is sent: the docs say accepted is not final; read by key it is unknown until the venue answers; a retry on the same key never creates a second venue order`, async ({
   browser,
 }) => {
   const s = state();
@@ -238,6 +238,38 @@ test(`${J} #5 times out after the order is sent: the docs say accepted is not fi
   expect(after.headers.get('idempotent-replayed')).toBe('true');
   expect(after.body.outcome).toMatchObject({ definite: true, accepted: true });
   expect(await venueOrdersWith(s.owner, cloid)).toHaveLength(1);
+
+  // A 5xx after the order was sent: the TEST venue applies the next submit on this account, then answers HTTP 500.
+  const k5 = `${keyFor(5)}:5xx`;
+  const second = await prepare(s, k5);
+  expect(second.status, JSON.stringify(second.body)).toBe(200);
+  const cloid5 = second.body.prepared.venueClientOrderId;
+  const signature5 = await signPrepared(s, second.body.prepared);
+  await accountSwitch(s.owner, { failAfterSend: 1 });
+  const erred = await submit(s, k5, signature5);
+  expect(erred.status, JSON.stringify(erred.body)).toBe(200);
+  expect(erred.body.outcome).toEqual({ definite: false, reason: 'venue_error_after_send' });
+  expect(erred.body.readBack).toEqual({ venueClientOrderId: cloid5 });
+
+  // Unknown while the venue does not answer: never failed, never filled; a retry then makes no second order.
+  await accountSwitch(s.owner, { down: true });
+  try {
+    const unknown5 = await byKey(s, k5);
+    expect(unknown5.status, JSON.stringify(unknown5.body)).toBe(200);
+    expect(unknown5.body).toMatchObject({ state: 'unknown', reason: 'venue_down', order: null });
+    const retry5 = await submit(s, k5, signature5);
+    expect(retry5.status, JSON.stringify(retry5.body)).toBe(200);
+    expect(retry5.body.outcome.definite).toBe(false);
+  } finally {
+    await accountSwitch(s.owner, { down: false });
+  }
+  const known5 = await byKey(s, k5);
+  expect(known5.status, JSON.stringify(known5.body)).toBe(200);
+  expect(known5.body).toMatchObject({ state: 'accepted', order: { venueClientOrderId: cloid5, status: 'open' } });
+  const after5 = await submit(s, k5, signature5);
+  expect(after5.status, JSON.stringify(after5.body)).toBe(200);
+  expect(after5.headers.get('idempotent-replayed')).toBe('true');
+  expect(await venueOrdersWith(s.owner, cloid5)).toHaveLength(1);
 });
 
 test(`${J} #6 lists orders with a cursor over three pages: each venue order once, the next cursor empty at the end; a blank largest page refuses a list call with a limit`, async () => {

@@ -63,8 +63,22 @@ describe('the TEST venue per-account switches', () => {
     expect(theirs.out).toMatchObject({ definite: true, accepted: true });
   });
 
+  it('failAfterSend applies the order and answers a 5xx; the same bytes again are the venue answer, one order', async () => {
+    await call(sim, '/test/account-switches', { owner: mine.address, failAfterSend: 1 });
+    const order = await signedOrder(mine, 3);
+    const failed = await call(sim, '/submit', order);
+    expect(failed.status).toBe(500);
+    const again = await call(sim, '/submit', order);
+    expect(again.out).toMatchObject({ definite: true, accepted: true });
+    const open = (await call(sim, '/open-orders', { account: acct(mine) })).out.value as { venueClientOrderId: string }[];
+    expect(open.filter((o) => o.venueClientOrderId === (order.prepared as unknown as PreparedVenueAction).venueClientOrderId)).toHaveLength(
+      1,
+    );
+  });
+
   it('refuses a malformed switch', async () => {
     expect((await call(sim, '/test/account-switches', { owner: 'nobody', down: true })).status).toBe(400);
     expect((await call(sim, '/test/account-switches', { owner: mine.address, submitDelayMs: 60_000 })).status).toBe(400);
+    expect((await call(sim, '/test/account-switches', { owner: mine.address, failAfterSend: -1 })).status).toBe(400);
   });
 });

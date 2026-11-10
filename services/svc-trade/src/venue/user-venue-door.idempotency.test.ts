@@ -183,6 +183,22 @@ describe('UserVenueDoor: an order over the API with an Idempotency-Key (J-develo
     expect(await openWithId(prepared.prepared.venueClientOrderId!)).toHaveLength(1);
   });
 
+  it('a 5xx after the order was sent is not definite and reads accepted by key once the venue answers; one venue order', async () => {
+    const { d } = door();
+    const header = 'bot-1:order:0005';
+    const prepared = await d.prepare(principal, { owner, signer, intent: buy(), idempotencyKey: header });
+    const signature = await sign(prepared.prepared);
+    await switches({ failAfterSend: 1 });
+    const sent = await d.submit(principal, prepared.actionKey, signature);
+    expect(sent.outcome).toEqual({ definite: false, reason: 'venue_error_after_send' });
+    expect(await d.orderByKey(principal, orderKeyOfIdempotencyKey(header))).toMatchObject({
+      state: 'accepted',
+      order: { venueClientOrderId: prepared.prepared.venueClientOrderId },
+    });
+    expect((await d.submit(principal, prepared.actionKey, signature)).replayed).toBe(true);
+    expect(await openWithId(prepared.prepared.venueClientOrderId!)).toHaveLength(1);
+  });
+
   it('lists the orders a page at a time, each once, with an empty next cursor at the end; a blank largest page refuses', async () => {
     const { d } = door();
     const keys: string[] = [];
