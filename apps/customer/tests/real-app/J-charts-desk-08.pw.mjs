@@ -363,7 +363,8 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
       sent.push(`${request.method()} ${request.url()}`);
   });
   // This chart's market, not the default: the chart is moved to ETH/USDT first, so a desk link fixed to BTC/USDT fails.
-  await cell(page, 0).getByLabel('Market').selectOption('ETH/USDT');
+  // In one chart the page's own Market picker sets it (the picker in a cell shows only in a grid).
+  await page.getByRole('combobox', { name: 'Market', exact: true }).selectOption('ETH/USDT');
   await expect(cell(page, 0)).toHaveAttribute('data-symbol', 'ETH/USDT');
   await canvasOf(page, 0).focus();
   await page.keyboard.press('Alt+T');

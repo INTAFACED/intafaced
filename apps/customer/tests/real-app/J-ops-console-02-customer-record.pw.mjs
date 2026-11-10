@@ -19,7 +19,7 @@ import { staffSignIn } from './staff.mjs';
 // (each document's status and the viewer) is its own test, J-ops-console-02-documents.pw.mjs.
 // #4 looks at the stack's second TEST founder, an account that always exists on the stack. #3 looks at a fresh TEST
 // customer with money and a card on it: verified, funded with TEST USDT through the real ledger, and holding a TEST card
-// from the stack's card simulator, so each read has something of this customer's own to answer with.
+// from the stack's card simulator, so the reads that answer have this customer's own records to show.
 
 /** A fresh verified TEST customer with `usdt` TEST USDT through the real ledger and one TEST virtual card. */
 async function customerWithMoneyAndCard(browser, usdt) {
@@ -122,13 +122,21 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   for (const tab of ['money', 'trade', 'pay', 'cards', 'documents', 'tickets'])
     await expect(page.getByTestId(`customer-tab-${tab}`)).toBeVisible();
 
-  // Money: the ledger's balance read answers with this customer's own TEST deposit: one USDT row with a total of 25.
+  // Money: svc-pay's three reads of this customer's deposits answer. The ledger's balance read refuses on its own, in
+  // words and with its code: svc-bank asks for the treasury permission admin:treasury, which a founder session never
+  // carries, so a founder's record cannot show the balance and says why in its place.
+  const money = await tabStates(page, 'money');
+  expect(money).toEqual({
+    'read-bank.customer-balances': 'COULD NOT LOAD THE CUSTOMER’S BALANCES / scope.denied',
+    'read-money.deposit-addresses': 'read',
+    'read-money.deposit-freezes': 'read',
+    'read-money.deposit-travel-rule': 'read',
+  });
   const balances = page.getByTestId('read-bank.customer-balances');
-  await expect(balances).toBeVisible();
-  expect(await readState(balances), "the ledger's balance read answered").toBe('read');
-  const usdt = balances.locator('tbody tr').filter({ hasText: 'USDT' });
-  await expect(usdt).toHaveCount(1);
-  await expect(usdt.locator('td').nth(1)).toHaveText(/^\s*25(\.0+)?\s*$/);
+  await expect(balances.getByTestId('read-failed')).toContainText('Refused your session.');
+  await expect(balances.getByTestId('read-failed')).toContainText('admin:treasury');
+  await expect(balances.locator('tbody tr')).toHaveCount(0);
+  await expect(page.getByTestId('unwired-money.deposits')).toContainText('no source');
 
   // Trade: svc-trade's restriction history answers for this customer; orders and positions name their blocker.
   await page.getByTestId('customer-tab-trade').click();
