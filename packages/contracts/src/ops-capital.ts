@@ -118,7 +118,13 @@ export const OPS_CAPITAL_PARTNERS = ['bank', 'card'] as const;
 export const opsCapitalReserveSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('none') }),
   z.object({ status: z.literal('not_known') }),
-  z.object({ status: z.literal('reported'), assetId: z.string().regex(OPS_CAPITAL_ASSET), amount: z.string().regex(decimal) }),
+  z.object({
+    status: z.literal('reported'),
+    assetId: z.string().regex(OPS_CAPITAL_ASSET),
+    amount: z.string().regex(decimal),
+    /** The partner's own time for the reserve (b2 change 6); a reserve sent with no time is `not_known`. */
+    asOf: z.string().datetime({ offset: true }),
+  }),
 ]);
 export type OpsCapitalReserve = z.infer<typeof opsCapitalReserveSchema>;
 
