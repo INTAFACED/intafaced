@@ -57,6 +57,11 @@ const schema = serviceEnvSchema
        */
       TRADE_BUILDER_FEE_POSTER: z.enum(['on', 'off']).default('on'),
       TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(10_000),
+      /**
+       * OWNER 288 change 1e: how often the builder-fee recon runs on its own over the last day, with the door on, and logs
+       * `trade.builder_fee_recon_break` when the venue's fills or its own totals and the ledger disagree.
+       */
+      TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
 
       /**
        * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST

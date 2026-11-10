@@ -445,6 +445,24 @@ export class VenueRefusalError extends Error {
 /** A figure the venue may not publish. `known: false` is shown as "not known", never as 0. */
 export type MaybeKnown<T> = { readonly known: true; readonly value: T } | { readonly known: false };
 
+/**
+ * The venue's own figures for one builder address (OWNER 288 change 1e), per fee asset: what it has credited the builder
+ * in builder fees since the start, and what of that the builder has not yet claimed. The recon compares them with the
+ * ledger's builder-fee totals for the venue, so a fee we never read, a dropped side or a foreign fee shows as a break.
+ */
+export interface VenueBuilderTotals {
+  readonly builder: string;
+  readonly assets: readonly VenueBuilderTotal[];
+}
+
+export interface VenueBuilderTotal {
+  readonly asset: string;
+  /** Every builder fee the venue has credited the builder, since the start. */
+  readonly earned: Amount;
+  /** What of `earned` the builder has not claimed yet. */
+  readonly unclaimed: Amount;
+}
+
 export interface UserVenueBalance {
   readonly asset: string;
   /** Free to trade or withdraw. */
@@ -832,6 +850,12 @@ export interface UserVenue {
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
+  /**
+   * The venue's own builder-fee totals for `builder` (OWNER 288 change 1e), or not known: a venue that publishes none,
+   * or a figure whose meaning is not settled yet, answers `{ known: false }`, never a zero. Absent on an adapter that
+   * does not read them; the recon then reads the venue's totals as not known.
+   */
+  builderTotals?(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
   /**
    * The account's leverage setting on `symbol`, or `null` when none is set

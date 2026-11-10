@@ -422,6 +422,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.withdrawal(account(body), str(body, 'nonce'));
     case '/builder-fee-approval':
       return sim.builderFeeApproval(account(body), str(body, 'builder'));
+    case '/builder-totals':
+      return sim.builderTotals(str(body, 'builder'));
     case '/leverage':
       return sim.leverage(account(body), str(body, 'symbol'));
     case '/sub-accounts':
@@ -437,11 +439,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     case '/test/switches': {
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;
       if (typeof body.unlistPerpetuals === 'boolean') sim.switches.unlistPerpetuals = body.unlistPerpetuals;
+      if (typeof body.builderTotalsUnknown === 'boolean') sim.switches.builderTotalsUnknown = body.builderTotalsUnknown;
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       return {
         venueDown: sim.switches.venueDown,
         unlistPerpetuals: sim.switches.unlistPerpetuals,
+        builderTotalsUnknown: sim.switches.builderTotalsUnknown,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         label: 'TEST',
