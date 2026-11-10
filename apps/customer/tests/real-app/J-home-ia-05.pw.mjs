@@ -264,7 +264,19 @@ test(`${J} #1 the bell shows the unread count (capped at 99+) and a popover of r
   const moved = Date.now();
   await popup(page).getByTestId('nf-pop__all').click();
   await expect(page).toHaveURL(/\/notifications$/);
-  await expect(bell(page).getByTestId('tb-badge')).toHaveCount(0, { timeout: 10_000 });
+  // The badge leaves 99+ for svc-notify's own count as it stands now (nothing, or the few that landed since), within 10 s.
+  const shownNow = async () =>
+    (await bell(page).getByTestId('tb-badge').count()) ? await bell(page).getByTestId('tb-badge').innerText() : '';
+  await expect
+    .poll(
+      async () => {
+        const unread = (await told(session)).unread;
+        expect(unread, 'unread after marking all read and moving page').toBeLessThan(99);
+        return (await shownNow()) === (unread ? String(unread) : '');
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
   const onChange = reads.slice(before).find((read) => read.path === '/notifications');
   expect(onChange, 'a read of the count on the new page').toBeDefined();
   expect(onChange.at - moved, 'ms from the page change to the read').toBeLessThan(10_000);
@@ -273,8 +285,10 @@ test(`${J} #1 the bell shows the unread count (capped at 99+) and a popover of r
   // Read again every 60 seconds: one new notice lands while the person stays on this page, with no page change; the badge
   // shows it at the next timed read, which comes no more than 60 seconds after the one before it.
   const quiet = reads.length;
+  const base = (await told(session)).unread;
   await seedNotices(many, `${tag}-late`, 1);
-  await expect(bell(page).getByTestId('tb-badge')).toHaveText('1', { timeout: 75_000 });
+  expect((await told(session)).unread, 'svc-notify holds the new notice').toBe(base + 1);
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText(String(base + 1), { timeout: 75_000 });
   expect(new URL(page.url()).pathname).toBe('/notifications');
   const timed = reads.slice(quiet - 1);
   expect(timed.length, 'timed reads while the page stood still').toBeGreaterThanOrEqual(2);
