@@ -79,7 +79,30 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
+  | 'trade.venue_action_other_venue'
+  | 'trade.venue_unknown'
+  | 'trade.venue_action_key_reserved'
+  | 'trade.venue_session_key_reused'
+  | 'trade.venue_session_pending'
+  | 'trade.venue_session_none'
+  | 'trade.venue_session_unavailable'
+  | 'trade.venue_session_superseded'
   | VenueRouteRefusalCode;
+
+/**
+ * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
+ * session key is stored under `session-key:<accountId>:<venueId>:<sessionId>`, and its `revoke_agent` under
+ * `session-key-end:` with the same tail. Only the session routes prepare under these keys, so the rule "a new session
+ * approves a new key, never one used before" cannot be walked around through the plain prepare route.
+ */
+export const SESSION_KEY_PREFIX = 'session-key:';
+export const SESSION_KEY_END_PREFIX = 'session-key-end:';
+const RESERVED_KEY_PREFIXES = [SESSION_KEY_PREFIX, SESSION_KEY_END_PREFIX] as const;
+
+export interface PrepareOptions {
+  /** Set only by the session routes (session-key.ts): lets the action be stored under a reserved session key. */
+  readonly sessionKey?: boolean;
+}
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -224,14 +247,22 @@ async function assertSignatureRecovers(prepared: PreparedVenueAction, signature:
 
 export class UserVenueDoor {
   private venuePromise: Promise<ConnectedUserVenue> | null = null;
+  /** The id of the venue this door last connected to; `null` before the first connect. */
+  connectedVenueId: string | null = null;
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
+
+  /** The store and clock the trading-session routes read with (session-key.ts). */
+  get sessionDeps(): { readonly store: PreparedActionStore; readonly now: () => Date } {
+    return { store: this.deps.store, now: this.deps.now };
+  }
 
   /** The connected venue, checked against APP_ENV. A failed connect is retried on the next call. */
   async venue(): Promise<ConnectedUserVenue> {
     if (!this.venuePromise) {
       this.venuePromise = this.deps.connect().then((v) => {
         refuseTestVenueOutsideTest(v.venue, this.deps.appEnv);
+        this.connectedVenueId = v.venue.id;
         return v;
       });
       this.venuePromise.catch(() => {
@@ -330,6 +361,33 @@ export class UserVenueDoor {
     return { ...intent, builderFee: { builder: address, feeBps } };
   }
 
+  /**
+   * Our builder fee on an order of `side` on `symbol` here: `{ carries: false }` for a spot buy, the fee in force when it
+   * carries one, or `null` when the owner value is blank (or the version in force can't be read). The venues strip and the
+   * route preview read it; an order is still priced by `withBuilderFee` at prepare.
+   */
+  async builderFeeFor(symbol: string, side: 'buy' | 'sell'): Promise<{ carries: false } | { carries: true; feeBps: Amount } | null> {
+    const venue = await this.venue();
+    try {
+      const priced = await this.withBuilderFee(venue, {
+        kind: 'place_order',
+        symbol,
+        side,
+        type: 'limit',
+        amount: 1n,
+        price: 1n,
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: 'order:builder-fee-read',
+        builderFee: null,
+      });
+      return priced.builderFee ? { carries: true, feeBps: priced.builderFee.feeBps } : { carries: false };
+    } catch (err) {
+      if (err instanceof VenueRefusalError && err.refusal.code === 'builder_fee_not_published') return null;
+      throw err;
+    }
+  }
+
   /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
   async markets() {
     const venue = await this.venue();
@@ -383,7 +441,7 @@ export class UserVenueDoor {
     return k;
   }
 
-  async prepare(principal: Principal, req: PrepareRequest): Promise<PreparedAnswer> {
+  async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
     const intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
     if (
@@ -396,6 +454,36 @@ export class UserVenueDoor {
     assertInteractive(principal, intent.kind);
     if (intent.kind === 'place_order') assertPlaceIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
+    if (!opts.sessionKey && RESERVED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      throw new UserVenueDoorError(
+        `the action key ${JSON.stringify(key)} belongs to the trading session's own routes (/api/v1/venue/session/...)`,
+        'trade.venue_action_key_reserved',
+        409,
+      );
+    }
+    // An agent key (a session key) never signs a withdrawal or an approval: refused here, before a step-up is spent or
+    // the venue is asked, as the venue would refuse it (user-venue.ts `assertSignerMaySign`).
+    if (req.signer.role === 'agent' && OWNER_ONLY_INTENTS.has(intent.kind)) {
+      throw new VenueRefusalError({
+        venueId: (await this.venue()).venue.id,
+        code: 'agent_not_permitted',
+        detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
+      });
+    }
+    // An agent key is approved once, under one business key, and never again, on any venue account and by any route,
+    // the session routes included (user-venue.ts:177-180: a venue that prunes nonces could accept a replay of an old
+    // key's actions). The same key asked again is the same stored approval (`reuse` below), never a second one.
+    if (intent.kind === 'approve_agent') {
+      const address = (intent.agentAddress ?? '').toLowerCase();
+      const earlier = await this.deps.store.agentApprovals(principal.userId, address);
+      if (earlier.some((row) => row.businessKey !== key)) {
+        throw new UserVenueDoorError(
+          `${address} was approved as an agent before; a key is approved once and never again`,
+          'trade.venue_session_key_reused',
+          409,
+        );
+      }
+    }
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
     if (intent.kind === 'withdraw') {
@@ -487,6 +575,41 @@ export class UserVenueDoor {
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertInteractive(principal, row.prepared.intent.kind);
+    // An action is only ever sent to the venue it was prepared for: with several venues behind the router, a key stored
+    // for another venue is that venue's door's to send (venue-router.ts), never this one's.
+    // The id last connected, never a fresh connect: a venue down now still answers a signed key with its read-back below.
+    const here = this.connectedVenueId;
+    if (here !== null && row.prepared.venueId !== here) {
+      throw new UserVenueDoorError(
+        `${key} was prepared for ${row.prepared.venueId}, not ${here}; it is sent only to the venue it was prepared for`,
+        'trade.venue_action_other_venue',
+        409,
+      );
+    }
+    // A trading session's approval that was never signed, and that a later session of the same sign-in on the same venue
+    // account has replaced, is abandoned: it is never signed and sent later (a stale tab), where it would take the newer
+    // session's slot. A later session on another wallet takes no slot of this one's.
+    if (!row.signature && key.startsWith(SESSION_KEY_PREFIX)) {
+      const m = /^(.*\.)(\d+)$/.exec(key);
+      const later = m
+        ? (await this.deps.store.listByPrefix(principal.userId, m[1]!)).some((r) => {
+            const n = /\.(\d+)$/.exec(r.businessKey)?.[1];
+            return (
+              n !== undefined &&
+              r.businessKey.slice(0, -n.length) === m[1] &&
+              Number(n) > Number(m[2]) &&
+              r.prepared.account.owner.toLowerCase() === row.prepared.account.owner.toLowerCase()
+            );
+          })
+        : false;
+      if (later) {
+        throw new UserVenueDoorError(
+          'a newer trading session was started in this sign-in, so this approval is no longer asked for; nothing was sent',
+          'trade.venue_session_superseded',
+          409,
+        );
+      }
+    }
     if (
       !signature ||
       typeof signature.signature !== 'string' ||

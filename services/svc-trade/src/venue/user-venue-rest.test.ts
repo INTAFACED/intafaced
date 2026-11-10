@@ -12,6 +12,7 @@ import { StoreVenueRoutingGate } from './venue-listing.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
+import { UserVenueRouter } from './venue-router.js';
 
 const USER = { userId: '11111111-1111-4111-8111-1111111111c1', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue rest')));
@@ -28,7 +29,9 @@ afterEach(async () => app?.close());
 
 async function mount(door: UserVenueDoor | null) {
   app = Fastify();
-  attachUserVenueRoutes(app, door, {
+  // One door behind the router, as a deployment with one venue has it.
+  const router = door ? new UserVenueRouter({ doors: [door], store: new InMemoryPreparedActionStore(), now: () => new Date() }) : null;
+  attachUserVenueRoutes(app, router, {
     requirePrincipal: () => USER,
     requireTradeJurisdiction: () => true,
   });

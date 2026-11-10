@@ -1304,6 +1304,31 @@
           }
         },
         {
+          "name": "venueMarketVenues",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/markets/:symbol/venues",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "markets", ":symbol", "venues"],
+              "variable": [{ "key": "symbol", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueRoutePreview",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/route-preview",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "route-preview"]
+            }
+          }
+        },
+        {
           "name": "venueWithdrawal",
           "request": {
             "method": "GET",
@@ -1338,6 +1363,38 @@
             "method": "POST",
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/venue/submit", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "submit"] }
+          }
+        },
+        {
+          "name": "venueSession",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/session", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "session"] }
+          }
+        },
+        {
+          "name": "venueSessionStart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/session/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "session", "start"]
+            }
+          }
+        },
+        {
+          "name": "venueSessionEnd",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/session/end",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "session", "end"]
+            }
           }
         },
         {
