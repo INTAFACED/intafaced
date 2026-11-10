@@ -1371,6 +1371,34 @@ export const copyStopped = defineEvent(
   'A follow stopped copying new leader fills. With closeOnly it still mirrors closes of what it already holds. A stop is one-way (close-only can only become left), so consumers dedupe on (followId, closeOnly). The follower is told the reason.',
 );
 
+/**
+ * A delisting INTAFACED scheduled for a market on an outside venue it routes customers' own orders to (J-cex-spot-16 #8).
+ * Our listing record only: the venue's own state is the venue's. No funds move and no order is touched.
+ */
+export const venueDelistingScheduled = defineEvent(
+  'trade',
+  'venue_delisting',
+  'created',
+  1,
+  z.object({
+    venueId: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9][a-z0-9._-]*$/),
+    symbol: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Z0-9][A-Z0-9/._-]*$/),
+    delistsAt: z.string().datetime({ offset: true }),
+    scheduledAt: z.string().datetime({ offset: true }),
+    /** The business key the one customer notice is filed under: `venue-delisting:<venueId>:<symbol>:<delistsAt>`. */
+    noticeKey: z.string().min(1).max(256),
+  }),
+  'Two operators scheduled the date a venue market leaves the routed list. svc-trade writes the listing version and the notice row first and publishes after commit, republishing until it is sent; consumers dedupe on (noticeKey), so customers get one dated notice per market and date.',
+);
+
 export const projectionUpdated = defineEvent(
   'indexer',
   'projection',
@@ -2084,6 +2112,7 @@ export const EVENT_CATALOG = {
   copySkipped,
   copyFailed,
   copyStopped,
+  venueDelistingScheduled,
   projectionUpdated,
 } as const;
 

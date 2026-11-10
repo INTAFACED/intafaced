@@ -1050,7 +1050,7 @@ test("starting the seal can't void a PASS: it is a job of its own after the revi
   assert.ok(wf.indexOf('\n  seal-start:\n') > 0, 'a seal-start job');
   assert.doesNotMatch(review, /--recheck|rerun-seal|actions: write/, 'the review job neither starts the seal nor can re-run a run');
   const start = wf.slice(wf.indexOf('\n  seal-start:\n'));
-  assert.match(start, /\n    needs: \[review\]\n/);
+  assert.match(start, /\n    needs: \[review, read\]\n/);
   // A step of the review job that failed would void its PASS; a job of its own can't (planted: the step that did).
   const read = (job) =>
     ciReviewVerdict({ sha: HEAD, base: 'main', number: 7, runs: [run({ jobs: [[job]] })], attempts: async (r) => r.jobs });
