@@ -220,4 +220,75 @@ describe('/api/v1/venue/*', () => {
       await feed('live');
     }
   });
+
+  it("b2 change 6: each balance figure is the venue's own, with its time and a state: known, stale past the venue's limit, unknown with no time, never zero", async () => {
+    await mount(door());
+    const test = async (path: string, body: unknown) => {
+      const res = await fetch(`${url}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status, await res.clone().text()).toBe(200);
+      return res.json();
+    };
+    const status = (await app.inject({ method: 'GET', url: '/api/v1/venue/status' })).json();
+    const account = { venueId: status.venue.id, owner, subAccount: null };
+    await test('/test/deposit', { account, asset: 'USDC', amount: '12.5', depositRef: `84532:0x${'f'.repeat(64)}:6` });
+    const balances = async () => {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/venue/balances?owner=${owner}` });
+      expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
+      const body = res.json();
+      return { body, usdc: body.figures.find((f: { asset: string }) => f.asset === 'USDC') };
+    };
+    try {
+      const live = await balances();
+      const raw = live.body.value.find((b: { asset: string }) => b.asset === 'USDC');
+      // Known: the venue's own string, its name, its own time, and the limit it declares.
+      expect(live.usdc.total).toEqual({
+        state: 'known',
+        source: status.venue.displayName,
+        amount: raw.total,
+        asOf: live.body.reportedAt,
+        staleAfterMs: 60_000,
+        reason: null,
+      });
+      expect(live.body.reportedAt).toBe(live.body.asOf);
+      expect(live.usdc.free).toMatchObject({ state: 'known', amount: raw.free });
+      expect(live.usdc.locked).toMatchObject({ state: 'known', amount: raw.locked });
+
+      // Stale: the venue's time is older than its limit; the figure still shows, said to be old.
+      await test('/test/account-switches', { owner, figures: 'stale' });
+      const stale = await balances();
+      expect(Date.parse(stale.body.asOf) - Date.parse(stale.body.reportedAt)).toBeGreaterThan(60_000);
+      expect(stale.usdc.total).toMatchObject({ state: 'stale', amount: raw.total, asOf: stale.body.reportedAt, reason: null });
+
+      // Unknown: the venue sent no time, so no figure is known at our read time, and none reads as zero.
+      await test('/test/account-switches', { owner, figures: 'unknown' });
+      const unknown = await balances();
+      expect(unknown.body.reportedAt).toBeNull();
+      for (const k of ['free', 'locked', 'total'])
+        expect(unknown.usdc[k], k).toEqual({
+          state: 'unknown',
+          source: status.venue.displayName,
+          amount: null,
+          asOf: null,
+          staleAfterMs: 60_000,
+          reason: 'no_as_of',
+        });
+
+      // Positions carry the same contract (none open here, so no figures).
+      const positions = (await app.inject({ method: 'GET', url: `/api/v1/venue/positions?owner=${owner}` })).json();
+      expect(positions).toMatchObject({ value: [], figures: [], reportedAt: null });
+    } finally {
+      await test('/test/account-switches', { owner, figures: 'live' });
+    }
+    const odd = await fetch(`${url}/test/account-switches`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ owner, figures: 'odd' }),
+    });
+    expect(odd.status).toBe(400);
+    expect(await odd.text()).toContain("figures is 'live', 'stale' or 'unknown'");
+  });
 });

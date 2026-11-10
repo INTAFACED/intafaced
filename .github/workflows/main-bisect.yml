@@ -129,6 +129,7 @@ jobs:
       candidates: ${{ steps.find.outputs.candidates }}
       files: ${{ steps.find.outputs.files }}
       steps: ${{ steps.find.outputs.steps }}
+      unknown: ${{ steps.find.outputs.unknown }}
     steps:
       # This workflow's own commit, never the red one: the red commit is only read through git.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -233,6 +234,7 @@ jobs:
     environment: ci-review
     permissions:
       contents: read
+      issues: write # the revert's link on the journey's break issue (OWNER 289 item 6); the App token keeps its own scope
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -244,6 +246,7 @@ jobs:
       - name: Open the revert
         env:
           FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
+          ISSUES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CULPRIT: ${{ needs.revert-find.outputs.culprit || needs.revert-probe.outputs.culprit || needs.bisect.outputs.culprit }}
           KIND: ${{ inputs.journeys != '' && 'journeys' || 'ci' }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
@@ -252,3 +255,29 @@ jobs:
           RED_RUN: ${{ inputs.red_run }}
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs open
+
+  # A confirmed journeys red that traces to no single merge (revert-find names none, or the probe names no culprit):
+  # the journey's one break issue gets `main-unknown-red` and why (OWNER 289 item 6, OWNER 180). Never a new issue.
+  revert-unknown:
+    name: 'Journeys revert: no single merge found'
+    needs: [revert-find, revert-probe]
+    if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && (needs.revert-find.outputs.unknown != '' || (needs.revert-find.outputs.probe == 'true' && needs.revert-probe.outputs.culprit == '')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      contents: read
+      issues: write # comment on and label the journey's break issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Note it on the break issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEPS: ${{ needs.revert-find.outputs.steps }}
+          RED_RUN: ${{ inputs.red_run }}
+          REASON: ${{ needs.revert-find.outputs.unknown || 'the probe ran the failing journeys on each candidate commit and named no single one' }}
+        run: node tooling/ci/journeys-revert.mjs unknown

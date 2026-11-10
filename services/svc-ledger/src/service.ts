@@ -572,7 +572,10 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
    */
   async reconcile(): Promise<ReconciliationReport> {
     return withSpan('ledger.reconcile', async () => {
-      const run = await runSnapshotReconciliation(this.sql, { statementTimeoutMs: this.reconcileStatementTimeoutMs });
+      const run = await runSnapshotReconciliation(this.sql, {
+        statementTimeoutMs: this.reconcileStatementTimeoutMs,
+        custodyLayer: this.custodyLayer,
+      });
 
       if (run.outcome === 'skipped') {
         throw new LedgerError('a reconciliation is already running — try again when it has finished', 'ledger.reconcile_in_progress');

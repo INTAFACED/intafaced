@@ -2,7 +2,8 @@
  * AC-course-structure-01 — course records. Staff create a course on the Academy desk: a title, a slug fixed at creation,
  * a thumbnail and a pricing choice. It is saved as a draft; edits go over the revision the editor read, and every create,
  * edit and move writes an event row with who and why. A paid course may be saved with no price but never published
- * without one, and a course with nothing in its outline is not published either: both refuse by name.
+ * without one, and a course with nothing in its outline is not published either: both refuse by name. A published paid
+ * course's price can be withdrawn afterwards (staff, with a reason); it then stays published and shows with no price.
  *
  * Idempotency: create is keyed by the slug (`course:<slug>`): a repeat with the same details answers with the stored
  * course, different details are refused. An edit or move names the revision it was read at, so a repeat after a lost
@@ -23,6 +24,7 @@ import type {
   AcademySetCourseStateInput,
   AcademySetCourseTopicsInput,
   AcademyUpdateCourseInput,
+  AcademyWithdrawCoursePriceInput,
 } from '@intafaced/contracts';
 import { ACADEMY_COURSE_STATES } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
@@ -51,7 +53,7 @@ type CourseRow = {
 };
 
 type EventRow = {
-  kind: 'created' | 'updated' | 'state' | 'outline' | 'lesson' | 'topics' | 'withdrawn';
+  kind: 'created' | 'updated' | 'state' | 'outline' | 'lesson' | 'topics' | 'withdrawn' | 'price_withdrawn';
   revision: number;
   from_state: AcademyCourseState | null;
   to_state: AcademyCourseState;
@@ -235,6 +237,41 @@ export class CourseRecords {
       await tx`
         INSERT INTO academy.course_events (course_id, revision, kind, from_state, to_state, actor, reason, at)
         VALUES (${row.id}, ${next!.revision}, 'state', ${row.state}, ${input.to}, ${input.operatorId}, ${input.reason}, ${input.now})
+      `;
+      return courseOf(next!);
+    });
+  }
+
+  /**
+   * J-academy-01 #5: take a published paid course's price down, over the revision read, with who and why. The course stays
+   * published and paid and shows with no price; `price_withdrawn_at` is what lets the database's published-price check
+   * hold it. Only a published paid course that has a price; anything else refuses by name. A repeat after a lost reply
+   * finds this founder's `price_withdrawn` event one revision on and answers with the stored course. No money moves.
+   */
+  async withdrawPrice(input: AcademyWithdrawCoursePriceInput & { operatorId: string; now: Date }): Promise<AcademyCourse> {
+    return this.sql.begin(async (tx) => {
+      const row = await this.lock(tx, input.courseId);
+      if (row.revision === input.revision + 1 && row.price === null) {
+        const [own] = await tx<EventRow[]>`
+          SELECT kind FROM academy.course_events WHERE course_id = ${row.id} AND revision = ${row.revision} AND actor = ${input.operatorId}
+        `;
+        if (own?.kind === 'price_withdrawn') return courseOf(row);
+      }
+      if (row.revision !== input.revision)
+        throw new AcademyError(`course is at revision ${row.revision}, not ${input.revision}`, 'academy.course_revision_stale');
+      if (row.state !== 'published')
+        throw new AcademyError(`a ${row.state} course's price is not withdrawn here; edit the draft`, 'academy.course_not_editable');
+      if (row.pricing !== 'paid') throw new AcademyError('a free course has no price to withdraw', 'academy.course_not_editable');
+      if (row.price === null) throw new AcademyError('the course has no price to withdraw', 'academy.course_not_editable');
+      const [next] = await tx<CourseRow[]>`
+        UPDATE academy.courses SET price = NULL, price_asset = NULL, price_withdrawn_at = ${input.now},
+          revision = revision + 1, updated_at = ${input.now}
+        WHERE id = ${row.id}
+        RETURNING *, ${row.items}::int AS items
+      `;
+      await tx`
+        INSERT INTO academy.course_events (course_id, revision, kind, from_state, to_state, actor, reason, at)
+        VALUES (${row.id}, ${next!.revision}, 'price_withdrawn', ${row.state}, ${row.state}, ${input.operatorId}, ${input.reason}, ${input.now})
       `;
       return courseOf(next!);
     });

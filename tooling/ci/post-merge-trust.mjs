@@ -378,13 +378,25 @@ async function issueTexts(repo, issue) {
   return [issue.body, ...(comments ?? []).map((c) => c.body)];
 }
 
-async function upsertIssue(repo, title, body) {
+/**
+ * The labels a builder's pick rule reads (project-state BUILDER.md, pick 1; OWNER 289 item 6): a journey's break issue
+ * is a `regression`, a step that failed then passed on its retry is `flaky`. The bisect adds `main-unknown-red` when it
+ * can trace a red to no single merge (journeys-revert.mjs). Every issue stays the one main trust opens: no second issue.
+ */
+export const ISSUE_LABELS = { break: ['regression'], setAside: ['flaky'] };
+
+/** The POST /issues payload: the title, the body and the issue's labels, when it has any. Pure. */
+export const newIssuePayload = (title, body, labels = []) => ({ title, body, ...(labels.length ? { labels } : {}) });
+
+async function upsertIssue(repo, title, body, labels = []) {
   const existing = await findOpenIssue(repo, title);
   if (existing) {
     await gh('POST', `/repos/${repo}/issues/${existing.number}/comments`, { body });
+    // An issue opened before the labels existed gets them on its next comment.
+    if (labels.length) await gh('POST', `/repos/${repo}/issues/${existing.number}/labels`, { labels });
     return `commented on #${existing.number}`;
   }
-  const { json } = await gh('POST', `/repos/${repo}/issues`, { title, body });
+  const { json } = await gh('POST', `/repos/${repo}/issues`, newIssuePayload(title, body, labels));
   return `opened #${json?.number}`;
 }
 
@@ -530,7 +542,11 @@ async function setAsideCheck({ repo, runId, runUrl }) {
   const { open, close } = setAsideIssueActions(list.steps, found?.items ?? []);
   const lines = [];
   for (const row of open) {
-    const { json } = await gh('POST', `/repos/${repo}/issues`, { title: setAsideIssueTitle(row), body: setAsideIssueBody(row, runUrl) });
+    const { json } = await gh(
+      'POST',
+      `/repos/${repo}/issues`,
+      newIssuePayload(setAsideIssueTitle(row), setAsideIssueBody(row, runUrl), ISSUE_LABELS.setAside),
+    );
     lines.push(`- ${row.step} set aside until ${row.until} (owner: ${row.owner}): opened #${json?.number}`);
   }
   for (const { row, issue } of close) {
@@ -644,7 +660,9 @@ async function journeysCheck(ctx) {
         `<!-- steps: ${steps.join(', ')} -->`,
         '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself when these steps pass again._',
       ].join('\n');
-      lines.push(`- Confirmed broken: ${steps.join(', ')}: ${await upsertIssue(repo, journeyIssueTitle(journey), body)}`);
+      lines.push(
+        `- Confirmed broken: ${steps.join(', ')}: ${await upsertIssue(repo, journeyIssueTitle(journey), body, ISSUE_LABELS.break)}`,
+      );
     }
   }
   summary(lines);
@@ -881,7 +899,19 @@ function selfTest() {
     true,
     'set-aside issue names owner, end date and file',
   );
-  console.log('✓ post-merge-trust --self-test OK (32 fixtures)');
+  // OWNER 289 item 6: the break issue is a regression and the set-aside issue is flaky, so a builder's pick finds them.
+  eq(
+    newIssuePayload('Journey broken on main: J-a-01', 'b', ISSUE_LABELS.break),
+    { title: 'Journey broken on main: J-a-01', body: 'b', labels: ['regression'] },
+    'a break issue opens labelled regression',
+  );
+  eq(
+    newIssuePayload('Set aside on main until x: J-a-01 #1', 'b', ISSUE_LABELS.setAside).labels,
+    ['flaky'],
+    'a set-aside issue opens labelled flaky',
+  );
+  eq(newIssuePayload('Broken on main: CI', 'b'), { title: 'Broken on main: CI', body: 'b' }, 'a check issue carries no label');
+  console.log('✓ post-merge-trust --self-test OK (35 fixtures)');
 }
 
 async function main() {

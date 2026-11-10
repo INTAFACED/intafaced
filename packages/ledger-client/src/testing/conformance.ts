@@ -1,6 +1,19 @@
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { houseFees, railBoundary, rewardsEngine, userAvailable, userCollateral, userEscrow, userHold, userStake } from '../accounts.js';
+import {
+  houseFees,
+  partnerReserve,
+  railBoundary,
+  rewardsEngine,
+  treasuryWallet,
+  venueBuilderAccount,
+  venueBuilderFeeReceivable,
+  userAvailable,
+  userCollateral,
+  userEscrow,
+  userHold,
+  userStake,
+} from '../accounts.js';
 import { InsufficientFundsError, InvalidEntryError, type AccountKind, type LedgerTx } from '../types.js';
 import { campaignLockAccount, recipes } from '../recipes/index.js';
 import type { LedgerClient } from '../client.js';
@@ -180,6 +193,50 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         await fund(USER_A, 'USDT', '100');
         const boundary = await ledger.balance(railBoundary('test', 'USDT'));
         expect(formatAmount(boundary.amount)).toBe('-100');
+      });
+
+      it('never lets an own-funds place show less than nothing of ours', async () => {
+        // Collect 5 into our builder account at the venue: the place holds 5 (balance -5).
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            assetId: 'USDT',
+            amount: amt('5'),
+            userId: USER_A,
+          }),
+        );
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf', claimId: 'c1', assetId: 'USDT', amount: amt('5') }));
+        const move = (reference: string, amount: string) =>
+          recipes.ownFundsMove({
+            from: { kind: 'venue-builder-account', venueId: 'conf' },
+            to: { kind: 'treasury-wallet', walletId: 'conf' },
+            assetId: 'USDT',
+            amount: amt(amount),
+            reference,
+          });
+        // More than the place holds: refused, and nothing moves.
+        await expect(ledger.post(move('0xover', '6'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDT'))).amount)).toBe('-5');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf', 'USDT'))).amount)).toBe('0');
+        // Exactly what it holds: allowed.
+        await ledger.post(move('0xall', '5'));
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDT'))).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf', 'USDT'))).amount)).toBe('-5');
+        // A place that never held anything cannot pay out of it, even into another boundary.
+        await expect(
+          ledger.post({
+            idempotencyKey: 'own-funds-empty-place-test',
+            module: 'test',
+            reason: 'test',
+            entries: [
+              { account: partnerReserve('conf', 'USDT'), direction: 'debit', amount: amt('1') },
+              { account: venueBuilderFeeReceivable('conf', 'USDT'), direction: 'credit', amount: amt('1') },
+            ],
+          }),
+        ).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(partnerReserve('conf', 'USDT'))).amount)).toBe('0');
       });
     });
 

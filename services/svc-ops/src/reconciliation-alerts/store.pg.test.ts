@@ -44,7 +44,7 @@ async function caller(router: ReturnType<typeof createOpsRouter>, userId: string
 function evaluation(
   n: number,
   control: string,
-  status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET',
+  status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' | 'NOTHING_TO_COMPARE',
   differences: Record<string, string>,
 ): ReconciliationEvaluation {
   return {
@@ -52,6 +52,7 @@ function evaluation(
       id: runId(n),
       controlId: control,
       status,
+      compared: Object.keys(differences).length,
       phase: { status: 'unset' },
       errorCode: { status: 'unset' },
       asOf: '2026-10-29T10:00:00.000Z',
@@ -299,6 +300,37 @@ if (!pg) {
         ).rejects.toThrow(/never rewritten/);
 
         await expect(a.alerts.get({ alertId: runId(777) })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      } finally {
+        await sql.end();
+        await database.drop();
+      }
+    });
+    it('stores a NOTHING_TO_COMPARE period, never green and raising nothing, and a missing side raises a finance alert for its asset (OWNER 288)', async () => {
+      const database = await createTestDatabase({ service: 'ops' });
+      const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
+      try {
+        await migrateOutreach(sql);
+        const store = new ReconciliationAlertStore(sql, { repeatSeconds: 90, now: () => new Date('2026-10-29T10:01:00.000Z') });
+        const router = createOpsRouter(new OpsService(), undefined, { reconciliationAlerts: store });
+        const a = await caller(router, A);
+        const missing = evaluation(2, CONTROL, 'FAIL', {});
+        const withMissing: ReconciliationEvaluation = {
+          ...missing,
+          run: {
+            ...missing.run,
+            phase: { status: 'set', value: 'missing' },
+            assets: [{ assetId: 'USDC', observed: 'unset', expected: '0', difference: 'unset', tolerance: '0', missing: 'ledger' }],
+          },
+        };
+        const rows = [evaluation(1, PASSING, 'NOTHING_TO_COMPARE', {}), withMissing];
+        expect(await ingestReconciliationEvaluations(store, fakeFeed(rows))).toBe(2);
+        const periods = await a.alerts.periods({ limit: 10 });
+        expect(periods.periods.map((p) => [p.controlId, p.lastStatus, p.open, p.green]).sort()).toEqual([
+          [CONTROL, 'FAIL', 1, false],
+          [PASSING, 'NOTHING_TO_COMPARE', 0, false],
+        ]);
+        const raised = await a.alerts.list({ after: null, limit: 10 });
+        expect(raised.alerts.map((x) => [x.controlId, x.cause, x.team, x.assetId])).toEqual([[CONTROL, 'fail', 'finance', 'USDC']]);
       } finally {
         await sql.end();
         await database.drop();

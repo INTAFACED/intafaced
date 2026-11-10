@@ -111,12 +111,16 @@ describe('programme funding (J-bank-26 #6, PG-hard)', () => {
     });
     // The stablecoin conversion: 25 USDT at 0.9998 USDC, rounded up.
     expect(usdt).toMatchObject({ fundingRate: '0.9998', fundingRateAsOf: AT.toISOString(), appFigureInFunding: '24.995' });
-    // A partner capture the app has no record of is a break, signed partner minus app.
+    // Planted fault: a partner capture the app has no record of. Our side is missing, a break by name, never read as 0
+    // (OWNER 288); before it, the app's figure read 0 and the difference was the partner's whole figure.
     expect(view.rows.find((r) => r.assetId === 'BTC')).toMatchObject({
-      appFigure: '0',
+      appHeld: null,
+      appCaptured: null,
+      appFigure: null,
       partnerFigure: '0.0005',
-      difference: '0.0005',
-      status: 'break',
+      difference: null,
+      status: 'missing',
+      appFigureInFunding: null,
     });
 
     // b2 change 6: the same figures sent with no time are "not known", so never "matches"; with a time past the
