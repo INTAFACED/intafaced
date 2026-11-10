@@ -11,6 +11,7 @@ import {
   type ValuedAt,
 } from './lot-engine.js';
 import type { OwnMove } from './own-moves.js';
+import type { LotBookVenue } from '@intafaced/contracts/tax-lot-book';
 
 /**
  * LOT BOOK. Profit and loss as an indicator, built only from the customer's own trade fills. Not a tax form and not tied to
@@ -46,6 +47,11 @@ export interface Fill {
   readonly paid: FillLeg | null;
   /** The fee taken from `received`, in its asset (0 when none was taken); null or absent when the ledger did not say. */
   readonly fee?: Amount | null;
+  /**
+   * The coin the fee was taken in, when it is not `received`'s (a venue that charges a buy's fee in the coin paid). The
+   * fee is then already inside `paid`. Absent: the fee is in `received`'s coin.
+   */
+  readonly feeAssetId?: string;
 }
 
 /** Coins the customer sent out of the platform (a withdrawal), with their value when they left when a price was found. */
@@ -86,6 +92,8 @@ export interface BookAsset {
   readonly held: string;
   /** Open main-account quantity left out of the figures (from transfers, while transfers are left out). */
   readonly uncountedQty: string;
+  /** Present for a coin held in the person's own venue account (venue-book.ts): `held` is the venue's balance. */
+  readonly venueAccount?: string;
 }
 
 export type BookFee =
@@ -130,6 +138,8 @@ export interface BookLot {
   readonly counted: boolean;
   /** The fee the buy took, on a lot bought on the exchange (not on a carried part). */
   readonly fee?: BookFee;
+  /** Present when the lot was bought in the person's own venue account (venue-book.ts); absent: our ledger. */
+  readonly venueAccount?: string;
 }
 
 export interface BookMatch {
@@ -172,6 +182,8 @@ export interface BookSale {
   readonly matches: BookMatch[];
   /** Present when any part of this sale used a price the customer entered. */
   readonly basisSource?: 'customer-entered';
+  /** Present when the sale was made in the person's own venue account; it drew only on that account's lots. */
+  readonly venueAccount?: string;
 }
 
 /** The customer's saved choices as the book shows them, or why none can be saved. */
@@ -222,6 +234,8 @@ export interface LotBook {
   readonly manualPositions?: ManualPosition[];
   /** The named spaces whose lots the book follows. Absent when the caller did not ask about spaces. */
   readonly spaces?: BookSpaces;
+  /** The person's own venue accounts beside the ledger book (venue-book.ts). Absent when the caller did not ask. */
+  readonly venue?: LotBookVenue;
 }
 
 export interface ManualPosition {
@@ -287,6 +301,11 @@ function feeOf(fill: Fill): { fee: BookFee; usd: Amount | null } {
   if (fill.fee === undefined || fill.fee === null) return { fee: { status: 'unknown' }, usd: null };
   const fee = fill.fee;
   const { received, paid } = fill;
+  if (fill.feeAssetId !== undefined && fill.feeAssetId !== received.assetId) {
+    // Taken in another coin (the coin paid): its own value when that is a dollar coin, else not known in dollars.
+    const usd = isPar(fill.feeAssetId) ? fee : null;
+    return { fee: { status: 'known', assetId: fill.feeAssetId, amount: formatAmount(fee), usd: money(usd) }, usd };
+  }
   let usd: Amount | null = null;
   if (isPar(received.assetId)) usd = fee;
   else if (paid !== null && isPar(paid.assetId)) usd = fee === 0n ? 0n : (fee * paid.amount) / (received.amount + fee);
