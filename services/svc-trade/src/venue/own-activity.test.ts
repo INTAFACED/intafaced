@@ -10,7 +10,7 @@ import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData 
 import { HttpUserVenue } from './http-user-venue.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
-import { InMemoryPreparedActionStore } from './prepared-action-store.js';
+import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
 import { readOwnVenueActivity } from './own-activity.js';
 import { ownVenueActivityRouter } from './own-activity-router.js';
@@ -162,7 +162,7 @@ describe('venue.ownActivity against the TEST simulator', () => {
   it('an action signed by an agent, or never signed, names no account', async () => {
     const base = (await store.ownerSignedAccounts(USER, sim.venue.id))[0]!;
     expect(base).toEqual({ owner, subAccount: null });
-    const memory = new InMemoryPreparedActionStore();
+    const memory: PreparedActionStore = new InMemoryPreparedActionStore();
     const prepared = (over: Partial<PreparedVenueAction>): PreparedVenueAction => ({
       venueId: sim.venue.id,
       account: { venueId: sim.venue.id, owner: stranger, subAccount: null },
