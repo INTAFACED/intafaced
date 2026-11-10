@@ -716,6 +716,31 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   await page.waitForTimeout(1_000);
   expect(sent).toEqual([]);
 
+  // Reviewed (instant off). A ladder click at the preset's size opens the review at that size and sends nothing; its
+  // Confirm sends exactly one order, at the preset's size and the row's price, which then rests on the venue.
+  const reviewedRow = rows().last();
+  const reviewedPrice = await reviewedRow.getAttribute('data-price');
+  await reviewedRow.getByTestId('of-ask-cell').click();
+  await expect(review).toContainText('Review your buy');
+  await expect(reviewValue('Amount')).toContainText(canon(SMALL));
+  await page.waitForTimeout(1_000);
+  expect(sent).toEqual([]);
+  const confirmBuy = review.getByRole('button', { name: 'Confirm buy' });
+  await expect(confirmBuy).toBeEnabled({ timeout: 15_000 });
+  await confirmBuy.click();
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(1);
+  await expect(review).toHaveCount(0);
+  expect(sent[0]).toMatchObject({ symbol: SYMBOL, side: 'buy', type: 'limit' });
+  expect(same(sent[0].amount, SMALL)).toBe(true);
+  expect(same(sent[0].price, reviewedPrice)).toBe(true);
+  await expect
+    .poll(async () => (await openOrders(who)).some((o) => o.clientOrderId === sent[0].clientOrderId && same(o.amount, SMALL)), {
+      timeout: 15_000,
+    })
+    .toBe(true);
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(1);
+
   // Reviewed (instant off). One-click cancel on my order's row: a review names it, nothing is cancelled until confirmed,
   // then exactly one cancel goes for exactly that order.
   const first = await restingBid('cancel-7a', 80);
@@ -743,7 +768,31 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
   await page.waitForTimeout(1_000);
-  expect(sent).toEqual([]);
+  expect(sent).toHaveLength(1);
+
+  // Reviewed one-click close, confirmed: exactly one limit sell of every free BTC lot at the bid the button showed, and
+  // the BTC it sells is no longer free.
+  const btcFreeReviewed = free(await (await api(who)).balances(), 'BTC');
+  await expect(close).toBeEnabled();
+  const { amount: freeConfirmed, price: bidConfirmed } = await pressShowing(close);
+  expect(toUnits(freeConfirmed)).toBeGreaterThan(0n);
+  await expect(review).toContainText('Review your sell');
+  expect(same(await reviewValue('Price').innerText(), bidConfirmed)).toBe(true);
+  await expect(reviewValue('Amount')).toContainText(canon(freeConfirmed));
+  expect(sent).toHaveLength(1);
+  const confirmSell = review.getByRole('button', { name: 'Confirm sell' });
+  await expect(confirmSell).toBeEnabled({ timeout: 15_000 });
+  await confirmSell.click();
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(2);
+  await expect(review).toHaveCount(0);
+  expect(sent[1]).toMatchObject({ symbol: SYMBOL, side: 'sell', type: 'limit' });
+  expect(same(sent[1].price, bidConfirmed)).toBe(true);
+  expect(same(sent[1].amount, freeConfirmed)).toBe(true);
+  await expect
+    .poll(async () => free(await (await api(who)).balances(), 'BTC') <= btcFreeReviewed - toUnits(freeConfirmed), { timeout: 15_000 })
+    .toBe(true);
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(2);
 
   // Instant. One-click cancel acts at once: no review, one cancel for that order.
   await turnInstantOn();
@@ -761,20 +810,35 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   const lowest = rows().last();
   const restPrice = await lowest.getAttribute('data-price');
   await lowest.getByTestId('of-ask-cell').click();
-  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(1);
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(3);
   await expect(review).toHaveCount(0);
-  expect(same(sent[0].amount, SMALL)).toBe(true);
-  expect(same(sent[0].price, restPrice)).toBe(true);
+  expect(same(sent[2].amount, SMALL)).toBe(true);
+  expect(same(sent[2].price, restPrice)).toBe(true);
+  await expect
+    .poll(async () => (await openOrders(who)).some((o) => o.clientOrderId === sent[2].clientOrderId && same(o.amount, SMALL)), {
+      timeout: 15_000,
+    })
+    .toBe(true);
+
+  // The reviewed close sold the free BTC: buy a little on the real book (filled by the TEST market maker), so the
+  // instant close has something to sell.
+  const topUp = await (
+    await api(who)
+  ).post('/api/v1/orders', { symbol: SYMBOL, type: 'market', side: 'buy', amount: SMALL, clientOrderId: `jcd14-topup-7-${RUN}` });
+  expect(topUp.status, JSON.stringify(topUp.body).slice(0, 300)).toBeLessThan(300);
+  await expect
+    .poll(async () => toUnits(canon((await close.getAttribute('data-amount')) ?? '') || '0') > 0n, { timeout: 15_000 })
+    .toBe(true);
 
   // Instant one-click close: one limit sell of every free lot at the best bid the button shows, sent at once.
   const btcFreeBefore = free(await (await api(who)).balances(), 'BTC');
   await expect(close).toBeEnabled();
   const { amount: freeNow, price: bidNow } = await pressShowing(close);
-  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(2);
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(4);
   await expect(review).toHaveCount(0);
-  expect(sent[1]).toMatchObject({ symbol: SYMBOL, side: 'sell', type: 'limit' });
-  expect(same(sent[1].price, bidNow)).toBe(true);
-  expect(same(sent[1].amount, freeNow)).toBe(true);
+  expect(sent[3]).toMatchObject({ symbol: SYMBOL, side: 'sell', type: 'limit' });
+  expect(same(sent[3].price, bidNow)).toBe(true);
+  expect(same(sent[3].amount, freeNow)).toBe(true);
   // The sell either filled at the bid or rests there: the BTC it took is no longer free.
   await expect
     .poll(async () => {
@@ -783,7 +847,7 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
     })
     .toBe(true);
   await page.waitForTimeout(1_000);
-  expect(sent).toHaveLength(2);
+  expect(sent).toHaveLength(4);
 
   await turnInstantOff();
 });
