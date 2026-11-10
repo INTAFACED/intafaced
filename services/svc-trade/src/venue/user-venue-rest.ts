@@ -2,7 +2,7 @@
  * The user-venue door's REST routes (B1; src/venue/user-venue-door.ts), for the signed-in customer:
  *
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
- *   GET  /api/v1/venue/markets
+ *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
@@ -57,9 +57,11 @@ export function venueRefusalReply(reply: FastifyReply, err: unknown) {
     });
   }
   if (err instanceof UserVenueDoorError) {
-    return reply
-      .code(err.status)
-      .send({ code: err.status === 404 ? 'NotFound' : 'BadRequest', message: err.message, intafacedCode: err.code });
+    return reply.code(err.status).send({
+      code: err.status === 404 ? 'NotFound' : err.status === 422 ? 'InvalidOrder' : 'BadRequest',
+      message: err.message,
+      intafacedCode: err.code,
+    });
   }
   if (err instanceof StepUpCheckError) {
     const unavailable = err.code === 'identity.step_up_unavailable';
@@ -121,7 +123,8 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
 
   app.get('/api/v1/venue/markets', privateRead, async (req, reply) => {
     if (!admit(req, reply, 'trade:read')) return;
-    return answer(reply, async (d) => (await d.venue()).markets(null));
+    // Only the markets two operators listed, each with our listing beside the venue's own state (J-cex-spot-16).
+    return answer(reply, async (d) => d.markets());
   });
 
   type Account = Awaited<ReturnType<UserVenueDoor['account']>>;

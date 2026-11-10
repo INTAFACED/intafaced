@@ -130,10 +130,14 @@ test(`${J} #1 the last required item completes the course; with a delay rule the
   const second = await context.newPage();
   const earner = await learnerUpToLast(second, 'ja5');
   const session = await api(earner.who);
+  const rankBefore = (await session.get('/api/identity/trpc/rank.get')).body.result.data;
   run.reset({
     waiting: waiting.who,
     earner: earner.who,
-    xpBefore: (await session.get('/api/identity/trpc/rank.get')).body.result.data.xp,
+    xpBefore: rankBefore.xp,
+    // Step #5 compares the rank ladder and the perks after the certificate with these, read before it was issued.
+    rankBefore,
+    perksBefore: (await session.get('/api/identity/trpc/rank.perks')).body.result.data,
     balancesBefore: await session.balances(),
   });
   await completeLast(second, earner.last);
@@ -264,21 +268,33 @@ test(`${J} #4 the public verify page says valid with the issue date, revoked onc
 test(`${J} #5 after the certificate my rank shows the XP the owner published for it; no perk is invented and no balance moved`, async ({
   page,
 }) => {
-  const { earner, xpBefore, balancesBefore } = state('earner', 'balancesBefore');
+  const { earner, xpBefore, rankBefore, perksBefore, balancesBefore } = state('earner', 'rankBefore', 'perksBefore', 'balancesBefore');
   await signIn(page, earner);
   const policy = (await read(earner, 'certXpPlane')).policies.find((row) => row.certId === CERT);
   const session = await api(earner);
+  const rankNow = async () => (await session.get('/api/identity/trpc/rank.get')).body.result.data;
   if (policy) {
     // The owner published an XP value for this certificate: the rank ladder got exactly that much.
-    await expect
-      .poll(async () => BigInt((await session.get('/api/identity/trpc/rank.get')).body.result.data.xp) - BigInt(xpBefore), {
-        timeout: 30_000,
-      })
-      .toBe(BigInt(policy.xpDelta));
+    await expect.poll(async () => BigInt((await rankNow()).xp) - BigInt(xpBefore), { timeout: 30_000 }).toBe(BigInt(policy.xpDelta));
   }
-  const rank = (await session.get('/api/identity/trpc/rank.get')).body.result.data;
-  // With no XP published for it, the certificate left the rank ladder where it was.
-  if (!policy) expect(rank.xp).toBe(xpBefore);
+  const rank = await rankNow();
+  const perks = (await session.get('/api/identity/trpc/rank.perks')).body.result.data;
+  if (policy) {
+    // The XP raised the rank exactly when it reached the next rank's line, which the ladder stated before the certificate.
+    const crossed = rankBefore.nextRankAt !== null && BigInt(policy.xpDelta) >= BigInt(rankBefore.nextRankAt);
+    if (crossed) expect(rank.rank).toBeGreaterThan(rankBefore.rank);
+    else {
+      expect(rank.rank).toBe(rankBefore.rank);
+      expect(perks).toEqual(perksBefore);
+    }
+  } else {
+    // With no XP published for it, the certificate left the rank ladder and the perks exactly where they were.
+    expect(rank.xp).toBe(xpBefore);
+    expect(rank.seasonXp).toBe(rankBefore.seasonXp);
+    expect(rank.rank).toBe(rankBefore.rank);
+    expect(rank.nextRankAt).toBe(rankBefore.nextRankAt);
+    expect(perks).toEqual(perksBefore);
+  }
   await page.goto('/academy/certificates');
   await certCard(page).getByRole('button', { name: 'View certificate', exact: true }).click();
   const xp = page.locator(`[data-certificate-sheet="${CERT}"]`).getByTestId('certificate-xp');
@@ -289,9 +305,15 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   );
   await xp.getByRole('link', { name: 'See your rank', exact: true }).click();
   await expect(page).toHaveURL(/\/uc\/account$/);
-  // The rank page shows the lifetime XP the ladder holds now.
-  const lifetime = page.getByTestId('rank-perks').locator('dt', { hasText: 'Lifetime XP' }).locator('xpath=following-sibling::dd[1]');
+  // The rank page shows the rank and lifetime XP the ladder holds now, and the fee perk the identity service reads for it.
+  const panel = page.getByTestId('rank-perks');
+  await expect(panel.locator('.rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
+  const lifetime = panel.locator('dt', { hasText: 'Lifetime XP' }).locator('xpath=following-sibling::dd[1]');
   await expect(lifetime).toHaveText(new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(BigInt(rank.xp)));
+  const fee = panel.locator('.rank-perks__rows dt').first().locator('xpath=following-sibling::dd[1]');
+  await expect(fee).toHaveText(`${perks.feeDiscountBps / 100}%`);
+  // No perk appeared: with no XP published, the fee perk shown is the one the identity service held before the certificate.
+  if (!policy) await expect(fee).toHaveText(`${perksBefore.feeDiscountBps / 100}%`);
   // A certificate never posts to the ledger.
   expect(await session.balances()).toEqual(balancesBefore);
   // Put the issue rule back as it was before this journey.

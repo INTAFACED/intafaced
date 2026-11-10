@@ -17,6 +17,7 @@ import {
   type UserVenueFill,
   type UserVenueLeverage,
   type UserVenueMarket,
+  type UserVenueMarketStatus,
   type UserVenueOrder,
   type UserVenuePosition,
   type UserVenueSubAccount,
@@ -56,7 +57,13 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *   · `withdrawalFee` `known: false` — the withdrawal fee is shown as not known;
  *   · an agent key is always refused a withdrawal (`agent_not_permitted`);
  *   · `loseAnswers` — the next N submits are applied and then answered
- *     `definite: false`, so a caller's read-back is exercised.
+ *     `definite: false`, so a caller's read-back is exercised;
+ *   · a market's own state (`setMarketStatus`: trading, halted, cancel_only,
+ *     delisted, or `null` for "not reported") and its largest order
+ *     (`setMarketLimits`, `null` for "not reported"). A new order its state does
+ *     not admit refuses `market_halted` / `market_cancel_only` /
+ *     `market_delisted`, one above its largest `order_above_venue_max`; cancels
+ *     always pass.
  *
  * Sub-accounts and agents, as a real venue keeps them (Hyperliquid's rules,
  * read 2026-11-09): the owner opens a sub-account and moves free balance in
@@ -100,6 +107,11 @@ export interface SimMarketConfig {
   readonly maintenanceMarginRate?: Amount;
   /** Perpetuals: the starting mark price. */
   readonly markPrice?: Amount;
+  /** The market's own state at start; absent is `trading`. */
+  readonly status?: UserVenueMarketStatus | null;
+  /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
+  readonly maxOrderQty?: Amount | null;
+  readonly maxOrderNotional?: Amount | null;
 }
 
 export interface SimSwitches {
@@ -194,6 +206,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private seqCounter = 0;
   private fillCounter = 0;
   private venueOrderCounter = 0;
+  /** Each market's own state and largest order, changed by the TEST controls. */
+  private readonly marketState = new Map<
+    string,
+    { status: UserVenueMarketStatus | null; maxOrderQty: Amount | null; maxOrderNotional: Amount | null }
+  >();
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
@@ -219,7 +236,44 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       this.marketsBySymbol.set(market.symbol, market);
       this.book.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+      this.marketState.set(market.symbol, {
+        status: market.status === undefined ? 'trading' : market.status,
+        maxOrderQty: market.maxOrderQty ?? null,
+        maxOrderNotional: market.maxOrderNotional ?? null,
+      });
     }
+  }
+
+  /**
+   * TEST control: list one more market on the venue, so a journey can review a market nobody else trades. Refused when the
+   * symbol is already listed (a market's config is never replaced under its orders). Starts `trading` unless told.
+   */
+  addMarket(market: SimMarketConfig): void {
+    if (this.marketsBySymbol.has(market.symbol)) {
+      refuse(this.venue.id, 'not_offered', `${market.symbol} is already listed on ${this.venue.displayName}`);
+    }
+    this.marketsBySymbol.set(market.symbol, market);
+    this.book.set(market.symbol, []);
+    if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+    this.marketState.set(market.symbol, {
+      status: market.status === undefined ? 'trading' : market.status,
+      maxOrderQty: market.maxOrderQty ?? null,
+      maxOrderNotional: market.maxOrderNotional ?? null,
+    });
+  }
+
+  /** TEST control: the market's own state (`null`: the venue reports none). Changes no order. */
+  setMarketStatus(symbol: string, status: UserVenueMarketStatus | null): void {
+    this.market(symbol);
+    this.marketState.get(symbol)!.status = status;
+  }
+
+  /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
+  setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
+    this.market(symbol);
+    const state = this.marketState.get(symbol)!;
+    state.maxOrderQty = limits.maxOrderQty;
+    state.maxOrderNotional = limits.maxOrderNotional;
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
@@ -300,6 +354,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       lotSize: m.lotSize,
       makerFeeBps: m.makerFeeBps,
       takerFeeBps: m.takerFeeBps,
+      status: this.marketState.get(m.symbol)!.status,
+      maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
+      maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
     }));
     return this.asOf(list);
@@ -356,6 +413,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       }
       return { known: true, value: { asset: feeAsset, amount: total } };
     };
+    // What fills now, and its volume-weighted price, rounded against the customer (down on a sell, up on a buy).
+    const against = intent.side === 'sell' ? 'floor' : 'ceil';
+    const filled = takes.reduce((a, t) => add(a, t.qty), ZERO);
+    const notional = takes.reduce((a, t) => add(a, mul(t.price, t.qty, against)), ZERO);
+    const fill: VenueOrderPreview['fill'] = {
+      known: true,
+      value: { amount: filled, averagePrice: filled === ZERO ? null : div(notional, filled, against) },
+    };
     const venueFee = line((r) => (r === 'maker' ? market.makerFeeBps : market.takerFeeBps));
     const zeroFee: MaybeKnown<Amount> = { known: true, value: ZERO };
     // No builder fee on a spot buy (see `fill`): known zero, whatever the order carries.
@@ -403,6 +468,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       role,
       venueFee,
       builderFee: builderLine,
+      fill,
       perpetual,
     });
   }
@@ -779,6 +845,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   private checkOrderOnItsFace(state: AccountState, intent: PlaceUserOrderIntent): void {
     const market = this.market(intent.symbol);
+    const own = this.marketState.get(market.symbol)!;
+    if (own.status === 'halted') refuse(this.venue.id, 'market_halted', `${market.symbol} is halted on ${this.venue.displayName}`);
+    if (own.status === 'cancel_only')
+      refuse(this.venue.id, 'market_cancel_only', `${market.symbol} takes cancels only on ${this.venue.displayName}`);
+    if (own.status === 'delisted') refuse(this.venue.id, 'market_delisted', `${market.symbol} is delisted on ${this.venue.displayName}`);
+    if (own.maxOrderQty !== null && compare(intent.amount, own.maxOrderQty) > 0)
+      refuse(this.venue.id, 'order_above_venue_max', `size is above the largest order on ${market.symbol}`);
+    if (own.maxOrderNotional !== null && compare(mul(intent.amount, intent.price, 'ceil'), own.maxOrderNotional) > 0)
+      refuse(this.venue.id, 'order_above_venue_max', `notional is above the largest order on ${market.symbol}`);
     if (!market.orderTypes.includes(intent.type))
       refuse(this.venue.id, 'not_offered', `${intent.type} orders are not offered on ${market.symbol}`);
     if (intent.type === 'limit' && !market.timeInForce.includes(intent.timeInForce)) {

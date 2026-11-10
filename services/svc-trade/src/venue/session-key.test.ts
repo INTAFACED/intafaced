@@ -9,6 +9,8 @@ import { TEST_VENUE_MARKETS, TestVenueSimulator, type TestVenueTypedData } from 
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
 import { SESSION_KEY_TTL_MS, SessionKeys } from './session-key.js';
 import { UserVenueDoor, UserVenueDoorError, type BuilderFeeValue } from './user-venue-door.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 
 // J-wallet-22 #8 / D-venue-09 against the TEST venue simulator, in process: one owner approval per session for a fresh
 // session key that trades and never withdraws. The owner is a plain TEST key here, as the person's own wallet is
@@ -53,7 +55,15 @@ function world(opts: { store?: PreparedActionStore } = {}) {
       return { stepUpEventId: 'step-up-test', consumedAt: null, replayed: false };
     },
   };
-  const door = new UserVenueDoor({ connect: async () => sim, appEnv: 'test', store, stepUp, builder: BUILDER, now: clock });
+  const door = new UserVenueDoor({
+    connect: async () => sim,
+    appEnv: 'test',
+    store,
+    stepUp,
+    builder: BUILDER,
+    now: clock,
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+  });
   const sessions = new SessionKeys({ door, store, now: clock });
   const account = { venueId: sim.venue.id, owner, subAccount: null };
   sim.deposit(account, 'USDC', a('100000'), 'test:session-key:usdc');
