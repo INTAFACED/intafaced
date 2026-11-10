@@ -302,10 +302,9 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
 
   // Cancel it on the desk: the venue releases its lock, and Assets shows it back in free, as the venue reports.
   await page.goto(DESK);
-  await page
-    .getByRole('button', { name: `Connect ${TEST_WALLET.name}` })
-    .click()
-    .catch(() => undefined);
+  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  // The desk may restore the connection itself; it is connected only when it asks.
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address').filter({ hasText: new RegExp(owner, 'i') }));
   const orderRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${second.venueClientOrderId}"]`);
   await orderRow.getByRole('button', { name: 'Cancel', exact: true }).click();
   await continueInWallet(page);
