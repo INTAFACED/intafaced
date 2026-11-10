@@ -821,13 +821,23 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
     .toBe(true);
 
   // The reviewed close sold the free BTC: buy a little on the real book (filled by the TEST market maker), so the
-  // instant close has something to sell.
+  // instant close has something to sell. The account reports the BTC free first; the desk reads balances every 15 s.
+  const btcFreeBeforeTopUp = free(await (await api(who)).balances(), 'BTC');
   const topUp = await (
     await api(who)
-  ).post('/api/v1/orders', { symbol: SYMBOL, type: 'market', side: 'buy', amount: SMALL, clientOrderId: `jcd14-topup-7-${RUN}` });
+  ).post('/api/v1/orders', { symbol: SYMBOL, type: 'market', side: 'buy', amount: BETWEEN, clientOrderId: `jcd14-topup-7-${RUN}` });
   expect(topUp.status, JSON.stringify(topUp.body).slice(0, 300)).toBeLessThan(300);
   await expect
-    .poll(async () => toUnits(canon((await close.getAttribute('data-amount')) ?? '') || '0') > 0n, { timeout: 15_000 })
+    .poll(async () => free(await (await api(who)).balances(), 'BTC') > btcFreeBeforeTopUp, {
+      timeout: 15_000,
+      message: 'the market buy left free BTC on the account',
+    })
+    .toBe(true);
+  await expect
+    .poll(async () => toUnits(canon((await close.getAttribute('data-amount')) ?? '') || '0') > 0n, {
+      timeout: 45_000,
+      message: 'one-click close shows the free BTC to sell',
+    })
     .toBe(true);
 
   // Instant one-click close: one limit sell of every free lot at the best bid the button shows, sent at once.
