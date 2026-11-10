@@ -28,6 +28,11 @@ const schema = serviceEnvSchema
       /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
       TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
       /**
+       * Owner value: the largest page of GET /api/v1/venue/orders (J-developer-05 #6), a whole number 1 to 1000. Blank
+       * refuses every list `trade.venue_orders_page_max_unset`, never a guessed page size.
+       */
+      TRADE_USER_VENUE_ORDERS_PAGE_MAX: z.string().default(''),
+      /**
        * D-venue-07 builder-fee poster (src/builder-fee/builder-fee-poster.ts): with the door on, how often it reads our users'
        * venue fills and posts our builder fee on each to the ledger. `off` stops it, so fills wait unposted (the recon then
        * lists them as not in the ledger); the next run posts each once.

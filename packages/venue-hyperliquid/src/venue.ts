@@ -22,6 +22,8 @@ import {
   type UserVenueWithdrawal,
   type VenueAssetAmount,
   type VenueIntent,
+  type VenueBook,
+  type VenueBookLevel,
   type VenueOrderPreview,
   type VenueOrderStatus,
   type VenueRefusalCode,
@@ -520,6 +522,18 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       { symbol: m.symbol, bids: side(bids, 'bids'), asks: side(asks, 'asks') },
       typeof book.time === 'number' ? book.time : undefined,
     );
+  }
+
+  /**
+   * `UserVenue.book`: the top `depth` levels of each side of the venue's own book for `symbol`, from `l2Book`, best
+   * first. `unknown_market` for a symbol it does not list, `venue_down` when the read fails.
+   */
+  async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    if (!Number.isSafeInteger(depth) || depth < 1) throw new RangeError(`book depth must be a whole number above 0, not ${depth}`);
+    const read = await this.l2Book(symbol);
+    const side = (levels: readonly HlBookLevel[]): VenueBookLevel[] =>
+      levels.slice(0, depth).map((l) => ({ price: l.price, amount: l.size }));
+    return { ...read, value: { symbol: read.value.symbol, bids: side(read.value.bids), asks: side(read.value.asks) } };
   }
 
   /** The venue's mid price of every listed market (`allMids`), by our symbol. A coin we do not list is left out. */
