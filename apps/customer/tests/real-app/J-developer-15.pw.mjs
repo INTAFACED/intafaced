@@ -2,18 +2,19 @@
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ROOT, api, fund, restartWith } from './stack.mjs';
-import { codeOf, keyHolder, withKey } from './developer.mjs';
+import { codeOf, withKey } from './developer.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, virtualAuthenticator } from './identity-factors.mjs';
-import { openBusiness, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
+import { openBusiness, paidCardPayment, payApiOf, signInWithCode, verifiedBusiness } from './merchant.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-developer-15, in the running app (docs/roadmap/journeys.json): run keys for sub-accounts, teams and agents. One
 // test per step, titled "J-developer-15 #<n>", each checking the step's own words. The person is a TEST master account
-// with a passkey (only such an account may hold a key; the passkey gives each create its fresh step-up) and two
-// sub-accounts, A and B. The master is funded with TEST USDT and the sub-accounts hold nothing, so a balance read says
-// whose account answered. The stack's TEST value caps keys per sub-account at two (IDENTITY_PORTFOLIO_KEYS_MAX, LOCAL
-// TEST); #2 restarts identity with it blank, as it is until the owner sets it.
+// with an authenticator, an approved TEST business (#6's payout is of its settlement) and a passkey (only such an
+// account may hold a key; the passkey gives each create its fresh step-up), and two sub-accounts, A and B. The master
+// is funded with TEST USDT and the sub-accounts hold nothing, so a balance read says whose account answered. The
+// stack's TEST value caps keys per sub-account at two (IDENTITY_PORTFOLIO_KEYS_MAX, LOCAL TEST); #2 restarts identity
+// with it blank, as it is until the owner sets it.
 const J = 'J-developer-15';
 const { apiKeyCreateRequestId } = await import(path.join(ROOT, 'packages/contracts/dist/api-keys.js'));
 
@@ -27,6 +28,8 @@ const sub = { a: '', b: '' };
 let subKey = '';
 /** The agent key #5 makes (trade:read), which #6 uses. */
 let agentKey = '';
+/** The master's approved TEST business, set up before its passkey; #6's agent key asks to pay out its settlement. */
+let merchantId = '';
 
 const BALANCE = '/api/v1/account/balance';
 
@@ -61,9 +64,28 @@ function keyRow(name) {
 }
 
 test.beforeAll(async ({ browser }) => {
-  test.setTimeout(240_000);
-  ({ page, who } = await keyHolder(browser, 'jd15'));
-  me = await api(who);
+  test.setTimeout(480_000);
+  // The master: an authenticator first (its only factor then, so a password session may add it), an approved TEST
+  // business it owns (#6 pays out from it), then a passkey for each create's step-up. #7's sandbox person is set up the
+  // same way.
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
+  await virtualAuthenticator(page);
+  who = await signUp(page, 'jd15');
+  await verify(page, who);
+  await signInWithCode(page, who, '/uc/safe');
+  const { secret, step } = await addAuthenticator(page, totp);
+  Object.assign(who, { totp, secret, step });
+  await forgetSession(page);
+  await signInWithCode(page, who, '/pay/merchant');
+  merchantId = await openBusiness(page, who, 'TEST Agent Payout Ltd');
+  await verifiedBusiness(page, who, merchantId);
+  await forgetSession(page);
+  await signInWithCode(page, who, '/uc/safe');
+  await addPasskey(page);
+  const code = await nextCode(totp, who.secret, who.step);
+  who.step = code.step;
+  me = await api(who, { totpCode: code.code });
   for (const [slot, label] of [
     ['a', 'Sub A'],
     ['b', 'Sub B'],
@@ -319,9 +341,30 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
 });
 
 test(`${J} #6 the agent key attempts a payout: an approval row appears and no payout runs; a read call runs`, async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(480_000);
   expect(agentKey, 'the agent key from #5').toMatch(/^ifc_/);
-  const asked = { settlementId: '9f1c2b3a-0000-4000-8000-00000000d015', railId: 'test-rail' };
+  // A payout that could really run: the master's business takes a TEST card payment and settles the day, so svc-pay
+  // holds a posted settlement with money available to pay out (as J-merchant-02 #5 sets one up). The agent key then
+  // asks to pay that settlement out.
+  const pay = await payApiOf(who, (next) => {
+    who.step = next;
+  });
+  const paid = await paidCardPayment(pay, merchantId, { key: `${J}:#6:payment:${merchantId}`, amount: '25.00' });
+  expect(paid.status).toBe('captured');
+  const posted = await pay.mutate('settlement.run', { merchantId, window: new Date().toISOString().slice(0, 10), assetId: 'USDT' });
+  expect(posted.status).toBe('posted');
+  const settlementBefore = await pay.query('settlement.get', { settlementId: posted.id });
+  expect(settlementBefore).toMatchObject({ id: posted.id, merchantId, status: 'posted' });
+  expect(settlementBefore.payoutRef ?? null, 'not paid out yet').toBeNull();
+  const available = async () =>
+    (await pay.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })).balances.find(
+      (b) => b.assetCode === 'USDT',
+    )?.available;
+  const availableBefore = await available();
+  expect(availableBefore, 'the posted net is available to pay out').toMatch(/^\d+(\.\d+)?$/);
+  expect(availableBefore).not.toMatch(/^0(\.0+)?$/);
+
+  const asked = { settlementId: posted.id, railId: 'crypto-native' };
   const PAYOUT = '/api/pay/trpc/settlement.payout';
   const approvalsPath = `/api/identity/trpc/developerKeys.approvals?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`;
 
@@ -349,7 +392,10 @@ test(`${J} #6 the agent key attempts a payout: an approval row appears and no pa
   await expect(row).toContainText('Send a payout');
   await expect(row).toContainText('Waiting for you. Nothing was sent.');
 
-  // No payout runs. Read back: the master's money is where it was.
+  // No payout runs. Read back from svc-pay: the settlement is still posted, with no payout reference, and the business's
+  // available money is where it was; and the master's own money is where it was.
+  expect(await pay.query('settlement.get', { settlementId: posted.id })).toEqual(settlementBefore);
+  expect(await available()).toBe(availableBefore);
   const own = await me.balances();
   expect(own.USDT?.total, JSON.stringify(own)).toBe('250');
 
