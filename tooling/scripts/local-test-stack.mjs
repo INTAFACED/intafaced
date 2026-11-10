@@ -2630,7 +2630,13 @@ const CSP_REPORT_PATH = '/__csp-report';
  * therefore run under the policy the deployed app has, and `csp-report --fail` turns any violation red.
  */
 export function customerSecurityHeaders() {
-  return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
+  // connect-src: the TEST sandbox address (IDENTITY_SANDBOX_BASE_URL, the edge's sandbox host) stands in for
+  // CUSTOMER_SANDBOX_API_ORIGIN, so the API explorer can send a sandbox key's request there (J-developer-15 #7).
+  return securityHeaders({
+    mediaSrc: `'self' blob: ${urlOf('video-store')}`,
+    connectSrc: `'self' http://localhost:${PORTS.edge}`,
+    reportUri: CSP_REPORT_PATH,
+  });
 }
 
 /**

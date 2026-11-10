@@ -36,6 +36,7 @@ const base = {
   name: 'desk',
   scopes: ['identity:read'],
   grantorScopes: ['identity:read', 'identity:write'],
+  portfolioKeyCap: 2,
 };
 
 describe('mintApiKeyBoundToAccount', () => {
@@ -64,7 +65,7 @@ describe('mintApiKeyBoundToAccount', () => {
   it('binds the account so another account is refused from the first call', async () => {
     const { minter, created, revoked } = makeMinter();
     const live = [{ id: ACC, parent_user_id: 'u', revoked: false }];
-    const minted = await mintApiKeyBoundToAccount(minter, fakeSql([live, live, [{ id: 'k1', account_id: ACC }]]), {
+    const minted = await mintApiKeyBoundToAccount(minter, fakeSql([live, [{ n: 1 }], live, [{ id: 'k1', account_id: ACC }]]), {
       ...base,
       accountId: ` ${ACC} `,
     });
@@ -76,10 +77,24 @@ describe('mintApiKeyBoundToAccount', () => {
     expect(apiKeyAccountAllowed(minted.accountId, ACC)).toBe(true);
   });
 
+  it('keeps the owner’s sub-account key cap: blank or full refuses before any key is made', async () => {
+    const { minter, created } = makeMinter();
+    const live = [{ id: ACC, parent_user_id: 'u', revoked: false }];
+    await expect(
+      mintApiKeyBoundToAccount(minter, fakeSql([live]), { ...base, accountId: ACC, portfolioKeyCap: null }),
+    ).rejects.toMatchObject({ code: 'identity.portfolio_key_cap_unset' });
+    await expect(mintApiKeyBoundToAccount(minter, fakeSql([live, [{ n: 2 }]]), { ...base, accountId: ACC })).rejects.toMatchObject({
+      code: 'identity.portfolio_key_cap_reached',
+    });
+    expect(created).toEqual([]);
+  });
+
   it('revokes the minted key if bind fails', async () => {
     const { minter, revoked } = makeMinter();
     const live = [{ id: ACC, parent_user_id: 'u', revoked: false }];
-    await expect(mintApiKeyBoundToAccount(minter, fakeSql([live, live, []]), { ...base, accountId: ACC })).rejects.toMatchObject({
+    await expect(
+      mintApiKeyBoundToAccount(minter, fakeSql([live, [{ n: 0 }], live, []]), { ...base, accountId: ACC }),
+    ).rejects.toMatchObject({
       code: 'auth.not_found',
     });
     expect(revoked).toEqual(['k1']);
