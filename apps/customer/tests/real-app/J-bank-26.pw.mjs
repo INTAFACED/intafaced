@@ -228,6 +228,8 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
     expect(units(btcRead.fundingRate)).toBeGreaterThan(0n);
     expect(Date.parse(btcRead.fundingRateAsOf)).toBeGreaterThan(Date.now() - 10 * 60_000);
     expect(btc['Rate in the funding stablecoin']).toMatch(/^\d+(\.\d+)?$/);
+    // The rate the screen shows is the rate the service read, not any number.
+    expect(units(btc['Rate in the funding stablecoin'])).toBe(units(btcRead.fundingRate));
     // The app has no BTC figure to convert, so its conversion is "not known", never 0.
     expect(btc['App figure in the funding stablecoin']).toBe('not known');
 
