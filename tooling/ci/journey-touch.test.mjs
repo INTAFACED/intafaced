@@ -516,7 +516,7 @@ test('root Markdown runs no journeys because nothing the journeys run executes r
 test('DOCS_READ holds every doc the journeys run, the stack or a service names by path, so the rest of docs/ runs none', () => {
   // What the journeys run executes or the stack serves: its workflow and actions, the scripts it runs and the journey files
   // (followed through their relative imports), and every non-test source under apps/, services/ and packages/. A doc
-  // named in code (not a comment), as a path or as join(…, 'docs', '<folder>', …) or resolve(…), must be in DOCS_READ.
+  // named in code (not a comment), as a path or as a call's 'docs' argument (join(…, 'docs', '<folder>', …)), must be in DOCS_READ.
   const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
   const WORKFLOW = '.github/workflows/real-app-journeys.yml';
   const workflow = readFileSync(join(ROOT, WORKFLOW), 'utf8');
@@ -548,9 +548,8 @@ test('DOCS_READ holds every doc the journeys run, the stack or a service names b
     const names = [
       ...[...code.matchAll(/(?<![\w.-])docs\/\w[\w./*-]*/g)].map((m) => m[0].replace(/[.*/]+$/, '')),
       ...[...code.matchAll(/['"`]docs\/['"`]/g)].map(() => 'docs'),
-      ...[...code.matchAll(/\b(?:join|resolve)\(([^)]*)\)/g)].flatMap((call) =>
-        [...call[1].matchAll(/['"`]docs['"`](\s*,\s*['"`]([\w.-]+)['"`])?/g)].map((m) => (m[2] ? `docs/${m[2]}` : 'docs')),
-      ),
+      // 'docs' as a call argument (join(…, 'docs', 'roadmap'), however deeply the call nests), with the next one.
+      ...[...code.matchAll(/[(,]\s*['"`]docs['"`](\s*,\s*['"`]([\w.-]+)['"`])?/g)].map((m) => (m[2] ? `docs/${m[2]}` : 'docs')),
     ];
     if (!SELF_CASES.has(f)) for (const n of names) if (!covered(n)) missed.push(`${f}: ${n}`);
     if (/\.(m?[jt]sx?|cjs)$/.test(f))
