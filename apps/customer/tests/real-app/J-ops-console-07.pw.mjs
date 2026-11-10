@@ -968,6 +968,10 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     try {
       await expect(row(section, state.pairId).getByTestId('rc-state')).toHaveText('Active');
 
+      // Alerts count per UTC day, so a repeat after midnight rightly opens the new day's alerts. Both runs take about a
+      // minute and a half; with under five minutes left in the day, wait until the new day has begun.
+      const leftToday = 86_400_000 - (Date.now() % 86_400_000);
+      if (leftToday < 300_000) await a.waitForTimeout(leftToday + 5_000);
       const first = await twoFounderRun(state.pairId);
       expect(first).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
       expect(scaled(evidence(first, 'USDC').difference) < 0n).toBe(true);

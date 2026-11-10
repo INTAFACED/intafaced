@@ -648,6 +648,7 @@ export const features: readonly Feature[] = [
       '/helplist',
       '/helpdetail',
       '/help/official-channels',
+      '/help/mule-policy',
       '/help/category/:id',
       '/help/section/:id',
       '/support',
