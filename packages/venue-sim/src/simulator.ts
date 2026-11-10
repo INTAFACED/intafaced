@@ -22,6 +22,8 @@ import {
   type UserVenueWithdrawal,
   type VenueAssetAmount,
   type VenueIntent,
+  type VenueBook,
+  type VenueBookLevel,
   type VenueOrderPreview,
   type VenueMarginMode,
   type VenueRefusalCode,
@@ -172,7 +174,7 @@ export class TestVenueSimulator implements UserVenue {
   private readonly marks = new Map<string, Amount>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
-  private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
+  private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
   private seqCounter = 0;
@@ -206,7 +208,7 @@ export class TestVenueSimulator implements UserVenue {
     };
     for (const market of options.markets) {
       this.marketsBySymbol.set(market.symbol, market);
-      this.book.set(market.symbol, []);
+      this.resting.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
       this.marketState.set(market.symbol, {
         status: market.status === undefined ? 'trading' : market.status,
@@ -225,7 +227,7 @@ export class TestVenueSimulator implements UserVenue {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is already listed on ${this.venue.displayName}`);
     }
     this.marketsBySymbol.set(market.symbol, market);
-    this.book.set(market.symbol, []);
+    this.resting.set(market.symbol, []);
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
     this.marketState.set(market.symbol, {
       status: market.status === undefined ? 'trading' : market.status,
@@ -241,6 +243,12 @@ export class TestVenueSimulator implements UserVenue {
   }
 
   /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
+  /** TEST control: the trading fees this market publishes; `known: false` publishes none (the venue still charges its unpublished rate). */
+  setMarketFees(symbol: string, fees: { makerFeeBps: MaybeKnown<Amount>; takerFeeBps: MaybeKnown<Amount> }): void {
+    const market = this.market(symbol);
+    this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+  }
+
   setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
     this.market(symbol);
     const state = this.marketState.get(symbol)!;
@@ -314,6 +322,26 @@ export class TestVenueSimulator implements UserVenue {
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
     }));
     return this.asOf(list);
+  }
+
+  async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    this.up();
+    this.market(symbol);
+    const levels = (side: 'buy' | 'sell'): VenueBookLevel[] => {
+      const out: VenueBookLevel[] = [];
+      const resting = this.bookOf(symbol)
+        .filter((o) => o.order.side === side && o.order.remaining > ZERO)
+        .sort((a, b) => (side === 'buy' ? compare(b.order.price, a.order.price) : compare(a.order.price, b.order.price)));
+      for (const o of resting) {
+        const last = out[out.length - 1];
+        if (last && compare(last.price, o.order.price) === 0)
+          out[out.length - 1] = { price: last.price, amount: add(last.amount, o.order.remaining) };
+        else if (out.length < depth) out.push({ price: o.order.price, amount: o.order.remaining });
+        else break;
+      }
+      return out;
+    };
+    return this.asOf({ symbol, bids: levels('buy'), asks: levels('sell') });
   }
 
   async preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
@@ -1026,7 +1054,7 @@ export class TestVenueSimulator implements UserVenue {
   }
 
   private bookOf(symbol: string): OrderState[] {
-    return this.book.get(symbol) as OrderState[];
+    return this.resting.get(symbol) as OrderState[];
   }
 
   /** One fill between a resting maker and an incoming taker at the maker's price. */

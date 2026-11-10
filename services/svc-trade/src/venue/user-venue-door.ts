@@ -78,6 +78,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
+  | 'trade.venue_action_other_venue'
+  | 'trade.venue_unknown'
   | VenueRouteRefusalCode;
 
 export class UserVenueDoorError extends Error {
@@ -220,6 +222,8 @@ async function assertSignatureRecovers(prepared: PreparedVenueAction, signature:
 
 export class UserVenueDoor {
   private venuePromise: Promise<UserVenue & { readonly chainId?: number }> | null = null;
+  /** The id of the venue this door last connected to; `null` before the first connect. */
+  connectedVenueId: string | null = null;
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
 
@@ -228,6 +232,7 @@ export class UserVenueDoor {
     if (!this.venuePromise) {
       this.venuePromise = this.deps.connect().then((v) => {
         refuseTestVenueOutsideTest(v.venue, this.deps.appEnv);
+        this.connectedVenueId = v.venue.id;
         return v;
       });
       this.venuePromise.catch(() => {
@@ -322,6 +327,33 @@ export class UserVenueDoor {
       });
     }
     return { ...intent, builderFee: { builder: address, feeBps } };
+  }
+
+  /**
+   * Our builder fee on an order of `side` on `symbol` here: `{ carries: false }` for a spot buy, the fee in force when it
+   * carries one, or `null` when the owner value is blank (or the version in force can't be read). The venues strip and the
+   * route preview read it; an order is still priced by `withBuilderFee` at prepare.
+   */
+  async builderFeeFor(symbol: string, side: 'buy' | 'sell'): Promise<{ carries: false } | { carries: true; feeBps: Amount } | null> {
+    const venue = await this.venue();
+    try {
+      const priced = await this.withBuilderFee(venue, {
+        kind: 'place_order',
+        symbol,
+        side,
+        type: 'limit',
+        amount: 1n,
+        price: 1n,
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: 'order:builder-fee-read',
+        builderFee: null,
+      });
+      return priced.builderFee ? { carries: true, feeBps: priced.builderFee.feeBps } : { carries: false };
+    } catch (err) {
+      if (err instanceof VenueRefusalError && err.refusal.code === 'builder_fee_not_published') return null;
+      throw err;
+    }
   }
 
   /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
@@ -481,6 +513,17 @@ export class UserVenueDoor {
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertInteractive(principal, row.prepared.intent.kind);
+    // An action is only ever sent to the venue it was prepared for: with several venues behind the router, a key stored
+    // for another venue is that venue's door's to send (venue-router.ts), never this one's.
+    // The id last connected, never a fresh connect: a venue down now still answers a signed key with its read-back below.
+    const here = this.connectedVenueId;
+    if (here !== null && row.prepared.venueId !== here) {
+      throw new UserVenueDoorError(
+        `${key} was prepared for ${row.prepared.venueId}, not ${here}; it is sent only to the venue it was prepared for`,
+        'trade.venue_action_other_venue',
+        409,
+      );
+    }
     if (
       !signature ||
       typeof signature.signature !== 'string' ||

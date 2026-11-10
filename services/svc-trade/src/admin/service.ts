@@ -4,6 +4,7 @@
  * of an account writes one append-only audit row. Money figures stay exact
  * decimal strings.
  */
+import { VenueRoutingReportError, type VenueRoutingReport } from '../venue/routing-report.js';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -135,6 +136,8 @@ export interface TradeOpsDeps {
    * Absent, or answering null: the door is off, so no builder-fee version can be written and the cap read refuses.
    */
   readonly venueMarkets?: () => Promise<VenueMarketsRead | null>;
+  /** Our users' routed volume and builder fees by venue for a period (J-derivatives-28 #6). Absent: the door is off. */
+  readonly venueRouting?: ((from: Date, to: Date) => Promise<VenueRoutingReport>) | null;
   readonly now?: () => Date;
 }
 
@@ -487,6 +490,21 @@ export class TradeOpsAdmin {
   async feeScheduleGet(principal: Principal): Promise<{ version: string; history: FeeScheduleVersionRow[] }> {
     requireOperator(principal);
     return { version: await latestFeeScheduleVersion(this.deps.sql), history: await feeScheduleHistory(this.deps.sql) };
+  }
+
+  /**
+   * The routing view (J-derivatives-28 #6): per venue, our users' routed volume and the builder fees the venue charged in
+   * the period, and house exposure "none: routed". Read-only, for an operator; the door off refuses `trade.user_venue_off`.
+   */
+  async venueRoutingReport(principal: Principal, input: { from: string; to: string }): Promise<VenueRoutingReport> {
+    requireOperator(principal);
+    if (!this.deps.venueRouting) throw new TradeOpsError('trade.user_venue_off', 'the user-venue door is off on this deployment');
+    try {
+      return await this.deps.venueRouting(new Date(input.from), new Date(input.to));
+    } catch (err) {
+      if (err instanceof VenueRoutingReportError) throw new TradeOpsError(err.code, err.message);
+      throw err;
+    }
   }
 
   /** The door's venue, read now; null when the door is off. A venue refusal keeps the venue's own code. */

@@ -34,7 +34,7 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
  *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce},
- *        /builder-fee-approval {account,builder}, /leverage {account,symbol}
+ *        /builder-fee-approval {account,builder}, /leverage {account,symbol}, /book {symbol,depth}
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,withdrawalFee?}       withdrawalFee: MaybeKnown<Amount>
@@ -42,6 +42,7 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC and BTC-PERP
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
  *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
+ *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"
  *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
  *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
  *
@@ -171,12 +172,21 @@ async function makerRun(sim: TestVenueSimulator, name: string, intent: VenueInte
     throw new Error(`TEST seed: ${name} ${intent.kind} was not accepted: ${JSON.stringify(encodeVenueWire(outcome))}`);
 }
 
+/** The ladder size each simulator was first seeded with, so `/test/seed` puts back the same ladder. */
+const seededLevelSize = new WeakMap<TestVenueSimulator, string>();
+
 /**
- * Fund two TEST makers and rest a two-sided ladder on every market (one maker a side: the simulator offers opening
+ * Fund two TEST makers and rest a two-sided ladder (`levelSize` BTC a level, default 1) on every market (one maker a side: the simulator offers opening
  * orders on one side of a perpetual per account). Idempotent: deposits by ref, orders by client key, so a second seed
  * adds nothing and a ladder level that was taken is not put back.
  */
-export async function seedTestVenue(sim: TestVenueSimulator): Promise<{ makers: readonly string[]; orders: number }> {
+export async function seedTestVenue(
+  sim: TestVenueSimulator,
+  opts: { readonly levelSize?: string } = {},
+): Promise<{ makers: readonly string[]; orders: number }> {
+  const size = opts.levelSize ?? seededLevelSize.get(sim) ?? SEED_SIZE;
+  seededLevelSize.set(sim, size);
+  const levelSize = parseAmount(size);
   const makers = { bid: 'bid', ask: 'ask' } as const;
   let orders = 0;
   for (const side of ['bid', 'ask'] as const) {
@@ -201,7 +211,7 @@ export async function seedTestVenue(sim: TestVenueSimulator): Promise<{ makers: 
           symbol: market.symbol,
           side: side === 'bid' ? 'buy' : 'sell',
           type: 'limit',
-          amount: parseAmount(SEED_SIZE),
+          amount: levelSize,
           price: parseAmount(String(price)),
           timeInForce: 'GTC',
           reduceOnly: false,
@@ -243,6 +253,12 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
   switch (path) {
     case '/markets':
       return sim.markets(body.account ? account(body) : null);
+    case '/book': {
+      const depth = body.depth;
+      if (typeof depth !== 'number' || !Number.isInteger(depth) || depth < 1 || depth > 50)
+        throw new VenueWireError('depth is a whole number from 1 to 50');
+      return sim.book(str(body, 'symbol'), depth);
+    }
     case '/preview':
       return sim.preview(account(body), body.intent as PlaceUserOrderIntent);
     case '/prepare':
@@ -296,6 +312,16 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (status !== null && (typeof status !== 'string' || !MARKET_STATUSES.has(status)))
         throw new VenueWireError('status is trading, halted, cancel_only, delisted or null');
       sim.setMarketStatus(str(body, 'symbol'), status as UserVenueMarketStatus | null);
+      return { ok: true, label: 'TEST' };
+    }
+    case '/test/market-fees': {
+      const fee = (k: string): MaybeKnown<Amount> => {
+        const v = body[k];
+        if (v === null) return { known: false };
+        if (typeof v !== 'bigint' || v < 0n) throw new VenueWireError(`${k} is a decimal string of bps, or null for "not published"`);
+        return { known: true, value: v as Amount };
+      };
+      sim.setMarketFees(str(body, 'symbol'), { makerFeeBps: fee('makerFeeBps'), takerFeeBps: fee('takerFeeBps') });
       return { ok: true, label: 'TEST' };
     }
     case '/test/market-limits': {
@@ -380,6 +406,9 @@ export interface StartTestVenueOptions {
   readonly appEnv: string | undefined;
   readonly chainId?: number;
   readonly clock?: () => Date;
+  /** The venue's id and name, so a stack can run two TEST venues side by side (J-derivatives-28). Defaults: the simulator's. */
+  readonly id?: string;
+  readonly displayName?: string;
 }
 
 /** Start the TEST venue on loopback. Refuses outside APP_ENV dev/test and on a non-loopback host. */
@@ -389,7 +418,13 @@ export async function startTestVenueServer(
   if (opts.host !== '127.0.0.1' && opts.host !== '::1' && opts.host !== 'localhost') {
     throw new Error(`the TEST venue listens on loopback only, not ${opts.host}`);
   }
-  const sim = new TestVenueSimulator({ clock: opts.clock ?? (() => new Date()), markets: TEST_VENUE_MARKETS, chainId: opts.chainId });
+  const sim = new TestVenueSimulator({
+    clock: opts.clock ?? (() => new Date()),
+    markets: TEST_VENUE_MARKETS,
+    chainId: opts.chainId,
+    ...(opts.id ? { id: opts.id } : {}),
+    ...(opts.displayName ? { displayName: opts.displayName } : {}),
+  });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
   const server = http.createServer(testVenueHandler(sim));
   await new Promise<void>((resolve, reject) => {

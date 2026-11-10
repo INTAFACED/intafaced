@@ -110,6 +110,8 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
+import { routingReport } from './venue/routing-report.js';
 import { SqlVenueListingStore } from './venue/venue-listing-store.js';
 import {
   StoreVenueRoutingGate,
@@ -468,43 +470,54 @@ const testListings = parseTestListings(env.TRADE_USER_VENUE_TEST_LISTINGS);
 assertTestListingsAllowed(testListings, process.env.APP_ENV);
 // Seeded once per process after the door first connects, never inside connect: a seed failure is logged and retried by
 // the sweep below, and the door (cancels included) keeps working.
-const testListingSeed = new TestListingSeed({
-  store: venueListings,
-  symbols: testListings,
-  appEnv: process.env.APP_ENV,
-  now: () => new Date(),
-  log: (err) =>
-    process.stderr.write(
-      `${JSON.stringify({ level: 'warn', msg: 'trade.venue_listings.test_seed_failed', message: err instanceof Error ? err.message : String(err) })}\n`,
-    ),
-});
-const userVenue = userVenueUrl
-  ? new UserVenueDoor({
+// J-derivatives-28: the primary venue, then each venue of TRADE_USER_VENUE_URLS (comma-separated), one door each, all
+// behind one router. Every door shares the store, the builder fee and the listing gate; each seeds its own TEST listings.
+const userVenueUrls = userVenueUrl ? [userVenueUrl, ...parseUserVenueUrls(env.TRADE_USER_VENUE_URLS)] : [];
+const userVenueStore = new SqlPreparedActionStore(sql);
+const testListingSeeds = userVenueUrls.map(
+  () =>
+    new TestListingSeed({
+      store: venueListings,
+      symbols: testListings,
+      appEnv: process.env.APP_ENV,
+      now: () => new Date(),
+      log: (err) =>
+        process.stderr.write(
+          `${JSON.stringify({ level: 'warn', msg: 'trade.venue_listings.test_seed_failed', message: err instanceof Error ? err.message : String(err) })}\n`,
+        ),
+    }),
+);
+const userVenueDoors = userVenueUrls.map(
+  (url, i) =>
+    new UserVenueDoor({
       connect: async () => {
-        const venue = await HttpUserVenue.connect({ baseUrl: userVenueUrl, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS });
-        testListingSeed.connected(venue);
+        const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS });
+        testListingSeeds[i]!.connected(venue);
         return venue;
       },
       listings: new StoreVenueRoutingGate(venueListings),
       appEnv: process.env.APP_ENV,
-      store: new SqlPreparedActionStore(sql),
+      store: userVenueStore,
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
-    })
-  : null;
+    }),
+);
+const userVenue = userVenueDoors[0] ?? null;
+const userVenueRouter =
+  userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
 // A delisting notice the bus did not take when it was written is sent again (the consumer files it once).
 setInterval(() => {
-  void testListingSeed.retry();
+  for (const seed of testListingSeeds) void seed.retry();
   publishPendingDelistingNotices(venueListings, venueDelistingNotices, () => new Date()).catch((err: unknown) =>
     process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.venue_delisting.notice_sweep_failed', message: String(err) })}\n`),
   );
 }, 60_000).unref();
-if (userVenue) {
+for (const door of userVenueDoors) {
   try {
-    await userVenue.venue();
+    await door.venue();
   } catch (err) {
     if (err instanceof VenueRefusalError && err.refusal.code === 'test_venue_outside_test') throw err;
     process.stderr.write(
@@ -662,6 +675,8 @@ export const appRouter = createTradeRouter(
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
     },
     venueDesk: { venue: userVenue ? () => userVenue.venue() : null, store: venueListings, notices: venueDelistingNotices },
+    venueRouting:
+      userVenueDoors.length > 0 ? (from, to) => routingReport({ doors: userVenueDoors, store: userVenueStore }, from, to) : null,
     // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
     venueMarkets: async () => {
       if (!userVenue) return null;
@@ -1642,7 +1657,7 @@ registerPrivateRest(app, {
   convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   grid,
-  userVenue,
+  userVenue: userVenueRouter,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
