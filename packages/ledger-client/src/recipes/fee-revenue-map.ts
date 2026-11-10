@@ -60,6 +60,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'trade',
     note: 'A maker rebate leaves houseFees(trade) in the asset the maker paid, below the same fill taker fee. The trade.fill stays.',
   },
+  'trade.venue.builder_fee_earned': {
+    kind: 'recipe',
+    recipe: 'builderFeeEarn',
+    feeModule: 'builder',
+    note: 'Our builder fee on a routed venue fill → houseFees(builder), against what the venue owes us. OWNER 226 and 237: the ledger posts only our builder fee per venue (D-venue-07).',
+  },
   'trade.spot.mm_maker_fill_fee': {
     kind: 'recipe',
     recipe: 'marketMakerMakerFill',
@@ -263,6 +269,7 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFill',
   'tradeFillFeeCorrection',
   'tradeFillMakerRebate',
+  'builderFeeEarn',
   'marketMakerMakerFill',
   'futuresInsuranceTopup',
   'futuresMarginRelease',

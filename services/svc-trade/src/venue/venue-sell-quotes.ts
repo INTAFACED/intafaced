@@ -11,7 +11,7 @@
  */
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { type MaybeKnown, type PlaceUserOrderIntent, type VenueAssetAmount, type VenuePreviewFill } from '@intafaced/venue-contracts';
 import { UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
 
