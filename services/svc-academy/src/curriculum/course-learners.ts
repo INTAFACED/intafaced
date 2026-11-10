@@ -145,7 +145,8 @@ export class CourseLearners {
   private tracks(course: CourseRow): AcademyAuthoredCourseEnrolment['tracks'] {
     const audit = { track: 'audit' as const, free: true, closed: null };
     if (course.pricing === 'free') return [audit];
-    // A published paid course always has its price (courses_published_price_chk); what is missing is payments.
+    // A published paid course has its price unless staff withdrew it (courses_published_price_chk); either way, what is
+    // missing is payments, so the certificate track stays closed.
     return [audit, { track: 'certificate', free: false, closed: 'payments_off' }];
   }
 

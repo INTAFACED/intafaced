@@ -721,7 +721,7 @@ export class ReconciliationAlertStore {
         period_end: Date;
         evaluations: number;
         last_run_id: string;
-        last_status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET';
+        last_status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' | 'NOTHING_TO_COMPARE';
         open: number;
         acknowledged: number;
       }[]

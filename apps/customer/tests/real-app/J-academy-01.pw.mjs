@@ -2,6 +2,21 @@
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, restartWith } from './stack.mjs';
 
+/** Staff act through Academy's admin door with the stack's TEST founder A, the same door the ops desk uses (as J-academy-08). */
+let staffDoor;
+async function staff(kind, procedure, input) {
+  staffDoor ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    const sessions = await gates.approverSessions(ctx);
+    return { ctx, token: await sessions.a.tradeOpsToken() };
+  })();
+  const { ctx, token } = await staffDoor;
+  const res = await ctx.edge[kind]('academy', procedure, input, token);
+  return { status: res.status, body: JSON.parse(res.text) };
+}
+const RUN = Date.now().toString(36);
+
 // J-academy-01, in the running app (docs/roadmap/journeys.json): look around the Academy and open a lesson before I
 // have an account. Tests titled "J-academy-01 #<n>" prove a whole step. Every step runs signed out, in a fresh browser
 // context, against what the service publishes; nothing is seeded by hand.
@@ -207,9 +222,41 @@ test(`${J} #7 Videos keeps its full layout and says video storage is not configu
   }
 });
 
-test(`${J} #5 a course card opens the public course page: summary, outcomes, syllabus, instructor and Enrol; an unknown course is not found`, async ({
+/** A course staff make: details (a TEST price if given), a one-lesson outline, and the state asked for, through the admin door. */
+async function staffCourse({ slug, title, pricing, price = null, priceAsset = null, publish }) {
+  const created = await staff('mutate', 'admin.createCourse', {
+    slug,
+    title,
+    summary: `TEST ${title}, made by staff for ${J}.`,
+    thumbnailUrl: null,
+    pricing,
+    price,
+    priceAsset,
+  });
+  expect(created.status, JSON.stringify(created.body).slice(0, 300)).toBe(200);
+  const course = created.body.result.data;
+  const outline = await staff('mutate', 'admin.saveOutline', {
+    courseId: course.id,
+    revision: course.revision,
+    sections: [{ title: 'TEST Week one', items: [{ kind: 'lesson', title: `TEST First lesson of ${title}`, indent: 0, url: null }] }],
+  });
+  expect(outline.status, JSON.stringify(outline.body).slice(0, 300)).toBe(200);
+  const revision = outline.body.result.data.course.revision;
+  if (!publish) return { slug, title, id: course.id, revision };
+  const published = await staff('mutate', 'admin.setCourseState', {
+    courseId: course.id,
+    to: 'published',
+    revision,
+    reason: `TEST ${J}: publish ${slug}`,
+  });
+  expect(published.status, `publishing ${pricing} course ${slug}: ${JSON.stringify(published.body).slice(0, 300)}`).toBe(200);
+  return { slug, title, id: course.id, revision: published.body.result.data.revision };
+}
+
+test(`${J} #5 a course card opens the public course page: summary, outcomes, syllabus, instructor and Enrol; a draft or unknown course is the same not-found; a paid course with no price shows without a price`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   const cards = await door('publicCourses');
   expect(cards.length).toBeGreaterThan(0);
   const course = await door('publicCourse', { slug: cards[0].slug });
@@ -222,10 +269,11 @@ test(`${J} #5 a course card opens the public course page: summary, outcomes, syl
   await expect(pageRoot.getByRole('heading', { name: 'About this course' })).toBeVisible();
   if (course.summary === null) await expect(pageRoot.getByText('No summary is written for this course.')).toBeVisible();
   else await expect(panelOf(pageRoot, 'About this course')).toContainText(course.summary);
-  await expect(pageRoot.getByRole('region', { name: 'What you will learn' }).getByRole('listitem')).toHaveCount(course.outcomes.length);
+  const outcomes = pageRoot.getByRole('region', { name: 'What you will learn' }).getByRole('listitem');
+  await expect(outcomes).toHaveText(course.outcomes);
   const syllabus = pageRoot.getByRole('region', { name: 'Syllabus' }).getByRole('listitem');
   await expect(syllabus).toHaveCount(course.syllabus.length);
-  await expect(syllabus.first().getByRole('link')).toHaveText(course.syllabus[0].title);
+  for (const [i, row] of course.syllabus.entries()) await expect(syllabus.nth(i).getByRole('link')).toHaveText(row.title);
   await expect(pageRoot.getByRole('heading', { name: 'Instructor' })).toBeVisible();
   if (course.instructor === null) await expect(pageRoot.getByText('No instructor is named for this course.')).toBeVisible();
   else await expect(panelOf(pageRoot, 'Instructor')).toContainText(course.instructor);
@@ -233,11 +281,68 @@ test(`${J} #5 a course card opens the public course page: summary, outcomes, syl
     'href',
     `/login?redirect=${encodeURIComponent(`/academy/learning/course/${cards[0].slug}`)}`,
   );
-  // No owner price exists for any course: the page carries none, and the course answer has no price to show.
-  expect(Object.keys(course)).not.toContain('price');
 
-  for (const unknown of ['no-such-course', course.syllabus[0].slug]) {
+  // A draft course staff made, and an address no course has, answer with the same not-found, and nothing of the draft shows.
+  const draft = await staffCourse({
+    slug: `test-ja1-draft-${RUN}`,
+    title: `TEST J-academy-01 draft course ${RUN}`,
+    pricing: 'free',
+    publish: false,
+  });
+  const notFound = 'There is no published course at this address.';
+  for (const unknown of [draft.slug, `test-ja1-none-${RUN}`, 'no-such-course', course.syllabus[0].slug]) {
     await page.goto(`/academy/learning/course/${unknown}`);
-    await expect(page.getByText('There is no published course at this address.')).toBeVisible();
+    await expect(page.getByText(notFound)).toBeVisible();
+    await expect(page.getByText(draft.title)).toHaveCount(0);
   }
+  await page.goto('/academy/learning');
+  await expect(page.getByRole('link', { name: draft.title })).toHaveCount(0);
+
+  // A paid course is never published without a price: staff are refused by name, and the course stays a draft.
+  const unpriced = await staffCourse({
+    slug: `test-ja1-unpriced-${RUN}`,
+    title: `TEST J-academy-01 unpriced course ${RUN}`,
+    pricing: 'paid',
+    publish: false,
+  });
+  const refused = await staff('mutate', 'admin.setCourseState', {
+    courseId: unpriced.id,
+    to: 'published',
+    revision: unpriced.revision,
+    reason: `TEST ${J}: publish ${unpriced.slug}`,
+  });
+  expect(refused.status, JSON.stringify(refused.body).slice(0, 300)).not.toBe(200);
+  expect(refused.body?.error?.data?.cause?.code).toBe('academy.price_unset');
+
+  // A published paid course whose price staff then withdraw: its card and its page show the course, and no price figure anywhere.
+  const paid = await staffCourse({
+    slug: `test-ja1-paid-${RUN}`,
+    title: `TEST J-academy-01 paid course ${RUN}`,
+    pricing: 'paid',
+    price: '25',
+    priceAsset: 'USDT',
+    publish: true,
+  });
+  expect((await door('publicAuthoredCourse', { slug: paid.slug })).price).toBe('25');
+  const withdrawn = await staff('mutate', 'admin.withdrawCoursePrice', {
+    courseId: paid.id,
+    revision: paid.revision,
+    reason: `TEST ${J}: withdraw the price of ${paid.slug}`,
+  });
+  expect(withdrawn.status, JSON.stringify(withdrawn.body).slice(0, 300)).toBe(200);
+  expect(withdrawn.body.result.data).toMatchObject({ state: 'published', pricing: 'paid', price: null, priceAsset: null });
+  await page.goto('/academy/learning');
+  const authored = page.getByRole('list', { name: 'Courses from the Academy team' }).getByRole('listitem').filter({ hasText: paid.title });
+  await expect(authored).toHaveCount(1);
+  await expect(authored.getByTestId('academy-lms-meta')).toContainText('Paid, with no price set yet');
+  await authored.getByRole('link', { name: paid.title }).click();
+  await expect(page).toHaveURL(`/academy/learning/course/${paid.slug}`);
+  const paidRoot = page.locator(`[data-academy-authored-course="${paid.slug}"]`);
+  await expect(paidRoot.getByRole('heading', { name: paid.title })).toBeVisible();
+  await expect(paidRoot).toContainText(`TEST ${paid.title}, made by staff for ${J}.`);
+  await expect(paidRoot.getByText(`TEST First lesson of ${paid.title}`)).toBeVisible();
+  await expect(paidRoot.getByText('Paid, with no price set yet')).toBeVisible();
+  await expect(paidRoot).not.toContainText(/\d+(\.\d+)? (USDT|USD|USDC)\b/);
+  const answer = await door('publicAuthoredCourse', { slug: paid.slug });
+  expect(answer.price).toBeNull();
 });

@@ -8,6 +8,7 @@ import {
   assertAgentFundingWithinCap,
   venueClientOrderId,
   type AgentCap,
+  type AgentDrainBounds,
   type AgentCapVenue,
   type MaybeKnown,
   type PreparedVenueAction,
@@ -26,6 +27,18 @@ const T0 = new Date('2026-11-08T19:00:00Z');
 const sub: UserVenueAccount = { venueId: 'test-sim', owner: '0xowner', subAccount: '0xsub1' };
 const agent: VenueSigner = { role: 'agent', address: '0xagent' };
 const cap: AgentCap = { account: sub, agentAddress: '0xagent', asset: 'USDC', cap: A('200'), validUntil: null, revokedAt: null };
+
+/** Bounds wide enough that only the cap decides, for the cap's own tests; the bounds have their own tests below. */
+const OPEN_BOUNDS: AgentDrainBounds = {
+  maxOrderNotional: A('1000000000'),
+  worstPriceBps: A('9999'),
+  markets: ['ETH-USDC', 'BTC-PERP', 'SOL-USDT'],
+};
+/** The order marks those bounds are judged against: every price these tests sign is within them. */
+const ORDER_MARKS = (asset: string): MaybeKnown<Amount> => ({
+  known: true,
+  value: A(asset === 'BTC' ? '60000' : asset === 'ETH' ? '2000' : '1'),
+});
 
 const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserVenueMarket => ({
   symbol,
@@ -133,7 +146,14 @@ function setup(world: Partial<World> = {}, opts: { marks?: Record<string, string
   }));
   const marks = (asset: string): MaybeKnown<Amount> =>
     opts.marks?.[asset] ? { known: true, value: A(opts.marks[asset]) } : { known: false };
-  const signer = new CappedAgentSigner({ sign: raw, venue: fakeVenue(w, opts.withLeverage ?? true), marks, now: () => T0 });
+  const signer = new CappedAgentSigner({
+    sign: raw,
+    venue: fakeVenue(w, opts.withLeverage ?? true),
+    marks,
+    bounds: OPEN_BOUNDS,
+    priceMarks: ORDER_MARKS,
+    now: () => T0,
+  });
   return { w, raw, signer };
 }
 
@@ -400,7 +420,14 @@ describe('CappedAgentSigner: an agent order past the cap is refused before the k
       signedBy: p.signer.address,
     }));
     const w: World = { balances: [], openOrders: [], positions: [], leverageBps: null };
-    const signer = new CappedAgentSigner({ sign: raw, venue: fakeVenue(w), marks: () => ({ known: false }), now: () => T0 });
+    const signer = new CappedAgentSigner({
+      sign: raw,
+      venue: fakeVenue(w),
+      marks: () => ({ known: false }),
+      bounds: OPEN_BOUNDS,
+      priceMarks: ORDER_MARKS,
+      now: () => T0,
+    });
     expect((await refusal(signer.sign(prepared(buy('ETH-USDC', '0.09', '2000', 'order:agent-1:g:1')), cap))).code).toBe(
       'signature_mismatch',
     );
@@ -408,6 +435,8 @@ describe('CappedAgentSigner: an agent order past the cap is refused before the k
       sign: async (p) => ({ digest: p.digest, signature: '0xs', signedBy: p.signer.address }),
       venue: fakeVenue(w),
       marks: () => ({ known: false }),
+      bounds: OPEN_BOUNDS,
+      priceMarks: ORDER_MARKS,
       now: () => T0,
     });
     expect((await ok.sign(prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:g:2')), cap)).check.room).toBe(A('200'));
@@ -601,6 +630,8 @@ describe('council round 1 (#7577): the ways past the cap it found', () => {
       sign: async (p) => ({ digest: p.digest, signature: '0xs', signedBy: p.signer.address }),
       venue: fakeVenue(w),
       marks: (a) => (a === 'ETH' ? { known: true, value: A('2000') } : { known: false }),
+      bounds: OPEN_BOUNDS,
+      priceMarks: ORDER_MARKS,
       now: () => T0,
     });
     const ioc = prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:ioc:1', { timeInForce: 'IOC' }));
@@ -646,5 +677,99 @@ describe('the funding cap and the owner ceiling (J-agents-21 steps 1, 4, 5)', ()
     const out = capError(() => assertAgentFundingWithinCap(cap, A('200'), A('1200'), A('201')));
     expect(out.room).toBe(A('200'));
     expect(capError(() => assertAgentFundingWithinCap(cap, A('0'), A('0'), A('-1'))).code).toBe('agents.account_cap_invalid');
+  });
+});
+
+describe('the drain bounds: the owner’s largest order, worst price against the mark and markets, before the key signs', () => {
+  const bounded = (bounds: AgentDrainBounds) => {
+    const w: World = {
+      balances: [{ asset: 'USDC', free: A('150'), locked: A('0'), total: A('150') }],
+      openOrders: [],
+      positions: [],
+      leverageBps: null,
+    };
+    const raw = vi.fn(async (p: PreparedVenueAction): Promise<VenueSignature> => ({
+      digest: p.digest,
+      signature: '0xsig',
+      signedBy: p.signer.address,
+    }));
+    const signer = new CappedAgentSigner({
+      sign: raw,
+      venue: fakeVenue(w),
+      marks: () => ({ known: false }),
+      bounds,
+      priceMarks: ORDER_MARKS,
+      now: () => T0,
+    });
+    return { raw, signer };
+  };
+  const TEST_BOUNDS: AgentDrainBounds = { maxOrderNotional: A('100'), worstPriceBps: A('100'), markets: ['ETH-USDC'] };
+  async function boundError(promise: Promise<unknown>): Promise<AgentCapError> {
+    try {
+      await promise;
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentCapError);
+      return error as AgentCapError;
+    }
+    throw new Error('expected an AgentCapError; the agent key signed');
+  }
+
+  it('each blank bound refuses every agent order, and the key never signs', async () => {
+    for (const [blank, code] of [
+      [{ markets: null }, 'agents.markets_unset'],
+      [{ maxOrderNotional: null }, 'agents.order_bound_unset'],
+      [{ worstPriceBps: null }, 'agents.price_bound_unset'],
+    ] as const) {
+      const { raw, signer } = bounded({ ...TEST_BOUNDS, ...blank });
+      expect((await boundError(signer.sign(prepared(buy('ETH-USDC', '0.01', '2000', `order:agent-1:blank:${code}`)), cap))).code).toBe(
+        code,
+      );
+      expect(raw).not.toHaveBeenCalled();
+    }
+  });
+
+  it('an order larger than the largest order, past the worst price, or on another market is refused; within all three it signs', async () => {
+    const { raw, signer } = bounded(TEST_BOUNDS);
+    const big = await boundError(signer.sign(prepared(buy('ETH-USDC', '0.06', '2000', 'order:agent-1:b:1')), cap));
+    expect(big.code).toBe('agents.order_above_bound');
+    expect(big.room).toBe(A('100'));
+    // 1% above the mark of 2000 is 2020: a buy at 2021 is past it, a sell at 1979 below 1980 is past it.
+    const far = await boundError(signer.sign(prepared(buy('ETH-USDC', '0.01', '2021', 'order:agent-1:b:2')), cap));
+    expect(far.code).toBe('agents.price_past_bound');
+    expect(far.room).toBe(A('2020'));
+    const sell = {
+      ...(buy('ETH-USDC', '0.01', '1979', 'order:agent-1:b:3') as Extract<VenueIntent, { kind: 'place_order' }>),
+      side: 'sell' as const,
+    };
+    expect((await boundError(signer.sign(prepared(sell), cap))).code).toBe('agents.price_past_bound');
+    expect((await boundError(signer.sign(prepared(buy('BTC-PERP', '0.001', '60000', 'order:agent-1:b:4')), cap))).code).toBe(
+      'agents.market_not_allowed',
+    );
+    expect(raw).not.toHaveBeenCalled();
+    await signer.sign(prepared(buy('ETH-USDC', '0.01', '2020', 'order:agent-1:b:5')), cap);
+    await signer.sign(prepared({ ...sell, price: A('1980'), clientOrderKey: 'order:agent-1:b:6' }), cap);
+    expect(raw).toHaveBeenCalledTimes(2);
+  });
+
+  it('a cancel always passes the bounds, even with every bound blank', async () => {
+    const { raw, signer } = bounded({ maxOrderNotional: null, worstPriceBps: null, markets: null });
+    await signer.sign(prepared({ kind: 'cancel_order', symbol: 'ETH-USDC', clientOrderKey: 'order:agent-1:c:1' }), cap);
+    expect(raw).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unknown mark refuses an order, since its price bound cannot be judged', async () => {
+    const w: World = { balances: [], openOrders: [], positions: [], leverageBps: null };
+    const raw = vi.fn();
+    const signer = new CappedAgentSigner({
+      sign: raw,
+      venue: fakeVenue(w),
+      marks: () => ({ known: false }),
+      bounds: TEST_BOUNDS,
+      now: () => T0,
+    });
+    expect((await refusal(signer.sign(prepared(buy('ETH-USDC', '0.01', '2000', 'order:agent-1:m:1')), cap))).code).toBe(
+      'agent_cap_unmeasured',
+    );
+    expect(raw).not.toHaveBeenCalled();
   });
 });
