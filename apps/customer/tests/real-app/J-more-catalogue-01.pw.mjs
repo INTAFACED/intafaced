@@ -40,6 +40,18 @@ const SECTIONS = [
   ['/blueprint/crew', 'Blueprint crew'],
 ];
 
+/**
+ * A write to the stack: any request to /api/ other than a read (GET, HEAD, OPTIONS), tRPC or REST. The session's own
+ * token refresh (identity `auth.refresh`) is left out: the app sends it by itself on a timer, no control sends it, and it
+ * changes no record.
+ */
+const isWrite = (request) => {
+  const { pathname } = new URL(request.url());
+  return (
+    pathname.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(request.method()) && pathname !== '/api/identity/trpc/auth.refresh'
+  );
+};
+
 function who() {
   const s = run.read();
   if (!s.who) throw new Error(`${J}: step 1 left no account, so this step has no one to sign in`);
@@ -115,12 +127,30 @@ test(`${J} #5 ?simulated=true labels every room simulated, and an action there i
     await expect(banner.getByRole('link', { name: 'Open the live room' }), room.path).toHaveAttribute('href', room.path);
   }
 
-  // Erasing the Blueprint is a write every fresh account can reach: in the simulated view the control answers with the
-  // refusal, no review opens and no request leaves the browser.
+  // No mutation control is attached in the simulated view: in each room, every control on the page is pressed, and not
+  // one write leaves the browser.
   const writes = [];
   page.on('request', (request) => {
-    if (request.method() === 'POST' && /\/trpc\/blueprint\./.test(request.url())) writes.push(request.url());
+    if (isWrite(request)) writes.push(request.url());
   });
+  for (const room of ROOMS) {
+    const at = `${room.path}?simulated=true`;
+    await page.goto(at);
+    await expect(page.locator('[data-paper="simulated"]'), room.path).toBeVisible();
+    const controls = page.locator('main button:not([disabled])');
+    const count = await controls.count();
+    for (let i = 0; i < count; i++) {
+      const control = controls.nth(i);
+      if (!(await control.isVisible().catch(() => false))) continue;
+      await control.click({ timeout: 5_000 });
+      await page.keyboard.press('Escape');
+      if (new URL(page.url()).pathname !== room.path) await page.goto(at);
+    }
+    expect(writes, `${room.path}: no write sent in the simulated view`).toEqual([]);
+  }
+
+  // Erasing the Blueprint is a write every fresh account can reach: in the simulated view the control answers with the
+  // refusal, no review opens and no request leaves the browser.
   await page.goto('/blueprint?simulated=true');
   await page.getByLabel('Type ERASE BLUEPRINT').fill('ERASE BLUEPRINT');
   await page.getByRole('button', { name: 'Review permanent erasure' }).click();
