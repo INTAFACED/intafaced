@@ -20,6 +20,7 @@ import {
   SCREENING_REFUSE_FIXTURE,
   SCREENING_REFUSE_UNCONFIGURED,
   SCREENING_REVIEWED_EMPTY,
+  SANCTIONED_ROWS_SOURCE_UNSIGNED,
   SHIPPED_SCREENING_REGIONS,
   ScreeningListError,
   ScreeningMoneyPostureError,
@@ -498,11 +499,12 @@ describe('boot guard — production-like postures refuse to start unscreened', (
     expect(status.moneyGrade).toBe('counsel');
   });
 
-  it('keeps development frictionless — dev and test boot empty and report the gap', () => {
+  it('keeps development frictionless — dev and test boot on the unsigned rows and say so', () => {
     for (const appEnv of ['dev', 'test']) {
       const status = assertScreeningConfigured({ APP_ENV: appEnv });
-      expect(status.configured, appEnv).toBe(false);
-      expect(status.summary, appEnv).toContain('NOT CONFIGURED');
+      expect(status.configured, appEnv).toBe(true);
+      expect(status.source, appEnv).toBe(SANCTIONED_ROWS_SOURCE_UNSIGNED);
+      expect(status.summary, appEnv).toContain('UNSIGNED: dev/test only');
     }
   });
 
@@ -523,17 +525,27 @@ describe('the process-wide list is read from the environment', () => {
   });
 
   it('picks up a change with no reset hook for anyone to forget', () => {
-    expect(activeScreeningList().configured).toBe(false);
+    // This file runs under APP_ENV=test, where the unsigned rows apply until the env says otherwise.
+    expect(activeScreeningList().source).toBe(SANCTIONED_ROWS_SOURCE_UNSIGNED);
 
     process.env.INTAFACED_SANCTIONS_REGIONS = 'AA:placeholder';
-    expect(activeScreeningList().configured).toBe(true);
+    expect(activeScreeningList().regions.map((r) => r.region)).toEqual(['AA']);
 
     // And `checkAccess` with no explicit list honours it — this is the path
     // every production call site takes.
     expect(checkAccess({ module: 'dex', plane: 'protocol', region: 'AA', kycTier: 'none' }).code).toBe('denied.region_blocked');
 
     delete process.env.INTAFACED_SANCTIONS_REGIONS;
-    expect(activeScreeningList().configured).toBe(false);
+    expect(activeScreeningList().source).toBe(SANCTIONED_ROWS_SOURCE_UNSIGNED);
+
+    // A production-like process with no env list and unsigned rows has no list.
+    const appEnv = process.env.APP_ENV;
+    delete process.env.APP_ENV;
+    try {
+      expect(activeScreeningList().configured).toBe(false);
+    } finally {
+      process.env.APP_ENV = appEnv;
+    }
   });
 });
 

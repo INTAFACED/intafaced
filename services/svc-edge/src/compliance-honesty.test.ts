@@ -8,6 +8,10 @@ import {
 import { ANALYTICS_ETL_WATERMARK_AT_ENV, ANALYTICS_REPLICA_URL_ENV } from '@intafaced/contracts';
 import { EdgeComplianceQueue, edgeComplianceHonesty } from './compliance-honesty.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 /**
  * Break on tip before this PR: /admin/status had kill honesty but no network
  * signal / freeze invent refuse / compliance queue partner refuse / analytics
@@ -19,7 +23,8 @@ import { EdgeComplianceQueue, edgeComplianceHonesty } from './compliance-honesty
 
 const cleanEnv = (): Record<string, string | undefined> => ({
   APP_ENV: 'test',
-  // No sanctions list, no network partner, no analytics URLs.
+  // No sanctions list (the owner's unsigned rows kept out), no network partner, no analytics URLs.
+  INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off',
 });
 
 describe('edge network signal honesty', () => {
