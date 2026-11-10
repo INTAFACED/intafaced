@@ -54,7 +54,7 @@ const FLOOR = {
     Libraries: 'DV-tools-01',
     'Command line': 'DV-tools-02',
     'Assistant tools': 'DV-tools-02',
-    'API explorer': 'DV-console-01',
+    'API explorer': null,
     'Machine-readable specs': null,
     'Developer support': 'DV-portal-03',
     'Service status': null,
