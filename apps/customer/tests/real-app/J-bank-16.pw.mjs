@@ -177,20 +177,37 @@ test(`${J} #2 searches transactions and asks for a letter: search results, and a
   // A bank letter needs a banking partner, and none is connected: refused in words, with its code, nothing made.
   await page.goto('/bank/statements');
   const letters = page.getByTestId('statement-letters');
+  const asked = page.waitForResponse((res) => res.url().includes('statements.letters.request'));
   await letters.getByRole('button', { name: 'Ask for an ownership letter' }).click();
+  // The page's own request reached the bank and was refused.
+  expect((await asked).ok()).toBe(false);
   const notice = letters.locator('[data-not-connected="rail.bank"]');
   await expect(notice).toContainText('A bank letter needs a banking partner. It is switched off in this build.');
   await expect(notice).toContainText('rail.bank');
+  // The refusal is the bank's, by its code, and it makes no letter.
+  const letter = await (await api(who)).post('/api/bank/trpc/statements.letters.request', { kind: 'ownership' });
+  expect(letter.status).not.toBe(200);
+  expect(letter.body?.error?.data?.cause?.code ?? letter.body?.error?.data?.intafacedCode).toBe('rail.bank');
+  expect(letter.body?.result).toBeUndefined();
 });
 
 test(`${J} #3 opens tax statements: "needs the tax vendor" with vendor.tax`, async ({ page }) => {
-  await signIn(page, person());
+  const who = person();
+  await signIn(page, who);
+  const read = page.waitForResponse((res) => res.url().includes('statements.tax.list'));
   await page.goto('/bank/statements');
+  // The page's own read reached the bank and was refused.
+  expect((await read).ok()).toBe(false);
   const tax = page.getByTestId('tax-statements');
   await expect(tax.getByRole('combobox', { name: 'Tax year' })).toHaveValue(String(new Date().getUTCFullYear()));
   const notice = tax.locator('[data-not-connected="vendor.tax"]');
   await expect(notice).toContainText('A tax statement needs a tax calculation provider. It is switched off in this build.');
   await expect(notice).toContainText('vendor.tax');
+  // The refusal is the bank's, by its code, and no tax figure comes back.
+  const answer = await bankRead(await api(who), 'statements.tax.list', { year: new Date().getUTCFullYear() });
+  expect(answer.status).not.toBe(200);
+  expect(answer.code).toBe('vendor.tax');
+  expect(answer.data).toBeUndefined();
 });
 
 /** One of the person's own svc-bank reads through Edge. */
