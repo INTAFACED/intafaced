@@ -17,7 +17,7 @@ import { MemoryLedger, bankTransferKey, parseAmount, recipes } from '@intafaced/
 import { createBankServices, memoryRecipientState, type BankServiceOptions } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
-import { TEST_PARTNER_LABEL, testPartner, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, type TestPartner } from './test-partner.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -147,6 +147,31 @@ describe('partner-held bank moves (OWNER 226)', () => {
     expect(Number.isNaN(Date.parse(space.heldAt!.asOf))).toBe(false);
     // The spaces plus the main balance shown are the partner's total.
     expect(parseAmount(main.balance) + parseAmount(space.balance)).toBe(parseAmount('100'));
+  });
+
+  it("b2 change 6: each partner-held space carries the partner's displayed figure: known, stale, and unknown refuses, never 0", async () => {
+    const { api } = await partnerHeld(ADA);
+    const known = await mainOf(api);
+    expect(known.heldAt!.figure).toMatchObject({
+      state: 'known',
+      source: TEST_PARTNER_LABEL,
+      amount: '100',
+      asOf: known.heldAt!.asOf,
+      staleAfterMs: TEST_PARTNER_STALE_AFTER_MS,
+      reason: null,
+    });
+    expect(known.balance).toBe(known.heldAt!.figure.amount);
+
+    await api.testPartner.set({ figures: 'stale' });
+    const stale = await mainOf(api);
+    expect(stale).toMatchObject({ balance: '100', heldAt: { figure: { state: 'stale', amount: '100' } } });
+    expect(Date.now() - Date.parse(stale.heldAt!.asOf)).toBeGreaterThan(TEST_PARTNER_STALE_AFTER_MS);
+
+    await api.testPartner.set({ figures: 'unknown' });
+    await expect(api.spaces.list({ limit: 50 })).rejects.toMatchObject({ cause: { code: 'bank.partner_balance_not_known' } });
+
+    await api.testPartner.set({ figures: 'live' });
+    expect((await mainOf(api)).heldAt!.figure.state).toBe('known');
   });
 
   it('the move is in History, labelled as the partner record, on the space it went to and the balance it left', async () => {
