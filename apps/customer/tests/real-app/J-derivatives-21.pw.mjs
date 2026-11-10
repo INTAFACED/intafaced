@@ -239,6 +239,16 @@ test(`${J} #3 tries an open above the venue's leverage cap: refused with the cap
   await expect(outcome).toContainText('The venue refused it:', { timeout: 15_000 });
   await expect(outcome).toContainText(`${SYMBOL} allows at most ${cap}x`);
   await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
+  // The open itself: on this venue an order carries no leverage of its own (its leverage is the account's signed
+  // setting, as on Hyperliquid), so the long the person now reviews is at the leverage the venue holds, within the cap,
+  // never at the refused one. Nothing is confirmed.
+  await reviewLong(page);
+  const sheet = page.getByTestId('venue-review');
+  await expect(sheet).toBeVisible({ timeout: 15_000 });
+  const leverageLine = sheet.locator('[data-line="leverage"]');
+  await expect(leverageLine).toContainText(`${before.leverage.leverageBps / 10_000}x`);
+  await expect(leverageLine).not.toContainText(`${cap * 2}x`);
+  expect(before.leverage.leverageBps <= m.maxLeverageBps).toBe(true);
   await page.waitForTimeout(1_000);
   // Nothing moved: no signature, no submit, and the venue's leverage, position, orders and balances are as they were.
   expect(wallet.requests).toHaveLength(0);
