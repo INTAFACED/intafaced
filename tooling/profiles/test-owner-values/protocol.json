@@ -11,6 +11,11 @@
       "value": "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
       "note": "TEST wording only. Counsel writes the real text; blank in production refuses compliance.representation_unset."
     },
+    "PROTOCOL_AMM_FEE_TIERS_BPS": {
+      "service": "protocol",
+      "value": "5,30,100",
+      "note": "TEST fee tiers (0.05%, 0.30%, 1.00%) the new-pool form offers on the local TEST chain. Blank in production refuses amm.fee_tiers_unset and the form offers only a custom fee."
+    },
     "PROTOCOL_SWAP_SLIPPAGE_BPS": {
       "service": "protocol",
       "value": "300",
