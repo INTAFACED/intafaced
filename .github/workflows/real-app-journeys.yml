@@ -15,7 +15,8 @@
 # project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a test that fails and then
 # passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
 # its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
-# doesn't turn main red. A money step that is flaky is red. (Failure it prevents: with no retry and no way to set a test
+# doesn't turn main red. A money step that is flaky is never set aside or proven, but stops only its own journeys and
+# opens a `flaky` issue (project-state OWNER 278). (Failure it prevents: with no retry and no way to set a test
 # aside, one flaky test turned main red, or a red was left standing and read as noise.) The cost: each failed test runs
 # twice; the failed tests of runs 1635, 1636 and 1639 took 83 to 102 journey-minutes of a run, spread over its shards.
 #

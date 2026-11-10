@@ -27,6 +27,9 @@
  *   retry, on main, and it is not money): open one "Set aside on main until <date>: <step>" issue naming its owner and
  *   end date, once per set-aside (never again once closed); its owner may close it with the fix, and it closes itself
  *   on the first run after its end date.
+ *   A money step that failed, then passed on its retry, on main (set-aside.json's `moneyFlaky`, project-state OWNER 278):
+ *   open one "Flaky money step on main: <step>" issue, labelled `flaky`, naming its area, unless one is open already.
+ *   Its owner closes it with the fix; the step never counts as proven meanwhile.
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -161,6 +164,34 @@ export function setAsideIssueActions(rows, issues) {
       .map((r) => ({ row: r, issue: byTitle.get(setAsideIssueTitle(r)) })),
   };
 }
+export const moneyFlakyIssueTitle = (row) => `Flaky money step on main: ${row.step.replace('#', ' #')}`;
+
+/** The issue for a money step that failed, then passed on its retry, on main (a row of set-aside.json's moneyFlaky). */
+export function moneyFlakyIssueBody(row, runUrl) {
+  return [
+    `\`${row.step.replace('#', ' #')}\` is a money step. It failed, then passed on its retry, on main in [this run](${runUrl}) (tooling/ci/journey-verdict.mjs).`,
+    '',
+    `- Owner: ${row.owner ?? 'no area named: its journey names no module in docs/roadmap/journeys.json'}.`,
+    "- It stops only its own journeys (project-state OWNER 278): it never counts as proven and is never set aside, but it doesn't turn main's journeys verdict red.",
+    '- Failing outright in two runs in a row on main still bisects and reverts the commit that broke it.',
+    `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real money bug can look like this.`,
+    '',
+    `<!-- money-flaky: ${row.step} -->`,
+    '_Opened by tooling/ci/post-merge-trust.mjs._',
+  ].join('\n');
+}
+
+/** Which money-flaky rows get an issue: `rows` is set-aside.json's moneyFlaky, `issues` the open ones (by title). */
+export function moneyFlakyIssueActions(rows, issues) {
+  const open = new Set((issues ?? []).filter((i) => i.state === 'open').map((i) => i.title));
+  const seen = new Set();
+  return (rows ?? []).filter((r) => {
+    if (typeof r?.step !== 'string' || seen.has(r.step)) return false;
+    seen.add(r.step);
+    return !open.has(moneyFlakyIssueTitle(r));
+  });
+}
+
 const CHECK_RED = /failed twice on `([0-9a-f]{7,40})`/g;
 const STEPS_MARK = /<!-- steps: ([^>]*) -->/g;
 
@@ -453,11 +484,31 @@ async function setAsideCheck({ repo, runId, runUrl }) {
   return lines;
 }
 
+/** One open `flaky` issue per money step that passed only on its retry in this run (OWNER 278). */
+async function moneyFlakyCheck({ repo, runId, runUrl }) {
+  const list = await journeyReport(repo, runId, 'set-aside.json');
+  if (!list?.moneyFlaky?.length) return null;
+  const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "Flaky money step on main"`);
+  const { json: found } = await gh('GET', `/search/issues?q=${q}&per_page=100`);
+  const lines = [];
+  for (const row of moneyFlakyIssueActions(list.moneyFlaky, found?.items ?? [])) {
+    const { json } = await gh('POST', `/repos/${repo}/issues`, {
+      title: moneyFlakyIssueTitle(row),
+      body: moneyFlakyIssueBody(row, runUrl),
+      labels: ['flaky'],
+    });
+    lines.push(`- ${row.step} (money) passed only on its retry (owner: ${row.owner ?? 'none named'}): opened #${json?.number}`);
+  }
+  return lines;
+}
+
 async function journeysCheck(ctx) {
   const timeLine = await timeLimitCheck(ctx);
   if (timeLine) summary(['### Journeys time limit', '', timeLine]);
   const asideLines = await setAsideCheck(ctx);
   if (asideLines?.length) summary(['### Set aside by the machine', '', ...asideLines]);
+  const flakyLines = await moneyFlakyCheck(ctx);
+  if (flakyLines?.length) summary(['### Money steps that passed only on their retry', '', ...flakyLines]);
   const { repo, runId, sha, runUrl, earlier } = ctx;
   const now = await journeyReport(repo, runId);
   if (!now)
@@ -670,6 +721,20 @@ function selfTest() {
     file: 'J-a-01.pw.mjs',
   };
   eq(setAsideIssueTitle(row), 'Set aside on main until 2026-11-14: J-a-01 #3', 'set-aside issue title');
+  const mf = { step: 'J-a-05#1', file: 'J-a-05.pw.mjs', owner: 'the alpha area' };
+  eq(moneyFlakyIssueTitle(mf), 'Flaky money step on main: J-a-05 #1', 'money-flaky issue title');
+  eq(
+    moneyFlakyIssueActions(
+      [mf, mf, { ...mf, step: 'J-a-05#2' }, { ...mf, step: 'J-a-05#3' }, { file: 'x' }],
+      [
+        { title: moneyFlakyIssueTitle({ step: 'J-a-05#2' }), state: 'open' },
+        { title: moneyFlakyIssueTitle({ step: 'J-a-05#3' }), state: 'closed' },
+      ],
+    ).map((r) => r.step),
+    ['J-a-05#1', 'J-a-05#3'],
+    'a money-flaky step gets one issue while none is open: once per step, again after its last one closed',
+  );
+  if (!/never counts as proven/.test(moneyFlakyIssueBody(mf, 'u'))) throw new Error('the money-flaky issue says it is never proven');
   const ended = { ...row, step: 'J-a-01#4', active: false };
   const acts = setAsideIssueActions(
     [row, ended, { ...row, step: 'J-a-01#5' }, { ...row, step: 'J-a-01#6' }],

@@ -316,7 +316,33 @@ test('broken, not flaky: a set-aside step that fails outright in two runs in a r
   assert.match(run(report(bad('J-a-01 #1'), bad('J-a-01 #2')), { setAside }).red[0].why, /failing, not in the baseline/);
 });
 
-test('never set aside: a money step that failed, then passed on its retry, is red', () => {
+test('OWNER 278: on main, a money step that failed, then passed on its retry, stops only its own journeys', () => {
+  const v = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true });
+  assert.deepEqual(v.red, [], 'not red on main');
+  assert.deepEqual(v.moneyFlaky, ['J-a-05#1'], 'listed apart, never proven');
+  assert.deepEqual(v.setAside, [], 'never set aside');
+  // The planted break: the same money step failing outright on main is red.
+  const broke = run(report(ok('J-a-01 #1'), bad('J-a-05 #1')), { money: moneyToo, onMain: true });
+  assert.deepEqual(
+    broke.red.map((r) => [r.step, r.money]),
+    [['J-a-05#1', true]],
+  );
+  assert.deepEqual(broke.moneyFlaky, []);
+  // A baseline entry that breaks its rules is still red, flaky or not.
+  const listed = { ...baseline, notBaselined: [{ step: 'J-a-05#1' }] };
+  const notBase = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true, baseline: listed });
+  assert.deepEqual(
+    notBase.red.map((r) => r.step),
+    ['J-a-05#1'],
+  );
+  // A non-money flaky step with no set-aside is red, as before: OWNER 278 is about money steps only.
+  assert.deepEqual(
+    run(report(flaky('J-a-01 #1')), { onMain: true }).red.map((r) => r.step),
+    ['J-a-01#1'],
+  );
+});
+
+test('never set aside: off main, a money step that failed, then passed on its retry, is red', () => {
   const v = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, setAside: aside({ 'J-a-05#1': 'flaky' }, 3) });
   assert.deepEqual(
     v.red.map((r) => [r.step, r.money]),
