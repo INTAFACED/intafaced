@@ -37,8 +37,9 @@
  *   node tooling/ci/gates.mjs --changed
  *        a builder's local run: the tooling tests (about four minutes on the Mac) run only when the branch's diff
  *        against its merge-base with origin/main, plus uncommitted and untracked files, touches tooling/ or .github/
- *        (the tooling tests read the workflows too); every other gate runs as always. An unreadable diff runs
- *        everything. CI and main never pass the flag: they keep the full run (U4, project-state #1574).
+ *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
+ *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
+ *        keep the full run (U4, project-state #1574).
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -505,7 +506,10 @@ if (RUN_AS_SCRIPT) main();
 
 function main() {
   const changedOnly = process.argv.includes('--changed');
-  const changed = changedOnly ? changedSinceMain() : null;
+  // `--base <ref>` for a branch stacked on another (default origin/main).
+  const baseAt = process.argv.indexOf('--base');
+  const base = baseAt > 0 ? process.argv[baseAt + 1] : 'origin/main';
+  const changed = changedOnly ? changedSinceMain(ROOT, base) : null;
   const gates = gatesToRun(GATES, changed);
 
   if (process.argv.includes('--list')) {
@@ -521,7 +525,7 @@ function main() {
   }
 
   console.log(`\n══ DOCTRINE GATES (${gates.length}) ══\n`);
-  if (changedOnly && changed === null) console.log('  --changed: the diff against origin/main is unreadable, so every gate runs\n');
+  if (changedOnly && changed === null) console.log(`  --changed: the diff against ${base} is unreadable, so every gate runs\n`);
   else if (gates.length < GATES.length)
     console.log('  --changed: nothing under tooling/ or .github/ changed, so the tooling tests are left to CI\n');
 
