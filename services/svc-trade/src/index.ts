@@ -893,11 +893,27 @@ if (userVenueDoors.length > 0 && env.TRADE_BUILDER_FEE_POSTER === 'on') {
     const stopped: unknown[] = [];
     for (const door of userVenueDoors) {
       try {
-        const run = await postBuilderFees({ venue: () => door.venue(), ledger, store: builderFeeStore, now: () => new Date() });
+        const run = await postBuilderFees({
+          venue: () => door.venue(),
+          ledger,
+          store: builderFeeStore,
+          ourOrders: (venueId, account, ids) => venueActions.sentBuilderFeeOrders(venueId, account, ids),
+          // OWNER 288 change 1c: a stopped run is an alert naming the venue, the account and the fill; the run stays
+          // stopped (the job host logs the throw) and the operations desk shows the time since the last complete run.
+          onStop: (stop) =>
+            app.log.error({ alert: 'trade.builder_fee_poster_stopped', job: 'venue.builder_fees', ...stop }, 'builder-fee poster stopped'),
+          now: () => new Date(),
+        });
         if (run.refused > 0 || run.unread.length > 0) {
           app.log.error(
             { job: 'venue.builder_fees', ...run },
             'builder fees the ledger refused, or accounts the venue would not read, stay unposted',
+          );
+        }
+        if (run.notOurOrder > 0) {
+          app.log.warn(
+            { job: 'venue.builder_fees', venueId: run.venueId, notOurOrder: run.notOurOrder },
+            'builder fees on orders not ours, not posted',
           );
         }
       } catch (error) {
