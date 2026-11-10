@@ -95,4 +95,109 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
       SELECT prepared #>> '{intent,amount}' AS amount FROM trade.user_venue_actions WHERE business_key = ${key}`;
     expect(row?.amount).toBe('0.123456789012345678');
   });
+
+  it('lists one person’s actions under a key prefix, oldest first, reading `_` and `%` in the prefix literally (J-wallet-22 #8)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const base = `session-key:${USER}:test_venue:`;
+    await store.insertOnce(USER, `${base}fam.1`, prepared('300', '60000'), new Date('2026-11-09T10:00:00.000Z'));
+    await store.insertOnce(USER, `${base}fam.2`, prepared('301', '60000'), new Date('2026-11-09T10:00:01.000Z'));
+    // `_` would match any one character under LIKE: this key differs from the prefix only there, and is not listed.
+    await store.insertOnce(USER, `session-key:${USER}:testXvenue:fam.1`, prepared('302', '60000'), new Date('2026-11-09T10:00:02.000Z'));
+    await store.insertOnce('22222222-2222-4222-8222-2222222222b2', `${base}fam.1`, prepared('303', '60000'), new Date());
+    const listed = await store.listByPrefix(USER, base);
+    expect(listed.map((r) => r.businessKey)).toEqual([`${base}fam.1`, `${base}fam.2`]);
+    expect(await store.listByPrefix(USER, `session-key:${USER}:%`)).toEqual([]);
+  });
+
+  it('finds every agent approval of one address, under any key, case-insensitively, and nothing else (J-wallet-22 #8)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const agent = '0x00000000000000000000000000000000000000AB';
+    const approval = (nonce: string): PreparedVenueAction => ({
+      ...prepared(nonce, '60000'),
+      intent: { kind: 'approve_agent', agentAddress: agent, agentName: '', validUntil: new Date('2026-11-09T18:00:00.000Z') },
+      venueClientOrderId: null,
+      builderFee: null,
+    });
+    await store.insertOnce(USER, `session-key:${USER}:test-venue-sim:fam.1`, approval('400'), new Date());
+    await store.insertOnce(USER, `agent-approve:${USER}:tool`, approval('401'), new Date());
+    await store.insertOnce('22222222-2222-4222-8222-2222222222b2', `agent-approve:other:tool`, approval('402'), new Date());
+    const found = await store.agentApprovals(USER, agent.toLowerCase());
+    expect(found.map((r) => r.businessKey).sort()).toEqual([`agent-approve:${USER}:tool`, `session-key:${USER}:test-venue-sim:fam.1`]);
+    expect(await store.agentApprovals(USER, '0x00000000000000000000000000000000000000cd')).toEqual([]);
+  });
+
+  it('lists the venue accounts whose owner signed an action this person stored, and no other (J-cex-spot-01 #11)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const PERSON = '11111111-1111-4111-8111-1111111111b9';
+    const SUB = '0x00000000000000000000000000000000000000c1';
+    const AGENT = '0x00000000000000000000000000000000000000d1';
+    // Owner-signed, twice on the main account and once on a sub-account: two accounts, sorted, main first.
+    for (const [n, sub] of [
+      ['300', null],
+      ['301', null],
+      ['302', SUB],
+    ] as const) {
+      const key = `order:${PERSON}:own:${n}`;
+      const action = { ...prepared(n, '60000'), account: { venueId: 'test-venue-sim', owner: OWNER, subAccount: sub } };
+      await store.insertOnce(PERSON, key, action, new Date());
+      await store.signOnce(PERSON, key, { digest: `0xdigest${n}`, signature: '0xsig', signedBy: OWNER }, new Date());
+    }
+    // Prepared but never signed, and signed by an agent: neither proves the owner's wallet.
+    const other = '0x00000000000000000000000000000000000000e1';
+    await store.insertOnce(
+      PERSON,
+      `order:${PERSON}:own:303`,
+      {
+        ...prepared('303', '60000'),
+        account: { venueId: 'test-venue-sim', owner: other, subAccount: null },
+        signer: { role: 'owner', address: other },
+      },
+      new Date(),
+    );
+    const agentKey = `order:${PERSON}:own:304`;
+    await store.insertOnce(
+      PERSON,
+      agentKey,
+      {
+        ...prepared('304', '60000'),
+        account: { venueId: 'test-venue-sim', owner: other, subAccount: null },
+        signer: { role: 'agent', address: AGENT },
+      },
+      new Date(),
+    );
+    await store.signOnce(PERSON, agentKey, { digest: '0xdigest304', signature: '0xsig', signedBy: AGENT }, new Date());
+    expect(await store.ownerSignedAccounts(PERSON, 'test-venue-sim')).toEqual([
+      { owner: OWNER, subAccount: null },
+      { owner: OWNER, subAccount: SUB },
+    ]);
+    expect(await store.ownerSignedAccounts(PERSON, 'another-venue')).toEqual([]);
+    expect(await store.ownerSignedAccounts('22222222-2222-4222-8222-2222222222b9', 'test-venue-sim')).toEqual([]);
+  });
+
+  it('reads the builder fee rate of the orders we routed, by venue client order id (J-derivatives-17 #4)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const order = (n: string, cloid: string, fee: PreparedVenueAction['builderFee'], venueId = 'test-venue-sim'): PreparedVenueAction => ({
+      ...prepared(n, '60000'),
+      venueId,
+      venueClientOrderId: cloid,
+      builderFee: fee,
+    });
+    const accepted = { definite: true, accepted: true, venueRef: null, order: null, asOf: new Date() } as const;
+    const route = async (key: string, p: PreparedVenueAction, outcome: 'accepted' | 'unsigned' | 'refused') => {
+      await store.insertOnce(USER, key, p, new Date());
+      if (outcome === 'unsigned') return;
+      await store.signOnce(USER, key, { digest: p.digest, signature: '0xsig', signedBy: OWNER }, new Date());
+      await store.recordOutcome(USER, key, outcome === 'accepted' ? accepted : { definite: false, reason: 'timeout' }, new Date());
+    };
+    await route(`order:${USER}:sql:fee-1`, order('301', '0x0301', { builder: OWNER, feeBps: parseAmount('0.5') }), 'accepted');
+    await route(`order:${USER}:sql:fee-2`, order('302', '0x0302', null), 'accepted');
+    await route(`order:${USER}:sql:fee-3`, order('303', '0x0303', { builder: OWNER, feeBps: parseAmount('1') }, 'other-venue'), 'accepted');
+    await route(`order:${USER}:sql:fee-4`, order('304', '0x0304', { builder: OWNER, feeBps: parseAmount('1') }), 'unsigned');
+    await route(`order:${USER}:sql:fee-5`, order('305', '0x0305', { builder: OWNER, feeBps: parseAmount('1') }), 'refused');
+    // A second order under an id already routed: the first one prepared wins.
+    await route(`order:${USER}:sql:fee-6`, order('306', '0x0301', { builder: OWNER, feeBps: parseAmount('3') }), 'accepted');
+    const rates = await store.builderFeeOrders('test-venue-sim', ['0x0301', '0x0302', '0x0303', '0x0304', '0x0305', '0x0999']);
+    expect([...rates]).toEqual([['0x0301', parseAmount('0.5')]]);
+    expect((await store.builderFeeOrders('test-venue-sim', [])).size).toBe(0);
+  });
 });

@@ -1,5 +1,7 @@
 # ADR: listing policy blank is refuse — not default allow (D26-P0-06)
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The parts about holds staying on a halt and the insurance-fund gate apply when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-15 (D26-P0-06 sealed).**  
 **Amends:** [`2026-08-12-listing-delisting-policy.md`](2026-08-12-listing-delisting-policy.md) (structural gates + halt/delist non-confiscation stay).  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  

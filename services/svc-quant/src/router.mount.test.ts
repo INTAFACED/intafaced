@@ -30,6 +30,10 @@ import type { BacktestLake } from './backtest/lake.js';
 import { createQuantRouter, type QuantRouter } from './router.js';
 import { createMemoryStrategyRepository } from './studio/memory-repository.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 const SECRET = 'a-quant-mount-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
 const anonymous = (region = 'DE') => edgeContext({ headers: { 'x-intafaced-region': region }, id: 'req-anon' });

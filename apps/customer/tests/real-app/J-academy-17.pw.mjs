@@ -132,7 +132,15 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
   await page.goto(`${ADMIN}/academy-ops/grants`);
   const audit = page.getByTestId('read-academy.grant-audit');
   await expect(audit.getByRole('heading', { name: 'Grants and revokes' })).toBeVisible({ timeout: 60_000 });
-  const rows = audit.getByRole('table').getByRole('row').filter({ hasText: learnerId });
+  // The learner's lines for this step's own subjects, each matched whole: the Foundations certificate and the access path.
+  // Other journeys' TEST programmes that hold the same items issue their own certificates to the learner too
+  // (`programme:test-j05-…` on #7781's run 42743679485); those are their lines, not this step's.
+  const own = (subject) => page.getByRole('cell', { name: subject, exact: true });
+  const rows = audit
+    .getByRole('table')
+    .getByRole('row')
+    .filter({ hasText: learnerId })
+    .filter({ has: own(CERT).or(own(ACCESS_PATH)) });
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText('Certificate revoked');
   await expect(rows.nth(0)).toContainText(CERT);

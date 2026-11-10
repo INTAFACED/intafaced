@@ -13,6 +13,7 @@ import {
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
+  type UserVenueDepositRoute,
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
@@ -78,7 +79,28 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
+  | 'trade.venue_action_key_reserved'
+  | 'trade.venue_session_key_reused'
+  | 'trade.venue_session_pending'
+  | 'trade.venue_session_none'
+  | 'trade.venue_session_unavailable'
+  | 'trade.venue_session_superseded'
   | VenueRouteRefusalCode;
+
+/**
+ * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
+ * session key is stored under `session-key:<accountId>:<venueId>:<sessionId>`, and its `revoke_agent` under
+ * `session-key-end:` with the same tail. Only the session routes prepare under these keys, so the rule "a new session
+ * approves a new key, never one used before" cannot be walked around through the plain prepare route.
+ */
+export const SESSION_KEY_PREFIX = 'session-key:';
+export const SESSION_KEY_END_PREFIX = 'session-key-end:';
+const RESERVED_KEY_PREFIXES = [SESSION_KEY_PREFIX, SESSION_KEY_END_PREFIX] as const;
+
+export interface PrepareOptions {
+  /** Set only by the session routes (session-key.ts): lets the action be stored under a reserved session key. */
+  readonly sessionKey?: boolean;
+}
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -114,9 +136,12 @@ export function parseBuilderFee(address: string | undefined, feeBps: string | un
   return { address: a, feeBps: fee };
 }
 
+/** A venue the door reaches, with the chain its actions name and its deposit route when it has one. */
+export type ConnectedUserVenue = UserVenue & { readonly chainId?: number; readonly depositRoute?: UserVenueDepositRoute | null };
+
 export interface UserVenueDoorDeps {
   /** Reach the venue. Called until it succeeds; its descriptor is checked against APP_ENV each time it connects. */
-  readonly connect: () => Promise<UserVenue & { readonly chainId?: number }>;
+  readonly connect: () => Promise<ConnectedUserVenue>;
   /** The RAW `process.env.APP_ENV`. */
   readonly appEnv: string | undefined;
   readonly store: PreparedActionStore;
@@ -219,12 +244,17 @@ async function assertSignatureRecovers(prepared: PreparedVenueAction, signature:
 }
 
 export class UserVenueDoor {
-  private venuePromise: Promise<UserVenue & { readonly chainId?: number }> | null = null;
+  private venuePromise: Promise<ConnectedUserVenue> | null = null;
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
 
+  /** The store and clock the trading-session routes read with (session-key.ts). */
+  get sessionDeps(): { readonly store: PreparedActionStore; readonly now: () => Date } {
+    return { store: this.deps.store, now: this.deps.now };
+  }
+
   /** The connected venue, checked against APP_ENV. A failed connect is retried on the next call. */
-  async venue(): Promise<UserVenue & { readonly chainId?: number }> {
+  async venue(): Promise<ConnectedUserVenue> {
     if (!this.venuePromise) {
       this.venuePromise = this.deps.connect().then((v) => {
         refuseTestVenueOutsideTest(v.venue, this.deps.appEnv);
@@ -238,7 +268,7 @@ export class UserVenueDoor {
   }
 
   async status() {
-    let venue: UserVenue & { readonly chainId?: number };
+    let venue: ConnectedUserVenue;
     try {
       venue = await this.venue();
     } catch (err) {
@@ -253,6 +283,8 @@ export class UserVenueDoor {
       test,
       ...(test ? { label: 'TEST' } : {}),
       chainId: venue.chainId ?? null,
+      // Where the customer's own wallet sends a token to fund this venue account: the customer's transfer, never ours.
+      deposit: venue.depositRoute ?? null,
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
     };
   }
@@ -377,7 +409,7 @@ export class UserVenueDoor {
     return k;
   }
 
-  async prepare(principal: Principal, req: PrepareRequest): Promise<PreparedAnswer> {
+  async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
     const intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
     if (
@@ -390,6 +422,36 @@ export class UserVenueDoor {
     assertInteractive(principal, intent.kind);
     if (intent.kind === 'place_order') assertPlaceIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
+    if (!opts.sessionKey && RESERVED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      throw new UserVenueDoorError(
+        `the action key ${JSON.stringify(key)} belongs to the trading session's own routes (/api/v1/venue/session/...)`,
+        'trade.venue_action_key_reserved',
+        409,
+      );
+    }
+    // An agent key (a session key) never signs a withdrawal or an approval: refused here, before a step-up is spent or
+    // the venue is asked, as the venue would refuse it (user-venue.ts `assertSignerMaySign`).
+    if (req.signer.role === 'agent' && OWNER_ONLY_INTENTS.has(intent.kind)) {
+      throw new VenueRefusalError({
+        venueId: (await this.venue()).venue.id,
+        code: 'agent_not_permitted',
+        detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
+      });
+    }
+    // An agent key is approved once, under one business key, and never again, on any venue account and by any route,
+    // the session routes included (user-venue.ts:177-180: a venue that prunes nonces could accept a replay of an old
+    // key's actions). The same key asked again is the same stored approval (`reuse` below), never a second one.
+    if (intent.kind === 'approve_agent') {
+      const address = (intent.agentAddress ?? '').toLowerCase();
+      const earlier = await this.deps.store.agentApprovals(principal.userId, address);
+      if (earlier.some((row) => row.businessKey !== key)) {
+        throw new UserVenueDoorError(
+          `${address} was approved as an agent before; a key is approved once and never again`,
+          'trade.venue_session_key_reused',
+          409,
+        );
+      }
+    }
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
     if (intent.kind === 'withdraw') {
@@ -481,6 +543,30 @@ export class UserVenueDoor {
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertInteractive(principal, row.prepared.intent.kind);
+    // A trading session's approval that was never signed, and that a later session of the same sign-in on the same venue
+    // account has replaced, is abandoned: it is never signed and sent later (a stale tab), where it would take the newer
+    // session's slot. A later session on another wallet takes no slot of this one's.
+    if (!row.signature && key.startsWith(SESSION_KEY_PREFIX)) {
+      const m = /^(.*\.)(\d+)$/.exec(key);
+      const later = m
+        ? (await this.deps.store.listByPrefix(principal.userId, m[1]!)).some((r) => {
+            const n = /\.(\d+)$/.exec(r.businessKey)?.[1];
+            return (
+              n !== undefined &&
+              r.businessKey.slice(0, -n.length) === m[1] &&
+              Number(n) > Number(m[2]) &&
+              r.prepared.account.owner.toLowerCase() === row.prepared.account.owner.toLowerCase()
+            );
+          })
+        : false;
+      if (later) {
+        throw new UserVenueDoorError(
+          'a newer trading session was started in this sign-in, so this approval is no longer asked for; nothing was sent',
+          'trade.venue_session_superseded',
+          409,
+        );
+      }
+    }
     if (
       !signature ||
       typeof signature.signature !== 'string' ||

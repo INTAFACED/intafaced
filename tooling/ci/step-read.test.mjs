@@ -214,8 +214,10 @@ test("the workflow: the read is a job of its own after the review, never fails a
   const reads = job.slice(job.indexOf('- name: Read the steps (proof v2)'), job.indexOf('- name: Post the proof read status'));
   for (const cmd of reads.match(/^ {10}(node|had=|for pid) .*$/gm)) assert.match(cmd, /\|\| no "/, cmd);
   assert.match(job, /\|\| echo "::warning::the proof read status wasn't posted"/);
-  // The review's two calls keep their pinned model at main's effort (medium since OWNER 259, #7676), and the reader's model is another.
+  // The review's two calls keep their pinned model at main's effort (medium since OWNER 259, #7676), and the reader runs on
+  // the review's model too (project-state OWNER 282), so the count can't overstate through a more lenient reader.
   const models = [...review.matchAll(/--model (\S+) --effort medium/g)].map((m) => m[1]);
   assert.equal(models.length, 2);
-  assert.notEqual(models[0], /\n {6}READER_MODEL: (\S+)\n/.exec(job)[1]);
+  assert.equal(models[1], models[0]);
+  assert.equal(/\n {6}READER_MODEL: (\S+)\n/.exec(job)[1], models[0]);
 });

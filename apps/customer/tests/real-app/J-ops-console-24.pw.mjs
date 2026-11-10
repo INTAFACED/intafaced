@@ -11,10 +11,16 @@ import { fund, restartWith, tool } from './stack.mjs';
 // reads unknown and no scenario runs. The builder account at each venue is its own test: svc-ops reads it through its venue
 // port from the stack's TEST venues (`OPS_TEST_VENUE`), and with them switched down (`LOCAL_STACK_OPS_TEST_VENUE_READ=off`,
 // svc-ops restarted) each venue reads unknown, never 0.
-// The test always leaves the ETH threshold blank again, so the step starts blank on the next run.
+// The test always leaves the CHF threshold blank again, so the step starts blank on the next run.
 
 const J = 'J-ops-console-24';
-const ASSET = 'ETH';
+/**
+ * The asset this step funds and sets a threshold on: CHF, which the ledger lists (`0004_multi_asset_seed.sql`) and no other
+ * journey, TEST market or market-maker posts to on the stack. Own funds in a traded asset (ETH) also move with every other
+ * journey's fees and market-maker fills, so an exact before-and-after sum, and the buffer it feeds, is only exact in an
+ * asset nothing else posts to. The funding is the stack's TEST funding, never a real balance.
+ */
+const ASSET = 'CHF';
 const CONTACT = 'TEST treasury on-call';
 const REASON = 'TEST buffer policy for J-ops-console-24 #1';
 const UNSET_WORDS =
@@ -33,6 +39,13 @@ async function ownFunds(page, asset) {
   const row = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: asset, exact: true }) });
   await expect(row).toHaveCount(1);
   return (await page.getByTestId(`own-funds-${asset}`).innerText()).trim();
+}
+
+/** The same, where an asset with nothing in it yet has no row: its own funds are then 0 by the ledger's own rows. */
+async function ownFundsOrNone(page, asset) {
+  const table = page.getByRole('table', { name: 'INTAFACED’s own funds per asset' });
+  const row = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: asset, exact: true }) });
+  return (await row.count()) === 0 ? '0' : ownFunds(page, asset);
 }
 
 /** Exact decimal sum of two non-negative decimal strings, as scaled bigints (18 places). */
@@ -105,6 +118,14 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   await expect(a.getByRole('heading', { level: 2, name: 'Capital monitor' })).toBeVisible();
   await expect(a.getByTestId('read-failed')).toHaveCount(0);
 
+  // A planted house posting of 2.5 and a planted customer posting of 7, in the step's own asset. On a fresh stack the asset
+  // holds nothing yet and has no row.
+  const before = await ownFundsOrNone(a, ASSET);
+  const run = Date.now().toString(36);
+  fund('house', ASSET, '2.5', `cap24-house-${run}`);
+  fund(founderA.userId, ASSET, '7', `cap24-user-${run}`);
+  await openMonitor(a);
+
   // The buffer threshold is blank: ops.capital.threshold_unset and "not monitored", in its exact words, never "ok".
   await expect(bufferRow(a)).toHaveAttribute('data-state', 'not_monitored');
   await expect(bufferRow(a).getByRole('cell').nth(2)).toHaveText(`Not monitored ops.capital.threshold_unset ${UNSET_WORDS}`);
@@ -114,19 +135,16 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   // INTAFACED's own funds come from the ledger and name it as their source; customer money is never counted.
   await expect(a.getByTestId('own-funds-source')).toContainText('Source: the ledger (svc-ledger), house and module accounts only, read ');
   await expect(a.getByTestId('own-funds-source')).toContainText('Customer balances are never counted as ours.');
-  const before = await ownFunds(a, ASSET);
-  const run = Date.now().toString(36);
-  fund('house', ASSET, '2.5', `cap24-house-${run}`);
-  fund(founderA.userId, ASSET, '7', `cap24-user-${run}`);
-  await openMonitor(a);
   expect(await ownFunds(a, ASSET), 'the house funding counts, the customer funding does not').toBe(plus(before, '2.5'));
   const funds = a.getByRole('table', { name: 'INTAFACED’s own funds per asset' });
-  await expect(funds.getByRole('row').filter({ hasText: ASSET }).getByRole('cell').last()).toHaveText(/^Ledger: \d+ accounts?$/);
+  await expect(funds.getByRole('row').filter({ hasText: ASSET }).getByRole('cell').last()).toHaveText(/^Ledger: 1 account$/);
   await a.getByText('The ledger accounts these sum').click();
   const accounts = a.getByRole('table', { name: 'Ledger accounts in INTAFACED’s own funds' });
   await expect(accounts.getByRole('row').filter({ hasText: 'house market-maker' }).filter({ hasText: ASSET })).toHaveCount(1);
   await expect(accounts).not.toContainText(founderA.userId);
-  await expect(bufferRow(a).getByRole('cell').first()).toHaveText(plus(before, '2.5'));
+  // The buffer counts the house posting and not the customer's.
+  const held = plus(before, '2.5');
+  await expect(bufferRow(a).getByRole('cell').first()).toHaveText(held);
 
   // Any reserve a partner holds of ours: the TEST partner bank and the TEST card partner each say "not known", never 0.
   const reserves = a.getByRole('table', { name: 'Reserves partners hold of ours' });
@@ -137,7 +155,6 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   await expect(cardRow.getByRole('cell').first()).toHaveText('not known');
   await expect(cardRow.getByRole('cell').last()).toContainText('svc-bank, the card partner’s terms, read ');
 
-  const held = plus(before, '2.5');
   const minimum = plus(held, '1');
   let set = false;
   try {
