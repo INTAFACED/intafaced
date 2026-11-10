@@ -35,12 +35,14 @@ async function ownFunds(page, asset) {
   return (await page.getByTestId(`own-funds-${asset}`).innerText()).trim();
 }
 
+/** A non-negative decimal string as a bigint scaled to 18 places. */
+function scale(s) {
+  const [w, f = ''] = s.split('.');
+  return BigInt(w) * 10n ** 18n + BigInt((f + '0'.repeat(18)).slice(0, 18));
+}
+
 /** Exact decimal sum of two non-negative decimal strings, as scaled bigints (18 places). */
 function plus(a, b) {
-  const scale = (s) => {
-    const [w, f = ''] = s.split('.');
-    return BigInt(w) * 10n ** 18n + BigInt((f + '0'.repeat(18)).slice(0, 18));
-  };
   const v = scale(a) + scale(b);
   const whole = v / 10n ** 18n;
   const frac = (v % 10n ** 18n).toString().padStart(18, '0').replace(/0+$/, '');
@@ -86,6 +88,27 @@ async function clearThreshold(a, b) {
 
 const bufferRow = (page) => page.getByTestId(`buffer-${ASSET}`);
 
+/** The ledger accounts in `asset` that own funds sum, from the same read as the total: `[name, balance]` pairs. */
+async function ownAccounts(page, asset) {
+  await page.getByText('The ledger accounts these sum').click();
+  const table = page.getByRole('table', { name: 'Ledger accounts in INTAFACED’s own funds' });
+  await expect(table).toBeVisible();
+  const rows = [];
+  for (const row of await table.getByRole('row').all()) {
+    const head = (await row.getByRole('rowheader').allInnerTexts()).map((t) => t.trim());
+    const cells = (await row.getByRole('cell').allInnerTexts()).map((t) => t.trim());
+    if (head.length === 1 && cells[0] === asset) rows.push([head[0], cells[1]]);
+  }
+  return rows;
+}
+
+/** The balance of the house market-maker account in `asset`, the account `fund('house', ...)` credits. */
+function houseBalance(rows) {
+  const house = rows.filter(([name]) => name === 'house market-maker');
+  expect(house, 'one house market-maker account in the own-funds accounts').toHaveLength(1);
+  return house[0][1];
+}
+
 test(`${J} #1 the capital monitor with the threshold blank: own funds from the ledger without customer money, partner reserves not known, ops.capital.threshold_unset and not monitored; a set threshold breached opens one alert per asset and day to the named contact; a stopped ledger reads unknown and runs no scenario`, async ({
   browser,
 }) => {
@@ -115,18 +138,27 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   await expect(a.getByTestId('own-funds-source')).toContainText('Source: the ledger (svc-ledger), house and module accounts only, read ');
   await expect(a.getByTestId('own-funds-source')).toContainText('Customer balances are never counted as ours.');
   const before = await ownFunds(a, ASSET);
+  const houseBefore = houseBalance(await ownAccounts(a, ASSET));
   const run = Date.now().toString(36);
   fund('house', ASSET, '2.5', `cap24-house-${run}`);
   fund(founderA.userId, ASSET, '7', `cap24-user-${run}`);
   await openMonitor(a);
-  expect(await ownFunds(a, ASSET), 'the house funding counts, the customer funding does not').toBe(plus(before, '2.5'));
+  // Other journeys on the shared stack add fees to INTAFACED's module accounts at any moment, so the total is not
+  // compared with the earlier read: the house funding is checked on the account it went to, and the total against the
+  // accounts it sums in the same read, which never list the customer's.
+  const after = await ownFunds(a, ASSET);
+  const accountsAfter = await ownAccounts(a, ASSET);
+  expect(scale(houseBalance(accountsAfter)), 'the house funding counts').toBe(scale(plus(houseBefore, '2.5')));
+  expect(
+    accountsAfter.reduce((sum, [, balance]) => sum + scale(balance), 0n),
+    'the total is the sum of house and module accounts alone',
+  ).toBe(scale(after));
+  expect(scale(after) < scale(plus(plus(before, '2.5'), '7')), 'the customer funding does not count').toBe(true);
   const funds = a.getByRole('table', { name: 'INTAFACED’s own funds per asset' });
   await expect(funds.getByRole('row').filter({ hasText: ASSET }).getByRole('cell').last()).toHaveText(/^Ledger: \d+ accounts?$/);
-  await a.getByText('The ledger accounts these sum').click();
   const accounts = a.getByRole('table', { name: 'Ledger accounts in INTAFACED’s own funds' });
-  await expect(accounts.getByRole('row').filter({ hasText: 'house market-maker' }).filter({ hasText: ASSET })).toHaveCount(1);
   await expect(accounts).not.toContainText(founderA.userId);
-  await expect(bufferRow(a).getByRole('cell').first()).toHaveText(plus(before, '2.5'));
+  await expect(bufferRow(a).getByRole('cell').first()).toHaveText(after);
 
   // Any reserve a partner holds of ours: the TEST partner bank and the TEST card partner each say "not known", never 0.
   const reserves = a.getByRole('table', { name: 'Reserves partners hold of ours' });
@@ -137,7 +169,7 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   await expect(cardRow.getByRole('cell').first()).toHaveText('not known');
   await expect(cardRow.getByRole('cell').last()).toContainText('svc-bank, the card partner’s terms, read ');
 
-  const held = plus(before, '2.5');
+  const held = after;
   const minimum = plus(held, '1');
   let set = false;
   try {
