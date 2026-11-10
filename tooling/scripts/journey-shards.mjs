@@ -3,7 +3,7 @@
 // (Failure it prevents: Playwright's own --shard splits by test count, in file-name order. In run 338 the bank journeys
 // sat together and shard 2 ran 36 minutes while shard 4 ran 3, so every run waited about 20 minutes on one shard.)
 //
-// Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"]
+// Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"] [--max <n>]
 // Prints a JSON array with one string per shard: that shard's journey files (relative to the journey folder),
 // separated by spaces. Each file counts its longest time across the reports, so a shard that was cut short or a file
 // that failed early in one run does not make it look fast, plus the suite's time per step for each step no report
@@ -26,7 +26,9 @@
 // own split of every file.
 //
 // `--only` plans a targeted run: only the journey files it names (targetFiles), which must all exist. The workflow
-// passes it only for a manual run on a branch other than main (owner decision 2026-10-30).
+// passes it for a manual run on a branch other than main (owner decision 2026-10-30) and for a pull request's journeys.
+// `--max <n>` caps `--shards auto` at n shards (a pull request's run: 10, tooling/ci/journey-touch.mjs PR_MAX_SHARDS), so
+// its shards run longer rather than more of them; the warning below still names a shard near the journeys limit.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -227,6 +229,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const argv = process.argv.slice(2);
   const asked = argv[argv.indexOf('--shards') + 1];
   const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null;
+  const cap = argv.includes('--max') ? Number(argv[argv.indexOf('--max') + 1]) : MAX_SHARDS;
+  if (!Number.isInteger(cap) || cap < 1) {
+    console.error('journey-shards: --max takes a whole number of shards, 1 or more');
+    process.exit(2);
+  }
   const reports = argv.flatMap((a, i) => (argv[i - 1] === '--report' && fs.existsSync(a) ? [a] : []));
   if (!reports.length) console.error('journey-shards: no report from a finished run, so every step counts the same');
   const files = only === null ? journeyFiles(JOURNEY_DIR) : targetFiles(only, journeyFiles(JOURNEY_DIR));
@@ -243,7 +250,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // A targeted run takes as few stacks as its files need (from one), not the full suite's floor.
   const floor = only === null ? MIN_SHARDS : 1;
   const target = shardTarget(durations);
-  const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, target, floor)) : Number(asked);
+  const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, target, Math.min(floor, cap), cap)) : Number(asked);
   const plan = planShards(files, durations, shards);
   const problems = planCovers(plan, files);
   if (problems.length) {

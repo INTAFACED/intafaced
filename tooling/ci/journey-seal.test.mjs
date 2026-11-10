@@ -280,9 +280,10 @@ test('sealPull: the title and body come from the pull request now; a moved head 
   const io = (pull, runs = [run(1)]) => ({
     pull: async () => pull,
     runs: async () => runs,
-    reportOf: reports({ 1: green }),
+    reportOf: reports({ 1: { ...green, ran: ['J-bank-13.pw.mjs'] } }),
     files: async () => ['services/svc-bank/src/cards.ts'],
-    verdictOf: async () => ({ red: [], failing: 0, missing: [] }), // product code: a clean full run (journey-touch.mjs)
+    journeyFiles: async () => new Set(['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']),
+    verdictOf: async () => ({ red: [], failing: 0, missing: [] }), // the title's journey, run clean (journey-touch.mjs prJourneys)
   });
   const pull = { state: 'open', head: { sha: HEAD }, title: 'x (J-bank-13 #1 #2)', body: '' };
   assert.equal((await sealPull({ repo: REPO, number: 5, sha: HEAD, io: io(pull) })).ok, true);
@@ -639,31 +640,48 @@ test('judgeFullRun: an older head, a run going, a cancelled run, no run and an u
   );
 });
 
-test('sealPull: a shared-setup pull request needs the clean full run, whatever its title; others are unchanged', async () => {
-  const io = ({ files, verdict = clean, runs = [run(1)] }) => ({
-    pull: async () => ({ state: 'open', head: { sha: HEAD }, title: 'stack: identity gets its TEST staff roster', body: '' }),
+test('sealPull (U4 C1): shared setup and product code run no full suite; a stack helper holds the pull request to its readers', async () => {
+  const io = ({
+    files,
+    verdict = clean,
+    runs = [run(1)],
+    title = 'stack: identity gets its TEST staff roster',
+    ran = ['J-identity-01.pw.mjs'],
+  }) => ({
+    pull: async () => ({ state: 'open', head: { sha: HEAD }, title, body: '' }),
     runs: async () => runs,
-    reportOf: reports({ 1: fullRep }),
+    reportOf: reports({ 1: { ...fullRep, states: { ...fullRep.states, ...green.states }, ran } }),
     files: async () => files,
+    journeyFiles: async () => new Set(['J-bank-13.pw.mjs', 'J-identity-01.pw.mjs', 'J-wallet-05.pw.mjs']),
+    // J-identity-01 names the helper whose TEST value it reads; the others read none.
+    text: async (f) =>
+      f.endsWith('J-identity-01.pw.mjs')
+        ? '// the TEST interval (tooling/scripts/local-stack-services/identity.mjs)\n'
+        : f.endsWith('.pw.mjs')
+          ? ''
+          : null,
     verdictOf: async () => verdict,
   });
-  const shared = ['tooling/scripts/local-stack-services/identity.mjs'];
-  const dirtySeal = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, verdict: dirty }) });
-  assert.equal(dirtySeal.ok, false, 'shared setup with a dirty full run fails');
+  const helper = ['tooling/scripts/local-stack-services/identity.mjs'];
+  const dirtySeal = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: helper, verdict: dirty }) });
+  assert.equal(dirtySeal.ok, false, "a helper whose reader's run is dirty fails");
   assert.equal(dirtySeal.stepsOk, true);
   assert.equal(dirtySeal.fullOk, false);
-  assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared }) })).ok, true, 'with a clean one passes');
-  assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, runs: [] }) })).ok, false, 'with none fails');
-  // Product code off the list can reach any journey and no recorded map says which (journey-touch.mjs), so it needs the
-  // same clean full run; a pull request touching nothing a journeys run reads needs none.
-  const product = (over) =>
-    sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'], ...over }) });
-  const none = await product({ runs: [] });
-  assert.equal(none.ok, false, 'planted: product code with no run on its head fails');
-  assert.equal(none.fullOk, false);
-  assert.match(none.lines.join('\n'), /it changes what can reach any journey \(services\/svc-support\/src\/chat\.ts: product code/);
-  assert.equal((await product({ verdict: dirty })).ok, false, 'product code with a dirty full run fails');
-  assert.equal((await product({})).ok, true, 'product code with a clean full run passes');
+  assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: helper }) })).ok, true, 'its reader run clean passes');
+  assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: helper, runs: [] }) })).ok, false, 'no run fails');
+  const elsewhere = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: helper, ran: ['J-bank-13.pw.mjs'] }) });
+  assert.equal(elsewhere.ok, false, 'a run of other journeys does not stand in for its reader');
+  assert.match(elsewhere.lines.join('\n'), /ran J-identity-01\.pw\.mjs/);
+  // Product code and other shared setup, with no title steps: nothing to run, so nothing is read (main's full run is the
+  // backstop, project-state OWNER 249 (3)).
+  for (const files of [
+    ['services/svc-support/src/chat.ts'],
+    ['tooling/scripts/local-test-world.mjs'],
+    ['apps/customer/tests/real-app/desk.mjs'],
+  ]) {
+    const v = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files, runs: [], verdict: dirty }) });
+    assert.equal(v.ok, true, `${files[0]}: ${v.lines.join('\n')}`);
+  }
   const plain = await sealPull({
     repo: REPO,
     number: 7,
@@ -672,17 +690,19 @@ test('sealPull: a shared-setup pull request needs the clean full run, whatever i
   });
   assert.equal(plain.ok, true, 'a pull request touching nothing a journeys run reads is unaffected');
   assert.deepEqual(plain.lines, [`#7 (${HEAD.slice(0, 10)}): the title names no journey step`]);
-  // Named steps and shared setup together: both must hold.
-  const both = (verdict) => ({
-    ...io({ files: shared, verdict }),
-    pull: async () => ({ state: 'open', head: { sha: HEAD }, title: 'x (J-bank-13 #1 #2)', body: '' }),
-    reportOf: reports({ 1: { ...fullRep, states: green.states } }),
-  });
-  assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: both(clean) })).ok, true);
+  // Named steps and a helper together: the run must hold both, clean.
+  const both = (verdict, ran) => io({ files: helper, verdict, title: 'x (J-bank-13 #1 #2)', ran });
+  const two = ['J-bank-13.pw.mjs', 'J-identity-01.pw.mjs'];
+  assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: both(clean, two) })).ok, true);
   assert.equal(
-    (await sealPull({ repo: REPO, number: 7, sha: HEAD, io: both(dirty) })).ok,
+    (await sealPull({ repo: REPO, number: 7, sha: HEAD, io: both(dirty, two) })).ok,
     false,
-    'green named steps do not cover a dirty full run',
+    'green named steps do not cover a dirty run',
+  );
+  assert.equal(
+    (await sealPull({ repo: REPO, number: 7, sha: HEAD, io: both(clean, ['J-bank-13.pw.mjs']) })).ok,
+    false,
+    'nor a run without the reader',
   );
 });
 
@@ -830,6 +850,7 @@ const touchedPull = async ({
       // The run on the head is clean by the journeys verdict, so these cases judge the step naming alone.
       verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
       files: async () => files,
+      journeyFiles: async () => new Set(['J-bank-13.pw.mjs']),
       text: async (f, ref) => (ref === HEAD ? (text[f] ?? null) : null),
     },
   });
@@ -1272,14 +1293,19 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
   const inheritedDirty = { ...dirty, lastPass: { 'J-wallet-05#3': PASS_SHA } };
   const io = ({
     files,
-    title = 'svc-support: chat keeps its draft',
+    // C1: a pull request runs its title's journeys, so the title names J-bank-13 and the run (J-bank-13 and J-wallet-05) is read.
+    title = 'svc-support: chat keeps its draft (J-bank-13 #1)',
     mainVerdict = inheritedDirty,
     rangeFiles = ['services/svc-wallet/src/send.ts'],
   }) => ({
     pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title, body: '' }),
     runs: async () => [run(1)],
-    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs'] }, 50: fullRep }),
+    reportOf: reports({
+      1: { ...fullRep, states: { ...fullRep.states, 'J-bank-13#1': 'passed' }, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs'] },
+      50: fullRep,
+    }),
     files: async () => files,
+    journeyFiles: async () => new Set(['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']),
     text: async () => 'test(`${J} #1 opens`, async () => {}); test(`${J} #3 sends`, async () => {});',
     verdictOf: async (_rep, r) => (r.id === 50 ? mainVerdict : dirty),
     mainRuns: async () => [mainRun(50)],

@@ -1,10 +1,19 @@
 #!/usr/bin/env node
 /**
- * Which journeys a pull request touches, from its changed paths: the yardstick the merge seal (journey-seal.mjs) holds
- * a pull request's own Real-app journeys runs to, so a pull request runs the journeys it can break and no more.
- * (Failure it prevents: on 7 Nov 2026 a pull request that changed product code, #7415, merged on its own named steps
- * and broke another journey's step, J-copy-bots-otc-01 #1, on main; builders then dispatched the full suite, 36
- * shards, on nearly every branch to be safe, and runners became the factory's binding constraint.)
+ * Which journeys a pull request touches, from its changed paths.
+ *
+ * What a pull request runs, and the merge seal (journey-seal.mjs) holds it to, is prJourneys below, never the full suite
+ * (U4 C1; project-state OWNER 249 (3), the owner's words: "a PR runs only the journeys it touches, the full suite runs
+ * on main after a merge, a red main is reverted"): the journeys its title names, the journey test files it changes, and
+ * the journeys whose tests read a stack helper (tooling/scripts/local-stack-services/<svc>.mjs) it changes, in at most
+ * PR_MAX_SHARDS shards; none of them, nothing. Main's full run after a merge and its automatic revert are the backstop.
+ * (Failure it prevents: with the rules below alone, about 3 of 50 product pull requests ran fewer than the whole suite,
+ * so pull requests' full runs held the runners main's verdict waits on.)
+ *
+ * journeyTouch and the kinds below still say what a change can reach (the seal's re-check and which seal inputs it
+ * waits for read them, and prJourneys logs it). They were the yardstick before C1. (Failure they prevented: on 7 Nov
+ * 2026 a pull request that changed product code, #7415, merged on its own named steps and broke another journey's step,
+ * J-copy-bots-otc-01 #1, on main; builders then dispatched the full suite, 36 shards, on nearly every branch to be safe.)
  *
  * Each changed path is one of three kinds, and the most demanding kind among a pull request's paths decides:
  *   - full: the pull request needs a clean full run on its exact head. The journey stack's shared setup (SHARED_SETUP in
@@ -33,11 +42,14 @@
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
  *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
+ *   TITLE=… BODY=… node tooling/ci/journey-touch.mjs --pr --base origin/main   (what this pull request runs: prJourneys;
+ *                                                             --json --files-from f is real-app-journeys.yml's touch job)
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
+import { posix } from 'node:path';
+import { JOURNEY_TEST, exemptions, isSharedSetup, revertOf, titleSteps } from './journey-seal.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
@@ -163,6 +175,110 @@ export function journeyTouch(paths, atHead = () => true, reach = null) {
   return because && !full.length ? { ...out, reach: because } : out;
 }
 
+// ---- What a pull request runs (U4 C1; project-state OWNER 249 (3)) ----
+
+/** A stack service helper: `tooling/scripts/local-stack-services/<svc>.mjs`, the file that holds that service's env and
+ *  TEST values on the journey stack. */
+export const STACK_HELPER = /^tooling\/scripts\/local-stack-services\/[A-Za-z0-9._-]+\.mjs$/;
+const REAL_APP_DIR = 'apps/customer/tests/real-app';
+const RELATIVE_IMPORT = /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)['"](\.{1,2}\/[^'"]+)['"]/g;
+/** The most shards a pull request's journeys run takes (real-app-journeys.yml passes it to journey-shards.mjs --max). */
+export const PR_MAX_SHARDS = 10;
+
+/**
+ * The journey files (names in the real-app folder) whose tests read a changed stack helper (STACK_HELPER among
+ * `changed`): the file imports it, directly or through the real-app folder's own helper modules, or names its path
+ * (`local-stack-services/trade.mjs`; journey files name the helper whose TEST value or switch a step depends on, as
+ * J-cex-spot-17 does for trade.mjs). Imports are followed only through the real-app folder, never through
+ * tooling/scripts: every journey reaches every helper through the stack script, which would make this the full suite.
+ * `journeyFiles`: the names at the head; `read(path)`: a file's text at the head, or null. Sorted names.
+ */
+export async function helperReaders({ changed, journeyFiles, read }) {
+  const want = new Set((changed ?? []).map(String).filter((p) => STACK_HELPER.test(p)));
+  if (!want.size || !journeyFiles) return [];
+  const named = [...want].map((p) => p.slice('tooling/scripts/'.length));
+  const texts = new Map();
+  const textOf = (p) =>
+    texts.has(p)
+      ? texts.get(p)
+      : texts
+          .set(
+            p,
+            Promise.resolve(read(p)).catch(() => null),
+          )
+          .get(p);
+  const imports = async (p, seen) => {
+    if (seen.has(p)) return false;
+    seen.add(p);
+    const text = await textOf(p);
+    if (typeof text !== 'string') return false;
+    for (const m of text.matchAll(RELATIVE_IMPORT)) {
+      const to = posix.normalize(posix.join(posix.dirname(p), m[1]));
+      if (want.has(to)) return true;
+      if (to.startsWith(`${REAL_APP_DIR}/`) && !to.endsWith('.pw.mjs') && (await imports(to, seen))) return true;
+    }
+    return false;
+  };
+  const out = [];
+  for (const f of [...journeyFiles].sort()) {
+    const p = `${REAL_APP_DIR}/${f}`;
+    const text = await textOf(p);
+    if (typeof text !== 'string') continue;
+    if (named.some((n) => text.includes(n)) || (await imports(p, new Set()))) out.push(f);
+  }
+  return out;
+}
+
+/** The journey files (at the head, `journeyFiles`) of the steps a title names that no `Left-or-replaced:` line leaves:
+ *  the files the seal's named steps live in (journey-seal.mjs titleSteps and exemptions). Sorted names. */
+export function titleFiles({ title, body, journeyFiles }) {
+  const left = exemptions(body).steps;
+  const ids = new Set(
+    titleSteps(title)
+      .filter((k) => !left.has(k))
+      .map((k) => k.split('#')[0]),
+  );
+  return [...(journeyFiles ?? [])]
+    .filter((f) => {
+      const m = JOURNEY_TEST.exec(`${REAL_APP_DIR}/${f}`);
+      return m && ids.has(m[1]);
+    })
+    .sort();
+}
+
+/**
+ * The journeys a pull request runs, and the merge seal holds it to (owner decision, project-state OWNER 249 (3): "a PR
+ * runs only the journeys it touches, the full suite runs on main after a merge, a red main is reverted"): never the
+ * full suite. The union of
+ *   - `named`: the journey files of the steps its title names (titleFiles);
+ *   - the journey test files it changes that the head still has;
+ *   - `readers`: the journey files whose tests read a stack helper it changes (helperReaders).
+ * An empty union runs nothing. GitHub's Revert form (`revert`) runs only its stack helpers' readers: a red main is
+ * undone within 2 hours (project-state OWNER 180), as before, when only shared setup held a revert to a run.
+ * The touched-journeys map (journey-reach-map.mjs) adds nothing here: over the 50 product pull requests merged before
+ * 10 Nov 2026 02:45 UTC it could place every product path of 3, and each time it chose 162 to 278 journey files, 28 to
+ * 45 shards' worth, so within PR_MAX_SHARDS its longest shard ran 45 to 71 minutes against the 60-minute journeys
+ * limit; without it all 50 fit, the longest shard 26 minutes. What this gives up: a change to shared setup, a script,
+ * a doc or product code no longer proves the whole suite, or the map's part of it, before it merges; main's full run
+ * after the merge and its automatic revert (journeys-revert.mjs) are the backstop (the guide's red-team replay on
+ * project-state#1574: 0 of 5 recent main reds would have slipped past a run this narrow). `atHead(path)`: whether a
+ * journey test file still exists at the head. Returns { mode: 'files'|'none', files, named, readers, changed, touch:
+ * what journeyTouch alone would have asked ('full'|'files'|'none'), for the log }.
+ */
+export function prJourneys({ paths, atHead = () => true, named = [], readers = [], revert = false }) {
+  const all = [...new Set(paths ?? [])];
+  const changed = revert ? [] : all.flatMap((p) => (pathKind(p).kind === 'file' && atHead(p) ? [RUN_FILE.exec(p)[1]] : []));
+  const files = [...new Set([...changed, ...readers, ...(revert ? [] : named)])].sort();
+  return {
+    mode: files.length ? 'files' : 'none',
+    files,
+    named: revert ? [] : [...named].sort(),
+    readers: [...readers].sort(),
+    changed: changed.sort(),
+    touch: journeyTouch(all, atHead).mode,
+  };
+}
+
 /** The journey files in a checkout's real-app folder, or null when it can't be listed. */
 export function checkoutJourneyFiles(root = '.') {
   try {
@@ -234,8 +350,31 @@ async function main() {
     paths = args.slice(f + 1);
     atHead = () => true;
   } else {
-    console.error('usage: journey-touch.mjs [--json] --base <ref> | --files <path>... | --files-from <file>');
+    console.error('usage: journey-touch.mjs [--json] [--reach] [--pr] --base <ref> | --files <path>... | --files-from <file>');
     process.exit(2);
+  }
+  // --pr: what a pull request runs (prJourneys), what real-app-journeys.yml's touch job runs: its title's journeys (TITLE
+  // and BODY in the environment, never an argument: they are the pull request's own text), its changed journey files and
+  // its stack helpers' readers, read in this checkout of its head.
+  if (args.includes('--pr')) {
+    const journeyFiles = checkoutJourneyFiles();
+    if (!journeyFiles) throw new Error("the head's journey files couldn't be listed");
+    const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : null);
+    const revert =
+      revertOf({ title: process.env.TITLE, body: process.env.BODY, repo: process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced' }) !== null;
+    const t = prJourneys({
+      paths,
+      atHead,
+      revert,
+      named: titleFiles({ title: process.env.TITLE, body: process.env.BODY, journeyFiles }),
+      readers: await helperReaders({ changed: paths, journeyFiles, read }),
+    });
+    if (args.includes('--json')) return console.log(JSON.stringify(t));
+    if (t.mode === 'none') return console.log('none: this pull request runs no journeys (main runs the full suite after it merges)');
+    console.log(
+      `title: ${t.named.join(' ') || '-'}; changed: ${t.changed.join(' ') || '-'}; helper readers: ${t.readers.join(' ') || '-'}`,
+    );
+    return console.log(`files (${t.files.length}): ${t.files.join(' ')}`);
   }
   // --reach: product paths run only the journeys main's touched-journeys map says reach them, judged against this
   // checkout of the head. The map is the newest one main's map workflow built and verified before this run was created

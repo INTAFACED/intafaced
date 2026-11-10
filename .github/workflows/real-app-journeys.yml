@@ -31,8 +31,10 @@ on:
   # 2026-10-30), so a builder proves its own journey on CI's stack without the whole suite. Runs on main, on push and on
   # the schedule always run the full suite, and Main trust and the shard planner read main's runs only.
   # Every ready pull request from this repository, on each push (U4 C3, piece 1; project-state
-  # research/factory-2026-11-08 PLAN.md): the touch job runs what the pull request touches by tooling/ci/journey-touch.mjs
-  # (full, its journey files, or nothing), so a builder never dispatches a run by hand to seal. The merge seal still
+  # research/factory-2026-11-08 PLAN.md): the touch job runs the journeys the pull request touches by
+  # tooling/ci/journey-touch.mjs prJourneys (its title's journeys, its changed journey files and the journeys whose tests
+  # read a stack helper it changes, in at most 10 shards; never the full suite, U4 C1, project-state OWNER 249 (3)), so a
+  # builder never dispatches a run by hand to seal. The merge seal still
   # decides what counts (journey-seal.mjs, the default branch's copy); this run only saves the dispatch. A draft or a
   # fork's pull request runs nothing here (a draft is proven by a manual run), in a group of its own, so it never cancels
   # a run of this repository's branches. The run tests the pull request's head commit, as a manual run
@@ -113,11 +115,11 @@ env:
 
 jobs:
   # What this run runs, in seconds, so the planner and the build start on it at once. A manual run: its journeys input
-  # (JOURNEYS_TARGET; journey file names separated by spaces or commas only), or the full suite. A pull request: what its
-  # changed files touch, by the default branch's tooling/ci/journey-touch.mjs and its seal's revert rule (the copy the
-  # merge seal judges with, so the two agree): `full` the full suite, `files` its journey files, `none` nothing (the rest
-  # of the run is skipped and its report is empty, so the seal reads it as saying nothing). A pull request whose files
-  # can't be read whole (an error, or GitHub's 3,000-file cap) runs the full suite, never fewer. A draft or a fork's pull
+  # (JOURNEYS_TARGET; journey file names separated by spaces or commas only), or the full suite. A pull request: the
+  # journeys it touches, by the default branch's tooling/ci/journey-touch.mjs --pr (prJourneys, the set the merge seal
+  # holds it to, so the two agree), never the full suite: those files, or `none` when there are none (the rest of the
+  # run is skipped and its report is empty, so the seal reads it as saying nothing). A pull request whose files or
+  # journeys can't be worked out (an error, or GitHub's 3,000-file cap) runs nothing and fails. A draft or a fork's pull
   # request runs nothing. A run deferred for main (below) runs nothing now and is re-run later.
   # On main it doesn't run: main always runs the full suite, so the planner and the build start at once and main's run
   # queues for runners twice, not three times (the guide's CI audit of main runs 2559, 2655 and 2708 on 9 Nov 2026: this
@@ -181,42 +183,30 @@ jobs:
             { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          full() {
-            echo "::warning::$1, so the full suite runs"
-            { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT"
-            exit 0
+          # Never the full suite on a pull request (project-state OWNER 249 (3)): a pull request whose files or journeys
+          # can't be worked out runs nothing and fails, so the seal reads no proof from it and a re-run tries again.
+          refuse() {
+            echo "::error::$1, so this run runs nothing; re-run it (a pull request never runs the full suite)"
+            { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
+            exit 1
           }
           list="$RUNNER_TEMP/changed.txt"
           names="$RUNNER_TEMP/names.txt"
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename' > "$names" || full "this pull request's files couldn't be read"
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$list" || full "this pull request's files couldn't be read"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename' > "$names" || refuse "this pull request's files couldn't be read"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$list" || refuse "this pull request's files couldn't be read"
           listed=$(wc -l < "$names")
-          if [ "$listed" -lt "${CHANGED:-0}" ] || [ "$listed" -ge 3000 ]; then full "GitHub listed $listed of this pull request's ${CHANGED} changed files"; fi
-          # GitHub's Revert button undoes a change and adds none: the seal asks no run of it unless it touches shared
-          # setup (revertOf, isSharedSetup), so then none runs.
-          seal="$GITHUB_WORKSPACE/.base/tooling/ci/journey-seal.mjs"
-          # Paths go in through the environment: an argument naming the seal would start its own command line.
-          if SEAL="$seal" LIST="$list" node -e 'import(process.env.SEAL).then((m) => { const f = require("fs").readFileSync(process.env.LIST, "utf8").split("\n").filter(Boolean); process.exit(m.revertOf({ title: process.env.TITLE, body: process.env.BODY, repo: process.env.GITHUB_REPOSITORY }) && !f.some(m.isSharedSetup) ? 0 : 1); })'; then
-            echo "a revert made with GitHub's Revert button that touches no shared setup: the seal asks no journeys run of it"
-            { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # --reach: product code runs only the journeys main's touched-journeys map recorded reaching it (the base's map,
-          # beside its journey-touch.mjs), else the full suite.
-          touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --reach --files-from "$list") || full "journey-touch couldn't judge this pull request"
-          mode=$(jq -r .mode <<<"$touch")
-          echo "journey-touch: $mode ($listed changed files)"
+          if [ "$listed" -lt "${CHANGED:-0}" ] || [ "$listed" -ge 3000 ]; then refuse "GitHub listed $listed of this pull request's ${CHANGED} changed files"; fi
+          # What a pull request runs (journey-touch.mjs --pr, prJourneys; the default branch's copy, the one the seal holds
+          # it to): the journeys its title names that no Left-or-replaced line leaves, the journey test files it changes,
+          # and the journeys whose tests read a stack helper (tooling/scripts/local-stack-services/<svc>.mjs) it changes,
+          # read in this checkout of its head; GitHub's Revert form runs only its helpers' readers. None of them: nothing.
+          # The title and body reach it through the environment (TITLE, BODY), never an argument.
+          touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --pr --files-from "$list") || refuse "journey-touch couldn't work out what this pull request runs"
+          target=$(jq -r '.files | join(" ")' <<<"$touch")
           # Counts only: a changed path is the pull request's own text and never reaches a log line here.
-          jq -r 'select(.reach) | "journey-touch: the touched-journeys map narrows \(.reach | length) product path(s) to \(.files | length) journey file(s)"' <<<"$touch"
-          # The steps the title names and no Left-or-replaced line leaves (the seal's titleSteps and exemptions): their
-          # journey files at the head run too, so the seal's named steps are proven without a manual run.
-          named=$(SEAL="$seal" node -e 'import(process.env.SEAL).then((m) => { const left = new Set(m.exemptions(process.env.BODY).steps); const js = new Set(m.titleSteps(process.env.TITLE).filter((k) => !left.has(k)).map((k) => k.split("#")[0])); const dir = "apps/customer/tests/real-app"; const out = require("fs").readdirSync(dir).filter((f) => { const x = m.JOURNEY_TEST.exec(dir + "/" + f); return x && js.has(x[1]); }); console.log(out.sort().join(" ")); })') || full "the steps the title names couldn't be read"
-          [ -n "$named" ] && echo "the title's steps are in: $named"
-          case "$mode" in
-            none) if [ -n "$named" ]; then { echo "mode=run"; echo "target=$named"; } >> "$GITHUB_OUTPUT"; else { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"; fi ;;
-            files) { echo "mode=run"; echo "target=$(jq -r --arg n "$named" '(.files + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
-            *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
-          esac
+          jq -r '"journey-touch: \(.files | length) journey file(s): \(.named | length) its title names, \(.changed | length) it changes, \(.readers | length) whose tests read a stack helper it changes (\(.touch) by the changed paths alone)"' <<<"$touch"
+          echo "($listed changed files)"
+          if [ -n "$target" ]; then { echo "mode=run"; echo "target=$target"; } >> "$GITHUB_OUTPUT"; else { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"; fi
 
       # Marks a hand-dispatched full run off main in the jobs API, so main-first.mjs can count them (DISPATCH_MARK).
       - name: A hand-dispatched full run
@@ -368,13 +358,18 @@ jobs:
         continue-on-error: true
         env:
           JOURNEYS_TARGET: ${{ needs.touch.outputs.target }}
+          EVENT: ${{ github.event_name }}
         run: |
           node --test tooling/scripts/journey-shards.test.mjs
           reports=()
           for f in "$RUNNER_TEMP"/last/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
           only=()
           [ -n "$JOURNEYS_TARGET" ] && only=(--only "$JOURNEYS_TARGET")
-          shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}" "${only[@]}")
+          # A pull request's journeys take at most 10 shards (journey-touch.mjs PR_MAX_SHARDS; U4 C1), so a wide one runs
+          # longer shards rather than holding a third of the runners main's full run needs.
+          max=()
+          [ "$EVENT" = pull_request ] && max=(--max 10)
+          shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}" "${only[@]}" "${max[@]}")
           {
             echo "shards=$shards"
             echo "matrix=$(jq -c '[range(1; length + 1)]' <<<"$shards")"

@@ -28,7 +28,7 @@ import {
   sourceOwner,
 } from './journey-reach-map.mjs';
 import { journeyTouch } from './journey-touch.mjs';
-import { JOURNEYS_WORKFLOW, sealPull } from './journey-seal.mjs';
+import { JOURNEYS_WORKFLOW, reachInputs, sealPull } from './journey-seal.mjs';
 import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -671,6 +671,7 @@ const ghRun = (id, over = {}) => ({
   ...over,
 });
 const sealWith = ({
+  title = 'svc-tax: rates',
   files,
   runs,
   reports,
@@ -683,7 +684,7 @@ const sealWith = ({
     number: 9,
     sha: HEAD,
     io: {
-      pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: 'b'.repeat(40) }, title: 'svc-tax: rates', body: '' }),
+      pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: 'b'.repeat(40) }, title, body: '' }),
       runs: async () => runs,
       reportOf: async (r) => reports[r.id],
       files: async () => files,
@@ -697,36 +698,42 @@ const sealWith = ({
   });
 const clean = { red: [], failing: 0, missing: [] };
 
-test('planted: the seal accepts a run of exactly the selected journeys, and fails when one is missing or red', async () => {
+test('planted (U4 C1): the seal holds a one-service pull request to its own journeys, not the map’s selection', async () => {
+  // The map would select two journeys for this change, but a pull request runs only the journeys it names, changes or
+  // whose tests read a helper it changes (journey-touch.mjs prJourneys): over the 50 product pull requests merged before
+  // 10 Nov 2026, the map placed 3 and chose 162 to 278 journey files each time, past what 10 shards run in an hour.
   const files = ['services/svc-tax/src/rates.ts'];
-  const exact = await sealWith({ files, runs: [ghRun(1)], reports: { 1: { states: {}, ran: [POPUP, TAX] } }, verdict: async () => clean });
-  assert.equal(exact.ok, true, exact.lines.join('\n'));
-  assert.match(
-    exact.lines.join('\n'),
-    /touched journeys: it touches 2 journey file\(s\) \(J-merchant-01\.pw\.mjs, J-tax-01\.pw\.mjs\), by the touched-journeys map/,
-  );
-  const missing = await sealWith({ files, runs: [ghRun(1)], reports: { 1: { states: {}, ran: [TAX] } }, verdict: async () => clean });
-  assert.equal(missing.ok, false);
-  assert.match(missing.lines.join('\n'), /no finished Real-app journeys run on this exact head ran J-merchant-01\.pw\.mjs/);
-  // A planted fault breaks one selected journey: its red step fails the seal.
-  const broken = await sealWith({
+  assert.deepEqual(select(files).files, [POPUP, TAX], 'the map still narrows, for main and the record');
+  const nothing = await sealWith({ files, runs: [], reports: {}, verdict: async () => clean });
+  assert.equal(nothing.ok, true, `no title steps: nothing to run on the pull request: ${nothing.lines.join('\n')}`);
+  const named = { title: 'svc-tax: rates (J-tax-01 #1)' };
+  const exact = await sealWith({
+    ...named,
     files,
     runs: [ghRun(1)],
-    reports: { 1: { states: { 'J-tax-01#1': 'failed' }, ran: [POPUP, TAX] } },
-    verdict: async () => ({ red: [{ step: 'J-tax-01#1', why: 'failing, not in the baseline' }], failing: 1, missing: [] }),
+    reports: { 1: { states: { 'J-tax-01#1': 'passed' }, ran: [TAX] } },
+    verdict: async () => clean,
+  });
+  assert.equal(exact.ok, true, `a run of its title's journey alone seals it: ${exact.lines.join('\n')}`);
+  const missing = await sealWith({
+    ...named,
+    files,
+    runs: [ghRun(1)],
+    reports: { 1: { states: {}, ran: [POPUP] } },
+    verdict: async () => clean,
+  });
+  assert.equal(missing.ok, false);
+  assert.match(missing.lines.join('\n'), /no finished Real-app journeys run on this exact head ran J-tax-01\.pw\.mjs/);
+  // A planted fault breaks the selected journey: its red step fails the seal.
+  const broken = await sealWith({
+    ...named,
+    files,
+    runs: [ghRun(1)],
+    reports: { 1: { states: { 'J-tax-01#1': 'passed', 'J-tax-01#2': 'failed' }, ran: [TAX] } },
+    verdict: async () => ({ red: [{ step: 'J-tax-01#2', why: 'failing, not in the baseline' }], failing: 1, missing: [] }),
   });
   assert.equal(broken.ok, false);
-  assert.match(broken.lines.join('\n'), /J-tax-01#1: failing, not in the baseline/);
-  // The same change with the map off or stale needs the full run, so the targeted run no longer seals it.
-  const stale = await sealWith({
-    files,
-    runs: [ghRun(1)],
-    reports: { 1: { states: {}, ran: [POPUP, TAX] } },
-    verdict: async () => ({ ...clean, missing: [BANK, BOTH] }),
-    mainRuns: [],
-  });
-  assert.equal(stale.ok, false);
-  assert.match(stale.lines.join('\n'), /full run: it changes what can reach any journey .*couldn't be read/);
+  assert.match(broken.lines.join('\n'), /J-tax-01#2: failing, not in the baseline/);
 });
 
 // ---- The committed map is public: only repository paths, service directories, journey names and run facts ----
@@ -913,19 +920,12 @@ test('planted: a committed map too old to read makes a one-service change full; 
   const fresh = newerMap(MAP, tooOld);
   assert.equal(fresh, MAP);
   assert.deepEqual(select(files, { map: fresh, behind: behindOf(fresh) }).files, [POPUP, TAX]);
-  // The seal asks for the build no later than the head's newest journeys run, and holds the run to what it selects.
+  // The seal's reader of the map asks for the build no later than the head's newest journeys run, and selects with it.
+  // (U4 C1: a pull request's seal no longer holds it to the map's selection, so sealPull doesn't call it.)
   let asked;
-  const sealed = await sealPull({
-    repo: REPO,
-    number: 9,
-    sha: HEAD,
+  const inputs = await reachInputs({
     io: {
-      pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: 'b'.repeat(40) }, title: 'svc-tax: rates', body: '' }),
       runs: async () => [ghRun(1, { created_at: '2026-11-08T17:00:00Z' }), ghRun(2, { created_at: '2026-11-08T17:30:00Z' })],
-      reportOf: async () => ({ states: {}, ran: [POPUP, TAX] }),
-      files: async () => files,
-      text: async () => '',
-      verdictOf: async () => clean,
       reachMap: async (before) => {
         asked = before;
         return fresh;
@@ -934,7 +934,11 @@ test('planted: a committed map too old to read makes a one-service change full; 
       journeyFiles: async () => FILES,
       reachMode: 'reach',
     },
+    paths: files,
+    head: HEAD,
+    text: async () => '',
   });
   assert.equal(asked, Date.parse('2026-11-08T17:30:00Z'));
-  assert.equal(sealed.ok, true, sealed.lines.join('\n'));
+  assert.equal(inputs.map, fresh);
+  assert.deepEqual(select(files, { map: inputs.map, behind: inputs.behind }).files, [POPUP, TAX]);
 });

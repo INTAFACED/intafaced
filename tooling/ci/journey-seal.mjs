@@ -33,24 +33,19 @@
  * body that names steps is edited. On a merge queue's commit every queued pull request is judged on its own head the
  * same way, without waiting.
  *
- * A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs a clean full run: the
- * newest finished full Real-app journeys run on its exact head, judged here by journeys verdict's own rules
- * (journey-verdict.mjs judge) with the default branch's baseline and money rule, has 0 steps outside the list or against
- * its rules (judgeFullRun). Any title, naming steps or not. (Failure it prevents: on 7 Nov 2026 a pull request that
- * changed shared stack setup merged on its own named steps and turned main's journeys red for about 2.5 hours; the
- * pilot lead then asked builders by message not to arm such pull requests until a full run was clean. Rule 3 of
- * project-state AGENTS.md: a red main means a regression.) A run is full when its report holds a step from every journey
- * file the baseline's named run reported; a run short of files is judged on the files it has, fails the seal when any
- * of them is red, and is passed over only when all are clean, never read as a full run.
- *
- * Every pull request is also held to the journeys it touches (journey-touch.mjs journeyTouch, from its changed paths):
- * a path that can reach any journey (product code with no recorded map of what reaches it yet, every script under
- * tooling/scripts, the journeys workflow, this seal, the verdict, docs, build and environment files) needs the same
- * clean full run as shared setup (judgeFullRun); a pull request whose only such paths are journey test files needs
- * those files run on its exact head and clean by the journeys verdict (judgeTouchedRun); a pull request touching nothing
- * a journeys run executes or reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
- * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
- * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.)
+ * Every pull request is also held to the journeys it runs, and never to the full suite (U4 C1; project-state OWNER 249
+ * (3), the owner's words: "a PR runs only the journeys it touches, the full suite runs on main after a merge, a red main
+ * is reverted"): the journey files of the steps its title names (those no Left-or-replaced line leaves), the journey
+ * test files it changes that the head still has, and the journeys whose tests read a stack helper
+ * (tooling/scripts/local-stack-services/<svc>.mjs) it changes (journey-touch.mjs prJourneys, the set its own journeys
+ * run was told to run). Each must have run on its exact head, and every run read is clean by the journeys verdict
+ * (judgeTouchedRun: a red anywhere in a run it reads fails, so a title edited to drop a red journey hides nothing; a
+ * set-aside step is never proven, and the money rules are the verdict's own). An empty set needs no run. A change to
+ * shared setup, a script, a doc or product code no longer needs a full run before it merges: main's full run after the
+ * merge and its automatic revert (journeys-revert.mjs) are the backstop. (Failure the full-run rule prevented: on 7 Nov
+ * 2026 a shared-setup change, and #7415's product change, merged on their own steps and turned main red; the guide's
+ * red-team replay on project-state#1574 found 0 of 5 recent main reds would have slipped past a run this narrow.)
+ * judgeFullRun stays for a full run's verdict.
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
  * decision 180, "only the broken area stops"): inherited means main's newest finished full run that the head contains is
@@ -67,7 +62,7 @@
  *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -81,7 +76,7 @@ import {
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
-import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
+import { RUN_FILE, STACK_HELPER, helperReaders, journeyTouch, pathKind, prJourneys, printable, titleFiles } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls } from './review-marker.mjs';
 
@@ -472,9 +467,17 @@ export async function judgeTouchedRun({
   waitOnRunning = true,
   inherited = null,
   reach = null,
+  from = null,
 }) {
-  const why = `it touches ${files.length} journey file(s) (${files.slice(0, 5).join(', ')}${files.length > 5 ? `, ${files.length - 5} more` : ''})${reach?.length ? `, by the touched-journeys map (${reach.slice(0, 3).join('; ')}${reach.length > 3 ? `; ${reach.length - 3} more` : ''})` : ''}`;
-  const how = `dispatch real-app-journeys.yml on the branch with -f journeys="${files.join(' ')}" (or no journeys input, the full suite); the seal re-runs when it finishes`;
+  const parts = from
+    ? [
+        from.named?.length && `${from.named.length} its title names`,
+        from.changed?.length && `${from.changed.length} it changes`,
+        from.readers?.length && `${from.readers.length} whose tests read a stack helper it changes`,
+      ].filter(Boolean)
+    : [];
+  const why = `it touches ${files.length} journey file(s) (${files.slice(0, 5).join(', ')}${files.length > 5 ? `, ${files.length - 5} more` : ''})${parts.length ? `: ${parts.join(', ')}` : ''}${reach?.length ? `, by the touched-journeys map (${reach.slice(0, 3).join('; ')}${reach.length > 3 ? `; ${reach.length - 3} more` : ''})` : ''}`;
+  const how = `push to the branch (a ready pull request's push runs them) or dispatch real-app-journeys.yml on the branch with -f journeys="${files.join(' ')}"; the seal re-runs when it finishes`;
   const mine = onHead(runs, sha, repo);
   const running = mine.filter((r) => r.status !== 'completed');
   if (running.length && waitOnRunning) {
@@ -663,6 +666,12 @@ export function makeIo(repo, token) {
       return new Set(
         list.filter((e) => e?.type === 'file' && JOURNEY_TEST.test(`apps/customer/tests/real-app/${e.name}`)).map((e) => e.name),
       );
+    },
+    // A file in the default branch's checkout this script runs from (BASE_ROOT), or null: what a helper's readers are
+    // read from when the pull request doesn't change the file (sealPull).
+    localText: (path) => {
+      const f = join(BASE_ROOT, path);
+      return !String(path).split('/').includes('..') && existsSync(f) ? readFileSync(f, 'utf8') : null;
     },
     async text(path, ref) {
       const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
@@ -1109,16 +1118,40 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   };
   const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text });
   const touched = judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
-  // The journeys this pull request can reach (journey-touch.mjs): a journey test file the head removed runs nothing.
+  // The journeys this pull request runs (journey-touch.mjs prJourneys, what its journeys run was told to run): its
+  // title's journeys, the journey test files it changes that the head still has, and the journeys whose tests read a
+  // stack helper it changes. Never the full suite (project-state OWNER 249 (3)); main's full run is the backstop.
   const atHead = new Map();
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
-  // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
-  // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
+  // GitHub's Revert button (revertOf) undoes a change and adds none, so only its stack helpers' readers run: a red main
+  // is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
   const reverting = revertOf({ title: pull.title, body: pull.body, repo });
-  const reach = reverting
-    ? { mode: 'none', full: [], files: [] }
-    : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }));
-  const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
+  let pr;
+  let listed = null;
+  const helpers = paths.filter((p) => STACK_HELPER.test(p));
+  try {
+    if ((!reverting && namesSteps(pull.title)) || helpers.length) listed = await io.journeyFiles(head);
+    // A file the pull request changes is read at its head; any other from the default branch's checkout this runs from
+    // (io.localText), so a helper's readers cost no API reads; one the checkout lacks is read at the head.
+    const changedSet = new Set(paths);
+    const read = async (p) => {
+      if (!changedSet.has(p) && io.localText) {
+        const t = await io.localText(p);
+        if (t !== null) return t;
+      }
+      return text(p, head);
+    };
+    pr = prJourneys({
+      paths,
+      atHead: (f) => atHead.get(f) ?? true,
+      revert: Boolean(reverting),
+      named: reverting ? [] : titleFiles({ title: pull.title, body: pull.body, journeyFiles: listed }),
+      readers: await helperReaders({ changed: helpers, journeyFiles: listed, read }),
+    });
+  } catch (e) {
+    pr = { mode: 'error', files: [], why: e.message };
+  }
+  const runs = titleSteps(pull.title).length || pr.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
     if (!reports.has(r.id)) reports.set(r.id, io.reportOf(r));
@@ -1158,36 +1191,15 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           rangeOf: io.rangeOf,
         })
     : null;
-  const notShared = reach.full.filter((x) => !isSharedSetup(x.path));
-  const full = shared.length
-    ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf, waitOnRunning, inherited })
-    : reach.mode === 'full'
-      ? await judgeFullRun({
-          sha: head,
-          repo,
-          shared: [],
-          runs,
-          reportOf,
-          verdictOf,
-          waitOnRunning,
-          inherited,
-          because: `it changes what can reach any journey (${notShared
-            .slice(0, 3)
-            .map((x) => `${x.path}: ${x.why}`)
-            .join('; ')}${notShared.length > 3 ? `; ${notShared.length - 3} more` : ''})`,
-        })
-      : reach.mode === 'files'
-        ? await judgeTouchedRun({
-            sha: head,
-            repo,
-            files: reach.files,
-            runs,
-            reportOf,
-            verdictOf,
-            waitOnRunning,
-            inherited,
-            reach: reach.reach,
-          })
+  const full =
+    pr.mode === 'error'
+      ? {
+          ok: false,
+          state: 'fail',
+          lines: [`touched journeys: the journeys this pull request runs couldn't be worked out (${pr.why}), so the seal fails closed`],
+        }
+      : pr.mode === 'files'
+        ? await judgeTouchedRun({ sha: head, repo, files: pr.files, runs, reportOf, verdictOf, waitOnRunning, inherited, from: pr })
         : { ok: true, state: 'none', lines: [] };
   const v = {
     ok: steps.ok && full.ok && touched.ok,
@@ -1671,7 +1683,7 @@ function report({ ok, lines, stepsOk = ok, fullOk = true }, how) {
         .slice(
           0,
           3000,
-        )}. A pull request is held to the journeys it touches (tooling/ci/journey-touch.mjs): shared setup, product code and anything else that can reach any journey need the newest finished full Real-app journeys run on its exact head clean by the journeys verdict (dispatch real-app-journeys.yml on the branch with no journeys input); a change to journey test files only needs those files run clean (the journeys input naming them). Read with the default branch's baseline; the seal re-runs when the run finishes. \`node tooling/ci/journey-touch.mjs --base origin/main\` prints which.`,
+        )}. A pull request is held to the journeys it runs (tooling/ci/journey-touch.mjs prJourneys), never the full suite: its title's journeys, the journey test files it changes and the journeys whose tests read a stack helper it changes, each run on its exact head and clean by the journeys verdict, read with the default branch's baseline. A ready pull request's push runs them; the seal re-runs when the run finishes. \`TITLE='<title>' node tooling/ci/journey-touch.mjs --pr --base origin/main\` prints which.`,
     );
   if (stepsOk) process.exit(1);
   console.error(

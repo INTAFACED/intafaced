@@ -299,3 +299,21 @@ test('the planner as the workflow calls it prints shards that hold every real jo
   assert.deepEqual(printed, journeyFiles(JOURNEY_DIR));
   assert.equal(new Set(printed).size, printed.length);
 });
+
+test("--max caps a pull request's shards (U4 C1): every journey file still runs once, in at most that many shards", () => {
+  const plan = (...extra) =>
+    JSON.parse(
+      execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', ...extra], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    ).map((s) => s.split(' '));
+  // With no report every step counts the same and the suite takes its floor of 8 shards, so a cap of 3 is below it.
+  assert.equal(plan().length, 8);
+  const capped = plan('--max', '3');
+  assert.equal(capped.length, 3);
+  assert.deepEqual(capped.flat().sort(), journeyFiles(JOURNEY_DIR), 'no file dropped or repeated under the cap');
+  const two = journeyFiles(JOURNEY_DIR).slice(0, 2).join(' ');
+  assert.ok(plan('--only', two, '--max', '10').length <= 2, 'a small target takes no more shards than it needs');
+  assert.throws(() => plan('--max', '0'), 'a cap below one shard is refused');
+});
