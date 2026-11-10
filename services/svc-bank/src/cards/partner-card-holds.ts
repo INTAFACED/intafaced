@@ -1,6 +1,6 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError, type BankErrorCode } from '../errors.js';
-import type { TestPartnerSwitches } from '../partner/test-partner.js';
+import { TEST_PARTNER_UNLISTED_DECLINE, type TestPartnerSwitches } from '../partner/test-partner.js';
 import type { CardCustodyMode, CardPartnerTerms } from './partner-terms.js';
 
 /**
@@ -66,7 +66,11 @@ export interface PartnerHoldReport {
 
 export type PartnerHoldAnswer =
   | { readonly approved: true; readonly hold: PartnerHoldReport; readonly figures: PartnerCardFigures }
-  | { readonly approved: false; readonly reason: 'bank.card_partner_insufficient_funds'; readonly figures: PartnerCardFigures };
+  /**
+   * The partner's no, with its reason code: `bank.card_partner_insufficient_funds`, or any code of the partner's own,
+   * which is recorded and shown as it came, raw when nothing here has words for it (J-bank-14 #6).
+   */
+  | { readonly approved: false; readonly reason: string; readonly figures: PartnerCardFigures };
 
 export interface PartnerMoveAnswer {
   /** The partner's own reference for this instruction. */
@@ -279,6 +283,9 @@ export function testPartnerCardHolds(options: {
           );
         }
         const want = parseAmount(amount);
+        if (options.switches(userId).cardDecline === 'unlisted') {
+          return { approved: false, reason: TEST_PARTNER_UNLISTED_DECLINE, figures: figuresOf(userId, assetId) };
+        }
         if (want > book.available) {
           return { approved: false, reason: 'bank.card_partner_insufficient_funds', figures: figuresOf(userId, assetId) };
         }

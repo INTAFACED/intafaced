@@ -620,6 +620,11 @@ export function createOpsRouter(c: BankRouterContext) {
             .string()
             .regex(/^\d{4,12}$/)
             .optional(),
+          /**
+           * The issuer's flag for a merchant charging a card it keeps on file, on a schedule the cardholder agreed (J-bank-14
+           * #6). Like the merchant parts, it rides with the issuer's message and is not part of the approval's binding.
+           */
+          recurring: z.boolean().optional(),
           ...actionApprovalFields,
         }),
       )
@@ -659,6 +664,7 @@ export function createOpsRouter(c: BankRouterContext) {
             ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
             ...(input.channel === undefined ? {} : { channel: input.channel }),
             ...(input.pin === undefined ? {} : { pin: input.pin }),
+            ...(input.recurring === undefined ? {} : { recurring: input.recurring }),
           });
           return {
             authorizationId: authorization.id,
