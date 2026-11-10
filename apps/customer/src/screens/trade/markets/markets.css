@@ -141,6 +141,19 @@
     gap: var(--if-space-4);
     margin-bottom: var(--if-space-4);
   }
+  /* What spot does not offer, named with its blocker (tokenized equities, retail price improvement). */
+  .mkt-not-offered {
+    margin-block-start: var(--if-space-4);
+    display: grid;
+    gap: var(--if-space-2);
+  }
+  .mkt-not-offered h2 {
+    font: 600 var(--if-text-sm) / 1.4 var(--if-font-ui);
+  }
+  .mkt-not-offered ul {
+    display: grid;
+    gap: var(--if-space-1);
+  }
   .mkt-page__head h1 {
     font: 600 var(--if-text-xl)/32px var(--if-font-ui);
   }

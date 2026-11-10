@@ -19,6 +19,8 @@ import {
 } from './card-controls';
 import { CardChannelsPanel, CardLimitsPanel } from './CardSettings';
 import { CardBlocksPanel } from './CardBlocks';
+import { CardDetailsReveal, CardPinPanel, CardWalletPanel, useSecretsOffered } from './CardSecrets';
+import { CardFraudPanel, CardThreeDSPanel } from './CardSafety';
 import { cardDepthCopy } from './card-depth-copy';
 import { bps, positiveMoney, type ActionSpec } from './components';
 import type { cardSchema } from './contracts';
@@ -219,6 +221,7 @@ export function CardControlPanels({
   open: (spec: ActionSpec) => void;
 }) {
   const { t } = cardDepthCopy.useCopy();
+  const offered = useSecretsOffered();
   return (
     <div className="bd-grid" data-card={card.id}>
       <CardLimitsPanel card={card} open={open} />
@@ -254,20 +257,16 @@ export function CardControlPanels({
           )}
           <Fact label={t('rewardsRate')}>{card.cashbackBps > 0 ? bps(card.cashbackBps) : t('rewardsRateNone')}</Fact>
         </dl>
-        <DisabledAction label={t('detailsShow')} reason={t('detailsReason')} />
+        <CardDetailsReveal card={card} offered={offered} />
       </DepthPanel>
       <DepthPanel title={t('pinTitle')}>
-        <div className="actions">
-          <DisabledAction label={t('pinView')} reason={t('pinReason')} />
-          <DisabledAction label={t('pinChange')} reason={t('pinReason')} />
-        </div>
+        <CardPinPanel card={card} offered={offered} />
       </DepthPanel>
       <DepthPanel title={t('walletTitle')}>
-        <div className="actions">
-          <DisabledAction label={t('walletApple')} reason={t('walletReason')} />
-          <DisabledAction label={t('walletGoogle')} reason={t('walletReason')} />
-        </div>
+        <CardWalletPanel card={card} offered={offered} />
       </DepthPanel>
+      <CardThreeDSPanel card={card} />
+      <CardFraudPanel card={card} />
       <DepthPanel title={t('rewardsTitle')}>
         <dl className="bd-facts">
           <Fact label={t('rewardsBalance')}>{t('disabledBecause')}</Fact>

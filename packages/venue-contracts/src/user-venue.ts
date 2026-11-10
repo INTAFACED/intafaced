@@ -310,6 +310,8 @@ export type VenueRefusalCode =
   | 'builder_fee_not_published'
   /** The account has not approved our builder fee, or approved less than the order carries. */
   | 'builder_fee_not_approved'
+  /** The order's builder fee is above the venue's own published cap for its market (`UserVenueMarket.builderFeeCapBps`). */
+  | 'builder_fee_above_cap'
   /** An agent key tried an owner-only action (withdraw, approvals). */
   | 'agent_not_permitted'
   /** The signer is not the account's owner or an approved agent. */
@@ -340,6 +342,14 @@ export type VenueRefusalCode =
   | 'venue_rejected'
   /** An agent order would commit more than the room left under the person's cap (agent-cap.ts). Nothing signed. */
   | 'agent_cap_exceeded'
+  /** The venue's market is halted: it takes no new order. */
+  | 'market_halted'
+  /** The venue's market takes cancels only. */
+  | 'market_cancel_only'
+  /** The venue delisted the market. */
+  | 'market_delisted'
+  /** The order is larger than the venue's own largest order size or notional for the market. */
+  | 'order_above_venue_max'
   /** The agent's cap is revoked or expired: only cancels are signed. */
   | 'agent_cap_inactive'
   /** The room under the cap can't be measured (a holding with no known mark, a market in another quote). Nothing signed. */
@@ -451,6 +461,38 @@ export interface UserVenueWithdrawal {
   readonly status: UserVenueWithdrawalStatus;
   /** The venue's withdrawal fee, or `known: false` when it does not publish one. */
   readonly fee: MaybeKnown<Amount>;
+  /**
+   * The network fee for sending the withdrawal on chain, in `asset`, as the venue reports it: taken from what arrives
+   * at `destination`, never from the venue balance a second time. `known: false` when the venue does not publish it,
+   * shown as "not known", never as 0.
+   */
+  readonly networkFee: MaybeKnown<Amount>;
+}
+
+/**
+ * Where a customer's own wallet sends a token on chain to fund their venue account (a venue's deposit bridge). The
+ * venue credits the SENDER's account, by the transfer's own id (`depositRef` = `<chainId>:<txHash>:<logIndex>`), once.
+ * INTAFACED moves nothing and the ledger posts nothing: the transfer is the customer's, signed in their wallet.
+ */
+export interface UserVenueDepositRoute {
+  /** The chain the transfer is sent on. */
+  readonly chainId: number;
+  /** The token contract the venue credits, lowercase. */
+  readonly token: string;
+  /** The token's on-chain decimals. */
+  readonly tokenDecimals: number;
+  /** The venue's deposit address on that chain, lowercase. */
+  readonly address: string;
+  /** The venue asset the transfer is credited as. */
+  readonly asset: string;
+}
+
+/** The venue's id for one on-chain deposit: the same transfer always gives the same id, so a replay credits nothing. */
+export function venueDepositRef(chainId: number, txHash: string, logIndex: number): string {
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`deposit chain id must be a positive integer, got ${chainId}`);
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new Error(`deposit tx hash must be 0x and 64 hex, got ${JSON.stringify(txHash)}`);
+  if (!Number.isSafeInteger(logIndex) || logIndex < 0) throw new Error(`deposit log index must be a whole number, got ${logIndex}`);
+  return `${chainId}:${txHash.toLowerCase()}:${logIndex}`;
 }
 
 export interface UserVenueAgent {
@@ -483,12 +525,41 @@ export interface UserVenueMarket {
   /** The venue's published fee for this account, or `known: false`. */
   readonly makerFeeBps: MaybeKnown<Amount>;
   readonly takerFeeBps: MaybeKnown<Amount>;
+  /**
+   * The venue's own trading state for this market, as it reports it, or `null` when the venue does not report one.
+   * Ours (a listing, a routing state) is never written here: this is the venue's word, shown beside ours.
+   */
+  readonly status: UserVenueMarketStatus | null;
+  /** The venue's largest order size in base units, or `null` when it does not report one (never a guessed cap). */
+  readonly maxOrderQty: Amount | null;
+  /** The venue's largest order notional in the quote asset, or `null` when it does not report one. */
+  readonly maxOrderNotional: Amount | null;
+  /**
+   * The most builder fee the venue lets any builder attach to an order on this market, in bps of notional (scaled, as
+   * `maxFeeBps`), as the venue publishes it; `known: false` when it publishes none. An order carrying more is refused
+   * `builder_fee_above_cap`, and our builder-fee versions are never written above it (J-cex-spot-17 #3).
+   */
+  readonly builderFeeCapBps: MaybeKnown<Amount>;
 }
+
+/**
+ * A venue market's own state: `trading` takes orders; `halted` takes no new order; `cancel_only` takes cancels only;
+ * `delisted` is gone from the venue. The venue refuses an order its state does not admit (`market_halted`,
+ * `market_cancel_only`, `market_delisted`).
+ */
+export type UserVenueMarketStatus = 'trading' | 'halted' | 'cancel_only' | 'delisted';
+export const USER_VENUE_MARKET_STATUSES: readonly UserVenueMarketStatus[] = ['trading', 'halted', 'cancel_only', 'delisted'];
 
 /** One figure of a preview: an amount in a named asset. */
 export interface VenueAssetAmount {
   readonly asset: string;
   readonly amount: Amount;
+}
+
+/** The part of a previewed order that would fill now (`VenueOrderPreview.fill`). */
+export interface VenuePreviewFill {
+  readonly amount: Amount;
+  readonly averagePrice: Amount | null;
 }
 
 /**
@@ -514,6 +585,15 @@ export interface VenueOrderPreview {
   readonly venueFee: MaybeKnown<VenueAssetAmount>;
   /** Our builder fee on the same basis; known zero when the order carries none. */
   readonly builderFee: MaybeKnown<VenueAssetAmount>;
+  /**
+   * What the order would fill now against the venue's book, and at what price:
+   * `amount` in the base asset (zero when nothing crosses, then `averagePrice`
+   * is `null`), `averagePrice` the fill's volume-weighted price in the quote
+   * asset (rounded against the customer: down on a sell, up on a buy). A
+   * resting remainder is not in it. `known: false` where the venue does not
+   * say. Like the rest of a preview, it is not a quote: the book can move.
+   */
+  readonly fill: MaybeKnown<VenuePreviewFill>;
   /** Perpetuals only; `null` on spot. */
   readonly perpetual: {
     readonly leverageBps: number;

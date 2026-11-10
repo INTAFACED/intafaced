@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
-/** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2). */
-export const LOCAL_TEST_SANCTIONED_ADDRESS = '0x5a7c7100000000000000000000000000000ba5ed';
+/** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
+import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
+
+export { LOCAL_TEST_SANCTIONED_ADDRESS };
 const LOCAL_TEST_SANCTIONED_DESTINATION = `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`;
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -12,12 +14,31 @@ function testValue(name) {
   return entry.value;
 }
 
+/** The blocked-region notice (BK-safe-01, J-bank-18 #1): the profile's TEST wording, or blank when asked to show it unset. */
+function blockedRegionNotice() {
+  const asked = process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+  if (asked === undefined || asked === '') return { BANK_BLOCKED_REGION_NOTICE: testValue('BANK_BLOCKED_REGION_NOTICE') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
+}
+
 /** The staking risk wording (BK-earn-04): the profile's TEST wording, or blank when the stack is asked to show it unset. */
 function earnRiskWording() {
   const asked = process.env.LOCAL_STACK_BANK_EARN_RISK_WORDING;
   if (asked === undefined || asked === '') return { BANK_EARN_RISK_WORDING_JSON: testValue('BANK_EARN_RISK_WORDING_JSON') };
   if (asked === 'off') return {};
   throw new Error(`LOCAL_STACK_BANK_EARN_RISK_WORDING is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
+}
+
+/**
+ * The owner's cooling-off for a new bank destination (J-bank-03 #2): the stack's TEST 24 hours, or blank when the stack is
+ * asked to show it unset, so a cash-out to any account refuses `bank.offramp_cooling_unset`.
+ */
+function offrampCooling() {
+  const asked = process.env.LOCAL_STACK_BANK_OFFRAMP_COOLING;
+  if (asked === undefined || asked === '') return { BANK_OFFRAMP_COOLING_HOURS: '24' };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_OFFRAMP_COOLING is "${asked}"; leave it unset for the TEST 24 hours, or set it to off.`);
 }
 
 /** The lending policy (BK-loan-01, J-bank-09 #1): new loans open, or switched off when the stack is asked to show it. */
@@ -90,6 +111,18 @@ function cardPartner() {
 }
 
 /**
+ * The card dispute cap (J-bank-27 #4): the profile's TEST cap, or blank when a restart asks
+ * `LOCAL_STACK_BANK_CARD_DISPUTE_CAP=off`, so a journey can see a credit and a cardholder decision refused
+ * bank.card_dispute_cap_unset.
+ */
+function disputeCap() {
+  const asked = process.env.LOCAL_STACK_BANK_CARD_DISPUTE_CAP;
+  if (asked === undefined || asked === '') return { BANK_CARD_DISPUTE_CAP_JSON: testValue('BANK_CARD_DISPUTE_CAP_JSON') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_CARD_DISPUTE_CAP is "${asked}"; leave it unset for the TEST cap, or set it to off.`);
+}
+
+/**
  * The owner's money-out step-up rule (ADR 2026-10-14-money-out-step-up): off on the stack, as in production today, or
  * `required` when a journey asks for it on a restart (J-pay-01 #5: the fresh confirmation before a send to a person).
  */
@@ -125,6 +158,33 @@ function statementJobs() {
   throw new Error(`LOCAL_STACK_BANK_STATEMENT_HOLD is "${asked}"; leave it unset for renders that finish, or set it to on.`);
 }
 
+/** The account terms (BK-acct-01): the TEST base tier, or blank when the stack is asked to show them unpublished. */
+function accountTerms() {
+  const asked = process.env.LOCAL_STACK_BANK_ACCOUNT_TERMS;
+  if (asked === undefined || asked === '')
+    return {
+      BANK_ACCOUNT_TERMS_JSON: JSON.stringify({
+        tier: 'TEST base tier',
+        version: 'local-test-1',
+        currency: 'USDT',
+        monthlyFee: '0',
+        minimumBalance: '0',
+        overdraftFee: '1',
+        included: ['TEST spaces for your goals', 'TEST moves between your spaces'],
+      }),
+    };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_ACCOUNT_TERMS is "${asked}"; leave it unset for the TEST terms, or set it to off.`);
+}
+
+/** The space limit (BK-pots-01): the TEST limit of 5, or blank when the stack is asked to show it not set. */
+function spaceLimit() {
+  const asked = process.env.LOCAL_STACK_BANK_SPACE_LIMIT;
+  if (asked === undefined || asked === '') return { BANK_SPACE_LIMIT: '5' };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_SPACE_LIMIT is "${asked}"; leave it unset for the TEST limit, or set it to off.`);
+}
+
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
 function depositCustody(urlOf) {
   const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
@@ -157,17 +217,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // The TEST tier publishes a TEST overdraft fee of 1 USDT, so it is a plan that allows a negative balance: J-bank-02 #8
     // pays more than the balance holds on it and sees the bank refuse, naming the overdraft as switched off
     // (bank.overdraft_switched_off), as no overdraft engine exists in this build.
-    BANK_ACCOUNT_TERMS_JSON: JSON.stringify({
-      tier: 'TEST base tier',
-      version: 'local-test-1',
-      currency: 'USDT',
-      monthlyFee: '0',
-      minimumBalance: '0',
-      overdraftFee: '1',
-      included: ['TEST spaces for your goals', 'TEST moves between your spaces'],
-    }),
+    // `LOCAL_STACK_BANK_ACCOUNT_TERMS=off` or `LOCAL_STACK_BANK_SPACE_LIMIT=off` on a restart leaves that value blank, so
+    // the panel's "terms not published" and the create's "limit not set" can be seen too (J-bank-01 #2 and #4).
+    ...accountTerms(),
     BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
-    BANK_SPACE_LIMIT: '5',
+    ...spaceLimit(),
     // LOCAL TEST value from the bank profile (BK-pots-02): how long an early unlock of a locked space waits. Unset, every
     // early unlock refuses bank.space_unlock_rule_unset and the space stays locked to its date.
     BANK_SPACE_UNLOCK_WAIT_HOURS: testValue('BANK_SPACE_UNLOCK_WAIT_HOURS'),
@@ -193,13 +247,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST card programme from the bank profile (J-bank-13): eligible countries, count limits, TEST cardholder terms,
     // designs and delivery speeds. Unset, the card room refuses bank.card_eligibility_unset and no card can be ordered there.
     BANK_CARD_PROGRAMME_JSON: testValue('BANK_CARD_PROGRAMME_JSON'),
+    // LOCAL TEST count of wrong PIN tries that block a card's PIN (J-bank-14 #3).
+    BANK_CARD_PIN_TRY_LIMIT: testValue('BANK_CARD_PIN_TRY_LIMIT'),
+    // LOCAL TEST count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5).
+    BANK_CARD_3DS_TRY_LIMIT: testValue('BANK_CARD_3DS_TRY_LIMIT'),
     // LOCAL TEST cashback by rank card tier (J-bank-13 #7): the profile's TEST rates in IFC, and the card simulator's
     // cashback stand-in (refused at boot outside dev/test), so a TEST card spend can be paid cashback from the one reward
     // pot. Without the stand-in a simulated card pays none (bank.rewards_issuer_unset).
     BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
     BANK_CARD_SIM_CASHBACK: 'test',
     BANK_ADDRESS_BOOK_CAP: '10',
-    BANK_OFFRAMP_COOLING_HOURS: '24',
+    ...offrampCooling(),
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a
     // listed address refused by name (bank.destination_sanctions_listed). Set only here, never in a deploy; unset, every
     // address save refuses bank.destination_sanctions_unset.
@@ -229,6 +287,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
+    // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
+    // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
+    // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
+    // partner-held (OWNER 226).
+    LEDGER_CUSTODY_LAYER: 'on',
     // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
     // through the pay-in stand-in below.
@@ -274,9 +337,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST wording from the bank profile (BK-earn-04, J-bank-08 #6): what slashing means and who owns a staked saving.
     // `LOCAL_STACK_BANK_EARN_RISK_WORDING=off` on a restart leaves it blank, so the pool page's "not published" can be seen.
     ...earnRiskWording(),
+    // LOCAL TEST notice from the bank profile for a transfer opened from a blocked region (BK-safe-01, J-bank-18 #1).
+    // `LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE=off` on a restart leaves it blank, so the notice's "not published" can be seen.
+    ...blockedRegionNotice(),
+    // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart adds a TEST business block for the TEST region AA
+    // (packages/config jurisdiction.ts testBusinessBlocksFromEnv), and edge.mjs then stamps every request from AA, so the
+    // bank's doors refuse denied.region_blocked with its reason (J-bank-18 #1), as svc-protocol's do (J-wallet-09 #1).
+    ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' } : {}),
     // The money-out step-up rule is off unless `LOCAL_STACK_BANK_STEP_UP_MONEY_OUT=required` on a restart (J-pay-01 #5).
     ...moneyOutStepUp(),
     ...cardPartner(),
+    ...disputeCap(),
     // No send review rule unless `LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on` on a restart (J-pay-01 #6).
     ...sendReview(),
     // Nothing moves money in the background of a test stack.

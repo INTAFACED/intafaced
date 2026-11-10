@@ -376,3 +376,21 @@ export function bridgeBoundary(chain: string, assetId: string): AccountRef {
 export function venueBoundary(venue: string, assetId: string): AccountRef {
   return { ownerType: 'treasury', ownerId: `venue:${venue}`, assetId, kind: 'available' };
 }
+
+/**
+ * What a venue owes us in builder fees (D-venue-07; CUSTODY-DELTA.md §3 item 1): a boundary, because the money is at the
+ * venue, not in the book. `builderFeeEarn` takes it below zero by each fee the venue charged on our users' fills;
+ * `builderFeeReceive` brings it back up when the venue pays them out. Its negative balance is exactly what that venue
+ * still owes, the number J-derivatives-17's recon shows as owed.
+ */
+export function venueBuilderFeeReceivable(venueId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `venue-builder-fee:${venueId}`, assetId, kind: 'available' };
+}
+
+/**
+ * Our own builder account at a venue (D-venue-07): builder fees the venue has paid out to us, still held there. A
+ * boundary like `venueBoundary`: its negative balance is our own money at that venue. Never a customer's.
+ */
+export function venueBuilderAccount(venueId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `venue-builder-account:${venueId}`, assetId, kind: 'available' };
+}

@@ -10,7 +10,7 @@
  * The eligibility statement is the owner's published rule set (`BANK_ELIGIBILITY_JSON`) next to the platform's own verdict for a
  * region (`JURISDICTION_MATRIX`). A blank or unreadable rule set refuses `bank.eligibility_unset`.
  */
-import { ruleFor } from '@intafaced/config';
+import { activeBusinessBlocks, businessBlockFor, ruleFor } from '@intafaced/config';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
 
@@ -162,7 +162,7 @@ export type EligibilityRules = z.infer<typeof ruleSetSchema>;
 
 export interface RegionVerdict {
   readonly region: string;
-  /** The platform's own rule for the bank module in this region (`JURISDICTION_MATRIX`). It does not consult a sanctions list. */
+  /** The platform's own rule for the bank module in this region, a whole-region business block first (`JURISDICTION_MATRIX`). It does not consult a sanctions list. */
   readonly status: 'open' | 'restricted' | 'blocked';
   readonly minTier: string;
   readonly notes: string | null;
@@ -198,13 +198,16 @@ export function eligibilityFor(rawRules: string | undefined, region: string | un
   if (region === undefined) return { rules, verdict: null };
   const code = region.trim().toUpperCase();
   const rule = ruleFor('bank', code);
+  // A whole-region business block (the US, OWNER 237) refuses every module before any module rule is read, so the
+  // verdict says blocked with the block's reason rather than the module rule's open default.
+  const block = businessBlockFor(code, activeBusinessBlocks());
   return {
     rules,
     verdict: {
       region: code,
-      status: rule.status,
+      status: block ? 'blocked' : rule.status,
       minTier: rule.minTier,
-      notes: rule.notes ?? null,
+      notes: block ? (block.reason ?? null) : (rule.notes ?? null),
       source: 'JURISDICTION_MATRIX',
       listed: rules.countries.includes(code),
     },

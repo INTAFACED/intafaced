@@ -11,6 +11,8 @@ import { parseAmount } from '@intafaced/ledger-client/money';
 import type { PreparedVenueAction } from '@intafaced/venue-contracts';
 import { seedTestVenue, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
 
@@ -90,6 +92,7 @@ describe('UserVenueDoor on SqlPreparedActionStore (Postgres) against the TEST si
       stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
       builder: null,
       now: () => new Date(),
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
     return { d, store };
   }
