@@ -187,7 +187,13 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
 
   describe('navigator.onchain.signer', () => {
     it('names the signer on the test network and refuses mainnet, no signer and other chains by code', async () => {
-      await expect(as(USER).onchain.signer({ chainId: 84532 })).resolves.toEqual({ signer: SIGNER, chainId: 84532, network: 'testnet' });
+      await expect(as(USER).onchain.signer({ chainId: 84532 })).resolves.toEqual({
+        signer: SIGNER,
+        chainId: 84532,
+        network: 'testnet',
+        pools: [POOL.toLowerCase(), AB_POOL.toLowerCase()],
+        router: ROUTER.toLowerCase(),
+      });
       await expect(as(USER).onchain.signer({ chainId: 8453 })).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
         message: 'audit.external',

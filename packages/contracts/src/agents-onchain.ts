@@ -42,6 +42,8 @@ export const navigatorOnchainSignerSchema = z.object({
    * session key reach only pools in its own targets. Empty when no market is set: the key can then trade nothing.
    */
   pools: z.array(address).max(16),
+  /** The router the Navigator trades through, which a grant names; null when no market is set. */
+  router: address.nullable(),
 });
 export type NavigatorOnchainSigner = z.infer<typeof navigatorOnchainSignerSchema>;
 

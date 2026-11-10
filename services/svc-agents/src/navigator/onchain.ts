@@ -40,7 +40,7 @@ export class NavigatorOnchainError extends Error {
  * `audit.external` (no external audit of the smart account exists); any other chain refuses as unsupported. With no
  * signer configured, every chain refuses `rail.crypto`: there is nothing to bind a key to.
  */
-export function navigatorSigner(chainId: number, configured: string | null | undefined): Omit<NavigatorOnchainSigner, 'pools'> {
+export function navigatorSigner(chainId: number, configured: string | null | undefined): Omit<NavigatorOnchainSigner, 'pools' | 'router'> {
   if ((NAVIGATOR_ONCHAIN_MAINNET_CHAIN_IDS as readonly number[]).includes(chainId)) throw new NavigatorOnchainError('audit.external');
   if (chainId !== NAVIGATOR_ONCHAIN_TEST_CHAIN_ID) throw new NavigatorOnchainError('agents.onchain_chain_unsupported');
   if (!configured) throw new NavigatorOnchainError('rail.crypto');

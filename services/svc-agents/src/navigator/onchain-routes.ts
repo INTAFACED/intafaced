@@ -93,6 +93,7 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
           guard(async () => ({
             ...navigatorSigner(input.chainId, deps.signer),
             pools: deps.market?.pools.map((p) => p.toLowerCase()) ?? [],
+            router: deps.market?.router.toLowerCase() ?? null,
           })),
         ),
 

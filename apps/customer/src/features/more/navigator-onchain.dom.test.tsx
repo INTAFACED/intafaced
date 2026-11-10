@@ -148,7 +148,7 @@ beforeEach(() => {
   wallet.chainId = 84532;
   wallet.guard = { ok: true };
   answers = {
-    'navigator.onchain.signer': { ok: true, data: { signer: SIGNER, chainId: 84532, network: 'testnet', pools: [POOL] } },
+    'navigator.onchain.signer': { ok: true, data: { signer: SIGNER, chainId: 84532, network: 'testnet', pools: [POOL], router: null } },
     'navigator.onchain.binding': { ok: true, data: { binding: null } },
     // As the service does: what is bound is what a later read returns.
     'navigator.onchain.bind': (input: {
@@ -296,6 +296,19 @@ describe('Prepare grant', () => {
     expect(procedures()).not.toContain('navigator.onchain.bind');
     expect(unsigned()).toBeNull();
     expect(status()).toBeNull();
+  });
+
+  it('names the router the Navigator trades through, when its market is set, with its pools', async () => {
+    const market = '0x' + '0b'.repeat(20);
+    answers['navigator.onchain.signer'] = {
+      ok: true,
+      data: { signer: SIGNER, chainId: 84532, network: 'testnet', pools: [POOL], router: market },
+    };
+    await mount();
+    type(/^Spend cap/, '1');
+    type(/^Expires/, '1d');
+    await prepare();
+    expect(protocol.buildSessionGrant.mock.calls[0]![0].spec.targets).toEqual([market, POOL]);
   });
 
   it('a valid test-network grant builds the call for the Navigator’s key, records it, and shows the unsigned call', async () => {
