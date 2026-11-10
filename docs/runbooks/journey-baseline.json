@@ -2077,34 +2077,6 @@
       "why": "expect(locator).toBeVisible() failed"
     },
     {
-      "step": "J-dex-protocol-12#5",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
-      "step": "J-dex-protocol-12#6",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
-      "step": "J-dex-protocol-12#7",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
-      "step": "J-dex-protocol-12#8",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
-      "state": "unbuilt",
-      "money": false,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
       "step": "J-dex-protocol-13#1",
       "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
       "state": "unbuilt",
