@@ -39,6 +39,8 @@ import {
   laterEdgeBudget,
   readEdgeBudget,
   tapeWindow,
+  TAPE_RETRY_WAITS_MS,
+  transientTapeRefusal,
   toScaled,
   toScaledFloor,
 } from './local-test-market.mjs';
@@ -165,6 +167,32 @@ try {
   assert.throws(() => tapeWindow({ nowMs: now, trades: 7, stepMs: 1000, perBar: 7 }), /divide evenly/);
   assert.equal(TAPE_CLIENT_PREFIX, 'LTEST-TAPE-');
   assert.ok(`${TAPE_CLIENT_PREFIX}abcdef-${5000 * 5}`.length <= 64); // the order contract's client id limit
+}
+
+// 5c2. A tape order a service refused as unavailable is tried again, a few times; a refusal about the order is not.
+// The reasons are the ones the writer logged on 10 Nov (main's run 42745917050 shard 11, run 42760091859 shard 22).
+{
+  for (const reason of [
+    'refused authority.unavailable',
+    'refused HTTP 503 edge.venue_halt_unavailable',
+    'refused trade.matching_unavailable',
+    'refused HTTP 502 bad gateway',
+    'no result ',
+    'unknown trade.outcome_unknown',
+  ])
+    assert.equal(transientTapeRefusal(reason), true, reason);
+  for (const reason of [
+    'refused trade.price_band',
+    'refused trade.insufficient_funds',
+    'refused HTTP 400 validation',
+    'refused HTTP 429 edge.rate_limited',
+    'filled 0 of 0.5',
+    '',
+    undefined,
+  ])
+    assert.equal(transientTapeRefusal(reason), false, String(reason));
+  // A few tries within about 17 s in all: past a stall of a few seconds, never long enough to hide a service that is down.
+  assert.deepEqual(TAPE_RETRY_WAITS_MS, [2000, 5000, 10000]);
 }
 
 // 5d. The wait at the end of `history`: none while Edge says half its budget or more is left, until the window ends when

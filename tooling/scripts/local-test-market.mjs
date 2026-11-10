@@ -1258,6 +1258,24 @@ export function laterEdgeBudget(prev, next) {
 export const HISTORY_MARKETS_PER_REQUEST = 3;
 
 /**
+ * The waits before each new try of a tape trade a service refused as unavailable (failure it prevents: on 10 Nov,
+ * a few seconds' stall on a CI runner made svc-identity answer svc-trade's operation check after its 3 s limit
+ * (`authority.unavailable`), or Edge's check of matching after its 5 s limit (`edge.venue_halt_unavailable`). The writer
+ * stopped that market at its first refusal, so the market came up short and the journeys shard's setup failed before any
+ * journey ran: shard 11 of main's run 42745917050, and shard 22 of run 42760091859 on both attempts).
+ */
+export const TAPE_RETRY_WAITS_MS = [2000, 5000, 10000];
+
+/**
+ * Whether a refused tape order is worth another try: a service answered that it, or a service it asks, was unavailable,
+ * or the request got a 5xx or no result. A refusal about the order itself (a price band, funds, a rule) is not, and stops
+ * the market as before.
+ */
+export function transientTapeRefusal(reason) {
+  return /unavailable|\bHTTP 5\d\d\b|^no result|^unknown\b/i.test(String(reason ?? ''));
+}
+
+/**
  * Where `trades` tape trades go, `perBar` to a bar of `stepMs`: evenly spaced, the last one in the newest closed bar,
  * which ends where the current bucket starts.
  */
@@ -1438,8 +1456,31 @@ async function runHistory(opts, home) {
         await stopMarket(b);
       }
     }
-    const live = lane.filter((b) => b.writing);
-    if (live.length === 0) return false;
+    if (!lane.some((b) => b.writing)) return false;
+    // Trade n, tried again at the same level and side for each market a service refused as unavailable, after that
+    // market's tape orders are taken off the book (an `unknown` outcome may have rested after all).
+    let todo = lane.filter((b) => b.writing);
+    for (let attempt = 0; todo.length > 0; attempt += 1) {
+      const failed = await placeTrade(n, todo);
+      todo = [];
+      for (const { b, what, reason } of failed) {
+        const wait = TAPE_RETRY_WAITS_MS[attempt];
+        if (wait !== undefined && transientTapeRefusal(reason)) {
+          log(`${b.m.symbol}: TEST tape ${what} ${n} refused (${reason}); trying it again in ${wait / 1000}s`);
+          await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(b.m.symbol)}`).catch(() => null);
+          todo.push(b);
+          continue;
+        }
+        log(`${b.m.symbol}: TEST tape ${what} ${n} refused (${reason}); stopping this market`);
+        await stopMarket(b);
+      }
+      if (todo.length > 0) await sleep(TAPE_RETRY_WAITS_MS[attempt]);
+    }
+    return true;
+  };
+  /** One try of trade n on each market given: the maker's order, then the taker's. Resolves the markets that failed. */
+  const placeTrade = async (n, live) => {
+    const failed = [];
     const rested = resultsOf(
       await placeBatch(
         maker,
@@ -1449,15 +1490,10 @@ async function runHistory(opts, home) {
     );
     const crossing = [];
     for (const [i, b] of live.entries()) {
-      if (rested[i]?.status === 'success') {
-        crossing.push(b);
-        continue;
-      }
-      // An `unknown` outcome may have rested after all, so the market's tape orders are cancelled either way.
-      log(`${b.m.symbol}: TEST tape maker order ${n} refused (${itemRefusal(rested[i])}); stopping this market`);
-      await stopMarket(b);
+      if (rested[i]?.status === 'success') crossing.push(b);
+      else failed.push({ b, what: 'maker order', reason: itemRefusal(rested[i]) });
     }
-    if (crossing.length === 0) return true;
+    if (crossing.length === 0) return failed;
     const hits = resultsOf(
       await placeBatch(
         taker,
@@ -1471,10 +1507,14 @@ async function runHistory(opts, home) {
         b.made += 1;
         continue;
       }
-      log(`${b.m.symbol}: TEST tape trade ${n} did not fill (${itemRefusal(hit)}); stopping this market`);
-      await stopMarket(b);
+      // A taker order that was accepted but filled short is about the book, not a stall: it stops the market.
+      failed.push({
+        b,
+        what: 'trade',
+        reason: hit?.status === 'success' ? `filled ${hit.order?.filled ?? '0'} of ${b.level.amount}` : itemRefusal(hit),
+      });
     }
-    return true;
+    return failed;
   };
   const writing = books.filter((b) => b.writing);
   const laneCount = Math.ceil(writing.length / HISTORY_MARKETS_PER_REQUEST);
