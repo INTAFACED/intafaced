@@ -13,6 +13,7 @@ import {
   partOf,
   sumDecimals,
   type AsOf,
+  type MaybeKnown,
   type OrderIntent,
   type VenueFill,
   type VenueMarginMode,
@@ -128,6 +129,7 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
         ))}
       </ul>
       <ContractStrip market={market} positions={account.positions.data} test={status.test} />
+      <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
       <WalletBar />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
@@ -186,7 +188,7 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
         </div>
         <div>
           <dt>{t('Max leverage')}</dt>
-          <dd className="numeric">
+          <dd className="numeric" data-testid="venue-max-leverage">
             {market.maxLeverageBps === null ? <Known value={{ known: false }} /> : `${leverageTimes(market.maxLeverageBps)}x`}
           </dd>
         </div>
@@ -201,6 +203,73 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
           <dd>
             <Known value={{ known: false }} />
           </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+/**
+ * The market's own published rules, read from the venue (J-derivatives-21 #1, #4): who lists it, the oracle and mark
+ * rules it is priced by, its trading hours, and its price feed's state with the venue's rule while it is stale. Each is
+ * the venue's text as published, or "not published by this venue"; nothing here is ours, and nothing claims a
+ * protection the venue does not give.
+ */
+function MarketRules({ market, venueName, test }: { market: VenueMarket; venueName: string; test: boolean }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
+  const feed = market.feed.known ? market.feed.value : null;
+  return (
+    <section className="dk-panel" aria-label={t('Market rules', { symbol: market.symbol })} data-testid="venue-market-rules">
+      <h2 className="dk-tab-title">
+        {t('Market rules', { symbol: market.symbol })} <TestMark test={test} />
+      </h2>
+      {feed?.state === 'stale' ? (
+        <p role="status" data-testid="venue-feed-stale">
+          {t('Feed stale notice', {
+            venue: venueName,
+            symbol: market.symbol,
+            rule: feed.staleRule.known ? feed.staleRule.value : t('Not published'),
+          })}
+        </p>
+      ) : null}
+      <dl className="protocol-facts">
+        <div>
+          <dt>{t('Listed by')}</dt>
+          <dd data-testid="venue-listing" data-listing={market.listedBy.known ? market.listedBy.value.kind : 'unknown'}>
+            {market.listedBy.known ? t(`listing_${market.listedBy.value.kind}`, { name: market.listedBy.value.name }) : t('Not published')}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Oracle rule')}</dt>
+          <dd data-testid="venue-oracle-rule">{text(market.oracleRule)}</dd>
+        </div>
+        <div>
+          <dt>{t('Mark rule')}</dt>
+          <dd data-testid="venue-mark-rule">{text(market.markRule)}</dd>
+        </div>
+        <div>
+          <dt>{t('Trading hours')}</dt>
+          <dd data-testid="venue-trading-hours">{text(market.tradingHours)}</dd>
+        </div>
+        <div>
+          <dt>{t('Price feed')}</dt>
+          <dd data-testid="venue-feed-state" data-state={feed?.state ?? 'unknown'}>
+            {feed ? (
+              <>
+                {t(feed.state === 'stale' ? 'feed_stale' : 'feed_live')}{' '}
+                <time dateTime={feed.lastOracleUpdateAt} data-testid="venue-feed-updated">
+                  {feed.lastOracleUpdateAt}
+                </time>
+              </>
+            ) : (
+              t('Not published')
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Stale rule')}</dt>
+          <dd data-testid="venue-stale-rule">{feed ? text(feed.staleRule) : t('Not published')}</dd>
         </div>
       </dl>
     </section>
@@ -230,12 +299,13 @@ function MarginStep({
   const [result, setResult] = useState<ActionResult | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const draft = useRef(draftId());
-  const max = market.maxLeverageBps === null ? null : leverageTimes(market.maxLeverageBps);
 
   async function sign() {
     setProblem(null);
     const n = Number(times);
-    if (!Number.isInteger(n) || n < 1 || (max !== null && n > max)) return setProblem(t('Leverage whole', { max: String(max ?? '') }));
+    // Only the shape is checked here. The cap is the venue's: a leverage above it is sent to the venue's prepare, which
+    // refuses it on its face, naming its cap, before the wallet is asked (nothing is signed or changed).
+    if (!Number.isInteger(n) || n < 1) return setProblem(t('Leverage whole'));
     const bps = leverageBpsOf(n);
     const answer = await run(
       { kind: 'update_leverage', symbol: market.symbol, leverageBps: bps, marginMode: mode },
