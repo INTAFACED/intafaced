@@ -52,6 +52,15 @@ export const MIN_SHARDS = 8;
 export const MAX_SHARDS = 32;
 // The workflow stops a shard's journeys after this (Playwright's globalTimeout), so the shard still reports.
 const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
+// The planner warns when a shard's journeys come within this of the limit; a capped plan must stay clear of it.
+const LIMIT_MARGIN_MINUTES = 20;
+// A targeted run (a pull request's touched journeys, or a manual run's files) takes at most this many shards
+// (project-state research/fable-blueprint-2026-11-10 file 10, item 6: "the run is capped at 10 shards"). Each shard
+// costs a runner and about 8 minutes of setup, and runners are what main's verdict and every other pull request wait
+// on. The cap only packs the same files into fewer shards; it never drops one. It gives way, and the shards stay
+// as many as the target asks, whenever the capped plan's longest shard would come within LIMIT_MARGIN_MINUTES of the
+// limit (targetedShards), so a cap never costs a journey its report.
+export const TARGETED_MAX_SHARDS = 10;
 // A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts
 // once until a run has timed its file; from then on the report's count wins.
 const STEP = /^\s*test\(/gm;
@@ -187,6 +196,20 @@ export function shardCount(totalMs, targetMs, min = MIN_SHARDS, max = MAX_SHARDS
 }
 
 /**
+ * How many shards a targeted run takes: as many as the target asks (from one, never more than its files), capped at
+ * TARGETED_MAX_SHARDS, unless the capped plan's longest shard (planShards) would need more than `limitMs` of journeys;
+ * then the uncapped count stands. Fails open: an uncapped count is never lowered past what keeps every shard clear of
+ * the limit. Pure, for the tests.
+ */
+export function targetedShards(files, durations, targetMs, limitMs = (JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES) * 60_000) {
+  const totalMs = files.reduce((a, f) => a + (durations.get(f) ?? 0), 0);
+  const uncapped = Math.min(files.length, shardCount(totalMs, targetMs, 1));
+  if (uncapped <= TARGETED_MAX_SHARDS) return uncapped;
+  const capped = planShards(files, durations, TARGETED_MAX_SHARDS);
+  return Math.max(...capped.map((bin) => bin.ms)) <= limitMs ? TARGETED_MAX_SHARDS : uncapped;
+}
+
+/**
  * Longest file first onto the shard with the least time so far. Ties go to the lower shard and files of equal time
  * keep name order, so the same inputs always give the same split. Every shard gets a file when there are enough files.
  */
@@ -240,10 +263,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
   // Never more shards than files: a shard must have a file to run.
-  // A targeted run takes as few stacks as its files need (from one), not the full suite's floor.
-  const floor = only === null ? MIN_SHARDS : 1;
+  // A targeted run takes as few stacks as its files need (from one), not the full suite's floor, and at most
+  // TARGETED_MAX_SHARDS while every shard stays clear of the limit (targetedShards).
   const target = shardTarget(durations);
-  const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, target, floor)) : Number(asked);
+  const shards =
+    asked !== 'auto'
+      ? Number(asked)
+      : only === null
+        ? Math.min(files.length, shardCount(totalMs, target))
+        : targetedShards(files, durations, target);
   const plan = planShards(files, durations, shards);
   const problems = planCovers(plan, files);
   if (problems.length) {
@@ -251,14 +279,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(1);
   }
   console.error(
-    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each`,
+    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only !== null ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit)` : ''}`,
   );
   plan.forEach((bin, i) =>
     console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
   );
   const longest = Math.max(...plan.map((bin) => bin.ms)) / 60_000;
   // Stderr, so the plan on stdout stays clean; the runner reads workflow commands from both.
-  if (longest > JOURNEY_LIMIT_MINUTES - 20)
+  if (longest > JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES)
     console.error(
       `::warning::the longest shard needs about ${Math.round(longest)} of its ${JOURNEY_LIMIT_MINUTES} minutes of journeys; raise MAX_SHARDS in tooling/scripts/journey-shards.mjs`,
     );

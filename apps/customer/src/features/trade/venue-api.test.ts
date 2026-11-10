@@ -10,6 +10,7 @@ import {
   sumKnown,
   venuePreviewSchema,
   venueStatusSchema,
+  venueWithdrawalSchema,
   walletTypedData,
 } from './venue-api';
 import { closeWorstPrice, totalToCommit } from '../../screens/trade/futures/VenueFuturesDesk';
@@ -76,6 +77,16 @@ describe('venue client', () => {
     expect(onStep('0', '1')).toBe(false);
     expect(partOf('0.1', 40, '0.0001')).toBe('0.04');
     expect(partOf('0.0003', 40, '0.0001')).toBe('0.0001');
+  });
+
+  it('a withdrawal carries its network fee, known or "not known", and one without it is refused', () => {
+    const base = { nonce: 'n1', asset: 'USDC', amount: '10', destination: '0xabc', status: 'pending', fee: { known: true, value: '1' } };
+    expect(venueWithdrawalSchema.parse({ ...base, networkFee: { known: true, value: '0.25' } }).networkFee).toEqual({
+      known: true,
+      value: '0.25',
+    });
+    expect(venueWithdrawalSchema.parse({ ...base, networkFee: { known: false } }).networkFee).toEqual({ known: false });
+    expect(venueWithdrawalSchema.safeParse(base).success).toBe(false);
   });
 
   it('sums only figures the venue published; one not known makes the sum not known', () => {

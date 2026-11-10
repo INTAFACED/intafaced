@@ -3,6 +3,8 @@ import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import {
   SUPPORT_BEREAVEMENT_DATE_INVALID,
   SUPPORT_SAFETY_KEY_REUSED,
+  SUPPORT_SCAM_TRANSFER_NOT_YOURS,
+  SUPPORT_SCAM_TRANSFER_UNCHECKED,
   supportSafetyAcknowledgementSchema,
   supportSafetyAcknowledgementsSchema,
   type SupportSafetyAcknowledgement,
@@ -29,6 +31,10 @@ export function safetyRefusal(failure: Failed, t: T): Refusal {
   const reference = failure.code ?? failure.reason;
   if (failure.code === SUPPORT_SAFETY_KEY_REUSED)
     return { variant: 'refused', title: t('refusedTitle'), body: t('keyReusedBody'), reference };
+  if (failure.code === SUPPORT_SCAM_TRANSFER_NOT_YOURS)
+    return { variant: 'refused', title: t('refusedTitle'), body: t('scamNotYoursBody'), reference };
+  if (failure.code === SUPPORT_SCAM_TRANSFER_UNCHECKED)
+    return { variant: 'unreachable', title: t('refusedTitle'), body: t('scamUncheckedBody'), reference };
   if (failure.code === SUPPORT_BEREAVEMENT_DATE_INVALID)
     return { variant: 'refused', title: t('refusedTitle'), body: t('dateInvalidBody'), reference };
   return {
@@ -39,8 +45,14 @@ export function safetyRefusal(failure: Failed, t: T): Refusal {
   };
 }
 
-/** One send at a time, under the form's key; the key changes only after an answer that is not a lost one. */
-export function useSafetySend<I extends object>(kind: SupportSafetyCaseKind, procedure: 'safety.complain' | 'safety.reportBereavement') {
+/**
+ * One send at a time, under the form's key; the key changes only after an answer that is not a lost one. A scam report
+ * carries no key of ours: the transfer it names is its key (one report per transfer).
+ */
+export function useSafetySend<I extends object>(
+  kind: SupportSafetyCaseKind,
+  procedure: 'safety.complain' | 'safety.reportBereavement' | 'safety.reportScam',
+) {
   const { api } = useSession();
   const { t } = safetyCopy.useCopy();
   const key = useRef(newKey(kind));
@@ -53,7 +65,8 @@ export function useSafetySend<I extends object>(kind: SupportSafetyCaseKind, pro
     sending.current = true;
     setBusy(true);
     setRefusal(null);
-    const out = await api.mutate('support', procedure, { ...input, requestKey: key.current }, supportSafetyAcknowledgementSchema);
+    const body = procedure === 'safety.reportScam' ? input : { ...input, requestKey: key.current };
+    const out = await api.mutate('support', procedure, body, supportSafetyAcknowledgementSchema);
     sending.current = false;
     setBusy(false);
     if (out.ok) {
@@ -82,7 +95,7 @@ export function useMyAcknowledgements(kind: SupportSafetyCaseKind, after: string
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'long' });
 
-/** One acknowledgement: its reference, when, a complaint's deadline or "not set", and the request it made. */
+/** One acknowledgement: its reference, when, a complaint's deadline or "not set", a scam report's case note, and the request it made. */
 export function Acknowledgement({ ack, title, live }: { ack: SupportSafetyAcknowledgement; title?: string; live?: boolean }) {
   const { t } = safetyCopy.useCopy();
   const deadline = ack.responseDeadline;
@@ -116,6 +129,12 @@ export function Acknowledgement({ ack, title, live }: { ack: SupportSafetyAcknow
                 </>
               )}
             </dd>
+          </>
+        ) : null}
+        {ack.caseNote ? (
+          <>
+            <dt>{t('caseNoteLabel')}</dt>
+            <dd data-testid="safety-ack-case-note">{ack.caseNote}</dd>
           </>
         ) : null}
       </dl>

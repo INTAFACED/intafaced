@@ -40,7 +40,7 @@ export type Ticket = z.infer<typeof ticketSchema>;
 export type Comment = z.infer<typeof commentSchema>;
 export type KbArticle = z.infer<typeof kbSchema>;
 
-/** The categories the general request form offers: a complaint and a bereavement report have their own forms (BK-safe-03). */
+/** The categories the general request form offers: a scam report, a complaint and a bereavement report have their own forms (BK-safe-02, BK-safe-03). */
 export const CATEGORY_VALUES = supportTicketCategorySchema.options.filter(
   (value) => !(SUPPORT_GUIDED_CATEGORIES as readonly string[]).includes(value),
 );
