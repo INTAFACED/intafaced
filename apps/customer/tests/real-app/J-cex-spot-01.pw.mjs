@@ -808,6 +808,33 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
     accepted: true,
     order: { status: 'canceled' },
   });
+  // Cancels it again on the desk, as the person does: the cancelled order stays listed as Cancelled, with Cancel again.
+  // The repeat is the same action under the same business key: the desk shows the venue's first answer, the wallet is
+  // not asked, nothing new is sent to the venue, and the venue's own state after it is unchanged.
+  const listedRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${order.venueClientOrderId}"]`);
+  await expect(listedRow.locator('[data-cell="status"]')).toHaveText('Cancelled', { timeout: 15_000 });
+  const preparedBefore = prepared.length;
+  const submitsBefore = submits.length;
+  await listedRow.getByRole('button', { name: 'Cancel again' }).click();
+  const deskOutcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');
+  await expect(deskOutcome).toContainText('Cancelled on the venue; its lock is released.', { timeout: 20_000 });
+  await expect(deskOutcome).toContainText('This is the same action as before');
+  await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
+  await expect.poll(() => prepared.length, { timeout: 20_000 }).toBeGreaterThan(preparedBefore);
+  const deskRepeat = prepared.at(-1);
+  expect(deskRepeat.sent?.intent, JSON.stringify(deskRepeat.sent).slice(0, 300)).toMatchObject({ kind: 'cancel_order' });
+  expect(deskRepeat.answer, JSON.stringify(deskRepeat.answer).slice(0, 300)).toMatchObject({
+    actionKey: key,
+    reused: true,
+    signed: true,
+    lastOutcome: { definite: true, accepted: true, order: { status: 'canceled' } },
+  });
+  expect(digestOf(deskRepeat.answer)).toBe(digestOf(first.answer));
+  expect(submits.length, 'the repeat sends nothing new to the venue').toBe(submitsBefore);
+  expect(wallet.requests.length, 'the repeat on the desk asks the wallet nothing').toBe(asked + 1);
+  expect((await venueOrder(who, owner, order.venueClientOrderId))?.status).toBe('canceled');
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  expect(wireUnits((await panelEqualsVenue(page, who, owner)).locked)).toBe(wireUnits(before.locked));
   // The second cancel is submitted: the same action, answered with the same outcome, and nothing moves.
   const again = await (await api(who)).post('/api/v1/venue/submit', cancel.sent);
   expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
