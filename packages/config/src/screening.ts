@@ -49,19 +49,40 @@
  * unsatisfied.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * WHAT THIS FILE DELIBERATELY DOES NOT CONTAIN
+ * THE SANCTIONED LIST ROWS — the owner's launch default, UNSIGNED until he signs
  *
- * A sanctions list. It ships empty and it stays empty until counsel supplies
- * one. Naming jurisdictions here would be an engineer drafting a legal control:
- * too few is a sanctions breach, too many is unlawful discrimination, and the
- * repo has no standing to be wrong in either direction. The MECHANISM is
- * engineering; the CONTENTS are a compliance decision with a named owner.
+ * The owner decided the contents (project-state OWNER 258 (1)): "use
+ * Hyperliquid's own restricted list as the launch default, signed by you, with
+ * counsel reviewing at launch prep. Until a list exists, the live app lets
+ * nobody in." `SANCTIONED_LIST_ROWS` below is that list as rows: one per
+ * jurisdiction, with its ISO 3166 code, the reason, the source link, and a mark
+ * that the row is the agents' reading of the sanctioned territories (Hyperliquid
+ * terms 1.6 (b); citizens of the same rows, 1.6 (c)), not Hyperliquid's text.
+ *
+ * Each row carries a `signature` that is `null` until the owner signs. Which
+ * list a process screens with (`envScreeningList`):
+ *
+ *   1. `INTAFACED_SANCTIONS_REGIONS` set (non-blank) → the env value, as below.
+ *      The operator's override: an env list REPLACES the rows, and `none` keeps
+ *      its attribution rule.
+ *   2. Otherwise, rows all signed                   → the rows, everywhere.
+ *   3. Otherwise, APP_ENV exactly `dev` or `test`    → the unsigned rows, so a
+ *      test stack screens with real content (unless
+ *      `INTAFACED_UNSIGNED_SANCTIONS_ROWS=off`, which keeps it `unset`).
+ *   4. Otherwise                                     → `unset`, and the boot guard
+ *      refuses: "the live app lets nobody in" until the owner signs.
+ *
+ * WHAT THIS FILE DELIBERATELY DOES NOT CONTAIN: a signed list. A production-like
+ * process ships empty (`UNSET_SCREENING_LIST`) until the owner signs every row
+ * or the operator supplies the env list, and an agent never writes a signature. These rows are screening content,
+ * never business blocks: nothing here is built from `JURISDICTION_MATRIX`.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * THE CONFIGURED SHAPE — one variable, three answers
  *
  *   INTAFACED_SANCTIONS_REGIONS
- *     Unset or blank      → `unset`. Nobody has done this. Boot guard refuses.
+ *     Unset or blank      → the rows (signed, or unsigned on dev/test), else
+ *                           `unset`. Boot guard refuses on `unset`.
  *     `none`              → `reviewed-empty`. See below; requires attribution.
  *     A list of codes     → `listed`.
  *
@@ -176,10 +197,83 @@ export interface ScreeningList {
 }
 
 /**
- * Counsel content that ships in this repo. Empty until an owner supplies a list.
- * Filling this array is Class X. Tests pin `length === 0`.
+ * Regions in the `unset` list. Always empty: `unset` means no list was consulted.
+ * The owner's list lives in `SANCTIONED_LIST_ROWS`, never here. Tests pin `length === 0`.
  */
 export const SHIPPED_SCREENING_REGIONS: readonly ScreenedRegion[] = [];
+
+/** The owner's signature on a row: who signed, when (ISO 8601), and the record that holds his words. */
+export interface SanctionedRowSignature {
+  readonly signedBy: string;
+  readonly signedAt: string;
+  readonly record: string;
+}
+
+/** Marks a row as the agents' reading of the sanctioned territories, not Hyperliquid's own text. */
+export const SANCTIONED_ROW_READING = "agents' reading, not Hyperliquid's text" as const;
+
+/** OFAC's sanctions programs page, the source every row cites. */
+export const OFAC_SANCTIONS_PROGRAMS_URL = 'https://ofac.treasury.gov/sanctions-programs-and-country-information';
+
+/** One jurisdiction on the owner's sanctioned list. */
+export interface SanctionedRow {
+  /** ISO 3166-1 alpha-2, or an ISO 3166-2 subdivision (covers only itself). Upper-case. */
+  readonly region: string;
+  /** Shown on refusal and carried in the audit log. */
+  readonly reason: string;
+  readonly sourceUrl: string;
+  readonly reading: typeof SANCTIONED_ROW_READING;
+  /** `null` until the owner signs (OWNER 258 (1)). Never filled by an agent. */
+  readonly signature: SanctionedRowSignature | null;
+}
+
+function row(region: string, reason: string): SanctionedRow {
+  return { region, reason, sourceUrl: OFAC_SANCTIONS_PROGRAMS_URL, reading: SANCTIONED_ROW_READING, signature: null };
+}
+
+/**
+ * The owner's launch default (OWNER 258 (1)): the comprehensively sanctioned territories, residence (1.6 (b)) and
+ * citizenship (1.6 (c)) alike. Unsigned. Counsel reviews at launch prep.
+ */
+export const SANCTIONED_LIST_ROWS: readonly SanctionedRow[] = [
+  row('CU', 'Cuba: comprehensively sanctioned (OFAC Cuba sanctions)'),
+  row('IR', 'Iran: comprehensively sanctioned (OFAC Iran sanctions)'),
+  row('KP', 'North Korea: comprehensively sanctioned (OFAC North Korea sanctions)'),
+  row('SY', 'Syria: comprehensively sanctioned (OFAC Syria sanctions)'),
+  row('UA-43', 'Crimea region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
+  row('UA-40', 'Sevastopol, Crimea region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
+  row('UA-14', 'Donetsk region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
+  row('UA-09', 'Luhansk region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
+];
+
+/** Provenance of a list built from the rows. Names the config, never a value from the env. */
+export const SANCTIONED_ROWS_SOURCE_SIGNED = 'config:SANCTIONED_LIST_ROWS (signed)';
+export const SANCTIONED_ROWS_SOURCE_UNSIGNED = `config:SANCTIONED_LIST_ROWS (unsigned, ${SANCTIONED_ROW_READING}; dev/test only)`;
+
+function signatureComplete(sig: SanctionedRowSignature | null): boolean {
+  return sig !== null && sig.signedBy.trim() !== '' && sig.signedAt.trim() !== '' && sig.record.trim() !== '';
+}
+
+/** True only when there is at least one row and every row carries a complete owner signature. */
+export function sanctionedRowsSigned(rows: readonly SanctionedRow[] = SANCTIONED_LIST_ROWS): boolean {
+  return rows.length > 0 && rows.every((r) => signatureComplete(r.signature));
+}
+
+/** The rows as a screening list (`listed`), with the source saying whether they are signed. */
+export function screeningListFromRows(rows: readonly SanctionedRow[] = SANCTIONED_LIST_ROWS): ScreeningList {
+  if (rows.length === 0) return UNSET_SCREENING_LIST;
+  const source = sanctionedRowsSigned(rows) ? SANCTIONED_ROWS_SOURCE_SIGNED : SANCTIONED_ROWS_SOURCE_UNSIGNED;
+  const seen = new Set<string>();
+  const regions = rows.map((r): ScreenedRegion => {
+    const region = r.region.trim().toUpperCase();
+    if (!REGION_CODE.test(region) || seen.has(region)) {
+      throw new ScreeningListError('Invalid SANCTIONED_LIST_ROWS:', [`row ${region} is not a unique ISO 3166 code`]);
+    }
+    seen.add(region);
+    return { region, reason: r.reason, source, authority: 'screening' };
+  });
+  return { regions, declaration: 'listed', configured: true, source };
+}
 
 /**
  * The state before anyone supplies anything. Screens nothing, and says so.
@@ -480,10 +574,46 @@ export function parseScreeningList(raw: string | undefined, source?: string): Sc
   return { regions, declaration: 'listed', configured: true, source: provenance };
 }
 
-let cache: { raw: string | undefined; source: string | undefined; list: ScreeningList } | null = null;
+/**
+ * The list a process with this env screens with, from the rows or the env override. See the header, "THE
+ * SANCTIONED LIST ROWS": an env value replaces the rows; signed rows apply everywhere; unsigned rows apply only when
+ * APP_ENV is exactly `dev` or `test`; anything else is `unset`, which the boot guard refuses.
+ *
+ * `rows` is the test seam for a signed or staged set; production callers pass nothing.
+ */
+export function configuredScreeningList(
+  env: Record<string, string | undefined> = process.env,
+  rows: readonly SanctionedRow[] = SANCTIONED_LIST_ROWS,
+): ScreeningList {
+  const raw = env[SANCTIONS_REGIONS_ENV];
+  if ((raw?.trim() ?? '') !== '') return parseScreeningList(raw, env[SANCTIONS_SOURCE_ENV]);
+  if (sanctionedRowsSigned(rows)) return screeningListFromRows(rows);
+  const appEnv = env.APP_ENV;
+  if ((appEnv === 'dev' || appEnv === 'test') && !unsignedRowsSwitchedOff(env)) return screeningListFromRows(rows);
+  return UNSET_SCREENING_LIST;
+}
 
 /**
- * The env-supplied list for this process.
+ * Dev/test only: `off` keeps the UNSIGNED rows out, so a dev or test process with no env list screens with nothing
+ * (`unset`), exactly as a production-like process does today. It can only make screening stricter: production never
+ * reads unsigned rows, and signed rows ignore it. For tests that prove the blank-list refusal.
+ */
+export const UNSIGNED_SANCTIONS_ROWS_ENV = 'INTAFACED_UNSIGNED_SANCTIONS_ROWS';
+
+function unsignedRowsSwitchedOff(env: Record<string, string | undefined>): boolean {
+  return env[UNSIGNED_SANCTIONS_ROWS_ENV]?.trim().toLowerCase() === 'off';
+}
+
+let cache: {
+  raw: string | undefined;
+  source: string | undefined;
+  appEnv: string | undefined;
+  rowsOff: string | undefined;
+  list: ScreeningList;
+} | null = null;
+
+/**
+ * The screening list for this process: the env override, else the rows (`configuredScreeningList`).
  *
  * Keyed on the raw strings rather than memoised once, so a test (or an operator
  * hot-reloading config) that changes the variable is picked up without a reset
@@ -492,8 +622,10 @@ let cache: { raw: string | undefined; source: string | undefined; list: Screenin
 export function envScreeningList(env: Record<string, string | undefined> = process.env): ScreeningList {
   const raw = env[SANCTIONS_REGIONS_ENV];
   const source = env[SANCTIONS_SOURCE_ENV];
-  if (cache && cache.raw === raw && cache.source === source) return cache.list;
-  const list = parseScreeningList(raw, source);
-  cache = { raw, source, list };
+  const appEnv = env.APP_ENV;
+  const rowsOff = env[UNSIGNED_SANCTIONS_ROWS_ENV];
+  if (cache && cache.raw === raw && cache.source === source && cache.appEnv === appEnv && cache.rowsOff === rowsOff) return cache.list;
+  const list = configuredScreeningList(env);
+  cache = { raw, source, appEnv, rowsOff, list };
   return list;
 }

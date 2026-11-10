@@ -228,17 +228,26 @@ test(`${J} #3 shows the last price and change of each row live, from the stack's
     const trader = await fundedTrader(await traderContext.newPage(), 'wlq', '500');
     expect(fund(trader.email, 'BTC', '0.01').tx).toBeTruthy();
     const tag = `${process.env.JOURNEY_RUN_ID ?? 'local'}-${Date.now()}`;
-    const shows = async (price) => {
+    // Only a move recorded after the trade was sent counts: the market maker quotes the same ask and bid round after round,
+    // so a move to that price from an earlier round would pass at once, the next trade would land inside the same 5 s read,
+    // and the two moves would fold into one (main's run 42734269665 saw only `down` in 28 s).
+    const shows = async (since, price) => {
       await expect
-        .poll(async () => (await ticked()).moves.some((m) => number(m.to) === Number(price)), { timeout: 12_000, intervals: [500] })
+        .poll(async () => (await ticked()).moves.slice(since).some((m) => number(m.to) === Number(price)), {
+          timeout: 12_000,
+          intervals: [500],
+        })
         .toBe(true)
         .catch(() => {});
     };
+    const seenSoFar = async () => (await ticked()).moves.length;
     for (let round = 0; round < 3; round += 1) {
+      let since = await seenSoFar();
       const bought = await takeBest(trader, 'buy', '0.001', `${J}-3-buy-${round}-${tag}`);
-      await shows(bought.average ?? bought.price);
+      await shows(since, bought.average ?? bought.price);
+      since = await seenSoFar();
       const sold = await takeBest(trader, 'sell', '0.001', `${J}-3-sell-${round}-${tag}`);
-      await shows(sold.average ?? sold.price);
+      await shows(since, sold.average ?? sold.price);
       if ((await directions()).length === 2) break;
     }
   } finally {

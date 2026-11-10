@@ -1435,6 +1435,8 @@ export const railPayees = bank.table('rail_payees', {
   destinationKey: text('destination_key').notNull(),
   createdAt: createdAt(),
   removedAt: tstz('removed_at'),
+  /** When the person read the first-time payee scam warning for this recipient (J-bank-18 #2); null until then. */
+  scamWarningReadAt: tstz('scam_warning_read_at'),
 });
 
 /** Address custody issued. Not a locally derived key and not a balance. */
