@@ -34,6 +34,7 @@ import { presentLeaderDirectory, sortDirectoryByLeaderId } from './copy-intel/di
 import { runCopyIntelStatsSession } from './copy-intel/session-run.js';
 import { describeMerchantPolicy } from './merchant/policy.js';
 import { describeNavigatorPolicy } from './navigator/policy.js';
+import { navigatorOnchainRoutes } from './navigator/onchain-routes.js';
 import { describeCopyIntelPolicy } from './copy-intel/policy.js';
 import { describeSupportPolicy } from './support-agent/policy.js';
 import { watchApprovalFixtures } from './merchant/watch.js';
@@ -370,6 +371,11 @@ export interface AgentsRouterDeps {
   readonly ownApprovalTtlSeconds?: number | null;
   /** AGENTS_REVIEWER_MODEL: the automatic reviewer's model (AG-approvals-02); blank sends every call to the person. */
   readonly ownReviewerModel?: string | null;
+  /**
+   * AGENTS_NAVIGATOR_ONCHAIN_SIGNER: the public address of the Navigator's on-chain signer (RC-agents-01), never a key.
+   * Absent or blank: `navigator.onchain.*` refuses `rail.crypto`.
+   */
+  readonly navigatorOnchainSigner?: string | null;
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -1634,6 +1640,16 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      * Spec: docs/ops/trk/agents.navigator.md Stage 2.
      */
     navigator: router({
+      /**
+       * On-chain access through a session key the person can revoke, and the approval request every trade ask becomes
+       * (RC-agents-01, J-agents-19). The key is a ceiling, not consent; nothing here moves value or builds a call.
+       */
+      ...navigatorOnchainRoutes({
+        sql,
+        signer: deps.navigatorOnchainSigner ?? null,
+        approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
+        session: (sessionId) => runtime.session(sessionId),
+      }),
       policy: publicProcedure
         .output(
           z.object({

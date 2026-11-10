@@ -47,3 +47,4 @@ export * from './adapter.js';
 export * from './user-venue.js';
 export * from './user-venue-wire.js';
 export * from './agent-cap.js';
+export * from './held-figure.js';

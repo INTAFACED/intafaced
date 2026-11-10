@@ -12,6 +12,10 @@ import {
 } from './levels.js';
 import { createKycLevelsRouter } from './levels-router.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 const FAIL_CLOSED = 'INTAFACED_SCREENING_FAIL_CLOSED';
 const SAVED_KEYS = [FAIL_CLOSED, 'APP_ENV'] as const;
 let saved: Record<string, string | undefined> = {};

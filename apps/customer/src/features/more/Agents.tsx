@@ -15,6 +15,8 @@ import { AgentsCatalogue, refusalKeyWords, refusalWords } from './AgentsCatalogu
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
+import { navigatorAskResultSchema, type NavigatorApprovalRequest } from '@intafaced/contracts/agents-onchain';
+import { NavigatorApprovalRequestView, NavigatorApprovals } from './NavigatorApprovals';
 const uuid = z.string().guid();
 const routeSchema = z.object({
   task: z.string(),
@@ -148,7 +150,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     [runNote, setRunNote] = useState<'same' | null>(null),
     [closing, setClosing] = useState(false),
     [closedNote, setClosedNote] = useState<string | null>(null),
-    [closeFailure, setCloseFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
+    [closeFailure, setCloseFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
+    // A Navigator trade ask held for the person's approval (J-agents-19 #4), and a refused ask, which runs nothing.
+    [held, setHeld] = useState<{ request: NavigatorApprovalRequest; ceiling: boolean } | null>(null),
+    [askFailure, setAskFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
+    [approvalsRevision, setApprovalsRevision] = useState(0);
   const [selectNotKept, setSelectNotKept] = useState(false);
   const selectedSession = inspection?.owner === userId ? inspection : null;
   const activeOwner = useRef<string | null>(null);
@@ -329,12 +335,16 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     setRuns([]);
     setRunNote(null);
     setCloseFailure(null);
+    setHeld(null);
+    setAskFailure(null);
   }, [userId, agent]);
   // A refresh of the selected session keeps showing what was read until the new read lands.
   const steadyUsage = useSteady(selectedUsage.resource, selectedSession?.id),
     steadyHistory = useSteady(selectedHistory.resource, selectedSession?.id),
     steadyDetail = useSteady(selectedDetail.resource, selectedSession?.id);
   const defs = guard.resource.status === 'ready' ? guard.resource.data : null,
+    guardDefs = defs,
+    activeSession = active,
     available =
       routes.resource.status === 'ready'
         ? routes.resource.data.filter(
@@ -347,6 +357,147 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         : [],
     selectedRoute = available.find((r) => r.task === (task || available[0]?.task)),
     cap = defs?.limits.maxSpendPerSession;
+  /**
+   * Stages one engine run for review, as before J-agents-19: the person confirms the ceiling, then `run.complete` runs it
+   * once under `requestId`.
+   */
+  function stageRun(
+    requestId: string,
+    selectedRoute: PricedRoute,
+    defs: NonNullable<typeof guardDefs>,
+    active: NonNullable<typeof activeSession>,
+  ) {
+    const expected = { ...currentContext.current };
+    action.stage({
+      title: () => agentsCatalogueCopy.t('ceilingTitle'),
+      confirm: () =>
+        cap
+          ? agentsCatalogueCopy.t('runUpTo', { amount: displayAmount(cap), asset: selectedRoute.assetId })
+          : copyText('agents.run.engine.request'),
+      success: () => copyText('agents.engine.response.received'),
+      content: () => (
+        <>
+          <p role="note">
+            <strong>{agentsCatalogueCopy.t('costTitle')}.</strong> {agentsCatalogueCopy.t('costNotice')}{' '}
+            {agentsCatalogueCopy.t('sandboxNotice')}
+          </p>
+          <Details
+            items={[
+              [copyText('agents.task'), <span lang="zxx">{selectedRoute.task}</span>],
+              [copyText('agents.request'), <span lang="und">{ask}</span>],
+              [
+                copyText('agents.spend.ceiling'),
+                cap == null
+                  ? copyText('agents.a.spend.cap.or.its.fee.asset')
+                  : copyText('agents.for.the.entire.session', { amount: cap, asset: selectedRoute.assetId }),
+              ],
+              [copyText('agents.output.cap'), Math.min(defs.limits.maxOutputTokensPerCall, selectedRoute.maxOutputTokens)],
+            ]}
+          />
+        </>
+      ),
+      reference: requestId,
+      run: async (canDispatch) => {
+        if (!contextMatches(expected)) return changed();
+        const [freshGuard, freshRoutes] = await Promise.all([
+          api.query('agents', 'agent.get', { agentId: agent }, definition.nullable()),
+          api.query('agents', 'routes.list', undefined, z.array(routeSchema)),
+        ]);
+        if (!freshGuard.ok) return freshGuard;
+        if (!freshRoutes.ok) return freshRoutes;
+        const freshRoute = freshRoutes.data.find((row) => row.task === selectedRoute.task && row.capability === 'complete');
+        if (
+          !freshGuard.data?.enabled ||
+          freshGuard.data.agentId !== agent ||
+          freshGuard.data.agentId !== agent ||
+          freshGuard.data.version !== active.guardrailVersion ||
+          freshGuard.data.limits.maxSpendPerSession !== cap ||
+          !freshGuard.data.limits.allowedTasks.includes(selectedRoute.task) ||
+          freshGuard.data.limits.maxOutputTokensPerCall !== defs.limits.maxOutputTokensPerCall ||
+          !freshRoute ||
+          freshRoute.assetId !== selectedRoute.assetId ||
+          freshRoute.inputPerMillion !== selectedRoute.inputPerMillion ||
+          freshRoute.outputPerMillion !== selectedRoute.outputPerMillion ||
+          freshRoute.maxOutputTokens !== selectedRoute.maxOutputTokens
+        )
+          return preflightFailure('error', 'agents.agent.permissions.or.routing.prices.changed.reload');
+        if (!canDispatch() || !contextMatches(expected))
+          return preflightFailure('aborted', 'agents.the.account.or.session.changed.review.again');
+        // The run row exists before the engine is called, and says so.
+        const row: RunRow = {
+          requestId,
+          task: selectedRoute.task,
+          ask,
+          status: 'running',
+          cost: null,
+          assetId: selectedRoute.assetId,
+          code: null,
+        };
+        setRunNote(null);
+        setRuns((current) => [row, ...current]);
+        const res = await api.mutate(
+          'agents',
+          'run.complete',
+          {
+            sessionId: active.id,
+            requestId,
+            task: selectedRoute.task,
+            messages: [{ role: 'user', content: ask }],
+            maxOutputTokens: Math.min(defs.limits.maxOutputTokensPerCall, selectedRoute.maxOutputTokens),
+          },
+          z
+            .object({
+              text: z.string(),
+              inputTokens: z.number().int(),
+              outputTokens: z.number().int(),
+              cost: decimalSchema,
+              assetId: z.string(),
+              metered: z.boolean(),
+              action: actionSchema,
+            })
+            .refine(
+              (row) =>
+                row.assetId === selectedRoute.assetId &&
+                row.action.sessionId === active.id &&
+                row.action.agentId === agent &&
+                row.action.task === selectedRoute.task &&
+                row.action.kind === 'completion' &&
+                row.action.status === 'executed' &&
+                Number.isSafeInteger(row.inputTokens) &&
+                row.inputTokens >= 0 &&
+                Number.isSafeInteger(row.outputTokens) &&
+                row.outputTokens >= 0 &&
+                BigInt(row.inputTokens) === BigInt(row.action.inputTokens) &&
+                BigInt(row.outputTokens) === BigInt(row.action.outputTokens) &&
+                parseAmount(row.cost) === parseAmount(row.action.cost) &&
+                (row.metered || parseAmount(row.cost) === 0n),
+              copyText('agents.engine.response.does.not.match.this.session'),
+            ),
+        );
+        setRuns((current) =>
+          current.map((entry) =>
+            entry.requestId !== requestId
+              ? entry
+              : res.ok
+                ? { ...entry, status: 'completed', cost: res.data.cost }
+                : { ...entry, status: res.reason === 'uncertain' ? 'unknown' : 'refused', code: res.message },
+          ),
+        );
+        if (res.ok && action.isCurrent() && contextMatches(expected)) setReply(res.data);
+        // Copy-Intel's returns-board refusal is said in its own words, not the generic failure; its typed
+        // code is in the session's log. Other refusals keep the shared failure copy.
+        if (!res.ok && res.reason !== 'uncertain' && res.message === RETURNS_BOARD_REFUSAL) {
+          return presentActionFailure(res, (locale) => refusalKeyWords(res.message, locale)!);
+        }
+        return res;
+      },
+      done: () => {
+        usage.reload();
+        sessionLog.reload();
+        log.reload();
+      },
+    });
+  }
   return (
     <div className="more-grid agents-room">
       <Tabs
@@ -450,6 +601,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     <code lang="zxx">{selectedSession.id}</code>
                   </p>
                   <p className="muted">{sessionCopy.t('readOnly')}</p>
+                  {selectedSession.agentId === 'navigator' ? (
+                    <NavigatorApprovals sessionId={selectedSession.id} revision={approvalsRevision} />
+                  ) : null}
                   {selectNotKept ? <p role="status">{sessionCopy.t('selectionLocal')}</p> : null}
                   <Button
                     variant="secondary"
@@ -747,145 +901,33 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     onClick={() => {
                       if (!selectedRoute || !defs) return;
                       const requestId = crypto.randomUUID();
-                      const expected = { ...currentContext.current };
-                      action.stage({
-                        title: () => agentsCatalogueCopy.t('ceilingTitle'),
-                        confirm: () =>
-                          cap
-                            ? agentsCatalogueCopy.t('runUpTo', { amount: displayAmount(cap), asset: selectedRoute.assetId })
-                            : copyText('agents.run.engine.request'),
-                        success: () => copyText('agents.engine.response.received'),
-                        content: () => (
-                          <>
-                            <p role="note">
-                              <strong>{agentsCatalogueCopy.t('costTitle')}.</strong> {agentsCatalogueCopy.t('costNotice')}{' '}
-                              {agentsCatalogueCopy.t('sandboxNotice')}
-                            </p>
-                            <Details
-                              items={[
-                                [copyText('agents.task'), <span lang="zxx">{selectedRoute.task}</span>],
-                                [copyText('agents.request'), <span lang="und">{ask}</span>],
-                                [
-                                  copyText('agents.spend.ceiling'),
-                                  cap == null
-                                    ? copyText('agents.a.spend.cap.or.its.fee.asset')
-                                    : copyText('agents.for.the.entire.session', { amount: cap, asset: selectedRoute.assetId }),
-                                ],
-                                [
-                                  copyText('agents.output.cap'),
-                                  Math.min(defs.limits.maxOutputTokensPerCall, selectedRoute.maxOutputTokens),
-                                ],
-                              ]}
-                            />
-                          </>
-                        ),
-                        reference: requestId,
-                        run: async (canDispatch) => {
-                          if (!contextMatches(expected)) return changed();
-                          const [freshGuard, freshRoutes] = await Promise.all([
-                            api.query('agents', 'agent.get', { agentId: agent }, definition.nullable()),
-                            api.query('agents', 'routes.list', undefined, z.array(routeSchema)),
-                          ]);
-                          if (!freshGuard.ok) return freshGuard;
-                          if (!freshRoutes.ok) return freshRoutes;
-                          const freshRoute = freshRoutes.data.find(
-                            (row) => row.task === selectedRoute.task && row.capability === 'complete',
-                          );
-                          if (
-                            !freshGuard.data?.enabled ||
-                            freshGuard.data.agentId !== agent ||
-                            freshGuard.data.agentId !== agent ||
-                            freshGuard.data.version !== active.guardrailVersion ||
-                            freshGuard.data.limits.maxSpendPerSession !== cap ||
-                            !freshGuard.data.limits.allowedTasks.includes(selectedRoute.task) ||
-                            freshGuard.data.limits.maxOutputTokensPerCall !== defs.limits.maxOutputTokensPerCall ||
-                            !freshRoute ||
-                            freshRoute.assetId !== selectedRoute.assetId ||
-                            freshRoute.inputPerMillion !== selectedRoute.inputPerMillion ||
-                            freshRoute.outputPerMillion !== selectedRoute.outputPerMillion ||
-                            freshRoute.maxOutputTokens !== selectedRoute.maxOutputTokens
-                          )
-                            return preflightFailure('error', 'agents.agent.permissions.or.routing.prices.changed.reload');
-                          if (!canDispatch() || !contextMatches(expected))
-                            return preflightFailure('aborted', 'agents.the.account.or.session.changed.review.again');
-                          // The run row exists before the engine is called, and says so.
-                          const row: RunRow = {
-                            requestId,
-                            task: selectedRoute.task,
-                            ask,
-                            status: 'running',
-                            cost: null,
-                            assetId: selectedRoute.assetId,
-                            code: null,
-                          };
-                          setRunNote(null);
-                          setRuns((current) => [row, ...current]);
-                          const res = await api.mutate(
-                            'agents',
-                            'run.complete',
-                            {
-                              sessionId: active.id,
-                              requestId,
-                              task: selectedRoute.task,
-                              messages: [{ role: 'user', content: ask }],
-                              maxOutputTokens: Math.min(defs.limits.maxOutputTokensPerCall, selectedRoute.maxOutputTokens),
-                            },
-                            z
-                              .object({
-                                text: z.string(),
-                                inputTokens: z.number().int(),
-                                outputTokens: z.number().int(),
-                                cost: decimalSchema,
-                                assetId: z.string(),
-                                metered: z.boolean(),
-                                action: actionSchema,
-                              })
-                              .refine(
-                                (row) =>
-                                  row.assetId === selectedRoute.assetId &&
-                                  row.action.sessionId === active.id &&
-                                  row.action.agentId === agent &&
-                                  row.action.task === selectedRoute.task &&
-                                  row.action.kind === 'completion' &&
-                                  row.action.status === 'executed' &&
-                                  Number.isSafeInteger(row.inputTokens) &&
-                                  row.inputTokens >= 0 &&
-                                  Number.isSafeInteger(row.outputTokens) &&
-                                  row.outputTokens >= 0 &&
-                                  BigInt(row.inputTokens) === BigInt(row.action.inputTokens) &&
-                                  BigInt(row.outputTokens) === BigInt(row.action.outputTokens) &&
-                                  parseAmount(row.cost) === parseAmount(row.action.cost) &&
-                                  (row.metered || parseAmount(row.cost) === 0n),
-                                copyText('agents.engine.response.does.not.match.this.session'),
-                              ),
-                          );
-                          setRuns((current) =>
-                            current.map((entry) =>
-                              entry.requestId !== requestId
-                                ? entry
-                                : res.ok
-                                  ? { ...entry, status: 'completed', cost: res.data.cost }
-                                  : { ...entry, status: res.reason === 'uncertain' ? 'unknown' : 'refused', code: res.message },
-                            ),
-                          );
-                          if (res.ok && action.isCurrent() && contextMatches(expected)) setReply(res.data);
-                          // Copy-Intel's returns-board refusal is said in its own words, not the generic failure; its typed
-                          // code is in the session's log. Other refusals keep the shared failure copy.
-                          if (!res.ok && res.reason !== 'uncertain' && res.message === RETURNS_BOARD_REFUSAL) {
-                            return presentActionFailure(res, (locale) => refusalKeyWords(res.message, locale)!);
+                      setHeld(null);
+                      setAskFailure(null);
+                      if (agent !== 'navigator') return stageRun(requestId, selectedRoute, defs, active);
+                      // The Navigator never trades unasked: the service first sees whether the ask names a trade. If it
+                      // does, it holds an approval request and nothing runs, no engine and no charge; a failed ask runs
+                      // nothing either. Any other ask goes on to the ordinary run under the same request id.
+                      const expectedAsk = { ...currentContext.current };
+                      const session = active;
+                      void api
+                        .mutate('agents', 'navigator.ask', { sessionId: session.id, requestId, text: ask }, navigatorAskResultSchema)
+                        .then((res) => {
+                          if (!contextMatches(expectedAsk)) return;
+                          if (!res.ok) return setAskFailure(res);
+                          if (res.data.kind === 'approval') {
+                            setHeld({ request: res.data.request, ceiling: res.data.ceiling });
+                            setApprovalsRevision((n) => n + 1);
+                            return;
                           }
-                          return res;
-                        },
-                        done: () => {
-                          usage.reload();
-                          sessionLog.reload();
-                          log.reload();
-                        },
-                      });
+                          stageRun(requestId, selectedRoute, defs, session);
+                        });
                     }}
                   >
                     {agentsCatalogueCopy.t('run')}
                   </Button>
+                  {askFailure ? <Failure result={askFailure} /> : null}
+                  {held ? <NavigatorApprovalRequestView request={held.request} ceiling={held.ceiling} /> : null}
+                  {agent === 'navigator' ? <NavigatorApprovals sessionId={active.id} revision={approvalsRevision} /> : null}
                   <Runs
                     rows={runs}
                     onSendAgain={async (row) => {

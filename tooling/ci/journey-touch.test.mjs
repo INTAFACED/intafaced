@@ -2,10 +2,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
+import { DOCS_READ, JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -77,8 +77,15 @@ test('pathKind: what needs the full run, what touches only its own journey file,
     'AGENTS.md',
     'CLAUDE.md',
     'README.md',
+    'docs/ci/checks-counted-2026-11-09.md', // a doc no code reads (#7766 paid for a full run)
+    'docs/ARCHITECTURE.md',
+    'docs/adr/2026-08-04-bank-vertical-law.md',
   ])
     assert.equal(pathKind(p).kind, 'none', p);
+  // Planted: the docs code reads stay full, by file and by folder.
+  for (const p of ['docs/roadmap/journeys.json', 'docs/runbooks/journey-baseline.json', 'docs/RUNNING.md', 'docs/audits/a.md'])
+    assert.equal(pathKind(p).kind, 'full', p);
+  assert.equal(pathKind('docs/RUNNING.md.bak').kind, 'none', 'a listed file covers only itself');
   // Planted: Markdown below the root stays full, where journeys read it.
   for (const p of ['docs/runbooks/INCIDENT-MONEY-PATH-RUNBOOK.md', 'docs/roadmap/x.md', 'apps/customer/public/developers/index.md'])
     assert.equal(pathKind(p).kind, 'full', p);
@@ -504,4 +511,69 @@ test('root Markdown runs no journeys because nothing the journeys run executes r
   }
   assert.ok(seen.size > 50, `followed the journeys run's files (${seen.size})`);
   assert.deepEqual(named, [], 'nothing the journeys run executes reads a root Markdown file');
+});
+
+test('DOCS_READ holds every doc the journeys run, the stack or a service names by path, so the rest of docs/ runs none', () => {
+  // What the journeys run executes or the stack serves: its workflow and actions, the scripts it runs and the journey files
+  // (followed through their relative imports), and every non-test source under apps/, services/ and packages/. A doc
+  // named in code (not a comment), as a path or as a call's 'docs' argument (join(…, 'docs', '<folder>', …)), must be in DOCS_READ.
+  const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
+  const WORKFLOW = '.github/workflows/real-app-journeys.yml';
+  const workflow = readFileSync(join(ROOT, WORKFLOW), 'utf8');
+  const scripts = [...workflow.matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts))\b/g)].map((m) => m[1]);
+  const product = git('ls-files', 'apps', 'services', 'packages').filter(
+    (f) => /\.(m?[jt]sx?|cjs|json|ya?ml|sh)$/.test(f) && !/\.(test|spec)\.|\/tests?\/|__tests__/.test(f),
+  );
+  const queue = [
+    WORKFLOW,
+    ...git('ls-files', '.github/actions'),
+    ...scripts,
+    ...git('ls-files', 'apps/customer/tests/real-app'),
+    ...product,
+  ];
+  // A `pnpm <name>` the scanned code runs is followed to the files its root package.json script names (the stack, the
+  // seed, world-restore and the TEST market maker are reached that way too; CI review on cb864ce1).
+  const pnpmScripts = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts ?? {};
+  const scriptFiles = (name, depth = 0) => {
+    const cmd = pnpmScripts[name];
+    if (!cmd || depth > 5) return [];
+    return [
+      ...[...cmd.matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts|sh))\b/g)].map((m) => m[1]),
+      ...[...cmd.matchAll(/\bpnpm\s+(?:run\s+)?([\w:.-]+)/g)].flatMap((m) => scriptFiles(m[1], depth + 1)),
+    ];
+  };
+  // Its own inline cases (paths a rule is tested on, never read): the review marker's, and this rule's own.
+  const SELF_CASES = new Set(['tooling/ci/review-marker.mjs', 'tooling/ci/journey-touch.mjs']);
+  const covered = (n) => DOCS_READ.some((d) => n === d || `${n}/` === d || n.startsWith(d));
+  const seen = new Set();
+  const missed = [];
+  while (queue.length) {
+    const f = normalize(queue.shift());
+    if (seen.has(f) || !existsSync(join(ROOT, f)) || !statSync(join(ROOT, f)).isFile()) continue;
+    seen.add(f);
+    const text = readFileSync(join(ROOT, f), 'utf8');
+    const code = text
+      .split('\n')
+      .map((line) => line.replace(/^\s*(\/\/|\*|\/\*|#).*$/, '').replace(/\s\/\/.*$/, ''))
+      .join('\n');
+    const names = [
+      ...[...code.matchAll(/(?<![\w.-])docs\/\w[\w./*-]*/g)].map((m) => m[0].replace(/[.*/]+$/, '')),
+      ...[...code.matchAll(/['"`]docs\/['"`]/g)].map(() => 'docs'),
+      // 'docs' as a call argument (join(…, 'docs', 'roadmap'), however deeply the call nests), with the next one.
+      ...[...code.matchAll(/[(,]\s*['"`]docs['"`](\s*,\s*['"`]([\w.-]+)['"`])?/g)].map((m) => (m[2] ? `docs/${m[2]}` : 'docs')),
+    ];
+    if (!SELF_CASES.has(f)) for (const n of names) if (!covered(n)) missed.push(`${f}: ${n}`);
+    for (const m of code.matchAll(/\bpnpm\s+(?:run\s+)?([\w:.-]+)/g)) queue.push(...scriptFiles(m[1]));
+    if (/\.(m?[jt]sx?|cjs)$/.test(f))
+      for (const m of text.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
+        queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
+  }
+  assert.ok(seen.size > 1000, `followed the journeys run's files and the product sources (${seen.size})`);
+  assert.deepEqual(missed, [], 'a doc this code names is missing from DOCS_READ');
+});
+
+test('DOCS_READ drift, planted: a doc named in code and not listed is caught by the same matcher', () => {
+  const covered = (n) => DOCS_READ.some((d) => n === d || `${n}/` === d || n.startsWith(d));
+  for (const n of ['docs/new-thing.md', 'docs/ci', 'docs']) assert.equal(covered(n), false, n);
+  for (const n of ['docs/roadmap', 'docs/runbooks/journey-baseline.json', 'docs/RUNNING.md']) assert.equal(covered(n), true, n);
 });

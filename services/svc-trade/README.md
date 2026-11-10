@@ -165,9 +165,27 @@ no event is sent: the venue is the record of balances, locks, fills and withdraw
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
 
+**Convert sell quotes on the venue (J-cex-spot-17 #8).** `POST /api/v1/venue/convert/sell-quote`
+`{ owner, symbol, amount, quoteKey }` (trade:write, as the preview) prices a spot sell by the venue's own preview of a
+market IOC sell of that size on the customer's venue account (`src/venue/venue-sell-quotes.ts`): what fills now, its
+average price, the venue fee, our builder fee and the venue's time, stored exactly as given in `trade.venue_sell_quotes`
+under `venue-sell:<userId>:<quoteKey>`, a figure the venue does not give kept "not known". A retry returns the first
+quote; the same key for another ask refuses `trade.venue_sell_quote_key_reused` (409); a perp refuses
+`trade.venue_sell_quote_not_spot`, an unknown market `trade.venue_sell_quote_market_unknown`. Nothing is sent and the
+ledger posts nothing. Finance reads them in `admin.convertDesk.venueSellQuotes`.
+
+**The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
+`serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers
+one person's venue accounts with each one's balances and every spot fill, as the venue reports them at the moment of the
+call, with its as-of time. A venue account is the person's here only when its owner wallet signed an action they prepared
+through the door (`ownerSignedAccounts` over `trade.user_venue_actions`: owner role, signer equal to the account's owner,
+signature stored after the door checked it recovers); an account read only by address is not theirs, and an agent's
+signature names none. The fee is everything the venue charged (its fee and any builder fee), in the fee coin. Nothing is
+stored. The door off answers `{ state: 'off' }`; the venue down answers `SERVICE_UNAVAILABLE`, never an empty list.
+
 ### Our builder fee in the ledger (D-venue-07, J-derivatives-17)
 
-The one money the door's orders move for us. With the door on, the builder-fee poster (`src/venue/builder-fee-poster.ts`,
+The one money the door's orders move for us. With the door on, the builder-fee poster (`src/builder-fee/builder-fee-poster.ts`,
 job `venue.builder_fees`, every `TRADE_BUILDER_FEE_POSTER_INTERVAL_MS`; `TRADE_BUILDER_FEE_POSTER=off` stops it) reads the
 venue's fills for our users' accounts (those that sent an order carrying our builder fee) and posts `builderFeeEarn` for
 each fill with a builder fee above zero, keyed `builder-fee:<venueId>:<fillId>`, so a fill read twice posts once. It never
