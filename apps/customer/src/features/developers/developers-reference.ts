@@ -954,6 +954,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The most your wallet has approved for our builder fee on the venue',
   },
   {
+    name: 'venueMarketVenues',
+    method: 'GET',
+    path: '/api/v1/venue/markets/:symbol/venues',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Every venue for one market: its price, depth and fees as it reports them, whether you can sign there, and whether it is up',
+  },
+  {
+    name: 'venueRoutePreview',
+    method: 'POST',
+    path: '/api/v1/venue/route-preview',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Which venue your order goes to, its expected fill and fees, and why that venue',
+  },
+  {
     name: 'venueWithdrawal',
     method: 'GET',
     path: '/api/v1/venue/withdrawals/:nonce',

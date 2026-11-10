@@ -95,7 +95,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
-import type { UserVenueDoor } from './venue/user-venue-door.js';
+import type { UserVenueRouter } from './venue/venue-router.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -201,7 +201,7 @@ export interface PrivateRestDeps {
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
-  userVenue?: UserVenueDoor | null;
+  userVenue?: UserVenueRouter | null;
   /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank), as `/venue/best-prices` answers it. */
   userVenueSlippageCapBps?: number | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
