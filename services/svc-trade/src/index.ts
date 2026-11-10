@@ -44,6 +44,9 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
+import { registerSignalIntake } from './signals/intake-rest.js';
+import { createLiveTierClient } from './signals/live-tier.js';
 import { PlatformPauseDesk } from './copy/platform-pauses.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
@@ -109,7 +112,7 @@ import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
-import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
+import { UserVenueDoor, UserVenueDoorError, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
 import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
 import { SqlAgentAccountStore } from './venue/agent-account-store.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
@@ -692,6 +695,38 @@ const grid = new GridService({
   stepUp,
   platformPauses: readPlatformPauses,
 });
+// Chart alert webhooks (CB-bots-api-signal-01): an alert's order is prepared through the user-venue door as the webhook's
+// creator, under the alert's own business key, for the person's wallet to sign and send; the door holds no key that signs.
+const signalLiveTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const signalDesk = new SignalDesk({
+  sql,
+  now: () => new Date(),
+  venueMarkets: async () => (userVenue ? (await userVenue.markets()).value.map((m) => m.symbol) : null),
+  liveTier: (userId) => signalLiveTier.tierOf(userId),
+  admitStart: (principal, businessId, payload) => trade.admitAccountOperation(principal, 'strategy.start', businessId, payload),
+  // An alert arrives with no session behind it, so it is admitted as the person's standing instruction (the webhook),
+  // owned by svc-trade, as a fired conditional order is: identity still checks the person, and a restriction refuses.
+  admitAlert: (principal, businessId, payload, webhookId) =>
+    tradingControls.admitStanding(principal.userId, webhookId, businessId, payload, 'svc-trade'),
+  prepareOrder: async (principal, input) => {
+    if (!userVenue) return { ok: false, code: 'trade.user_venue_off' };
+    try {
+      const answer = await userVenue.prepare(principal, {
+        owner: input.owner,
+        signer: { role: 'owner', address: input.owner },
+        intent: input.intent,
+      });
+      return { ok: true, actionKey: answer.actionKey, venueClientOrderId: answer.prepared.venueClientOrderId ?? null };
+    } catch (err) {
+      if (err instanceof UserVenueDoorError) return { ok: false, code: err.code };
+      if (err instanceof VenueRefusalError) return { ok: false, code: `venue.${err.refusal.code}` };
+      throw err;
+    }
+  },
+  maxAlertAgeSeconds: parseSignalMaxAge(env.TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS),
+  webhookDays: parseSignalWebhookDays(env.TRADE_SIGNAL_WEBHOOK_DAYS),
+});
+registerSignalIntake(app, signalDesk);
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
   trade,
@@ -747,6 +782,7 @@ export const appRouter = createTradeRouter(
   builderFees,
   // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
+  signalDesk,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
