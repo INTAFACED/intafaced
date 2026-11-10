@@ -110,9 +110,9 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
-import { postBuilderFees } from './venue/builder-fee-poster.js';
-import { builderFeeRecon } from './venue/builder-fee-recon.js';
-import { SqlBuilderFeeStore } from './venue/builder-fee-store.js';
+import { postBuilderFees } from './builder-fee/builder-fee-poster.js';
+import { builderFeeRecon } from './builder-fee/builder-fee-recon.js';
+import { SqlBuilderFeeStore } from './builder-fee/builder-fee-store.js';
 import { SqlVenueListingStore } from './venue/venue-listing-store.js';
 import {
   StoreVenueRoutingGate,
@@ -709,6 +709,8 @@ export const appRouter = createTradeRouter(
   grid,
   platformPauses,
   builderFees,
+  // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
+  { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

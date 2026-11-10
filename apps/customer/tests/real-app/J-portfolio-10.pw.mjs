@@ -1,7 +1,7 @@
 // World: book
 import { test, expect } from './journey.mjs';
 import { chosePro, confirm, fundedTrader, openDesk, previewed, reviewSheet, signIn } from './desk.mjs';
-import { api, ORIGIN, toUnits } from './stack.mjs';
+import { api, EDGE, ORIGIN, toUnits } from './stack.mjs';
 
 // J-portfolio-10, in the running app (docs/roadmap/journeys.json): I open a coin and see my own position in it. One test
 // per step, titled "J-portfolio-10 #<n>". One TEST trader, verified and funded with TEST USDT through the real ledger,
@@ -26,6 +26,22 @@ const units = (value) => toUnits(String(value).replace(/[^0-9.]/g, ''));
 const ONE = toUnits('1');
 const CENT = toUnits('0.01');
 const cents = (scaled) => ((scaled + CENT / 2n) / CENT) * CENT;
+/** A signed dollar figure as the page writes it ("+$1.23", "−$0.40", "$0.00"), scaled; the minus may be U+2212. */
+const signedUnits = (text) => (/^\s*[−-]/.test(text) ? -1n : 1n) * units(text);
+const RANGES = ['1D', '1W', '1M', '6M', '1Y', 'All'];
+const DAY_MS = 86_400_000;
+/** The candles a range's request brought back, as the page read them: [time ms, open, high, low, close, volume]. */
+const candlesOf = async (response) => {
+  expect(response.status(), response.url()).toBe(200);
+  return response.json();
+};
+/** BTC/USDT's 24h ticker as the stack publishes it. */
+const tickerNow = async () => {
+  const res = await fetch(`${EDGE}/api/v1/ticker/${encodeURIComponent('BTC/USDT')}`, { headers: { origin: ORIGIN } });
+  expect(res.status).toBe(200);
+  return res.json();
+};
+const dollars = (text) => Number(String(text).replace(/[^0-9.]/g, ''));
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(240_000);
@@ -55,16 +71,38 @@ test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about a
   page,
 }) => {
   await signIn(page, who);
+  // The price chart draws the default range's candles (1D: 5-minute candles), as the page asked the stack for them.
+  const firstCandles = page.waitForResponse((res) => res.url().includes('/ohlcv/') && /timeframe=5m/.test(res.url()));
   await openCoin(page);
+  const drawn = await candlesOf(await firstCandles);
+  expect(drawn.length, 'the stack has 5-minute BTC candles to draw').toBeGreaterThanOrEqual(2);
+  await expect(page.getByTestId('coin-chart')).toBeVisible();
+  await expect(page.getByTestId('chart-empty')).toHaveCount(0);
   await expect(page.getByTestId('coin-bar__ticker')).toHaveText('BTC');
   await expect(page.getByTestId('pair')).toHaveText('BTC/USDT');
   // The live price, as its picture names it (the digits roll, so the text holds every reel).
   await expect
     .poll(() => page.getByTestId('price').evaluate((node) => node.querySelector('[role="img"]')?.getAttribute('aria-label') ?? null))
     .toMatch(/^\$[\d,]+\.\d{2}$/);
-  await expect(page.getByTestId('chart-area')).toBeVisible();
-  await expect(page.getByTestId('coin-ranges').locator('button').first()).toBeVisible();
-  await expect(page.getByTestId('coin-stats')).toBeVisible();
+  await expect(page.getByTestId('chart-area').getByTestId('coin-chart')).toBeVisible();
+  // The range pills: all six, in order, the default 1D the one pressed.
+  const pills = page.getByTestId('coin-ranges').locator('button');
+  await expect(pills).toHaveText(RANGES);
+  await expect(pills.filter({ hasText: /^1D$/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('coin-ranges').locator('button[aria-pressed="true"]')).toHaveCount(1);
+  // The stats: 24h high and low are the stack's own 24h ticker (read again until both sides agree, as the price moves),
+  // the high not under the low, and market cap and networks rows named.
+  const stats = page.getByTestId('coin-stats');
+  await expect
+    .poll(async () => {
+      const t = await tickerNow();
+      const high = dollars(await stats.getByTestId('stat-high').locator('.coin-stats__value').innerText());
+      const low = dollars(await stats.getByTestId('stat-low').locator('.coin-stats__value').innerText());
+      return Math.abs(high - Number(t.high)) <= 0.005 && Math.abs(low - Number(t.low)) <= 0.005 && high >= low;
+    })
+    .toBe(true);
+  await expect(stats.getByTestId('stat-market-cap')).toContainText('Market cap');
+  await expect(stats.getByTestId('coin-network')).toContainText('Networks');
   // The holding is the ledger's: what svc-ledger holds for this person, free and in orders.
   const btc = (await (await api(who)).balances()).BTC;
   const yours = page.getByTestId('your-coin');
@@ -72,6 +110,8 @@ test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about a
   await expect(yours).toContainText(`${Number(btc.free) + Number(btc.used)} BTC`);
   await expect(page.locator('#coin-about h2')).toHaveText('About Bitcoin');
   await expect(page.locator('#coin-recent-title')).toHaveText('Recent BTC activity');
+  // The activity is this person's own: the two BTC buys from the start.
+  await expect(page.getByTestId('recent').locator('tbody tr[data-fill]')).toHaveCount(2);
 
   // The coin bar sits right under the top bar while the page scrolls.
   const topBar = await page.locator('header').first().boundingBox();
@@ -90,13 +130,29 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   const pills = page.getByTestId('coin-ranges').locator('button');
   await expect(pills.filter({ hasText: /^6M$/ })).toBeVisible();
   expect(await pills.allInnerTexts()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
-  // Six months of daily candles: the chart asks for daily candles, 180 of them.
-  const asked = page.waitForRequest(
-    (req) => req.url().includes('/ohlcv/') && /timeframe=1d/.test(req.url()) && /limit=180\b/.test(req.url()),
+  // Six months of daily candles: the chart asks for daily candles, 180 of them, and draws what came back.
+  const asked = page.waitForResponse(
+    (res) => res.url().includes('/ohlcv/') && /timeframe=1d/.test(res.url()) && /limit=180\b/.test(res.url()),
   );
   await pills.filter({ hasText: /^6M$/ }).click();
-  await asked;
+  const daily = await candlesOf(await asked);
   await expect(pills.filter({ hasText: /^6M$/ })).toHaveAttribute('aria-pressed', 'true');
+  // Daily candles, oldest first, each a whole day after the one before, at most 180 of them, and none older than six
+  // months of days.
+  expect(daily.length, 'BTC has daily candles').toBeGreaterThanOrEqual(1);
+  expect(daily.length).toBeLessThanOrEqual(180);
+  for (const [i, candle] of daily.entries()) {
+    expect(candle[0] % DAY_MS, `candle ${i} opens at a day's start`).toBe(0);
+    if (i > 0) expect(candle[0] - daily[i - 1][0], `candle ${i} is a day after ${i - 1}`).toBeGreaterThanOrEqual(DAY_MS);
+  }
+  expect(Date.now() - daily[0][0]).toBeLessThanOrEqual(181 * DAY_MS);
+  // The change line names the range: "Past six months", or, when the market is younger than that, the time it starts.
+  const change = page.getByTestId('change');
+  if (daily.length >= 180) await expect(change).toContainText('Past six months');
+  else await expect(change).toContainText(/Since /);
+  // Drawn: two or more candles draw the chart (fewer fall back to finer candles, which the page then draws).
+  await expect(page.getByTestId('coin-chart')).toBeVisible();
+  await expect(page.getByTestId('chart-empty')).toHaveCount(0);
   expect(await pills.allInnerTexts()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Arrow keys move between the pills.
   await pills.filter({ hasText: /^6M$/ }).focus();
@@ -147,10 +203,28 @@ test(`${J} #4 reads "Your position": quantity, average price, cost basis and res
   // Divided as the app divides: half up at the 18th place, then to the cent.
   const average = (2n * toUnits(asset.openCostUsd) * ONE + toUnits(asset.openQty)) / (2n * toUnits(asset.openQty));
   expect(units(await position.locator('[data-figure="average-price"]').innerText())).toBe(cents(average));
-  await expect(position.locator('[data-figure="result"]')).toHaveText(/^[+−-]?\$[\d,]+\.\d{2}/);
+  // The result is those open lots at the live price less their cost: the same price values the holding shown above it
+  // (every BTC held is in those lots), so the result is that value less the cost basis, to the cent (each side is
+  // rounded to the cent on the page, so they may differ by one cent).
+  await expect(position.locator('[data-figure="result"]')).toHaveText(/^[+−-]?\$[\d,]+\.\d{2}$/);
+  await expect
+    .poll(async () => {
+      const [value, result] = await Promise.all([
+        page.getByTestId('your-coin').locator('.coin-yours__value').first().innerText(),
+        position.locator('[data-figure="result"]').innerText(),
+      ]);
+      const expected = units(value) - cents(toUnits(asset.openCostUsd));
+      const diff = signedUnits(result) - expected;
+      return diff >= -CENT && diff <= CENT;
+    })
+    .toBe(true);
 });
 
-test(`${J} #5 reads recent activity for the coin: this person's BTC fills, newest first, and View all`, async ({ page }) => {
+test(`${J} #5 reads recent activity for the coin: this person's BTC fills, newest first, or View all when a full page holds other coins`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
   await signIn(page, who);
   await openCoin(page);
   const fills = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body.filter((fill) => fill.symbol.startsWith('BTC/'));
@@ -161,6 +235,43 @@ test(`${J} #5 reads recent activity for the coin: this person's BTC fills, newes
   expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-fill')))).toEqual(newestFirst.map((fill) => fill.id));
   await expect(page.getByTestId('recent').getByTestId('dk-trade-what').first()).toHaveText(`Bought ${Number(newestFirst[0].amount)} BTC`);
   await expect(page.getByTestId('coin-recent__all')).toHaveAttribute('href', '/money/activity?tab=trades&asset=BTC');
+  // Every row is this coin's.
+  for (const what of await page.getByTestId('recent').getByTestId('dk-trade-what').allInnerTexts()) expect(what).toMatch(/\bBTC\b/);
+
+  // A full page holding other coins: a second TEST trader whose latest page of fills (the 100 the page reads) holds only ETH fills, no BTC.
+  const setup = await browser.newPage({ baseURL: ORIGIN });
+  const other = await fundedTrader(setup, 'pf10b', '2000');
+  await setup.close();
+  const a = await api(other);
+  for (let i = 0; i < 100; i++) {
+    const res = await a.post('/api/v1/orders', {
+      symbol: 'ETH/USDT',
+      type: 'market',
+      side: 'buy',
+      amount: '0.002',
+      clientOrderId: `${J}-full-page-${other.email}-${i}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  }
+  await expect.poll(async () => (await a.get('/api/v1/account/trades?limit=100')).body.length, { timeout: 60_000 }).toBe(100);
+  const latest = (await a.get('/api/v1/account/trades?limit=100')).body;
+  expect(latest.filter((fill) => fill.symbol.startsWith('BTC/'))).toEqual([]);
+
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  try {
+    const page = await context.newPage();
+    await signIn(page, other);
+    await page.goto('/coin/BTC');
+    await expect(page.getByTestId('coin-name')).toHaveText('Bitcoin');
+    const recent = page.getByTestId('recent');
+    await expect(recent.locator('tbody tr[data-fill]')).toHaveCount(0);
+    const empty = recent.getByTestId('coin-recent__empty');
+    await expect(empty).toContainText('No BTC trades in your latest 100');
+    await expect(empty).toContainText('Older BTC activity may be under View all.');
+    await expect(empty.getByRole('link', { name: 'View all' })).toHaveAttribute('href', '/money/activity?tab=all&asset=BTC');
+  } finally {
+    await context.close();
+  }
 });
 
 test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin chosen, or the spot desk for the pair`, async ({
