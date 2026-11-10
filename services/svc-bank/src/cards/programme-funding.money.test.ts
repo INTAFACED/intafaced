@@ -43,6 +43,7 @@ const REPORTED: CardPartnerTerms = cardSimPartnerFor(
     funder: 'TEST: the programme pre-funds in USDC',
     balances: null,
     programmeFigures: { USDT: { held: '5', captured: '20' }, BTC: { held: '0', captured: '0.0005' } },
+    figuresAsOf: 'now',
     fundingAssetId: 'USDC',
     fundingOffers: { fund: true, defund: true, autoReload: false },
   }),
@@ -105,6 +106,8 @@ describe('programme funding (J-bank-26 #6, PG-hard)', () => {
       partnerFigure: '25',
       difference: '0',
       status: 'matches',
+      partnerAsOf: AT.toISOString(),
+      partnerState: 'known',
     });
     // The stablecoin conversion: 25 USDT at 0.9998 USDC, rounded up.
     expect(usdt).toMatchObject({ fundingRate: '0.9998', fundingRateAsOf: AT.toISOString(), appFigureInFunding: '24.995' });
@@ -118,6 +121,21 @@ describe('programme funding (J-bank-26 #6, PG-hard)', () => {
       difference: null,
       status: 'missing',
       appFigureInFunding: null,
+    });
+
+    // b2 change 6: the same figures sent with no time are "not known", so never "matches"; with a time past the
+    // partner's limit they are shown, and said to be stale.
+    const noTime = await service({ ...REPORTED, figuresAsOf: null }).programmeFunding();
+    for (const row of noTime.rows) {
+      expect(row).toMatchObject({ partnerFigure: null, difference: null, status: 'not_known', partnerAsOf: null, partnerState: 'unknown' });
+    }
+    const old = new Date(AT.getTime() - REPORTED.figuresStaleAfterMs - 1).toISOString();
+    const stale = await service({ ...REPORTED, figuresAsOf: old }).programmeFunding();
+    expect(stale.rows.find((r) => r.assetId === 'USDT')).toMatchObject({
+      partnerFigure: '25',
+      status: 'matches',
+      partnerAsOf: old,
+      partnerState: 'stale',
     });
 
     const silent = await service({ ...REPORTED, programmeFigures: null, fundingAssetId: null }).programmeFunding();

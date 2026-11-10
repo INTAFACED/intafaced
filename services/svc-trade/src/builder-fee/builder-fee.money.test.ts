@@ -11,7 +11,7 @@ import { HttpUserVenue } from '../venue/http-user-venue.js';
 import { InMemoryPreparedActionStore } from '../venue/prepared-action-store.js';
 import { UserVenueDoor, type BuilderFeeValue } from '../venue/user-venue-door.js';
 import { postBuilderFees } from './builder-fee-poster.js';
-import { builderFeeRecon, BuilderFeeReconError, expectedBuilderFee } from './builder-fee-recon.js';
+import { builderFeeRecon, BuilderFeeReconError, builderFeeReconResult, expectedBuilderFee } from './builder-fee-recon.js';
 import { InMemoryBuilderFeeStore, type BuilderFeeAccount } from './builder-fee-store.js';
 import { listedTestStore } from '../venue/venue-listing-store.js';
 import { StoreVenueRoutingGate } from '../venue/venue-listing.js';
@@ -108,12 +108,14 @@ let ledger: MemoryLedger;
 let store: InMemoryBuilderFeeStore;
 const account = (): BuilderFeeAccount => ({ userId: USER, account: { venueId: sim.venue.id, owner, subAccount: null }, since: start });
 beforeEach(() => {
-  ledger = new MemoryLedger();
+  ledger = new MemoryLedger({ idempotencyConflict: 'refuse' });
   store = new InMemoryBuilderFeeStore(() => [account()]);
 });
 const venue = () => door.venue();
 const routedOrders = (venueId: string, ids: readonly string[]) => actions.builderFeeOrders(venueId, ids);
-const deps = () => ({ venue, ledger, store, routedOrders, now: () => new Date() });
+const ourOrders = (venueId: string, acct: { owner: string; subAccount: string | null }, ids: readonly string[]) =>
+  actions.sentBuilderFeeOrders(venueId, acct, ids);
+const deps = () => ({ venue, ledger, store, routedOrders, ourOrders, now: () => new Date() });
 const period = () => [start, new Date(Date.now() + 60_000)] as const;
 const market = async (symbol: string) => (await (await venue()).markets(null)).value.find((m) => m.symbol === symbol)!;
 const venueFees = async () => (await (await venue()).fills(account().account, start)).value.filter((f) => f.builderFee > 0n);
@@ -133,7 +135,7 @@ describe('the builder-fee poster', () => {
     expect((await ledger.balance(houseFees('builder', asset))).amount).toBe(sum);
     expect((await ledger.balance(venueBuilderFeeReceivable(sim.venue.id, asset))).amount).toBe(-sum);
     for (const f of fills) {
-      const tx = await ledger.getTxByKey(`builder-fee:${sim.venue.id}:${f.fillId}`);
+      const tx = await ledger.getTxByKey(`builder-fee:${sim.venue.id}:${owner}:${f.fillId}`);
       expect(tx?.entries.length).toBe(2);
     }
   });
@@ -221,6 +223,12 @@ describe('the builder-fee recon (J-derivatives-17 #1 #2)', () => {
     expect(full).toMatchObject({ result: 'matched', compared: (await venueFees()).length, matched: true });
   });
 
+  it('fills that are none of ours compare nothing of ours: nothing to compare, never green (OWNER 288)', () => {
+    expect(builderFeeReconResult([{ status: 'not_our_order' }, { status: 'not_our_order' }])).toBe('nothing_to_compare');
+    expect(builderFeeReconResult([{ status: 'not_our_order' }, { status: 'matched' }])).toBe('matched');
+    expect(builderFeeReconResult([{ status: 'not_our_order' }, { status: 'not_in_ledger' }])).toBe('break');
+  });
+
   it('#2: a fee the venue reports and the ledger does not is a break with its fill id and amount; posting it turns it green', async () => {
     const before = await builderFeeRecon(deps(), ...period());
     const v = before.venues[0]!;
@@ -242,7 +250,7 @@ describe('the builder-fee recon (J-derivatives-17 #1 #2)', () => {
 
   it('#2: a fee the ledger holds and the venue does not report is a break too, never netted away', async () => {
     await postBuilderFees(deps());
-    const ghost = { venueId: sim.venue.id, fillId: 'ghost-1', assetId: 'USDC', amount: a('0.3'), userId: USER };
+    const ghost = { venueId: sim.venue.id, venueAccount: owner, fillId: 'ghost-1', assetId: 'USDC', amount: a('0.3'), userId: USER };
     const tx = await ledger.post(recipes.builderFeeEarn(ghost));
     await store.record(
       { ...ghost, account: account().account, filledAt: new Date(), status: 'posted', refusalCode: null, ledgerTxId: tx.id },
@@ -384,7 +392,7 @@ describe('the builder-fee recon (J-derivatives-17 #3 #4 #5)', () => {
       const tx = await ledger.getTxByKey(r.idempotencyKey);
       expect(tx).not.toBeNull();
       expect(r).toMatchObject({ ledgerTxId: tx!.id, userId: USER, postedAt: tx!.postedAt.toISOString() });
-      expect(r.idempotencyKey).toBe(`builder-fee:${sim.venue.id}:${r.fillId}`);
+      expect(r.idempotencyKey).toBe(`builder-fee:${sim.venue.id}:${owner}:${r.fillId}`);
       expect(r.amount).toBe(formatAmount(fills.find((f) => f.fillId === r.fillId)!.builderFee));
     }
   });
@@ -430,7 +438,14 @@ describe('review fixes: what stops a run, what is skipped, and what is a break',
     const [fill] = await venueFees();
     const other = fill!.feeAsset === 'USDC' ? 'USDT' : 'USDC';
     const tx = await ledger.post(
-      recipes.builderFeeEarn({ venueId: sim.venue.id, fillId: fill!.fillId, assetId: other, amount: fill!.builderFee, userId: USER }),
+      recipes.builderFeeEarn({
+        venueId: sim.venue.id,
+        venueAccount: owner,
+        fillId: fill!.fillId,
+        assetId: other,
+        amount: fill!.builderFee,
+        userId: USER,
+      }),
     );
     await store.record(
       {

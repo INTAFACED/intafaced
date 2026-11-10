@@ -977,6 +977,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'What an order would lock and its fee lines, from the venue’s own figures. Sends nothing',
   },
   {
+    name: 'venueConvertSellQuote',
+    method: 'POST',
+    path: '/api/v1/venue/convert/sell-quote',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The venue’s own price for selling an amount on your venue account now: what fills, its average price and fees, or "not known". Sends nothing',
+  },
+  {
     name: 'venuePrepare',
     method: 'POST',
     path: '/api/v1/venue/prepare',
@@ -992,6 +1001,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'Send the signed action. An answer that is not definite comes back with how to read it back; it is never sent as a new action',
+  },
+  {
+    name: 'venueOrders',
+    method: 'GET',
+    path: '/api/v1/venue/orders',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your orders sent through the venue door, oldest first, a page at a time by cursor; each order once',
+  },
+  {
+    name: 'venueOrderByKey',
+    method: 'GET',
+    path: '/api/v1/venue/orders/by-key',
+    product: 'accounts',
+    access: 'private',
+    summary: 'One order by its Idempotency-Key or action key: accepted with the venue’s record, or unknown until the venue answers',
   },
   {
     name: 'venueSession',

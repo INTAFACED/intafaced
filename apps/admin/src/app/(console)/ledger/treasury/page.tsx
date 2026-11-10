@@ -3,7 +3,14 @@ import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { readBuilderFeeRecon } from '@/lib/ledger/builder-fee-recon';
 import { CsvButton } from '@/components/merchants/csv-button';
-import { builderFeeCsv, GAP_WORDS, LINE_WORDS, reconPeriod, type BuilderFeeReconVenue } from '@/lib/ledger/builder-fee-recon-parse';
+import {
+  builderFeeCsv,
+  GAP_WORDS,
+  LINE_WORDS,
+  posterWords,
+  reconPeriod,
+  type BuilderFeeReconVenue,
+} from '@/lib/ledger/builder-fee-recon-parse';
 import '@/components/desk.css';
 
 /**
@@ -16,6 +23,23 @@ import '@/components/desk.css';
 export const dynamic = 'force-dynamic';
 
 const when = (iso: string) => `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC`;
+
+function PosterLine({ venue }: { venue: Extract<BuilderFeeReconVenue, { state: 'read' }> }) {
+  const words = posterWords(venue.poster, new Date());
+  return (
+    <p data-testid="builder-fee-poster" data-state={words.stop ? 'stopped' : venue.poster.lastCompleteAt ? 'ran' : 'none'}>
+      {words.complete}
+      {words.stop ? (
+        <>
+          {' '}
+          <span role="alert" data-testid="builder-fee-poster-stop">
+            {words.stop}
+          </span>
+        </>
+      ) : null}
+    </p>
+  );
+}
 
 function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string; to: string }) {
   if (venue.state === 'unknown') {
@@ -44,6 +68,7 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
             : 'Break: the venue and the ledger do not agree. Each break is listed below.'}{' '}
         {venue.compared} fill{venue.compared === 1 ? '' : 's'} compared. Venue id {venue.venueId}, read {when(venue.asOf)}.
       </p>
+      <PosterLine venue={venue} />
       <table data-testid="builder-fee-totals">
         <thead>
           <tr>
@@ -84,7 +109,7 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
         </thead>
         <tbody>
           {venue.lines.map((l) => (
-            <tr key={l.fillId} data-fill-id={l.fillId} data-state={l.status}>
+            <tr key={`${l.venueAccount}:${l.fillId}`} data-fill-id={l.fillId} data-venue-account={l.venueAccount} data-state={l.status}>
               <td>{when(l.filledAt)}</td>
               <td>{l.fillId}</td>
               <td>{l.userId ?? 'not known'}</td>

@@ -1350,6 +1350,18 @@
           }
         },
         {
+          "name": "venueConvertSellQuote",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/convert/sell-quote",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "convert", "sell-quote"]
+            }
+          }
+        },
+        {
           "name": "venuePrepare",
           "request": {
             "method": "POST",
@@ -1363,6 +1375,26 @@
             "method": "POST",
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/venue/submit", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "submit"] }
+          }
+        },
+        {
+          "name": "venueOrders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "orders"] }
+          }
+        },
+        {
+          "name": "venueOrderByKey",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/orders/by-key",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "orders", "by-key"]
+            }
           }
         },
         {

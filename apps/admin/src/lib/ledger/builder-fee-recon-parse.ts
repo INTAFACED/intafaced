@@ -5,10 +5,12 @@ import { buildCsv } from '../merchants/csv';
  * of the wrong type makes the whole answer invalid, never a guessed zero. Amounts stay decimal strings.
  */
 export type BuilderFeeLineStatus =
-  'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused' | 'ledger_missing';
+  'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused' | 'ledger_missing' | 'not_our_order';
 
 export interface BuilderFeeReconLine {
   readonly fillId: string;
+  /** The venue account of the fill, as the ledger key names it: one fill id can be two of our accounts' sides. */
+  readonly venueAccount: string;
   readonly userId: string | null;
   readonly assetId: string;
   readonly venueAmount: string | null;
@@ -62,10 +64,27 @@ export interface BuilderFeeLedgerRecord {
   readonly ledgerTxId: string;
   readonly idempotencyKey: string;
   readonly fillId: string;
+  readonly venueAccount: string;
   readonly userId: string | null;
   readonly assetId: string;
   readonly amount: string;
   readonly postedAt: string;
+}
+
+/** Where the builder-fee poster stopped: the venue, and the account and fill when it had reached one. */
+export interface BuilderFeePosterStop {
+  readonly venueId: string;
+  readonly venueAccount: string | null;
+  readonly fillId: string | null;
+  readonly code: string;
+  readonly message: string;
+}
+
+/** The builder-fee poster's runs on the venue (OWNER 288 change 1c). */
+export interface BuilderFeePosterState {
+  readonly lastCompleteAt: string | null;
+  readonly lastStopAt: string | null;
+  readonly lastStop: BuilderFeePosterStop | null;
 }
 
 export type BuilderFeeReconVenue =
@@ -85,6 +104,7 @@ export type BuilderFeeReconVenue =
       readonly volume: readonly BuilderFeeVolumeRow[];
       readonly volumeGaps: readonly BuilderFeeVolumeGap[];
       readonly ledgerRecords: readonly BuilderFeeLedgerRecord[];
+      readonly poster: BuilderFeePosterState;
     }
   | {
       readonly state: 'unknown';
@@ -109,6 +129,7 @@ const STATUSES: readonly BuilderFeeLineStatus[] = [
   'amounts_differ',
   'ledger_refused',
   'ledger_missing',
+  'not_our_order',
 ];
 const rec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -117,12 +138,14 @@ const decOrNull = (v: unknown): v is string | null => v === null || dec(v);
 const strOrNull = (v: unknown): v is string | null => v === null || str(v);
 
 function line(raw: unknown): BuilderFeeReconLine | null {
-  if (!rec(raw) || !str(raw.fillId) || !strOrNull(raw.userId) || !str(raw.assetId) || !str(raw.filledAt)) return null;
+  if (!rec(raw) || !str(raw.fillId) || !str(raw.venueAccount) || !strOrNull(raw.userId) || !str(raw.assetId) || !str(raw.filledAt))
+    return null;
   if (!decOrNull(raw.venueAmount) || !decOrNull(raw.ledgerAmount) || !strOrNull(raw.ledgerAssetId) || !strOrNull(raw.refusalCode))
     return null;
   if (!STATUSES.includes(raw.status as BuilderFeeLineStatus)) return null;
   return {
     fillId: raw.fillId,
+    venueAccount: raw.venueAccount,
     userId: raw.userId,
     assetId: raw.assetId,
     venueAmount: raw.venueAmount,
@@ -177,17 +200,35 @@ function volumeGap(raw: unknown): BuilderFeeVolumeGap | null {
 }
 
 function ledgerRecord(raw: unknown): BuilderFeeLedgerRecord | null {
-  if (!rec(raw) || !str(raw.ledgerTxId) || !str(raw.idempotencyKey) || !str(raw.fillId) || !strOrNull(raw.userId)) return null;
+  if (!rec(raw) || !str(raw.ledgerTxId) || !str(raw.idempotencyKey) || !str(raw.fillId) || !str(raw.venueAccount)) return null;
+  if (!strOrNull(raw.userId)) return null;
   if (!str(raw.assetId) || !dec(raw.amount) || !str(raw.postedAt)) return null;
   return {
     ledgerTxId: raw.ledgerTxId,
     idempotencyKey: raw.idempotencyKey,
     fillId: raw.fillId,
+    venueAccount: raw.venueAccount,
     userId: raw.userId,
     assetId: raw.assetId,
     amount: raw.amount,
     postedAt: raw.postedAt,
   };
+}
+
+const time = (v: unknown): v is string => str(v) && !Number.isNaN(Date.parse(v));
+const timeOrNull = (v: unknown): v is string | null => v === null || time(v);
+
+function posterStop(raw: unknown): BuilderFeePosterStop | null {
+  if (!rec(raw) || !str(raw.venueId) || !strOrNull(raw.venueAccount) || !strOrNull(raw.fillId) || !str(raw.code)) return null;
+  if (typeof raw.message !== 'string') return null;
+  return { venueId: raw.venueId, venueAccount: raw.venueAccount, fillId: raw.fillId, code: raw.code, message: raw.message };
+}
+
+function posterState(raw: unknown): BuilderFeePosterState | null {
+  if (!rec(raw) || !timeOrNull(raw.lastCompleteAt) || !timeOrNull(raw.lastStopAt)) return null;
+  const lastStop = raw.lastStop === null ? null : posterStop(raw.lastStop);
+  if (raw.lastStop !== null && lastStop === null) return null;
+  return { lastCompleteAt: raw.lastCompleteAt, lastStopAt: raw.lastStopAt, lastStop };
 }
 
 /** Every item parsed, or null when any one is invalid. */
@@ -216,7 +257,8 @@ function venue(raw: unknown): BuilderFeeReconVenue | null {
   const volume = all(raw.volume, volumeRow);
   const volumeGaps = all(raw.volumeGaps, volumeGap);
   const ledgerRecords = all(raw.ledgerRecords, ledgerRecord);
-  if (!owedRows || !volume || !volumeGaps || !ledgerRecords) return null;
+  const poster = posterState(raw.poster);
+  if (!owedRows || !volume || !volumeGaps || !ledgerRecords || !poster) return null;
   return {
     state: 'read',
     venueId: raw.venueId,
@@ -232,6 +274,7 @@ function venue(raw: unknown): BuilderFeeReconVenue | null {
     volume,
     volumeGaps,
     ledgerRecords,
+    poster,
   };
 }
 
@@ -250,7 +293,40 @@ export const LINE_WORDS: Readonly<Record<BuilderFeeLineStatus, string>> = {
   amounts_differ: 'Break: the venue and the ledger differ in amount or asset',
   ledger_refused: 'Break: the ledger refused this fee',
   ledger_missing: 'Break: recorded as posted, but the ledger has no such transaction',
+  not_our_order: 'Not ours: the fill is of an order we did not send, so its builder fee is not posted',
 };
+
+/** How long ago `iso` was, from `now`, in whole minutes, hours or days: "4 minutes", "2 hours", "3 days". */
+export function agoText(iso: string, now: Date): string {
+  const minutes = Math.max(0, Math.floor((now.getTime() - Date.parse(iso)) / 60_000));
+  const [n, unit] =
+    minutes < 120 ? [minutes, 'minute'] : minutes < 48 * 60 ? [Math.floor(minutes / 60), 'hour'] : [Math.floor(minutes / 1440), 'day'];
+  return `${n} ${unit}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * The operations desk's line on the builder-fee poster (OWNER 288 change 1c): the time since its last complete run, and
+ * a stop newer than that run with the venue, the account and the fill it stopped at.
+ */
+export function posterWords(poster: BuilderFeePosterState, now: Date): { readonly complete: string; readonly stop: string | null } {
+  const complete =
+    poster.lastCompleteAt === null
+      ? 'The builder-fee poster has no complete run recorded.'
+      : `The builder-fee poster last completed a run ${agoText(poster.lastCompleteAt, now)} ago, at ${poster.lastCompleteAt.slice(0, 10)} ${poster.lastCompleteAt.slice(11, 19)} UTC.`;
+  const stopped =
+    poster.lastStop !== null &&
+    poster.lastStopAt !== null &&
+    (poster.lastCompleteAt === null || Date.parse(poster.lastStopAt) > Date.parse(poster.lastCompleteAt));
+  const s = poster.lastStop;
+  const stop =
+    stopped && s
+      ? `Stopped ${agoText(poster.lastStopAt!, now)} ago (${s.code})` +
+        (s.venueAccount ? ` at account ${s.venueAccount}` : '') +
+        (s.fillId ? `, fill ${s.fillId}` : '') +
+        '. Fees after it wait until a run completes.'
+      : null;
+  return { complete, stop };
+}
 
 /** The period a page opens on: `from` and `to` as given when both are ISO times, else the last 7 days up to now. */
 export function reconPeriod(from: unknown, to: unknown, now: Date): { from: string; to: string } {
