@@ -65,6 +65,12 @@ export const venueMarketSchema = z.object({
   lotSize: decimalSchema,
   makerFeeBps: maybeKnown(signedDecimalSchema),
   takerFeeBps: maybeKnown(signedDecimalSchema),
+  // The venue's own published words for the market, each "not published" where the venue gives none (J-derivatives-21).
+  listedBy: maybeKnown(z.object({ kind: z.enum(['venue', 'hip3', 'ostium']), name: z.string() })),
+  oracleRule: maybeKnown(z.string()),
+  markRule: maybeKnown(z.string()),
+  tradingHours: maybeKnown(z.string()),
+  feed: maybeKnown(z.object({ state: z.enum(['live', 'stale']), lastOracleUpdateAt: isoTime, staleRule: maybeKnown(z.string()) })),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
 

@@ -34,6 +34,11 @@ const market = (symbol: string, cap: string | null, kind: 'spot' | 'perpetual' =
   maxOrderQty: null,
   maxOrderNotional: null,
   builderFeeCapBps: cap === null ? { known: false } : { known: true, value: a(cap) },
+  listedBy: { known: false },
+  oracleRule: { known: false },
+  markRule: { known: false },
+  tradingHours: { known: false },
+  feed: { known: false },
 });
 const venue = { venueId: VENUE, markets: [market('BTC-USDC', '100'), market('BTC-PERP', '10', 'perpetual')] };
 

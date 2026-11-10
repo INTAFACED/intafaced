@@ -64,6 +64,8 @@ export function configuredIdentityOperationOwners(options: IdentityContextOption
  * wire string off `req.body` and defaults to `require`. The branches below differ
  * only in WHICH secret verifies (owner / authority keys), not in body binding.
  */
+const EDGE_AGENT_HOLD = 'developerKeys.holdAgentAction';
+
 export function createIdentityRequestContext(options: IdentityContextOptions) {
   const regular = createEdgeContext(options);
   // Per-service keys (S2S v3): a key-signed call is named by the key that verified, so the per-purpose secrets
@@ -119,6 +121,16 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
       const rawBody = inboundRawBodyOf(req);
       const service = secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null;
       return { ...context, service };
+    }
+    if (procedures.includes(EDGE_AGENT_HOLD)) {
+      // The edge's agent-key hold (DV-keys-05): only svc-edge, signing with the same edge authority key it uses for
+      // the key exchange, may ask; never inside a mixed batch.
+      if (procedures.some((name) => name !== EDGE_AGENT_HOLD)) return { ...context, service: null };
+      if (keyJudged(req, context)) return { ...context, service: keyedOwner(context, ['svc-edge']) };
+      if (reader !== 'svc-edge' || legacyRefused) return { ...context, service: null };
+      const secret = identityAuthorityReadSecret(options, 'svc-edge');
+      const rawBody = inboundRawBodyOf(req);
+      return { ...context, service: secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null };
     }
     if (procedures.includes('operationAdmission.decide')) {
       // Owner keys authorize only this procedure, never a mixed service batch.

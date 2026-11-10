@@ -19,6 +19,7 @@ const USER_A = '11111111-1111-4111-8111-1111111111a1';
 const USER_B = '11111111-1111-4111-8111-1111111111b2';
 const A: UserVenueAccount = { venueId: VENUE, owner: '0x00000000000000000000000000000000000000a1', subAccount: null };
 const B: UserVenueAccount = { venueId: VENUE, owner: '0x00000000000000000000000000000000000000b2', subAccount: null };
+const BUILDER = '0x00000000000000000000000000000000000000c0';
 const since = new Date('2026-11-10T00:00:00.000Z');
 const filledAt = new Date('2026-11-10T01:00:00.000Z');
 
@@ -37,12 +38,25 @@ const fill = (fillId: string, clientId: string | null, builderFee: string, side:
   filledAt,
 });
 
-/** A venue that reports these fills per account, as many times as it is read. */
+/** The orders that carry our builder code here are the door's (client ids `c…`); every other order carries another builder's. */
+const underOurCode = (f: UserVenueFill) => f.venueClientOrderId?.startsWith('c') ?? false;
+
+/**
+ * A venue that reports these fills per account, as many times as it is read, and its own builder totals for our address:
+ * every fee it charged under our code, once per account and fill, none claimed (OWNER 288 change 1e).
+ */
 function venueWith(fills: Map<string, UserVenueFill[]>): () => Promise<UserVenue> {
   const venue = {
     venue: { id: VENUE, displayName: 'TEST key venue', kind: 'test' },
     async fills(account: UserVenueAccount) {
       return { value: fills.get(account.owner) ?? [], asOf: new Date() };
+    },
+    async builderTotals(builder: string) {
+      const once = new Map<string, UserVenueFill>();
+      for (const [owner, list] of fills) for (const f of list) if (underOurCode(f)) once.set(`${owner}:${f.fillId}`, f);
+      const earned = [...once.values()].reduce((sum, f) => sum + f.builderFee, 0n);
+      const assets = earned === 0n ? [] : [{ asset: 'USDC', earned, unclaimed: earned }];
+      return { value: { known: true, value: { builder, assets } }, asOf: new Date() };
     },
     async markets() {
       return { value: [], asOf: new Date() };
@@ -74,6 +88,7 @@ const deps = (fills: Map<string, UserVenueFill[]>, sent: Record<string, string[]
   ledger,
   store,
   ourOrders: ordersOf(sent),
+  builder: BUILDER,
   onStop: (s: BuilderFeeStop) => stops.push(s),
   now: () => new Date('2026-11-10T02:00:00.000Z'),
 });
