@@ -409,6 +409,22 @@ describe('TEST venue simulator: switches and labels', () => {
     expect(() => refuseTestVenueOutsideTest(w.sim.venue, 'prod')).toThrow(VenueRefusalError);
   });
 
+  it('the TEST all-fills read lists the fills of every account since a time, each with its account, oldest first', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:af');
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:af');
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60000', '0.1', 'order:trader:all-fills'));
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.1', 'order:maker:all-fills'));
+    const all = w.sim.testAllFills(new Date(0)).value;
+    const mine = (await w.sim.fills(w.trader, new Date(0))).value;
+    const theirs = (await w.sim.fills(w.other, new Date(0))).value;
+    expect(all.map((x) => x.fill)).toEqual(expect.arrayContaining([...mine, ...theirs]));
+    expect(all).toHaveLength(mine.length + theirs.length);
+    expect(new Set(all.map((x) => x.owner))).toEqual(new Set([w.trader.owner.toLowerCase(), w.other.owner.toLowerCase()]));
+    expect(all.every((x) => x.subAccount === null)).toBe(true);
+    expect(w.sim.testAllFills(new Date(Date.now() + 60_000)).value).toEqual([]);
+  });
+
   it('venue down refuses every call and changes nothing', async () => {
     const w = world();
     w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:down');
