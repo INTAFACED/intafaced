@@ -392,6 +392,26 @@ test(`${J} #7 a withdrawal freeze asked from the request is recorded by the iden
   expect(again).toMatchObject({ changed: false, auditId: frozen.auditId });
   expect(await lockOf()).toMatchObject({ locked: true, setBy: 'support', unlocksAt: null });
 
+  // The audit row, read back from svc-identity through the desk: one row for this request, the one the freeze answered,
+  // naming the request, the agent and the reason, and that this ask set the lock.
+  const audit = async () => lead('query', 'withdrawalFreezeRecords', { ticketId: ticket.id });
+  expect(await audit()).toEqual({
+    recordedBy: 'svc-identity',
+    records: [
+      {
+        id: frozen.auditId,
+        ticketId: ticket.id,
+        operatorId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        reason: `TEST ${J} #7`,
+        lockSet: true,
+        recordedAt: frozen.recordedAt,
+      },
+    ],
+  });
+  // The customer can't read it through the desk's door.
+  const peek = await client.get(query('withdrawalFreezeRecords', { ticketId: ticket.id }));
+  expect(peek.status, JSON.stringify(peek.body).slice(0, 300)).not.toBe(200);
+
   // No credit is posted and the existing hold stays: the balances and the resting order are as they were.
   expect(await client.balances()).toEqual(before.balances);
   expect(await orderStatus()).toBe('open');
@@ -410,6 +430,8 @@ test(`${J} #7 a withdrawal freeze asked from the request is recorded by the iden
   }
   expect(await refused('mutation', 'requestWithdrawalFreeze', { ticketId: ticket.id, reason: 'TEST' })).toContain('support.ticket_closed');
   expect(await client.balances()).toEqual(before.balances);
+  // The record is unchanged by the walk and the refused ask: still the one row.
+  expect((await audit()).records.map((row) => row.id)).toEqual([frozen.auditId]);
 });
 
 test(`${J} #8 the customer reads a plain status, no promised time and no staff-only text`, async ({ browser }) => {

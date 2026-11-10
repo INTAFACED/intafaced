@@ -6,6 +6,8 @@ import {
   SCREENING_REFUSE_FIXTURE,
   SCREENING_REFUSE_UNCONFIGURED,
   SCREENING_REVIEWED_EMPTY,
+  SANCTIONED_ROWS_SOURCE_SIGNED,
+  SANCTIONED_ROWS_SOURCE_UNSIGNED,
   ScreeningMoneyPostureError,
   envScreeningList,
   evaluateScreeningMoneyPosture,
@@ -37,13 +39,13 @@ import {
  * `reviewedAt` are required on any rule that ships to prod; `assertReviewed()`
  * is called by the DoD gate for launch markets.
  *
- * THE SANCTIONS BLOCKLIST IS EMPTY, ON PURPOSE, AND STILL NEEDS COUNSEL.
- * No list ships configured. What changed is that the empty state is no longer
- * invisible: every decision reports whether a list was consulted
- * (`AccessDecision.screening`), and `assertScreeningConfigured()` refuses to let
- * a production-like process boot without one. See `screening.ts` for the shape
- * counsel's answer goes into — supplying it is a config change, not an
- * engineering project.
+ * THE SANCTIONS LIST IS THE OWNER'S ROWS, UNSIGNED UNTIL HE SIGNS (OWNER 258 (1)).
+ * `SANCTIONED_LIST_ROWS` (screening.ts) screens dev and test stacks; a
+ * production-like process screens with them only once every row is signed, or
+ * with the operator's `INTAFACED_SANCTIONS_REGIONS` override. Every decision
+ * reports whether a list was consulted (`AccessDecision.screening`), and
+ * `assertScreeningConfigured()` refuses to let a production-like process boot
+ * without one.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * THIS FILE IS BUSINESS CONFIGURATION. IT IS NOT THE SANCTIONS AUTHORITY.
@@ -231,8 +233,8 @@ export const JURISDICTION_MATRIX: readonly JurisdictionEntry[] = [
   // citizens of Restricted Territories, regardless of their location."
   //
   // (a) is the two business blocks below, on the per-country switch, which takes ISO 3166-2 subdivision rows so a
-  // region can be blocked without its country. (b) and (c) are the counsel-set screening list
-  // (`INTAFACED_SANCTIONS_REGIONS`, screening.ts), never this file: residence there refuses through `checkAccess`,
+  // region can be blocked without its country. (b) and (c) are the screening list (`SANCTIONED_LIST_ROWS`, or the
+  // operator's `INTAFACED_SANCTIONS_REGIONS` override, screening.ts), never this file: residence there refuses through `checkAccess`,
   // citizenship through `checkCitizenship`. A business block never satisfies the screening guard.
   //
   // The US is not served at launch, on every module and plane (OWNER 237, 8 Nov 2026).
@@ -418,7 +420,8 @@ export function businessBlockedRegions(business: readonly BusinessBlock[] = SHIP
 /**
  * The screening list this process is actually using.
  *
- * A pass-through to the env-supplied list, and that is the fix: this function
+ * A pass-through to the screening authority's list (the env override, else the
+ * owner's rows, `envScreeningList`), and that is the fix: this function
  * used to merge `blocked: true` matrix entries in, which is how business
  * configuration came to satisfy a sanctions guard. Kept as a named seam because
  * it is where a second SCREENING-authority source (a file, a fetched list)
@@ -1103,7 +1106,8 @@ export function screeningStatus(
   const moneyGrade = screeningMoneyGrade(screening);
   // `listed` without a supplied source falls back to naming the variable; that
   // is a name, not a value, and it means no attribution was supplied.
-  const sourceSet = screening.declaration !== 'unset' && screening.source !== `env:${SANCTIONS_REGIONS_ENV}`;
+  const fromRows = screening.source === SANCTIONED_ROWS_SOURCE_SIGNED || screening.source === SANCTIONED_ROWS_SOURCE_UNSIGNED;
+  const sourceSet = screening.declaration !== 'unset' && !fromRows && screening.source !== `env:${SANCTIONS_REGIONS_ENV}`;
   const sourceNote = sourceSet ? `source set in ${SANCTIONS_SOURCE_ENV}` : `no source set in ${SANCTIONS_SOURCE_ENV}`;
   const valuesNote = 'Region codes and the source are not logged.';
   const summary =
@@ -1111,16 +1115,20 @@ export function screeningStatus(
       ? `sanctions screening: FIXTURE / TEST LIST — not counsel. Must not be read as screened clean. ` +
         `${blockedRegions.length} region(s) on the list from ${SANCTIONS_REGIONS_ENV}, ${sourceNote}. ${valuesNote}` +
         businessNote
-      : screening.declaration === 'listed'
-        ? `sanctions screening: ${blockedRegions.length} region(s) blocked from ${SANCTIONS_REGIONS_ENV}, ${sourceNote}. ${valuesNote}` +
+      : fromRows
+        ? `sanctions screening: ${blockedRegions.length} region(s) blocked from the config rows (SANCTIONED_LIST_ROWS, ` +
+          `${screening.source === SANCTIONED_ROWS_SOURCE_SIGNED ? 'signed' : 'UNSIGNED: dev/test only'}).` +
           businessNote
-        : screening.declaration === 'reviewed-empty'
-          ? `sanctions screening: REVIEWED, DELIBERATELY EMPTY — 0 regions screened out, on the authority of ` +
-            `the record named in ${SANCTIONS_SOURCE_ENV}. This is a recorded decision, not an unset default. ${valuesNote}` +
+        : screening.declaration === 'listed'
+          ? `sanctions screening: ${blockedRegions.length} region(s) blocked from ${SANCTIONS_REGIONS_ENV}, ${sourceNote}. ${valuesNote}` +
             businessNote
-          : `sanctions screening: NOT CONFIGURED — 0 regions blocked because no list was consulted. ` +
-            `This is not "everywhere is clear"; nothing has been screened. Supply ${SANCTIONS_REGIONS_ENV}.` +
-            businessNote;
+          : screening.declaration === 'reviewed-empty'
+            ? `sanctions screening: REVIEWED, DELIBERATELY EMPTY — 0 regions screened out, on the authority of ` +
+              `the record named in ${SANCTIONS_SOURCE_ENV}. This is a recorded decision, not an unset default. ${valuesNote}` +
+              businessNote
+            : `sanctions screening: NOT CONFIGURED — 0 regions blocked because no list was consulted. ` +
+              `This is not "everywhere is clear"; nothing has been screened. Supply ${SANCTIONS_REGIONS_ENV}.` +
+              businessNote;
 
   return {
     configured: screening.configured,
@@ -1155,7 +1163,10 @@ export class UnscreenedJurisdictionError extends Error {
             `PRs — a licence we lack, a market we have not opened, a placeholder — and letting one vouch ` +
             `for a sanctions list would mean a commercial decision could arm a legal control nobody had ` +
             `supplied. Sanctions content has a different owner and comes in below.\n\n`) +
-        `THERE ARE EXACTLY TWO WAYS TO SATISFY THIS, and both are a deliberate, attributable act:\n\n` +
+        `The owner's list (SANCTIONED_LIST_ROWS, screening.ts) is UNSIGNED, so it screens dev and test only ` +
+        `(OWNER 258 (1)): "Until a list exists, the live app lets nobody in." It counts here once the owner ` +
+        `signs every row. Agents never fill a signature.\n\n` +
+        `UNTIL THEN THERE ARE EXACTLY TWO WAYS TO SATISFY THIS, and both are a deliberate, attributable act:\n\n` +
         `  1. Supply the list:\n` +
         `       ${SANCTIONS_REGIONS_ENV}="AA:reason,BB:reason"   (ISO 3166-1 alpha-2 or ISO 3166-2, comma separated)\n` +
         `       ${SANCTIONS_SOURCE_ENV}="<governance record>"\n\n` +
@@ -1170,8 +1181,7 @@ export class UnscreenedJurisdictionError extends Error {
         `the jurisdictions served. Do not guess it: too few entries is a sanctions breach, too many is ` +
         `unlawful discrimination. And do not answer it by adding \`blocked: true\` to the matrix — that ` +
         `is the wrong authority and will not clear this. See packages/config/src/screening.ts.\n\n` +
-        `Development and test are deliberately unaffected — APP_ENV=dev boots unconfigured and logs the ` +
-        `gap instead.`,
+        `Development and test are deliberately unaffected — APP_ENV=dev boots on the unsigned rows.`,
     );
     this.name = 'UnscreenedJurisdictionError';
   }
@@ -1198,8 +1208,9 @@ export const SCREENING_ENFORCED_ENVS = ['staging', 'prod'] as const;
  * run rather than quietly mislead users about it.
  *
  * SATISFIABLE ONLY BY THE SCREENING AUTHORITY. It gates on the screening list's
- * own `declaration`, and the only thing that can produce a declaration other
- * than `unset` is `parseScreeningList` reading `INTAFACED_SANCTIONS_REGIONS`.
+ * own `declaration`, and the only things that can produce a declaration other
+ * than `unset` are `parseScreeningList` reading `INTAFACED_SANCTIONS_REGIONS` and
+ * the owner's rows (signed, or on dev/test).
  * The business matrix is not an input to this decision at all — it is read below
  * solely so the refusal message can name blocks that exist and say why they do
  * not count. That is the fix: this used to gate on a merged list, and one
