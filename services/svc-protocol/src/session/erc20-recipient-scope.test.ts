@@ -196,6 +196,33 @@ describe('the router only routes through pools the session may call', () => {
   });
 });
 
+describe('the liquidity router adds to and takes from only pools the session may call (J-dex-protocol-12)', () => {
+  // Any factory pool passes the router's own check, including one that pairs a token the key controls with one of the
+  // account's, so the pool argument must be a session target, as for the v1 router swap.
+  const FAKE_POOL = '0x7777777777777777777777777777777777777777';
+  const LIQUIDITY_CALLS = TARGET_ARG_CALLS.filter((c) => c.signature !== 'swapExactIn(address,address,uint256,uint256,address)');
+
+  it('covers add, remove and swap-and-add', () => {
+    expect(LIQUIDITY_CALLS.map((c) => c.signature.split('(')[0])).toEqual(['addLiquidity', 'removeLiquidity', 'swapAndAdd']);
+  });
+
+  it.each(LIQUIDITY_CALLS)('$signature: a pool that is not a target is refused, even paying the account', ({ signature }) => {
+    const recipientArg = RECIPIENT_SCOPED_CALLS.find((c) => c.signature === signature)!.recipientArg;
+    const withPool = (pool: Address) => {
+      const data = callFor(signature, recipientArg, ACCOUNT);
+      return `${data.slice(0, 10)}${pool.slice(2).toLowerCase().padStart(64, '0')}${data.slice(74)}` as Hex;
+    };
+    expect(decide(withPool(FAKE_POOL), ROUTER).code).toBe('session.target_arg_not_allowed');
+    expect(decide(withPool(FAKE_POOL), ROUTER, ACCOUNT, [FAKE_POOL]).allowed).toBe(true);
+  });
+
+  it('refuses creating and seeding a pool through a session at all', () => {
+    expect(
+      isOutboundTransferSelector(toFunctionSelector('createAndSeed(address,address,uint16,uint256,uint256,uint256,address,uint256)')),
+    ).toBe(true);
+  });
+});
+
 describe('protocol calls that pay out or hand over control cannot be put in a session', () => {
   const SELECTORS: Record<string, string> = {
     'open(address,address,uint128,address,address,uint16,uint32,uint8)': '0x492284ae',
@@ -292,6 +319,9 @@ describe('every function with an address input in the compiled contracts is clas
   const format = (p: Param): string =>
     p.type.startsWith('tuple') ? `(${(p.components ?? []).map(format).join(',')})${p.type.slice(5)}` : p.type;
   const hasAddress = (p: Param): boolean => p.type.startsWith('address') || (p.components ?? []).some(hasAddress);
+  // A batch of calls (`multicall(bytes[])`) can carry any of the contract's own functions, including the forbidden ones,
+  // with no address in its own signature, so it is swept too (the CI review's finding on #7712: router v2's multicall).
+  const hasCallBatch = (p: Param): boolean => p.type === 'bytes[]' || (p.components ?? []).some(hasCallBatch);
 
   /**
    * Functions with an address input that a session may still be given, and why
@@ -318,9 +348,11 @@ describe('every function with an address input in the compiled contracts is clas
     'MockERC20.mint(address,uint256)': 'test token faucet; not a deployed protocol surface',
     'MockERC20Dec.mint(address,uint256)': 'test token faucet; not a deployed protocol surface',
     'TestToken.mint(address,uint256)': 'test token faucet on the LOCAL TEST chain only; not a deployed protocol surface',
+    'TestPlainToken.mint(address,uint256)': 'test token faucet on the LOCAL TEST chain only; not a deployed protocol surface',
     'ReenteringBorrowToken.mint(address,uint256)': 'test fixture; not a deployed protocol surface',
     'ReenteringBorrowToken.arm(address,uint256)': 'test fixture; not a deployed protocol surface',
     'PoolFactory.createPool(address,address,uint16)': 'permissionless pool creation; no asset of the calling account moves',
+    'LiquidityFactory.createPool(address,address,uint16)': 'permissionless pool creation; no asset of the calling account moves',
     'RwaRegistry.register(address,bytes32)': 'registry entry keyed by msg.sender as issuer; moves no asset',
     'RwaRegistry.unlist(address)': 'issuer-only registry entry; moves no asset',
     'ScopedPaymaster.setAllowlisted(address,bool)': 'operator-gated paymaster policy; moves no funds',
@@ -351,7 +383,7 @@ describe('every function with an address input in the compiled contracts is clas
       return artifact.abi
         .filter((e): e is AbiFunction => e.type === 'function')
         .filter((fn) => fn.stateMutability !== 'view' && fn.stateMutability !== 'pure')
-        .filter((fn) => (fn.inputs as readonly Param[]).some(hasAddress))
+        .filter((fn) => (fn.inputs as readonly Param[]).some((p) => hasAddress(p) || hasCallBatch(p)))
         .map((fn) => {
           const signature = `${fn.name}(${(fn.inputs as readonly Param[]).map(format).join(',')})`;
           return { contract: artifact.contractName, fn, signature, selector: toFunctionSelector(signature).toLowerCase() as Hex };
@@ -363,6 +395,7 @@ describe('every function with an address input in the compiled contracts is clas
     expect(functions.map((f) => f.signature)).toContain('swapExactIn(address,address,uint256,uint256,address)');
     expect(functions.map((f) => f.signature)).toContain('setHeirs(address[],uint16[])'); // address[]
     expect(functions.map((f) => f.signature)).toContain('createToken(bytes32,(string,string,uint8,uint256,address))'); // tuple component
+    expect(functions.map((f) => f.signature)).toContain('multicall(bytes[])'); // a batch of calls, no address
   });
 
   it('leaves none unclassified', () => {

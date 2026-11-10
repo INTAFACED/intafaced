@@ -57,6 +57,7 @@ import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
+import { recordOwned, registerSupportRecordOwnershipRoute } from './support-record-ownership.js';
 import { CustodyDepositBook } from './custody/deposits/book.js';
 import { CustodyDepositService } from './custody/deposits/service.js';
 import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
@@ -986,6 +987,13 @@ registerClosureCheckRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   check: (input) => runPayClosureCheck(sql, input),
+});
+
+registerSupportRecordOwnershipRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  owned: (input) => recordOwned(sql, input),
 });
 
 const custodyDeposits = new CustodyDepositService({ sql, chain, registries: createRegistryReader(sql) });

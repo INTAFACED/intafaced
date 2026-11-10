@@ -7,10 +7,15 @@
 import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
 import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
+import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
+import { deskCopy } from '../../screens/trade/desk/copy';
+import { acceptedCells, refusedName } from './trading/order-types-view';
+import { tradingApiCopy } from './trading/trading-api-copy';
 import { developersCopy } from './developers-copy';
 import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
 import { docsCopy } from './developers-docs-copy';
 import { causeKey, fixKey, tradeErrorsCopy } from './errors/trade-errors-copy';
+import { categoryKey, errorClassCopy, severityKey } from './errors/error-class-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
 import { AUDIENCES, DATA_PRODUCTS, DATA_TERMS, SECTIONS, connectivityOptions, hostRows, type Section } from './developers-model';
 import {
@@ -30,6 +35,9 @@ const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
 const limits = rateLimitsCopy.forLocale('en').t;
 const tradeErrors = tradeErrorsCopy.forLocale('en').t;
+const errorClass = errorClassCopy.forLocale('en').t;
+const trading = tradingApiCopy.forLocale('en').t;
+const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
 
 const table = (head: string[], rows: string[][]) =>
@@ -248,11 +256,21 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         tradeErrors('lead'),
         `## ${tradeErrors('tableTitle')}`,
         table(
-          [tradeErrors('colCode'), tradeErrors('colStatus'), tradeErrors('colDetail'), tradeErrors('colCause'), tradeErrors('colFix')],
+          [
+            tradeErrors('colCode'),
+            tradeErrors('colStatus'),
+            tradeErrors('colDetail'),
+            errorClass('colSeverity'),
+            errorClass('colCategory'),
+            tradeErrors('colCause'),
+            tradeErrors('colFix'),
+          ],
           TRADE_ERROR_CATALOGUE.map((entry) => [
             code(entry.code),
             String(entry.status),
             code(entry.intafacedCode),
+            errorClass(severityKey(entry.severity)),
+            errorClass(categoryKey(entry.category)),
             tradeErrors(causeKey(entry.cause)),
             tradeErrors(fixKey(entry.cause)),
           ]),
@@ -299,6 +317,44 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           DATA_PRODUCTS.map((product) => [docs(`product_${product}`), ...DATA_TERMS.map(() => docs('termUnset'))]),
         ),
       ].join('\n\n'),
+  },
+  {
+    slug: 'order-types',
+    title: sectionTitle('order-types'),
+    summary: trading('typesLead'),
+    body: () => {
+      const types = spotOrderTypes();
+      const rows = types.accepted.map((row) => ({ row, cells: acceptedCells(row, trading, desk) }));
+      return [
+        trading('typesLead'),
+        trading('typesStaticNote'),
+        `## ${trading('typesTitle')}`,
+        table(
+          [trading('colType'), trading('colBodyType'), trading('colFields'), trading('colTif'), trading('colNote')],
+          rows.map(({ cells }) => [
+            cells.name,
+            code(cells.bodyType),
+            cells.fields ? code(cells.fields) : trading('noFields'),
+            cells.timeInForce,
+            cells.note,
+          ]),
+        ),
+        `## ${trading('exampleTitle')}`,
+        ...rows.map(({ cells }) => `### ${cells.name}\n\n\`\`\`json\n${cells.example}\n\`\`\``),
+        `## ${trading('refusedTitle')}`,
+        trading('refusedLead'),
+        table(
+          [trading('colType'), trading('colCode')],
+          types.refused.map((row) => [refusedName(row, desk), code(row.code)]),
+        ),
+      ].join('\n\n');
+    },
+  },
+  {
+    slug: 'bot-policy',
+    title: sectionTitle('bot-policy'),
+    summary: trading('botLead'),
+    body: () => [trading('botLead'), trading('botStaticNote')].join('\n\n'),
   },
 ];
 

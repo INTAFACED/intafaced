@@ -1445,6 +1445,15 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     p2pTradeFiatSent: { tradeId: uid(), buyerId: uid(), sellerId: uid(), markedAt: ts() },
     p2pTradeReminderSent: { tradeId: uid(), n: 1, buyerId: uid(), sellerId: uid(), remindedAt: ts() },
     p2pOfferPaused: { instrumentId: uid(), makerId: uid(), methodId: 'sepa', offerIds: [uid()], reason: 'method_removed', pausedAt: ts() },
+    p2pTraderPosted: {
+      offerId: uid(),
+      traderId: uid(),
+      followerId: uid(),
+      side: 'sell',
+      asset: 'USDT',
+      fiatCurrency: 'EUR',
+      postedAt: ts(),
+    },
     p2pRemarkCaseOpened: { caseId: uid(), tradeId: uid(), reportedId: uid(), reporterRole: 'seller', openedAt: ts() },
     p2pChatMessageSent: { tradeId: uid(), messageId: uid(), senderId: uid(), recipientId: uid(), sentAt: ts() },
     p2pDisputeEscalated: {
@@ -1459,6 +1468,13 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     copySkipped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'paused', skippedAt: ts() },
     copyFailed: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'order_rejected', failedAt: ts() },
     copyStopped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), reason: 'follower', closeOnly: true, stoppedAt: ts() },
+    venueDelistingScheduled: {
+      venueId: 'test-venue-sim',
+      symbol: 'BTC-USDC',
+      delistsAt: ts(),
+      scheduledAt: ts(),
+      noticeKey: 'venue-delisting:test-venue-sim:BTC-USDC:2026-12-01T00:00:00.000Z',
+    },
     supportTicketResolved: {
       ticketId: uid(),
       userId: uid(),

@@ -6,6 +6,10 @@
  * CI review's Verdict.
  */
 
+import { armed, ciSealReads } from './journey-seal.mjs';
+
+const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
+
 export async function gh(method, path, body, accept = 'application/vnd.github+json') {
   const res = await fetch(`https://api.github.com${path}`, {
     method,
@@ -93,8 +97,11 @@ async function rerunOneSeal(
     if (number === undefined) return null;
     const p = await api('GET', `/repos/${repo}/pulls/${number}`);
     if (p.status !== 200) throw new Error(`could not read #${number}: HTTP ${p.status}`);
-    if (p.json?.state === 'open' && p.json?.head?.sha === sha) return null;
-    return `not re-run: #${number} is ${p.json?.state} on ${String(p.json?.head?.sha).slice(0, 10)}, not on ${sha.slice(0, 10)}`;
+    if (p.json?.state !== 'open' || p.json?.head?.sha !== sha)
+      return `not re-run: #${number} is ${p.json?.state} on ${String(p.json?.head?.sha).slice(0, 10)}, not on ${sha.slice(0, 10)}`;
+    // Only an armed pull request merges on its seal; arming re-runs its seals (journey-seal-recheck.yml, `armed`).
+    if (!armed(p.json)) return `not re-run: #${number} is not armed; arming auto-merge re-runs its seal`;
+    return null;
   };
   for (let poll = 1; ; poll++) {
     // The first read is rerunSeal's own; each poll after reads again.
@@ -116,6 +123,16 @@ async function rerunOneSeal(
     if (step.act === 'rerun') {
       const why = await moved();
       if (why) return why;
+      // ci.yml's seal reads the review only on a head whose own ci.yml predates 9 Nov 2026 (ciSealReads). On any other
+      // head it is red on CI's own jobs, and re-running its failed jobs would re-run CI's red tests, not the review.
+      const run = await api('GET', `/repos/${repo}/actions/runs/${step.runId}`);
+      if (run.status !== 200) throw new Error(`could not read run ${step.runId}: HTTP ${run.status}`);
+      if (run.json?.path === CI_WORKFLOW_PATH) {
+        const j = await api('GET', `/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`);
+        if (j.status !== 200) throw new Error(`could not read run ${step.runId}'s jobs: HTTP ${j.status}`);
+        const job = (j.json?.jobs ?? []).filter((x) => x?.name === SEAL).sort((a, b) => b.id - a.id)[0];
+        if (!ciSealReads(job)) return `not re-run: ci.yml's seal in run ${step.runId} reads only CI's own jobs on this head`;
+      }
       const r = await api('POST', `/repos/${repo}/actions/runs/${step.runId}/rerun-failed-jobs`);
       if (r.status === 403) return `run ${step.runId} is already re-running`;
       if (r.status !== 201) throw new Error(`could not re-run the failed jobs of run ${step.runId}: HTTP ${r.status}`);

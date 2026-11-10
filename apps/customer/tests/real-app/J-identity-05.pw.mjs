@@ -1,4 +1,4 @@
-// World: none
+// World: restart
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -14,6 +14,7 @@ import {
   mailedCodes,
   mailedLines,
   nextMailedCode,
+  restartWith,
   signUpInBrowser,
   toUnits,
 } from './stack.mjs';
@@ -150,21 +151,22 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
   page,
   browser,
 }) => {
-  test.setTimeout(180_000);
-  const { who, codes } = await withAuthenticator(page);
+  test.setTimeout(300_000);
   // No recovery codes left: each one is spent signing in with it (a sign-in on this TEST browser's device key), until
   // identity says none remain.
-  const signInWith = (code) =>
-    fetch(`${EDGE}/api/identity/trpc/auth.login`, {
-      method: 'POST',
-      headers: { origin: ORIGIN, 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, totpCode: code }),
-    }).then(json);
-  for (const [i, code] of codes.entries()) {
-    const spent = await signInWith(code);
-    expect(spent.status, JSON.stringify(spent.body).slice(0, 300)).toBe(200);
-    expect(spent.body.result.data.recoveryCodesLeft).toBe(codes.length - i - 1);
-  }
+  const spendAll = async ({ who, codes }) => {
+    for (const [i, code] of codes.entries()) {
+      const spent = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+        method: 'POST',
+        headers: { origin: ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, totpCode: code }),
+      }).then(json);
+      expect(spent.status, JSON.stringify(spent.body).slice(0, 300)).toBe(200);
+      expect(spent.body.result.data.recoveryCodesLeft).toBe(codes.length - i - 1);
+    }
+  };
+  const { who, codes } = await withAuthenticator(page);
+  await spendAll({ who, codes });
   const seen = mailedLines(who.email, 'mfa-reset-started').length;
   const { context, page: other } = await startLockedOutReset(browser, who);
   // Every contact on file: this person's only contact is the proved email, which is told with the end of the wait. (A
@@ -189,9 +191,37 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
   await other.getByRole('button', { name: 'Back to sign in' }).click();
   await fillSignIn(other, who);
   await expect(other.getByRole('alert')).toContainText('Your password is right');
-  // A blank waiting setting refuses and points to Support: the stack sets it (TEST), so the refusal is proved in
-  // apps/customer/src/features/public/mfa-reset.test.tsx and services/svc-identity/src/auth/mfa-reset.pg.test.ts.
   await context.close();
+
+  // With the waiting setting blank (identity restarted with it unset, as production is until the owner sets it), a
+  // second person with no recovery codes left starts the reset: the page refuses in words and points to the support
+  // path, and no reset starts: no code is mailed and no contact is told.
+  const phone = await browser.newContext();
+  const locked = await withAuthenticator(await phone.newPage());
+  await spendAll(locked);
+  await phone.close();
+  restartWith('identity', 'LOCAL_STACK_IDENTITY_MFA_RESET_WAIT', false);
+  try {
+    const codesBefore = mailedCodes(locked.who.email, 'mfa-reset-code').length;
+    const toldBefore = mailedLines(locked.who.email, 'mfa-reset-started').length;
+    const blank = await atSecondStep(browser, locked.who);
+    await blank.page.getByRole('button', { name: 'I lost my authenticator' }).click();
+    await expect(blank.page.getByRole('heading', { name: 'Reset your second step' })).toBeVisible();
+    await expect(blank.page.getByLabel('Email or handle')).toHaveValue(locked.who.email);
+    await blank.page.getByLabel('Password', { exact: true }).fill(locked.who.password);
+    await blank.page.getByRole('button', { name: 'Email me a code' }).click();
+    const refused = blank.page.getByRole('alert').filter({ hasText: 'its waiting time is not set' });
+    await expect(refused).toContainText(
+      'Resetting the second step on your own is switched off: its waiting time is not set. Write to Support and a person will help you get back in.',
+    );
+    await expect(refused.getByRole('link', { name: 'Write to Support' })).toHaveAttribute('href', '/help');
+    await expect(blank.page.getByLabel('Code from the email')).toHaveCount(0);
+    expect(mailedCodes(locked.who.email, 'mfa-reset-code')).toHaveLength(codesBefore);
+    expect(mailedLines(locked.who.email, 'mfa-reset-started')).toHaveLength(toldBefore);
+    await blank.context.close();
+  } finally {
+    restartWith('identity', 'LOCAL_STACK_IDENTITY_MFA_RESET_WAIT', true);
+  }
 });
 
 test(`${J} #3 a reset stops when cancelled from a signed-in session; otherwise it completes after the wait`, async ({ page, browser }) => {

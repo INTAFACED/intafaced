@@ -13,12 +13,15 @@ import {
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
+  type UserVenueDepositRoute,
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
+import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, type VenueRoutingGate } from './venue-listing.js';
+import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -31,9 +34,14 @@ import type { PreparedActionStore, StoredVenueAction } from './prepared-action-s
  *     action (one wallet prompt). A re-submit re-sends the stored bytes. After `definite: false` the caller reads back
  *     (`readBack`) and never prepares a new key for the same intent.
  *   · Withdrawal: identity's step-up (`trade.step_up.venue.withdraw`) is spent before the venue is asked to prepare it.
- *   · Our builder fee comes from the owner value, never from the request. Blank, every order refuses
- *     `builder_fee_not_published` before the venue is asked (AGENTS.md floor 8).
+ *   · Our builder fee comes from the owner's values, never from the request: the builder-fee version in force when the
+ *     order is prepared for signing (by venue and market group, builder-fee-versions.ts), else the boot owner value.
+ *     Blank, every order refuses `builder_fee_not_published` before the venue is asked (AGENTS.md floor 8). The prepared
+ *     order keeps that fee: a version that takes effect later never changes an order already prepared or signed.
  *   · The ledger posts nothing and no event is sent: the venue is the record of balances, locks, fills and withdrawals.
+ *   · Only markets two operators listed are shown, and a new order goes only where our listing, routing state, dates
+ *     and largest order admit it (venue-listing.ts, J-cex-spot-16), checked at preview, at prepare and at first send.
+ *     A cancel is never checked against them.
  */
 
 /**
@@ -52,6 +60,10 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
   }
 }
 
+const MARKET_KINDS_TTL_MS = 60_000;
+/** On a symbol the list doesn't hold, the list is read again at most this often, so unlisted symbols can't each cost a venue read. */
+const MARKET_MISS_REREAD_MS = 5_000;
+
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
 
 /** Identity's step-up request id is at most 128 characters. */
@@ -66,7 +78,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_invalid'
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
-  | 'trade.venue_action_unknown';
+  | 'trade.venue_action_unknown'
+  | VenueRouteRefusalCode;
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -102,15 +115,22 @@ export function parseBuilderFee(address: string | undefined, feeBps: string | un
   return { address: a, feeBps: fee };
 }
 
+/** A venue the door reaches, with the chain its actions name and its deposit route when it has one. */
+export type ConnectedUserVenue = UserVenue & { readonly chainId?: number; readonly depositRoute?: UserVenueDepositRoute | null };
+
 export interface UserVenueDoorDeps {
   /** Reach the venue. Called until it succeeds; its descriptor is checked against APP_ENV each time it connects. */
-  readonly connect: () => Promise<UserVenue & { readonly chainId?: number }>;
+  readonly connect: () => Promise<ConnectedUserVenue>;
   /** The RAW `process.env.APP_ENV`. */
   readonly appEnv: string | undefined;
   readonly store: PreparedActionStore;
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
+  /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
+  readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
+  /** Our listings, routing states and largest routed orders (J-cex-spot-16). */
+  readonly listings: VenueRoutingGate;
 }
 
 export interface PrepareRequest {
@@ -142,6 +162,27 @@ export interface SubmitAnswer {
 
 function invalid(message: string): never {
   throw new UserVenueDoorError(message, 'trade.venue_request_invalid', 400);
+}
+
+const SIDES: ReadonlySet<unknown> = new Set(['buy', 'sell']);
+const ORDER_TYPES: ReadonlySet<unknown> = new Set(['limit', 'market']);
+const TIMES_IN_FORCE: ReadonlySet<unknown> = new Set(['GTC', 'IOC', 'ALO']);
+const positive = (v: unknown): boolean => typeof v === 'bigint' && v > 0n;
+
+/**
+ * An order intent's own fields, checked before any listing, venue or store read: a malformed one is this door's typed
+ * `trade.venue_request_invalid`, never an error thrown deeper in.
+ */
+function assertPlaceIntent(intent: PlaceUserOrderIntent): void {
+  const i = intent as unknown as Record<string, unknown>;
+  if (typeof i.symbol !== 'string' || !/^\S{1,64}$/.test(i.symbol)) invalid('symbol must be a venue market symbol');
+  if (!SIDES.has(i.side)) invalid('side must be buy or sell');
+  if (!ORDER_TYPES.has(i.type)) invalid('type must be limit or market');
+  if (!positive(i.amount)) invalid('amount must be a positive decimal string');
+  if (!positive(i.price)) invalid('price must be a positive decimal string (on a market order, the worst price accepted)');
+  if (!TIMES_IN_FORCE.has(i.timeInForce)) invalid('timeInForce must be GTC, IOC or ALO');
+  if (typeof i.reduceOnly !== 'boolean') invalid('reduceOnly must be true or false');
+  if (typeof i.clientOrderKey !== 'string') invalid('clientOrderKey must be the business key of this order');
 }
 
 /** The wire form with every object's keys sorted: jsonb does not keep key order, so equality never depends on it. */
@@ -182,12 +223,12 @@ async function assertSignatureRecovers(prepared: PreparedVenueAction, signature:
 }
 
 export class UserVenueDoor {
-  private venuePromise: Promise<UserVenue & { readonly chainId?: number }> | null = null;
+  private venuePromise: Promise<ConnectedUserVenue> | null = null;
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
 
   /** The connected venue, checked against APP_ENV. A failed connect is retried on the next call. */
-  async venue(): Promise<UserVenue & { readonly chainId?: number }> {
+  async venue(): Promise<ConnectedUserVenue> {
     if (!this.venuePromise) {
       this.venuePromise = this.deps.connect().then((v) => {
         refuseTestVenueOutsideTest(v.venue, this.deps.appEnv);
@@ -201,7 +242,7 @@ export class UserVenueDoor {
   }
 
   async status() {
-    let venue: UserVenue & { readonly chainId?: number };
+    let venue: ConnectedUserVenue;
     try {
       venue = await this.venue();
     } catch (err) {
@@ -216,6 +257,8 @@ export class UserVenueDoor {
       test,
       ...(test ? { label: 'TEST' } : {}),
       chainId: venue.chainId ?? null,
+      // Where the customer's own wallet sends a token to fund this venue account: the customer's transfer, never ours.
+      deposit: venue.depositRoute ?? null,
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
     };
   }
@@ -227,24 +270,99 @@ export class UserVenueDoor {
     return { venueId: venue.venue.id, owner: o, subAccount: subAccount ?? null };
   }
 
-  /** An order with our builder fee from the owner value; blank refuses before the venue is asked. */
-  private withBuilderFee(venueId: string, intent: PlaceUserOrderIntent): PlaceUserOrderIntent {
-    const builder = this.deps.builder;
-    if (!builder) {
+  /** Each listed symbol's market kind, read once a minute, so an order costs no extra venue read. */
+  private marketKinds: { at: number; kinds: Map<string, 'spot' | 'perpetual'> } | null = null;
+
+  private async marketKind(venue: UserVenue, symbol: string): Promise<'spot' | 'perpetual'> {
+    const now = this.deps.now().getTime();
+    const fresh = this.marketKinds && now - this.marketKinds.at < MARKET_KINDS_TTL_MS ? this.marketKinds : null;
+    let kind = fresh?.kinds.get(symbol);
+    // A miss re-reads the list, so a market listed since the last read is found within seconds, but not more often than
+    // once per MARKET_MISS_REREAD_MS: inside that, an unlisted symbol is refused from the list just read.
+    const justRead = fresh !== null && now - fresh.at < MARKET_MISS_REREAD_MS;
+    if (!kind && !justRead) {
+      const kinds = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m.kind] as const));
+      this.marketKinds = { at: now, kinds };
+      kind = kinds.get(symbol);
+    }
+    if (!kind) {
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'unknown_market', detail: `${symbol} is not listed on this venue` });
+    }
+    return kind;
+  }
+
+  /** Our builder address on the venue: the owner value, or null when it is blank. */
+  private builderAddress(): string | null {
+    return this.deps.builder?.address ?? null;
+  }
+
+  /**
+   * An order with our builder fee: the builder-fee version in force now for its venue and market group, else the boot
+   * owner value. Blank refuses before the venue is asked. A spot buy carries none and so never needs it published or
+   * approved: the venue charges builder fees only on a spot sell and on both sides of a perp ("builder codes do not
+   * apply to the buying side of spot trades", Hyperliquid's builder-codes page, read 9 Nov 2026; project-state #1888).
+   */
+  private async withBuilderFee(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<PlaceUserOrderIntent> {
+    const venueId = venue.venue.id;
+    const kind = await this.marketKind(venue, intent.symbol);
+    if (kind === 'spot' && intent.side === 'buy') return { ...intent, builderFee: null };
+    const address = this.builderAddress();
+    let feeBps: Amount | null = this.deps.builder?.feeBps ?? null;
+    try {
+      const versioned = builderFeeOf((await this.deps.builderFeesAt?.(this.deps.now())) ?? null, venueId, intent?.symbol ?? '');
+      if (versioned) feeBps = versioned.feeBps;
+    } catch (err) {
+      if (!(err instanceof BuilderFeeVersionError)) throw err;
+      // A stored builder-fee version this door cannot read is never replaced by a guess: no order is prepared.
       throw new VenueRefusalError({
         venueId,
+        code: 'builder_fee_not_published',
+        detail: `the builder-fee version in force cannot be read (${err.code}: ${err.message}), so no order is prepared`,
+      });
+    }
+    if (!address || feeBps === null) {
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
         code: 'builder_fee_not_published',
         detail: 'our builder fee is not published (owner value blank), so no order is prepared',
       });
     }
-    return { ...intent, builderFee: { builder: builder.address, feeBps: builder.feeBps } };
+    return { ...intent, builderFee: { builder: address, feeBps } };
+  }
+
+  /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
+  async markets() {
+    const venue = await this.venue();
+    const read = await venue.markets(null);
+    const shown = await this.deps.listings.shown(venue.venue.id, this.deps.now());
+    const value: ListedVenueMarket[] = [];
+    for (const m of read.value) {
+      const listing = shown.get(m.symbol);
+      if (listing) value.push({ ...m, listing });
+    }
+    return { ...read, value };
+  }
+
+  /** A new order our listing, routing state, dates or largest order refuse, as this door's typed refusal. */
+  private async admitPlace(venueId: string, intent: PlaceUserOrderIntent): Promise<void> {
+    try {
+      await this.deps.listings.admitPlace(venueId, intent, this.deps.now());
+    } catch (err) {
+      if (err instanceof VenueRouteRefusal) throw new UserVenueDoorError(err.message, err.code, 422);
+      throw err;
+    }
   }
 
   async preview(_principal: Principal, owner: string, intent: VenueIntent) {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
+    assertPlaceIntent(intent);
     const venue = await this.venue();
+    // The same order as prepare: the venue's own market list first (a symbol it does not list is its `unknown_market`),
+    // then our builder fee, then our listing, routing state, dates and largest order.
+    const withFee = await this.withBuilderFee(venue, intent);
+    await this.admitPlace(venue.venue.id, withFee);
     const account = await this.account(owner);
-    return venue.preview(account, this.withBuilderFee(venue.venue.id, intent));
+    return venue.preview(account, withFee);
   }
 
   /** The key the action is stored under: the intent's own business key where it has one. */
@@ -276,6 +394,7 @@ export class UserVenueDoor {
       invalid('signer must be { role: owner|agent, address: 0x... }');
     }
     assertInteractive(principal, intent.kind);
+    if (intent.kind === 'place_order') assertPlaceIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
@@ -307,9 +426,9 @@ export class UserVenueDoor {
     const account = await this.account(req.owner, req.subAccount);
     const signer: VenueSigner = { role: req.signer.role, address: req.signer.address.toLowerCase() };
     let finalIntent: VenueIntent = intent;
-    if (intent.kind === 'place_order') finalIntent = this.withBuilderFee(venue.venue.id, intent);
+    if (intent.kind === 'place_order') finalIntent = await this.withBuilderFee(venue, intent);
     if (intent.kind === 'approve_builder_fee') {
-      const builder = this.deps.builder;
+      const builder = this.builderAddress();
       if (!builder) {
         throw new VenueRefusalError({
           venueId: venue.venue.id,
@@ -317,11 +436,12 @@ export class UserVenueDoor {
           detail: 'our builder is not published (owner value blank)',
         });
       }
-      if (intent.builder.toLowerCase() !== builder.address) invalid(`the builder to approve is ours, ${builder.address}`);
+      if (intent.builder.toLowerCase() !== builder) invalid(`the builder to approve is ours, ${builder}`);
     }
 
     const existing = await this.deps.store.find(principal.userId, key);
     if (existing) return this.reuse(existing, account, signer, finalIntent);
+    if (finalIntent.kind === 'place_order') await this.admitPlace(venue.venue.id, finalIntent);
 
     const prepared = await venue.prepare(account, signer, finalIntent);
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());
@@ -376,6 +496,8 @@ export class UserVenueDoor {
       invalid('signature must be { digest, signature, signedBy }');
     }
     let signed = row;
+    // An order never sent yet is checked again: a stop or limit approved since it was prepared applies to it.
+    if (!row.signature && row.prepared.intent.kind === 'place_order') await this.admitPlace(row.prepared.venueId, row.prepared.intent);
     if (!row.signature) {
       assertSignatureMatches(row.prepared, signature);
       await assertSignatureRecovers(row.prepared, signature);

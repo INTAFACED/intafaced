@@ -650,6 +650,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.trade_not_found':
       case 'p2p.dispute_not_found':
       case 'p2p.user_not_found':
+      case 'p2p.appeal_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'p2p.not_a_party':
       case 'p2p.not_the_seller':
@@ -661,6 +662,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.remark_not_payee':
       case 'p2p.blocked':
       case 'p2p.contact_self':
+      // Support never decides their own appeal.
+      case 'p2p.appeal_self_decision':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       // Not a client auth mistake — the deployment has no human who can rule.
       // PRECONDITION_FAILED so an operator dash can alarm on the code, not on
@@ -777,6 +780,10 @@ export function toTrpcError(err: unknown): TRPCError {
       // caller can simply ask again — which is what a conflict is.
       case 'p2p.erase_raced':
       case 'p2p.appeal_used':
+      // P-trade-orders-21: an appeal is decided once.
+      case 'p2p.appeal_decided':
+      // P-ads-merchant-22: a block waits until no order between the pair is open.
+      case 'p2p.block_open_order':
       case 'p2p.review_exists':
       // P-ads-merchant-18: the method is the last payable one of an active sell ad; the person confirms pausing them.
       case 'p2p.method_in_use':
@@ -3763,6 +3770,38 @@ export function createP2pRouter(
         .output(appealOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => p2p.submitCompletionAppeal({ userId: requireUser(ctx), tradeId: input.tradeId, reason: input.reason })),
+        ),
+
+      /**
+       * P-trade-orders-21: support's decision on one submitted appeal (support-agent plane, compliance scope). Decided
+       * once; the actor comes from the principal, never the body, so the audit row names who really decided.
+       */
+      decideAppeal: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .input(
+          z.object({
+            appealId: z.string().guid(),
+            decision: z.enum(['accepted', 'rejected']),
+            reason: z.string().max(2000),
+          }),
+        )
+        .output(appealOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            try {
+              requireMfa(ctx.principal);
+            } catch (err) {
+              if (err instanceof AuthError && err.code === 'mfa.required') {
+                throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+              }
+              throw err;
+            }
+            return p2p.decideCompletionAppeal({
+              appealId: input.appealId,
+              actorId: requireUser(ctx),
+              decision: input.decision,
+              reason: input.reason,
+            });
+          }),
         ),
 
       /**

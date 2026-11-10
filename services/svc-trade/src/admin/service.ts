@@ -50,6 +50,10 @@ import {
 } from './bust.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
 import { MarketModeAdmin } from './market-mode.js';
+import { VenueMarketsAdmin } from './venue-markets.js';
+import type { VenueListingStore } from '../venue/venue-listing-store.js';
+import { NO_VENUE_DELISTING_NOTICES, type VenueDelistingNotices } from '../venue/venue-listing.js';
+import type { UserVenue } from '@intafaced/venue-contracts';
 import { SeedConfigAdmin } from './seed-config.js';
 import { MakerProgrammeAdmin } from './maker-programme.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
@@ -72,6 +76,8 @@ import {
 } from '../spot/fee-schedule.js';
 import { priceBandView, sqlPriceBandStore, type PriceBandView } from '../futures/dynamic-price-band.js';
 import { feeScheduleAt, feeScheduleHistory, latestFeeScheduleVersion, type FeeScheduleVersionRow } from '../spot/fee-schedule-store.js';
+import { BuilderFeeVersionError, assertWithinVenueCaps, parseBuilderFees, sameBuilderFees } from '../venue/builder-fee-versions.js';
+import { VenueRefusalError, type UserVenueMarket } from '@intafaced/venue-contracts';
 import { VipReviewAdmin } from './vip-review.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
@@ -115,7 +121,30 @@ export interface TradeOpsDeps {
   readonly metricsWindowSeconds?: number | null;
   /** Convert's owner values and what it offers now, for the finance read. Absent: that read refuses unwired. */
   readonly convert?: ConvertOwnerValues;
+  /**
+   * The venue markets desk (J-cex-spot-16): the user-venue door's venue (absent or null: the door is off, and the desk
+   * refuses `trade.user_venue_off`), our listing store, and the bus the dated delisting notice goes on.
+   */
+  readonly venueDesk?: {
+    readonly venue: (() => Promise<UserVenue>) | null;
+    readonly store: VenueListingStore;
+    readonly notices?: VenueDelistingNotices;
+  };
+  /**
+   * The markets of the venue the user-venue door reaches, as that venue publishes them (each with its builder-fee cap).
+   * Absent, or answering null: the door is off, so no builder-fee version can be written and the cap read refuses.
+   */
+  readonly venueMarkets?: () => Promise<VenueMarketsRead | null>;
   readonly now?: () => Date;
+}
+
+/** The door's venue and its markets, as the venue answered (`UserVenue.markets`), with the venue's as-of time. */
+export interface VenueMarketsRead {
+  readonly venueId: string;
+  readonly displayName: string;
+  readonly test: boolean;
+  readonly markets: readonly UserVenueMarket[];
+  readonly asOf: Date;
 }
 
 const TERMINAL = ['filled', 'cancelled', 'rejected', 'expired', 'open', 'pending', 'recovery_required', 'hold_unknown'] as const;
@@ -157,6 +186,8 @@ export class TradeOpsAdmin {
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
   /** A market's trading mode, set by two operators (SP-developer-status-01, J-cex-spot-14 #3 #4). */
   readonly marketMode: MarketModeAdmin;
+  /** The outside venue's markets we list, route and limit, set by two operators (J-cex-spot-16). Absent: unwired. */
+  readonly venueMarkets: VenueMarketsAdmin | null;
   readonly seedConfig: SeedConfigAdmin;
   /** The maker incentive programme and the launch-liquidity plan per market (J-cex-spot-20 #8). */
   readonly makerProgramme: MakerProgrammeAdmin;
@@ -185,6 +216,15 @@ export class TradeOpsAdmin {
     this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.chartOwnerValues = new ChartOwnerValuesAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.marketMode = new MarketModeAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
+    this.venueMarkets = deps.venueDesk
+      ? new VenueMarketsAdmin({
+          venue: deps.venueDesk.venue,
+          store: deps.venueDesk.store,
+          approvals: deps.approvals,
+          notices: deps.venueDesk.notices ?? NO_VENUE_DELISTING_NOTICES,
+          now: () => nowOf(deps),
+        })
+      : null;
     this.seedConfig = new SeedConfigAdmin({ sql: deps.sql, approvals: deps.approvals });
     this.makerProgramme = new MakerProgrammeAdmin({ sql: deps.sql, approvals: deps.approvals });
     this.futuresContracts = new FuturesContractsAdmin({
@@ -449,6 +489,43 @@ export class TradeOpsAdmin {
     return { version: await latestFeeScheduleVersion(this.deps.sql), history: await feeScheduleHistory(this.deps.sql) };
   }
 
+  /** The door's venue, read now; null when the door is off. A venue refusal keeps the venue's own code. */
+  private async venueMarketsNow(): Promise<VenueMarketsRead | null> {
+    try {
+      return (await this.deps.venueMarkets?.()) ?? null;
+    } catch (err) {
+      if (err instanceof VenueRefusalError) throw new TradeOpsError(`trade.venue.${err.refusal.code}`, err.refusal.detail);
+      throw err;
+    }
+  }
+
+  /**
+   * The venue's own builder-fee cap on each market it lists (J-cex-spot-17 #3), read from the venue through the door, so
+   * the Fees room checks a proposal against the venue's figure, never one we hold. A cap the venue does not publish is null.
+   */
+  async builderFeeCaps(principal: Principal): Promise<{
+    venueId: string;
+    displayName: string;
+    test: boolean;
+    asOf: string;
+    markets: Array<{ symbol: string; kind: 'spot' | 'perpetual'; capBps: string | null }>;
+  }> {
+    requireOperator(principal);
+    const read = await this.venueMarketsNow();
+    if (!read) throw new TradeOpsError('trade.user_venue_off', 'the user-venue door is off on this deployment, so no venue can be read');
+    return {
+      venueId: read.venueId,
+      displayName: read.displayName,
+      test: read.test,
+      asOf: read.asOf.toISOString(),
+      markets: read.markets.map((m) => ({
+        symbol: m.symbol,
+        kind: m.kind,
+        capBps: m.builderFeeCapBps?.known ? formatAmount(m.builderFeeCapBps.value) : null,
+      })),
+    };
+  }
+
   /**
    * Two-person write of a new owner fee schedule version. The proposed schedule must parse as a published schedule
    * (a blank or malformed field refuses with the typed code and nothing is stored), and it takes effect from a stated
@@ -485,6 +562,19 @@ export class TradeOpsAdmin {
       assertMakerRebatesPayable(parsed);
     } catch (err) {
       if (err instanceof FeeScheduleError) throw new TradeOpsError(err.code, err.message);
+      throw err;
+    }
+    // Builder fees, if the version sets them: complete, and, when they change, never above the venue's own cap on any
+    // market they apply to, as the venue publishes it now. A version that keeps the latest version's builder fees as they
+    // are (an engine rate change) needs no venue read: they were checked when written, and the venue refuses an order
+    // above its cap itself. Checked before the approval is used, so a refused version leaves it unspent.
+    try {
+      const builderFees = parseBuilderFees(input.schedule.builderFees);
+      const latestRow = (await feeScheduleHistory(this.deps.sql)).at(-1);
+      const unchanged = latestRow !== undefined && sameBuilderFees(latestRow.schedule.builderFees, input.schedule.builderFees);
+      if (builderFees && !unchanged) assertWithinVenueCaps(builderFees, await this.venueMarketsNow());
+    } catch (err) {
+      if (err instanceof BuilderFeeVersionError) throw new TradeOpsError(err.code, err.message);
       throw err;
     }
     // Versions take effect in order: a later version never starts before an earlier one, or the lookup would pick the older.

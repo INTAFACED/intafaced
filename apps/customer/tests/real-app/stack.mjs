@@ -3,8 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LOCAL_TEST_DEVICE_KEY, localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
-import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { LOCAL_TEST_DEVICE_KEY, localStackState, localTestDeviceState } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
@@ -244,6 +243,22 @@ export function restartWith(service, envKey, on) {
   const before = process.env[envKey];
   if (on) delete process.env[envKey];
   else process.env[envKey] = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', service);
+  } finally {
+    if (before === undefined) delete process.env[envKey];
+    else process.env[envKey] = before;
+  }
+}
+
+/**
+ * A stack service restarted with one TEST setting set to `value` (`null` unsets it), for a setting that is off by
+ * default (`LOCAL_STACK_USER_VENUE=on`). As `restartWith`, this process's environment is put back as it was.
+ */
+export function restartWithSetting(service, envKey, value) {
+  const before = process.env[envKey];
+  if (value === null) delete process.env[envKey];
+  else process.env[envKey] = value;
   try {
     tool('local-test-stack.mjs', 'restart', service);
   } finally {

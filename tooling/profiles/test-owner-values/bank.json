@@ -176,6 +176,11 @@
       "value": "{\"slashing\": \"TEST wording, not the owner's: if the network penalises the staked funds, what you get back can be less than you put in.\", \"ownership\": \"TEST wording, not the owner's: the saving stays yours in the custodial ledger while it is staked or unbonding.\"}",
       "note": "Made-up staking risk wording labelled TEST so the staking pool page has something to read (J-bank-08 #6); not the owner's disclosure."
     },
+    "BANK_BLOCKED_REGION_NOTICE": {
+      "service": "bank",
+      "value": "TEST wording, not the owner's: sending money is not offered from where you are now. You can still see your accounts and contact support.",
+      "note": "Made-up notice labelled TEST so a transfer opened from a blocked region has the owner's wording to show (J-bank-18 #1); not the owner's notice. LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE=off on a restart leaves it blank, so the notice's \"not published\" can be seen."
+    },
     "BANK_PERSONAL_SEND_REVIEW_JSON": {
       "service": "bank",
       "value": "{\"USDT\": \"50\"}",
@@ -208,8 +213,18 @@
     },
     "BANK_CARD_SIM_PARTNER_JSON": {
       "service": "bank",
-      "value": "{\"custodyMode\": \"partner_holds\", \"spendFrom\": [\"USDC\", \"BTC\", \"USD\"], \"lossLiability\": null, \"reserve\": null, \"funder\": null, \"balances\": {\"USDC\": \"30\", \"BTC\": \"0.01\", \"USD\": \"50\"}, \"programmeFigures\": null, \"fundingAssetId\": null, \"fundingOffers\": null}",
-      "note": "The TEST partner card adapter's switches (CUSTODY-DELTA section 4): the stand-in partner holds the crypto, spends from USDC, BTC and USD and reports TEST 30 USDC, 0.01 BTC and 50 USD spendable for every cardholder (J-bank-29 Starts); loss liability, any programme reserve, who funds the programme, the partner's programme figures, the funding stablecoin and which funding actions it offers are not known (null), so the app shows \"not known\" (J-bank-26 #6, J-bank-27 #4). Not a partner's answers. Refused at boot outside dev/test."
+      "value": "{\"custodyMode\": \"partner_holds\", \"spendFrom\": [\"USDC\", \"BTC\", \"USD\"], \"lossLiability\": null, \"reserve\": null, \"funder\": null, \"balances\": {\"USDC\": \"30\", \"BTC\": \"0.01\", \"USD\": \"50\"}, \"programmeFigures\": null, \"fundingAssetId\": null, \"fundingOffers\": null, \"secrets\": \"test\"}",
+      "note": "The TEST partner card adapter's switches (CUSTODY-DELTA section 4): the stand-in partner holds the crypto, spends from USDC, BTC and USD and reports TEST 30 USDC, 0.01 BTC and 50 USD spendable for every cardholder (J-bank-29 Starts); loss liability, any programme reserve, who funds the programme, the partner's programme figures, the funding stablecoin and which funding actions it offers are not known (null), so the app shows \"not known\" (J-bank-26 #6, J-bank-27 #4). Its secrets set to test turns on a TEST card number, expiry and security code, a TEST PIN and TEST wallet tokens, each labelled TEST (J-bank-14 #3, #4). Not a partner's answers. Refused at boot outside dev/test."
+    },
+    "BANK_CARD_PIN_TRY_LIMIT": {
+      "service": "bank",
+      "value": "3",
+      "note": "TEST count of wrong PIN tries in a row that block a card's PIN (J-bank-14 #3). Made up for the local test stack; not an owner decision."
+    },
+    "BANK_CARD_3DS_TRY_LIMIT": {
+      "service": "bank",
+      "value": "3",
+      "note": "TEST count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5). Made up for the local test stack; not an owner decision."
     },
     "BANK_CARD_DISPUTE_CAP_JSON": {
       "service": "bank",
