@@ -221,6 +221,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     return {
       ok: false,
       state: 'fail',
+      kinds: ['yours'],
       lines: [`the title's ${unreadable.join(', ')} can't be read as steps (a step number past ${STEP_MAX}); name the steps it means`],
     };
   if (named.length === 0) return { ok: true, state: 'none', lines: ['the title names no journey step'] };
@@ -229,6 +230,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     return {
       ok: false,
       state: 'fail',
+      kinds: ['yours'],
       lines: left.problems.map(
         (l) =>
           `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
@@ -276,23 +278,29 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
   };
   let ok = true;
   const notGreen = [];
+  const kinds = new Set();
   for (const k of needed) {
     let decided = null;
     for (const r of finished) {
       const rep = await report(r);
       const where = `run ${r.id} (attempt ${r.run_attempt ?? 1})`;
       if (rep.error) {
-        decided = { green: false, why: `${where}'s report couldn't be read (${rep.error}), so a failure there can't be ruled out` };
+        decided = {
+          green: false,
+          kind: 'runner',
+          why: `${where}'s report couldn't be read (${rep.error}), so a failure there can't be ruled out`,
+        };
         break;
       }
       const st = rep.states?.[k];
       if (st === undefined) continue;
-      decided = st === 'passed' ? { green: true, why: `passed in ${where}` } : { green: false, why: `${st} in ${where}` };
+      decided = st === 'passed' ? { green: true, why: `passed in ${where}` } : { green: false, kind: 'yours', why: `${st} in ${where}` };
       break;
     }
     if (!decided)
       decided = {
         green: false,
+        kind: 'runner',
         why: finished.length
           ? `no finished Real-app journeys run on this head reports it (${finished.length} read)`
           : 'no finished Real-app journeys run on this head',
@@ -300,11 +308,12 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     if (!decided.green) {
       ok = false;
       notGreen.push(k);
+      kinds.add(decided.kind);
     }
     lines.push(`${k}: ${decided.why}`);
   }
   if (notGreen.length) lines.push(leaveLine(notGreen));
-  return { ok, state: ok ? 'pass' : 'fail', lines };
+  return { ok, state: ok ? 'pass' : 'fail', lines, kinds: [...kinds] };
 }
 
 /**
@@ -399,6 +408,7 @@ export async function judgeFullRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: ['runner'],
         lines: [`full run: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`],
       };
     let v;
@@ -408,6 +418,7 @@ export async function judgeFullRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: ['runner'],
         lines: [`full run: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
       };
     }
@@ -435,6 +446,7 @@ export async function judgeFullRun({
     return {
       ok: false,
       state: 'fail',
+      kinds: redKinds(red),
       lines: [
         `full run: ${why}; ${where}${v.missing?.length ? `, short of ${v.missing.length} journey file(s),` : ''} has ${red.length} step(s) outside the list or against its rules: ${red
           .slice(0, 10)
@@ -447,6 +459,7 @@ export async function judgeFullRun({
   return {
     ok: false,
     state: 'fail',
+    kinds: ['runner'],
     lines: [
       `full run: ${why}, so it needs a clean full Real-app journeys run on this exact head, and none has finished; ${how}`,
       ...passed.map((l) => `full run: ${l}`),
@@ -501,6 +514,7 @@ export async function judgeTouchedRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: ['runner'],
         lines: [`touched journeys: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`],
       };
     let v;
@@ -510,6 +524,7 @@ export async function judgeTouchedRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: ['runner'],
         lines: [`touched journeys: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
       };
     }
@@ -521,6 +536,7 @@ export async function judgeTouchedRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: redKinds(red),
         lines: [
           `touched journeys: ${why}; ${where} has ${red.length} step(s) outside the list or against its rules: ${red
             .slice(0, 10)
@@ -537,6 +553,7 @@ export async function judgeTouchedRun({
   return {
     ok: false,
     state: 'fail',
+    kinds: ['runner'],
     lines: [
       `touched journeys: ${why}, and no finished Real-app journeys run on this exact head ran ${[...left].join(', ')}; ${how}`,
       ...read.map((l) => `touched journeys: ${l}`),
@@ -882,6 +899,22 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  * passed on the commit it now fails on (a flake: no commit between) has its journey as its whole area. Every other red
  * (new on this head) stops it as before. Returns { blocking, passed, notes }.
  */
+/** Whether main's reference run is red on this step with the same verdict line (run numbers aside). */
+const sameOnMain = (main, x) => x.step !== '(input)' && main.red.has(x.step) && reasonOf(main.red.get(x.step)) === reasonOf(x.why);
+
+/**
+ * What kind of red a seal is, for its title (project-state OWNER 289; `10-D-one-verdict.md` item 8: "a builder can tell
+ * from the PR page alone"): "yours" (a step red on this head and not on main, or a named step that failed), "main's"
+ * (every blocking red is one main's reference run shares), "runner" (no result: no finished run, or a report or verdict
+ * that can't be read). The kind names the title only; what blocks is unchanged.
+ */
+export const redKinds = (red) => (red.length && red.every((x) => x.onMain) ? ["main's"] : ['yours']);
+export const KIND_ORDER = ['yours', "main's", 'runner'];
+export const kindTitle = (kinds, title) => {
+  const k = KIND_ORDER.filter((x) => (kinds ?? []).includes(x));
+  return k.length ? `${k.join(' + ')}: ${title}` : title;
+};
+
 export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   if (!main) return { blocking: red, passed: [], notes: [`no finished full run on main is in this head's history, so every red counts`] };
   const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
@@ -889,7 +922,7 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
   if (touches.shared || touches.money)
     return {
-      blocking: red,
+      blocking: red.map((x) => (sameOnMain(main, x) ? { ...x, onMain: true } : x)),
       passed: [],
       notes: [
         `this pull request changes ${touches.shared ? "the journey stack's shared setup, which reaches every journey" : 'money code (AGENTS.md "How work flows" 8)'}, so every red counts, inherited or not`,
@@ -900,12 +933,12 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   const passed = [];
   const ranges = new Map();
   for (const x of red) {
-    if (x.step === '(input)' || !main.red.has(x.step) || reasonOf(main.red.get(x.step)) !== reasonOf(x.why)) {
+    if (!sameOnMain(main, x)) {
       blocking.push(x);
       continue;
     }
     const journey = journeyOf(x.step);
-    const stop = (why) => blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, ${why}` });
+    const stop = (why) => blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, ${why}`, onMain: true });
     // A money step is never passed over (REVIEW.md item 3: setting a money step aside is a quarantine); a red the verdict
     // didn't mark either way counts as money.
     if (x.money !== false) {
@@ -1193,6 +1226,9 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     ok: steps.ok && full.ok && touched.ok,
     stepsOk: steps.ok && touched.ok,
     fullOk: full.ok,
+    // The kind of each red, for its title (redKinds); a touched-step problem is the pull request's own.
+    stepsKinds: [...(steps.ok ? [] : (steps.kinds ?? ['yours'])), ...(touched.ok ? [] : (touched.kinds ?? ['yours']))],
+    fullKinds: full.ok ? [] : (full.kinds ?? []),
     lines: [...steps.lines, ...touched.lines, ...full.lines],
   };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
@@ -1660,12 +1696,12 @@ async function recheck({ repo, token }) {
   );
 }
 
-function report({ ok, lines, stepsOk = ok, fullOk = true }, how) {
+function report({ ok, lines, stepsOk = ok, fullOk = true, stepsKinds = [], fullKinds = [] }, how) {
   for (const l of lines) console.log(l);
   if (ok) return console.log(`journey steps: ${how}`);
   if (!fullOk)
     console.error(
-      `::error title=The journeys this pull request touches are not proven on this head::${lines
+      `::error title=${kindTitle(fullKinds, 'The journeys this pull request touches are not proven on this head')}::${lines
         .filter((l) => /: (full run|touched journeys): /.test(l))
         .join('; ')
         .slice(
@@ -1675,7 +1711,7 @@ function report({ ok, lines, stepsOk = ok, fullOk = true }, how) {
     );
   if (stepsOk) process.exit(1);
   console.error(
-    `::error title=Named journey steps not green on this head::${lines
+    `::error title=${kindTitle(stepsKinds, 'Named journey steps not green on this head')}::${lines
       .filter(
         (l) => !/on a Left-or-replaced line$/.test(l) && !/add this line to the body/.test(l) && !/: (full run|touched journeys): /.test(l),
       )
@@ -1724,13 +1760,15 @@ async function main() {
     const commits = (await io.compare(base, head))?.commits;
     const numbers = groupPulls(commits, headRef);
     if (!numbers) return report({ ok: false, lines: [`the merge group ${headRef} could not be read whole`] }, '');
-    const all = { ok: true, stepsOk: true, fullOk: true, lines: [] };
+    const all = { ok: true, stepsOk: true, fullOk: true, lines: [], stepsKinds: [], fullKinds: [] };
     for (const n of numbers) {
       const v = await sealPull({ repo: REPO, number: n, io, waitOnRunning: false });
       all.ok &&= v.ok;
       all.stepsOk &&= v.stepsOk ?? v.ok;
       all.fullOk &&= v.fullOk ?? true;
       all.lines.push(...v.lines);
+      all.stepsKinds.push(...(v.stepsKinds ?? []));
+      all.fullKinds.push(...(v.fullKinds ?? []));
     }
     return report(all, 'every queued pull request that names steps has them green or left on its own head');
   }
