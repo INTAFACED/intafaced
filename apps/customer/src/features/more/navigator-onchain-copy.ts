@@ -118,5 +118,8 @@ export const navigatorOnchainCopy = defineCopy('navigator-onchain', {
   refused_market_unset: 'Refused: no market is set for the Navigator to trade in here.',
   refused_unquoted: 'Refused: the pool quotes nothing for this trade.',
   refused_rail_crypto: 'Refused: the Navigator has no on-chain signer here.',
+  refused_not_yours:
+    'Refused: this smart account is not owned by a wallet linked to your sign-in. Link the wallet that owns it in Security first.',
+  refused_unproven: 'Refused: your linked wallets could not be read just now, so the account could not be shown to be yours.',
   refused_other: 'Refused.',
 });

@@ -6,7 +6,8 @@ import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/sc
 import { test, expect } from './journey.mjs';
 import { UNBUILT, agentCard, agentsRun, openAgents, openNavigatorSession } from './agents.mjs';
 import { acceptRepresentation, connectWallet, dexRun, fundOnTestChain } from './dex.mjs';
-import { testWalletKey } from './test-wallet.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { signIn } from './desk.mjs';
 
 // J-agents-19, in the running app (docs/roadmap/journeys.json): let the Navigator act on-chain through a session key I
@@ -177,12 +178,27 @@ async function openOnChain(page) {
   await expect(grant(page)).toBeVisible({ timeout: 30_000 });
 }
 
-test(`${J} starts: a verified TEST account with the TEST wallet connected on the test network`, async ({ page }) => {
-  test.setTimeout(240_000);
+test(`${J} starts: a verified TEST account with the TEST wallet connected on the test network`, async ({ page, browser }) => {
+  test.setTimeout(300_000);
   await agents.start(page, 'ag19', '10');
   wallet.start();
   await createSmartAccount();
   await fundSmartAccount();
+  // The wallet that owns the smart account is linked to the person's sign-in (by its own signature and a passkey, as
+  // J-agents-02 #4 links one), so the Navigator can tell the account is theirs before it trades it. A passkey belongs to
+  // the stack's relying party, localhost, so this part runs on the customer app at PASSKEY_ORIGIN.
+  const passkeyContext = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  const linking = await passkeyContext.newPage();
+  await virtualAuthenticator(linking);
+  const linked = await installTestWallet(linking, { chainId: TEST_CHAIN_ID, privateKey: wallet.key() });
+  await signIn(linking, agents.account());
+  await addPasskey(linking);
+  const card = linking.getByTestId('security__signin-methods');
+  const walletsRow = card.getByRole('listitem', { name: 'Wallets', exact: true });
+  await walletsRow.getByRole('button', { name: 'Link a wallet' }).click();
+  await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+  await expect(walletsRow.getByTitle(linked.address)).toBeVisible();
+  await passkeyContext.close();
   await signIn(page, agents.account());
   await connectWallet(page, wallet);
 });

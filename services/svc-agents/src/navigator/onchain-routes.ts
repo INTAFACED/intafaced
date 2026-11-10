@@ -19,6 +19,7 @@ import { NAVIGATOR_AGENT_ID } from './session-run.js';
 import { NavigatorOnchainError, NavigatorOnchainStore, navigatorAskIsTrade, navigatorSigner, preparedGrant } from './onchain.js';
 import { navigatorTrade, navigatorTrading, type NavigatorChain, type NavigatorMarket, type NavigatorSender } from './onchain-trade.js';
 import { navigatorAskMovesMoneyOut } from '@intafaced/contracts/agents-onchain';
+import type { LinkedWalletsPort } from '../own/payment-method.js';
 
 export interface NavigatorOnchainDeps {
   readonly sql: Sql | undefined;
@@ -30,6 +31,8 @@ export interface NavigatorOnchainDeps {
   readonly market: NavigatorMarket | null;
   /** The chain reads, on AGENTS_NAVIGATOR_ONCHAIN_RPC_URL. Blank refuses a trade `agents.navigator_market_unset`. */
   readonly chain: NavigatorChain | null;
+  /** Identity's linked wallets of a person. Null refuses a trade `agents.navigator_account_unproven`. */
+  readonly linkedWallets: LinkedWalletsPort | null;
   /** The session's owner and agent, or null when there is no such session. */
   readonly session: (sessionId: string) => Promise<{ userId: string; agentId: string; status: string } | null>;
 }
@@ -49,6 +52,8 @@ const HTTP: Record<NavigatorOnchainError['code'], TRPCError['code']> = {
   'agents.navigator_trade_out_of_scope': 'FORBIDDEN',
   'agents.navigator_market_unset': 'PRECONDITION_FAILED',
   'agents.navigator_trade_unquoted': 'PRECONDITION_FAILED',
+  'agents.navigator_account_not_yours': 'FORBIDDEN',
+  'agents.navigator_account_unproven': 'PRECONDITION_FAILED',
   'rail.crypto': 'PRECONDITION_FAILED',
   'audit.external': 'PRECONDITION_FAILED',
 };
@@ -157,7 +162,14 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
           if (session.status !== 'open') throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.refused.session_closed' });
           if (!navigatorAskIsTrade(input.text) && !navigatorAskMovesMoneyOut(input.text)) return { kind: 'none' };
           const order = await navigatorTrade(
-            { store: storeOf(deps.sql), signer: deps.signer, sender: deps.sender, market: deps.market, chain: deps.chain },
+            {
+              store: storeOf(deps.sql),
+              signer: deps.signer,
+              sender: deps.sender,
+              market: deps.market,
+              chain: deps.chain,
+              linkedWallets: deps.linkedWallets,
+            },
             { userId: ctx.principal.userId, sessionId: input.sessionId, requestId: input.requestId, text: input.text },
           );
           return { kind: 'order', order };
@@ -181,7 +193,14 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
       .query(({ ctx }) =>
         guard(async () =>
           navigatorTrading(
-            { store: storeOf(deps.sql), signer: deps.signer, sender: deps.sender, market: deps.market, chain: deps.chain },
+            {
+              store: storeOf(deps.sql),
+              signer: deps.signer,
+              sender: deps.sender,
+              market: deps.market,
+              chain: deps.chain,
+              linkedWallets: deps.linkedWallets,
+            },
             ctx.principal.userId,
           ),
         ),

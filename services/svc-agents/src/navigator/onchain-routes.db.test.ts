@@ -9,6 +9,8 @@ import { createEdgeContext, encodePrincipal, router, signPrincipalHeader } from 
 import { assertTestDatabase } from '@intafaced/db';
 import { navigatorOnchainRoutes, type NavigatorOnchainDeps } from './onchain-routes.js';
 import { NavigatorOnchainStore } from './onchain.js';
+import type { LinkedWallets } from '@intafaced/contracts';
+import type { LinkedWalletsPort } from '../own/payment-method.js';
 import { NavigatorSignerRefused, type LiveGrant, type NavigatorChain, type NavigatorSender } from './onchain-trade.js';
 
 const URL = process.env.TEST_DATABASE_URL_AGENTS ?? 'postgres://svc_agents:svc_agents@localhost:5433/intafaced_test';
@@ -97,6 +99,7 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
   });
   const chain: NavigatorChain = {
     grant: async () => chainGrant,
+    owner: async () => OWNER,
     pool: async (pool) =>
       pool.toLowerCase() === POOL.toLowerCase()
         ? {
@@ -129,12 +132,23 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
     },
   };
   const market = { router: ROUTER, spendToken: WETH, pools: [POOL, AB_POOL], slippageBps: 100 };
+  // The account's owner on the chain, and each person's wallets linked in identity: USER links the owner, OTHER does not.
+  const OWNER = '0x00000000000000000000000000000000000f0019';
+  let linked: Record<string, LinkedWallets | null>;
+  const linkedWallets: LinkedWalletsPort = {
+    read: async (userId) => (userId in linked ? (linked[userId] ?? null) : { state: 'usable', wallets: [] }),
+  };
+  const usable = (...addresses: string[]): LinkedWallets => ({
+    state: 'usable',
+    wallets: addresses.map((address) => ({ address, linkedAt: '2026-11-10T00:00:00.000Z' })),
+  });
   const deps = (over: Partial<NavigatorOnchainDeps> = {}): NavigatorOnchainDeps => ({
     sql,
     signer: SIGNER,
     sender,
     market,
     chain,
+    linkedWallets,
     session: async (id) => sessions[id] ?? null,
     ...over,
   });
@@ -173,6 +187,7 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
     receipt = 'success';
     sent = [];
     senderFails = false;
+    linked = { [USER]: usable(OWNER) };
     await sql`DELETE FROM agents.agent_sessions WHERE id IN ${sql(Object.keys(sessions))}`;
     for (const [id, s] of Object.entries(sessions))
       await sql`
@@ -509,6 +524,53 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
       });
       expect(sent).toHaveLength(0);
       expect(await count('navigator_orders')).toBe(0);
+    });
+
+    it("never trades another person's account: a second person who binds it is refused, and nothing is signed", async () => {
+      await as(USER).onchain.bind(liveGrantBound);
+      // OTHER types USER's account into a binding; the chain's grant to the shared Navigator key is USER's.
+      await as(OTHER).onchain.bind(liveGrantBound);
+      await expect(as(OTHER).ask({ sessionId: OTHER_SESSION, requestId: 'steal', text: TRADE })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'agents.navigator_account_not_yours',
+      });
+      expect((await as(OTHER).trading()).key).toBeNull();
+      expect(sent).toHaveLength(0);
+      expect(await count('navigator_orders', OTHER)).toBe(0);
+      // Linked wallets that cannot be read refuse too, never pass.
+      linked[USER] = null;
+      await expect(as(USER).ask({ sessionId: SESSION, requestId: 'unread', text: TRADE })).rejects.toMatchObject({
+        message: 'agents.navigator_account_unproven',
+      });
+      linked[USER] = { state: 'account_inactive' };
+      await expect(as(USER).ask({ sessionId: SESSION, requestId: 'inactive', text: TRADE })).rejects.toMatchObject({
+        message: 'agents.navigator_account_unproven',
+      });
+      await expect(as(USER, { linkedWallets: null }).ask({ sessionId: SESSION, requestId: 'none', text: TRADE })).rejects.toMatchObject({
+        message: 'agents.navigator_account_unproven',
+      });
+      expect(sent).toHaveLength(0);
+    });
+
+    it('trades only the grant the person prepared: another grant to the shared key on the chain is no live key', async () => {
+      await as(USER).onchain.bind(liveGrantBound);
+      chainGrant = liveGrant({ specHash: HASH_B });
+      await expect(as(USER).ask({ sessionId: SESSION, requestId: 'other-grant', text: TRADE })).rejects.toMatchObject({
+        message: 'agents.navigator_no_live_key',
+      });
+      expect(sent).toHaveLength(0);
+    });
+
+    it("the cap is the account's: orders of two people who both own the account count together", async () => {
+      linked[OTHER] = usable(OWNER);
+      chainGrant = liveGrant({ spendLimitWei: (ETH * 15n) / 100n });
+      await as(USER).onchain.bind(liveGrantBound);
+      await as(OTHER).onchain.bind(liveGrantBound);
+      await expect(as(USER).ask({ sessionId: SESSION, requestId: 'a', text: TRADE })).resolves.toMatchObject({ kind: 'order' });
+      await expect(as(OTHER).ask({ sessionId: OTHER_SESSION, requestId: 'b', text: TRADE })).rejects.toMatchObject({
+        message: 'agents.navigator_trade_over_cap',
+      });
+      expect(sent).toHaveLength(1);
     });
 
     it('stores nothing for an ask that names no trade, and a question about trading goes to the ordinary run', async () => {

@@ -253,11 +253,14 @@ export class NavigatorOnchainStore {
     return rows[0] ? orderView(rows[0]) : null;
   }
 
-  /** What the Navigator's orders under one grant hold of its cap, in wei. */
-  async heldWei(userId: string, chainId: number, account: string, specHash: string, tx: Sql = this.sql): Promise<bigint> {
+  /**
+   * What the Navigator's orders under one grant hold of its cap, in wei: every person's orders on that account and grant,
+   * since the cap is the account's, not one person's.
+   */
+  async heldWei(chainId: number, account: string, specHash: string, tx: Sql = this.sql): Promise<bigint> {
     const rows = await tx<Array<{ n: string }>>`
       SELECT coalesce(sum(amount_in_wei), 0)::text AS n FROM agents.navigator_orders
-       WHERE user_id = ${userId} AND chain_id = ${chainId} AND account = ${account.toLowerCase()}
+       WHERE chain_id = ${chainId} AND account = ${account.toLowerCase()}
          AND spec_hash = ${specHash.toLowerCase()} AND status IN ${tx(HOLDING)}
     `;
     return BigInt(rows[0]?.n ?? '0');
@@ -288,7 +291,8 @@ export class NavigatorOnchainStore {
   }): Promise<{ kind: 'reserved'; order: NavigatorOrder } | { kind: 'existing'; order: NavigatorOrder } | { kind: 'over_cap' }> {
     const account = input.account.toLowerCase();
     const specHash = input.specHash.toLowerCase();
-    const lock = `agents:navigator:cap:${input.userId}:${input.chainId}:${account}:${specHash}`;
+    // One lock per account and grant, across every person: the cap is the account's.
+    const lock = `agents:navigator:cap:${input.chainId}:${account}:${specHash}`;
     return this.sql.begin(async (raw) => {
       const tx = raw as unknown as Sql;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${lock}, 0))`;
@@ -296,7 +300,7 @@ export class NavigatorOnchainStore {
         SELECT ${this.orderColumns()} FROM agents.navigator_orders WHERE user_id = ${input.userId} AND order_key = ${input.orderKey}
       `;
       if (found[0]) return { kind: 'existing' as const, order: orderView(found[0]) };
-      const held = await this.heldWei(input.userId, input.chainId, account, specHash, tx);
+      const held = await this.heldWei(input.chainId, account, specHash, tx);
       if (held + input.chainSpentWei + input.amountInWei > input.capWei) return { kind: 'over_cap' as const };
       const rows = await tx<OrderRow[]>`
         INSERT INTO agents.navigator_orders

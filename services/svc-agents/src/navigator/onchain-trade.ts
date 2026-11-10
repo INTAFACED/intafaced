@@ -8,6 +8,7 @@ import {
   type NavigatorTrading,
 } from '@intafaced/contracts/agents-onchain';
 import { NavigatorOnchainError, type NavigatorOnchainStore } from './onchain.js';
+import type { LinkedWalletsPort } from '../own/payment-method.js';
 
 /**
  * The Navigator trading through the session key the person signed (J-agents-19 #4).
@@ -35,6 +36,7 @@ const TOKEN_ABI = parseAbi([
 const ACCOUNT_ABI = parseAbi([
   'function getSession(address sessionKey) view returns ((bytes32 specHash, uint48 validAfter, uint48 validUntil, uint128 spentWei, uint64 epoch, bool revoked))',
   'function isSessionLive(address sessionKey) view returns (bool)',
+  'function owner() view returns (address)',
   'event SessionGranted(address indexed sessionKey, bytes32 specHash, uint48 validAfter, uint48 validUntil, uint128 spendLimitWei, address[] targets, bytes4[] selectors)',
   'function executeWithSession((address key, uint48 validAfter, uint48 validUntil, uint128 spendLimitWei, address[] targets, bytes4[] selectors) spec, address target, uint256 value, bytes data) returns (bytes)',
 ]);
@@ -76,6 +78,8 @@ export interface PoolTokens {
 /** The reads the Navigator makes of the chain. */
 export interface NavigatorChain {
   grant(account: string, sessionKey: string): Promise<LiveGrant | null>;
+  /** The smart account's owner, as the chain holds it. */
+  owner(account: string): Promise<string>;
   pool(pool: string): Promise<PoolTokens>;
   quote(router: string, pool: string, tokenIn: string, amountIn: bigint): Promise<bigint>;
   /** The receipt's status, or null when it is not mined within the wait. */
@@ -115,6 +119,9 @@ export function viemNavigatorChain(rpcUrl: string, receiptTimeoutMs = 30_000): N
         targets: (granted.targets ?? []).map((t) => t.toLowerCase()),
         selectors: (granted.selectors ?? []).map((s) => s.toLowerCase()),
       };
+    },
+    async owner(account) {
+      return (await client.readContract({ address: getAddress(account), abi: ACCOUNT_ABI, functionName: 'owner' })).toLowerCase();
     },
     async pool(pool) {
       const p = getAddress(pool);
@@ -218,9 +225,14 @@ export interface NavigatorTradeDeps {
   readonly sender: NavigatorSender | null;
   readonly market: NavigatorMarket | null;
   readonly chain: NavigatorChain | null;
+  /** The person's linked wallets, from identity: the account traded must be owned by one of them. */
+  readonly linkedWallets: LinkedWalletsPort | null;
 }
 
-/** The person's live key: their newest binding not asked to be revoked, and the grant the chain holds for it, live. */
+/**
+ * The person's live key: their newest binding not asked to be revoked, the same grant live on the chain, on an account a
+ * wallet linked to the person owns.
+ */
 async function liveKey(deps: NavigatorTradeDeps, userId: string) {
   if (!deps.signer) throw refuse('rail.crypto');
   if (!deps.chain || !deps.market) throw refuse('agents.navigator_market_unset');
@@ -228,6 +240,14 @@ async function liveKey(deps: NavigatorTradeDeps, userId: string) {
   if (!binding) return null;
   const grant = await deps.chain.grant(binding.account, deps.signer);
   if (!grant || !grant.live) return null;
+  // The grant on the chain must be the one this person prepared, not another grant to the same shared key.
+  if (grant.specHash.toLowerCase() !== binding.specHash.toLowerCase()) return null;
+  // Anyone can type an account into a binding, and the Navigator's key is one key for everyone: the account is traded
+  // only when its owner, as the chain holds it, is a wallet the person linked to their own sign-in.
+  if (!deps.linkedWallets) throw refuse('agents.navigator_account_unproven');
+  const [owner, linked] = await Promise.all([deps.chain.owner(binding.account), deps.linkedWallets.read(userId)]);
+  if (!linked || linked.state !== 'usable') throw refuse('agents.navigator_account_unproven');
+  if (!linked.wallets.some((w) => w.address.toLowerCase() === owner.toLowerCase())) throw refuse('agents.navigator_account_not_yours');
   return { binding, grant, chain: deps.chain, market: deps.market, signer: deps.signer };
 }
 
@@ -241,7 +261,7 @@ export async function navigatorTrading(deps: NavigatorTradeDeps, userId: string)
     throw err;
   }
   if (!key) return { key: null };
-  const held = await deps.store.heldWei(userId, NAVIGATOR_ONCHAIN_TEST_CHAIN_ID, key.binding.account, key.grant.specHash);
+  const held = await deps.store.heldWei(NAVIGATOR_ONCHAIN_TEST_CHAIN_ID, key.binding.account, key.grant.specHash);
   const spent = held + key.grant.spentWei;
   const left = key.grant.spendLimitWei > spent ? key.grant.spendLimitWei - spent : 0n;
   return {
@@ -306,7 +326,7 @@ export async function navigatorTrade(
   if (!amountIn || amountIn <= 0n) throw refuse('agents.navigator_trade_unparsed', 'amount');
 
   // Above what is left of the cap: refused here, before a quote is asked for or anything is built or signed.
-  const heldBefore = await deps.store.heldWei(input.userId, NAVIGATOR_ONCHAIN_TEST_CHAIN_ID, binding.account, grant.specHash);
+  const heldBefore = await deps.store.heldWei(NAVIGATOR_ONCHAIN_TEST_CHAIN_ID, binding.account, grant.specHash);
   if (heldBefore + grant.spentWei + amountIn > grant.spendLimitWei) throw refuse('agents.navigator_trade_over_cap', 'amount');
 
   const quoted = await chain.quote(router, match.pool, match.tokenIn.address, amountIn);

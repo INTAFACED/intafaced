@@ -30,6 +30,8 @@ type PlainKey =
   | 'refused_market_unset'
   | 'refused_unquoted'
   | 'refused_rail_crypto'
+  | 'refused_not_yours'
+  | 'refused_unproven'
   | 'refused_other';
 const eth = (wei: string) => formatUnits(BigInt(wei), 18, 18);
 
@@ -117,6 +119,8 @@ const REFUSAL_WORDS: Record<string, PlainKey> = {
   'agents.navigator_market_unset': 'refused_market_unset',
   'agents.navigator_trade_unquoted': 'refused_unquoted',
   'rail.crypto': 'refused_rail_crypto',
+  'agents.navigator_account_not_yours': 'refused_not_yours',
+  'agents.navigator_account_unproven': 'refused_unproven',
 };
 const TRADE_CODES: ReadonlySet<string> = new Set([...NAVIGATOR_TRADE_REFUSALS, 'rail.crypto']);
 /** True for a refusal the Navigator's trade rule gives, which this room words itself. */

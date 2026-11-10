@@ -1656,6 +1656,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         sender: deps.navigatorTrading?.sender ?? null,
         market: deps.navigatorTrading?.market ?? null,
         chain: deps.navigatorTrading?.chain ?? null,
+        linkedWallets: deps.ownLinkedWallets ?? null,
         session: (sessionId) => runtime.session(sessionId),
       }),
       policy: publicProcedure

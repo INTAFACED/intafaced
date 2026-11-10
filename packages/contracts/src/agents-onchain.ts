@@ -116,6 +116,10 @@ export const NAVIGATOR_TRADE_REFUSALS = [
   'agents.navigator_money_out_forbidden',
   /** The trade is above what is left of the cap the person signed. Nothing was signed. */
   'agents.navigator_trade_over_cap',
+  /** The account's owner on the chain is not a wallet linked to the person's sign-in. Nothing was signed. */
+  'agents.navigator_account_not_yours',
+  /** The person's linked wallets could not be read, so the account cannot be shown to be theirs. Nothing was signed. */
+  'agents.navigator_account_unproven',
   /** No live session key: none was granted, it expired, or it is revoked or being revoked. */
   'agents.navigator_no_live_key',
   /** The ask names no amount and pair the Navigator can trade: "swap <amount> <token> for <token>". */
