@@ -16,7 +16,7 @@ test('J-ops-console-02 #6 looking up an id that does not exist is a typed not-fo
   await lookup.getByLabel('Transaction id', { exact: true }).fill('99999999-9999-4999-8999-999999999998');
   await lookup.getByRole('button', { name: 'Look up' }).click();
   const refused = lookup.getByTestId('ledger-lookup-refused');
-  await expect(refused).toContainText('PLANTED RED: the revert proof for main-bisect (project-state #1786)', { timeout: 30_000 });
+  await expect(refused).toContainText('No transaction has that id.', { timeout: 30_000 });
   await expect(refused).toContainText('ledger.tx_not_found');
   await expect(lookup.getByTestId('ledger-lookup-transaction')).toHaveCount(0);
 });
