@@ -162,7 +162,8 @@ export function classify(text, code, now = new Date(), err = '') {
     return reset ? down('a usage limit', `wait for the reset at ${reset}`) : down('a used-up key', SIGN_IN_ACTION, true);
   if (status === 'key' || (sent && !status && AUTH.test(words))) return down('a refused key', SIGN_IN_ACTION, true);
   if (status === 'limit' || status === 'busy') return down('a limit or an overload', RETRY_ACTION);
-  const errDown = fromErr();
+  // A well-formed answer that isn't an error is the review's own: stderr never turns it into an outage.
+  const errDown = a.is_error === true ? fromErr() : null;
   if (errDown) return errDown;
   if (OVERLOAD.test(words)) return down('a limit or an overload', RETRY_ACTION);
   if (NETWORK.test(words)) return down('a network error', RETRY_ACTION);

@@ -310,6 +310,12 @@ export function groupPulls(commits, headRef) {
  * the head and on the pull request's branch, `io.attempts(run)` the jobs of each attempt, `io.tree(sha)` a commit's tree.
  * Returns { ok, state, why }.
  */
+/** A sign-off missing because the judge was down says so in its title, never a red that reads as the change's own (OWNER 289 point 11). */
+export const missingTitle = (why) =>
+  /the judge was down in run/.test(String(why ?? ''))
+    ? 'judge down: CI review (no verdict yet; the review re-runs when the judge is back)'
+    : 'Review sign-off missing';
+
 export async function lookForSignoff({ sha, io, branch, base, number, check = REVIEW_CHECK }) {
   return ciReviewVerdict({
     sha,
@@ -976,7 +982,7 @@ async function main() {
   }
   for (const [label, { reason }] of open)
     console.error(
-      `::error title=Review sign-off missing::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
+      `::error title=${missingTitle(last.get(label)?.why)}::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
     );
   process.exit(1);
 }

@@ -211,3 +211,10 @@ test('--kind prints the kind alone, and --outputs writes kind, action, line and 
   writeFileSync(`${f}.stderr`, 'Error: getaddrinfo ENOTFOUND api.example.com\n');
   assert.equal(execFileSync('node', [script, f, '1', '--kind'], { encoding: 'utf8' }), 'down\n');
 });
+
+test("a well-formed answer that isn't an error stays the review's own: stderr naming a 429 never makes it judge down", () => {
+  const fail = { type: 'result', subtype: 'success', is_error: false, result: 'VERDICT: FAIL\n1. a real finding' };
+  assert.equal(kindOf(fail, 1, 'Error: 429 rate_limit_error: retrying\n').kind, 'error');
+  // The same stderr beside an error answer is still read.
+  assert.equal(kindOf({ ...fail, is_error: true, result: 'x' }, 1, 'Error: 429 rate_limit_error\n').kind, 'down');
+});

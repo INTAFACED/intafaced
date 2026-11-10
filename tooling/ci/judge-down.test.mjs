@@ -11,7 +11,16 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { JUDGE_CHECK, JUDGE_DOWN_STEP, REVIEW_CHECK, REVIEW_WORKFLOW, ciReviewVerdict, isJudgeDown, reviewJob } from './review-marker.mjs';
+import {
+  JUDGE_CHECK,
+  JUDGE_DOWN_STEP,
+  REVIEW_CHECK,
+  REVIEW_WORKFLOW,
+  ciReviewVerdict,
+  isJudgeDown,
+  missingTitle,
+  reviewJob,
+} from './review-marker.mjs';
 import { inputsGoing, readGoing, sealNow, CI_JOBS_NAME } from './journey-seal.mjs';
 import { CATCH_UP_CAP, catchUpTargets, describe, issueBody } from './judge-down.mjs';
 
@@ -389,4 +398,13 @@ test('catch-up: a skipped `edited` run on top of a down run re-runs the down run
   // A verdict under the skipped run is a verdict: nothing to re-run.
   jobs[9] = [reviewJob(HEAD, 'failure')];
   assert.deepEqual((await catchUpTargets({ pulls, runs, repo, skipSha: 'x', jobsOf: async (r) => jobs[r.id] })).targets, []);
+});
+
+test('a sign-off the seal finds missing because the judge was down is titled judge down, never "Review sign-off missing"', () => {
+  assert.match(
+    missingTitle('the judge was down in run 42 attempt 1, so abc has no CI review verdict yet; the review re-runs when the judge is back'),
+    /^judge down: CI review/,
+  );
+  assert.equal(missingTitle('no CI review on abc'), 'Review sign-off missing');
+  assert.equal(missingTitle(undefined), 'Review sign-off missing');
 });
