@@ -38,7 +38,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
-import { SUBSCRIBES, loadMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, loadMap, newerMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -183,13 +183,14 @@ export const subscribesIn =
   };
 
 /** How many of main's finished full runs came after the map's newest run, read with gh (GH_TOKEN), or null. The same
- *  list the seal reads (journey-seal.mjs makeIo mainRuns: the newest 30), so the two count the same age. */
+ *  list the seal reads (journey-seal.mjs makeIo mainRuns: the newest 100, so a burst of cancelled runs can't hide the
+ *  map's newest run and blank its age), so the two count the same age. */
 function behindFromApi(map) {
   try {
     const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
     const out = execFileSync(
       'gh',
-      ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=30`],
+      ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=100`],
       { encoding: 'utf8', maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] },
     );
     return runsBehind(map, JSON.parse(out).workflow_runs, repo);
@@ -198,7 +199,21 @@ function behindFromApi(map) {
   }
 }
 
-function main() {
+const ghApi = (path, encoding = 'utf8') =>
+  execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
+
+/** When this journeys run was created (GITHUB_RUN_ID, read with gh), so the seal can pick the same map build; now when
+ *  it can't be read (a run by hand). */
+function runCreated() {
+  try {
+    const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+    const at = Date.parse(JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(process.env.GITHUB_RUN_ID)}`)).created_at);
+    if (process.env.GITHUB_RUN_ID && Number.isFinite(at)) return at;
+  } catch {}
+  return Date.now();
+}
+
+async function main() {
   const args = process.argv.slice(2);
   let paths;
   let atHead = (p) => existsSync(p);
@@ -222,11 +237,20 @@ function main() {
     console.error('usage: journey-touch.mjs [--json] --base <ref> | --files <path>... | --files-from <file>');
     process.exit(2);
   }
-  // --reach: product paths run only the journeys main's touched-journeys map says reach them (this file's own map, the
-  // default branch's copy in the journeys workflow), judged against this checkout of the head.
+  // --reach: product paths run only the journeys main's touched-journeys map says reach them, judged against this
+  // checkout of the head. The map is the newest one main's map workflow built and verified before this run was created
+  // (journey-reach-map.mjs builtMap), or this file's own committed copy (the default branch's, in the journeys workflow)
+  // when that one is newer or the build can't be read.
   let reach = null;
   if (args.includes('--reach')) {
-    const map = loadMap();
+    const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+    const built = await builtMap({
+      get: (path) => JSON.parse(ghApi(path.replace(/^\//, ''))),
+      raw: (path) => ghApi(path.replace(/^\//, ''), 'buffer'),
+      before: runCreated(),
+      repo,
+    });
+    const map = newerMap(built, loadMap());
     reach = { map, behind: behindFromApi(map), journeyFiles: checkoutJourneyFiles(), subscribes: subscribesIn() };
   }
   const t = journeyTouch(paths, atHead, reach);
@@ -241,4 +265,4 @@ function main() {
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();

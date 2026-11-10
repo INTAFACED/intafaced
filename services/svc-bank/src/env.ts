@@ -542,6 +542,12 @@ const schema = serviceEnvSchema
       BANK_CARD_PIN_TRY_LIMIT: z.string().optional(),
 
       /**
+       * The owner's count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5), a whole number from 1 to 10.
+       * NO DEFAULT. Blank or malformed → answering a challenge refuses `bank.card_3ds_try_limit_unset`.
+       */
+      BANK_CARD_3DS_TRY_LIMIT: z.string().optional(),
+
+      /**
        * The owner's card dispute cap per asset as JSON (J-bank-27 #4): `{ "USDC": "100.00" }`, the most one dispute may be
        * provisionally credited or decided for the cardholder. NO DEFAULT. Blank, or an asset it leaves out, refuses
        * `bank.card_dispute_cap_unset`; a malformed value refuses to start.
