@@ -239,6 +239,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
           TRADE_USER_VENUE_BUILDER_FEE_BPS:
             process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),
+          // J-agents-21's agent account on the TEST venue: the labelled LOCAL TEST ceiling, funding asset, agent key seed
+          // and drain bounds. `LOCAL_STACK_AGENT_ACCOUNT_CEILING=off` leaves the ceiling blank for one restart, so a create
+          // refuses agents.account_ceiling_unset (J-agents-21 #1).
+          TRADE_AGENT_ACCOUNT_CEILING:
+            process.env.LOCAL_STACK_AGENT_ACCOUNT_CEILING === 'off' ? '' : testValue('TRADE_AGENT_ACCOUNT_CEILING'),
+          TRADE_AGENT_ACCOUNT_ASSET: testValue('TRADE_AGENT_ACCOUNT_ASSET'),
+          TRADE_AGENT_KEY_SEED: testValue('TRADE_AGENT_KEY_SEED'),
+          TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
+          TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
+          TRADE_AGENT_MARKETS: testValue('TRADE_AGENT_MARKETS'),
           // J-developer-05 #6: `LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off` leaves the largest page blank, so a list refuses.
           TRADE_USER_VENUE_ORDERS_PAGE_MAX:
             process.env.LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX === 'off' ? '' : testValue('TRADE_USER_VENUE_ORDERS_PAGE_MAX'),

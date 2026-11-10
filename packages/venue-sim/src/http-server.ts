@@ -35,7 +35,8 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
  *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce},
- *        /builder-fee-approval {account,builder}, /leverage {account,symbol}, /book {symbol,depth}
+ *        /builder-fee-approval {account,builder}, /leverage {account,symbol}, /book {symbol,depth},
+ *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?}   each fee a MaybeKnown<Amount>
@@ -423,6 +424,10 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.builderFeeApproval(account(body), str(body, 'builder'));
     case '/leverage':
       return sim.leverage(account(body), str(body, 'symbol'));
+    case '/sub-accounts':
+      return sim.subAccounts(account(body));
+    case '/transfer':
+      return sim.transfer(account(body), str(body, 'nonce'));
     // ── TEST controls ──
     case '/test/deposit': {
       const amount = body.amount;

@@ -110,6 +110,8 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
+import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
+import { SqlAgentAccountStore } from './venue/agent-account-store.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
@@ -513,6 +515,16 @@ const userVenueDoors = userVenueUrls.map(
 const userVenue = userVenueDoors[0] ?? null;
 const userVenueRouter =
   userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
+// J-agents-21's agent account beside the door: off with it. Its owner values are read even when blank (each refuses).
+const agentAccounts = userVenue
+  ? new AgentAccounts({
+      door: userVenue,
+      store: new SqlAgentAccountStore(sql),
+      stepUp,
+      values: parseAgentAccountValues(env),
+      now: () => new Date(),
+    })
+  : null;
 // Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
 // venue's door. Off with the door.
 const venueSellQuotes = userVenue
@@ -1728,6 +1740,7 @@ registerPrivateRest(app, {
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   grid,
   userVenue: userVenueRouter,
+  agentAccounts,
   venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
