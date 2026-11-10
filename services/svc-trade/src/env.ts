@@ -44,7 +44,7 @@ const schema = serviceEnvSchema
       /** NO DEFAULT drain bound: the markets an assistant may trade, comma-separated venue symbols. Blank refuses `agents.markets_unset`. */
       TRADE_AGENT_MARKETS: z.string().default(''),
       /**
-       * D-venue-07 builder-fee poster (src/venue/builder-fee-poster.ts): with the door on, how often it reads our users'
+       * D-venue-07 builder-fee poster (src/builder-fee/builder-fee-poster.ts): with the door on, how often it reads our users'
        * venue fills and posts our builder fee on each to the ledger. `off` stops it, so fills wait unposted (the recon then
        * lists them as not in the ledger); the next run posts each once.
        */
