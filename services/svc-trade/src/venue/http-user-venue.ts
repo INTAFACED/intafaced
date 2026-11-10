@@ -10,6 +10,7 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueDepositRoute,
   type UserVenueDescriptor,
   type UserVenueFill,
   type UserVenueLeverage,
@@ -51,6 +52,33 @@ export interface HttpUserVenueOptions {
 export interface HttpVenueInfo {
   readonly venue: UserVenueDescriptor;
   readonly chainId: number;
+  /** Where a wallet sends a token to fund its account on this venue; `null` when the venue names none. */
+  readonly depositRoute: UserVenueDepositRoute | null;
+}
+
+const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
+
+/** The venue's deposit route as `GET /venue` names it, or null; one that is named but malformed is not used. */
+export function readDepositRoute(raw: unknown): UserVenueDepositRoute | null {
+  if (raw === null || raw === undefined || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const token = typeof r.token === 'string' ? r.token.toLowerCase() : '';
+  const address = typeof r.address === 'string' ? r.address.toLowerCase() : '';
+  if (
+    typeof r.chainId !== 'number' ||
+    !Number.isSafeInteger(r.chainId) ||
+    r.chainId <= 0 ||
+    !ADDRESS_RE.test(token) ||
+    !ADDRESS_RE.test(address) ||
+    typeof r.tokenDecimals !== 'number' ||
+    !Number.isInteger(r.tokenDecimals) ||
+    r.tokenDecimals < 0 ||
+    r.tokenDecimals > 18 ||
+    typeof r.asset !== 'string' ||
+    r.asset.trim() === ''
+  )
+    return null;
+  return { chainId: r.chainId, token, tokenDecimals: r.tokenDecimals, address, asset: r.asset };
 }
 
 type Failure = { readonly kind: 'not_sent' | 'timeout' | 'connection_lost' | 'error_after_send'; readonly detail: string };
@@ -81,12 +109,13 @@ export class HttpUserVenue implements UserVenue {
     readonly venue: UserVenueDescriptor,
     readonly chainId: number,
     private readonly opts: HttpUserVenueOptions,
+    readonly depositRoute: UserVenueDepositRoute | null = null,
   ) {}
 
   /** Read the venue's descriptor (`GET /venue`) and build the client. Throws `VenueRefusalError('venue_down')` when unreachable. */
   static async connect(opts: HttpUserVenueOptions): Promise<HttpUserVenue> {
     const info = await HttpUserVenue.info(opts);
-    return new HttpUserVenue(info.venue, info.chainId, opts);
+    return new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute);
   }
 
   static async info(opts: HttpUserVenueOptions): Promise<HttpVenueInfo> {
@@ -98,7 +127,7 @@ export class HttpUserVenue implements UserVenue {
     } catch (err) {
       throw new VenueRefusalError({ ...unknownVenue, detail: `the venue did not answer: ${classifyFetchFailure(err).detail}` });
     }
-    let body: { venue?: UserVenueDescriptor; chainId?: unknown };
+    let body: { venue?: UserVenueDescriptor; chainId?: unknown; deposit?: unknown };
     try {
       body = (await res.json()) as typeof body;
     } catch {
@@ -116,7 +145,7 @@ export class HttpUserVenue implements UserVenue {
     ) {
       throw new VenueRefusalError({ ...unknownVenue, detail: `the venue's descriptor is not usable (HTTP ${res.status})` });
     }
-    return { venue: v, chainId: body.chainId };
+    return { venue: v, chainId: body.chainId, depositRoute: readDepositRoute(body.deposit) };
   }
 
   private down(detail: string): VenueRefusalError {

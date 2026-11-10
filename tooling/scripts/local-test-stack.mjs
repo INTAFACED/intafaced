@@ -1922,7 +1922,17 @@ async function startTestVenue(name = 'test-venue') {
   const url = `${urlOf(name)}/health`;
   if (ownedAlive(procs[name]) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(PORTS[name])) fail(`port ${PORTS[name]} (${name}) is in use by a process this script did not start`);
-  const env = { ...baseEnv(), APP_ENV: 'dev', TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)) };
+  // With the TEST chain running, the first venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09
+  // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
+  // alone. The second TEST venue (J-derivatives-28) takes no chain deposits: its journeys fund it with TEST deposits.
+  const chain = name === 'test-venue' ? testChain() : null;
+  const env = {
+    ...baseEnv(),
+    APP_ENV: 'dev',
+    TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)),
+    TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
+    TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
+  };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
   const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
   await waitHealthy(name, url, pid, 20_000);
@@ -4163,6 +4173,8 @@ async function runCli() {
       port: PORTS['test-venue'],
       appEnv: process.env.APP_ENV,
       chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+      rpcUrl: process.env.TEST_VENUE_RPC_URL,
+      depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
     });
   else if (cmd === '__serve-test-venue-b')
     await serveTestVenue({
