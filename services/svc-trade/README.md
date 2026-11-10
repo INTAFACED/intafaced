@@ -176,7 +176,7 @@ ledger posts nothing. Finance reads them in `admin.convertDesk.venueSellQuotes`.
 
 ### Our builder fee in the ledger (D-venue-07, J-derivatives-17)
 
-The one money the door's orders move for us. With the door on, the builder-fee poster (`src/venue/builder-fee-poster.ts`,
+The one money the door's orders move for us. With the door on, the builder-fee poster (`src/builder-fees/builder-fee-poster.ts`,
 job `venue.builder_fees`, every `TRADE_BUILDER_FEE_POSTER_INTERVAL_MS`; `TRADE_BUILDER_FEE_POSTER=off` stops it) reads the
 venue's fills for our users' accounts (those that sent an order carrying our builder fee) and posts `builderFeeEarn` for
 each fill with a builder fee above zero, keyed `builder-fee:<venueId>:<fillId>`, so a fill read twice posts once. It never

@@ -58,7 +58,7 @@ export const RECIPE_MATRIX = {
       '§13 — TRD-0171 posts a fee correction as a new balanced entry under trade.fill.fee.correction. It leaves the original trade.fill row. No production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
   tradeFillMakerRebate: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
-  builderFeeEarn: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/venue/builder-fee-poster.ts' },
+  builderFeeEarn: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/builder-fees/builder-fee-poster.ts' },
   builderFeeReceive: {
     kind: 'socket',
     socket: '§13',
