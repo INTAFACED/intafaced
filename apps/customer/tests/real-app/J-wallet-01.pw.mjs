@@ -326,7 +326,9 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
   expect(await ledger()).toEqual(ledgerStart);
 });
 
-test(`${J} #3 opens Withdraw: what can be withdrawn leaves out the venue's lock, a partner hold reads "not reported by the partner", and trading is unaffected`, async ({
+// #3's partner hold (its release time, or "not reported by the partner") is not asserted here: no TEST partner purchase
+// or hold exists yet, so the PR that lands this test names #3 Left-or-replaced, and the clause waits for that partner.
+test(`${J} #3 opens Withdraw: what can be withdrawn leaves out the venue's lock, a card or bank purchase is refused with its blocker, and trading is unaffected`, async ({
   page,
 }) => {
   const { owner, resting, ledgerStart } = state();
