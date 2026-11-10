@@ -217,7 +217,7 @@ describe('HTTP answers', () => {
     expect(typeof best.raw.value.bid).toBe('string');
     expect(typeof best.raw.value.ask).toBe('string');
     expect(best.out.value.bid < best.out.value.ask).toBe(true);
-    expect((await call('/best-prices', { symbol: 'ETH-USDC' })).raw.refusal.code).toBe('unknown_market');
+    expect((await call('/best-prices', { symbol: 'XRP-USDC' })).raw.refusal.code).toBe('unknown_market');
 
     const intent = order({ amount: a('1'), price: a('60010'), clientOrderKey: 'order:preview-trader:http' });
     const preview = await call('/preview', { account, intent });

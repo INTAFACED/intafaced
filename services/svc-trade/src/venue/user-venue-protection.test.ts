@@ -7,6 +7,8 @@ import { TradeError } from '../spot/types.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError, marketProtectionBound, type ConnectedUserVenue } from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 
 // J-cex-spot-01: the owner's market price protection (TRADE_MARKET_SLIPPAGE_CAP_BPS) bounds every venue market order on
 // the server, on preview and on prepare, not only in the browser. Every figure here is a TEST figure.
@@ -38,6 +40,9 @@ const MARKET: UserVenueMarket = {
   lotSize: a('0.0001'),
   makerFeeBps: { known: false },
   takerFeeBps: { known: false },
+  status: null,
+  maxOrderQty: null,
+  maxOrderNotional: null,
   builderFeeCapBps: { known: false },
 };
 
@@ -83,6 +88,8 @@ function door(slippageCapBps: number | null, best = { bid: a('59990') as Amount 
     builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
     slippageCapBps,
     now: () => new Date(),
+    // Our listing shows the one market these orders use (J-cex-spot-16).
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'], 'stub')),
   });
   return { d, asked };
 }
