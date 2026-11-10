@@ -10,13 +10,19 @@
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
- *   POST /api/v1/venue/submit    { actionKey, signature }
+ *   POST /api/v1/venue/submit    { actionKey, signature }    sent on the venue the action was prepared for
+ *   GET  /api/v1/venue/markets/:symbol/venues?owner=&side=   every configured venue for the market (J-derivatives-28 #1)
+ *   POST /api/v1/venue/route-preview { owner, intent }       the venue chosen for the order, and why (#2, #4)
  *   GET  /api/v1/venue/session?owner=0x…               this sign-in's trading session, read against the venue's agents
  *   POST /api/v1/venue/session/start { owner, agentAddress }   the owner's one approval for a fresh session key (prepared)
  *   POST /api/v1/venue/session/end   { owner }                 the owner's revoke of this sign-in's session key (prepared)
  *
  * The session approval and its revoke are signed by the owner wallet and sent with `/submit`, as any action
- * (src/venue/session-key.ts, J-wallet-22 #8). Orders in the session are prepared with `signer.role: 'agent'`.
+ * (src/venue/session-key.ts, J-wallet-22 #8). Orders in the session are prepared with `signer.role: 'agent'`. Sessions
+ * are on the primary venue.
+ *
+ * With several venues configured (TRADE_USER_VENUE_URLS), every read, preview and prepare takes an optional `venueId`
+ * (query or body); none named is the primary venue (TRADE_USER_VENUE_URL), as before.
  *
  * Reads need trade:read, writes trade:write, and every route but `status` the trade jurisdiction (as the grid's
  * routes do). Every Amount travels as a decimal string (`encodeVenueWire`). A venue refusal answers 422 with
@@ -37,6 +43,7 @@ import {
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { UserVenueDoor, UserVenueDoorError } from './user-venue-door.js';
+import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
 
 export interface UserVenueRestDeps {
@@ -44,7 +51,15 @@ export interface UserVenueRestDeps {
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
 }
 
-type Query = { owner?: string; subAccount?: string; clientOrderId?: string; since?: string; symbol?: string };
+type Query = {
+  owner?: string;
+  subAccount?: string;
+  clientOrderId?: string;
+  since?: string;
+  symbol?: string;
+  venueId?: string;
+  side?: string;
+};
 
 export function venueRefusalReply(reply: FastifyReply, err: unknown) {
   if (err instanceof VenueRefusalError) {
@@ -76,7 +91,7 @@ export function venueRefusalReply(reply: FastifyReply, err: unknown) {
   throw err;
 }
 
-export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor | null, deps: UserVenueRestDeps): void {
+export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRouter | null, deps: UserVenueRestDeps): void {
   function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
@@ -89,15 +104,16 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
     return deps.requireTradeJurisdiction(req, reply, principal) ? principal : null;
   }
 
-  async function answer(reply: FastifyReply, run: (d: UserVenueDoor) => Promise<unknown>) {
+  /** Run `run` on the door of `venueId` (the primary venue when none is named). */
+  async function answer(reply: FastifyReply, run: (d: UserVenueDoor, r: UserVenueRouter) => Promise<unknown>, venueId?: string | null) {
     try {
-      if (!door)
+      if (!router)
         throw new UserVenueDoorError(
           'the user-venue door is off on this deployment (TRADE_USER_VENUE_URL unset)',
           'trade.user_venue_off',
           404,
         );
-      return reply.code(200).send(encodeVenueWire(await run(door)));
+      return reply.code(200).send(encodeVenueWire(await run(await router.door(venueId), router)));
     } catch (error) {
       return venueRefusalReply(reply, error);
     }
@@ -117,14 +133,34 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
     } catch (error) {
       return venueRefusalReply(reply, error);
     }
-    if (!door) return reply.code(200).send({ enabled: false });
-    return reply.code(200).send(await door.status());
+    if (!router) return reply.code(200).send({ enabled: false });
+    // The primary venue's status as before, and every configured venue with its health (J-derivatives-28).
+    const primary = await router.primary.status();
+    return reply.code(200).send(encodeVenueWire({ ...primary, routes: router.routes, venues: await router.venues() }));
   });
 
   app.get('/api/v1/venue/markets', privateRead, async (req, reply) => {
     if (!admit(req, reply, 'trade:read')) return;
     // Only the markets two operators listed, each with our listing beside the venue's own state (J-cex-spot-16).
-    return answer(reply, async (d) => d.markets());
+    return answer(reply, async (d) => d.markets(), (req.query as Query).venueId);
+  });
+
+  // J-derivatives-28 #1: every configured venue for one market, with its own price, depth and fees, our builder fee,
+  // whether the person can sign there, and its health. A down venue is a row with since when and why.
+  app.get<{ Params: { symbol: string }; Querystring: Query }>('/api/v1/venue/markets/:symbol/venues', privateRead, async (req, reply) => {
+    if (!admit(req, reply, 'trade:read')) return;
+    const side = req.query.side === 'sell' ? 'sell' : 'buy';
+    return answer(reply, async (_d, r) => r.marketVenues(req.query.owner ?? null, req.params.symbol, side));
+  });
+
+  // J-derivatives-28 #2 and #4: which venue this order goes to, its expected fill and fees, and why.
+  app.post('/api/v1/venue/route-preview', privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (_d, r) => {
+      const b = body<{ owner?: string; intent?: VenueIntent }>(req);
+      return r.routePreview(principal, b.owner ?? '', b.intent as never);
+    });
   });
 
   type Account = Awaited<ReturnType<UserVenueDoor['account']>>;
@@ -173,50 +209,72 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
     const read = accountReads[path]!;
     app.get<{ Querystring: Query }>(path, privateRead, async (req, reply) => {
       if (!admit(req, reply, 'trade:read')) return;
-      return answer(reply, async (d) => read(d, req.query, await d.account(req.query.owner ?? '', req.query.subAccount ?? null)));
+      return answer(
+        reply,
+        async (d) => read(d, req.query, await d.account(req.query.owner ?? '', req.query.subAccount ?? null)),
+        req.query.venueId,
+      );
     });
   }
 
   app.get<{ Params: { nonce: string }; Querystring: Query }>('/api/v1/venue/withdrawals/:nonce', privateRead, async (req, reply) => {
     if (!admit(req, reply, 'trade:read')) return;
-    return answer(reply, async (d) =>
-      (await d.venue()).withdrawal(await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.params.nonce),
+    return answer(
+      reply,
+      async (d) => (await d.venue()).withdrawal(await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.params.nonce),
+      req.query.venueId,
     );
   });
+
+  /** The body, or the typed 400 already sent (`null`). */
+  function bodyOr<T>(req: FastifyRequest, reply: FastifyReply): T | null {
+    try {
+      return body<T>(req);
+    } catch (error) {
+      void venueRefusalReply(reply, error);
+      return null;
+    }
+  }
 
   app.post('/api/v1/venue/preview', privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
-    return answer(reply, async (d) => {
-      const b = body<{ owner?: string; intent?: VenueIntent }>(req);
-      return d.preview(principal, b.owner ?? '', b.intent as VenueIntent);
-    });
+    const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null }>(req, reply);
+    if (!b) return;
+    return answer(reply, async (d) => d.preview(principal, b.owner ?? '', b.intent as VenueIntent), b.venueId);
   });
 
   app.post('/api/v1/venue/prepare', privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
-    return answer(reply, async (d) => {
-      const b = body<{
-        owner?: string;
-        subAccount?: string | null;
-        signer?: VenueSigner;
-        intent?: VenueIntent;
-        actionKey?: string | null;
-        stepUpApprovalId?: string | null;
-      }>(req);
-      return d.prepare(principal, {
-        owner: b.owner ?? '',
-        subAccount: b.subAccount ?? null,
-        signer: b.signer as VenueSigner,
-        intent: b.intent as VenueIntent,
-        actionKey: b.actionKey ?? null,
-        stepUpApprovalId: b.stepUpApprovalId ?? null,
-      });
-    });
+    const b = bodyOr<{
+      owner?: string;
+      subAccount?: string | null;
+      signer?: VenueSigner;
+      intent?: VenueIntent;
+      actionKey?: string | null;
+      stepUpApprovalId?: string | null;
+      venueId?: string | null;
+    }>(req, reply);
+    if (!b) return;
+    return answer(
+      reply,
+      async (d) =>
+        d.prepare(principal, {
+          owner: b.owner ?? '',
+          subAccount: b.subAccount ?? null,
+          signer: b.signer as VenueSigner,
+          intent: b.intent as VenueIntent,
+          actionKey: b.actionKey ?? null,
+          stepUpApprovalId: b.stepUpApprovalId ?? null,
+        }),
+      b.venueId,
+    );
   });
 
   // `answer` refuses `trade.user_venue_off` before `run` when the door is off, so `sessions` is set whenever it runs.
+  // Trading sessions (J-wallet-22) are on the primary venue.
+  const door = router?.primary ?? null;
   const sessions = door ? new SessionKeys({ door, ...door.sessionDeps }) : null;
   const session = (run: (s: SessionKeys) => Promise<unknown>) => () => run(sessions!);
 
@@ -250,12 +308,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
     );
   });
 
+  // Sent on the venue the stored action was prepared for, whatever venue the request names (venue-router.ts submit).
   app.post('/api/v1/venue/submit', privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
-    return answer(reply, async (d) => {
-      const b = body<{ actionKey?: string; signature?: VenueSignature }>(req);
-      return d.submit(principal, b.actionKey ?? '', b.signature as VenueSignature);
-    });
+    const b = bodyOr<{ actionKey?: string; signature?: VenueSignature }>(req, reply);
+    if (!b) return;
+    return answer(reply, async (_d, r) => r.submit(principal, b.actionKey ?? '', b.signature as VenueSignature));
   });
 }
