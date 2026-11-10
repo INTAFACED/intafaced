@@ -175,6 +175,11 @@
       "service": "trade",
       "value": "BTC-USDC,BTC-PERP",
       "note": "LOCAL TEST ONLY, not an owner decision: the markets an assistant may trade on the TEST venue. Blank refuses every agent order agents.markets_unset."
+    },
+    "TRADE_USER_VENUE_ORDERS_PAGE_MAX": {
+      "service": "trade",
+      "value": "50",
+      "note": "LOCAL TEST ONLY, not an owner decision: the largest page of GET /api/v1/venue/orders on the TEST venue (J-developer-05 #6). Blank, every list refuses trade.venue_orders_page_max_unset; LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off leaves it blank."
     }
   }
 }

@@ -1077,6 +1077,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Close the agent account; refused, naming it, while a position, an order, a balance or a move is open',
   },
   {
+    name: 'venueOrders',
+    method: 'GET',
+    path: '/api/v1/venue/orders',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your orders sent through the venue door, oldest first, a page at a time by cursor; each order once',
+  },
+  {
+    name: 'venueOrderByKey',
+    method: 'GET',
+    path: '/api/v1/venue/orders/by-key',
+    product: 'accounts',
+    access: 'private',
+    summary: 'One order by its Idempotency-Key or action key: accepted with the venue’s record, or unknown until the venue answers',
+  },
+  {
     name: 'venueSession',
     method: 'GET',
     path: '/api/v1/venue/session',

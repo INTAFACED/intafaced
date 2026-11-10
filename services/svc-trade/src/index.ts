@@ -109,7 +109,7 @@ import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
-import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
 import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
 import { SqlAgentAccountStore } from './venue/agent-account-store.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
@@ -505,6 +505,7 @@ const userVenueDoors = userVenueUrls.map(
       store: userVenueStore,
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
