@@ -19,13 +19,13 @@ import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun,
 import { testWalletKey } from './test-wallet.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { signIn, signUp } from './desk.mjs';
+import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
+import { api } from './stack.mjs';
 
 // J-dex-protocol-08, in the running app (docs/roadmap/journeys.json): keep my wallet safe with approvals, session keys,
 // risk cards and reporting. One test per step, titled "J-dex-protocol-08 #<n>", run in order with one TEST wallet on Base
 // Sepolia holding two session keys and old approvals. Revoke calls are signed by the person's wallet; nothing posts to
 // the ledger. vendor.aml shows while no screening source is configured: the page says the list is not loaded.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - there is no embedded login to export a key from (RC-dex-protocol-05).
 // The journey runs on the stack's TEST chain (tooling/scripts/local-test-chain.mjs): its approvals and session keys are
 // on-chain state the run's wallet makes. It is put on the chain here, with the same funding dexRun gives a chain journey,
 // rather than in dex.mjs's ON_TEST_CHAIN, so the two do not edit one shared line.
@@ -363,20 +363,94 @@ test(`${J} #8 follows the compromise guidance: an ordered list: revoke keys, rev
     await expect(steps.getByRole('link', { name })).toHaveAttribute('href', href);
 });
 
-test(`${J} #9 exports the embedded-login key once: shown once after a fresh passkey check and derives the owner address; a second request returns no key`, async ({
-  page,
-}) => {
-  await page.goto('/wallet');
-  await walletSection(page, 'Keys');
-  const exportKey = page.getByRole('button', { name: 'Export my key' });
-  await expect(exportKey).toBeVisible(UNBUILT);
-  await exportKey.click();
-  await expect(page.getByRole('dialog', { name: 'Confirm with your passkey' })).toBeVisible();
-  const shown = page.getByTestId('exported-key');
-  await expect(shown).toHaveText(/^0x[0-9a-f]{64}$/);
-  await page.reload();
-  await walletSection(page, 'Keys');
-  await page.getByRole('button', { name: 'Export my key' }).click();
-  await expect(page.getByRole('alert')).toContainText('This key was already exported');
-  await expect(page.getByTestId('exported-key')).toHaveCount(0);
+// #9 runs on the person's embedded wallet (J-wallet-22's, /wallet/embedded): its key is kept by the stack's labelled
+// TEST wallet provider (tooling/scripts/local-test-wallet-provider.mjs), which gives it out once, after a passkey check.
+// Passkeys belong to the stack's relying party `localhost`, so this step uses the customer app at PASSKEY_ORIGIN and
+// Chromium's virtual authenticator for the person's device.
+test.describe('the embedded login', () => {
+  test.use({ baseURL: PASSKEY_ORIGIN });
+
+  test(`${J} #9 exports the embedded-login key once: shown once after a fresh passkey check and derives the owner address; a second request returns no key`, async ({
+    page,
+  }) => {
+    const auth = await virtualAuthenticator(page);
+    const held = async () => (await auth.cdp.send('WebAuthn.getCredentials', { authenticatorId: auth.authenticatorId })).credentials;
+    const who = await signUp(page, 'jdex08k');
+    await page.goto('/wallet/embedded');
+    const panel = page.locator('[data-panel="embedded-wallet"]');
+    await page.getByRole('button', { name: 'Create my wallet' }).click(UNBUILT);
+    const owner = panel.locator('[data-embedded-address]');
+    await expect(owner).toHaveText(/^0x[0-9a-fA-F]{40}$/, { timeout: 20_000 });
+    const ownerAddress = await owner.textContent();
+    const client = await api(who);
+    const status = await client.get('/api/protocol/trpc/embeddedWallet.status');
+    expect(status.status).toBe(200);
+    // The owner address is the one INTAFACED records for this person's wallet.
+    expect(status.body.result.data.wallet.address).toBe(ownerAddress);
+
+    // Everything the page sends to and hears from the provider, and everything it sends to INTAFACED.
+    const toProvider = [];
+    const fromProvider = [];
+    const toUs = [];
+    page.on('request', (r) => {
+      const path = new URL(r.url()).pathname;
+      if (path.startsWith('/__test-wallet-provider/client/')) toProvider.push({ path, body: r.postDataJSON() });
+      if (path.startsWith('/api/')) toUs.push(`${r.url()} ${r.postData() ?? ''}`);
+    });
+    page.on('response', async (r) => {
+      const path = new URL(r.url()).pathname;
+      if (path.startsWith('/__test-wallet-provider/client/'))
+        fromProvider.push({ path, status: r.status(), text: await r.text().catch(() => '') });
+    });
+
+    // A fresh passkey check: the export is answered by a new assertion from the person's passkey for a new challenge.
+    await expect(page.locator('[data-exported-key]')).toHaveCount(0);
+    await expect(page.getByText('TEST wallet provider shows your key once.', { exact: false })).toBeVisible();
+    const before = (await held())[0].signCount;
+    await page.getByRole('button', { name: 'Export my key' }).click();
+    const shown = page.locator('[data-exported-key]');
+    await expect(shown).toHaveText(/^0x[0-9a-f]{64}$/, { timeout: 20_000 });
+    const key = await shown.textContent();
+    expect((await held())[0].signCount).toBeGreaterThan(before);
+    const exportCall = toProvider.find((c) => c.path.endsWith('/export'));
+    expect(exportCall?.body?.assertion?.signature).toBeTruthy();
+    const issued = toProvider.filter((c) => c.path.endsWith('/challenge') && c.body?.action === 'export');
+    expect(issued).toHaveLength(1);
+    expect(exportCall.body.challenge).toBe(JSON.parse(fromProvider.find((r) => r.path.endsWith('/challenge')).text).challenge);
+    // It derives the owner address.
+    expect(privateKeyToAccount(key).address).toBe(ownerAddress);
+
+    // Shown once: hidden, or after a reload, the key is gone from the page.
+    await page.getByRole('button', { name: 'Hide my key' }).click();
+    await expect(shown).toHaveCount(0);
+    await page.reload();
+    await expect(owner).toHaveText(ownerAddress, { timeout: 20_000 });
+    await expect(shown).toHaveCount(0);
+
+    // A second request returns no key: refused in words, nothing shown, and no answer from the provider carries it.
+    const heard = fromProvider.length;
+    const promptsBefore = (await held())[0].signCount;
+    await page.getByRole('button', { name: 'Export my key' }).click();
+    await expect(page.getByText('This key was already exported', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(
+      page.getByText('TEST wallet provider shows your key only once, and it was already shown. No key was shown or sent this time.'),
+    ).toBeVisible();
+    await expect(page.getByText('wallet.export_spent')).toBeVisible();
+    await expect(shown).toHaveCount(0);
+    const second = fromProvider.slice(heard);
+    expect(second.length).toBeGreaterThan(0);
+    for (const answer of second) {
+      expect(answer.status).toBe(410);
+      expect(JSON.parse(answer.text)).toMatchObject({ error: 'export_spent' });
+      expect(answer.text.toLowerCase()).not.toContain(key.slice(2).toLowerCase());
+    }
+    // Refused before any passkey prompt.
+    expect((await held())[0].signCount).toBe(promptsBefore);
+
+    // The key never reached INTAFACED, in a request or in its record.
+    expect(toUs.length).toBeGreaterThan(0);
+    for (const sent of toUs) expect(sent.toLowerCase()).not.toContain(key.slice(2).toLowerCase());
+    const after = await client.get('/api/protocol/trpc/embeddedWallet.status');
+    expect(JSON.stringify(after.body)).not.toContain(key.slice(2));
+  });
 });

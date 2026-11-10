@@ -180,6 +180,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.partner_insufficient_funds': 'CONFLICT',
   'bank.partner_reply_lost': 'SERVICE_UNAVAILABLE',
   'bank.partner_amount_invalid': 'BAD_REQUEST',
+  'bank.partner_stopped': 'SERVICE_UNAVAILABLE',
+  'bank.partner_stop_unreadable': 'SERVICE_UNAVAILABLE',
   'bank.partner_path_not_built': 'PRECONDITION_FAILED',
   'bank.partner_history_filter_unsupported': 'BAD_REQUEST',
   'bank.partner_unset': 'PRECONDITION_FAILED',

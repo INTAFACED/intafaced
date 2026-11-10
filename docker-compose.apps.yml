@@ -745,6 +745,8 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
+      TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
@@ -2090,6 +2092,7 @@ services:
       CUSTOMER_LIVEKIT_ORIGIN: ${CUSTOMER_LIVEKIT_ORIGIN:-}
       CUSTOMER_STORAGE_ORIGIN: ${CUSTOMER_STORAGE_ORIGIN:-}
       CUSTOMER_MEDIA_ORIGINS: ${CUSTOMER_MEDIA_ORIGINS:-}
+      CUSTOMER_SANDBOX_API_ORIGIN: ${CUSTOMER_SANDBOX_API_ORIGIN:-}
     # nginx proxies /api to the edge and /ws to the socket by SERVICE NAME, so
     # both must be resolvable on this network — the browser stays same-origin
     # and never learns a port.

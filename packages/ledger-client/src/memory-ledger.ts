@@ -22,6 +22,7 @@ import {
   type PostedEntry,
 } from './types.js';
 import { assetIds, crossShardAnchor, hashAssetTx } from './sharding.js';
+import { balanceAllowed, heldForRefusal } from './accounts.js';
 
 /**
  * Reference ledger implementation, in memory.
@@ -51,15 +52,9 @@ export class MemoryLedger implements LedgerClient {
   private tip: string | null = null;
   private readonly assetTips = new Map<string, string>();
 
-  /**
-   * Owner types permitted to hold a negative `available` balance.
-   *
-   * `treasury` is the boundary with the outside world: when a user deposits,
-   * value enters the book from here, so this account runs negative by exactly
-   * the platform's total custody obligation. Every other owner — users,
-   * sub-accounts, modules, house — is hard non-negative.
-   */
-  private static readonly NEGATIVE_ALLOWED = new Set(['treasury']);
+  // Which balances an entry may leave is `balanceAllowed` (accounts.ts): `treasury`, the boundary with the outside world,
+  // may run negative (by exactly what is out there); every other owner is hard non-negative; and an own-funds place, whose
+  // negative balance is our money there, may never go above zero. Postgres applies the same function.
 
   async post(request: PostRequest): Promise<LedgerTx> {
     // The shared order, documented at `assertIdempotencyKey` (STOP §4.2b #4):
@@ -110,8 +105,13 @@ export class MemoryLedger implements LedgerClient {
       const current = staged.get(account.id) ?? held;
       const next = current + signedDelta(entry);
 
-      if (next < 0n && !this.canGoNegative(entry.account)) {
-        throw new InsufficientFundsError(live?.id ?? '', entry.account.assetId, formatAmount(entry.amount), formatAmount(held));
+      if (!balanceAllowed(entry.account, next)) {
+        throw new InsufficientFundsError(
+          live?.id ?? '',
+          entry.account.assetId,
+          formatAmount(entry.amount),
+          formatAmount(heldForRefusal(entry.account, held)),
+        );
       }
 
       staged.set(account.id, next);
@@ -303,10 +303,6 @@ export class MemoryLedger implements LedgerClient {
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
-
-  private canGoNegative(ref: AccountRef): boolean {
-    return MemoryLedger.NEGATIVE_ALLOWED.has(ref.ownerType);
-  }
 
   /**
    * An account this post needs that the book does not have yet.

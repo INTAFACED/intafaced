@@ -49,10 +49,11 @@ export async function rotateApiKey(
       account_id: string | null;
       require_signature: boolean | null;
       require_non_empty_ip_allowlist: boolean | null;
+      kind: string | null;
     }>
   >`
     SELECT id, name, scopes, domain_whitelist, expires_at, mode, ip_allowlist, account_id,
-           require_signature, require_non_empty_ip_allowlist
+           require_signature, require_non_empty_ip_allowlist, kind
     FROM api_keys
     WHERE id = ${input.keyId} AND user_id = ${input.userId} AND revoked = false
   `;
@@ -84,7 +85,9 @@ export async function rotateApiKey(
       UPDATE api_keys
       SET require_signature = ${requireSignature},
           require_non_empty_ip_allowlist = ${requireNonEmptyIpAllowlist},
-          request_signing_secret = ${signingSecret && encKey ? encryptAtRest(encKey, signingSecret) : null}
+          request_signing_secret = ${signingSecret && encKey ? encryptAtRest(encKey, signingSecret) : null},
+          -- An agent key stays an agent key across a rotation (DV-keys-05: tagged and restricted).
+          kind = ${old.kind === 'agent' ? 'agent' : 'personal'}
       WHERE id = ${minted.id} AND user_id = ${input.userId} AND revoked = false
     `;
     if (old.account_id) {

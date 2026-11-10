@@ -11,8 +11,11 @@ import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import { deskCopy } from '../../screens/trade/desk/copy';
 import { acceptedCells, refusedName } from './trading/order-types-view';
 import { tradingApiCopy } from './trading/trading-api-copy';
+import { idempotencyCopy } from './idempotency/idempotency-copy';
 import { developersCopy } from './developers-copy';
 import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
+import { explorerCopy } from './explorer/explorer-copy';
+import { EXPLORER_ROUTES } from './explorer/explorer-model';
 import { docsCopy } from './developers-docs-copy';
 import { causeKey, fixKey, tradeErrorsCopy } from './errors/trade-errors-copy';
 import { categoryKey, errorClassCopy, severityKey } from './errors/error-class-copy';
@@ -34,9 +37,11 @@ import {
 const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
 const limits = rateLimitsCopy.forLocale('en').t;
+const explorer = explorerCopy.forLocale('en').t;
 const tradeErrors = tradeErrorsCopy.forLocale('en').t;
 const errorClass = errorClassCopy.forLocale('en').t;
 const trading = tradingApiCopy.forLocale('en').t;
+const idem = idempotencyCopy.forLocale('en').t;
 const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
 
@@ -193,6 +198,18 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         limits('backoffExample'),
         `## ${limits('formTitle')}`,
         limits('formLead'),
+      ].join('\n\n'),
+  },
+  {
+    // The written part of the API explorer (DV-console-01); the explorer itself runs on its page.
+    slug: 'explorer',
+    title: sectionTitle('explorer'),
+    summary: explorer('lead'),
+    body: () =>
+      [
+        explorer('lead'),
+        ...EXPLORER_ROUTES.map((route) => `- ${explorer(`route.${route.id}`)}: ${code(`${route.method} ${route.path.split('?')[0]}`)}`),
+        explorer('keyHint'),
       ].join('\n\n'),
   },
   {
@@ -355,6 +372,25 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: sectionTitle('bot-policy'),
     summary: trading('botLead'),
     body: () => [trading('botLead'), trading('botStaticNote')].join('\n\n'),
+  },
+  {
+    slug: 'idempotency',
+    title: sectionTitle('idempotency'),
+    summary: idem('lead'),
+    body: () =>
+      [
+        idem('lead'),
+        `## ${idem('rulesTitle')}`,
+        [idem('rulePrepare'), idem('ruleSubmit'), idem('ruleReplay'), idem('ruleConflict'), idem('ruleInProgress')]
+          .map((rule, i) => `${i + 1}. ${rule}`)
+          .join('\n'),
+        `## ${idem('finalTitle')}`,
+        idem('finalBody'),
+        idem('finalRetry'),
+        `## ${idem('listTitle')}`,
+        idem('listBody'),
+        idem('listMax'),
+      ].join('\n\n'),
   },
 ];
 

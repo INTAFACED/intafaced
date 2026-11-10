@@ -139,16 +139,23 @@ interface ControlRow {
 
 interface AssetEvidence {
   assetId: string;
-  observed: string;
+  /** `unset` only beside `missing: 'ledger'`: the ledger holds no record, so there is no figure to show, not a zero. */
+  observed: string | 'unset';
   expected: string | 'unset';
   difference: string | 'unset';
   tolerance: string | 'unset';
   reconcilingItems?: string;
   residual?: string;
+  /** The side that holds no record for this asset: a break named "missing", never read as a zero (OWNER 288). */
+  missing?: 'ledger' | 'outside';
 }
 
+type RunStatus = 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' | 'NOTHING_TO_COMPARE';
+
 interface Verdict {
-  status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET';
+  status: RunStatus;
+  /** Records compared. Left out, it is counted from the asset rows (`comparedOf`); a chain check counts transactions. */
+  compared?: number;
   phase: string;
   errorCode: string;
   assets: AssetEvidence[];
@@ -708,10 +715,21 @@ function assetRow(
   };
 }
 
-function foldAssets(assets: AssetEvidence[], unsetSource: boolean): 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' {
+/** The asset figures a run compared: both sides known and judged. A missing side or an unset one compares nothing. */
+export function comparedOf(assets: readonly AssetEvidence[]): number {
+  return assets.filter((asset) => asset.missing === undefined && asset.expected !== 'unset' && asset.difference !== 'unset').length;
+}
+
+/**
+ * The run's word from its asset rows (OWNER 288): a missing record is a break, never a zero, and no other row hides it;
+ * PASS needs at least one record compared and no difference. Zero compared is NOTHING_TO_COMPARE, never green.
+ */
+function foldAssets(assets: AssetEvidence[], unsetSource: boolean): RunStatus {
+  if (assets.some((asset) => asset.missing !== undefined)) return 'FAIL';
   if (assets.some((asset) => asset.tolerance === 'unset')) return 'ERROR';
   if (unsetSource || assets.some((asset) => asset.expected === 'unset')) return 'UNSET';
   if (assets.some((asset) => asset.difference !== 'unset' && parseAmount(asset.difference) !== 0n && !withinStored(asset))) return 'FAIL';
+  if (comparedOf(assets) === 0) return 'NOTHING_TO_COMPARE';
   return 'PASS';
 }
 
@@ -773,8 +791,21 @@ function thresholdAssets(
   const assets: AssetEvidence[] = [];
   for (const assetId of Object.keys(threshold.byAsset).sort()) {
     const bound = parseAmount(threshold.byAsset[assetId] ?? '0');
-    const amount = observed.get(assetId) ?? 0n;
     const tol = toleranceFor(tolerance, assetId);
+    const held = observed.get(assetId);
+    if (held === undefined) {
+      // No account of the set holds this asset: the ledger side is missing, a break by name, never read as 0 (OWNER 288).
+      assets.push({
+        assetId,
+        observed: 'unset',
+        expected: formatAmount(bound),
+        difference: 'unset',
+        tolerance: tol === null ? 'unset' : formatAmount(tol),
+        missing: 'ledger',
+      });
+      continue;
+    }
+    const amount = held;
     if (tol === null) {
       assets.push(assetRow(assetId, amount, bound, null, 'unset'));
       continue;
@@ -868,8 +899,10 @@ async function judge(
   if (row.check_kind === 'chain') {
     try {
       const chain = await verifyChain(sql, 1000, past ? readAt : undefined);
+      // An empty chain verified nothing: NOTHING_TO_COMPARE, never PASS (OWNER 288).
       return {
-        status: chain.ok ? 'PASS' : 'FAIL',
+        status: chain.ok ? (chain.length === 0 ? 'NOTHING_TO_COMPARE' : 'PASS') : 'FAIL',
+        compared: chain.length,
         phase: chain.ok ? '' : 'chain',
         errorCode: '',
         assets: [],
@@ -904,7 +937,8 @@ async function judge(
       const zeros = new Map<string, Amount>();
       for (const assetId of ledgerTotals.keys()) zeros.set(assetId, 0n);
       const netRows = equalAssets(ledgerTotals, zeros, row.tolerance, true);
-      if (foldAssets(replayRows, false) === 'PASS') assets = netRows;
+      const replayed = foldAssets(replayRows, false);
+      if (replayed === 'PASS' || replayed === 'NOTHING_TO_COMPARE') assets = netRows;
     }
     const status = foldAssets(assets, false);
     return {
@@ -947,14 +981,19 @@ async function judge(
       };
     }
     const assets = thresholdAssets(ledgerTotals, threshold, row.tolerance);
-    const status = assets.some((asset) => asset.tolerance === 'unset')
-      ? 'ERROR'
-      : assets.some((asset) => asset.difference !== 'unset' && parseAmount(asset.difference) !== 0n && !withinStored(asset))
-        ? 'FAIL'
-        : 'PASS';
+    const missing = assets.some((asset) => asset.missing !== undefined);
+    const status: RunStatus = missing
+      ? 'FAIL'
+      : assets.some((asset) => asset.tolerance === 'unset')
+        ? 'ERROR'
+        : assets.some((asset) => asset.difference !== 'unset' && parseAmount(asset.difference) !== 0n && !withinStored(asset))
+          ? 'FAIL'
+          : comparedOf(assets) === 0
+            ? 'NOTHING_TO_COMPARE'
+            : 'PASS';
     return {
       status,
-      phase: status === 'FAIL' ? 'threshold' : status === 'ERROR' ? 'tolerance' : '',
+      phase: missing ? 'missing' : status === 'FAIL' ? 'threshold' : status === 'ERROR' ? 'tolerance' : '',
       errorCode: status === 'ERROR' ? OPS_CONTROL_POLICY_UNSET : '',
       assets,
       outsideSide: 'not_applicable',
@@ -1066,7 +1105,10 @@ async function judge(
   const unsetSource = outsideTemplate && assets.some((asset) => asset.expected === 'unset');
   const status = named === null ? foldAssets(assets, unsetSource) : foldResiduals(assets, unsetSource);
   return {
-    status: status === 'PASS' || status === 'FAIL' || status === 'ERROR' || status === 'UNSET' ? status : 'ERROR',
+    status:
+      status === 'PASS' || status === 'FAIL' || status === 'ERROR' || status === 'UNSET' || status === 'NOTHING_TO_COMPARE'
+        ? status
+        : 'ERROR',
     phase: status === 'FAIL' ? side : status === 'ERROR' ? 'tolerance' : '',
     errorCode: status === 'ERROR' ? OPS_CONTROL_POLICY_UNSET : '',
     assets,
@@ -1106,12 +1148,13 @@ function withItems(
 }
 
 /** With named items no tolerance applies: a residual of even one unit FAILs, ahead of UNSET and of an unset tolerance, which is otherwise a policy ERROR. */
-function foldResiduals(assets: AssetEvidence[], unsetSource: boolean): 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' {
+function foldResiduals(assets: AssetEvidence[], unsetSource: boolean): RunStatus {
   // A residual already known FAILs the run, even when another asset is unset or has no tolerance (the tolerance plays no
   // part here): an unset asset never hides a break.
   if (assets.some((asset) => asset.residual !== undefined && parseAmount(asset.residual) !== 0n)) return 'FAIL';
   if (assets.some((asset) => asset.tolerance === 'unset')) return 'ERROR';
   if (unsetSource || assets.some((asset) => asset.expected === 'unset' || asset.residual === undefined)) return 'UNSET';
+  if (comparedOf(assets) === 0) return 'NOTHING_TO_COMPARE';
   return 'PASS';
 }
 
@@ -1125,7 +1168,12 @@ interface RunRow {
   read_at: Date;
   margin: string;
   sources: ReconciliationControlRunView['sources'];
-  evidence: { accounts?: string[]; assets?: AssetEvidence[]; reconcilingItems?: ReconciliationReconcilingItem[] };
+  evidence: {
+    accounts?: string[];
+    assets?: AssetEvidence[];
+    reconcilingItems?: ReconciliationReconcilingItem[];
+    compared?: number;
+  };
   outside_side: ReconciliationControlRunView['outsideSide'];
   period_start: Date;
   period_end: Date;
@@ -1149,6 +1197,8 @@ function toRun(row: RunRow): ReconciliationControlRunView {
     periodEnd: row.period_end.toISOString(),
     accounts: row.evidence.accounts ?? [],
     assets: row.evidence.assets ?? [],
+    // A run stored before the count was kept is counted from its asset rows.
+    compared: row.evidence.compared ?? comparedOf(row.evidence.assets ?? []),
     ...(row.evidence.reconcilingItems ? { reconcilingItems: row.evidence.reconcilingItems } : {}),
   });
 }
@@ -1180,6 +1230,7 @@ async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: s
              asJson({
                accounts: accountIds,
                assets: verdict.assets,
+               compared: verdict.compared ?? comparedOf(verdict.assets),
                ...(verdict.reconcilingItems ? { reconcilingItems: verdict.reconcilingItems } : {}),
              }),
            )},

@@ -17,7 +17,9 @@ import { MemoryLedger, bankTransferKey, parseAmount, recipes } from '@intafaced/
 import { createBankServices, memoryRecipientState, type BankServiceOptions } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
-import { TEST_PARTNER_LABEL, testPartner, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_ID } from './partner-stops.js';
+import type { FreezeReading } from './partner-bank.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -75,6 +77,7 @@ describe('partner-held bank moves (OWNER 226)', () => {
 
   beforeEach(async () => {
     await sql`TRUNCATE bank.spaces RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE bank.partner_stops, bank.partner_stop_history, bank.partner_refusal_counts`;
     ledger = new MemoryLedger();
     partner = testPartner();
     posting = true;
@@ -147,6 +150,31 @@ describe('partner-held bank moves (OWNER 226)', () => {
     expect(Number.isNaN(Date.parse(space.heldAt!.asOf))).toBe(false);
     // The spaces plus the main balance shown are the partner's total.
     expect(parseAmount(main.balance) + parseAmount(space.balance)).toBe(parseAmount('100'));
+  });
+
+  it("b2 change 6: each partner-held space carries the partner's displayed figure: known, stale, and unknown refuses, never 0", async () => {
+    const { api } = await partnerHeld(ADA);
+    const known = await mainOf(api);
+    expect(known.heldAt!.figure).toMatchObject({
+      state: 'known',
+      source: TEST_PARTNER_LABEL,
+      amount: '100',
+      asOf: known.heldAt!.asOf,
+      staleAfterMs: TEST_PARTNER_STALE_AFTER_MS,
+      reason: null,
+    });
+    expect(known.balance).toBe(known.heldAt!.figure.amount);
+
+    await api.testPartner.set({ figures: 'stale' });
+    const stale = await mainOf(api);
+    expect(stale).toMatchObject({ balance: '100', heldAt: { figure: { state: 'stale', amount: '100' } } });
+    expect(Date.now() - Date.parse(stale.heldAt!.asOf)).toBeGreaterThan(TEST_PARTNER_STALE_AFTER_MS);
+
+    await api.testPartner.set({ figures: 'unknown' });
+    await expect(api.spaces.list({ limit: 50 })).rejects.toMatchObject({ cause: { code: 'bank.partner_balance_not_known' } });
+
+    await api.testPartner.set({ figures: 'live' });
+    expect((await mainOf(api)).heldAt!.figure.state).toBe('known');
   });
 
   it('the move is in History, labelled as the partner record, on the space it went to and the balance it left', async () => {
@@ -243,6 +271,101 @@ describe('partner-held bank moves (OWNER 226)', () => {
     // Reads stay open while frozen, as on the ledger.
     posting = false;
     expect((await byName(api, 'Trip TEST')).balance).toBe('0');
+  });
+
+  it("PLANTED: the operator's partner stop refuses a partner move while posting is enabled, moving nothing; lifted, the same move is made once", async () => {
+    const { bank, api, trip, mainSpace } = await partnerHeld(ADA);
+    const journal = ledger.journal().length;
+    const stop = (stoppedKinds: Array<'bank_move' | 'card_hold'>, expectedRevision: number) =>
+      bank.partnerStops.set({
+        partnerId: TEST_PARTNER_ID,
+        stoppedKinds,
+        expectedRevision,
+        reason: 'TEST wrong instructions seen from our side',
+        consume: async () => 'approver-2',
+      });
+    expect(posting).toBe(true);
+    await stop(['bank_move'], 0);
+    await expect(
+      api.transfers.create({ transferId: 'move-stopped', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '20' }),
+    ).rejects.toSatisfy((err) => codeOf(err) === 'bank.partner_stopped');
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
+    expect((await mainOf(api)).balance).toBe('100');
+    // Another kind stopped alone leaves bank moves open; lifting it all makes the refused move once.
+    await stop(['card_hold'], 1);
+    await stop([], 2);
+    await api.transfers.create({ transferId: 'move-stopped', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '20' });
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toHaveLength(1);
+    expect((await byName(api, 'Trip TEST')).balance).toBe('20');
+    // Lifting the stop never lifts the freeze: frozen, the move is still refused bank.posting_frozen.
+    posting = false;
+    await expect(
+      api.transfers.create({ transferId: 'move-stopped-frozen', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '5' }),
+    ).rejects.toSatisfy((err) => codeOf(err) === 'bank.posting_frozen');
+    expect(ledger.journal()).toHaveLength(journal);
+  });
+
+  it('the desk counts each refused move by what refused it and why: the freeze names its cause, and the stop is counted apart', async () => {
+    const { bank, api, trip, mainSpace } = await partnerHeld(ADA);
+    const move = (transferId: string) =>
+      api.transfers.create({ transferId, fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '1' }).catch((err: unknown) => codeOf(err));
+    let reading: FreezeReading = { postingEnabled: false, cause: 'mismatch' };
+    const reasoned = as(ADA, { postingFreeze: { postingEnabled: async () => reading.postingEnabled, read: async () => reading } }).api;
+    expect(
+      await reasoned.transfers
+        .create({ transferId: 'count-mismatch', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '1' })
+        .catch((err: unknown) => codeOf(err)),
+    ).toBe('bank.posting_frozen');
+    reading = { postingEnabled: false, cause: 'person' };
+    await reasoned.transfers
+      .create({ transferId: 'count-person', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '1' })
+      .catch(() => null);
+    posting = 'unreadable';
+    expect(await move('count-unreadable')).toBe('bank.posting_frozen');
+    posting = false;
+    expect(await move('count-not-reported')).toBe('bank.posting_frozen');
+    posting = true;
+    const { api: unwired } = as(ADA, { postingFreeze: undefined });
+    await unwired.transfers
+      .create({ transferId: 'count-unwired', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '1' })
+      .catch(() => null);
+    await bank.partnerStops.set({
+      partnerId: TEST_PARTNER_ID,
+      stoppedKinds: ['bank_move'],
+      expectedRevision: 0,
+      reason: 'TEST wrong instructions seen',
+      consume: async () => 'approver-2',
+    });
+    expect(await move('count-stopped')).toBe('bank.partner_stopped');
+    expect(await move('count-stopped-again')).toBe('bank.partner_stopped');
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
+
+    const { firstDay, counts } = await bank.partnerRefusals.recent(1);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(firstDay).toBe(today);
+    expect(counts.map((c) => [c.refusedBy, c.cause, c.kind, c.count])).toEqual([
+      ['partner_stop', 'stopped', 'bank_move', '2'],
+      ['posting_freeze', 'mismatch', 'bank_move', '1'],
+      ['posting_freeze', 'not_reported', 'bank_move', '1'],
+      ['posting_freeze', 'not_wired', 'bank_move', '1'],
+      ['posting_freeze', 'person', 'bank_move', '1'],
+      ['posting_freeze', 'unreadable', 'bank_move', '1'],
+    ]);
+    expect(counts.every((c) => c.day === today)).toBe(true);
+  });
+
+  it('a refusal the desk cannot count is still refused, and nothing moves', async () => {
+    const { api, trip, mainSpace } = await partnerHeld(ADA);
+    await sql`ALTER TABLE bank.partner_refusal_counts RENAME TO partner_refusal_counts_moved`;
+    try {
+      posting = false;
+      await expect(
+        api.transfers.create({ transferId: 'count-dropped', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '1' }),
+      ).rejects.toSatisfy((err) => codeOf(err) === 'bank.posting_frozen');
+    } finally {
+      await sql`ALTER TABLE bank.partner_refusal_counts_moved RENAME TO partner_refusal_counts`;
+    }
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
   });
 
   it('a standing order due while posting is frozen moves nothing and is not refused; the first pass after the freeze lifts moves it once', async () => {

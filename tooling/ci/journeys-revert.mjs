@@ -300,9 +300,14 @@ async function find(env) {
   if (!/^\d+$/.test(env.RED_RUN)) throw new Error('RED_RUN must be a run id');
   const asked = parseSteps(env.STEPS);
   const gh = client(env.GH_TOKEN);
-  const none = (why, lines = []) => {
+  // `untraced`: a confirmed red that names no single merge (OWNER 289 item 6), so revert-unknown labels its issue.
+  const none = (why, lines = [], untraced = false) => {
     summary(['### Journeys revert: nothing reverted', '', why, ...(lines.length ? ['', ...lines.map((l) => `- ${l}`)] : [])]);
-    output({ culprit: '', probe: 'false' });
+    output({
+      culprit: '',
+      probe: 'false',
+      ...(untraced ? { unknown: why.replace(/\s+/g, ' ').slice(0, 300), steps: steps.join(',') } : {}),
+    });
   };
 
   const { json: run } = await gh('GET', `/repos/${repo}/actions/runs/${env.RED_RUN}`);
@@ -324,7 +329,7 @@ async function find(env) {
     return none(`\`${env.GOOD.slice(0, 10)}\` is not an ancestor of \`${env.BAD.slice(0, 10)}\`.`);
   }
   const commits = git('rev-list', '--first-parent', '--reverse', `${env.GOOD}..${env.BAD}`).split('\n').filter(Boolean);
-  if (commits.length > MAX_COMMITS) return none(`${commits.length} commits lie between them, more than ${MAX_COMMITS}.`);
+  if (commits.length > MAX_COMMITS) return none(`${commits.length} commits lie between them, more than ${MAX_COMMITS}.`, [], true);
 
   let reach = null;
   const map = loadMap();
@@ -370,7 +375,7 @@ async function find(env) {
     ...(result.lines?.length ? ['', ...result.lines.map((l) => `- ${l}`)] : []),
     '',
   ];
-  if (result.none) return none(result.none, result.lines);
+  if (result.none) return none(result.none, result.lines, true);
   if (result.probe) {
     summary([...head, `${result.probe.length} commits can reach them: the probe runs ${files.join(', ')} on them by binary search.`]);
     return output({ culprit: '', probe: 'true', candidates: result.probe.join(' '), files: files.join(' '), steps: steps.join(',') });
@@ -385,6 +390,64 @@ async function find(env) {
 export function failingText({ kind, steps = [], tests = [], jobs = [] }) {
   if (kind !== 'ci') return steps.map((s) => `\`${s.replace('#', ' #')}\``).join(', ');
   return [...tests.map((t) => `\`${t}\``), ...jobs.map((j) => `the ${j} job`)].join(', ');
+}
+
+// ── the break issue (OWNER 289 item 6) ────────────────────────────────────────
+
+/** Main trust's one issue per broken journey (post-merge-trust.mjs journeyIssueTitle): this job never opens another. */
+export const BREAK_ISSUE_PREFIX = 'Journey broken on main: ';
+export const UNKNOWN_LABEL = 'main-unknown-red';
+
+/** The journeys of the failing steps, each once, in their order. Pure. */
+export function journeysOf(steps) {
+  return [...new Set(steps.map((s) => s.split('#')[0]))];
+}
+
+/**
+ * What goes on each failing journey's break issue: the revert's link and `regression`, or, when the red traces to no
+ * single merge, why and `main-unknown-red` (a builder takes only that while it is open: project-state BUILDER.md). Pure.
+ */
+export function breakIssueNotes({ steps, revertUrl, reason, redRunUrl }) {
+  return journeysOf(steps).map((journey) => ({
+    title: `${BREAK_ISSUE_PREFIX}${journey}`,
+    labels: revertUrl ? ['regression'] : [UNKNOWN_LABEL],
+    body: revertUrl
+      ? `The revert on main opened ${revertUrl} for this break ([red run](${redRunUrl})). When it merges and the steps pass again on main, this issue closes itself.\n\n_Posted by tooling/ci/journeys-revert.mjs._`
+      : `The revert on main traced this red ([red run](${redRunUrl})) to no single merge: ${reason}. Nothing was reverted, so a person or a builder finds the cause.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+  }));
+}
+
+/** Comments and labels each note's open break issue, with the workflow's own token. Never opens an issue. */
+async function noteBreakIssues(token, repo, notes) {
+  if (!token) return ['- No issues token, so no break issue was noted.'];
+  const gh = client(token);
+  const lines = [];
+  for (const note of notes) {
+    const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "${note.title}"`);
+    const { json } = await gh('GET', `/search/issues?q=${q}&per_page=5`);
+    const issue = (json?.items ?? []).find((i) => i.title === note.title);
+    if (!issue) {
+      lines.push(`- ${note.title}: no open issue, so none is noted (main trust opens it)`);
+      continue;
+    }
+    await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body: note.body });
+    await gh('POST', `/repos/${repo}/issues/${issue.number}/labels`, { labels: note.labels });
+    lines.push(`- #${issue.number}: ${note.labels.join(', ')}`);
+  }
+  return lines;
+}
+
+/** The red traced to no single merge (revert-find or the probe named none): note it on each journey's break issue. */
+async function unknown(env) {
+  need(env, 'GITHUB_REPOSITORY', 'STEPS', 'RED_RUN', 'REASON');
+  if (!/^\d+$/.test(env.RED_RUN)) throw new Error('RED_RUN must be a run id');
+  const repo = env.GITHUB_REPOSITORY;
+  const notes = breakIssueNotes({
+    steps: parseSteps(env.STEPS),
+    reason: String(env.REASON).slice(0, 300),
+    redRunUrl: `https://github.com/${repo}/actions/runs/${env.RED_RUN}`,
+  });
+  summary(['### Journeys revert: no single merge found', '', env.REASON, '', ...(await noteBreakIssues(env.GH_TOKEN, repo, notes))]);
 }
 
 async function open(env) {
@@ -506,6 +569,11 @@ async function open(env) {
       `Auto-merge: ${armed}.`,
       `Culprit: ${pr ? `#${pr.number}` : 'no pull request'} \`${sha.slice(0, 10)}\` ${subject}`,
     ]);
+    if (kind === 'journeys' && number && !dry) {
+      // A failed note never undoes an opened revert: it is said in the summary.
+      const notes = breakIssueNotes({ steps, revertUrl: `https://github.com/${repo}/pull/${number}`, redRunUrl: runUrl });
+      summary(['', ...(await noteBreakIssues(env.ISSUES_TOKEN, repo, notes).catch((e) => [`- Break issue not noted: ${e.message}`]))]);
+    }
   } finally {
     if (token && !dry) {
       // Revoke, then prove it: GitHub must refuse the token afterwards (401). A revoke takes a moment to reach every
@@ -623,7 +691,23 @@ function selfTest() {
     'a CI body names the run, the job and the culprit',
   );
   eq(failingText({ kind: 'journeys', steps: ['J-a-01#2'] }), '`J-a-01 #2`', 'a journeys red names its steps');
-  console.log('✓ journeys-revert --self-test OK (35 fixtures)');
+  // OWNER 289 item 6: the one break issue per journey gets the revert's link and `regression`, or `main-unknown-red`.
+  eq(journeysOf(['J-a-01#2', 'J-a-01#3', 'J-b-02#1']), ['J-a-01', 'J-b-02'], 'each failing journey once, in order');
+  const linked = breakIssueNotes({ steps: ['J-a-01#2', 'J-a-01#3'], revertUrl: 'https://github.com/o/r/pull/9', redRunUrl: 'u' });
+  eq(
+    linked.map((n) => [n.title, n.labels]),
+    [['Journey broken on main: J-a-01', ['regression']]],
+    "a revert notes the journey's one issue as a regression",
+  );
+  eq(linked[0].body.includes('https://github.com/o/r/pull/9'), true, 'the note links the revert');
+  const untraced = breakIssueNotes({ steps: ['J-b-02#1'], reason: 'no commit between them can reach J-b-02', redRunUrl: 'u' });
+  eq(
+    untraced.map((n) => n.labels),
+    [['main-unknown-red']],
+    'a red traced to no single merge is main-unknown-red',
+  );
+  eq(untraced[0].body.includes('no commit between them can reach J-b-02'), true, 'the note says why');
+  console.log('✓ journeys-revert --self-test OK (40 fixtures)');
 }
 
 async function selfTestRevoke() {
@@ -658,14 +742,14 @@ async function selfTestRevoke() {
   console.log('✓ journeys-revert revoke self-test OK (6 fixtures)');
 }
 
-const COMMANDS = { trigger, find, open };
+const COMMANDS = { trigger, find, open, unknown };
 if (process.argv.includes('--self-test')) {
   selfTest();
   await selfTestRevoke();
 } else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {
-    console.error('usage: journeys-revert.mjs trigger|find|open|--self-test');
+    console.error('usage: journeys-revert.mjs trigger|find|open|unknown|--self-test');
     process.exit(2);
   }
   cmd(process.env)
