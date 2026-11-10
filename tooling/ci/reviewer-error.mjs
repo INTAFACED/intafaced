@@ -5,7 +5,7 @@
  * the exit code and the answer's own error fields (`subtype`, `is_error`, `api_error_status`, the `result` text, at most
  * 300 characters, and only when it reads as an error: other text could be the model's answer, which may repeat the
  * prompt's private step words), from a `--output-format json` file or the `result` line of a `stream-json` one. It reads only the
- * answer file, never the environment, and masks anything shaped like an Anthropic key, so no secret reaches the log.
+ * answer file, never the environment, and masks anything shaped like a reviewer key (`sk-ant-…`), so no secret reaches the log.
  *
  *   node tooling/ci/reviewer-error.mjs <answer file> <exit code>
  */
