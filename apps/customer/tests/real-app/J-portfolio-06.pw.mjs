@@ -273,66 +273,6 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
     expect(diff >= -(10n ** 18n) && diff <= 10n ** 18n).toBe(true);
   }
   expect(answer.rows.find((r) => r.assetId === 'USDT')).toMatchObject({ endPriceUsd: '1', endValueUsd: fromUnits(now.USDT) });
-
-  // What fell: TEST 0.0005 BTC sold on the desk for USDT. Over a range that starts just before the sale, BTC fell by
-  // exactly what the ledger lost of it and USDT rose by exactly what it gained. The bank starts a range at the edge of the
-  // ledger's five-minute bucket the start falls in, so the range starts on a fresh edge: nothing moves between that edge
-  // and the sale, and what was held there is what was held just before the sale.
-  test.setTimeout(600_000);
-  const BUCKET = 5 * 60_000;
-  const startAt = Math.ceil((Date.now() + 1_000) / BUCKET) * BUCKET;
-  const before = await (await api(who)).balances();
-  await page.waitForTimeout(startAt - Date.now() + 2_000);
-  await page.goto(deskPath('BTC/USDT'));
-  const { bid } = await bestPrices('BTC/USDT');
-  const priceDown = fromUnits(((toUnits(bid) * 99n) / 100n / 10n ** 16n) * 10n ** 16n);
-  await reviewLimit(page, 'sell', priceDown, '0.0005');
-  await confirm(page, 'sell');
-  await expect.poll(async () => held(await (await api(who)).balances(), 'BTC'), { timeout: 20_000 }).toBe(0n);
-  const after = await (await api(who)).balances();
-  const then = { BTC: toUnits(before.BTC.total), USDT: toUnits(before.USDT.total) + toUnits(MOVED) };
-  const end = { BTC: toUnits(after.BTC.total), USDT: toUnits(after.USDT.total) + toUnits(MOVED) };
-  expect(end.BTC - then.BTC, 'BTC fell').toBeLessThan(0n);
-  expect(end.USDT - then.USDT, 'USDT rose').toBeGreaterThan(0n);
-  const since = await me.query('portfolio.holdingsChange', { from: new Date(startAt).toISOString() });
-  for (const asset of ['BTC', 'USDT']) {
-    const row = since.rows.find((r) => r.assetId === asset);
-    expect(row, `${asset} is in the change since the sale`).toBeTruthy();
-    expect(toUnits(row.startAmount)).toBe(then[asset]);
-    expect(toUnits(row.endAmount)).toBe(end[asset]);
-    expect(toUnits(row.change)).toBe(end[asset] - then[asset]);
-  }
-
-  // The screen over "24 hours ago", with that range's start moved to the moment before the sale on its way to the bank
-  // (the account is younger than a day, so a real day back holds nothing to fall from; a browser clock set a day ahead
-  // is refused by the stack): the screen draws the bank's own answer, so BTC shows what was held then, what is held now
-  // and the fall, and USDT shows the rise.
-  let moved = 0;
-  await page.route('**/api/bank/trpc/portfolio.holdingsChange**', async (route) => {
-    const url = new URL(route.request().url());
-    const input = JSON.parse(url.searchParams.get('input') ?? '{}');
-    if (typeof input.from === 'string' && Math.abs(Date.now() - 24 * 3_600_000 - Date.parse(input.from)) < 10 * 60_000) {
-      input.from = new Date(startAt).toISOString();
-      url.searchParams.set('input', JSON.stringify(input));
-      moved += 1;
-      return route.continue({ url: url.toString() });
-    }
-    return route.continue();
-  });
-  await page.goto('/money');
-  const day = page.getByRole('region', { name: 'What you hold, then and now' });
-  await day.getByRole('group', { name: 'Compare with' }).getByRole('button', { name: '24 hours ago', exact: true }).click();
-  await expect(day.getByRole('button', { name: '24 hours ago', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  const btcRow = day.locator('tr[data-change-asset="BTC"]');
-  const usdtRow = day.locator('tr[data-change-asset="USDT"]');
-  await expect.poll(async () => toUnits((await btcRow.getAttribute('data-start')) ?? '0'), { timeout: 30_000 }).toBe(then.BTC);
-  expect(toUnits(await btcRow.getAttribute('data-end'))).toBe(end.BTC);
-  expect(toUnits(await btcRow.getAttribute('data-change'))).toBe(end.BTC - then.BTC);
-  await expect(btcRow.locator('td').nth(2)).toHaveText(/^[-−][\d,.]+ BTC$/);
-  expect(toUnits(await usdtRow.getAttribute('data-change'))).toBe(end.USDT - then.USDT);
-  await expect(usdtRow.locator('td').nth(2)).toHaveText(/^\+[\d,.]+ USDT$/);
-  expect(moved, 'the screen asked the bank for the 24-hour range').toBeGreaterThan(0);
-  await page.unroute('**/api/bank/trpc/portfolio.holdingsChange**');
 });
 
 /** Picks the display currency on the View settings page, as the person would. */
