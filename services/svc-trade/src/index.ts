@@ -44,7 +44,7 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
-import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
+import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays, signalBusinessId } from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
 import { createLiveTierClient } from './signals/live-tier.js';
 import { PlatformPauseDesk } from './copy/platform-pauses.js';
@@ -112,7 +112,7 @@ import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
-import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { UserVenueDoor, UserVenueDoorError, parseBuilderFee } from './venue/user-venue-door.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
 import { postBuilderFees } from './builder-fee/builder-fee-poster.js';
@@ -674,31 +674,32 @@ const grid = new GridService({
   stepUp,
   platformPauses: readPlatformPauses,
 });
-// Chart alert webhooks (CB-bots-api-signal-01): an alert's order goes through the ordinary place path as the webhook's
-// creator, a market order of the alert's quantity under a key derived from the alert.
+// Chart alert webhooks (CB-bots-api-signal-01): an alert's order is prepared through the user-venue door as the webhook's
+// creator, under the alert's own business key, for the person's wallet to sign and send; the door holds no key that signs.
 const signalLiveTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const signalDesk = new SignalDesk({
   sql,
   now: () => new Date(),
-  marketIdBySymbol: async (symbol) => {
-    const market = await trade.marketBySymbol(symbol);
-    return market && market.kind === 'spot' && !market.paper && market.status === 'active' ? market.id : null;
-  },
+  venueMarkets: async () => (userVenue ? (await userVenue.markets()).value.map((m) => m.symbol) : null),
   liveTier: (userId) => signalLiveTier.tierOf(userId),
   admitStart: (principal, businessId, payload) => trade.admitAccountOperation(principal, 'strategy.start', businessId, payload),
-  placeOrder: (principal, input, webhookId) =>
-    trade.placeSignalOrder(
-      principal,
-      {
-        marketId: input.marketId,
-        side: input.side,
-        type: 'market',
-        qty: input.qty,
-        tif: 'IOC',
-        clientOrderId: input.clientOrderId,
-      },
-      webhookId,
-    ),
+  admitAlert: (principal, businessId, payload, webhookId) =>
+    trade.admitAccountOperation(principal, 'algo.child', businessId, payload, signalBusinessId(webhookId)),
+  prepareOrder: async (principal, input) => {
+    if (!userVenue) return { ok: false, code: 'trade.user_venue_off' };
+    try {
+      const answer = await userVenue.prepare(principal, {
+        owner: input.owner,
+        signer: { role: 'owner', address: input.owner },
+        intent: input.intent,
+      });
+      return { ok: true, actionKey: answer.actionKey, venueClientOrderId: answer.prepared.venueClientOrderId ?? null };
+    } catch (err) {
+      if (err instanceof UserVenueDoorError) return { ok: false, code: err.code };
+      if (err instanceof VenueRefusalError) return { ok: false, code: `venue.${err.refusal.code}` };
+      throw err;
+    }
+  },
   maxAlertAgeSeconds: parseSignalMaxAge(env.TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS),
   webhookDays: parseSignalWebhookDays(env.TRADE_SIGNAL_WEBHOOK_DAYS),
 });

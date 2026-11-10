@@ -30,8 +30,8 @@ const messages = {
   'All-in before you start': 'All-in before you start',
   Amount: 'Amount',
   'Amount, {asset}': 'Amount, {asset}',
-  'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell) and an amount.':
-    'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell) and an amount.',
+  'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell), an amount and the worst price you accept.':
+    'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell), an amount and the worst price you accept.',
   'An amount, a schedule, and a recurring-order service': 'An amount, a schedule, and a recurring-order service',
   'An earlier request has no confirmed result': 'An earlier request has no confirmed result',
   Asset: 'Asset',
@@ -125,6 +125,8 @@ const messages = {
   'Days trading': 'Days trading',
   Dismiss: 'Dismiss',
   'Drawdown limit': 'Drawdown limit',
+  'Each alert prepares one order on the venue. Nothing is sent until your wallet signs it: INTAFACED holds no key that can sign for you.':
+    'Each alert prepares one order on the venue. Nothing is sent until your wallet signs it: INTAFACED holds no key that can sign for you.',
   'Each copied order uses this much, never more than the most per order.':
     'Each copied order uses this much, never more than the most per order.',
   'Each new trade the leader makes is copied for you, within your limits.':
@@ -132,7 +134,8 @@ const messages = {
   'Each slice': 'Each slice',
   'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)':
     'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)',
-  'Each webhook places orders on one market, as you.': 'Each webhook places orders on one market, as you.',
+  'Each webhook prepares orders on one venue market, for your venue account.':
+    'Each webhook prepares orders on one venue market, for your venue account.',
   Earlier: 'Earlier',
   Ended: 'Ended',
   'Enter 1 to 10000': 'Enter 1 to 10000',
@@ -502,6 +505,7 @@ const messages = {
   'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.':
     'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.',
   'The total can’t be below the amount per order': 'The total can’t be below the amount per order',
+  'The wallet address that signs your venue orders.': 'The wallet address that signs your venue orders.',
   'These are your {count} newest bots.': 'These are your {count} newest bots.',
   'This bot can’t be set up here.': 'This bot can’t be set up here.',
   'This bot has already ended': 'This bot has already ended',
@@ -525,7 +529,8 @@ const messages = {
   Trending: 'Trending',
   'Try again': 'Try again',
   'Try another name, or clear the search.': 'Try another name, or clear the search.',
-  'Turn a chart alert into an order on one market.': 'Turn a chart alert into an order on one market.',
+  'Turn a chart alert into an order on one venue market, ready for your wallet to sign.':
+    'Turn a chart alert into an order on one venue market, ready for your wallet to sign.',
   'Turn off automatic copying': 'Turn off automatic copying',
   'Turn on automatic copying': 'Turn on automatic copying',
   'Two letters. Copy trading is only offered in some countries.': 'Two letters. Copy trading is only offered in some countries.',
@@ -537,6 +542,7 @@ const messages = {
   Used: 'Used',
   'Used now': 'Used now',
   'Used today': 'Used today',
+  'Venue account': 'Venue account',
   'Verified live': 'Verified live',
   'Volume history is still short. A slice may be refused when it is due.':
     'Volume history is still short. A slice may be refused when it is due.',

@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import { parseAmount } from '@intafaced/ledger-client';
 import { TradingControlError } from '../controls/trading-controls.js';
 import { canonicalSymbol, parseSignalMaxAge, parseSignalWebhookDays, SignalDesk, SignalError, type SignalPorts } from './signal-desk.js';
 
 describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
   it('reads the market the way a person names it', () => {
-    expect(canonicalSymbol('BTCUSDT')).toBe('BTC/USDT');
-    expect(canonicalSymbol('btc-usdt')).toBe('BTC/USDT');
-    expect(canonicalSymbol('ETH/USDT')).toBe('ETH/USDT');
+    expect(canonicalSymbol('BTCUSDC')).toBe('BTC-USDC');
+    expect(canonicalSymbol('btc-usdc')).toBe('BTC-USDC');
+    expect(canonicalSymbol('ETH/USDC')).toBe('ETH-USDC');
     expect(canonicalSymbol('nonsense')).toBeNull();
   });
 
@@ -33,15 +34,18 @@ describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
     const desk = new SignalDesk({
       sql,
       now: () => new Date('2026-11-07T10:00:00Z'),
-      marketIdBySymbol: async () => 'm-btc',
+      venueMarkets: async () => ['BTC-USDC'],
       liveTier: async () => {
         throw new Error('no tier may be read');
       },
       admitStart: async () => {
         throw new Error('no admission may be asked');
       },
-      placeOrder: async () => {
-        throw new Error('no order may be placed');
+      admitAlert: async () => {
+        throw new Error('no admission may be asked');
+      },
+      prepareOrder: async () => {
+        throw new Error('no order may be prepared');
       },
       maxAlertAgeSeconds: 20,
       webhookDays: 30,
@@ -52,6 +56,7 @@ describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
       time: '2026-11-07T10:00:00Z',
       side: 'buy',
       amount: '1',
+      price: '60000',
     });
     expect(out).toEqual({ status: 403, body: { ok: false, code: 'trade.signal_auth_failed', message: 'The webhook token is not valid' } });
     expect(calls.every((c) => c.trimStart().startsWith('SELECT'))).toBe(true);
@@ -59,15 +64,17 @@ describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
 });
 
 /**
- * What an alert can do, and who may place through a webhook (OWNER 88). An alert never picks the market, the trader or
- * the parent, and a paused, ended or expired webhook places nothing. On every alert the shared check in
+ * What an alert can do, and who may place through a webhook (OWNER 88). An alert never picks the market, the venue
+ * account, the trader or the parent, and a paused, ended or expired webhook prepares nothing. On every alert the shared check in
  * spot/place-eligibility.ts runs on the creator's live tier, never the tier the stored grant carries. A fake database answers
- * by statement; every write is recorded so a test can see that a refusal placed nothing.
+ * by statement; every write is recorded so a test can see that a refusal prepared nothing. An alert's order is only ever
+ * prepared through the user-venue door, for the person's wallet to sign; nothing here sends it.
  */
-describe('a webhook places only for a person who may place a trade order', () => {
+describe('a webhook prepares an order only for a person who may place a trade order', () => {
   const HOOK = '22222222-2222-4222-8222-222222222222';
   const TOKEN = 'the-webhook-token-0123456789';
   const NOW = new Date('2026-11-07T12:00:00Z');
+  const OWNER = '0x00000000000000000000000000000000000000aa';
   const hex = (v: string) => createHash('sha256').update(v).digest('hex');
   const principal = (tier: 'none' | 'basic') =>
     ({
@@ -82,20 +89,23 @@ describe('a webhook places only for a person who may place a trade order', () =>
 
   function world(opts: {
     liveTier: 'none' | 'basic' | (() => Promise<'none' | 'basic'>);
-    placeOrder?: () => Promise<{ id: string }>;
+    prepareOrder?: SignalPorts['prepareOrder'];
+    admitAlert?: SignalPorts['admitAlert'];
+    venueMarkets?: SignalPorts['venueMarkets'];
     hook?: Partial<{ state: 'active' | 'paused' | 'ended'; grant_expires_at: Date; region: string }>;
   }) {
     const writes: string[] = [];
-    const orders: Array<{ userId: string; input: { marketId: string }; webhookId: string }> = [];
+    const orders: Array<{ userId: string; owner: string; intent: Record<string, unknown> }> = [];
     const admissions: string[] = [];
+    const children: Array<{ businessId: string; webhookId: string }> = [];
     const tierAsked: string[] = [];
     let result: { status: number; body: Record<string, unknown> } | null = null;
     const hook = {
       id: HOOK,
       user_id: 'u-1',
       client_request_id: 'req-00000001',
-      symbol: 'BTC/USDT',
-      market_id: 'm-btc',
+      symbol: 'BTC-USDC',
+      venue_owner: OWNER,
       region: 'DE',
       token_hash: hex(TOKEN),
       token_prefix: TOKEN.slice(0, 6),
@@ -123,7 +133,7 @@ describe('a webhook places only for a person who may place a trade order', () =>
     const desk = new SignalDesk({
       sql,
       now: () => NOW,
-      marketIdBySymbol: async () => 'm-btc',
+      venueMarkets: opts.venueMarkets ?? (async () => ['BTC-USDC']),
       liveTier: async (userId) => {
         tierAsked.push(userId);
         return typeof opts.liveTier === 'function' ? opts.liveTier() : opts.liveTier;
@@ -132,45 +142,138 @@ describe('a webhook places only for a person who may place a trade order', () =>
         admissions.push(businessId);
         return {};
       },
-      placeOrder:
-        opts.placeOrder ??
-        (async (p, input, webhookId) => {
-          orders.push({ userId: p.userId, input, webhookId });
-          return { id: 'o-1' };
+      admitAlert:
+        opts.admitAlert ??
+        (async (_p, businessId, _payload, webhookId) => {
+          children.push({ businessId, webhookId });
+          return {};
+        }),
+      prepareOrder:
+        opts.prepareOrder ??
+        (async (p, input) => {
+          orders.push({ userId: p.userId, owner: input.owner, intent: input.intent as never });
+          return { ok: true, actionKey: input.intent.clientOrderKey, venueClientOrderId: 'vc-1' };
         }),
       maxAlertAgeSeconds: 20,
       webhookDays: 30,
     });
     const alert = (alertId: string, extra: Record<string, unknown> = {}) =>
-      desk.ingest(HOOK, { token: TOKEN, alertId, time: NOW.toISOString(), side: 'buy', amount: '0.01', ...extra });
-    return { desk, alert, writes, orders, admissions, tierAsked };
+      desk.ingest(HOOK, { token: TOKEN, alertId, time: NOW.toISOString(), side: 'buy', amount: '0.01', price: '60000', ...extra });
+    return { desk, alert, writes, orders, admissions, children, tierAsked };
   }
 
   it('creates for a basic person, keeping the region for the alerts', async () => {
     const w = world({ liveTier: 'basic' });
-    const made = await w.desk.create(principal('basic'), { symbol: 'BTCUSDT', clientRequestId: 'req-00000001' }, 'DE');
+    const made = await w.desk.create(principal('basic'), { symbol: 'BTCUSDC', venueOwner: OWNER, clientRequestId: 'req-00000001' }, 'DE');
     expect(made.token).not.toBeNull();
     expect(w.admissions).toHaveLength(1);
   });
 
-  it('places for a person whose live tier is basic', async () => {
+  it('refuses a create while venue trading is off, and a market the door does not list: no webhook, no admission', async () => {
+    const off = world({ liveTier: 'basic', venueMarkets: async () => null });
+    const p = principal('basic');
+    await expect(
+      off.desk.create(p, { symbol: 'BTC-USDC', venueOwner: OWNER, clientRequestId: 'req-00000001' }, 'DE'),
+    ).rejects.toMatchObject({
+      code: 'trade.signal_venue_off',
+    });
+    const unlisted = world({ liveTier: 'basic' });
+    await expect(
+      unlisted.desk.create(p, { symbol: 'ETH-USDC', venueOwner: OWNER, clientRequestId: 'req-00000001' }, 'DE'),
+    ).rejects.toMatchObject({ code: 'trade.signal_symbol_invalid', field: 'symbol' });
+    const badOwner = world({ liveTier: 'basic' });
+    await expect(
+      badOwner.desk.create(p, { symbol: 'BTC-USDC', venueOwner: 'not-a-wallet', clientRequestId: 'req-00000001' }, 'DE'),
+    ).rejects.toMatchObject({ code: 'trade.signal_owner_invalid', field: 'venueOwner' });
+    for (const w of [off, unlisted, badOwner]) {
+      expect(w.admissions).toEqual([]);
+      expect(w.writes).toEqual([]);
+    }
+  });
+
+  it("prepares one venue market IOC under the alert's own key, as a delegated child of the webhook, for a basic person", async () => {
     const w = world({ liveTier: 'basic' });
     const out = await w.alert('a-ok');
     expect(out.status).toBe(200);
-    expect(w.orders).toHaveLength(1);
+    const key = `signal-order:${HOOK}:a-ok`;
+    expect(out.body).toMatchObject({ ok: true, intents: [{ status: 'prepared', actionKey: key, venueClientOrderId: 'vc-1' }] });
+    expect(w.children).toEqual([{ businessId: key, webhookId: HOOK }]);
+    expect(w.orders).toEqual([
+      {
+        userId: 'u-1',
+        owner: OWNER,
+        intent: {
+          kind: 'place_order',
+          symbol: 'BTC-USDC',
+          side: 'buy',
+          type: 'market',
+          amount: parseAmount('0.01'),
+          price: parseAmount('60000'),
+          timeInForce: 'IOC',
+          reduceOnly: false,
+          clientOrderKey: key,
+          builderFee: null,
+        },
+      },
+    ]);
   });
 
-  it("ignores an alert's market and trader: the order is the webhook's market, for its creator, under the webhook", async () => {
+  it('refuses an alert with no price, naming the field: nothing admitted or prepared', async () => {
+    const w = world({ liveTier: 'basic' });
+    const out = await w.alert('a-noprice', { price: undefined });
+    expect(out).toMatchObject({ status: 400, body: { code: 'trade.signal_format_invalid', field: 'price' } });
+    expect(w.children).toEqual([]);
+    expect(w.orders).toEqual([]);
+    expect(w.writes).toEqual([]);
+  });
+
+  it("keeps the door's refusal as the intent's code and stores it as the alert's answer", async () => {
+    const w = world({ liveTier: 'basic', prepareOrder: async () => ({ ok: false, code: 'trade.venue_market_not_listed' }) });
+    const out = await w.alert('a-unlisted');
+    expect(out).toMatchObject({
+      status: 422,
+      body: { ok: false, intents: [{ status: 'refused', code: 'trade.venue_market_not_listed', actionKey: null }] },
+    });
+    expect(await w.alert('a-unlisted')).toEqual(out);
+  });
+
+  it('leaves an intent unknown, and stores no answer, when the door fails with no code: the next try reaches the door again', async () => {
+    let calls = 0;
+    const w = world({
+      liveTier: 'basic',
+      prepareOrder: async () => {
+        calls += 1;
+        throw new Error('socket hang up');
+      },
+    });
+    const out = await w.alert('a-lost');
+    expect(out).toMatchObject({ status: 202, body: { ok: false, intents: [{ status: 'unknown' }] } });
+    expect(w.writes.some((t) => t.startsWith('INSERT INTO trade.signal_alert_results'))).toBe(false);
+    await w.alert('a-lost');
+    expect(calls).toBe(2);
+  });
+
+  it("ignores an alert's market, account and trader: the order is the webhook's market and account, for its creator", async () => {
     const w = world({ liveTier: 'basic' });
     const out = await w.alert('a-pick', {
       marketId: 'm-eth',
-      symbol: 'ETH/USDT',
-      market: 'ETHUSDT',
+      symbol: 'ETH-USDC',
+      market: 'ETHUSDC',
+      owner: '0x00000000000000000000000000000000000000bb',
+      venueOwner: '0x00000000000000000000000000000000000000bb',
+      clientOrderKey: 'order:mine',
       userId: 'u-other',
       user_id: 'u-other',
     });
     expect(out.status).toBe(200);
-    expect(w.orders).toEqual([{ userId: 'u-1', input: expect.objectContaining({ marketId: 'm-btc' }), webhookId: HOOK }]);
+    expect(w.orders).toEqual([
+      {
+        userId: 'u-1',
+        owner: OWNER,
+        intent: expect.objectContaining({ symbol: 'BTC-USDC', clientOrderKey: `signal-order:${HOOK}:a-pick` }),
+      },
+    ]);
+    expect(w.children).toEqual([{ businessId: `signal-order:${HOOK}:a-pick`, webhookId: HOOK }]);
   });
 
   it('refuses an alert to a paused webhook as trade.signal_paused (409): no order', async () => {
@@ -187,11 +290,11 @@ describe('a webhook places only for a person who may place a trade order', () =>
     expect(w.orders).toEqual([]);
   });
 
-  it("places nothing once the webhook's life is over, though its row still reads active", async () => {
+  it("prepares nothing once the webhook's life is over, though its row still reads active", async () => {
     const w = world({ liveTier: 'basic', hook: { grant_expires_at: new Date('2026-11-07T11:59:59Z') } });
     const out = await w.alert('a-expired');
     expect(out.status).toBe(422);
-    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', orderId: null }] });
+    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', actionKey: null }] });
     expect(w.orders).toEqual([]);
   });
 
@@ -199,7 +302,7 @@ describe('a webhook places only for a person who may place a trade order', () =>
     const w = world({ liveTier: 'none' });
     const out = await w.alert('a-none');
     expect(out.status).toBe(422);
-    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'tier.insufficient', orderId: null }] });
+    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'tier.insufficient', actionKey: null }] });
     expect(w.orders).toEqual([]);
   });
 
@@ -211,7 +314,7 @@ describe('a webhook places only for a person who may place a trade order', () =>
     });
     const out = await w.alert('a-unreachable');
     expect(out.status).toBe(422);
-    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'trade.signal_tier_unavailable', orderId: null }] });
+    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'trade.signal_tier_unavailable', actionKey: null }] });
     expect(w.orders).toEqual([]);
   });
 
@@ -229,7 +332,7 @@ describe('a webhook places only for a person who may place a trade order', () =>
       const w = world({ liveTier: 'basic', hook: { region: 'KP' } });
       const out = await w.alert('a-region');
       expect(out.status).toBe(422);
-      expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'denied.region_blocked', orderId: null }] });
+      expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'denied.region_blocked', actionKey: null }] });
       expect(w.orders).toEqual([]);
       // The same list lets a DE webhook place, so the refusal above is the region's.
       const de = world({ liveTier: 'basic' });
@@ -240,16 +343,16 @@ describe('a webhook places only for a person who may place a trade order', () =>
   });
 
   it('refuses an alert for a restricted account as trade.desk_restricted: no order', async () => {
-    // The restriction is the place path's own admission (controls/trading-controls.ts), reached through placeOrder.
+    // The restriction is the trading admission (controls/trading-controls.ts), asked for the alert's order before the door.
     const w = world({
       liveTier: 'basic',
-      placeOrder: async () => {
+      admitAlert: async () => {
         throw new TradingControlError('trade.desk_restricted');
       },
     });
     const out = await w.alert('a-restricted');
     expect(out.status).toBe(422);
-    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'trade.desk_restricted', orderId: null }] });
+    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'trade.desk_restricted', actionKey: null }] });
     expect(w.orders).toEqual([]);
   });
 });

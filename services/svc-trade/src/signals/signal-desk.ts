@@ -1,23 +1,28 @@
 /**
  * Chart alert webhooks (CB-bots-api-signal-01, J-copy-bots-otc-20).
  *
- * A person creates a webhook for one market. The reply carries its intake path and a secret token, once; the token is
- * kept only as a SHA-256 hash and a six-character prefix, so every later read shows the prefix alone. The creator's own
- * place grant is stored with it (as a TWAP stores its grant) and lasts the owner's webhook life
- * (TRADE_SIGNAL_WEBHOOK_DAYS; blank refuses every create).
+ * A person creates a webhook for one venue market (a market the user-venue door lists) and the venue account they sign
+ * for. The reply carries its intake path and a secret token, once; the token is kept only as a SHA-256 hash and a
+ * six-character prefix, so every later read shows the prefix alone. The creator's own place grant is stored with it (as
+ * a TWAP stores its grant) and lasts the owner's webhook life (TRADE_SIGNAL_WEBHOOK_DAYS; blank refuses every create).
+ * With the door off, create refuses `trade.signal_venue_off`.
  *
  * An alert POSTed to the intake path is checked in this order, and nothing is written for any refusal before the last:
  * the token (wrong: `trade.signal_auth_failed`, 403; never 401, as the route is public and a signed-out caller is not asked for a credential); the owner's maximum alert age (TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS;
  * blank: `trade.signal_latency_not_set`; older: `trade.signal_stale`); the alert id and the message's fields, each
  * named when missing. Then one intent row per planned action is written under `signal.alert:<webhookId>:<alertId>`,
- * before the order call, and the order goes through the ordinary place path as the creator. The reply is stored, so the
- * same alert id again returns it exactly and places nothing.
+ * before the order is prepared, and the order is prepared through svc-trade's user-venue door as the creator, under the
+ * alert's own business key `signal-order:<webhookId>:<alertId>` (a market IOC of the alert's amount, no worse than its price).
+ * The door never holds a key that can sign: the person's own wallet signs the prepared order and sends it
+ * (`POST /api/v1/venue/submit` with the action key), and nothing reaches the venue before that. The reply is stored, so
+ * the same alert id again returns it exactly and prepares nothing.
  *
- * Nothing here holds or moves money of its own: an alert's order is an ordinary order from the person's balance.
+ * Nothing here holds or moves money: the venue is the record of the person's balances and fills.
  */
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import type { PlaceUserOrderIntent } from '@intafaced/venue-contracts';
 import type { Principal } from '@intafaced/auth';
 import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
 import { assertPlaceEligible } from '../spot/place-eligibility.js';
@@ -43,6 +48,7 @@ export class SignalError extends Error {
 export interface SignalWebhookView {
   readonly webhookId: string;
   readonly symbol: string;
+  readonly venueOwner: string;
   readonly path: string;
   readonly tokenPrefix: string;
   readonly state: 'active' | 'paused' | 'ended';
@@ -54,8 +60,10 @@ export interface SignalIntentView {
   readonly action: 'open' | 'close';
   readonly side: 'buy' | 'sell';
   readonly sizing: { readonly kind: 'quantity'; readonly value: string };
-  readonly status: 'pending' | 'placed' | 'refused' | 'unknown';
-  readonly orderId: string | null;
+  readonly status: 'pending' | 'prepared' | 'refused' | 'unknown';
+  /** The door's key for the prepared order: what the person's wallet signs and sends it under. */
+  readonly actionKey: string | null;
+  readonly venueClientOrderId: string | null;
   readonly code: string | null;
   readonly createdAt: string;
 }
@@ -63,18 +71,25 @@ export interface SignalIntentView {
 export interface SignalPorts {
   readonly sql: Sql;
   readonly now: () => Date;
-  /** A market's id by its symbol, or null when none exists or it is not an open spot market. */
-  marketIdBySymbol(symbol: string): Promise<string | null>;
+  /** The venue markets the user-venue door lists now; null when the door is off. */
+  venueMarkets(): Promise<readonly string[] | null>;
   /** The creator's live verification tier from identity, read on every alert. Throws when it cannot be read. */
   liveTier(userId: string): Promise<Principal['tier']>;
   /** The trading admission of the webhook as a `strategy.start` operation, business id `signal:<webhookId>`. */
   admitStart(principal: Principal, businessId: string, payload: unknown): Promise<unknown>;
-  /** The trade service's place path for one alert's order, a delegated `algo.child` of `signal:<webhookId>`. */
-  placeOrder(
+  /**
+   * The trading admission of one alert's order, a delegated `algo.child` of `signal:<webhookId>`: a restricted or frozen
+   * account is refused here by its own code, before anything is prepared.
+   */
+  admitAlert(principal: Principal, businessId: string, payload: unknown, webhookId: string): Promise<unknown>;
+  /**
+   * The user-venue door's prepare for one alert's order, signed for by the account's owner wallet. A refusal of the door
+   * or the venue answers its code; anything else throws, and the intent stays unknown.
+   */
+  prepareOrder(
     principal: Principal,
-    input: { marketId: string; side: 'buy' | 'sell'; qty: Amount; clientOrderId: string },
-    webhookId: string,
-  ): Promise<{ id: string }>;
+    input: { owner: string; intent: PlaceUserOrderIntent },
+  ): Promise<{ ok: true; actionKey: string; venueClientOrderId: string | null } | { ok: false; code: string }>;
   /** Owner: the oldest alert accepted, in seconds. Null: unset, and intake refuses `trade.signal_latency_not_set`. */
   readonly maxAlertAgeSeconds: number | null;
   /** Owner: how long a webhook may place for its creator, in days. Null: unset, and create refuses. */
@@ -111,19 +126,21 @@ function idFor(key: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-/** The webhook's market, as the person names it: `BTCUSDT`, `BTC-USDT` or `BTC/USDT`, all meaning BTC/USDT. */
+/** The webhook's market, as the person names it: `BTCUSDC`, `BTC/USDC` or `BTC-USDC`, all meaning the venue's BTC-USDC. */
 export function canonicalSymbol(raw: string): string | null {
-  const v = raw.trim().toUpperCase().replace(/[-_]/g, '/');
-  if (/^[A-Z0-9]{2,15}\/[A-Z0-9]{2,15}$/.test(v)) return v;
+  const v = raw.trim().toUpperCase().replace(/[/_]/g, '-');
+  if (/^[A-Z0-9]{2,15}-[A-Z0-9]{2,15}$/.test(v)) return v;
   const quote = ['USDT', 'USDC', 'USD', 'EUR', 'BTC', 'ETH'].find((q) => v.endsWith(q) && v.length > q.length);
-  return quote ? `${v.slice(0, -quote.length)}/${quote}` : null;
+  return quote ? `${v.slice(0, -quote.length)}-${quote}` : null;
 }
+
+const OWNER_RE = /^0x[0-9a-f]{40}$/;
 
 interface WebhookRow {
   id: string;
   user_id: string;
   symbol: string;
-  market_id: string;
+  venue_owner: string;
   region: string;
   token_hash: string;
   token_prefix: string;
@@ -139,7 +156,8 @@ interface IntentRow {
   side: 'buy' | 'sell';
   sizing: { kind: 'quantity'; value: string };
   status: SignalIntentView['status'];
-  order_id: string | null;
+  action_key: string | null;
+  venue_client_order_id: string | null;
   code: string | null;
   created_at: Date;
 }
@@ -147,6 +165,7 @@ interface IntentRow {
 const webhookView = (row: WebhookRow): SignalWebhookView => ({
   webhookId: row.id,
   symbol: row.symbol,
+  venueOwner: row.venue_owner,
   path: `${SIGNAL_INTAKE_PATH}/${row.id}`,
   tokenPrefix: row.token_prefix,
   state: row.state,
@@ -159,7 +178,8 @@ const intentView = (row: IntentRow): SignalIntentView => ({
   side: row.side,
   sizing: row.sizing,
   status: row.status,
-  orderId: row.order_id,
+  actionKey: row.action_key,
+  venueClientOrderId: row.venue_client_order_id,
   code: row.code,
   createdAt: row.created_at.toISOString(),
 });
@@ -178,13 +198,16 @@ const refusal = (err: SignalError): AlertReply => ({
 /** The webhook's admitted strategy: its alerts' orders are delegated children of it. */
 export const signalBusinessId = (webhookId: string) => `signal:${webhookId}`;
 
+/** One alert's order, as the user-venue door keeps it: the business key its prepared action is stored under. */
+export const signalOrderKey = (webhookId: string, alertId: string) => `signal-order:${webhookId}:${alertId}`;
+
 export class SignalDesk {
   constructor(private readonly ports: SignalPorts) {}
 
-  /** A webhook for one market. The token is in this reply only. The same request key again answers the same webhook, without its token. */
+  /** A webhook for one venue market and account. The token is in this reply only. The same request key again answers the same webhook, without its token. */
   async create(
     principal: Principal,
-    input: { symbol: string; clientRequestId: string },
+    input: { symbol: string; venueOwner: string; clientRequestId: string },
     /**
      * The request's region as the edge resolved it; kept on the webhook for the jurisdiction check on each alert. The
      * create itself is gated by its procedure (`scopedProcedure(..., { module: 'trade' })`: tier and jurisdiction).
@@ -195,9 +218,15 @@ export class SignalDesk {
     if (days === null)
       throw new SignalError('The platform has not set how long a webhook may place orders', 'trade.signal_webhook_life_not_set', 412);
     const symbol = canonicalSymbol(input.symbol);
-    if (!symbol) throw new SignalError('Market is not a symbol such as BTC/USDT', 'trade.signal_symbol_invalid', 400, 'symbol');
-    const marketId = await this.ports.marketIdBySymbol(symbol);
-    if (!marketId) throw new SignalError(`${symbol} is not an open spot market`, 'trade.signal_symbol_invalid', 400, 'symbol');
+    if (!symbol) throw new SignalError('Market is not a symbol such as BTC-USDC', 'trade.signal_symbol_invalid', 400, 'symbol');
+    const owner = input.venueOwner.trim().toLowerCase();
+    if (!OWNER_RE.test(owner))
+      throw new SignalError(
+        'The venue account is your wallet address, 0x and 40 hex digits',
+        'trade.signal_owner_invalid',
+        400,
+        'venueOwner',
+      );
     const requestId = input.clientRequestId.trim();
     if (!/^[A-Za-z0-9:._-]{8,120}$/.test(requestId)) {
       throw new SignalError(
@@ -210,6 +239,11 @@ export class SignalDesk {
     const [existing] = await this.ports.sql<WebhookRow[]>`
       SELECT * FROM trade.signal_webhooks WHERE user_id = ${principal.userId} AND client_request_id = ${requestId}`;
     if (existing) return { ...webhookView(existing), token: null };
+    const markets = await this.ports.venueMarkets();
+    if (markets === null)
+      throw new SignalError('Venue trading is not switched on, so an alert has nowhere to trade', 'trade.signal_venue_off', 412);
+    if (!markets.includes(symbol))
+      throw new SignalError(`${symbol} is not a venue market we list`, 'trade.signal_symbol_invalid', 400, 'symbol');
     const grant = captureAlgoPlaceGrant(principal);
     const token = randomBytes(TOKEN_BYTES).toString('base64url');
     const now = this.ports.now();
@@ -219,12 +253,13 @@ export class SignalDesk {
     await this.ports.admitStart(principal, signalBusinessId(webhookId), {
       webhookId,
       symbol,
+      venueOwner: owner,
       expiresAt: expires.toISOString(),
     });
     const [row] = await this.ports.sql<WebhookRow[]>`
       INSERT INTO trade.signal_webhooks
-        (id, user_id, client_request_id, symbol, market_id, region, token_hash, token_prefix, place_grant, grant_expires_at, state, created_at, updated_at)
-      VALUES (${webhookId}, ${principal.userId}, ${requestId}, ${symbol}, ${marketId}, ${region}, ${sha256(token)}, ${token.slice(0, 6)},
+        (id, user_id, client_request_id, symbol, venue_owner, region, token_hash, token_prefix, place_grant, grant_expires_at, state, created_at, updated_at)
+      VALUES (${webhookId}, ${principal.userId}, ${requestId}, ${symbol}, ${owner}, ${region}, ${sha256(token)}, ${token.slice(0, 6)},
         ${this.ports.sql.json(grant as never)}, ${expires.toISOString()}, 'active', ${now.toISOString()}, ${now.toISOString()})
       ON CONFLICT (user_id, client_request_id) DO NOTHING
       RETURNING *`;
@@ -304,17 +339,28 @@ export class SignalDesk {
       throw new SignalError('amount is required: a decimal quantity', 'trade.signal_format_invalid', 400, 'amount');
     }
     if (qty <= 0n) throw new SignalError('amount must be above zero', 'trade.signal_format_invalid', 400, 'amount');
+    // A market order on the venue carries the worst price it accepts: the alert names it, as TradingView's {{close}} can.
+    const priceText = typeof body.price === 'string' ? body.price.trim() : typeof body.price === 'number' ? String(body.price) : '';
+    let price: Amount;
+    try {
+      price = parseAmount(priceText);
+    } catch {
+      throw new SignalError('price is required: the worst price the order accepts', 'trade.signal_format_invalid', 400, 'price');
+    }
+    if (price <= 0n) throw new SignalError('price must be above zero', 'trade.signal_format_invalid', 400, 'price');
 
     const key = `signal.alert:${hook.id}:${alertId}:open`;
     const at = now.toISOString();
-    // The intent row is written before the order call; a crash after it leaves it pending under its key.
+    // The intent row is written before the order is prepared; a crash after it leaves it pending under its key, and the
+    // door's own store under the alert's order key means a later prepare of it returns the same action, never a second.
     await this.ports.sql`
       INSERT INTO trade.signal_intents (id, webhook_id, alert_id, action, intent_key, side, sizing, status, created_at, updated_at)
       VALUES (${idFor(key)}, ${hook.id}, ${alertId}, 'open', ${key}, ${side},
         ${this.ports.sql.json({ kind: 'quantity', value: formatAmount(qty) } as never)}, 'pending', ${at}, ${at})
       ON CONFLICT (intent_key) DO NOTHING`;
     let status: SignalIntentView['status'];
-    let orderId: string | null = null;
+    let actionKey: string | null = null;
+    let venueClientOrderId: string | null = null;
     let code: string | null = null;
     try {
       const grant = parseAlgoPlaceGrant(hook.place_grant);
@@ -323,29 +369,50 @@ export class SignalDesk {
       // The same check as a signed-in order (OWNER 88), on the creator's tier as identity holds it now, never the tier
       // the stored grant carries from the create, and the region recorded at create. A refusal places nothing.
       assertPlaceEligible({ tier: await this.ports.liveTier(hook.user_id), region: hook.region });
-      const order = await this.ports.placeOrder(
+      const intent: PlaceUserOrderIntent = {
+        kind: 'place_order',
+        symbol: hook.symbol,
+        side,
+        type: 'market',
+        amount: qty,
+        price,
+        timeInForce: 'IOC',
+        reduceOnly: false,
+        clientOrderKey: signalOrderKey(hook.id, alertId),
+        builderFee: null,
+      };
+      await this.ports.admitAlert(
         principal,
-        {
-          marketId: hook.market_id,
-          side,
-          qty,
-          clientOrderId: `sig-${sha256(key).slice(0, 40)}`,
-        },
+        intent.clientOrderKey,
+        { webhookId: hook.id, alertId, symbol: hook.symbol, side, amount: formatAmount(qty), price: formatAmount(price) },
         hook.id,
       );
-      status = 'placed';
-      orderId = order.id;
+      const prepared = await this.ports.prepareOrder(principal, { owner: hook.venue_owner, intent });
+      if (prepared.ok) {
+        status = 'prepared';
+        actionKey = prepared.actionKey;
+        venueClientOrderId = prepared.venueClientOrderId;
+      } else {
+        status = 'refused';
+        code = prepared.code;
+      }
     } catch (err) {
       code =
         (err as { code?: unknown })?.code && typeof (err as { code: unknown }).code === 'string' ? (err as { code: string }).code : null;
       status = code ? 'refused' : 'unknown';
     }
     await this.ports.sql`
-      UPDATE trade.signal_intents SET status = ${status}, order_id = ${orderId}, code = ${code}, updated_at = ${this.ports.now().toISOString()}
+      UPDATE trade.signal_intents SET status = ${status}, action_key = ${actionKey}, venue_client_order_id = ${venueClientOrderId}, code = ${code}, updated_at = ${this.ports.now().toISOString()}
       WHERE intent_key = ${key}`;
     const reply: AlertReply = {
-      status: status === 'placed' ? 200 : status === 'refused' ? 422 : 202,
-      body: { ok: status === 'placed', alertId, intents: [{ action: 'open', side, status, orderId, code }] },
+      status: status === 'prepared' ? 200 : status === 'refused' ? 422 : 202,
+      body: {
+        ok: status === 'prepared',
+        alertId,
+        intents: [{ action: 'open', side, status, actionKey, venueClientOrderId, code }],
+        // Prepared is not sent: the person's wallet signs it and sends it, and only then does it reach the venue.
+        ...(status === 'prepared' ? { next: 'sign the prepared order in your wallet and send it: POST /api/v1/venue/submit' } : {}),
+      },
     };
     // An unknown order outcome is not stored as final: a repeat re-reads the intent instead of answering a guess.
     if (status !== 'unknown') {

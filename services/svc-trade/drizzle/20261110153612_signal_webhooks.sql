@@ -1,17 +1,21 @@
 -- trade.signals · chart alert webhooks and their intents (CB-bots-api-signal-01, J-copy-bots-otc-20)
--- Reversal: 20261107095659_signal_webhooks.down.sql
+-- Reversal: 20261110153612_signal_webhooks.down.sql
 --
--- A person creates a webhook for one market. Its token is shown once and stored only as a SHA-256 hash with a short
--- prefix. Each accepted alert writes one intent row, keyed by the webhook and the alert id, before any order call;
--- the same alert id again returns the stored result and places nothing. The order an intent places is an ordinary order
--- from the person's own balance, through the ordinary place path; nothing here holds money.
+-- A person creates a webhook for one venue market and the venue account they sign for. Its token is shown once and
+-- stored only as a SHA-256 hash with a short prefix. Each accepted alert writes one intent row, keyed by the webhook and
+-- the alert id, before the order is prepared; the order is prepared through svc-trade's user-venue door under the
+-- alert's own business key (trade.user_venue_actions), and the person's wallet signs and sends it. The same alert id
+-- again returns the stored result and prepares nothing. Nothing here holds money or a key: the venue is the record of
+-- the person's balances and fills.
 
 CREATE TABLE IF NOT EXISTS trade.signal_webhooks (
   id uuid PRIMARY KEY,
   user_id text NOT NULL CONSTRAINT signal_webhooks_user_ck CHECK (length(btrim(user_id)) > 0),
   client_request_id text NOT NULL,
+  -- The venue's market symbol (BTC-USDC), as the door lists it.
   symbol text NOT NULL,
-  market_id text NOT NULL,
+  -- The venue account an alert's order is prepared for; its owner wallet signs it.
+  venue_owner text NOT NULL CONSTRAINT signal_webhooks_owner_ck CHECK (venue_owner ~ '^0x[0-9a-f]{40}$'),
   -- The creator's region as the edge resolved it at create; each alert's jurisdiction check reads it (OWNER 88).
   region text NOT NULL,
   token_hash text NOT NULL CONSTRAINT signal_webhooks_hash_ck CHECK (token_hash ~ '^[0-9a-f]{64}$'),
@@ -34,8 +38,10 @@ CREATE TABLE IF NOT EXISTS trade.signal_intents (
   intent_key text NOT NULL,
   side text NOT NULL CONSTRAINT signal_intents_side_ck CHECK (side IN ('buy', 'sell')),
   sizing jsonb NOT NULL,
-  status text NOT NULL CONSTRAINT signal_intents_status_ck CHECK (status IN ('pending', 'placed', 'refused', 'unknown')),
-  order_id text,
+  -- prepared: the door holds the order under action_key for the person's wallet to sign; nothing is sent before that.
+  status text NOT NULL CONSTRAINT signal_intents_status_ck CHECK (status IN ('pending', 'prepared', 'refused', 'unknown')),
+  action_key text,
+  venue_client_order_id text,
   code text,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL

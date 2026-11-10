@@ -40,7 +40,15 @@ export function signalsRouter(desk?: SignalDesk) {
   return router({
     webhooks: router({
       create: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ symbol: z.string().min(1).max(32), clientRequestId: z.string().min(1).max(120) }).strict())
+        .input(
+          z
+            .object({
+              symbol: z.string().min(1).max(32),
+              venueOwner: z.string().min(1).max(64),
+              clientRequestId: z.string().min(1).max(120),
+            })
+            .strict(),
+        )
         .mutation(({ ctx, input }) => call((d) => d.create(ctx.principal, input, ctx.region))),
       list: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => call((d) => d.list(ctx.principal))),
     }),
