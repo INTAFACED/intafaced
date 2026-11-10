@@ -9,7 +9,7 @@ import { createEdgeContext, encodePrincipal, router, signPrincipalHeader } from 
 import { assertTestDatabase } from '@intafaced/db';
 import { navigatorOnchainRoutes, type NavigatorOnchainDeps } from './onchain-routes.js';
 import { NavigatorOnchainStore } from './onchain.js';
-import type { LiveGrant, NavigatorChain, NavigatorSender } from './onchain-trade.js';
+import { NavigatorSignerRefused, type LiveGrant, type NavigatorChain, type NavigatorSender } from './onchain-trade.js';
 
 const URL = process.env.TEST_DATABASE_URL_AGENTS ?? 'postgres://svc_agents:svc_agents@localhost:5433/intafaced_test';
 const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle');
@@ -83,7 +83,7 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
   let chainGrant: LiveGrant | null;
   let receipt: 'success' | 'reverted' | null;
   let sent: Array<{ chainId: number; from: string; to: string; data: string }>;
-  let senderFails: boolean;
+  let senderFails: false | 'refused' | 'unknown';
   const liveGrant = (over: Partial<LiveGrant> = {}): LiveGrant => ({
     live: true,
     specHash: HASH_A,
@@ -118,7 +118,12 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
   };
   const sender: NavigatorSender = {
     send: async (call) => {
-      if (senderFails) throw new Error('TEST signer down');
+      if (senderFails === 'refused') throw new NavigatorSignerRefused(400, 'TEST: the signer refused the call');
+      if (senderFails === 'unknown') {
+        // Broadcast, then the answer was lost: the chain may have the call.
+        sent.push(call);
+        throw new Error('TEST: the signer timed out');
+      }
       sent.push(call);
       return { hash: '0x' + String(sent.length).padStart(64, '0') };
     },
@@ -390,7 +395,7 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
       await expect(as(USER).ask({ sessionId: SESSION, requestId: 'g', text: TRADE })).resolves.toMatchObject({ kind: 'order' });
       // Full again. Free 0.1 more; an order the signer refuses reaches no chain and frees its part, so the next one fits.
       await sql`UPDATE agents.navigator_orders SET status = 'reverted' WHERE order_key LIKE ${'%:b'}`;
-      senderFails = true;
+      senderFails = 'refused';
       const refused = await as(USER).ask({ sessionId: SESSION, requestId: 'h', text: TRADE });
       expect(refused).toMatchObject({ kind: 'order', order: { status: 'failed', txHash: null } });
       senderFails = false;
@@ -413,6 +418,32 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
       expect(both.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
       expect(both.find((r) => r.status === 'rejected')).toMatchObject({ reason: { message: 'agents.navigator_trade_over_cap' } });
       expect(sent).toHaveLength(1);
+    });
+
+    it('a signer that fails after it may have broadcast leaves the order sending: it holds the cap and is never sent again', async () => {
+      await as(USER).onchain.bind(liveGrantBound);
+      chainGrant = liveGrant({ spendLimitWei: (ETH * 15n) / 100n });
+      senderFails = 'unknown';
+      expect(await as(USER).ask({ sessionId: SESSION, requestId: 'u', text: TRADE })).toMatchObject({
+        order: { status: 'sending', txHash: null },
+      });
+      senderFails = false;
+      // The same ask again is that order, not a second send.
+      expect(await as(USER).ask({ sessionId: SESSION, requestId: 'u', text: TRADE })).toMatchObject({ order: { status: 'sending' } });
+      expect(sent).toHaveLength(1);
+      // It still holds 0.1 of the 0.15 cap, so a new ask of 0.1 is above what is left.
+      await expect(as(USER).ask({ sessionId: SESSION, requestId: 'v', text: TRADE })).rejects.toMatchObject({
+        message: 'agents.navigator_trade_over_cap',
+      });
+      expect(sent).toHaveLength(1);
+    });
+
+    it('with no signer it refuses rail.crypto and writes nothing', async () => {
+      await as(USER).onchain.bind(liveGrantBound);
+      await expect(as(USER, { sender: null }).ask({ sessionId: SESSION, requestId: 'n', text: TRADE })).rejects.toMatchObject({
+        message: 'rail.crypto',
+      });
+      expect(await count('navigator_orders')).toBe(0);
     });
 
     it('an order the chain has not mined reads sent; one the chain reverted reads reverted', async () => {

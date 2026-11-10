@@ -153,7 +153,25 @@ export function viemNavigatorChain(rpcUrl: string, receiptTimeoutMs = 30_000): N
   };
 }
 
-/** The signer behind a URL: POST {chainId, from, to, data}, answered {hash} or refused with a status. */
+/**
+ * The signer said no before sending anything: the call never left it. Only this counts as not sent. Any other failure
+ * (a timeout, a dropped connection, a server error, an answer with no hash) may come after the call was broadcast, so the
+ * order's outcome is unknown and it keeps holding its part of the cap.
+ */
+export class NavigatorSignerRefused extends Error {
+  constructor(
+    readonly status: number,
+    detail: string,
+  ) {
+    super(`navigator signer refused (${status}): ${detail}`);
+    this.name = 'NavigatorSignerRefused';
+  }
+}
+
+/**
+ * The signer behind a URL: POST {chainId, from, to, data}, answered {hash}. A 4xx answer is the signer refusing the call
+ * before sending it (NavigatorSignerRefused); anything else that is not a hash is an unknown outcome.
+ */
 export function httpNavigatorSender(url: string): NavigatorSender {
   return {
     async send(call) {
@@ -164,8 +182,10 @@ export function httpNavigatorSender(url: string): NavigatorSender {
         signal: AbortSignal.timeout(15_000),
       });
       const body = (await res.json().catch(() => null)) as { hash?: unknown; error?: unknown } | null;
+      const detail = typeof body?.error === 'string' ? body.error : 'no hash';
+      if (res.status >= 400 && res.status < 500) throw new NavigatorSignerRefused(res.status, detail);
       if (!res.ok || typeof body?.hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(body.hash))
-        throw new Error(`navigator signer refused (${res.status}): ${typeof body?.error === 'string' ? body.error : 'no hash'}`);
+        throw new Error(`navigator signer answered no hash (${res.status}): ${detail}`);
       return { hash: body.hash };
     },
   };
@@ -256,6 +276,8 @@ export async function navigatorTrade(
     if (earlier.text !== input.text) throw refuse('agents.request_id_replay');
     return earlier;
   }
+  // No signer to send through: refused before anything is read, built or written.
+  if (!deps.sender) throw refuse('rail.crypto');
   const key = await liveKey(deps, input.userId);
   if (!key) throw refuse('agents.navigator_no_live_key');
   const { binding, grant, chain, market, signer } = key;
@@ -339,16 +361,15 @@ export async function navigatorTrade(
       swap,
     ],
   });
-  if (!deps.sender) {
-    await deps.store.settleOrder(input.userId, orderKey, 'failed', null);
-    throw refuse('rail.crypto');
-  }
+  const sender = deps.sender!;
   let hash: string;
   try {
-    hash = (await deps.sender.send({ chainId: NAVIGATOR_ONCHAIN_TEST_CHAIN_ID, from: signer, to: binding.account, data })).hash;
-  } catch {
-    // The signer refused it: nothing reached the chain, so the order frees its part of the cap.
-    return deps.store.settleOrder(input.userId, orderKey, 'failed', null);
+    hash = (await sender.send({ chainId: NAVIGATOR_ONCHAIN_TEST_CHAIN_ID, from: signer, to: binding.account, data })).hash;
+  } catch (err) {
+    // Only a signer that refused the call before sending it frees the order's part of the cap. Any other failure may
+    // come after the call was broadcast: the order stays sending, holds its part of the cap, and is never sent again.
+    if (err instanceof NavigatorSignerRefused) return deps.store.settleOrder(input.userId, orderKey, 'failed', null);
+    return (await deps.store.order(input.userId, orderKey))!;
   }
   await deps.store.settleOrder(input.userId, orderKey, 'sent', hash);
   const mined = await chain.receipt(hash);
