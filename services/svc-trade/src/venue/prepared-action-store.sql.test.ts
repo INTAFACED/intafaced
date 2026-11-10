@@ -134,6 +134,54 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     );
   });
 
+  it('lists the venue accounts whose owner signed an action this person stored, and no other (J-cex-spot-01 #11)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const PERSON = '11111111-1111-4111-8111-1111111111b9';
+    const SUB = '0x00000000000000000000000000000000000000c1';
+    const AGENT = '0x00000000000000000000000000000000000000d1';
+    // Owner-signed, twice on the main account and once on a sub-account: two accounts, sorted, main first.
+    for (const [n, sub] of [
+      ['300', null],
+      ['301', null],
+      ['302', SUB],
+    ] as const) {
+      const key = `order:${PERSON}:own:${n}`;
+      const action = { ...prepared(n, '60000'), account: { venueId: 'test-venue-sim', owner: OWNER, subAccount: sub } };
+      await store.insertOnce(PERSON, key, action, new Date());
+      await store.signOnce(PERSON, key, { digest: `0xdigest${n}`, signature: '0xsig', signedBy: OWNER }, new Date());
+    }
+    // Prepared but never signed, and signed by an agent: neither proves the owner's wallet.
+    const other = '0x00000000000000000000000000000000000000e1';
+    await store.insertOnce(
+      PERSON,
+      `order:${PERSON}:own:303`,
+      {
+        ...prepared('303', '60000'),
+        account: { venueId: 'test-venue-sim', owner: other, subAccount: null },
+        signer: { role: 'owner', address: other },
+      },
+      new Date(),
+    );
+    const agentKey = `order:${PERSON}:own:304`;
+    await store.insertOnce(
+      PERSON,
+      agentKey,
+      {
+        ...prepared('304', '60000'),
+        account: { venueId: 'test-venue-sim', owner: other, subAccount: null },
+        signer: { role: 'agent', address: AGENT },
+      },
+      new Date(),
+    );
+    await store.signOnce(PERSON, agentKey, { digest: '0xdigest304', signature: '0xsig', signedBy: AGENT }, new Date());
+    expect(await store.ownerSignedAccounts(PERSON, 'test-venue-sim')).toEqual([
+      { owner: OWNER, subAccount: null },
+      { owner: OWNER, subAccount: SUB },
+    ]);
+    expect(await store.ownerSignedAccounts(PERSON, 'another-venue')).toEqual([]);
+    expect(await store.ownerSignedAccounts('22222222-2222-4222-8222-2222222222b9', 'test-venue-sim')).toEqual([]);
+  });
+
   it('reads the builder fee rate of the orders we routed, by venue client order id (J-derivatives-17 #4)', async () => {
     const store = new SqlPreparedActionStore(db!.sql);
     const order = (n: string, cloid: string, fee: PreparedVenueAction['builderFee'], venueId = 'test-venue-sim'): PreparedVenueAction => ({
