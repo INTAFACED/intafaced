@@ -2,23 +2,26 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { setPartner } from './partner.mjs';
 
 // J-bank-16, in the running app (docs/roadmap/journeys.json): I see where my money goes: statements, insights, limits
-// and fees. One TEST account, signed up, verified and funded on this stack with TEST USDT in two deposits this month, is
-// the person. The stack posts every line now, so the month with the person's activity is this month: for #1 the
+// and fees. One TEST account, signed up and verified, whose money the stack's TEST partner bank holds, paid in there in
+// two TEST deposits this month, is the person: every figure below is the partner's, and our ledger posts nothing. The
+// partner records every line now, so the month with the person's activity is this month: for #1 the
 // browser's clock is set to the first minute of next month, so this month is a month that is over to the person, as it
 // would be to anyone downloading it then. The bank reads the lines as they stand.
-// Steps 1 to 3 (BK-acct-07): a month's PDF statement with every posted line, its hash proof and the same per-coin total
+// Steps 1 to 3 (BK-acct-07): a month's PDF statement with every line the partner reports, its hash proof and the same per-coin total
 // the activity list shows for those days, and a range across months refused; a search of the activity, and a bank
 // letter refused `rail.bank` (no banking partner); tax statements refused `vendor.tax` (no tax provider).
 // Steps 4 and 5 (BK-acct-08): after a TEST payment of 80 USDT to a second TEST person, a budget of 100 on transfers with
 // an alert at 80 percent reads 80 percent with the alert once per month, deposits count as money in, and two months
-// compare side by side with left to spend. Step 6 (BK-acct-04): Limits, fees and plan from the
-// bank's quote, its (blank) account fee table and the owner's TEST plan table. Step 7 (RC-bank-01): the bank's dormancy run,
+// compare side by side with left to spend. Step 6 (BK-acct-04): the partner's limits and fees, named, a blank fee "not set",
+// the owner's (blank) account fee table and our own TEST plan table. Step 7 (RC-bank-01): the bank's dormancy run,
 // as its scheduler would call it on a quiet day, notices a second TEST account; it withdraws everything and no fee is taken.
 const J = 'J-bank-16';
+const PARTNER_BANK = 'TEST partner bank';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -53,6 +56,20 @@ async function activityLines(who, from, to) {
 
 const centre = (page) => page.getByTestId('statement-centre');
 
+/** Puts `who`'s bank money at the TEST partner, and pays in each amount there under its own id. */
+async function atPartner(who, ...amounts) {
+  await setPartner(who, { custody: 'off' });
+  const session = await api(who);
+  for (const [i, amount] of amounts.entries()) {
+    const res = await session.post('/api/bank/trpc/testPartner.fund', {
+      fundId: `${J}-${who.email}-${i}`.slice(0, 64),
+      assetId: 'USDT',
+      amount,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  }
+}
+
 /** The person's USDT lines folded as a reader would: money in minus money out, and how many lines. */
 function usdtNet(lines) {
   const usdt = lines.filter((line) => line.asset === 'USDT');
@@ -60,26 +77,28 @@ function usdtNet(lines) {
   return { net: fromUnits(net), count: usdt.length };
 }
 
-test(`${J} #1 exports a month as PDF: every posted line, a hash proof and the same total as the activity list; a range across months is refused`, async ({
+test(`${J} #1 exports a month as PDF: every line the partner reports, a hash proof and the same total as the activity list; a range across months is refused`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
   const who = await signUp(page, 'bk16');
   await verify(page, who);
   run.reset({ who });
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  expect(fund(who.email, 'USDT', '50.25').tx).toBeTruthy();
+  await atPartner(who, '100', '50.25');
   await signIn(page, who);
 
-  // This month's posted lines, as the bank lists them: the two TEST deposits (the stack's fund tool posts them on its
-  // `local-test` rail, which the bank lists as TEST welcome funds), and whatever else the stack posted.
+  // This month's lines, as the partner reports them: the two TEST pay-ins, each named as the partner's own line.
   const lines = await activityLines(who, monthStart().toISOString(), new Date(nextMonthStart().getTime() - 1).toISOString());
   expect(
     lines
-      .filter((line) => line.kind === 'welcome_funds')
+      .filter((line) => line.kind === 'deposit')
       .map((line) => line.amount)
       .sort(),
   ).toEqual(['100', '50.25']);
+  for (const line of lines) {
+    expect(line.heldAt?.label).toBe(PARTNER_BANK);
+    expect(line.txId).toMatch(/^test-partner-move-/);
+  }
   const usdt = usdtNet(lines);
   const totalWords = `USDT: ${usdt.net} (${usdt.count} lines)`;
 
@@ -103,7 +122,7 @@ test(`${J} #1 exports a month as PDF: every posted line, a hash proof and the sa
   expect(file.suggestedFilename()).toBe(`intafaced-statement-${thisMonth()}.pdf`);
   expect(bytes.subarray(0, 8).toString('utf8')).toBe('%PDF-1.4');
 
-  // Every posted line of the month is in the file, by its ledger reference.
+  // Every line the partner reported for the month is in the file, by the partner's reference.
   expect(text).toContain(`Rows: ${lines.length}`);
   for (const line of lines) expect(text).toContain(line.txId);
   // The same total as the activity list, in the file and beside it.
@@ -191,6 +210,7 @@ test(`${J} #4 opens Analytics with a budget of 100 and spend of 80: progress 80 
   const payeePage = await payeeContext.newPage();
   const payee = await signUp(payeePage, 'bk16p');
   await payeeContext.close();
+  await setPartner(payee, { custody: 'off' });
   const payeeId = (await (await api(payee)).get('/api/identity/trpc/rank.get')).body.result.data.userId;
   const spaces = await bankRead(client, 'spaces.list', { limit: 50 });
   const main = spaces.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
@@ -214,7 +234,7 @@ test(`${J} #4 opens Analytics with a budget of 100 and spend of 80: progress 80 
   await budgets.getByLabel('Alert at (percent of target)').fill('80');
   await budgets.getByRole('button', { name: 'Save budget' }).click();
 
-  // Progress 80 percent, from the bank's fold of this month's lines, and the alert shown.
+  // Progress 80 percent, from the bank's fold of the partner's lines this month, and the alert shown.
   const row = budgets.getByTestId('budget-transfers');
   await expect(row).toHaveAttribute('data-progress-bps', '8000');
   await expect(row).toContainText('Transfers: 80 of 100 USDT spent this month · 80%');
@@ -232,12 +252,13 @@ test(`${J} #4 opens Analytics with a budget of 100 and spend of 80: progress 80 
   const still = (await bankRead(client, 'analytics.budgets', { assetId: 'USDT' })).data[0];
   expect(still.alertShownAt).toBe(budget.alertShownAt);
 
-  // Deposits are money in, not outflow: this month's two TEST deposits are in the inflow, and the outflow is the 80.
+  // Deposits are money in, not outflow: the two TEST pay-ins are the inflow, and the outflow is the 80.
   const now = new Date();
   const spend = await bankRead(client, 'analytics.spend', { assetId: 'USDT', from: monthStart(now).toISOString(), to: now.toISOString() });
   expect(spend.data.totalOutflow).toBe('80');
   expect(spend.data.outflowByCategory.transfers).toBe('80');
-  expect(toUnits(spend.data.totalInflow)).toBeGreaterThanOrEqual(toUnits('150.25'));
+  expect(spend.data.totalInflow).toBe('150.25');
+  expect(spend.data.outflowByCategory.deposits).toBe('150.25');
   await expect(budgets.getByTestId('analytics-money-in')).toHaveAttribute('data-inflow', spend.data.totalInflow);
   run.write({ payeeId });
 });
@@ -278,29 +299,42 @@ test(`${J} #5 compares two months and reads "left to spend": each category per m
   await expect(tile).toHaveText('Left to spend this month: 20 USDT of 100 USDT');
 });
 
-test(`${J} #6 opens Limits, fees and plan: daily send limit, used today and remaining; a blank fee table says "not set"; plan from the owner's table`, async ({
+test(`${J} #6 opens Limits, fees and plan: the partner's daily send limit, used today, remaining and fee, and our own plan fee, each named; a blank fee reads "not set"`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
   const who = person();
   const client = await api(who);
-  // The bank's own quote: the daily limit the stack publishes, the 80 sent to a person in #4, and what is left.
-  const quote = await bankRead(client, 'transfers.quote', { assetId: 'USDT', amount: '0' });
-  expect(quote.status, JSON.stringify(quote.body).slice(0, 300)).toBe(200);
-  expect(quote.data.spentToday).toBe('80');
-  expect(toUnits(quote.data.remainingToday)).toBe(toUnits(quote.data.dailyLimit) - toUnits('80'));
+  // The partner's own figures: its daily limit, the 80 sent to a person in #4, and what is left.
+  const limits = await bankRead(client, 'fees.partner', { assetId: 'USDT' });
+  expect(limits.status, JSON.stringify(limits.body).slice(0, 300)).toBe(200);
+  expect(limits.data).toMatchObject({ held: true, label: PARTNER_BANK, usedToday: '80' });
+  expect(toUnits(limits.data.remainingToday)).toBe(toUnits(limits.data.dailyLimit) - toUnits('80'));
+  expect(limits.data.sendFee).not.toBeNull();
 
   await signIn(page, who);
   await page.goto('/bank/limits');
   const room = page.getByTestId('bank-limits');
   await room.getByLabel('Coin').selectOption('USDT');
   const today = room.getByTestId('bank-limits-today');
-  await expect(today).toHaveAttribute('data-daily', quote.data.dailyLimit);
+  await expect(today).toHaveAttribute('data-source', PARTNER_BANK);
+  await expect(today).toHaveAttribute('data-daily', limits.data.dailyLimit);
   await expect(today).toHaveAttribute('data-used', '80');
-  await expect(today).toHaveAttribute('data-remaining', quote.data.remainingToday);
-  await expect(today).toContainText(`Daily send limit: ${quote.data.dailyLimit} USDT`);
+  await expect(today).toHaveAttribute('data-remaining', limits.data.remainingToday);
+  await expect(today).toContainText(`Daily send limit at ${PARTNER_BANK}: ${limits.data.dailyLimit} USDT`);
   await expect(today).toContainText('Sent today: 80 USDT');
-  await expect(today).toContainText(`Left to send today: ${quote.data.remainingToday} USDT`);
+  await expect(today).toContainText(`Left to send today: ${limits.data.remainingToday} USDT`);
+  const sendFee = room.getByTestId('bank-partner-send-fee');
+  await expect(sendFee).toHaveAttribute('data-state', 'set');
+  await expect(sendFee).toHaveText(`Sending to a person, charged by ${PARTNER_BANK}: ${limits.data.sendFee} USDT`);
+
+  // A fee the partner has not given reads "not set", named as the partner's, and never 0.
+  await setPartner(who, { fee: 'unknown' });
+  await page.reload();
+  await room.getByLabel('Coin').selectOption('USDT');
+  await expect(sendFee).toHaveAttribute('data-state', 'not-set');
+  await expect(sendFee).toHaveText(`Sending to a person, charged by ${PARTNER_BANK}: not set`);
+  await setPartner(who, { fee: 'known' });
 
   // The owner has published no account fee table on this stack: the page says "not set", from the bank's answer.
   const fees = await bankRead(client, 'fees.account', undefined);
@@ -309,7 +343,8 @@ test(`${J} #6 opens Limits, fees and plan: daily send limit, used today and rema
   await expect(accountFees).toHaveAttribute('data-state', 'not-set');
   await expect(accountFees).toHaveText('Account fees: not set. The bank has published no account fee table, so none is charged.');
 
-  // The plan: tier and billing from the owner's (TEST) plan table, the person on its default plan.
+  // The plan is our own fee, named apart from the partner's: tier and billing from the owner's (TEST) plan table.
+  await expect(room).toContainText('This plan fee is our own, separate from anything the bank partner charges.');
   const plans = await bankRead(client, 'plans.list', undefined);
   expect(plans.status, JSON.stringify(plans.body).slice(0, 300)).toBe(200);
   const mine = plans.data.current;
@@ -348,11 +383,11 @@ const DAY = 86_400_000;
 
 test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee after a full withdrawal`, async ({ browser, page }) => {
   test.setTimeout(240_000);
-  // A second TEST account of the person's own, so the dormancy run reads one account whose whole history this step knows:
-  // 20 TEST USDT arrived today and nothing else.
+  // A second TEST account of the person's own, held at the partner, so the dormancy run reads one account whose whole
+  // history this step knows: 20 TEST USDT paid in today and nothing else.
   const who = await signUp(page, 'bk16d');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '20').tx).toBeTruthy();
+  await atPartner(who, '20');
   const client = await api(who);
   const userId = (await client.get('/api/identity/trpc/rank.get')).body.result.data.userId;
 
@@ -401,7 +436,7 @@ test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee afte
   const linesAfter = await activityLines(who, new Date(Date.now() - DAY).toISOString(), new Date(Date.now() + DAY).toISOString());
   expect(linesAfter.map((l) => l.txId)).toEqual(linesBefore.map((l) => l.txId));
   expect((await bankRead(client, 'dormancy.notices', undefined)).data).toEqual([
-    expect.objectContaining({ assetId: 'USDT', fee: '5', debitDate, state: 'skipped_zero', ledgerTxId: null }),
+    expect.objectContaining({ assetId: 'USDT', fee: '5', debitDate, state: 'skipped_zero', partnerMoveId: null }),
   ]);
   await page.reload();
   await expect(notice).toHaveAttribute('data-state', 'skipped_zero');

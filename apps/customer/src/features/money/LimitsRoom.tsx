@@ -32,6 +32,14 @@ export const limitsCopy = defineCopy('bank-limits', {
   planBilling: 'Billing',
   planBillingValue: '{price} {asset} a month',
   planBlocked: 'Paid plans need a plan fee the bank cannot post yet ({code}), so none can be chosen.',
+  partnerLead: 'What {partner} lets you send today and what it charges. These are its figures, not ours.',
+  partnerDaily: 'Daily send limit at {partner}: {amount} {asset}',
+  partnerUsed: 'Sent today: {amount} {asset}',
+  partnerRemaining: 'Left to send today: {amount} {asset}',
+  partnerNotSet: 'Daily send limit at {partner}: not set',
+  partnerFee: 'Sending to a person, charged by {partner}: {amount} {asset}',
+  partnerFeeNotSet: 'Sending to a person, charged by {partner}: not set',
+  planLead: 'This plan fee is our own, separate from anything the bank partner charges.',
   failed: '{message}',
 });
 
@@ -43,6 +51,8 @@ export function LimitsRoom() {
   const [chosen, setChosen] = useState('');
   const assetId = chosen || assets[0]?.assetId || '';
   const quote = useBankRead('transfers.quote', { assetId, amount: '0' }, Boolean(assetId));
+  const partner = useBankRead('fees.partner', { assetId }, Boolean(assetId));
+  const heldAtPartner = partner.resource.status === 'ready' && partner.resource.data.held ? partner.resource.data : null;
   const sendFees = useBankRead('fees.schedule.get', undefined);
   const accountFees = useBankRead('fees.account', undefined);
   const plans = useBankRead('plans.list', undefined);
@@ -65,8 +75,32 @@ export function LimitsRoom() {
             ))}
           </select>
         </label>
-        {quote.resource.status === 'failed' && refusal(quote.resource.failure)}
-        {quote.resource.status === 'ready' && (
+        {partner.resource.status === 'failed' && refusal(partner.resource.failure)}
+        {heldAtPartner && (
+          <>
+            <p className="money-caption">{t('partnerLead', { partner: heldAtPartner.label })}</p>
+            <ul
+              data-testid="bank-limits-today"
+              data-source={heldAtPartner.label}
+              data-as-of={heldAtPartner.asOf ?? ''}
+              data-daily={heldAtPartner.dailyLimit ?? ''}
+              data-used={heldAtPartner.usedToday ?? ''}
+              data-remaining={heldAtPartner.remainingToday ?? ''}
+            >
+              {heldAtPartner.dailyLimit === null ? (
+                <li>{t('partnerNotSet', { partner: heldAtPartner.label })}</li>
+              ) : (
+                <li>{t('partnerDaily', { partner: heldAtPartner.label, amount: heldAtPartner.dailyLimit, asset: assetId })}</li>
+              )}
+              {heldAtPartner.usedToday !== null && <li>{t('partnerUsed', { amount: heldAtPartner.usedToday, asset: assetId })}</li>}
+              {heldAtPartner.remainingToday !== null && (
+                <li>{t('partnerRemaining', { amount: heldAtPartner.remainingToday, asset: assetId })}</li>
+              )}
+            </ul>
+          </>
+        )}
+        {!heldAtPartner && partner.resource.status === 'ready' && quote.resource.status === 'failed' && refusal(quote.resource.failure)}
+        {!heldAtPartner && partner.resource.status === 'ready' && quote.resource.status === 'ready' && (
           <ul
             data-testid="bank-limits-today"
             data-daily={quote.resource.data.dailyLimit}
@@ -85,8 +119,15 @@ export function LimitsRoom() {
         )}
       </DepthPanel>
       <DepthPanel title={t('feesTitle')}>
-        {sendFees.resource.status === 'failed' && refusal(sendFees.resource.failure)}
-        {sendFees.resource.status === 'ready' && (
+        {heldAtPartner && (
+          <p data-testid="bank-partner-send-fee" data-state={heldAtPartner.sendFee === null ? 'not-set' : 'set'}>
+            {heldAtPartner.sendFee === null
+              ? t('partnerFeeNotSet', { partner: heldAtPartner.label })
+              : t('partnerFee', { partner: heldAtPartner.label, amount: heldAtPartner.sendFee, asset: assetId })}
+          </p>
+        )}
+        {!heldAtPartner && sendFees.resource.status === 'failed' && refusal(sendFees.resource.failure)}
+        {!heldAtPartner && sendFees.resource.status === 'ready' && (
           <ul data-testid="bank-send-fees" data-published={String(sendFees.resource.data.published)}>
             {sendFees.resource.data.published ? (
               sendFees.resource.data.entries.map((e) => (
@@ -113,7 +154,7 @@ export function LimitsRoom() {
             </p>
           ))}
       </DepthPanel>
-      <DepthPanel title={t('planTitle')}>
+      <DepthPanel title={t('planTitle')} lead={t('planLead')}>
         {plans.resource.status === 'failed' && refusal(plans.resource.failure)}
         {plans.resource.status === 'ready' && (
           <>

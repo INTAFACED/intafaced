@@ -131,6 +131,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     fees: router({
       /** BK-acct-04 (J-bank-16 #6): the owner's account fee table; none published says "not set". */
       account: limitsTables.accountFees,
+      partner: limitsTables.partnerLimits,
       schedule: router({
         get: scopedProcedure('bank:read', { module: 'bank' })
           .output(

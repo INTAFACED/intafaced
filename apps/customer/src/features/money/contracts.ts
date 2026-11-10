@@ -1061,6 +1061,20 @@ export const plansSchema = z.object({
   plans: z.array(planSchema.extend({ blocker: z.literal('bank.plan_fee_unwired').nullable() })),
   current: planSchema,
 });
+/** BK-acct-04 (J-bank-16 #6): the partner's send limit and fee for a partner-held person, each null until it says. */
+export const partnerLimitsSchema = z.discriminatedUnion('held', [
+  z.object({ held: z.literal(false) }),
+  z.object({
+    held: z.literal(true),
+    label: z.string(),
+    assetId: z.string(),
+    dailyLimit: money.nullable(),
+    usedToday: money.nullable(),
+    remainingToday: money.nullable(),
+    sendFee: money.nullable(),
+    asOf: z.string().nullable(),
+  }),
+]);
 /** BK-acct-04: the owner's account fee table; `set: false` is none published. */
 export const accountFeesSchema = z.object({
   set: z.boolean(),
@@ -1299,6 +1313,7 @@ export const bankReads = {
   'analytics.compare': monthCompareSchema,
   'plans.list': plansSchema,
   'fees.account': accountFeesSchema,
+  'fees.partner': partnerLimitsSchema,
   'fees.schedule.get': z.object({
     published: z.boolean(),
     entries: z.array(

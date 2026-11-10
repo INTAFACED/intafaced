@@ -22,7 +22,7 @@ const noticesSchema = z.array(
     debitDate: z.string(),
     inactiveDays: z.number().int(),
     state: z.enum(['noticed', 'cancelled', 'skipped_zero', 'skipped_insufficient', 'charged']),
-    ledgerTxId: z.string().nullable(),
+    partnerMoveId: z.string().nullable(),
     noticedAt: z.string(),
     settledAt: z.string().nullable(),
   }),

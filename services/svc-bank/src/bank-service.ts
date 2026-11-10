@@ -1,5 +1,11 @@
 import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
-import { bankCustodyLayer, custodyGuardedLedger, freezeGuardedCustody, type PostingFreeze } from './partner/partner-bank.js';
+import {
+  bankCustodyLayer,
+  custodyGuardedLedger,
+  freezeGuardedCustody,
+  type PartnerCustody,
+  type PostingFreeze,
+} from './partner/partner-bank.js';
 import { moneyHeldBy } from './partner/test-partner.js';
 import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
@@ -92,6 +98,8 @@ export interface BankServices {
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
   readonly testPartner: TestPartner | null;
+  /** Who holds each person's bank money: the partner, or (null) the custodial layer. */
+  readonly partnerCustody: PartnerCustody;
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
@@ -415,7 +423,7 @@ export function createBankServices(
     accounts: options.recipients,
     riskWording: options.earnRiskWording,
   });
-  const analytics = new SpendAnalytics(spaces, history);
+  const analytics = new SpendAnalytics(spaces, history, custody);
   const budgets = new BudgetService(sql, analytics);
   const portfolio = new PortfolioService(ledger, spaces, {
     ...(options.portfolio ?? {}),
@@ -568,6 +576,7 @@ export function createBankServices(
     earn,
     analytics,
     budgets,
+    partnerCustody: custody,
     portfolio,
     activity,
     activityRecords,
@@ -576,7 +585,7 @@ export function createBankServices(
     accountDetails,
     accountTerms,
     accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
-    dormancy: new DormancyService(sql, ledger, history, parseDormancyRules(options.dormancyRules)),
+    dormancy: new DormancyService(sql, custody, parseDormancyRules(options.dormancyRules)),
     currencies,
     profiles,
     assetPauses,

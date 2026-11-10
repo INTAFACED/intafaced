@@ -1,5 +1,5 @@
 /**
- * The dormancy fee (RC-bank-01, J-bank-16 #7), against Postgres and the in-memory ledger.
+ * The dormancy fee (RC-bank-01, J-bank-16 #7), against Postgres and the TEST partner bank.
  *
  * PG-hard: a missing database fails the suite. CI uses TEST_DATABASE_URL; without it, Testcontainers `postgres:16-alpine`.
  */
@@ -9,10 +9,11 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, houseFees, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
+import { parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { memoryLedgerHistory, type LedgerHistory } from '../analytics/ledger-history.js';
-import { DORMANCY_MODULE, DormancyService, parseDormancyRules } from './dormancy.js';
+import { PARTNER_FEES_OWNER, custodialOnly } from '../partner/partner-bank.js';
+import { testPartner, testPartnerCustody, type TestPartner } from '../partner/test-partner.js';
+import { DormancyService, parseDormancyRules } from './dormancy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -34,7 +35,7 @@ const DAY = 86_400_000;
 describe('the dormancy fee (J-bank-16 #7, PG-hard)', () => {
   let stop: () => Promise<void> = async () => undefined;
   let db: TestDatabase;
-  let ledger: MemoryLedger;
+  let partner: TestPartner;
   let dormancy: DormancyService;
   let user: string;
 
@@ -48,16 +49,26 @@ describe('the dormancy fee (J-bank-16 #7, PG-hard)', () => {
     await stop();
   }, 60_000);
   beforeEach(() => {
-    ledger = new MemoryLedger();
-    dormancy = new DormancyService(db.sql, ledger, memoryLedgerHistory(ledger), RULES);
-    user = randomUUID();
+    partner = testPartner();
+    dormancy = new DormancyService(db.sql, testPartnerCustody(partner), RULES);
+    user = held();
   });
 
-  const fund = (amount: string) =>
-    ledger.post(recipes.deposit({ userId: user, assetId: 'USDT', amount: amt(amount), rail: 'local-test', railRef: randomUUID() }));
-  const balance = async () => (await ledger.balance(userAvailable(user, 'USDT'))).amount;
+  function held(): string {
+    const id = randomUUID();
+    partner.set(id, { custody: 'off' });
+    return id;
+  }
+  const fund = (amount: string, who = user) => partner.fund(who, { fundId: randomUUID(), assetId: 'USDT', amount: amt(amount) });
+  const main = (who = user) => ({ userId: who, assetId: 'USDT', spaceId: null });
+  const balance = async (who = user) => (await partner.bank.balance(main(who))).amount;
+  /** Money leaves the person now, to another TEST person at the partner. */
+  const spend = (amount: string, who = user) =>
+    partner.bank.move({ key: `spend:${randomUUID()}`, from: main(who), to: main(randomUUID()), amount: amt(amount) });
   const quietUntil = () => new Date(Date.now() + 366 * DAY);
   const debitDay = (at: Date) => new Date(at.getTime() + 30 * DAY).toISOString().slice(0, 10);
+  const due = (at: Date) => new Date(`${debitDay(at)}T00:01:00Z`);
+  const chargeKey = (at: Date, who = user) => `fee:bank.dormancy:${who}:USDT:${debitDay(at)}`;
 
   it('notices a quiet account once, naming the fee and the debit date', async () => {
     await fund('20');
@@ -74,53 +85,48 @@ describe('the dormancy fee (J-bank-16 #7, PG-hard)', () => {
   it('gives no notice to an account active within the rule, or one that never moved', async () => {
     await fund('20');
     expect((await dormancy.run({ at: new Date(Date.now() + 100 * DAY), userIds: [user] })).noticed).toEqual([]);
-    expect((await dormancy.run({ at: quietUntil(), userIds: [randomUUID()] })).noticed).toEqual([]);
+    expect((await dormancy.run({ at: quietUntil(), userIds: [held()] })).noticed).toEqual([]);
+  });
+
+  it('passes over a person the partner does not hold money for, and posts nothing for them', async () => {
+    const custodial = new DormancyService(db.sql, custodialOnly, RULES);
+    await fund('20');
+    expect(await custodial.run({ at: quietUntil(), userIds: [user] })).toEqual({ noticed: [], settled: [] });
+    expect(await custodial.notices(user)).toEqual([]);
   });
 
   it('takes no fee after a full withdrawal: a zero balance on the debit date is skipped_zero', async () => {
     await fund('20');
     const at = quietUntil();
     await dormancy.run({ at, userIds: [user] });
-    await ledger.post(
-      recipes.feeCharge({ chargeId: randomUUID(), userId: user, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('20') }),
-    );
+    await spend('20');
     expect(await balance()).toBe(0n);
-    const { settled } = await dormancy.run({ at: new Date(`${debitDay(at)}T00:01:00Z`), userIds: [user] });
+    const { settled } = await dormancy.run({ at: due(at), userIds: [user] });
     expect(settled).toEqual([{ userId: user, assetId: 'USDT', debitDate: debitDay(at), outcome: 'skipped_zero' }]);
     expect(await balance()).toBe(0n);
-    expect((await dormancy.notices(user))[0]).toMatchObject({ state: 'skipped_zero', ledgerTxId: null });
+    expect(await partner.bank.moveByKey(chargeKey(at))).toBeNull();
+    expect((await dormancy.notices(user))[0]).toMatchObject({ state: 'skipped_zero', partnerMoveId: null });
   });
 
-  it('cancels the notice on activity after it, and skips a balance below the fee without part-charging', async () => {
+  it('cancels the notice on activity after it', async () => {
+    // Noticed an hour ago on a quiet account; the line below is after that notice.
+    const at = new Date(Date.now() - 3_600_000);
     await fund('20');
-    const at = quietUntil();
-    // Activity after the notice: a line the ledger history reports between the notice and the debit date.
-    const real = memoryLedgerHistory(ledger);
-    const after: LedgerHistory = {
-      async entriesFor(account, range) {
-        const lines = await real.entriesFor(account, range);
-        const used = new Date(at.getTime() + DAY);
-        return used >= range.from && used < range.to
-          ? [...lines, { txId: 'later', module: 'bank', reason: 'bank.transfer', direction: 'credit', amount: amt('1'), postedAt: used }]
-          : lines;
-      },
-    };
-    const watched = new DormancyService(db.sql, ledger, after, RULES);
-    await watched.run({ at, userIds: [user] });
-    const { settled } = await watched.run({ at: new Date(`${debitDay(at)}T00:01:00Z`), userIds: [user] });
+    await dormancy.run({ at, userIds: [user] });
+    const { settled } = await dormancy.run({ at: due(at), userIds: [user] });
     expect(settled[0]!.outcome).toBe('cancelled');
     expect(await balance()).toBe(amt('20'));
+    expect(await partner.bank.moveByKey(chargeKey(at))).toBeNull();
+  });
 
-    // Noticed with 6, then down to 3 (below the 5 fee) by the debit date: nothing is taken, and nothing part-charged.
-    const poor = randomUUID();
-    await ledger.post(recipes.deposit({ userId: poor, assetId: 'USDT', amount: amt('6'), rail: 'local-test', railRef: randomUUID() }));
-    await dormancy.run({ at, userIds: [poor] });
-    await ledger.post(
-      recipes.feeCharge({ chargeId: randomUUID(), userId: poor, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('3') }),
-    );
-    const later = await dormancy.run({ at: new Date(`${debitDay(at)}T00:01:00Z`), userIds: [poor] });
+  it('skips a balance below the fee on the debit date without part-charging', async () => {
+    await fund('6');
+    const at = quietUntil();
+    await dormancy.run({ at, userIds: [user] });
+    await spend('3');
+    const later = await dormancy.run({ at: due(at), userIds: [user] });
     expect(later.settled[0]!.outcome).toBe('skipped_insufficient');
-    expect((await ledger.balance(userAvailable(poor, 'USDT'))).amount).toBe(amt('3'));
+    expect(await balance()).toBe(amt('3'));
   });
 
   it('gives no notice to an account holding less than the fee', async () => {
@@ -128,38 +134,59 @@ describe('the dormancy fee (J-bank-16 #7, PG-hard)', () => {
     expect((await dormancy.run({ at: quietUntil(), userIds: [user] })).noticed).toEqual([]);
   });
 
-  it('adopts a fee already posted under the notice key, so a crash before the row was settled never re-judges it', async () => {
+  it('decides nothing on a figure the partner has not given: no notice, and an open notice waits', async () => {
+    await fund('20');
+    const at = quietUntil();
+    partner.set(user, { figures: 'unknown' });
+    expect((await dormancy.run({ at, userIds: [user] })).noticed).toEqual([]);
+    partner.set(user, { figures: 'live' });
+    await dormancy.run({ at, userIds: [user] });
+    partner.set(user, { figures: 'stale' });
+    expect((await dormancy.run({ at: due(at), userIds: [user] })).settled).toEqual([]);
+    expect((await dormancy.notices(user))[0]).toMatchObject({ state: 'noticed' });
+    expect(await balance()).toBe(amt('20'));
+  });
+
+  it('adopts a fee the partner already took under the notice key, so a crash before the row was settled never re-judges it', async () => {
     await fund('7');
     const at = quietUntil();
     await dormancy.run({ at, userIds: [user] });
-    const key = `${user}:USDT:${debitDay(at)}`;
-    await ledger.post(
-      recipes.feeCharge({ chargeId: key, userId: user, module: DORMANCY_MODULE, mode: 'asset', assetId: 'USDT', amount: amt('5') }),
-    );
+    const taken = await partner.bank.move({
+      key: chargeKey(at),
+      from: main(),
+      to: { userId: PARTNER_FEES_OWNER, assetId: 'USDT', spaceId: null },
+      amount: amt('5'),
+    });
+    expect((await dormancy.run({ at: due(at), userIds: [user] })).settled[0]!.outcome).toBe('charged');
     expect(await balance()).toBe(amt('2'));
-    const { settled } = await dormancy.run({ at: new Date(`${debitDay(at)}T00:01:00Z`), userIds: [user] });
-    expect(settled[0]!.outcome).toBe('charged');
-    expect(await balance()).toBe(amt('2'));
+    expect((await dormancy.notices(user))[0]).toMatchObject({ state: 'charged', partnerMoveId: taken.id });
   });
 
-  it('charges the noticed fee once through feeCharge, and a replay charges nothing more', async () => {
+  it('survives a lost reply: the fee is taken once and the next run settles it', async () => {
     await fund('20');
     const at = quietUntil();
     await dormancy.run({ at, userIds: [user] });
-    const due = new Date(`${debitDay(at)}T00:01:00Z`);
-    expect((await dormancy.run({ at: due, userIds: [user] })).settled[0]!.outcome).toBe('charged');
-    expect((await dormancy.run({ at: due, userIds: [user] })).settled).toEqual([]);
+    partner.set(user, { nextReply: 'lost' });
+    await expect(dormancy.run({ at: due(at), userIds: [user] })).rejects.toMatchObject({ code: 'bank.partner_reply_lost' });
+    expect((await dormancy.notices(user))[0]).toMatchObject({ state: 'noticed' });
+    expect((await dormancy.run({ at: due(at), userIds: [user] })).settled[0]!.outcome).toBe('charged');
     expect(await balance()).toBe(amt('15'));
-    expect((await ledger.balance(houseFees(DORMANCY_MODULE, 'USDT'))).amount).toBe(amt('5'));
-    const [notice] = await dormancy.notices(user);
-    expect(notice).toMatchObject({ state: 'charged' });
-    expect(ledger.journal().find((tx) => tx.id === notice!.ledgerTxId)?.idempotencyKey).toBe(
-      `fee:${DORMANCY_MODULE}:${user}:USDT:${debitDay(at)}`,
-    );
+  });
+
+  it('has the partner take the noticed fee once, under its key, and a replay takes nothing more', async () => {
+    await fund('20');
+    const at = quietUntil();
+    await dormancy.run({ at, userIds: [user] });
+    expect((await dormancy.run({ at: due(at), userIds: [user] })).settled[0]!.outcome).toBe('charged');
+    expect((await dormancy.run({ at: due(at), userIds: [user] })).settled).toEqual([]);
+    expect(await balance()).toBe(amt('15'));
+    const move = await partner.bank.moveByKey(chargeKey(at));
+    expect(move).toMatchObject({ amount: amt('5'), to: { userId: PARTNER_FEES_OWNER, assetId: 'USDT' } });
+    expect((await dormancy.notices(user))[0]).toMatchObject({ state: 'charged', partnerMoveId: move!.id });
   });
 
   it('refuses bank.dormancy_rule_unset with no rule, and reads a rule not in shape as none', async () => {
-    const none = new DormancyService(db.sql, ledger, memoryLedgerHistory(ledger), parseDormancyRules(undefined));
+    const none = new DormancyService(db.sql, testPartnerCustody(partner), parseDormancyRules(undefined));
     await expect(none.run({ at: quietUntil(), userIds: [user] })).rejects.toMatchObject({ code: 'bank.dormancy_rule_unset' });
     expect(
       parseDormancyRules(JSON.stringify([{ assetId: 'USDT', fee: 5, inactiveDays: 365, noticeLeadDays: 30, version: 'x' }])),

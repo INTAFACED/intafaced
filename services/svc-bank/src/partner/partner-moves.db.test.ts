@@ -198,6 +198,8 @@ describe('partner-held bank moves (OWNER 226)', () => {
         spaceName: 'Trip TEST',
         heldAt: { label: TEST_PARTNER_LABEL },
       }),
+      // The TEST funding is on the partner's record as a pay-in, listed oldest.
+      expect.objectContaining({ kind: 'deposit', direction: 'in', amount: '100', heldAt: { label: TEST_PARTNER_LABEL } }),
     ]);
     expect(feed.nextCursor).toBeNull();
     const history = await api.transfers.list({ limit: 50 });
@@ -208,8 +210,10 @@ describe('partner-held bank moves (OWNER 226)', () => {
     const one = await api.activity.get({ id: feed.items[1]!.id });
     expect(one.item).toMatchObject({ spaceName: 'Trip TEST', direction: 'in' });
     expect(one.lines).toHaveLength(2);
+    // A search reads the partner's own lines (J-bank-16 #2).
+    expect((await api.activity.list({ limit: 50, q: 'trip' })).items.map((l) => l.spaceName)).toEqual(['Trip TEST']);
     // A filter the partner record cannot answer is refused, never silently ignored.
-    await expect(api.activity.list({ limit: 50, q: 'trip' })).rejects.toSatisfy(
+    await expect(api.activity.list({ limit: 50, minAmount: '1' })).rejects.toSatisfy(
       (err) => codeOf(err) === 'bank.partner_history_filter_unsupported',
     );
   });
@@ -224,7 +228,7 @@ describe('partner-held bank moves (OWNER 226)', () => {
       note: 'rent TEST',
       reference: 'REF-TEST-1',
     });
-    const feed = await api.activity.list({ limit: 50 });
+    const feed = await api.activity.list({ limit: 50, kind: ['space_move'] });
     expect(feed.items).toHaveLength(2);
     for (const line of feed.items)
       expect(line).toMatchObject({ note: 'rent TEST', reference: 'REF-TEST-1', heldAt: { label: TEST_PARTNER_LABEL } });
@@ -248,7 +252,7 @@ describe('partner-held bank moves (OWNER 226)', () => {
     await after.testPartner.set({ custody: 'off' });
     await after.testPartner.fund({ fundId: `fund-${ADA}-again`, assetId: 'USDT', amount: '100' });
     await after.transfers.create({ transferId: 'move-ada-after', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '5' });
-    const feed = await after.activity.list({ limit: 50 });
+    const feed = await after.activity.list({ limit: 50, kind: ['space_move'] });
     expect(feed.items).toHaveLength(2);
     for (const line of feed.items) expect(line.note).toBeUndefined();
   });

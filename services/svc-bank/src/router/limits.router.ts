@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { formatAmount } from '@intafaced/ledger-client';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
@@ -59,7 +60,7 @@ export function createLimitsRouters(c: BankRouterContext) {
             debitDate: z.string(),
             inactiveDays: z.number().int(),
             state: z.enum(['noticed', 'cancelled', 'skipped_zero', 'skipped_insufficient', 'charged']),
-            ledgerTxId: z.string().nullable(),
+            partnerMoveId: z.string().nullable(),
             noticedAt: z.string(),
             settledAt: z.string().nullable(),
           }),
@@ -75,5 +76,41 @@ export function createLimitsRouters(c: BankRouterContext) {
         ),
       ),
   });
-  return { plans, accountFees, dormancy };
+  /** J-bank-16 #6: the partner's send limit and fee for a partner-held person; `held: false` is on our own terms. */
+  const partnerLimits = scopedProcedure('bank:read', { module: 'bank' })
+    .input(z.object({ assetId: z.string().min(1).max(16) }))
+    .output(
+      z.discriminatedUnion('held', [
+        z.object({ held: z.literal(false) }),
+        z.object({
+          held: z.literal(true),
+          label: z.string(),
+          assetId: z.string(),
+          dailyLimit: z.string().nullable(),
+          usedToday: z.string().nullable(),
+          remainingToday: z.string().nullable(),
+          sendFee: z.string().nullable(),
+          asOf: z.string().nullable(),
+        }),
+      ]),
+    )
+    .query(({ ctx, input }) =>
+      guard(async () => {
+        const partner = bank.partnerCustody.bankFor(ctx.principal.userId);
+        if (!partner) return { held: false as const };
+        const l = await partner.limits(ctx.principal.userId, input.assetId);
+        const known = l.dailySend !== null && l.usedToday !== null;
+        return {
+          held: true as const,
+          label: l.label,
+          assetId: l.assetId,
+          dailyLimit: l.dailySend === null ? null : formatAmount(l.dailySend),
+          usedToday: l.usedToday === null ? null : formatAmount(l.usedToday),
+          remainingToday: !known ? null : formatAmount(l.dailySend! > l.usedToday! ? l.dailySend! - l.usedToday! : 0n),
+          sendFee: l.sendFee === null ? null : formatAmount(l.sendFee),
+          asOf: l.asOf?.toISOString() ?? null,
+        };
+      }),
+    );
+  return { plans, accountFees, partnerLimits, dormancy };
 }

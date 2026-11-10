@@ -285,6 +285,7 @@ export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, g
         balances: (userId: string) => bank.balances(userId),
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
+        limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
         move: async (request: PartnerMoveRequest) => {
           await assertOpenCounted(gate, partnerId, 'bank_move', note);
           return bank.move(request);
