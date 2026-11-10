@@ -95,83 +95,146 @@ async function chooseLayout(page, mode) {
 test(`${J} #1 the top bar has five doors with full dropdowns, the same five on the phone bar; /bank is its own room; Simple groups Advanced, Pro lists every row`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
+  // The app's own menu table (apps/customer/src/app/menus.ts): what each door's dropdown must hold, row for row.
+  const { tabSpecs } = await import('../../src/app/menus.ts');
+  const { findRoom, roomTitle } = await import('../../src/app/navigation.ts');
+  const rowsOf = (mode, door) => tabSpecs(mode, true).find((tab) => tab.door === door).items;
   await signIn(page, who);
   await chooseLayout(page, 'Pro');
   // Five doors (owner decision 2026-10-26, "One Money door"): Assets and Bank are one Money door.
-  await expect(mainNav(page).getByTestId('tb-tab')).toHaveText(['Home', 'Money', 'Trade', 'Pay', 'More']);
+  const DOORS = ['Home', 'Money', 'Trade', 'Pay', 'More'];
+  await expect(mainNav(page).getByTestId('tb-tab')).toHaveText(DOORS);
 
-  // Every door's rows open live rooms; Money holds the holdings and the bank's rooms alike.
-  const money = await dropdown(page, 'Money');
-  expect(money[0].href).toBe('/money');
-  expect(money.map((row) => row.href)).toEqual(
+  // Pro: every door with rows lists every one of its rows, in order, flat (no Advanced group).
+  const pro = {};
+  for (const door of DOORS) {
+    const want = rowsOf('pro', door);
+    if (want.length === 0) continue;
+    pro[door] = await dropdown(page, door);
+    expect(
+      pro[door].map((row) => row.href),
+      `${door} in Pro`,
+    ).toEqual(want.map((row) => row.href));
+    expect(
+      pro[door].some((row) => row.advanced),
+      `${door} in Pro has an Advanced group`,
+    ).toBe(false);
+  }
+  // Money holds the holdings and the bank's rooms alike, the portfolio first.
+  expect(pro.Money[0].href).toBe('/money');
+  expect(pro.Money.map((row) => row.href)).toEqual(
     expect.arrayContaining(['/uc/recharge', '/uc/withdraw', '/bank/spaces', '/bank/earn', '/bank/loans', '/bank/cards']),
   );
-  for (const door of ['Pay', 'More']) expect((await dropdown(page, door)).length).toBeGreaterThan(2);
 
-  // Pro: every Trade row is listed flat.
-  const pro = await dropdown(page, 'Trade');
-  expect(pro.some((row) => row.advanced)).toBe(false);
-  expect(pro.map((row) => row.href)).toEqual(expect.arrayContaining(['/trade/futures', '/trade/options', '/quant']));
-
-  // /bank opens the Bank's own overview and stays there.
+  // /bank opens the Bank's own overview and stays there: not the Money page.
   await page.goto('/bank');
   await expect(page).toHaveURL(/\/bank$/);
   await expect(page.locator('main h1').first()).toHaveText('Bank');
+  await page.goto('/money');
+  await expect(page.locator('main h1').first()).not.toHaveText('Bank');
 
-  // Simple: the same rows, the advanced ones under their own heading; each is still reachable by address and by search.
+  // Simple: the same rows in every door, the advanced ones under their own Advanced heading.
   await chooseLayout(page, 'Simple');
-  const simple = await dropdown(page, 'Trade');
-  expect(simple.map((row) => row.href).sort()).toEqual(pro.map((row) => row.href).sort());
-  const advanced = simple.filter((row) => row.advanced).map((row) => row.href);
-  expect(advanced).toEqual(expect.arrayContaining(['/trade/futures', '/trade/options']));
-  await page.goto('/trade/futures');
-  await expect(page).toHaveURL(/\/trade\/futures/);
-  await expect(page.locator('main')).not.toBeEmpty();
-  await page.goto('/home');
-  const panel = await search(page, 'futures');
-  await expect(panel.getByRole('option', { name: /Futures/ }).first()).toBeVisible();
-  // Simple: Money's rarely used rows sit under Advanced too.
-  const moneySimple = await dropdown(page, 'Money');
-  expect(moneySimple.filter((row) => row.advanced).map((row) => row.href)).toEqual(expect.arrayContaining(['/money/pnl', '/bank/ramps']));
+  const advanced = [];
+  for (const door of Object.keys(pro)) {
+    const want = rowsOf('simple', door);
+    const simple = await dropdown(page, door);
+    expect(simple.map((row) => row.href).sort(), `${door} in Simple`).toEqual(want.map((row) => row.href).sort());
+    expect(simple.map((row) => row.href).sort(), `${door}: Simple and Pro rows`).toEqual(pro[door].map((row) => row.href).sort());
+    const grouped = simple.filter((row) => row.advanced).map((row) => row.href);
+    expect(grouped.sort(), `${door}'s Advanced group`).toEqual(
+      want
+        .filter((row) => row.group === 'Advanced')
+        .map((row) => row.href)
+        .sort(),
+    );
+    advanced.push(...grouped);
+  }
+  expect(advanced).toEqual(expect.arrayContaining(['/trade/futures', '/trade/options', '/money/pnl', '/bank/ramps']));
+
+  // Every room in Simple is still reachable by its address and by the header search, the advanced ones included.
+  for (const href of advanced) {
+    const path = href.split('?')[0];
+    await page.goto(href);
+    await expect(page, `${href} by address`).toHaveURL(new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\?|$)`));
+    await expect(page.locator('main'), `${href} by address`).not.toBeEmpty();
+    const room = findRoom(path);
+    expect(room, `${href} is a room of the route table`).toBeTruthy();
+    const title = roomTitle(room, 'en');
+    await page.goto('/home');
+    const panel = await search(page, title);
+    await expect(
+      panel.getByRole('option', { name: new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first(),
+      `${href} by search`,
+    ).toBeVisible();
+  }
 
   // On a phone the same five doors sit in the bottom bar, in the same order, More included.
   await page.setViewportSize({ width: 390, height: 844 });
   const phoneBar = page.getByRole('navigation', { name: 'Customer doors on phone' });
-  await expect(phoneBar.getByRole('link')).toHaveText(['Home', 'Money', 'Trade', 'Pay', 'More']);
+  await expect(phoneBar.getByRole('link')).toHaveText(DOORS);
   await phoneBar.getByRole('link', { name: 'More' }).click();
   await expect(page).toHaveURL(/\/more$/);
 });
 
 test(`${J} #2 More and All services list every room from the one route table, with the Web3 rooms and their blockers`, async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
+  // The one route table (apps/customer/src/app/navigation.ts) and the feature registry's hidden rows.
+  const { rooms } = await import('../../src/app/navigation.ts');
+  const { isHiddenPath } = await import('../../src/app/feature-registry.ts');
+  // Every room a signed-in person opens: not an alias, a parameter route, a founder desk, a hidden feature, or a
+  // merchant-portal page (Business-only, reached from Merchant home; Merchant home and Business bank are the way in).
+  const expected = [
+    ...new Set(
+      rooms
+        .filter(
+          (room) =>
+            !room.alias &&
+            !room.hidden &&
+            room.area !== 'team' &&
+            !/[:*]/.test(room.path) &&
+            !isHiddenPath(room.path) &&
+            (!room.business || room.path === '/pay/merchant' || room.path === '/bank/business'),
+        )
+        .map((room) => room.path),
+    ),
+  ].sort();
+  expect(expected.length).toBeGreaterThan(20);
+
   await signIn(page, who);
   await page.goto('/more');
   const main = page.locator('main');
-  // The Web3 section: DEX, Chain and Protocol, each saying what it is and what blocks it.
+  const all = main.locator('section[aria-labelledby="more-all-services"]');
+  await expect(all.getByRole('heading', { name: 'All services' })).toBeVisible();
+  // A link for every room of the route table, once each, and nothing that is not a room of it: the list is the table's.
+  const listed = await all.locator('a[data-service]').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+  expect([...listed].sort()).toEqual(expected);
+  expect(new Set(listed).size).toBe(listed.length);
+  // Each one is named as the room, never by its route slug.
+  await expect(all.getByRole('link', { name: 'chain', exact: true })).toHaveCount(0);
+
+  // The Web3 rooms: DEX, Chain and Protocol sit in the Web3 tiles and in the Web3 group of All services.
+  const web3Tiles = main.locator('section[aria-labelledby="more-web3"]');
+  const web3Group = all.locator('section[aria-labelledby="more-index-Web3"]');
   for (const [href, name] of [
     ['/dex', 'DEX'],
     ['/chain', 'Chain'],
     ['/protocol', 'Protocol'],
   ]) {
-    const tile = main.locator(`a[href="${href}"]`).first();
-    await expect(tile).toBeVisible();
-    await expect(tile).toContainText(name);
+    await expect(web3Tiles.locator(`a[href="${href}"]`)).toHaveCount(1);
+    await expect(web3Tiles.locator(`a[href="${href}"]`)).toContainText(name);
+    await expect(web3Group.locator(`a[href="${href}"]`)).toHaveCount(1);
   }
-  // All services: a row for each room in the route table, by area; the Web3 rooms are named as rooms, not route slugs.
-  const all = main.getByRole('heading', { name: 'All services' });
-  await expect(all).toBeVisible();
-  for (const name of ['Earn', 'Loans', 'Futures', 'Send globally', 'Merchant home', 'Academy', 'Chain', 'DEX', 'Protocol', 'Help centre'])
-    await expect(main.getByRole('link', { name, exact: true }).first()).toBeVisible();
-  await expect(main.getByRole('link', { name: 'chain', exact: true })).toHaveCount(0);
-
-  // Every tile opens its room.
-  await main.locator('a[href="/chain"]').first().click();
-  await expect(page).toHaveURL(/\/chain$/);
-  // The room is all there with honest labels: it never calls Base INTACHAIN and says what it cannot show, never "coming soon".
-  await expect(page.locator('main h1')).toHaveText('Chain');
-  await expect(page.locator('main')).toContainText('Not INTACHAIN · not audited');
-  await expect(page.locator('main')).not.toContainText(/coming soon/i);
+  // Each opens to its blockers: the room is all there, says it is not INTACHAIN and not audited, never "coming soon".
+  for (const href of ['/dex', '/chain', '/protocol']) {
+    await page.goto('/more');
+    await web3Tiles.locator(`a[href="${href}"]`).click();
+    await expect(page).toHaveURL(new RegExp(`${href}$`));
+    await expect(page.locator('main')).not.toBeEmpty();
+    await expect(page.locator('main')).toContainText('Not INTACHAIN · not audited');
+    await expect(page.locator('main')).not.toContainText(/coming soon/i);
+  }
 });
 
 test(`${J} #3 typing "earn" in the header search shows Money > Earn, and Enter opens it`, async ({ page }) => {

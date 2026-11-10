@@ -2,7 +2,9 @@
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { asDesk, helpCentre, publishText, saveCategory, saveSection, setAudience, setHelpCentre } from './help-centre.mjs';
-import { EDGE, ORIGIN, journeyState } from './stack.mjs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { EDGE, ORIGIN, ROOT, journeyState } from './stack.mjs';
 
 // J-support-public-16, in the running app (docs/roadmap/journeys.json): two support operators write, review and publish a
 // help article in the founder console's article editor, and readers find it once under its section. Founder A is the
@@ -50,6 +52,18 @@ async function desk(who, kind, procedure, input) {
   return row;
 }
 const history = (id) => desk('lead', 'query', 'kbHistory', { id });
+
+/** svc-support's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+async function supportDb() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const postgres = createRequire(path.join(ROOT, 'services', 'svc-support', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  return postgres(`postgres://svc_support:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+}
 
 /** The founder console's article editor, signed in as founder `key`, with the article's id filled in. */
 async function editor(browser, key, id) {
@@ -129,7 +143,8 @@ test(`${J} #3 a save from a stale revision is refused, and a script tag pasted i
     sectionId: section.id,
     baseRevision: 0,
   });
-  expect(stale.text).toContain('support.kb.revision_stale');
+  expect(stale.status).not.toBe(200);
+  expect(stale.text).toContain('support.kb_revision_stale');
   const { page, panel } = await editor(browser, 'a', ARTICLE);
   await panel.getByLabel('Body (blank lines split paragraphs)').fill(`TEST Paste ${SCRIPT} here.`);
   await expect(panel.getByTestId('kbe-preview')).toContainText(`TEST Paste ${SCRIPT} here.`);
@@ -195,27 +210,85 @@ test(`${J} #6 /help lists the article once under its section, and the version ta
     [1, true, false],
     [2, false, true],
   ]);
+  // The version table itself: two rows, and neither can be changed or removed.
+  const sql = await supportDb();
+  try {
+    const stored = () =>
+      sql`SELECT version, title, body, title_key, body_key FROM support.kb_article_versions WHERE id = ${ARTICLE} ORDER BY version`;
+    const before = await stored();
+    expect(before.map((row) => row.version)).toEqual([1, 2]);
+    for (const { version } of before) {
+      await expect(
+        sql`UPDATE support.kb_article_versions SET body = ${'TEST rewritten'} WHERE id = ${ARTICLE} AND version = ${version}`,
+      ).rejects.toThrow(/kb_article_versions is immutable: UPDATE refused|permission denied/);
+      await expect(sql`DELETE FROM support.kb_article_versions WHERE id = ${ARTICLE} AND version = ${version}`).rejects.toThrow(
+        /kb_article_versions is immutable: DELETE refused|permission denied/,
+      );
+    }
+    expect(await stored()).toEqual(before);
+  } finally {
+    await sql.end();
+  }
 });
 
 test(`${J} #7 restricting the article to a segment with the segment cap blank is refused with support.kb_segment_cap_unset`, async () => {
   const { ARTICLE, run } = current();
+  const before = await history(ARTICLE);
   const res = await asDesk('lead', 'mutation', 'setKbSegment', { id: ARTICLE, segment: `TEST ${run}` });
+  expect(res.status, `setKbSegment: ${res.text.slice(0, 200)}`).not.toBe(200);
   expect(res.status, `setKbSegment: ${res.text.slice(0, 200)}`).not.toBe(404);
+  // The refusal is the blank cap's own: the segment cap is not set on this stack.
   expect(res.text).toContain('support.kb_segment_cap_unset');
+  // Nothing moved: no segment is on the article, and its versions and trail are as they were.
+  const after = await history(ARTICLE);
+  expect(after).toEqual(before);
+  expect(JSON.stringify(after)).not.toContain(`TEST ${run}`);
 });
 
-test(`${J} #8 the help centre settings show name, theme and languages, and a missing translation is listed in the desk`, async () => {
+test(`${J} #8 the help centre settings show name, theme and languages, and a missing translation is listed in the desk`, async ({
+  browser,
+}) => {
   const settings = await helpCentre();
-  expect(settings).toHaveProperty('name');
-  expect(settings).toHaveProperty('languages');
-  expect(settings).toHaveProperty('theme');
-  // Gaps are counted per offered language: a stack whose owner has offered none offers one for this step (its default
+  // The desk's help centre settings, as the support lead (founder A) opens them.
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await founderSignIn(page, 'a');
+  await page.goto(`${ADMIN}/support/settings`);
+  const main = page.locator('main');
+  const centre = main.getByRole('region', { name: /help centre/i });
+  await expect(centre).toBeVisible();
+  // Name and theme, as the service holds them.
+  await expect(centre.getByText(/^Name\b/)).toBeVisible();
+  if (settings.name) await expect(centre).toContainText(settings.name);
+  await expect(centre.getByText(/^Theme\b/)).toBeVisible();
+  if (settings.theme) await expect(centre).toContainText(settings.theme);
+  // Languages: with none set, the desk says "languages are not set" and offers no picker.
+  if (settings.languages === null) {
+    await expect(centre.getByText(/languages are not set/i)).toBeVisible();
+    await expect(centre.getByRole('combobox', { name: /language/i })).toHaveCount(0);
+    await expect(centre.getByRole('listbox', { name: /language/i })).toHaveCount(0);
+  }
+  await context.close();
+  // Gaps are counted per offered language: a stack whose owner has offered none offers one for this part (its default
   // language when one is set, which the offered list must hold), then puts it back.
   const offered = settings.languages === null;
   if (offered) await setHelpCentre({ languages: [settings.defaultLanguage ?? 'en'] }, `TEST ${J} #8 offer a language`);
   try {
     const translations = await desk('lead', 'query', 'helpCentreTranslations', { limit: 100 });
-    expect(JSON.stringify(translations)).toContain('missing');
+    const missing = translations.rows.find((row) => row.state === 'missing');
+    expect(missing, JSON.stringify(translations).slice(0, 300)).toMatchObject({
+      articleId: expect.any(String),
+      language: expect.any(String),
+      state: 'missing',
+    });
+    // Listed in the desk: the missing translation's article and language on the desk's help centre settings.
+    const desk2 = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const view = await desk2.newPage();
+    await founderSignIn(view, 'a');
+    await view.goto(`${ADMIN}/support/settings`);
+    const row = view.locator('main').getByRole('row').filter({ hasText: missing.articleId }).filter({ hasText: missing.language });
+    await expect(row.first()).toContainText(/missing/i);
+    await desk2.close();
   } finally {
     if (offered) await setHelpCentre({ languages: null }, `TEST ${J} #8 put the languages back`);
   }
@@ -223,16 +296,33 @@ test(`${J} #8 the help centre settings show name, theme and languages, and a mis
 
 test(`${J} #9 the publish switch change is audited with its reason; switched off, /help says so`, async ({ browser }) => {
   const before = await helpCentre();
-  const reason = `TEST ${J} #9 off`;
+  const reasonOff = `TEST ${J} #9 off`;
+  const reasonOn = `TEST ${J} #9 on`;
+  const changes = () => desk('lead', 'query', 'helpCentreChanges', { limit: 50 });
+  /** The newest change row with this reason, which must name the publish switch and its old and new value. */
+  const audited = async (reason, from, to) => {
+    const row = (await changes()).find((change) => change.reason === reason);
+    expect(row, `no change row with reason ${reason}`).toBeDefined();
+    expect(row.changed).toContain('published');
+    expect(row.before.published).toBe(from);
+    expect(row.after.published).toBe(to);
+    return row;
+  };
   try {
-    await setHelpCentre({ published: false }, reason);
+    // The switch starts off so turning it on is a change of its own.
+    if (before.published !== false) await setHelpCentre({ published: false }, `TEST ${J} #9 start off`);
+    // Turning it on is audited with its reason.
+    await setHelpCentre({ published: true }, reasonOn);
+    await audited(reasonOn, false, true);
+    expect((await helpCentre()).published).toBe(true);
+    // Turned off, audited too, and /help states it is switched off.
+    await setHelpCentre({ published: false }, reasonOff);
+    await audited(reasonOff, true, false);
     const context = await browser.newContext({ baseURL: ORIGIN });
     const page = await context.newPage();
     await page.goto('/help');
     await expect(page.locator('main').getByTestId('help-centre-off')).toContainText('The help centre is switched off');
     await context.close();
-    const log = await desk('lead', 'query', 'helpCentreChanges', { limit: 20 });
-    expect(JSON.stringify(log)).toContain(reason);
   } finally {
     await setHelpCentre({ published: before.published }, `TEST ${J} #9 back`);
   }

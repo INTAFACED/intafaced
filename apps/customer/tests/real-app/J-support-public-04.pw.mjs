@@ -94,6 +94,25 @@ async function answered(browser) {
   return { ticket: shared.ticket, page };
 }
 
+/** A new request of this customer that the team has replied to, for a step that must see it before any rating. */
+async function freshAnswered(browser, step) {
+  const page = await person(browser);
+  const ticket = await send(shared.who, `TEST ${J} ${RUN} ${step} answered`);
+  await lead('mutation', 'comment', { ticketId: ticket.id, body: `TEST ${J} ${RUN} ${step} the team answers` });
+  return { ticket, page };
+}
+
+/** The limits line the control must show for the service's own values (support-desk-copy attachLimitsLine, fileSizeLabel). */
+function limitsLine({ maxCount, maxBytes, allowedTypes }) {
+  const size =
+    maxBytes < 1024
+      ? `${maxBytes} bytes`
+      : maxBytes < 1024 * 1024
+        ? `${Math.round(maxBytes / 1024)} KB`
+        : `${(maxBytes / 1024 / 1024).toFixed(1)} MB`;
+  return `Up to ${maxCount} files per request, each up to ${size}. Accepted types: ${allowedTypes.join(', ')}.`;
+}
+
 /** TEST attachment limits (LOCAL TEST values, not owner decisions), set by the lead when any is blank. */
 const TEST_LIMITS = { maxBytes: 1_048_576, allowedTypes: ['image/png', 'text/plain'], maxCount: 5 };
 async function testLimits(expectedRevision, reason) {
@@ -160,11 +179,17 @@ test(`${J} #3 attaching a screenshot: the control states the service's limits, a
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
     return res.body.result.data;
   };
-  // The owner's limits are blank until set. With the count blank, an attach is a typed refusal naming that setting, and
-  // nothing is stored. The lead blanks it here so the refusal is seen whatever an earlier run left.
+  const files = async () => {
+    const res = await client.get(query('ticketAttachments', { ticketId: ticket.id, limit: 50 }));
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  // The owner's limits are blank until set. With one blank, an attach is a typed refusal naming that missing setting, and
+  // nothing is stored. The lead blanks the count here so the refusal is seen whatever an earlier run left.
   const reason = `TEST ${J} #3`;
   let set = await lead('mutation', 'setAttachmentSettings', { maxCount: null, expectedRevision: (await limits()).revision, reason });
-  expect(set.missing).not.toBeNull();
+  expect(set.missing).toEqual(expect.stringMatching(/^support\.attachment_[a-z_]+$/));
+  const before = (await files()).length;
   const refused = await client.post('/api/support/trpc/attach', {
     ticketId: ticket.id,
     clientRequestId: `j04:${RUN}:blank`,
@@ -172,32 +197,41 @@ test(`${J} #3 attaching a screenshot: the control states the service's limits, a
     bodyBase64: PNG.toString('base64'),
   });
   expect(refused.status).not.toBe(200);
-  expect(JSON.stringify(refused.body)).toContain(
-    set.missing === 'support.attachment_max_count' ? 'support.attachment_count_unset' : 'support.',
-  );
-  expect((await client.get(query('ticketAttachments', { ticketId: ticket.id, limit: 50 }))).body.result.data).toHaveLength(0);
+  // The typed refusal for the setting that is missing, and the setting's own name.
+  const refusal = set.missing === 'support.attachment_max_count' ? 'support.attachment_count_unset' : 'support.attachments_unconfigured';
+  expect(code(refused)).toContain(refusal);
+  expect(JSON.stringify(refused.body)).toContain(set.missing);
+  expect(await files()).toHaveLength(before);
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
-  await expect(main.getByTestId('attach-limits')).toContainText('Attaching files is switched off.');
-  // The lead sets TEST limits (LOCAL TEST values, not owner decisions); the control states what the service answers.
+  await expect(main.getByTestId('attach-limits')).toHaveText(
+    'Attaching files is switched off. Describe what you see in your message instead.',
+  );
+  // The lead sets TEST limits (LOCAL TEST values, not owner decisions); the control states exactly what the service answers.
   set = await testLimits(set.revision, reason);
   expect(set.missing).toBeNull();
+  const read = await limits();
+  expect(read).toMatchObject({ missing: null, ...TEST_LIMITS });
   await page.reload();
-  await expect(main.getByTestId('attach-limits')).toContainText(
-    /Up to \d+ files per request, each up to .+\. Accepted types: .*image\/png/,
-  );
+  await expect(main.getByTestId('attach-limits')).toHaveText(limitsLine(read));
   await main.getByLabel('File to attach').setInputFiles({ name: 'screenshot.png', mimeType: 'image/png', buffer: PNG });
   await main.getByRole('button', { name: 'Review attachment' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Attach file' }).click();
-  const files = main.getByTestId('attach-files');
-  await expect(files.getByRole('listitem')).toHaveCount(1, { timeout: 10_000 });
-  await expect(files.getByRole('listitem').first()).toContainText(/Being checked|Checked/);
+  const list = main.getByTestId('attach-files').getByRole('listitem');
+  await expect(list).toHaveCount(before + 1, { timeout: 10_000 });
+  const file = list.filter({ hasText: 'image/png' }).last();
+  // First "Being checked" (the service's `scanning`), and only then "Checked" (`clean`) with a download.
+  await expect(file.locator('[data-scan-state]')).toHaveAttribute('data-scan-state', 'scanning');
+  await expect(file).toContainText('Being checked');
+  await expect(file.getByRole('button', { name: 'Download' })).toHaveCount(0);
   await expect(async () => {
     await main.getByRole('button', { name: 'Check for new replies' }).last().click();
-    await expect(files.getByRole('listitem').first()).toContainText('Checked', { timeout: 1_000 });
-    await expect(files.getByRole('listitem').first()).not.toContainText('Being checked');
+    await expect(file.locator('[data-scan-state]')).toHaveAttribute('data-scan-state', 'clean', { timeout: 1_000 });
   }).toPass({ timeout: 20_000 });
-  await expect(files.getByRole('listitem').first().getByRole('button', { name: 'Download' })).toBeVisible();
+  await expect(file).toContainText('Checked');
+  await expect(file).not.toContainText('Being checked');
+  await expect(file.getByRole('button', { name: 'Download' })).toBeVisible();
+  expect((await files()).filter((row) => row.contentType === 'image/png').at(-1)).toMatchObject({ scanState: 'clean' });
 });
 
 test(`${J} #4 a file the scanner blocks shows as not accepted and is never offered for download; another customer's request id answers as not found`, async ({
@@ -271,11 +305,18 @@ test(`${J} #5 a reply moves the request back to "Open" and the team sees it; a r
 test(`${J} #6 once the team marks it solved, the request asks for a rating in the app, with thank-you text and the rating form`, async ({
   browser,
 }) => {
-  const { ticket, page } = await answered(browser);
+  // A request of its own that nobody has rated, so the page shows what solving it brings and nothing from a rating.
+  const { ticket, page } = await freshAnswered(browser, '#6');
   await solved(ticket, '#6');
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
-  await expect(main.getByText('This request is solved. Tell us how it went by rating it below.')).toBeVisible();
+  // The in-app prompt to rate it.
+  await expect(main.locator('.support-rate-ask')).toHaveText(
+    'This request is solved. Tell us how it went by rating it below. It takes one tap and you can add a note.',
+  );
+  // Thank-you text, shown on solving, before any rating.
+  await expect(main.getByText(/thank you/i).first()).toBeVisible();
+  // The rating form: score, note and the review button.
   await expect(main.getByRole('combobox', { name: 'Your score' })).toBeVisible();
   await expect(main.getByLabel('Anything to add (optional)')).toBeVisible();
   await expect(main.getByRole('button', { name: 'Review rating' })).toBeEnabled();
@@ -303,7 +344,8 @@ test(`${J} #7 a rating with a note is stored once; opening it again shows the st
 });
 
 test(`${J} #8 solved with no mail sender set: the in-app prompt shows and the rating mail waits with vendor.email`, async ({ browser }) => {
-  const { ticket } = await answered(browser);
+  // A request of its own that nobody has rated, so the page can only show the ask.
+  const { ticket, page } = await freshAnswered(browser, '#8');
   await solved(ticket, '#8');
   const client = await api(shared.who);
   // The in-app ask: one notice for this request, however often it was solved.
@@ -327,10 +369,15 @@ test(`${J} #8 solved with no mail sender set: the in-app prompt shows and the ra
     refusalCode: 'vendor.email',
     acceptedAt: null,
   });
-  // The in-app prompt shows on the request.
-  const page = await person(browser);
+  // The in-app prompt shows on the request, with the form to answer it.
   await page.goto(`/support/tickets/${ticket.id}`);
-  await expect(page.locator('main').getByText(/You rated this request|This request is solved\. Tell us how it went/)).toBeVisible();
+  const main = page.locator('main');
+  await expect(main.locator('.support-rate-ask')).toHaveText(
+    'This request is solved. Tell us how it went by rating it below. It takes one tap and you can add a note.',
+  );
+  await expect(main.getByRole('combobox', { name: 'Your score' })).toBeVisible();
+  // The inbox row the ask is: "How did we do?".
+  expect(ask).toMatchObject({ kind: 'support.rate_request' });
 });
 
 test(`${J} #9 writing on a closed request is refused with a typed reason and nothing stored; "follow up" makes a new request linked to it`, async ({
@@ -345,8 +392,9 @@ test(`${J} #9 writing on a closed request is refused with a typed reason and not
     body: 'TEST late words',
     clientRequestId: `j04:${RUN}:late`,
   });
+  // The typed reason the service gives a customer's write on a closed request.
   expect(refused.status).not.toBe(200);
-  expect(code(refused).some((c) => c.startsWith('support.'))).toBe(true);
+  expect(code(refused)).toContain('support.comment.terminal');
   expect((await client.get(query('listComments', { ticketId: ticket.id, limit: 500 }))).body.result.data).toHaveLength(before);
 
   await page.goto(`/support/tickets/${ticket.id}`);
