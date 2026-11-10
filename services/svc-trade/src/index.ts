@@ -1500,6 +1500,7 @@ installMarketDelistedPlace(TradeService);
 installCollarPlace(TradeService);
 installComboPlace(TradeService);
 registerPrivateRest(app, {
+  userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,

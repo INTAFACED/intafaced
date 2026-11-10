@@ -26,11 +26,17 @@ beforeAll(async () => {
 afterAll(async () => new Promise<void>((r) => server.close(() => r())));
 afterEach(async () => app?.close());
 
-async function mount(door: UserVenueDoor | null) {
+async function mount(door: UserVenueDoor | null, slippageCapBps: number | null = null, verified = true) {
   app = Fastify();
   attachUserVenueRoutes(app, door, {
     requirePrincipal: () => USER,
-    requireTradeJurisdiction: () => true,
+    // Unverified: the trade jurisdiction refuses as private-rest's does (denied.kyc_required, 403).
+    requireTradeJurisdiction: (_req, reply) => {
+      if (verified) return true;
+      void reply.code(403).send({ code: 'PermissionDenied', message: 'TEST not verified', intafacedCode: 'denied.kyc_required' });
+      return false;
+    },
+    slippageCapBps,
   });
   await app.ready();
   return app;
@@ -54,6 +60,15 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve') {
 }
 
 describe('/api/v1/venue/*', () => {
+  it('unverified: the best prices refuse with the trade jurisdiction, as the market list does', async () => {
+    await mount(door(), 50, false);
+    for (const path of ['/api/v1/venue/markets', '/api/v1/venue/best-prices?symbol=BTC-USDC']) {
+      const res = await app.inject({ method: 'GET', url: path });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().intafacedCode).toBe('denied.kyc_required');
+    }
+  });
+
   it('off: status is { enabled: false } and every other route refuses trade.user_venue_off', async () => {
     await mount(null);
     expect((await app.inject({ method: 'GET', url: '/api/v1/venue/status' })).json()).toEqual({ enabled: false });
@@ -90,6 +105,26 @@ describe('/api/v1/venue/*', () => {
     expect(sub.json().outcome).toMatchObject({ definite: true, accepted: true });
     const lev = await app.inject({ method: 'GET', url: `/api/v1/venue/leverage?owner=${owner}&symbol=BTC-PERP` });
     expect(lev.json().value).toEqual({ symbol: 'BTC-PERP', leverageBps: 50_000, marginMode: 'isolated' });
+  });
+
+  it("best-prices answers the venue's best bid and ask as decimal strings, and refuses without a symbol", async () => {
+    await mount(door());
+    const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.value.symbol).toBe('BTC-USDC');
+    for (const side of [body.value.bid, body.value.ask]) expect(side === null || typeof side === 'string').toBe(true);
+    expect(typeof body.asOf).toBe('string');
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices' })).statusCode).toBe(400);
+    // The owner's price protection is blank here: not known, never a default.
+    expect(body.slippageCapBps).toEqual({ known: false });
+  });
+
+  it("best-prices carries the owner's market price protection as svc-trade holds it", async () => {
+    await mount(door(), 150);
+    const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().slippageCapBps).toEqual({ known: true, value: '150' });
   });
 
   it('orders refuse builder_fee_not_published (422); a withdrawal without its step-up refuses 403; a money number refuses 400', async () => {

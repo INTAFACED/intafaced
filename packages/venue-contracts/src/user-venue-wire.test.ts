@@ -26,6 +26,12 @@ describe('user-venue wire', () => {
     expect(asOf).toEqual({ value: parseAmount('12.5'), asOf: new Date('2026-11-08T19:00:00.000Z') });
   });
 
+  it('reads the best prices as Amounts, and an empty side as null, so a market order is bounded in bigint', () => {
+    const best = { symbol: 'BTC-PERP', bid: parseAmount('64999'), ask: null };
+    expect(decodeVenueWire(JSON.parse(JSON.stringify(encodeVenueWire(best))))).toEqual(best);
+    expect(() => decodeVenueWire({ bid: 64999 })).toThrow(/decimal string/);
+  });
+
   it('refuses a JSON number in a money field', () => {
     expect(() => decodeVenueWire({ amount: 0.1 })).toThrow(VenueWireError);
     expect(() => decodeVenueWire({ intent: { price: 60000 } })).toThrow(/decimal string/);

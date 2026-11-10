@@ -3,6 +3,7 @@
  *
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
  *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
+ *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
@@ -35,6 +36,12 @@ import { UserVenueDoor, UserVenueDoorError } from './user-venue-door.js';
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
+  /**
+   * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank, as
+   * `best-prices` answers it beside the venue's book, so a desk can bound a venue market order's worst price by it. Never
+   * a default: blank answers `{ known: false }`.
+   */
+  slippageCapBps?: number | null;
 }
 
 type Query = { owner?: string; subAccount?: string; clientOrderId?: string; since?: string; symbol?: string };
@@ -118,6 +125,19 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
     if (!admit(req, reply, 'trade:read')) return;
     // Only the markets two operators listed, each with our listing beside the venue's own state (J-cex-spot-16).
     return answer(reply, async (d) => d.markets());
+  });
+
+  app.get<{ Querystring: Query }>('/api/v1/venue/best-prices', privateRead, async (req, reply) => {
+    if (!admit(req, reply, 'trade:read')) return;
+    return answer(reply, async (d) => {
+      if (!req.query.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.bestPrices)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
+      const best = await venue.bestPrices(req.query.symbol);
+      const cap = deps.slippageCapBps ?? null;
+      return { ...best, slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) } };
+    });
   });
 
   type Account = Awaited<ReturnType<UserVenueDoor['account']>>;
