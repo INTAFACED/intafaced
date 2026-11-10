@@ -4,7 +4,13 @@ import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { forwardedPrincipalHeaders } from './forward-principal-signature.js';
 import { normalizeIp } from './request-client-ip.js';
 import { assertKeyNotExpired, optionalExpiresAtFromExchange, KeyExpiresError } from './api-key-expires.js';
-import { assertApiKeyAccount, optionalAccountIdFromExchange, requestAccountId, KeyAccountError } from './api-key-account.js';
+import {
+  assertApiKeyAccount,
+  optionalAccountIdFromExchange,
+  requestAccountId,
+  KeyAccountError,
+  subAccountKeyRouteAllowed,
+} from './api-key-account.js';
 import { assertUserNotFrozen, optionalUserStatusFromExchange, KeyUserStatusError } from './api-key-user-status.js';
 import { assertApiKeyOrigin, optionalOriginAllowlistFromExchange, KeyOriginError } from './api-key-origin.js';
 import { assertApiKeyIp, optionalIpAllowlist, optionalIpAllowlistFromExchange, KeyIpError } from './api-key-ip.js';
@@ -493,6 +499,12 @@ export async function exchangePrincipal(
 
   if (principal.expiresAt.getTime() <= now.getTime()) {
     return { headers: forward, principal: null, rejected: 'expired', ...keyRefused };
+  }
+
+  // A key bound to a sub-account (its token carries `sub_account`, set by identity from the key's own record, never
+  // from what the caller sent) reaches only the routes that answer for that sub-account (DV-sub-accounts-01).
+  if (presentedApiKey && principal.sub_account !== undefined && !subAccountKeyRouteAllowed(options.request)) {
+    return { headers: forward, principal: null, rejected: 'invalid', apiKeyRefusal: API_KEY_DENIED };
   }
 
   const read = await readEdgeAuthority(principal, {

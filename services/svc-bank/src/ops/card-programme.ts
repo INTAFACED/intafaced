@@ -184,6 +184,9 @@ export function cardProgrammeFundingProcedure(bank: BankServices, guard: Guard) 
             appCaptured: amountString,
             appFigure: amountString,
             partnerFigure: known,
+            /** The partner's own time for its figure, or "not known" when it sent none (b2 change 6). */
+            partnerAsOf: z.string().min(1),
+            partnerState: z.enum(['known', 'stale', 'unknown']),
             difference: signed,
             status: z.enum(['matches', 'break', 'not_known']),
             fundingRate: known,
@@ -203,6 +206,7 @@ export function cardProgrammeFundingProcedure(bank: BankServices, guard: Guard) 
           rows: v.rows.map((r) => ({
             ...r,
             partnerFigure: r.partnerFigure ?? NOT_KNOWN,
+            partnerAsOf: r.partnerAsOf ?? NOT_KNOWN,
             difference: r.difference ?? NOT_KNOWN,
             fundingRate: r.fundingRate ?? NOT_KNOWN,
             fundingRateAsOf: r.fundingRateAsOf ?? NOT_KNOWN,
