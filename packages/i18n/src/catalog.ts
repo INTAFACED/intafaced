@@ -176,6 +176,8 @@ export const en = {
     other:
       'You removed the last payment method for {count} of your ads, so they are paused. Add a payment method they can be paid with, then resume them from My offers.',
   },
+  'notify.p2p.trader.posted.title': 'A trader you follow posted an ad',
+  'notify.p2p.trader.posted.body': 'A trader you follow posted a new {asset} ad in {fiatCurrency}. Open their ads to see it.',
   'notify.p2p.remark_case.opened.title': 'A payment-note remark was reported',
   'notify.p2p.remark_case.opened.body':
     'The other person on this order reported a remark in a payment note. A case is open for staff to decide.',
@@ -240,6 +242,9 @@ export const en = {
   'notify.trade.copy_stopped.body.lead_stopped': 'The leader was suspended, so this follow stopped copying. You can choose another leader.',
   'notify.trade.copy_stopped.body.risk_control': 'One of your risk limits stopped this follow. You can check your limits and follow again.',
   'notify.trade.copy_stopped.body.permission_ended': 'The copy permission for this follow ended. You can grant it again on the follow.',
+  'notify.trade.venue_delisting.title': '{symbol} is being delisted',
+  'notify.trade.venue_delisting.body':
+    '{symbol} leaves the markets on {delistsAt} (UTC). After that, new orders on it are refused. You can still close what you hold and cancel open orders.',
   'notify.bank.scheduled_reminder.title': 'Standing order coming up',
   'notify.bank.scheduled_reminder.body': 'Your standing order of {amount} {assetId} runs on {dueDate} (UTC). Make sure the money is there.',
   'notify.bank.scheduled_failed.title': 'Standing order did not go through',
@@ -296,6 +301,8 @@ export const en = {
   'error.notFound': 'We could not find that.',
   'error.unauthorized': 'Sign in to continue.',
   'error.forbidden': 'You do not have access to this.',
+  'error.agentApprovalRequired': 'An agent key cannot do this on its own. It waits for the key owner on the key page. Nothing was sent.',
+  'error.explorerLiveWriteRefused': 'The API explorer only reads with a live key. Use a sandbox key to send a write. Nothing was sent.',
   'error.rateLimited': 'Too many requests. Wait a moment.',
   'error.validation.required': 'This field is required.',
   'error.validation.invalidAmount': 'Enter a valid amount.',

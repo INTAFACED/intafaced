@@ -22,6 +22,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     ...c('svc-support', PORTS.support),
     DATABASE_URL: supportCatalogueOff() ? onEmptyCatalogueDb(dbUrl('svc_support', secrets)) : dbUrl('svc_support', secrets),
     IDENTITY_URL: urlOf('identity'),
+    // A scam report names a transfer; svc-bank answers on its signed door whether this person sent it (J-bank-18 #3).
+    BANK_URL: urlOf('bank'),
+    // A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay
+    // whose a withdrawal or deposit is.
+    TRADE_URL: urlOf('trade'),
+    PAY_URL: urlOf('pay'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/support.json: how many comments a
     // requester may add to one request. Production stays blank and every requester comment refuses
     // (support.comment_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_COMMENT_CAP=off` on a start or restart
@@ -29,6 +35,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     ...(process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP === 'off' ? {} : { SUPPORT_COMMENT_CAP: '50' }),
     // LOCAL TEST only, labelled in the same file: how many saved desk views one person, and the whole desk, may keep.
     // Production stays blank and every save refuses (support.view_cap_unset) until the owner sets them.
+    // LOCAL TEST only, labelled in the same file: how many requests one bulk change may take. Production stays blank and
+    // every batch refuses (support.bulk_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_BULK_CAP=off` on a start
+    // or restart leaves it blank, so that refusal can be seen in the running app too (J-support-public-11 #7).
+    ...(process.env.LOCAL_STACK_SUPPORT_BULK_CAP === 'off' ? {} : { SUPPORT_BULK_CAP: '25' }),
     SUPPORT_VIEW_PERSONAL_CAP: '20',
     SUPPORT_VIEW_SHARED_CAP: '20',
     // LOCAL TEST only, labelled in the same file: how many help-answer votes one account or browser may cast per window.
@@ -52,9 +62,23 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     ...(process.env.LOCAL_STACK_SUPPORT_OFFICIAL_CHANNELS === 'off'
       ? {}
       : { SUPPORT_OFFICIAL_CHANNELS: loadProfile().values.SUPPORT_OFFICIAL_CHANNELS.value }),
+    // LOCAL TEST only, labelled in the same file: a complaint's final-response limit in calendar days (J-bank-18 #5).
+    // Production stays blank: complaints are still acknowledged and every deadline reads "not set" until the owner sets it.
+    SUPPORT_COMPLAINT_RESPONSE_DAYS: '14',
+    // LOCAL TEST only, labelled in the same file: a TEST money-mule policy (J-bank-18 #3). Production stays blank and the
+    // policy page says the owner has not published it. `LOCAL_STACK_SUPPORT_MULE_POLICY=off` on a restart leaves it blank.
+    ...(process.env.LOCAL_STACK_SUPPORT_MULE_POLICY === 'off'
+      ? {}
+      : { SUPPORT_MULE_POLICY: loadProfile().values.SUPPORT_MULE_POLICY.value }),
     // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
     // journey whose agent sees or works a request puts it in the agent's group first (J-support-public-10 #2, #3, #4, #8, #10).
     SUPPORT_ALL_GROUPS_ROLES: 'lead',
+    // LOCAL TEST only: the owner's automatic-offline window is blank on the stack, as in production, so the directory says
+    // automatic offline is not set. `LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW=<seconds>` on a restart of support sets a TEST
+    // window, so a silent agent can be seen going offline (J-support-public-12 #1).
+    ...(/^[1-9][0-9]{0,5}$/.test(process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW ?? '')
+      ? { STAFF_HEARTBEAT_WINDOW_SECONDS: process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW }
+      : {}),
     // LOCAL TEST only, labelled in the same file: what a customer reads of the desk's priority and type on their request.
     // Production stays blank and the customer reads neither (support.customer_properties_unset) until the owner chooses.
     SUPPORT_CUSTOMER_SEES: 'priority,type',
@@ -82,5 +106,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
       ? {}
       : { SUPPORT_GUEST_RATE_LIMIT: '3', SUPPORT_GUEST_RATE_WINDOW_SECONDS: '3600' }),
     SUPPORT_GUEST_RETENTION_DAYS: '30',
+    // LOCAL TEST only, labelled in the same file: live chat (J-support-public-05). The customer messages one chat may send
+    // per window, how long an embedding page's identity claim works, and the pre-chat fields a guest is asked for.
+    // Production stays blank: every chat refuses support.chat_rate_limit_unset and every claim
+    // support.chat_identity_ttl_unset until the owner sets them, and a guest is asked for a first message only.
+    SUPPORT_CHAT_RATE_LIMIT: '30',
+    SUPPORT_CHAT_RATE_WINDOW_SECONDS: '60',
+    SUPPORT_CHAT_IDENTITY_TTL_SECONDS: '300',
+    SUPPORT_CHAT_PRECHAT_FIELDS: 'name,email',
   }),
 });

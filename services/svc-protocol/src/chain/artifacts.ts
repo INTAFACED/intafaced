@@ -42,6 +42,9 @@ export type ArtifactName =
   | 'TokenFactory'
   | 'ConstantProductPool'
   | 'PoolFactory'
+  | 'LiquidityPool'
+  | 'LiquidityFactory'
+  | 'LiquidityRouter'
   | 'FailClosedOracle'
   | 'IsolatedLendingMarket'
   | 'MerchantAccept'
@@ -72,6 +75,10 @@ export type ArtifactName =
   | 'FeeTokenRelay'
   | 'ClaimLinkEscrow'
   | 'TestToken'
+  | 'TestPlainToken'
+  | 'TestWrappedNative'
+  | 'SovereignPermit'
+  | 'SovereignRouterV2'
   | 'RwaRegistry'
   | 'CardPull';
 

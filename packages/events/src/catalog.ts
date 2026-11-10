@@ -1204,6 +1204,28 @@ export const p2pOfferPaused = defineEvent(
 );
 
 /**
+ * P-ads-merchant-22 / J-p2p-12 #4: a trader posted a new public ad, and this is the notice owed to one person who follows
+ * them. One event per (ad, follower): an ad is posted once and an edit sends nothing, so consumers dedupe on offerId and
+ * followerId. Only what the follower needs to find the ad rides here; the ad itself stays in svc-p2p.
+ */
+export const p2pTraderPosted = defineEvent(
+  'p2p',
+  'trader',
+  'posted',
+  1,
+  z.object({
+    offerId: z.string().guid(),
+    traderId: userIdSchema,
+    followerId: userIdSchema,
+    side: z.enum(['buy', 'sell']),
+    asset: z.string().min(1).max(32),
+    fiatCurrency: z.string().min(3).max(8),
+    postedAt: z.string().datetime({ offset: true }),
+  }),
+  'A trader someone follows posted a new public ad. Sent once per (offerId, followerId); an ad edit sends nothing.',
+);
+
+/**
  * P-ads-merchant-19 / J-p2p-04 #5: a party to an order reported a sensitive remark in its payment note, and a case was
  * opened. One case per (order, reporter): consumers dedupe on caseId. The remark itself never travels on the bus; the
  * reported party is told a case was opened about their order, and staff read the case in svc-p2p.
@@ -1347,6 +1369,34 @@ export const copyStopped = defineEvent(
     stoppedAt: z.string().datetime({ offset: true }),
   }),
   'A follow stopped copying new leader fills. With closeOnly it still mirrors closes of what it already holds. A stop is one-way (close-only can only become left), so consumers dedupe on (followId, closeOnly). The follower is told the reason.',
+);
+
+/**
+ * A delisting INTAFACED scheduled for a market on an outside venue it routes customers' own orders to (J-cex-spot-16 #8).
+ * Our listing record only: the venue's own state is the venue's. No funds move and no order is touched.
+ */
+export const venueDelistingScheduled = defineEvent(
+  'trade',
+  'venue_delisting',
+  'created',
+  1,
+  z.object({
+    venueId: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9][a-z0-9._-]*$/),
+    symbol: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Z0-9][A-Z0-9/._-]*$/),
+    delistsAt: z.string().datetime({ offset: true }),
+    scheduledAt: z.string().datetime({ offset: true }),
+    /** The business key the one customer notice is filed under: `venue-delisting:<venueId>:<symbol>:<delistsAt>`. */
+    noticeKey: z.string().min(1).max(256),
+  }),
+  'Two operators scheduled the date a venue market leaves the routed list. svc-trade writes the listing version and the notice row first and publishes after commit, republishing until it is sent; consumers dedupe on (noticeKey), so customers get one dated notice per market and date.',
 );
 
 export const projectionUpdated = defineEvent(
@@ -2054,6 +2104,7 @@ export const EVENT_CATALOG = {
   p2pTradeFiatSent,
   p2pTradeReminderSent,
   p2pOfferPaused,
+  p2pTraderPosted,
   p2pRemarkCaseOpened,
   p2pChatMessageSent,
   p2pDisputeEscalated,
@@ -2061,6 +2112,7 @@ export const EVENT_CATALOG = {
   copySkipped,
   copyFailed,
   copyStopped,
+  venueDelistingScheduled,
   projectionUpdated,
 } as const;
 

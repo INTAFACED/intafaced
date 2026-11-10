@@ -161,7 +161,7 @@ describe('academy and more desks', () => {
   it('academy reads its grants and enrolments, and links each section to a page of its own', () => {
     const html = render(props('academy', view('academy', [])));
     expect(html).not.toContain('Not available:');
-    expect(html).toContain('Certificate grants');
+    expect(html).toContain('Grants and revokes');
     expect(html).toContain('href="/academy-ops/grants"');
     const page = render({ ...props('academy', view('academy', [])), spec: academySectionDesk('grants') });
     expect(page).toContain('aria-current="page"');
@@ -287,7 +287,10 @@ describe('Export CSV on every list read', () => {
                       ? ['a']
                       : c.kind === 'assetAmounts'
                         ? [{ assetId: 'USDC', amount: '1' }]
-                        : 'x';
+                        : // A text column with plain words takes one of its own values (any other value is invalid by design).
+                          c.words
+                          ? Object.keys(c.words)[0]
+                          : 'x';
         }
         const raw = spec.rowsKey ? { [spec.rowsKey]: [sample], ...(spec.cursorKey ? { [spec.cursorKey]: null } : {}) } : [sample];
         const html = render(props(id, view(id, [okOutcome(id, spec.id, raw)])));

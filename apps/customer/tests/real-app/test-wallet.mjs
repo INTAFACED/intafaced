@@ -73,9 +73,12 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   const sends = [];
   let rejectNext = false;
   let otherKeyNext = false;
+  /** Runs once before the next send it matches, then the send goes on: another trader's transaction landing first. */
+  let beforeSend = null;
   // Signing runs here, outside the page: the key never enters the browser.
   await page.exposeFunction('__testWalletSign', async (method, params) => {
-    requests.push({ method, params });
+    const entry = { method, params };
+    requests.push(entry);
     if (rejectNext) {
       rejectNext = false;
       return { rejected: true };
@@ -85,19 +88,25 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
       // A different key signs the same message, as a wallet answering for the wrong account would.
       return { signature: await privateKeyToAccount(generatePrivateKey()).signMessage({ message: { raw: params[0] } }) };
     }
-    if (method === 'personal_sign') return { signature: await account.signMessage({ message: { raw: params[0] } }) };
+    if (method === 'personal_sign') return { signature: (entry.signature = await account.signMessage({ message: { raw: params[0] } })) };
     const { domain, types, primaryType, message } = JSON.parse(params[1]);
     const { EIP712Domain: _domain, ...rest } = types;
-    return { signature: await account.signTypedData({ domain, types: rest, primaryType, message }) };
+    return { signature: (entry.signature = await account.signTypedData({ domain, types: rest, primaryType, message })) };
   });
   // A transaction the page asks to send is kept, so a test can read what was built. With no TEST chain it is never sent;
   // with one, an eth_sendTransaction on that chain is signed here (the key never enters the browser) and sent.
   await page.exposeFunction('__testWalletSend', async (onChain, method, params) => {
-    sends.push({ method, params });
+    const entry = { method, params };
+    sends.push(entry);
     if (!node || onChain !== chainId || method !== 'eth_sendTransaction') return { unanswered: true };
     const tx = params[0];
     if (tx.from && tx.from.toLowerCase() !== address)
       return { error: { code: 4100, message: 'The TEST wallet does not hold that account.' } };
+    if (beforeSend && beforeSend.match(tx)) {
+      const run = beforeSend.run;
+      beforeSend = null;
+      await run();
+    }
     const big = (value) => (value === undefined || value === null ? undefined : BigInt(value));
     try {
       const hash = await node.sendTransaction({
@@ -110,6 +119,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
         gasPrice: tx.maxFeePerGas || tx.maxPriorityFeePerGas ? undefined : big(tx.gasPrice),
         nonce: tx.nonce === undefined ? undefined : Number(BigInt(tx.nonce)),
       });
+      entry.hash = hash;
       return { result: hash };
     } catch (err) {
       return { error: rpcError(err) };
@@ -200,9 +210,12 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   );
   return {
     address,
-    /** Every signature the page asked for, in order: `{ method, params }`. */
+    /** Every signature the page asked for, in order: `{ method, params }`, and `signature` once the wallet signed it. */
     requests,
-    /** Every transaction or call batch the page asked the wallet to send, in order: `{ method, params }`. Only with `rpcUrl` does one reach a chain. */
+    /**
+     * Every transaction or call batch the page asked the wallet to send, in order: `{ method, params }`, and `hash` once
+     * sent. Only with `rpcUrl` does one reach a chain.
+     */
     sends,
     /** The next signature request is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
     rejectNext: () => {
@@ -211,6 +224,13 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     /** The next message is signed by another, throwaway key while the wallet still names its own address. */
     signWithOtherKeyNext: () => {
       otherKeyNext = true;
+    },
+    /**
+     * Before the next transaction `match(tx)` accepts is sent, `run()` is awaited (for example another trader's swap that
+     * is mined first), then the page's transaction is signed and sent as usual. Once only.
+     */
+    beforeNextSend: (match, run) => {
+      beforeSend = { match, run };
     },
     /** Moves the wallet to another network from the wallet's side, as a person does in the extension. */
     setChain: (id) => page.evaluate((next) => window.__testWallet.setChain(next), id),

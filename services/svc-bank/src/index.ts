@@ -23,19 +23,30 @@ import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from '
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
+import { ledgerPostingFreeze } from './partner/partner-bank.js';
 import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './cards/card-programme.js';
 import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
+import { parseDisputeCap } from './cards/card-disputes.js';
+import { cardSimPartnerFor, parsePinTryLimit, parseSpendAssets, parseThreeDSTryLimit } from './cards/partner-terms.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { testPartnerFor } from './partner/test-partner.js';
+import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
-import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
+import {
+  payoutCancelledBody,
+  payoutFailedBody,
+  payoutPaidBody,
+  payoutReturnedBody,
+  payoutVerifyBody,
+  redriveBody,
+} from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
@@ -154,6 +165,10 @@ const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env
 
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
+  // A partner move posts nothing on the ledger, so it asks svc-ledger's posting freeze first (floor 4).
+  postingFreeze: ledgerPostingFreeze(env.LEDGER_URL),
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
@@ -227,6 +242,8 @@ const bank = createBankServices(sql, ledger, history, {
     affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
     affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
   },
+  /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
+  cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
   /**
    * THE OTHER HALF THAT WAS MISSING, and it was missing in the same shape.
    *
@@ -241,7 +258,18 @@ const bank = createBankServices(sql, ledger, history, {
    * deployment gets by SAYING ANYTHING.
    */
   cards: {
-    issuer: cardIssuerFor(env.BANK_CARD_ISSUER, { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    issuer: cardIssuerFor(
+      env.BANK_CARD_ISSUER,
+      { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+      // The TEST partner card adapter's switches; refused at boot outside dev/test (CUSTODY-DELTA §4).
+      cardSimPartnerFor(env.BANK_CARD_SIM_PARTNER_JSON, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    ),
+    /** The owner's list of assets a card may pay from (BK-ccrypto-01). Blank refuses `bank.card_spend_assets_unset`. */
+    spendAssets: parseSpendAssets(env.BANK_CARD_SPEND_ASSETS),
+    /** The owner's count of wrong PIN tries that block a card's PIN (J-bank-14 #3). Blank declines a PIN by name. */
+    pinTryLimit: parsePinTryLimit(env.BANK_CARD_PIN_TRY_LIMIT),
+    /** The owner's count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5). Blank refuses by name. */
+    threeDSTryLimit: parseThreeDSTryLimit(env.BANK_CARD_3DS_TRY_LIMIT),
     /** The owner's card programme terms (BK-cissue-01): eligibility, count limits, terms, designs, speeds. Blank refuses. */
     programmeTerms: parseCardProgramme(env.BANK_CARD_PROGRAMME_JSON),
     /** Cashback by rank card tier (RC-bank-02): the owner's rates, identity's rank door, and the simulator's TEST stand-in. */
@@ -340,6 +368,7 @@ const bank = createBankServices(sql, ledger, history, {
   dormancyRules: env.BANK_DORMANCY_RULES_JSON,
   /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
   earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
+  blockedRegionNotice: env.BANK_BLOCKED_REGION_NOTICE,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
@@ -350,6 +379,8 @@ const bank = createBankServices(sql, ledger, history, {
   accountDetails: {
     currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
     eligibilityJson: env.BANK_ELIGIBILITY_JSON,
+    // The TEST partner issues TEST details to a person who switched it on (J-bank-01 #6); otherwise none (`rail.bank`).
+    ...(testPartner ? { partnerFor: testPartnerAccountDetails(testPartner) } : {}),
   },
   /**
    * RAMPS — same missing-wiring shape as cards.
@@ -549,6 +580,16 @@ app.post('/internal/restore/watermark', async (req, reply) => {
   return readBankWatermark(sql);
 });
 
+/**
+ * Any reserve a partner holds of ours (J-ops-console-24 #1): a read for svc-ops' capital monitor alone, signed like the
+ * job doors. No credentials is 401; a valid service that is not svc-ops is 403.
+ */
+app.post('/internal/capital/partner-reserves', async (req, reply) => {
+  if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  if (callerService(req) !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'bank.caller_forbidden' });
+  return partnerReservesRead({ testPartner, cardTerms: cardTermsOrNone(() => bank.cards.partnerTerms()), now: new Date() });
+});
+
 app.post('/internal/jobs/run-due-transfers', async (req, reply) => {
   // 401 before the flag check: an unauthenticated caller must not be able to
   // learn which jobs are enabled by reading the difference between 401 and 503.
@@ -739,6 +780,7 @@ function jobDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Promise
 jobDoor('/internal/jobs/payout-sim/verify', payoutVerifyBody, (b) => bank.cashOut.verifyAccount(b.accountId));
 jobDoor('/internal/jobs/payout-sim/paid', payoutPaidBody, (b) => bank.cashOut.complete(b.cashOutId));
 jobDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOut.fail(b.cashOutId, b.reason));
+jobDoor('/internal/jobs/payout-sim/cancelled', payoutCancelledBody, (b) => bank.cashOut.cancel(b.cashOutId, b.reason));
 jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );

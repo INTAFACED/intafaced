@@ -26,6 +26,11 @@ const api = {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());
   },
+  // The usage panel's read of the edge (J-developer-06 #3): no calls counted yet for this key.
+  plain: (_module: string, path: string) => {
+    const keyId = /keys\/([^/]+)\/usage/.exec(path)?.[1] ?? '';
+    return Promise.resolve({ ok: true, data: { state: 'none', asOf: '2026-11-07T08:00:00.000Z', keyId } });
+  },
 };
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));
 vi.mock('../session/webauthn', () => ({
@@ -65,6 +70,8 @@ const live: ApiKeyRecord = {
   revokedAt: null,
   revokedBy: null,
   revokeReason: null,
+  accountId: null,
+  kind: 'personal',
 };
 const frozen: ApiKeyRecord = {
   ...live,
@@ -118,16 +125,88 @@ describe('the key list', () => {
   });
 
   it('shows every column, links each name to its detail, and a revoked key says why with no Revoke', async () => {
-    world.queries['developerKeys.list'] = [list([live, frozen, { ...frozen, id: KEY.replace('0b', '0c'), name: 'old', revokedBy: null }])];
+    const SUB = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    world.queries['developerKeys.list'] = [
+      list([live, frozen, { ...frozen, id: KEY.replace('0b', '0c'), name: 'old', revokedBy: null, accountId: SUB }]),
+    ];
+    world.queries['subAccounts.list'] = [
+      {
+        ok: true,
+        data: [
+          {
+            id: SUB,
+            label: 'Sub B',
+            purpose: null,
+            revoked: false,
+            frozen: false,
+            kind: 'standard',
+            nickname: null,
+            createdAt: '2026-11-01T00:00:00.000Z',
+          },
+        ],
+      },
+    ];
     await render(<ApiKeys />);
     const headers = [...host.querySelectorAll('thead th')].map((th) => th.textContent);
-    expect(headers).toEqual(['Name', 'Prefix', 'Mode', 'Permissions', 'IP addresses', 'Created', 'Ends', 'Last used', 'State', 'Actions']);
+    expect(headers).toEqual([
+      'Name',
+      'Prefix',
+      'Mode',
+      'Account',
+      'Permissions',
+      'IP addresses',
+      'Created',
+      'Ends',
+      'Last used',
+      'State',
+      'Actions',
+    ]);
+    // J-developer-15 #1: a key bound to a sub-account names it on the list; the account's own keys say so.
+    const accounts = [...host.querySelectorAll('[data-testid="api-keys__account"]')].map((td) => td.textContent);
+    expect(accounts).toEqual(['This account', 'This account', 'Sub-account: Sub B']);
     const rows = [...host.querySelectorAll('tbody tr')];
     expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe(`/uc/safe/api-keys/${KEY}`);
     expect(buttons(/Revoke/, rows[0]!)).toHaveLength(1);
     expect(rows[1]!.textContent).toContain('Revoked when the account was frozen');
     expect(buttons(/Revoke/, rows[1]!)).toHaveLength(0);
     expect(rows[2]!.textContent).toContain('Revoked. The reason was not recorded.');
+  });
+
+  it('says when no agent key has asked for approval (J-developer-15 #6)', async () => {
+    world.queries['developerKeys.list'] = [list([live])];
+    world.queries['developerKeys.approvals'] = [{ ok: true, data: { approvals: [] } }];
+    await render(<ApiKeys />);
+    expect(host.textContent).toContain('Waiting for your approval');
+    expect(host.textContent).toContain('No agent key has asked for your approval.');
+    expect(world.asked.find((a) => a.procedure === 'developerKeys.approvals')?.input).toEqual({ limit: 50 });
+  });
+
+  it("lists an agent key's held payout as waiting, with nothing sent (J-developer-15 #6)", async () => {
+    world.queries['developerKeys.list'] = [list([live])];
+    world.queries['developerKeys.approvals'] = [
+      {
+        ok: true,
+        data: {
+          approvals: [
+            {
+              id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+              keyId: KEY,
+              keyName: 'agent-reader',
+              action: 'pay.payout',
+              method: 'POST',
+              path: '/api/pay/trpc/settlement.payout',
+              status: 'waiting',
+              createdAt: '2026-11-09T13:00:00.000Z',
+            },
+          ],
+        },
+      },
+    ];
+    await render(<ApiKeys />);
+    const row = host.querySelector('[data-testid="api-keys__approvals"] tbody tr');
+    expect(row?.textContent).toContain('agent-reader');
+    expect(row?.textContent).toContain('Send a payout');
+    expect(row?.textContent).toContain('Waiting for you. Nothing was sent.');
   });
 
   it('revokes with an optional reason and no second factor, then reads the list again and shows the reason', async () => {

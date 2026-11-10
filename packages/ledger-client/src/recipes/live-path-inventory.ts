@@ -58,6 +58,18 @@ export const RECIPE_MATRIX = {
       '§13 — TRD-0171 posts a fee correction as a new balanced entry under trade.fill.fee.correction. It leaves the original trade.fill row. No production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
   tradeFillMakerRebate: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
+  builderFeeEarn: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/builder-fee/builder-fee-poster.ts' },
+  builderFeeReceive: {
+    kind: 'socket',
+    socket: '§13',
+    reason: "§13 — waits for the venue adapter's read of the builder's claim record; see docs/adr/2026-11-10-launch-money-model.md, rule 5",
+  },
+  ownFundsMove: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — our own money moving between named outside places (our builder account at a venue, our reserve at a partner, our treasury wallet), keyed on the chain transaction or the partner statement line. No production writer: collected fees stay at the venue until the float and the claim schedule are set (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.',
+  },
   orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/order-place.ts' },
   orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/holds.ts' },
   orderHoldAmend: {

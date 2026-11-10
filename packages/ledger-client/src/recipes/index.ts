@@ -27,6 +27,8 @@ import { buybackOrderHold, buybackOrderHoldRelease, buybackTakerFill } from './b
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import { tradeFillFeeCorrection } from './fill-correction.js';
 import { tradeFillMakerRebate } from './fill-rebate.js';
+import { builderFeeEarn, builderFeeReceive } from './builder-fee.js';
+import { ownFundsMove } from './own-funds.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -60,6 +62,24 @@ export type { EscrowDisputeRuling } from './escrow-dispute-law.js';
 export { NATURAL_PERSON_ID, isNaturalPersonId, assertEscrowDisputeRuling, assertEscrowRefundResolution } from './escrow-dispute-law.js';
 export { refusePostedFillPriceEdit, tradeFillFeeCorrection, type TradeFillFeeCorrectionInput } from './fill-correction.js';
 export { makerRebateFor, tradeFillMakerRebate, type MakerRebate, type TradeFillMakerRebateInput } from './fill-rebate.js';
+export {
+  BUILDER_FEE_MODULE,
+  BUILDER_FEE_POT,
+  builderFeeEarn,
+  earnedBuilderFeeKey,
+  builderFeePayoutKey,
+  builderFeeReceive,
+  type BuilderFeeEarnInput,
+  type BuilderFeeReceiveInput,
+} from './builder-fee.js';
+export {
+  OWN_FUNDS_MODULE,
+  ownFundsMove,
+  ownFundsMoveKey,
+  ownFundsPlaceAccount,
+  type OwnFundsMoveInput,
+  type OwnFundsPlace,
+} from './own-funds.js';
 
 /**
  * LEDGER RECIPES (§4.2).
@@ -1406,6 +1426,9 @@ export const recipes = {
   tradeFill,
   tradeFillFeeCorrection,
   tradeFillMakerRebate,
+  builderFeeEarn,
+  builderFeeReceive,
+  ownFundsMove,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,

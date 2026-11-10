@@ -975,6 +975,31 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'builderFeeEarn',
+      post: recipes.builderFeeEarn({
+        venueId: 'test-venue-sim',
+        venueAccount: '0x00000000000000000000000000000000000000a1',
+        fillId: 'f-builder',
+        assetId: 'USDC',
+        amount: AMT,
+        userId: U,
+      }),
+    },
+    {
+      name: 'builderFeeReceive',
+      post: recipes.builderFeeReceive({ venueId: 'test-venue-sim', claimId: 'p-builder', assetId: 'USDC', amount: AMT }),
+    },
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest',
+      }),
+    },
+    {
       name: 'tradeFillMakerRebate',
       post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },

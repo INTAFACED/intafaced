@@ -32,6 +32,7 @@ import {
   TabsTab,
   type Loadable,
 } from './deps';
+import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
@@ -77,7 +78,7 @@ import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
-import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
+import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, TYPE_TAB_KEY, type Tif } from './tif';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 
@@ -246,11 +247,12 @@ function SideForm({
     }
   }, [restingId, openOrders]);
 
-  // Set by Flatten until its review opens; any other edit of the form drops it.
-  const flattenPending = useRef(false);
+  // Set by Flatten until its review opens; any other edit of the form drops it. `instant`: a one-click close with instant
+  // placement on (J-charts-desk-14 #7) sends once the order check allows it, without the review sheet.
+  const flattenPending = useRef<{ instant: boolean } | null>(null);
   const edit = (apply: () => void) => {
     if (busyRef.current) return;
-    flattenPending.current = false;
+    flattenPending.current = null;
     reviewPending.current = null;
     apply();
     setReview(null);
@@ -269,7 +271,7 @@ function SideForm({
       const lots = floorToLot(suggestion.amount, market.lotSize);
       setAmount(lots ?? '');
       // Less than one lot is nothing to sell: no review is opened for it.
-      flattenPending.current = lots !== null;
+      flattenPending.current = lots !== null ? { instant: suggestion.instant === true } : null;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
@@ -279,7 +281,9 @@ function SideForm({
   // exactly as one typed here, and nothing is sent until the person confirms.
   // `armed` turns true on the first render after the click: the effects of the click's own render still see the
   // ticket as it was before it, so they never judge the new draft.
-  const reviewPending = useRef<{ type: OrderType; armed: boolean } | null>(null);
+  // `instant` (J-charts-desk-14 #6): the person turned instant placement on, so the click sends once the order check and
+  // the preview allow it, without the review sheet. Only the sheet is skipped: a refusal still stops it.
+  const reviewPending = useRef<{ type: OrderType; armed: boolean; instant: boolean } | null>(null);
   useEffect(() => {
     if (!suggestion?.review) return;
     if (suggestion.side !== side) {
@@ -291,7 +295,8 @@ function SideForm({
       setTotalEdit(null);
       const lots = suggestion.amount ? floorToLot(suggestion.amount, market.lotSize) : null;
       setAmount(lots ?? '');
-      reviewPending.current = lots !== null ? { type: suggestion.type ?? 'limit', armed: false } : null;
+      reviewPending.current =
+        lots !== null ? { type: suggestion.type ?? 'limit', armed: false, instant: suggestion.instant === true } : null;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
@@ -422,19 +427,25 @@ function SideForm({
     }
     if (canSend) {
       reviewPending.current = null;
-      void startReview();
+      void startReview(wanted.instant);
     } else if (!tradable || !checked.ok || live.state === 'blocked' || live.state === 'error') reviewPending.current = null;
   });
 
   useEffect(() => {
-    if (!flattenPending.current || type !== 'market') return;
+    const wanted = flattenPending.current;
+    if (!wanted || type !== 'market') return;
     if (canSend) {
-      flattenPending.current = false;
-      void startReview();
-    } else if (live.state === 'blocked' || live.state === 'error') flattenPending.current = false;
+      flattenPending.current = null;
+      void startReview(wanted.instant);
+    } else if (live.state === 'blocked' || live.state === 'error') flattenPending.current = null;
   });
 
-  async function startReview() {
+  /**
+   * The review of the ticket's order. `instant` (instant placement on, J-charts-desk-14 #6 and #7): the same preview, and
+   * when it is orderable the same confirm runs at once with it instead of opening the sheet. A refusal or a short balance
+   * shows exactly as it would in the review.
+   */
+  async function startReview(instant = false) {
     if (!canSend || busyRef.current || !checked.ok) return;
     busyRef.current = true;
     setBusy(true);
@@ -462,19 +473,29 @@ function SideForm({
       if (!result.ok) setFailure(failureOf(result, context));
       else if (previewIsOrderable(result.data) && holdShort(result.data, spendAsset, available))
         setFailure(refusalFailure('ledger.insufficient_funds', context));
-      else if (previewIsOrderable(result.data)) setReview({ draft: parsed.data, preview: result.data, changed: false });
-      else setFailure(previewFailure(result.data, context, market.tickSize));
+      else if (previewIsOrderable(result.data)) {
+        const reviewed = { draft: parsed.data, preview: result.data, changed: false };
+        if (instant) {
+          setBusy(false);
+          busyRef.current = false;
+          await confirm(reviewed);
+          return;
+        }
+        setReview(reviewed);
+      } else setFailure(previewFailure(result.data, context, market.tickSize));
     }
     setBusy(false);
     busyRef.current = false;
   }
 
-  async function confirm() {
-    if (!review || busyRef.current || !userId) return;
+  /** Send the reviewed order: the open review, or (instant placement) the one `startReview` just checked. */
+  async function confirm(given?: { draft: Draft; preview: Preview; changed: boolean }) {
+    const current = given ?? review;
+    if (!current || busyRef.current || !userId) return;
     busyRef.current = true;
     setBusy(true);
     setFailure(null);
-    const { draft: sending, preview } = review;
+    const { draft: sending, preview } = current;
     const reservation = await reserve(userId, {
       kind: 'place',
       symbol: sending.symbol,
@@ -1430,13 +1451,11 @@ export const OrderPanel = memo(function OrderPanel({
     >
       <div className="dk-order-head">
         <TabsList className="dk-tabs" aria-label={t('Order type')}>
-          <TabsTab value="limit">{t('Limit')}</TabsTab>
-          <TabsTab value="stop_limit">{t('Order type stopLimit')}</TabsTab>
-          <TabsTab value="stop_market">{t('Order type stopMarket')}</TabsTab>
-          <TabsTab value="oco">{t('Order type oco')}</TabsTab>
-          <TabsTab value="bracket">{t('Order type bracket')}</TabsTab>
-          <TabsTab value="oto">{t('Order type oto')}</TabsTab>
-          <TabsTab value="market">{t('Market')}</TabsTab>
+          {SPOT_TICKET_ORDER_TYPES.map((kind) => (
+            <TabsTab key={kind} value={kind}>
+              {t(TYPE_TAB_KEY[kind])}
+            </TabsTab>
+          ))}
         </TabsList>
         <MoreOrderTypes />
         {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}

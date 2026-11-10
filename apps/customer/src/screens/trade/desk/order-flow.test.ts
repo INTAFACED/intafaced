@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
-import { buildLadder, DEFAULT_DOM, depthCurve, isDomSetting, spreadOf, stepOf, tapeView } from './order-flow';
+import { buildLadder, DEFAULT_DOM, depthCurve, isDomSetting, myOrdersAt, queueReadout, spreadOf, stepOf, tapeView } from './order-flow';
 
 const book = {
   bids: [
@@ -140,5 +140,80 @@ describe('spread and settings', () => {
     expect(isDomSetting({ ...DEFAULT_DOM, stepTicks: 3 })).toBe(false);
     expect(isDomSetting({ ...DEFAULT_DOM, minAmount: 'abc' })).toBe(false);
     expect(isDomSetting(null)).toBe(false);
+  });
+});
+
+describe('myOrdersAt (J-charts-desk-14 #7, one-click cancel)', () => {
+  const order = (side: 'buy' | 'sell', price: string | null, remaining: string, id: string) => ({ id, side, price, remaining });
+  const mine = [
+    order('buy', '100.0', '0.5', 'b1'),
+    order('buy', '100.1', '0.2', 'b2'),
+    order('buy', '99.8', '0.3', 'b3'),
+    order('sell', '100.1', '0.4', 's1'),
+    order('sell', '100.2', '0.1', 's2'),
+    order('buy', '100.0', '0', 'filled'),
+    order('buy', null, '1', 'market'),
+  ];
+
+  it('on one tick, the orders at exactly that price with something left', () => {
+    expect(myOrdersAt(mine, '100.0', '0.1').map((o) => o.id)).toEqual(['b1']);
+    expect(myOrdersAt(mine, '100.1', '0.1').map((o) => o.id)).toEqual(['b2', 's1']);
+  });
+
+  it('on a wider step, bids round down and asks round up into the row, as the ladder sums them', () => {
+    // Step 0.2: bids 100.0 and 100.1 fall in 100.0; asks 100.1 and 100.2 rise to 100.2.
+    expect(myOrdersAt(mine, '100.0', '0.2').map((o) => o.id)).toEqual(['b1', 'b2']);
+    expect(myOrdersAt(mine, '100.2', '0.2').map((o) => o.id)).toEqual(['s1', 's2']);
+    expect(myOrdersAt(mine, '99.8', '0.2').map((o) => o.id)).toEqual(['b3']);
+  });
+
+  it('matches the ladder: a row holding my sizes is exactly the orders it would cancel', () => {
+    const book = { bids: [['100.0', '1']], asks: [['100.2', '1']] } as never;
+    const rows = buildLadder(book, '0.2', mine).rows.filter((row) => row.myBid || row.myAsk);
+    expect(rows.map((row) => [row.price, row.myBid, row.myAsk])).toEqual([
+      ['100.2', '', '0.5'],
+      ['100', '0.7', ''],
+      ['99.8', '0.3', ''],
+    ]);
+    expect(rows.map((row) => myOrdersAt(mine, row.price, '0.2').map((o) => o.id))).toEqual([['s1', 's2'], ['b1', 'b2'], ['b3']]);
+  });
+
+  it('a price that is not a number is no row', () => {
+    expect(myOrdersAt(mine, 'abc', '0.1')).toEqual([]);
+  });
+});
+
+describe('queueReadout (J-charts-desk-14 #8)', () => {
+  const base = {
+    orderId: 'o-1',
+    marketId: 'BTC-USDT',
+    symbol: 'BTC/USDT',
+    side: 'buy' as const,
+    price: '100',
+    ordersAhead: 2,
+    sizeAhead: '0.003',
+    remaining: '0.001',
+    asOfSequence: 9,
+    source: 'native_l3' as const,
+  };
+  it('with the window blank: the place in the queue and "not set", never a percent', () => {
+    const view = queueReadout({ ...base, fillProbabilityRefused: { code: 'trade.queue_probability_unset', message: 'unset' } });
+    expect(view).toEqual({ ahead: { kind: 'many', n: 2, size: '0.003' }, chance: { kind: 'unset' } });
+  });
+  it('an estimate without its basis is not shown', () => {
+    expect(queueReadout({ ...base, fillProbability: '0.5' }).chance).toEqual({ kind: 'unset' });
+  });
+  it('with the estimate and its basis: both, as the service sent them', () => {
+    const view = queueReadout({
+      ...base,
+      ordersAhead: 1,
+      fillProbability: '0.25',
+      fillProbabilityBasis: { method: 'traded_through_window', windowSeconds: 300, tradedThrough: '0.001', sizeToFill: '0.004' },
+    });
+    expect(view.ahead).toEqual({ kind: 'one', size: '0.003' });
+    expect(view.chance).toEqual({ kind: 'estimate', ratio: '0.25', windowSeconds: 300, tradedThrough: '0.001', sizeToFill: '0.004' });
+  });
+  it('nothing ahead is first in the queue', () => {
+    expect(queueReadout({ ...base, ordersAhead: 0, sizeAhead: '0' }).ahead).toEqual({ kind: 'first' });
   });
 });

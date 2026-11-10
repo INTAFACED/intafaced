@@ -45,6 +45,7 @@ import { PspModeService } from '../../src/psp-mode.js';
 import { CardSandboxAdapter } from '../../src/rails/card-sandbox.js';
 import { BankPayoutAbsentAdapter } from '../../src/rails/bank-payout.js';
 import { RailRegistry } from '../../src/rails/registry.js';
+import { readPartnerTerms } from '../../src/partner-terms.js';
 import { registerPublicPayRest } from '../../src/public-rest.js';
 import { teamReadFromSql } from '../../src/merchant-team-read.js';
 import { createPayRouter } from '../../src/router.js';
@@ -282,6 +283,7 @@ function composeRouter(parts: {
       metrics: parts.metrics,
       registries: { sql: parts.sql, approvals: actionApprovals },
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
+      partnerTerms: (merchantId) => readPartnerTerms(parts.rails.list(), merchantId),
       webhooksAllowLocalHttp: true,
       webhookRetry: { maxPerWindow: 100, windowMs: 60_000 },
       invoiceLinks: parts.pay,

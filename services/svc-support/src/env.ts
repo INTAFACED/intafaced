@@ -34,6 +34,13 @@ const schema = serviceEnvSchema
        * unknown rather than calling a guessed address. Never a ledger URL.
        */
       TRADE_URL: z.string().url().optional(),
+      /** svc-pay, for its record-ownership door (J-support-public-20 #1). Unset, a withdrawal or deposit link refuses unverifiable. */
+      PAY_URL: z.string().url().optional(),
+      /**
+       * svc-bank, for one question on a scam report: did this person send this transfer (J-bank-18 #3,
+       * `bank-scam-transfer.ts`)? Unset means no transfer can be checked, so a scam report is not taken. Never written to.
+       */
+      BANK_URL: z.string().url().optional(),
       /**
        * Seconds without a heartbeat before an online or busy agent reads as
        * offline. Blank is an owner value left unset: availability stays as
@@ -84,6 +91,14 @@ const schema = serviceEnvSchema
        * owner value left unset: every check refuses support.verification_attempts_unset. Never defaulted.
        */
       SUPPORT_VERIFICATION_ATTEMPTS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * A complaint's final-response limit, in calendar days from its acknowledgement (BK-safe-03, J-bank-18 #5). Blank is an
+       * owner value left unset: complaints are still taken and acknowledged, and each deadline reads "not set". Never defaulted.
+       */
+      SUPPORT_COMPLAINT_RESPONSE_DAYS: z.preprocess(
+        (v) => (v === '' ? undefined : v),
+        z.coerce.number().int().positive().max(366).optional(),
+      ),
       /**
        * How many personal views one person may save, and how many shared views the desk may keep.
        * Blank is unset: a save refuses support.view_cap_unset and names the setting. Never defaulted.
@@ -164,7 +179,35 @@ const schema = serviceEnvSchema
        * value that is not a valid list refuses boot (officialChannelsFromEnv). Never defaulted.
        */
       SUPPORT_OFFICIAL_CHANNELS: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(2).optional()),
+      /** The owner's money-mule policy text (BK-safe-02). Blank is unpublished: /help/mule-policy says so. Never defaulted. */
+      SUPPORT_MULE_POLICY: z.preprocess((v) => (v === '' ? undefined : v), z.string().trim().min(1).optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * Live chat (SP-chat-01). The customer messages one chat may send per window and the window, and how long a signed
+       * identity claim for an embedding page works. Each blank refuses by name (support.chat_rate_limit_unset,
+       * support.chat_identity_ttl_unset). Never defaulted.
+       */
+      SUPPORT_CHAT_RATE_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_CHAT_RATE_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_CHAT_IDENTITY_TTL_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * The pre-chat fields a guest is asked for, comma separated (name, email). Blank asks for a free-text first message
+       * only. A guest's address is sealed with SUPPORT_GUEST_ADDRESS_KEY and kept for SUPPORT_GUEST_RETENTION_DAYS.
+       */
+      SUPPORT_CHAT_PRECHAT_FIELDS: z
+        .string()
+        .optional()
+        .transform((v) => [
+          ...new Set(
+            (v ?? '')
+              .split(',')
+              .map((f) => f.trim())
+              .filter(Boolean),
+          ),
+        ])
+        .pipe(z.array(z.enum(['name', 'email']))),
+      /** How often the routing worker re-selects waiting requests (SP-routing-01). Blank: no sweep; routing runs on desk actions only. */
+      SUPPORT_ROUTING_SWEEP_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
 

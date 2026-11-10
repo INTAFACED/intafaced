@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**88 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**91 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -16,6 +16,9 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `tradeFill`                     | `trade`     | `trade.fill`                                                     |
 | `tradeFillFeeCorrection`        | `trade`     | `trade.fill.fee.correction`                                      |
 | `tradeFillMakerRebate`          | `trade`     | `trade.fill.rebate`                                              |
+| `builderFeeEarn`                | `trade`     | `trade.builder_fee.earned`                                       |
+| `builderFeeReceive`             | `trade`     | `trade.builder_fee.received`                                     |
+| `ownFundsMove`                  | `treasury`  | `treasury.own_funds.moved`                                       |
 | `orderHold`                     | `trade`     | `order.hold`                                                     |
 | `orderHoldRelease`              | `trade`     | `order.hold.released`                                            |
 | `orderHoldAmend`                | `trade`     | `order.hold.amend`                                               |

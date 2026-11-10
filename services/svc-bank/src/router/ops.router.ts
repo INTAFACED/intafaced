@@ -13,14 +13,22 @@ import {
 import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';
-import { cardProgrammeProcedure, setCardStatusProcedure } from '../ops/card-programme.js';
+import { partnerStopsProcedure, setPartnerStopProcedure } from '../partner/partner-stops.js';
+import { partnerRefusalsProcedure } from '../partner/partner-refusals.js';
+import {
+  cardPartnerTermsProcedure,
+  cardProgrammeFundingProcedure,
+  cardProgrammeProcedure,
+  requestCardProgrammeFundingProcedure,
+  setCardStatusProcedure,
+} from '../ops/card-programme.js';
 import { decideLimitRequestProcedure, limitRequestQueueProcedure } from '../transfers/limit-requests.js';
 import { createLoanProductProcedure, setLoanProductRateProcedure } from '../ops/loan-products.js';
 import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusProcedure } from '../ops/earn-pools.js';
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
-import { onrampQuotesProcedure } from '../ops/onramp-quotes.js';
+import { onrampFeesNotKnownProcedure, onrampQuotesProcedure } from '../ops/onramp-quotes.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from '../ops/customer-balances.js';
@@ -28,8 +36,9 @@ import { customerCardsProcedure } from '../ops/customer-cards.js';
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
+import { cardDisputeProcedures } from '../ops/card-disputes.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
-import { amountString, actionApprovalFields, heldSendOutput, signedAmountString } from './shared.js';
+import { amountString, actionApprovalFields, heldSendOutput, partnerFiguresOutput, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
 import { accrualBoundary, accrualDate } from '../earn/interest.js';
 import type { BankRouterContext } from './context.js';
@@ -618,7 +627,22 @@ export function createOpsRouter(c: BankRouterContext) {
            */
           amount: amountString,
           merchantCategory: z.string().min(1).max(64).optional(),
+          /** The merchant and its two-letter country as the issuer names them; a blocked one declines (J-bank-14 #1). */
+          merchant: z.string().min(1).max(64).optional(),
+          merchantCountry: z
+            .string()
+            .regex(/^[A-Za-z]{2}$/)
+            .optional(),
           channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']).optional(),
+          /**
+           * The PIN typed at the terminal, when there was one (J-bank-14 #3). The issuer checks it against the owner's try
+           * limit; a wrong one declines `bank.card_pin_wrong`, the last allowed wrong try `bank.card_pin_blocked`. It is
+           * not part of the approval's binding and is never stored.
+           */
+          pin: z
+            .string()
+            .regex(/^\d{4,12}$/)
+            .optional(),
           ...actionApprovalFields,
         }),
       )
@@ -654,7 +678,10 @@ export function createOpsRouter(c: BankRouterContext) {
             authorizationRef: input.authorizationRef,
             amount: parseAmount(input.amount),
             ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
+            ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
             ...(input.channel === undefined ? {} : { channel: input.channel }),
+            ...(input.pin === undefined ? {} : { pin: input.pin }),
           });
           return {
             authorizationId: authorization.id,
@@ -675,6 +702,55 @@ export function createOpsRouter(c: BankRouterContext) {
         }),
       ),
 
+    /**
+     * THE ISSUER'S 3D SECURE REQUEST (J-bank-14 #5): the card partner asks the cardholder to confirm an online purchase
+     * before it is authorised. Like `cardAuthorize`, it is operator surface standing in for the issuer's message, with a
+     * second founder's approval, and never user surface. The cardholder answers it in the card room; the right code
+     * completes the authorisation once (`card-safety.ts`).
+     */
+    cardThreeDSChallenge: scopedProcedure('admin:treasury')
+      .input(
+        z.object({
+          cardId: z.string().guid(),
+          challengeId: z.string().guid(),
+          challengeRef: z.string().min(4).max(128),
+          /** The merchant's number, in the card's settlement asset. */
+          amount: amountString,
+          merchantCategory: z.string().min(1).max(64).optional(),
+          merchant: z.string().min(1).max(64).optional(),
+          merchantCountry: z
+            .string()
+            .regex(/^[A-Za-z]{2}$/)
+            .optional(),
+          ...actionApprovalFields,
+        }),
+      )
+      .output(z.object({ challengeId: z.string(), state: z.enum(['open', 'approved', 'locked']), confirmOperatorId: z.string() }))
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          // The founders' approval binds the whole purchase the cardholder will be asked about: the merchant parts too.
+          const confirmOperatorId = await consumeOpsApproval(input, 'bank.card_3ds_challenge', {
+            cardId: input.cardId,
+            challengeId: input.challengeId,
+            challengeRef: input.challengeRef,
+            amount: input.amount,
+            ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
+            ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
+          });
+          const challenge = await bank.cards.safety.open({
+            challengeId: input.challengeId,
+            cardId: input.cardId,
+            challengeRef: input.challengeRef,
+            amount: parseAmount(input.amount),
+            ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
+            ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
+          });
+          return { challengeId: challenge.id, state: challenge.state, confirmOperatorId };
+        }),
+      ),
+
     cardCapture: scopedProcedure('admin:treasury')
       .input(
         z.object({
@@ -689,8 +765,15 @@ export function createOpsRouter(c: BankRouterContext) {
           /** WHAT LEFT THE BOOK, in the funding asset. */
           captured: amountString,
           returned: amountString,
-          captureLedgerTxId: z.string(),
+          /** Null on a partner-held authorisation: the partner moved it and posted nothing to our ledger. */
+          captureLedgerTxId: z.string().nullable(),
           reversalLedgerTxId: z.string().nullable(),
+          /** Whose book this capture moved in (OWNER 226). */
+          heldBy: z.enum(['ledger', 'partner']),
+          /** The partner's references and its figures as it reports them (TEST on the TEST partner card); else null. */
+          partner: z
+            .object({ captureRef: z.string(), releaseRef: z.string().nullable(), figures: partnerFiguresOutput.nullable() })
+            .nullable(),
           /**
            * What the merchant cleared and the FROZEN rate it converted at — the
            * rate the authorisation was decided on, re-read and never re-quoted.
@@ -738,6 +821,8 @@ export function createOpsRouter(c: BankRouterContext) {
             returned: formatAmount(result.returned),
             captureLedgerTxId: result.captureLedgerTxId,
             reversalLedgerTxId: result.reversalLedgerTxId,
+            heldBy: result.heldBy,
+            partner: result.partner,
             settlement: result.settlement
               ? {
                   assetId: result.settlement.assetId,
@@ -774,7 +859,18 @@ export function createOpsRouter(c: BankRouterContext) {
           ...actionApprovalFields,
         }),
       )
-      .output(z.object({ returned: amountString, ledgerTxId: z.string(), confirmOperatorId: z.string() }))
+      .output(
+        z.object({
+          returned: amountString,
+          /** Null on a partner-held authorisation: the partner released it. */
+          ledgerTxId: z.string().nullable(),
+          /** The partner's release, and whether it was our instruction or the partner's own hold time running out. */
+          partner: z
+            .object({ releaseRef: z.string(), by: z.enum(['instruction', 'expiry']), figures: partnerFiguresOutput.nullable() })
+            .optional(),
+          confirmOperatorId: z.string(),
+        }),
+      )
       .mutation(async ({ input }) =>
         guard(async () => {
           const confirmOperatorId = await consumeOpsApproval(input, 'bank.card_reverse', {
@@ -782,7 +878,12 @@ export function createOpsRouter(c: BankRouterContext) {
             authorizationRef: input.authorizationRef,
           });
           const result = await bank.cards.reverse({ cardId: input.cardId, authorizationRef: input.authorizationRef });
-          return { returned: formatAmount(result.returned), ledgerTxId: result.ledgerTxId, confirmOperatorId };
+          return {
+            returned: formatAmount(result.returned),
+            ledgerTxId: result.ledgerTxId,
+            ...(result.partner ? { partner: result.partner } : {}),
+            confirmOperatorId,
+          };
         }),
       ),
 
@@ -813,6 +914,7 @@ export function createOpsRouter(c: BankRouterContext) {
               amount: amountString,
               outcome: z.enum(['settled', 'failed']),
               ledgerTxId: z.string().optional(),
+              partnerRef: z.string().optional(),
               reason: z.string().optional(),
             }),
           ),
@@ -840,6 +942,7 @@ export function createOpsRouter(c: BankRouterContext) {
               amount: formatAmount(row.amount),
               outcome: row.outcome,
               ...(row.ledgerTxId === undefined ? {} : { ledgerTxId: row.ledgerTxId }),
+              ...(row.partnerRef === undefined ? {} : { partnerRef: row.partnerRef }),
               ...(row.reason === undefined ? {} : { reason: row.reason }),
             })),
             held: formatAmount(result.held),
@@ -988,6 +1091,12 @@ export function createOpsRouter(c: BankRouterContext) {
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
     assetPauses: assetPausesProcedure(() => bank.assetPauses, guard),
     setAssetPause: setAssetPauseProcedure(() => bank.assetPauses, consumeOpsApproval, guard),
+    partnerStops: partnerStopsProcedure(() => bank.partnerStops, guard),
+    setPartnerStop: setPartnerStopProcedure(() => bank.partnerStops, consumeOpsApproval, guard),
+    partnerRefusals: partnerRefusalsProcedure(
+      () => ({ counts: bank.partnerRefusals, stops: bank.partnerStops, freeze: bank.postingFreeze }),
+      guard,
+    ),
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
@@ -1004,10 +1113,24 @@ export function createOpsRouter(c: BankRouterContext) {
       guard,
     ),
     cardProgramme: cardProgrammeProcedure(bank, guard),
+    /** The card partner's answers on funder, reserve, loss liability and custody, or "not known" (J-bank-26 #6, J-bank-27 #4). */
+    cardPartnerTerms: cardPartnerTermsProcedure(bank, guard),
+    /** Settlement reconciliation, stablecoin conversion and the partner's funding offers (J-bank-26 #6). Read only. */
+    cardProgrammeFunding: cardProgrammeFundingProcedure(bank, guard),
+    /** Fund, defund or set auto reload at the card partner, with a second founder's approval (J-bank-26 #6). */
+    requestCardProgrammeFunding: requestCardProgrammeFundingProcedure(bank, consumeOpsApproval, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
+    /** J-bank-27: card disputes worked by support (queue, case, evidence, representment, arbitration, credit, decision). */
+    ...cardDisputeProcedures(bank, guard),
     rampHealth: rampHealthProcedure(bank, guard),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
+    /** J-cex-spot-17 #8: the buy asks the partner's ramp gave no fee for, read as "not known". Read only. */
+    onrampFeesNotKnown: onrampFeesNotKnownProcedure(
+      () => bank.transferOps.sql,
+      () => bank.testPartner?.label ?? null,
+      guard,
+    ),
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),

@@ -117,7 +117,7 @@ function hashMatches(secret: string, stored: string | null): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function seal(key: Buffer, value: string): string {
+export function seal(key: Buffer, value: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const body = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);

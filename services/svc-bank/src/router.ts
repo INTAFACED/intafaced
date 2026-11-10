@@ -21,6 +21,7 @@ import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.router.js';
 import { createCashOutRouter } from './cash-out/cash-out.router.js';
 import { createRailSendsRouter } from './rail-sends/rail-sends.router.js';
+import { createSafetyRouter } from './safety/safety.router.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
@@ -358,6 +359,12 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     cashOut: createCashOutRouter(bank, guard),
     /** BK-xfer-02: send to a bank account over a bank rail. Kept refused with `rail.bank`; nothing is held or posted. */
     railSends: createRailSendsRouter(bank, guard),
+    /** BK-safe-01: why a blocked region's transfer refuses, in the owner's wording. Public, outside the region gate. */
+    safety: createSafetyRouter({
+      blockedRegionNotice: () => bank.blockedRegionNotice,
+      transferSent: (userId, transferId) => bank.personalPay.sentBy(userId, transferId),
+      guard,
+    }),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),

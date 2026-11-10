@@ -34,8 +34,13 @@ import { useDeviceSetting } from '../../../features/trade/hooks';
 import { OrderFlow, type LadderPick } from './OrderFlow';
 import { ChartTrade, clickAmountOk, type ChartPick } from './ChartTrade';
 import { DEFAULT_DOM, isDomSetting, type DomSetting } from './order-flow';
+import { useInstantPlacement } from './instant';
+import { OneClickBar } from './OneClick';
+import { floorToLot } from './order-math';
 import type { Reference, Side } from './order-math';
 import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueSpotGate } from './VenueSpotDesk';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();
@@ -55,7 +60,7 @@ function PairPicker({ selected }: { selected: string }) {
 function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMarket[]; side: Side | null }) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
-  const { timeZone } = usePreferences();
+  const { timeZone, quickSizes } = usePreferences();
   const ticker = useTickerRow(market.symbol, { intervalMs: DESK_INTERVALS.ticker });
   const book = useBook(market.symbol);
   const balances = useBalances();
@@ -119,6 +124,25 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
     (amount: string) => setSuggestion((previous) => ({ price: '', amount, flatten: true, nonce: (previous?.nonce ?? 0) + 1 })),
     [],
   );
+  // Instant placement (J-charts-desk-14 #6): the account's own setting. Off unless the account holds the agreement.
+  const instant = useInstantPlacement();
+  const instantOn = instant.on;
+  // One-click close (J-charts-desk-14 #7): every free lot of the base, sold as a limit at the best bid, so its price is
+  // the one the button shows; reviewed unless instant placement is on. It is a limit, never a market order: a market
+  // order always opens the review, because its price can move (SP-desk-account-01).
+  const onCloseAll = useCallback(
+    (amount: string, price: string) =>
+      setSuggestion((previous) => ({
+        price,
+        amount,
+        nonce: (previous?.nonce ?? 0) + 1,
+        review: true,
+        side: 'sell',
+        type: 'limit',
+        ...(instantOn ? { instant: true as const } : {}),
+      })),
+    [instantOn],
+  );
   const onPickPrice = useCallback(
     (price: string) => setSuggestion((previous) => ({ price, amount: '', nonce: (previous?.nonce ?? 0) + 1 })),
     [],
@@ -140,8 +164,9 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         review: true,
         side: pick.side,
         type: 'limit',
+        ...(instantOn ? { instant: true as const } : {}),
       })),
-    [clickAmount, lot],
+    [clickAmount, lot, instantOn],
   );
   const onChartTrade = useCallback(
     (pick: ChartPick) =>
@@ -152,8 +177,24 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         review: true,
         side: pick.side,
         type: pick.type,
+        // A market order always opens the review, instant placement or not: its price can move (SP-desk-account-01).
+        ...(instantOn && pick.type === 'limit' ? { instant: true as const } : {}),
       })),
-    [],
+    [instantOn],
+  );
+  const freeBase = balances.status === 'ready' ? floorToLot(balances.data[market.base]?.free ?? '0', market.lotSize) : null;
+  const oneClick = (
+    <OneClickBar
+      market={market}
+      instant={instant}
+      zone={timeZone}
+      presets={quickSizes}
+      clickAmount={clickAmount}
+      onAmount={setClickAmount}
+      free={userId ? freeBase : null}
+      bestBid={reference?.bestBid ?? null}
+      onCloseAll={onCloseAll}
+    />
   );
   const chartTrade = useMemo(
     () => <ChartTrade market={market} reference={reference} amount={clickAmount} onAmount={setClickAmount} onTrade={onChartTrade} />,
@@ -211,6 +252,9 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
               onSetting={setDom}
               onPick={onLadderPick}
               onClose={closeDom}
+              instant={instantOn}
+              oneClick={oneClick}
+              onCancelled={onPlaced}
             />
           ) : null}
           <OrderPanel
@@ -286,8 +330,22 @@ function DeskSkeleton() {
   );
 }
 
-/** Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). */
-export default function TradeDeskScreen({ params, search }: ScreenProps) {
+/**
+ * Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). In venue mode (B1: `/api/v1/venue/status` says the user-venue door is on)
+ * a pair the venue lists as spot trades on the customer's own venue account (VenueSpotDesk.tsx); everything else, and
+ * every deployment with the door off, is today's desk unchanged.
+ */
+export default function TradeDeskScreen(props: ScreenProps) {
+  const venue = useVenueMode();
+  // While venue mode is still being read, a neutral skeleton: never today's desk, which could take a custodial order in
+  // the window before the venue desk appears.
+  if (venue.mode === 'checking') return <DeskSkeleton />;
+  const today = <TodayDeskScreen {...props} />;
+  if (venue.mode !== 'on') return today;
+  return <VenueSpotGate mode={venue} pair={normalizePair(props.params.pair ?? defaultDeskPair)} fallback={today} />;
+}
+
+function TodayDeskScreen({ params, search }: ScreenProps) {
   const { t } = deskCopy.useCopy();
   const markets = useDeskMarkets();
   const pair = normalizePair(params.pair ?? defaultDeskPair);

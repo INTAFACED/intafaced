@@ -30,6 +30,7 @@ import {
   type PayoutBlock,
 } from './model';
 import { settlementName } from './Settlements';
+import { PartnerInstantPayoutLine } from './PartnerTerms';
 import { isDefaultDestination, type DestinationItem } from './schemas';
 import type { Settlement } from '../schemas';
 import type { ApiResult } from '../../../../shared/api';
@@ -177,6 +178,8 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const destinations = useResource((s) => portal.destinationPage(merchantId, undefined, s), `money:destinations:${merchantId}`);
   const usage = useResource((s) => portal.usage(merchantId, s), `money:usage:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
+  // The acquiring partner's instant payout and its fee, as the partner has said: "not known" until it does.
+  const partner = useResource((s) => portal.partnerTerms(merchantId, s), `money:partner-terms:${merchantId}`);
   // Every request, newest first: a settlement already approved is sent, not asked for again, and one waiting is left out.
   const requests = useResource(async (s) => {
     const read = await portal.approvalPage(merchantId, {}, undefined, s);
@@ -186,6 +189,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   useUnsavedForm(Boolean(destPicked) && !done, t('mnUnsaved'));
   const reload = () => {
     ready.reload();
+    partner.reload();
     destinations.reload();
     usage.reload();
     halts.reload();
@@ -215,6 +219,9 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
     <div className="stack">
       <HaltBanner resource={halts.resource} scopes={['payout']} />
       <TestBanner />
+      <PaySection title={t('partnerInstantTitle')} description={t('partnerInstantBody')}>
+        <PartnerInstantPayoutLine terms={partner.resource} test={test} />
+      </PaySection>
       <Gate resource={ready.resource} retry={reload} rows={3}>
         {(page) => {
           const waiting = requests.resource.status === 'ready' ? approvalsBySettlement(requests.resource.data) : null;

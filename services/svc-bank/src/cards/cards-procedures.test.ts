@@ -20,6 +20,20 @@ import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { stubApprovalConsumer } from '../action-approval-consume.js';
 import { CardService } from './card-service.js';
 import { cardIssuerFor, cardProgrammeOutput, cardSim, type CardIssuerAdapter } from './issuer.js';
+import { NOTHING_REPORTED } from './partner-terms.js';
+
+function luhnOk(digits: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < digits.length; i += 1) {
+    let d = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
 import { createBankRouter } from '../router.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';
 
@@ -234,7 +248,7 @@ describe('customer card procedures (PG-hard)', () => {
   }
 
   async function freshSim() {
-    await sql`TRUNCATE bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE bank.card_controls, bank.card_status_events, bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       cards: { issuer: cardIssuerFor('card-sim', { live: false }), clock: () => NOW },
@@ -358,6 +372,115 @@ describe('customer card procedures (PG-hard)', () => {
     expect(cash).toMatchObject({ decision: 'declined', declineCode: 'bank.card_cash_limit_exceeded' });
   });
 
+  it('blocks a category, a merchant and a country (J-bank-14 #1): each declines with its own code before anything is held, and a lifted block lets the next purchase through', async () => {
+    const { ledger, user, ops } = await freshSim();
+    await fund(ledger, '500');
+    const cardId = randomUUID();
+    await user.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '400' });
+    const buy = (ref: string, at: { merchantCategory?: string; merchant?: string; merchantCountry?: string }) =>
+      ops.ops.cardAuthorize({ cardId, authorizationRef: ref, amount: '10', ...at, confirmOperatorId: CONFIRM, ...APPROVAL });
+
+    const read = await user.cards.controls.get({ cardId });
+    expect(read).toEqual({
+      categories: ['gambling', 'cash_like', 'adult', 'travel', 'entertainment', 'online_shopping', 'groceries', 'fuel'],
+      controls: [],
+      history: [],
+    });
+    await user.cards.controls.block({ cardId, kind: 'category', value: 'gambling' });
+    // Blocking again is the same control, never a second row.
+    await user.cards.controls.block({ cardId, kind: 'category', value: 'gambling' });
+    await user.cards.controls.block({ cardId, kind: 'merchant', value: '  TEST Casino Shop ' });
+    const blocked = await user.cards.controls.block({ cardId, kind: 'country', value: 'us' });
+    expect(blocked.controls.map((c) => [c.kind, c.value])).toEqual([
+      ['category', 'gambling'],
+      ['merchant', 'test casino shop'],
+      ['country', 'US'],
+    ]);
+
+    const available = (await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount;
+    expect(await buy('ctl-category', { merchantCategory: 'gambling' })).toMatchObject({
+      decision: 'declined',
+      declineCode: 'bank.card_category_blocked',
+    });
+    expect(await buy('ctl-merchant', { merchant: 'test CASINO shop' })).toMatchObject({
+      decision: 'declined',
+      declineCode: 'bank.card_merchant_blocked',
+    });
+    expect(await buy('ctl-country', { merchantCountry: 'US' })).toMatchObject({
+      decision: 'declined',
+      declineCode: 'bank.card_country_blocked',
+    });
+    // Nothing was held for any of them.
+    expect((await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount).toBe(available);
+    const feed = await user.cards.authorizations({ cardId, limit: 10 });
+    expect(feed.find((row) => row.authorizationRef === 'ctl-merchant')).toMatchObject({
+      merchant: 'test CASINO shop',
+      merchantCountry: null,
+      status: 'rejected',
+    });
+    expect(feed.find((row) => row.authorizationRef === 'ctl-country')).toMatchObject({ merchantCountry: 'US' });
+
+    // A purchase the controls don't name goes through; a lifted block no longer declines.
+    expect(await buy('ctl-other', { merchantCategory: 'groceries', merchant: 'TEST Grocer', merchantCountry: 'DE' })).toMatchObject({
+      decision: 'approved',
+    });
+    const gambling = blocked.controls.find((c) => c.kind === 'category')!;
+    const lifted = await user.cards.controls.lift({ cardId, controlId: gambling.id });
+    expect(lifted.controls.map((c) => c.kind)).toEqual(['merchant', 'country']);
+    expect(await buy('ctl-after-lift', { merchantCategory: 'gambling' })).toMatchObject({ decision: 'approved' });
+    await expect(user.cards.controls.lift({ cardId, controlId: randomUUID() })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.card_control_not_found'),
+    });
+  });
+
+  it('refuses a control it cannot keep, and records each lock and unlock in the card history (J-bank-14 #1)', async () => {
+    const { user } = await freshSim();
+    const cardId = randomUUID();
+    await user.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' });
+    for (const [kind, value] of [
+      ['category', 'casinos'],
+      ['country', 'USA'],
+      ['merchant', 'a'.repeat(65)],
+    ] as const)
+      await expect(user.cards.controls.block({ cardId, kind, value })).rejects.toThrow();
+    await expect(user.cards.controls.block({ cardId, kind: 'country', value: 'U1' })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.card_control_invalid'),
+    });
+    expect((await user.cards.controls.get({ cardId })).controls).toEqual([]);
+
+    await user.cards.setStatus({ cardId, status: 'frozen' });
+    // Freezing a frozen card changes nothing, so it adds no history.
+    await user.cards.setStatus({ cardId, status: 'frozen' });
+    await user.cards.setStatus({ cardId, status: 'active' });
+    const { history } = await user.cards.controls.get({ cardId });
+    expect(history.map((h) => [h.status, h.actor])).toEqual([
+      ['active', 'owner'],
+      ['frozen', 'owner'],
+    ]);
+  });
+
+  it("never shows or changes another person's card controls", async () => {
+    const { bank, user } = await freshSim();
+    const cardId = randomUUID();
+    await user.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' });
+    const other = createBankRouter(bank, { approvals: stubApprovalConsumer(CONFIRM) }).createCaller(
+      edgeContext({
+        headers: (() => {
+          const raw = encodePrincipal({ ...principal(), sub: FEE_PAYER, userId: FEE_PAYER } as Principal);
+          return {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, EDGE_SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          };
+        })(),
+        id: `req-${randomUUID()}`,
+      }),
+    );
+    await expect(other.cards.controls.get({ cardId })).rejects.toThrow();
+    await expect(other.cards.controls.block({ cardId, kind: 'category', value: 'gambling' })).rejects.toThrow();
+    expect((await user.cards.controls.get({ cardId })).controls).toEqual([]);
+  });
+
   it('refuses PAN, PIN and wallet on the simulated programme and stores neither secret', async () => {
     const { user } = await freshSim();
     const cardId = randomUUID();
@@ -430,7 +553,7 @@ describe('customer card procedures (PG-hard)', () => {
       });
       const approval = identity.approve('bank.step_up.cards.reveal', { actor: HOLDER, cardId, revealId });
       const revealed = await user.cards.reveal({ cardId, revealId, stepUpApprovalId: approval });
-      expect(revealed).toEqual({ pan: PAN, expiry: '12/30', cvv: CVV, expiresAt: '2026-06-15T12:01:00.000Z' });
+      expect(revealed).toEqual({ pan: PAN, expiry: '12/30', cvv: CVV, expiresAt: '2026-06-15T12:01:00.000Z', test: false });
       await expect(user.cards.reveal({ cardId, revealId, stepUpApprovalId: approval })).rejects.toMatchObject({
         message: expect.stringContaining('bank.step_up_used'),
       });
@@ -449,11 +572,13 @@ describe('customer card procedures (PG-hard)', () => {
       await expect(user.cards.pin.reveal({ cardId, revealId: pinView, stepUpApprovalId: pinViewApproval })).resolves.toEqual({
         pin: PIN,
         expiresAt: '2026-06-15T12:01:00.000Z',
+        test: false,
       });
       const provisionId = randomUUID();
       await expect(user.cards.walletProvision({ cardId, provisionId, wallet: 'google', nonce: 'device-nonce' })).resolves.toEqual({
         payload: WALLET_PAYLOAD,
         expiresAt: '2026-06-15T12:01:00.000Z',
+        test: false,
       });
       const stored = JSON.stringify(await sql`SELECT id, user_id, asset_id, pan_tail, card_type, shipping_address FROM bank.cards`);
       const audits = await sql<Array<{ kind: string; payload_hash: string }>>`
@@ -470,6 +595,446 @@ describe('customer card procedures (PG-hard)', () => {
     } finally {
       await sql.unsafe(SIMULATED_UP);
     }
+  });
+
+  /** The TEST partner adapter with `secrets: "test"` and the owner's PIN try limit (J-bank-14 #3, #4). */
+  async function testSecretsSim(pinTryLimit: number | null, threeDSTryLimit: number | null = null) {
+    await sql`TRUNCATE bank.card_3ds_challenges, bank.card_fraud_reports, bank.card_wallet_tokens, bank.card_controls, bank.card_status_events, bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
+    const ledger = new MemoryLedger();
+    const partner = { ...NOTHING_REPORTED, secrets: 'test' as const };
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      cards: { issuer: cardIssuerFor('card-sim', { live: false }, partner), clock: () => NOW, pinTryLimit, threeDSTryLimit },
+    });
+    const identity = new FakeIdentity();
+    const gate = createStepUpGate({ mode: 'required', approvals: identity, clock: () => NOW });
+    return { ledger, bank, identity, user: caller(bank, ['bank:read', 'bank:write'], gate), ops: caller(bank, ['admin:treasury']) };
+  }
+
+  it('shows the TEST partner card details once per step-up, labelled TEST, and keeps none of them', async () => {
+    const { bank, user, identity } = await testSecretsSim(3);
+    await expect(user.cards.secretsOffered()).resolves.toEqual({ details: true, pin: true, wallet: true, test: true });
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const revealId = randomUUID();
+    const approval = identity.approve('bank.step_up.cards.reveal', { actor: HOLDER, cardId, revealId });
+    const revealed = await user.cards.reveal({ cardId, revealId, stepUpApprovalId: approval });
+    expect(revealed).toMatchObject({ test: true, expiresAt: '2026-06-15T12:01:00.000Z' });
+    expect(revealed.pan).toMatch(/^999999\d{10}$/);
+    expect(luhnOk(revealed.pan)).toBe(true);
+    expect(revealed.expiry).toMatch(/^(0[1-9]|1[0-2])\/3[0-4]$/);
+    expect(revealed.cvv).toMatch(/^\d{3}$/);
+    // A second reveal is a new reveal id and needs its own step-up; the first approval does not carry over.
+    const again = randomUUID();
+    await expect(user.cards.reveal({ cardId, revealId: again, stepUpApprovalId: approval })).rejects.toMatchObject({
+      message: expect.stringMatching(/bank\.step_up_(used|mismatch|required|invalid)/),
+    });
+    await expect(user.cards.reveal({ cardId, revealId: again })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.step_up_required'),
+    });
+    const second = await user.cards.reveal({
+      cardId,
+      revealId: again,
+      stepUpApprovalId: identity.approve('bank.step_up.cards.reveal', { actor: HOLDER, cardId, revealId: again }),
+    });
+    expect(second.pan).toBe(revealed.pan);
+    const stored = JSON.stringify(await sql`SELECT * FROM bank.cards`) + JSON.stringify(await sql`SELECT * FROM bank.card_secret_audits`);
+    expect(stored).not.toContain(revealed.pan);
+  });
+
+  it('sets a TEST PIN and blocks it at the owner count of wrong tries, until a new PIN is set', async () => {
+    const { bank, user, identity, ops, ledger } = await testSecretsSim(3);
+    await fund(ledger, '100');
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const setPin = async (pin: string) => {
+      const commandId = randomUUID();
+      return user.cards.pin.set({
+        cardId,
+        commandId,
+        pin,
+        stepUpApprovalId: identity.approve('bank.step_up.cards.pinSet', { actor: HOLDER, cardId, commandId }),
+      });
+    };
+    let n = 0;
+    const tap = (pin: string) =>
+      ops.ops.cardAuthorize({ cardId, authorizationRef: `auth-pin-${++n}`, amount: '1', pin, confirmOperatorId: CONFIRM, ...APPROVAL });
+
+    // No PIN yet: nothing to show, and a typed PIN declines by name.
+    const viewId = randomUUID();
+    await expect(
+      user.cards.pin.reveal({
+        cardId,
+        revealId: viewId,
+        stepUpApprovalId: identity.approve('bank.step_up.cards.pinReveal', { actor: HOLDER, cardId, revealId: viewId }),
+      }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('bank.card_pin_not_set') });
+    expect(await tap('1234')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_not_set' });
+
+    await expect(setPin('4321')).resolves.toEqual({ ok: true });
+    const shown = randomUUID();
+    await expect(
+      user.cards.pin.reveal({
+        cardId,
+        revealId: shown,
+        stepUpApprovalId: identity.approve('bank.step_up.cards.pinReveal', { actor: HOLDER, cardId, revealId: shown }),
+      }),
+    ).resolves.toEqual({ pin: '4321', expiresAt: '2026-06-15T12:01:00.000Z', test: true });
+
+    expect(await tap('4321')).toMatchObject({ decision: 'approved' });
+    expect(await tap('0000')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_blocked' });
+    // Blocked: even the right PIN declines now.
+    expect(await tap('4321')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_blocked' });
+    // A new PIN clears the wrong tries.
+    await setPin('8642');
+    expect(await tap('8642')).toMatchObject({ decision: 'approved' });
+    // A right PIN between wrong ones starts the count again.
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('8642')).toMatchObject({ decision: 'approved' });
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_blocked' });
+
+    // The same purchase delivered twice at once is one wrong try, not two.
+    await setPin('8642');
+    const twice = await Promise.all([
+      ops.ops.cardAuthorize({
+        cardId,
+        authorizationRef: 'auth-pin-twice',
+        amount: '1',
+        pin: '0000',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+      ops.ops.cardAuthorize({
+        cardId,
+        authorizationRef: 'auth-pin-twice',
+        amount: '1',
+        pin: '0000',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+    ]);
+    expect(twice.map((d) => d.declineCode)).toEqual(['bank.card_pin_wrong', 'bank.card_pin_wrong']);
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
+    expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_blocked' });
+
+    // Random ids and clock times can hold any four digits ("86422193-…" did, on #7779's run 42738583878), so they are
+    // taken out before the search; every other stored value is still searched for both PINs.
+    const stored = (
+      JSON.stringify(await sql`SELECT * FROM bank.card_authorizations`) + JSON.stringify(await sql`SELECT * FROM bank.card_secret_audits`)
+    )
+      .replace(/"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/gi, '"<uuid>"')
+      .replace(/"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z"/g, '"<time>"');
+    expect(stored).not.toContain('4321');
+    expect(stored).not.toContain('8642');
+  });
+
+  it('declines a typed PIN by name while the owner has not set the try limit', async () => {
+    const { bank, user, identity, ops, ledger } = await testSecretsSim(null);
+    await fund(ledger, '10');
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const commandId = randomUUID();
+    await user.cards.pin.set({
+      cardId,
+      commandId,
+      pin: '4321',
+      stepUpApprovalId: identity.approve('bank.step_up.cards.pinSet', { actor: HOLDER, cardId, commandId }),
+    });
+    const tapped = await ops.ops.cardAuthorize({
+      cardId,
+      authorizationRef: 'auth-no-limit',
+      amount: '1',
+      pin: '4321',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    expect(tapped).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_try_limit_unset' });
+    await expect(ledger.balance(userAvailable(HOLDER, 'USDT'))).resolves.toMatchObject({ amount: amt('10') });
+  });
+
+  it('adds the card to a phone wallet once per wallet, shows its tokens paused while frozen, and adds none to a frozen card', async () => {
+    const { bank, user } = await testSecretsSim(3);
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const first = await user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'device-a' });
+    expect(first).toMatchObject({ test: true });
+    expect(first.payload).toMatch(/^TEST-wallet-apple-/);
+    // The same card into the same wallet again is the same token.
+    await user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'device-b' });
+    const added = await user.cards.walletTokens({ cardId });
+    expect(added.test).toBe(true);
+    expect(added.tokens).toHaveLength(1);
+    expect(added.tokens[0]).toMatchObject({ wallet: 'apple', state: 'added' });
+
+    await user.cards.setStatus({ cardId, status: 'frozen' });
+    expect((await user.cards.walletTokens({ cardId })).tokens).toEqual([expect.objectContaining({ wallet: 'apple', state: 'paused' })]);
+    await expect(
+      user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'google', nonce: 'device-c' }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('bank.card_not_active') });
+    expect((await user.cards.walletTokens({ cardId })).tokens).toHaveLength(1);
+    const rows = JSON.stringify(await sql`SELECT * FROM bank.card_wallet_tokens`);
+    expect(rows).not.toContain(first.payload);
+  });
+
+  it('completes a 3D Secure purchase once on the right code, and locks a challenge at the owner count of wrong codes (J-bank-14 #5)', async () => {
+    const { bank, user, ops, ledger } = await testSecretsSim(3, 3);
+    await fund(ledger, '100');
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const challenge = async (ref: string, amount = '7') =>
+      ops.ops.cardThreeDSChallenge({
+        cardId,
+        challengeId: randomUUID(),
+        challengeRef: ref,
+        amount,
+        merchant: 'Online shop',
+        merchantCountry: 'de',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      });
+
+    const opened = await challenge('3ds-ok');
+    expect(opened.state).toBe('open');
+    // The same reference again is the same challenge; with a different amount it refuses and changes nothing.
+    expect((await challenge('3ds-ok')).challengeId).toBe(opened.challengeId);
+    await expect(challenge('3ds-ok', '8')).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'bank.card_3ds_conflict' }) });
+
+    // A challenge id already used for another purchase refuses by name, and opens nothing.
+    await expect(
+      ops.ops.cardThreeDSChallenge({
+        cardId,
+        challengeId: opened.challengeId,
+        challengeRef: '3ds-other',
+        amount: '7',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'bank.card_3ds_conflict' }) });
+
+    const [listed] = (await user.cards.threeDS.list({ cardId })).challenges;
+    expect(listed).toMatchObject({
+      id: opened.challengeId,
+      state: 'open',
+      triesLeft: 3,
+      amount: '7',
+      merchant: 'Online shop',
+      merchantCountry: 'DE',
+    });
+    expect(listed!.testCode).toMatch(/^\d{6}$/);
+    const right = listed!.testCode!;
+    const wrong = right === '000000' ? '111111' : '000000';
+
+    const once = await user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId, code: wrong });
+    expect(once).toMatchObject({ state: 'open', triesLeft: 2, authorizationId: null });
+    const approved = await user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId, code: right });
+    expect(approved).toMatchObject({ state: 'approved', decision: 'approved', declineCode: null, testCode: null });
+    // Answered again, or at once by two answers, it is the same one authorisation and one hold.
+    const [again, racing] = await Promise.all([
+      user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId, code: right }),
+      user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId, code: wrong }),
+    ]);
+    expect(again.authorizationId).toBe(approved.authorizationId);
+    expect(racing.authorizationId).toBe(approved.authorizationId);
+    const auths = await bank.cards.authorizationsOf(cardId, 50);
+    expect(auths).toHaveLength(1);
+    expect(auths[0]).toMatchObject({
+      id: approved.authorizationId,
+      decision: 'approved',
+      authorizationRef: '3ds:3ds-ok',
+      channel: 'online',
+    });
+    expect((await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount.toString()).toBe(amt('93').toString());
+
+    // Three wrong codes lock the next challenge: no authorisation, and the right code no longer helps.
+    const locked = await challenge('3ds-locked');
+    const code = (await user.cards.threeDS.list({ cardId })).challenges.find((c) => c.id === locked.challengeId)!.testCode!;
+    const bad = code === '000000' ? '111111' : '000000';
+    expect(await user.cards.threeDS.answer({ cardId, challengeId: locked.challengeId, code: bad })).toMatchObject({
+      state: 'open',
+      triesLeft: 2,
+    });
+    expect(await user.cards.threeDS.answer({ cardId, challengeId: locked.challengeId, code: bad })).toMatchObject({
+      state: 'open',
+      triesLeft: 1,
+    });
+    expect(await user.cards.threeDS.answer({ cardId, challengeId: locked.challengeId, code: bad })).toMatchObject({
+      state: 'locked',
+      triesLeft: 0,
+    });
+    expect(await user.cards.threeDS.answer({ cardId, challengeId: locked.challengeId, code })).toMatchObject({
+      state: 'locked',
+      authorizationId: null,
+      testCode: null,
+    });
+    expect(await bank.cards.authorizationsOf(cardId, 50)).toHaveLength(1);
+    expect((await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount.toString()).toBe(amt('93').toString());
+    // The code is never kept.
+    expect(JSON.stringify(await sql`SELECT * FROM bank.card_3ds_challenges`)).not.toContain(code);
+  });
+
+  it('finishes an approved 3D Secure challenge whose authorisation was never written, and refuses by name without the owner count or a partner (J-bank-14 #5)', async () => {
+    const { bank, user, ops, ledger } = await testSecretsSim(3, 3);
+    await fund(ledger, '100');
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const opened = await ops.ops.cardThreeDSChallenge({
+      cardId,
+      challengeId: randomUUID(),
+      challengeRef: '3ds-crash',
+      amount: '5',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    // A crash between the approval and the authorisation: the row says approved and holds no authorisation.
+    await sql`UPDATE bank.card_3ds_challenges SET state = 'approved' WHERE id = ${opened.challengeId}`;
+    expect(await bank.cards.authorizationsOf(cardId, 50)).toHaveLength(0);
+    const finished = await user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId });
+    expect(finished).toMatchObject({ state: 'approved', decision: 'approved' });
+    expect(finished.authorizationId).not.toBeNull();
+
+    // A right code on a purchase the card then declines (over the per-purchase cap) shows the decline, not success.
+    const big = await ops.ops.cardThreeDSChallenge({
+      cardId,
+      challengeId: randomUUID(),
+      challengeRef: '3ds-over-cap',
+      amount: '150',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    const bigCode = (await user.cards.threeDS.list({ cardId })).challenges.find((c) => c.id === big.challengeId)!.testCode!;
+    expect(await user.cards.threeDS.answer({ cardId, challengeId: big.challengeId, code: bigCode })).toMatchObject({
+      state: 'approved',
+      decision: 'declined',
+      declineCode: 'bank.card_limit_exceeded',
+    });
+    // An open challenge answered with no code refuses by name and counts nothing.
+    const blank = await ops.ops.cardThreeDSChallenge({
+      cardId,
+      challengeId: randomUUID(),
+      challengeRef: '3ds-blank',
+      amount: '1',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    await expect(user.cards.threeDS.answer({ cardId, challengeId: blank.challengeId })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'bank.card_3ds_code_missing' }),
+    });
+    // A frozen card is not asked to confirm a purchase.
+    await user.cards.setStatus({ cardId, status: 'frozen' });
+    await expect(
+      ops.ops.cardThreeDSChallenge({
+        cardId,
+        challengeId: randomUUID(),
+        challengeRef: '3ds-frozen',
+        amount: '1',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'bank.card_not_active' }) });
+    // The finished purchase and the declined one: nothing for the challenge left open or the one refused.
+    expect((await bank.cards.authorizationsOf(cardId, 50)).map((a) => a.authorizationRef).sort()).toEqual([
+      '3ds:3ds-crash',
+      '3ds:3ds-over-cap',
+    ]);
+
+    // The owner has not set the count: answering refuses by name, and nothing is counted.
+    const unset = await testSecretsSim(3, null);
+    const card2 = randomUUID();
+    await unset.bank.cards.issue({ cardId: card2, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const open2 = await unset.ops.ops.cardThreeDSChallenge({
+      cardId: card2,
+      challengeId: randomUUID(),
+      challengeRef: '3ds-unset',
+      amount: '5',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    await expect(unset.user.cards.threeDS.answer({ cardId: card2, challengeId: open2.challengeId, code: '000000' })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'bank.card_3ds_try_limit_unset' }),
+    });
+    expect((await unset.user.cards.threeDS.list({ cardId: card2 })).challenges[0]).toMatchObject({ state: 'open', triesLeft: null });
+
+    // card-sim without the TEST secrets switch has no partner to send a code: the issuer's request refuses by name.
+    const { bank: plain, ops: plainOps } = await freshSim();
+    const card3 = randomUUID();
+    await plain.cards.issue({ cardId: card3, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    await expect(
+      plainOps.ops.cardThreeDSChallenge({
+        cardId: card3,
+        challengeId: randomUUID(),
+        challengeRef: '3ds-none',
+        amount: '5',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'bank.card_3ds_issuer_unset' }) });
+  });
+
+  it('reports fraud on a card payment: the card freezes, one case opens per payment, and another person cannot report it (J-bank-14 #7)', async () => {
+    const { bank, user, ops, ledger } = await testSecretsSim(3, 3);
+    await fund(ledger, '100');
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    const paid = await ops.ops.cardAuthorize({ cardId, authorizationRef: 'fraud-1', amount: '4', confirmOperatorId: CONFIRM, ...APPROVAL });
+    const before = (await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount.toString();
+
+    const report = await user.cards.fraud.report({ cardId, authorizationId: paid.authorizationId });
+    expect(report).toMatchObject({ cardId, authorizationId: paid.authorizationId, state: 'open' });
+    expect((await bank.cards.card(cardId)).status).toBe('frozen');
+    // The same payment again is the same case.
+    const again = await user.cards.fraud.report({ cardId, authorizationId: paid.authorizationId });
+    expect(again.id).toBe(report.id);
+    expect((await user.cards.fraud.list({ cardId })).reports).toHaveLength(1);
+    // Nothing moved.
+    expect((await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount.toString()).toBe(before);
+    // A frozen card declines the next purchase, and a declined payment is not reported.
+    const declined = await ops.ops.cardAuthorize({
+      cardId,
+      authorizationRef: 'fraud-2',
+      amount: '1',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    expect(declined).toMatchObject({ decision: 'declined' });
+    await expect(user.cards.fraud.report({ cardId, authorizationId: declined.authorizationId })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'bank.card_authorization_declined' }),
+    });
+    expect((await user.cards.fraud.list({ cardId })).reports).toHaveLength(1);
+
+    // A payment on another card is not this card's to report.
+    const other = randomUUID();
+    await bank.cards.issue({ cardId: other, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    await expect(user.cards.fraud.report({ cardId: other, authorizationId: paid.authorizationId })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'bank.card_authorization_not_found' }),
+    });
+    // Another person's card is not found.
+    const stranger = randomUUID();
+    await bank.cards.issue({
+      cardId: stranger,
+      userId: '33333333-3333-4333-8333-333333333333',
+      assetId: 'USDT',
+      perAuthorizationLimit: amt('100'),
+    });
+    await expect(user.cards.fraud.report({ cardId: stranger, authorizationId: paid.authorizationId })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'bank.card_not_found' }),
+    });
+    await expect(user.cards.threeDS.list({ cardId: stranger })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'bank.card_not_found' }),
+    });
+  });
+
+  it('keeps card-sim without `secrets` refusing card details, PIN and wallet by name', async () => {
+    const { user } = await freshSim();
+    const cardId = randomUUID();
+    await user.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '100' });
+    await expect(user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'n' })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.card_wallet_issuer_unset'),
+    });
+    await expect(user.cards.walletTokens({ cardId })).resolves.toEqual({ test: false, tokens: [] });
+    await expect(user.cards.secretsOffered()).resolves.toEqual({ details: false, pin: false, wallet: false, test: false });
   });
 
   it('issues a simulated physical card only with a delivery address', async () => {

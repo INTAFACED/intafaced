@@ -11,16 +11,22 @@
  *   { v, mode: 'reach' | 'full', why?, runs: [{ id, head, created }], journeys: [file], full: { [file]: reason },
  *     services: { 'services/svc-x': [journey index] }, packages: { 'packages/x': [journey index] },
  *     customer: { 'apps/customer/src/…': [journey index] }, consumers: { 'packages/x': [consumer dir] },
- *     harness: [dir], subscribers: [service dir], money: [dir] }
+ *     dependents: { 'packages/x': [package dir] }, harness: [dir], subscribers: [service dir], money: [dir] }
  * Built (buildMap) only from main's full runs that are whole: every journey file at the run's head in its report, and a
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
  * MIN_RUNS whole runs the builder refuses: it writes a map whose mode is 'full', and nothing narrows.
- * A journey's reach comes only from the runs where every one of its tests passed (a failed step stops it short); with
- * no such run it reaches everything. Open edge, not covered: a service that publishes an event from background work
- * without logging while a journey runs is not tied to the journey that sees the subscriber's effect (review 7561-R1 #3;
- * subscribers are full). Before the first 'reach' map merges, CI should rebuild it from the run ids it names and
- * compare it byte for byte (review 7561-R1 #2, with the rebuild follow-up).
+ * A journey's reach comes only from the runs where every one of its tests passed, or where each test that didn't pass is
+ * a step main's journey baseline calls unbuilt (or a test skipped after one), red in every run the map is built from,
+ * all of which hold the file (speaksFor); with no such run it reaches everything. The baseline is the checkout's own
+ * copy, so `verify` on main rebuilds it from the same baseline. Open edge, not covered: a service that publishes an
+ * event from background work without logging while a journey runs is not tied to the journey that sees the
+ * subscriber's effect (review 7561-R1 #3;
+ * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
+ * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
+ * map names and compares it byte for byte, so a hand-edited map, or one built from hand-picked runs, fails (review
+ * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml) builds it in CI with the workflow's own
+ * read-only token and keeps it as an artifact; nothing pushes it to main.
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
@@ -39,24 +45,28 @@
  * MIN_RUNS runs, or when more than STALE_RUNS of main's finished full runs came after its newest run (or that count
  * can't be read).
  *
- *   node tooling/ci/journey-reach-map.mjs build [--runs <id,id,id>] [--out <file>]   (GH_TOKEN; writes the map)
- *   node tooling/ci/journey-reach-map.mjs show                                         (what the committed map holds)
+ *   node tooling/ci/journey-reach-map.mjs build [--runs <id,id,id>] [--until <run id>] [--out <file>]
+ *                                                    (GH_TOKEN; writes the map; --until: only runs up to that run)
+ *   node tooling/ci/journey-reach-map.mjs verify [--map <file>]
+ *                                                    (GH_TOKEN; rebuilds the map up to its newest run, compares bytes)
+ *   node tooling/ci/journey-reach-map.mjs show [--map <file>]                         (what the map holds)
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, posix } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { isMainRun, manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
+import { isMainRun, manifestsAt, moneyCodeDirs, rootInputs, stepOf, testPassed } from './journey-verdict.mjs';
 
 /**
  * The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map.
- * It ships 'full' (the CI review on b26447ca): narrowing turns on only in a reviewed code change, once a map built from
- * MIN_RUNS whole runs is committed and REVIEW.md records the owner's decision for it, never by a data-only map commit.
+ * On since REVIEW.md's C4 entry (OWNER 240, 249) and a map built from MIN_RUNS whole main runs; only a reviewed code
+ * change moves it, never a data-only map commit. Setting it to 'full' is the way back.
  */
-export const REACH_MAP_MODE = 'full';
+export const REACH_MAP_MODE = 'reach';
 /** Money code beyond moneyCodeDirs (journey-verdict.mjs): the ledger service itself. */
 export const MONEY_SERVICES = ['services/svc-ledger'];
+// Not bumped for project-state#1574: a new version makes the committed map unusable, so every PR would run full until rebuilt.
 export const MAP_VERSION = 1;
 /** The plan's "build the map from the next 3 full main runs": fewer whole runs build no map. */
 export const MIN_RUNS = 3;
@@ -143,26 +153,98 @@ export function reportFiles(report) {
 }
 
 /**
- * The journey files a report ran that did not pass whole: a test with no result, or whose last result is not `passed`
- * (failed, timedOut, interrupted, skipped). A failed step stops its journey, so its record holds less than the journey
- * reaches (review 7561-R1): buildMap takes a file's reach only from runs where it passed whole. Returns a Set of names.
+ * Each journey file's tests in a report, in the report's order: Map(file -> { broken, tests: Map(test key -> { passed,
+ * skipped, step, project }) }). A test's key is its title path (describe titles and the spec's title) and project;
+ * `passed` is journey-verdict.mjs testPassed (ended expected, or flaky with a pass after a failed attempt), `skipped`
+ * that Playwright skipped it, and `step` its journey step (`J-tax-01#3`) or null (a setup or end test). `broken`: a
+ * spec of the file holds no test, so what ran can't be told. Every file reportFiles finds is here.
  */
-export function reportUnclean(report) {
-  const bad = new Set();
-  const walk = (s, file) => {
+export function reportTests(report) {
+  const out = new Map();
+  const walk = (s, file, titles) => {
     const here = s.file ?? file;
+    const path = s.title && !JOURNEY_FILE.test(String(s.title).split('/').pop()) ? [...titles, s.title] : titles;
     for (const sp of s.specs ?? []) {
       const f = String(sp.file ?? here ?? '')
         .split('/')
         .pop();
       if (!JOURNEY_FILE.test(f)) continue;
+      const o = out.get(f) ?? out.set(f, { broken: false, tests: new Map() }).get(f);
       const tests = sp.tests ?? [];
-      if (!tests.length || tests.some((t) => (t.results ?? []).at(-1)?.status !== 'passed')) bad.add(f);
+      if (!tests.length) o.broken = true;
+      for (const t of tests) {
+        const project = t.projectName ?? '';
+        const key = JSON.stringify([...path, sp.title ?? '', project]);
+        const had = o.tests.get(key);
+        o.tests.set(key, {
+          passed: (had?.passed ?? true) && testPassed(t),
+          skipped: (had?.skipped ?? true) && t.status === 'skipped',
+          step: stepOf(sp.title),
+          project,
+        });
+      }
     }
-    for (const c of s.suites ?? []) walk(c, here);
+    for (const c of s.suites ?? []) walk(c, here, path);
   };
-  for (const s of report?.suites ?? []) walk(s, s.file);
-  return bad;
+  for (const s of report?.suites ?? []) walk(s, s.file, []);
+  return out;
+}
+
+/**
+ * The steps main's journey baseline (journey-verdict.mjs BASELINE_PATH, read by rootInputs) calls unbuilt, as
+ * Map(step -> journey file name). A step listed twice, or also in `notBaselined`, is left out, as the verdict counts it
+ * failing (journey-verdict.mjs judge).
+ */
+export function unbuiltSteps(baseline) {
+  const seen = new Map();
+  const dupes = new Set();
+  for (const e of baseline?.steps ?? []) seen.has(e.step) ? dupes.add(e.step) : seen.set(e.step, e);
+  const not = new Set((baseline?.notBaselined ?? []).map((e) => e.step));
+  const out = new Map();
+  for (const [step, e] of seen)
+    if (e.state === 'unbuilt' && !dupes.has(step) && !not.has(step) && typeof e.file === 'string') out.set(step, e.file.split('/').pop());
+  return out;
+}
+
+/**
+ * Whether each whole run can speak for a journey file: an array of booleans, one per run in `whole` (false where the run
+ * doesn't hold the file). `unbuilt`: unbuiltSteps of the baseline. A run counts when the file is not broken in it and
+ * every test of it passed there, or when each test that didn't pass is excused:
+ *   - it is a numbered step of this file the baseline calls unbuilt, or a test skipped after such a step in the same
+ *     file and project; and
+ *   - it didn't pass in any whole run, and every whole run the map is built from (at least MIN_RUNS) holds the file.
+ * Every other test that didn't pass stops the journey short, so the run doesn't count (review 7561-R1): a setup or end
+ * test, a `regression` step, a step the baseline doesn't list, a test skipped with no excused step before it, a test
+ * that passed in another run (flaky), a test another run lacks, and any red test of a file some whole run doesn't hold.
+ *
+ * Why an excused red test leaves the run's reach sound (project-state#1574): the reach taken is still every record of
+ * the file in that run (runReach), never only the passing tests' records, since each record holds only what its worker
+ * hadn't sent yet (journey-reach.mjs take()).
+ *   - A pull request can't make an unbuilt step redder: the journey's verdict already holds it red on main.
+ *   - The green tests before it ran whole, and everything they reached is recorded, so a change they can see selects them.
+ *   - An unbuilt step that turns green on main can reach code the map doesn't know until the map is rebuilt from runs
+ *     where it passed; from then on it passed in some run, so it is excused nowhere, and a map older than STALE_RUNS
+ *     main runs is not used at all.
+ *   - The pull request that builds the step runs its journey anyway: a journey named in the pull request's title always
+ *     runs (real-app-journeys.yml, the "What this run runs" step: `named=` holds the title's journey files, joined to
+ *     the files the map selects, and run alone when the map selects none).
+ *   - Main's full run after every merge runs every journey, and is the backstop.
+ */
+export function speaksFor(whole, f, unbuilt = new Map()) {
+  const held = whole.map((r) => (r.files.has(f) ? r.tests.get(f) : null));
+  const everyRun = whole.length >= MIN_RUNS && held.every(Boolean);
+  const persistent = (key) => everyRun && held.every((o) => o.tests.get(key)?.passed === false);
+  return held.map((o) => {
+    if (!o || o.broken) return false;
+    const after = new Set(); // projects in which an excused unbuilt step came before
+    for (const [key, t] of o.tests) {
+      if (t.passed) continue;
+      const isUnbuilt = !!t.step && unbuilt.get(t.step) === f;
+      if (!persistent(key) || !(isUnbuilt || (t.skipped && after.has(t.project)))) return false;
+      if (isUnbuilt) after.add(t.project);
+    }
+    return true;
+  });
 }
 
 /**
@@ -226,6 +308,24 @@ export function workspace(root = ROOT) {
     ]),
   );
   return { dirs, byName, deps };
+}
+
+/** Every package depending on a package, through other packages too: { 'packages/x': [package dir] }. consumersOf keeps
+ *  only apps and services, so this is how pathReach sees a package that only a money package depends on (review
+ *  7561-R2). */
+export function dependentPackages({ dirs, deps }) {
+  const pkgs = dirs.filter((d) => PACKAGE_DIR.test(d));
+  const out = {};
+  for (const p of pkgs) {
+    const seen = new Set();
+    const queue = [p];
+    while (queue.length) {
+      const x = queue.shift();
+      for (const d of pkgs) if (d !== p && deps[d].includes(x) && !seen.has(d)) seen.add(d) && queue.push(d);
+    }
+    out[p] = [...seen].sort();
+  }
+  return out;
 }
 
 /** Every app and service depending on a package, through other packages too: { 'packages/x': [dir] }. */
@@ -316,7 +416,18 @@ export function subscribers(root = ROOT) {
  * lost shard), is not whole and is passed over. In a whole run, a journey file it ran with no record of its own is
  * full in the map (it runs with every change). The newest MIN_RUNS whole runs build it; fewer, and its mode is 'full'.
  */
-export function buildMap({ runs, services, consumers, harness, subscribers: subs, money, minRuns = MIN_RUNS }) {
+export function buildMap({
+  runs,
+  services,
+  consumers,
+  dependents = {},
+  harness,
+  subscribers: subs,
+  money,
+  baseline = null,
+  minRuns = MIN_RUNS,
+}) {
+  const unbuilt = unbuiltSteps(baseline);
   const whole = [];
   const skipped = [];
   for (const r of runs) {
@@ -325,7 +436,7 @@ export function buildMap({ runs, services, consumers, harness, subscribers: subs
     const lost = [...r.files].filter((f) => !ran.has(f));
     if (!records.length) skipped.push(`${r.id}: no journey-reach records (before the recorder)`);
     else if (lost.length) skipped.push(`${r.id}: its report lacks ${lost.length} journey file(s) at its head (a lost shard)`);
-    else whole.push({ ...r, ran, records, unclean: reportUnclean(r.report) });
+    else whole.push({ ...r, ran, records, tests: reportTests(r.report) });
     if (whole.length === minRuns) break;
   }
   const base = { v: MAP_VERSION, runs: whole.map(({ id, head, created }) => ({ id, head, created })), skipped };
@@ -346,19 +457,24 @@ export function buildMap({ runs, services, consumers, harness, subscribers: subs
     let why = null;
     let clean = 0;
     const union = { services: new Set(), packages: new Set(), customer: new Set() };
+    const counts = speaksFor(whole, f, unbuilt);
     whole.forEach((r, i) => {
       if (why || !r.files.has(f)) return;
       const x = reach[i][f];
       if (!x) why = `run ${r.id} holds no record of it`;
       else if (x.full) why = `run ${r.id}: ${x.full}`;
-      else if (r.unclean.has(f))
-        return; // a step that didn't pass stopped the journey short: this run can't speak for it
+      else if (!counts[i])
+        return; // a test that didn't pass here stopped the journey short (speaksFor): a broken spec, a red test other than an
+      // unbuilt step red in every run that holds the file, a skip with no such step before it, a red test another run
+      // lacks or passed, or a red test of a file some whole run doesn't hold. This run can't speak for it.
       else {
         clean += 1;
         for (const k of Object.keys(union)) for (const v of x[k]) union[k].add(v);
       }
     });
-    if (!why && !clean) why = 'no run the map is built from passed every one of its tests';
+    if (!why && !clean)
+      why =
+        "no run the map is built from speaks for it: in each, a spec held no test, or a test didn't pass that is not an unbuilt step of main's baseline (or skipped after one) red in every run, all of which hold the file";
     if (why) {
       full[f] = why;
       continue;
@@ -383,6 +499,7 @@ export function buildMap({ runs, services, consumers, harness, subscribers: subs
     packages: sorted(packages),
     customer: sorted(customer),
     consumers: sorted(consumers),
+    dependents: sorted(dependents),
     harness: [...harness].sort(),
     subscribers: [...subs].sort(),
     money: [...new Set([...(money ?? []), ...MONEY_SERVICES])].sort(),
@@ -418,6 +535,81 @@ export function runsBehind(map, runs, repo = REPO) {
   ).length;
 }
 
+/** The workflow that builds the map after every green full run on main, and the artifact it uploads. */
+export const MAP_WORKFLOW = 'journey-reach-map.yml';
+export const MAP_ARTIFACT = 'journey-reach-map';
+
+/**
+ * Which build of the map speaks for main, from a list of MAP_WORKFLOW's runs: the newest one that succeeded (so its
+ * verify step passed) and was started by main's own journeys run (`workflow_run`, which always runs the default
+ * branch's workflow and skips its build for any other branch's run; a dispatch runs whatever ref it names, so it never
+ * counts), in this repository, and was created no later than `before` (ms; the journeys run's own creation,
+ * so its touch job and the seal pick the same build), or null. (Failure it prevents: on 9 Nov 2026 the committed map
+ * was built from runs up to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's
+ * journeys ran all 33 shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
+ */
+export function mapBuild(runs, { before = Infinity, repo = REPO } = {}) {
+  return (
+    (runs ?? [])
+      .filter(
+        (r) =>
+          r?.status === 'completed' &&
+          r?.conclusion === 'success' &&
+          r?.head_branch === 'main' &&
+          r?.head_repository?.full_name === repo &&
+          r?.event === 'workflow_run' &&
+          String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
+          Date.parse(r?.created_at) <= before,
+      )
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null
+  );
+}
+
+/** Whether a map holds what mapProblem needs before its age: version, reach mode, enough runs, journeys. Pure. */
+const usable = (m) =>
+  m?.v === MAP_VERSION &&
+  m?.mode === 'reach' &&
+  Array.isArray(m?.runs) &&
+  m.runs.length >= MIN_RUNS &&
+  Number.isFinite(Date.parse(m.runs[0]?.created)) &&
+  Array.isArray(m?.journeys) &&
+  m.journeys.length > 0;
+
+/** The map to use: the built one when it is usable and its newest run is newer than the committed map's, else the
+ *  committed one (the fallback, so a build that can't be read never makes things worse). Pure. */
+export function newerMap(built, committed) {
+  if (!usable(built)) return committed;
+  if (!usable(committed)) return built;
+  return Date.parse(built.runs[0].created) > Date.parse(committed.runs[0].created) ? built : committed;
+}
+
+/**
+ * The newest built map main's map workflow uploaded no later than `before` (mapBuild), or null when there is none or it
+ * can't be read. `get(path)` returns the API's JSON, `raw(path)` an artifact zip's bytes (either may be async).
+ */
+export async function builtMap({ get, raw, before = Date.now(), repo = REPO }) {
+  try {
+    const runs = (await get(`/repos/${repo}/actions/workflows/${MAP_WORKFLOW}/runs?branch=main&status=success&per_page=100`))
+      ?.workflow_runs;
+    const run = mapBuild(runs, { before, repo });
+    if (!run) return null;
+    const art = ((await get(`/repos/${repo}/actions/runs/${run.id}/artifacts?name=${MAP_ARTIFACT}`))?.artifacts ?? []).find(
+      (a) => a?.name === MAP_ARTIFACT && !a?.expired,
+    );
+    if (!art) return null;
+    const dir = mkdtempSync(join(tmpdir(), 'reach-map-'));
+    try {
+      const zip = join(dir, 'a.zip');
+      writeFileSync(zip, await raw(`/repos/${repo}/actions/artifacts/${art.id}/zip`));
+      return JSON.parse(execFileSync('unzip', ['-p', zip, 'journey-reach-map.json'], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  } catch {
+    return null;
+  }
+}
+
 /** Why the map can't be used at all, or null when it can. */
 export function mapProblem(map, behind, mode = REACH_MAP_MODE) {
   if (mode !== 'reach') return `the touched-journeys map is switched off (REACH_MAP_MODE is '${mode}')`;
@@ -426,7 +618,6 @@ export function mapProblem(map, behind, mode = REACH_MAP_MODE) {
   if (map.mode !== 'reach') return `the touched-journeys map is full (${map.why ?? 'no reason given'})`;
   if (!Array.isArray(map.runs) || map.runs.length < MIN_RUNS) return `the touched-journeys map holds fewer than ${MIN_RUNS} runs`;
   if (!Array.isArray(map.journeys) || !map.journeys.length) return 'the touched-journeys map lists no journeys';
-  if (!Array.isArray(map.money) || !map.money.length) return 'the touched-journeys map lists no money code';
   if (behind === null || behind === undefined || !Number.isFinite(behind))
     return "how many main runs came after the touched-journeys map's newest run couldn't be read";
   if (behind > STALE_RUNS)
@@ -443,13 +634,10 @@ export function pathReach(map, path, subscribesHere = false) {
   const pkgOf = /^(packages\/[a-z0-9-]+)\//.exec(p)?.[1];
   if (map.harness?.includes(p) || (pkgOf && map.harness?.includes(pkgOf))) return { full: 'the journey harness imports it' };
   const svc = /^(services\/svc-[a-z0-9-]+)\//.exec(p)?.[1];
-  // Money code always runs the full suite (AGENTS.md "How work flows" 8: packages/ledger-client, its direct dependents,
-  // svc-edge, svc-ops, svc-protocol, svc-fix; and svc-ledger), and so does a package money code depends on.
-  const money = Array.isArray(map.money) ? map.money : null;
-  if (!money) return { full: 'the map lists no money code' };
-  if ((svc && money.includes(svc)) || (pkgOf && money.includes(pkgOf))) return { full: 'money code, which always runs the full suite' };
-  if (pkgOf && (map.consumers?.[pkgOf] ?? []).some((d) => money.includes(d)))
-    return { full: `money code depends on ${pkgOf}, and money code always runs the full suite` };
+  // Money code narrows like any path (REVIEW.md's C4 entry, OWNER 249: no money process holds anything up before real
+  // money; main's full run with a revert is the backstop). The map still lists it (`money`), for the record. AGENTS.md
+  // "How work flows" 8 is unchanged: a red in money code a pull request changes still blocks its merge; only which
+  // journeys run is narrowed.
   if (svc) {
     if (subscribesHere) return { full: 'it subscribes to bus events, and a handler that logs nothing is recorded nowhere' };
     if (map.subscribers?.includes(svc))
@@ -524,13 +712,35 @@ export const filesAt = (sha, root = ROOT) =>
       .filter((f) => JOURNEY_FILE.test(f)),
   );
 
-/** Main's finished full runs since the recorder, newest first: the candidates buildMap reads. */
-function mainCandidates(ids) {
-  const list = JSON.parse(gh(['api', `repos/${REPO}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&per_page=60`]));
-  return (list.workflow_runs ?? [])
-    .filter((r) => isMainRun(r, REPO) && !['cancelled', 'skipped'].includes(r.conclusion))
+/**
+ * Which of a list of the workflow's runs the builder reads, newest first: main's finished full runs (not cancelled or
+ * skipped), only those named in `ids` when given, and only those created no later than the run `until` (a run object,
+ * which must itself be one of main's finished full runs) when given. Pure, for the tests.
+ */
+export function candidates(list, { ids, until, repo = REPO } = {}) {
+  const at = until ? Date.parse(until.created_at) : Infinity;
+  return (list ?? [])
+    .filter((r) => isMainRun(r, repo) && r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion))
     .filter((r) => !ids || ids.includes(String(r.id)))
+    .filter((r) => Date.parse(r.created_at) <= at)
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+/** Main's finished full runs since the recorder, newest first: the candidates buildMap reads. With `until` (a run id),
+ *  only the runs created up to that run, so a rebuild sees what the build saw then. */
+function mainCandidates(ids, until) {
+  let upTo = null;
+  let window = '';
+  if (until) {
+    upTo = JSON.parse(gh(['api', `repos/${REPO}/actions/runs/${Number(until)}`]));
+    if (!String(upTo.path ?? '').endsWith(`/${JOURNEYS_FILE}`) || !candidates([upTo], { repo: REPO }).length)
+      throw new Error(`run ${until} is not one of main's finished full ${JOURNEYS_FILE} runs`);
+    window = `&created=${encodeURIComponent(`<=${upTo.created_at}`)}`;
+  }
+  const list = JSON.parse(
+    gh(['api', `repos/${REPO}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&per_page=60${window}`]),
+  );
+  return candidates(list.workflow_runs, { ids, until: upTo });
 }
 
 /** Downloads a run's merged report into its own new temp folder and reads it; the folder is removed. */
@@ -544,6 +754,112 @@ function downloadReport(id) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** The map's keys read from the checkout's code rather than from the runs. */
+const WORKSPACE_KEYS = new Set(['consumers', 'dependents', 'harness', 'subscribers', 'money']);
+
+/** The map as the builder writes it: one line of JSON and a newline. */
+export const mapText = (map) => `${JSON.stringify(map)}\n`;
+
+/**
+ * The map's inputs read from a checkout's code (WORKSPACE_KEYS, and the services the runs' reach is keyed by). `verify`
+ * reads them from the pull request's checkout (`--workspace`) while the runs and the builder stay main's: a pull request
+ * that adds a package, a money one included, then holds the map its own build writes (B1, #7724: main's workspaces made
+ * the map differ in consumers, dependents and money, while tooling tests require the PR's money list).
+ */
+export function workspaceInputs(root = ROOT) {
+  const ws = workspace(root);
+  return {
+    services: new Set(ws.dirs.filter((d) => SERVICE_DIR.test(d))),
+    consumers: consumersOf(ws),
+    dependents: dependentPackages(ws),
+    harness: harnessImports(root, ws),
+    subscribers: subscribers(root),
+    money: [...moneyCodeDirs(manifestsAt(root))],
+  };
+}
+
+/** Builds the map from main's runs (GH_TOKEN), as text: `ids` names the runs to read, `until` the newest run to read,
+ *  `root` the checkout whose code gives the workspace inputs (workspaceInputs; this checkout by default). */
+function buildFromMain({ ids, until, root = ROOT } = {}) {
+  const inputs = workspaceInputs(root);
+  const runs = [];
+  let whole = 0;
+  for (const r of mainCandidates(ids, until)) {
+    let files;
+    try {
+      execFileSync('git', ['cat-file', '-e', `${r.head_sha}^{commit}`], { cwd: ROOT, stdio: 'ignore' });
+      files = filesAt(r.head_sha);
+    } catch {
+      console.error(`run ${r.id}: its head ${r.head_sha} isn't fetched here; passed over`);
+      continue;
+    }
+    const report = downloadReport(r.id);
+    if (!report) {
+      console.error(`run ${r.id}: its report couldn't be downloaded; passed over`);
+      continue;
+    }
+    runs.push({ id: r.id, head: r.head_sha, created: r.created_at, report, files });
+    const records = reportRecords(report).length;
+    if (records === 0) break; // older runs come before the recorder
+    // buildMap reads no further than MIN_RUNS whole runs, so nothing older needs downloading (its test of whole).
+    const ran = reportFiles(report);
+    if ([...files].every((f) => ran.has(f)) && ++whole === MIN_RUNS) break;
+  }
+  return buildMap({
+    runs,
+    ...inputs,
+    // main's baseline, never the pull request's: `verify` runs main's builder from a worktree of main (ROOT), and the code
+    // keys alone follow `--workspace`, so a pull request can't edit the baseline to narrow what its map selects.
+    baseline: rootInputs(ROOT).baseline,
+  });
+}
+
+/**
+ * Whether a committed map is exactly what the builder builds from main's runs up to the newest run it names (review
+ * 7561-R1 #2): { ok: true } or { ok: false, why }. `rebuild(until)` returns the rebuilt map's text. A map that can't be
+ * read, or names no run, can't be rebuilt, so it fails. A difference names the top-level keys that differ, never their
+ * values.
+ */
+export function verifyMap(text, rebuild) {
+  let map;
+  try {
+    map = JSON.parse(text);
+  } catch {
+    return { ok: false, why: 'the map is not JSON' };
+  }
+  const until = map?.runs?.[0]?.id;
+  if (!Number.isInteger(until)) return { ok: false, why: 'the map names no run, so it cannot be rebuilt' };
+  let built;
+  try {
+    built = rebuild(until);
+  } catch (e) {
+    return { ok: false, why: `the map couldn't be rebuilt (${String(e?.message ?? e).split('\n')[0]})` };
+  }
+  if (built === text) return { ok: true };
+  let other = null;
+  try {
+    other = JSON.parse(built);
+  } catch {
+    /* compared as text below */
+  }
+  const keys = other
+    ? [...new Set([...Object.keys(map), ...Object.keys(other)])].filter((k) => JSON.stringify(map[k]) !== JSON.stringify(other[k]))
+    : [];
+  // Only key names main's builder writes reach the log: a key only the pull request's map holds is its own text, so it is
+  // counted, never printed (review 7578-R1 #1).
+  const named = keys.filter((k) => Object.hasOwn(other ?? {}, k));
+  const extra = keys.length - named.length;
+  const list = [...named, ...(extra ? [`${extra} key(s) main's builder never writes`] : [])].join(', ');
+  return {
+    ok: false,
+    why: keys.length
+      ? `the map differs from the one built from main's runs up to run ${until} in: ${list}${
+          keys.every((k) => WORKSPACE_KEYS.has(k)) ? " (only what main's code holds: main moved since it was built, so rebuild it)" : ''
+        }`
+      : `the map is not byte for byte the one built from main's runs up to run ${until} (its layout differs)`,
+  };
 }
 
 function main() {
@@ -560,40 +876,22 @@ function main() {
     for (const s of map.skipped ?? []) console.log(`  passed over: ${s}`);
     return;
   }
+  if (cmd === 'verify') {
+    const file = opt('--map') ?? MAP_FILE;
+    const root = opt('--workspace') ? resolve(opt('--workspace')) : ROOT;
+    const r = verifyMap(readFileSync(file, 'utf8'), (until) => mapText(buildFromMain({ until, root })));
+    console.log(r.ok ? `ok: ${file} is the map main's builder builds from the runs it names` : `FAIL: ${r.why}`);
+    if (!r.ok) process.exitCode = 1;
+    return;
+  }
   if (cmd !== 'build') {
-    console.error('usage: journey-reach-map.mjs build [--runs <id,id,id>] [--out <file>] | show [--map <file>]');
+    console.error(
+      'usage: journey-reach-map.mjs build [--runs <id,id,id>] [--until <run id>] [--out <file>] | verify [--map <file>] [--workspace <checkout>] | show [--map <file>]',
+    );
     process.exit(2);
   }
-  const ids = opt('--runs')?.split(',').filter(Boolean);
-  const ws = workspace();
-  const services = new Set(ws.dirs.filter((d) => SERVICE_DIR.test(d)));
-  const runs = [];
-  for (const r of mainCandidates(ids)) {
-    let files;
-    try {
-      execFileSync('git', ['cat-file', '-e', `${r.head_sha}^{commit}`], { cwd: ROOT, stdio: 'ignore' });
-      files = filesAt(r.head_sha);
-    } catch {
-      console.error(`run ${r.id}: its head ${r.head_sha} isn't fetched here; passed over`);
-      continue;
-    }
-    const report = downloadReport(r.id);
-    if (!report) {
-      console.error(`run ${r.id}: its report couldn't be downloaded; passed over`);
-      continue;
-    }
-    runs.push({ id: r.id, head: r.head_sha, created: r.created_at, report, files });
-    if (reportRecords(report).length === 0) break; // older runs come before the recorder
-  }
-  const map = buildMap({
-    runs,
-    services,
-    consumers: consumersOf(ws),
-    harness: harnessImports(ROOT, ws),
-    subscribers: subscribers(),
-    money: [...moneyCodeDirs(manifestsAt(ROOT))],
-  });
-  writeFileSync(opt('--out') ?? MAP_FILE, `${JSON.stringify(map)}\n`);
+  const map = buildFromMain({ ids: opt('--runs')?.split(',').filter(Boolean), until: opt('--until') });
+  writeFileSync(opt('--out') ?? MAP_FILE, mapText(map));
   console.log(
     map.mode === 'reach' ? `map built from runs ${map.runs.map((r) => r.id).join(', ')}` : `refused: ${map.why}; the map written is full`,
   );

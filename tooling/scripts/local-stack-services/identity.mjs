@@ -130,7 +130,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_NEW_DEVICE_CHECK: testValue('IDENTITY_NEW_DEVICE_CHECK'),
     IDENTITY_NEW_DEVICE_TTL_SECONDS: testValue('IDENTITY_NEW_DEVICE_TTL_SECONDS'),
     IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
-    IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS'),
+    // `LOCAL_STACK_IDENTITY_MFA_RESET_WAIT=off` on a start or restart leaves the reset's waiting time blank, as production is
+    // until the owner sets it, so its refusal pointing to Support can be seen (J-identity-05 #2).
+    ...(process.env.LOCAL_STACK_IDENTITY_MFA_RESET_WAIT === 'off'
+      ? {}
+      : { IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS') }),
     IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: testValue('IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS'),
     // LOCAL TEST: a trade-ops operator may restrict one account's trading with a second person's approval (J-identity-08 #7).
     // Off by default, where identity keeps refusing the change with operator.denied.
@@ -215,6 +219,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...(process.env.LOCAL_STACK_IDENTITY_KEY_CAP === 'off'
       ? {}
       : { IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3' }),
+    // Keys per sub-account (J-developer-15 #2): an explicit LOCAL TEST value, not an owner limit. Blank refuses every
+    // sub-account key with identity.portfolio_key_cap_unset; `LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP=off` on a start or
+    // restart leaves it blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP === 'off' ? {} : { IDENTITY_PORTFOLIO_KEYS_MAX: '2' }),
+    // Developer roles in an organisation (J-developer-15 #4): an explicit LOCAL TEST role set, not the owner's. Blank is
+    // `roles not set`; `LOCAL_STACK_IDENTITY_DEVELOPER_ROLES=off` on a start or restart leaves it blank so that state can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_DEVELOPER_ROLES === 'off' ? {} : { IDENTITY_DEVELOPER_ROLES: 'keys_admin,keys_read' }),
     // LOCAL TEST named developer sandboxes (J-developer-02 #2, #3), labelled in the same profile, never an owner decision.
     // The code keeps no default: blank refuses a second sandbox with identity.sandbox_cap_unset, and
     // `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a start or restart leaves it blank so that refusal can be seen.
@@ -222,6 +233,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_SANDBOXES_MAX_BY_TIER: testValue('IDENTITY_SANDBOXES_MAX_BY_TIER') }),
     IDENTITY_SANDBOX_BASE_URL: testValue('IDENTITY_SANDBOX_BASE_URL'),
+    // LOCAL TEST API rate tiers and grant ceiling (J-developer-06), labelled in the same profile, never an owner decision.
+    // Blank refuses every key call at the edge (edge.limits_unset) and every limit request (identity.rate_limits_unset);
+    // `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a start or restart leaves it blank so those can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_RATE_LIMITS === 'off' ? {} : { IDENTITY_API_RATE_LIMITS: testValue('IDENTITY_API_RATE_LIMITS') }),
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),

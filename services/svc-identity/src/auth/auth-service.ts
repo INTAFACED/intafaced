@@ -1,3 +1,4 @@
+import type { KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -134,6 +135,9 @@ import {
 } from './trusted-devices.js';
 import {
   completePasswordReset,
+  completePasswordResetByCode,
+  passwordResetLimits,
+  type PasswordResetLimits,
   publishedPasswordResetTtlSeconds,
   relayMailOutbox,
   requestHandleRecovery,
@@ -242,6 +246,7 @@ export class AuthError extends Error {
       | 'auth.password_breached'
       | 'auth.reset_proof_invalid'
       | 'auth.reset_unwired'
+      | 'auth.reset_limit'
       | 'auth.email_confirm_invalid'
       | 'auth.email_confirm_unwired'
       | 'auth.email_confirm_rate_limited'
@@ -2329,6 +2334,11 @@ export class AuthService {
     return requestPasswordReset(this.resetDeps(), input);
   }
 
+  /** The owner's reset request cap and window, or null while the reset is unwired. The same for every visitor. */
+  passwordResetLimits(): PasswordResetLimits | null {
+    return passwordResetLimits(this.resetDeps());
+  }
+
   /** Same shape as `requestPasswordReset`: the username goes to a known address, a notice (if on) to any other. */
   async requestHandleRecovery(input: { email: string }): Promise<{ accepted: true }> {
     return requestHandleRecovery(this.resetDeps(), input);
@@ -2357,8 +2367,12 @@ export class AuthService {
    * Signed-out reset, step 2. A correct proof replaces the hash and ends every
    * session. This call does not sign the person in.
    */
-  async completePasswordReset(input: { email: string; code: string; newPassword: string }): Promise<void> {
-    const result = await completePasswordReset(this.resetDeps(), input);
+  async completePasswordReset(input: { email?: string | undefined; code: string; newPassword: string }): Promise<void> {
+    // From the mailed link the code comes alone (J-identity-03 #2); typed on the page, with the address.
+    const result =
+      input.email === undefined
+        ? await completePasswordResetByCode(this.resetDeps(), { code: input.code, newPassword: input.newPassword })
+        : await completePasswordReset(this.resetDeps(), { email: input.email, code: input.code, newPassword: input.newPassword });
     if (result.sessionsRevoked > 0) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
     this.log.warn({ userId: result.userId, sessionsRevoked: result.sessionsRevoked }, 'auth.password_reset');
   }
@@ -2834,9 +2848,15 @@ export class AuthService {
     return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };
   }
 
-  async verifyApiKey(
-    key: string,
-  ): Promise<{ userId: string; scopes: string[]; keyId: string; mode: 'live' | 'sandbox'; domainWhitelist: string[] } | null> {
+  async verifyApiKey(key: string): Promise<{
+    userId: string;
+    scopes: string[];
+    keyId: string;
+    mode: 'live' | 'sandbox';
+    domainWhitelist: string[];
+    /** The sub-account a portfolio-scoped key is bound to (DV-sub-accounts-01); null on the account's own keys. */
+    accountId: string | null;
+  } | null> {
     const rows = await this.sql<
       Array<{
         id: string;
@@ -2845,14 +2865,22 @@ export class AuthService {
         expires_at: Date | null;
         mode: string | null;
         domain_whitelist: string[] | null;
+        account_id: string | null;
       }>
-    >`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
+    >`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist, account_id FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
     const row = rows[0];
     if (!row) return null;
     if (row.expires_at && row.expires_at.getTime() < Date.now()) return null;
     await this.sql`UPDATE api_keys SET last_used_at = now() WHERE id = ${row.id}`;
     const mode: 'live' | 'sandbox' = row.mode === 'sandbox' ? 'sandbox' : 'live';
-    return { userId: row.user_id, scopes: row.scopes, keyId: row.id, mode, domainWhitelist: row.domain_whitelist ?? [] };
+    return {
+      userId: row.user_id,
+      scopes: row.scopes,
+      keyId: row.id,
+      mode,
+      domainWhitelist: row.domain_whitelist ?? [],
+      accountId: row.account_id ?? null,
+    };
   }
 
   /**
@@ -2888,6 +2916,8 @@ export class AuthService {
     requireSignature?: boolean;
     requireNonEmptyIpAllowlist?: boolean;
     ipAllowlist?: string[];
+    /** The key's rate limit for the edge (`installApiKeyRateExchange`); null while no tier is set. */
+    rateLimit?: KeyRateLimit | null;
   }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw await this.deadApiKeyRefusal(key);
@@ -2898,6 +2928,11 @@ export class AuthService {
     const user = users[0];
     if (!user) throw new AuthError('Account not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    if (verified.accountId) {
+      // A portfolio-scoped key lives only as long as its sub-account: a revoked (deleted) sub-account's key is dead.
+      const bound = await this.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sub_accounts WHERE id = ${verified.accountId}`;
+      if (!bound[0] || bound[0].revoked) throw new AuthError('API key is revoked', 'auth.api_key_revoked');
+    }
     const tier = await this.kycTier(verified.userId);
     const { token: accessToken, expiresAt } = await issueAccessToken(
       {
@@ -2908,6 +2943,8 @@ export class AuthService {
         mfa: false,
         apiKeyId: verified.keyId,
         keyEnv: verified.mode,
+        // The token carries the bound sub-account, so every service reads that account and no other (DV-sub-accounts-01).
+        ...(verified.accountId ? { subAccountId: verified.accountId } : {}),
       },
       this.tokens,
     );

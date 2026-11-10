@@ -359,6 +359,44 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // svc-trade (B1 user-venue door): one withdrawal from the caller's own venue account, of one amount of one asset to
+    // one address. The request id is `venue.withdraw:<withdrawalKey>`, so one confirmation approves one withdrawal; the
+    // amount is the canonical decimal (`formatAmount`) and the destination a lowercase 0x address, as svc-trade hashes them.
+    // The venue account the funds leave (`owner`, lowercase 0x; `subAccount`, empty for the main account) is bound too.
+    scope: 'trade.step_up.venue.withdraw',
+    purpose: 'venue.withdraw',
+    clientFields: ['withdrawalKey', 'owner', 'subAccount', 'asset', 'amount', 'destination'],
+    amountField: 'amount',
+    targetField: 'withdrawalKey',
+    targetRequired: true,
+    emptyOk: ['subAccount'],
+    decimalFields: ['amount'],
+    fixed: {},
+    shapes: {
+      withdrawalKey: (value) => /^[a-z][a-z0-9-]*:.{1,160}$/.test(value),
+      owner: (value) => /^0x[0-9a-f]{40}$/.test(value),
+      destination: (value) => /^0x[0-9a-f]{40}$/.test(value),
+    },
+  },
+  {
+    // svc-trade (J-agents-21 #3): one agent account on the caller's own venue account, with its cap and first funding
+    // move. The request id is `venue.agentAccount:<accountId>`, so one confirmation opens one agent account; the cap and
+    // the funding are canonical decimals (`formatAmount`) and the owner a lowercase 0x address, as svc-trade hashes them.
+    scope: 'trade.step_up.venue.agentAccount',
+    purpose: 'venue.agentAccount',
+    clientFields: ['accountId', 'owner', 'asset', 'cap', 'fund'],
+    amountField: 'fund',
+    targetField: 'accountId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['cap', 'fund'],
+    fixed: {},
+    shapes: {
+      accountId: (value) => UUID_RE.test(value),
+      owner: (value) => /^0x[0-9a-f]{40}$/.test(value),
+    },
+  },
+  {
     // svc-token (MC-token-02, J-more-catalogue-10 #6): the founder who runs a two-founder governance role change proves a
     // fresh second factor for exactly that account, role (empty for a revoke) and role revision. One confirmation
     // approves one role move.

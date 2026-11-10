@@ -8,6 +8,7 @@ import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { groupLevels, type RawLevel } from './book-math';
 import { formatAmount } from '../../../shared/money';
 import { scaled } from './order-math';
+import type { QueuePosition } from '../../../features/trade/trade-api';
 
 const unscale = (units: bigint): string => formatAmount(units);
 
@@ -80,6 +81,29 @@ export interface WorkingOrder {
   remaining: string;
 }
 
+/** A price's ladder bucket at the step: a bid rounds down and an ask up, so a bucket never shows a better price. */
+function bucketUnits(price: bigint, side: 'bid' | 'ask', stepUnits: bigint): bigint {
+  if (stepUnits <= 0n) return price;
+  const floor = (price / stepUnits) * stepUnits;
+  return side === 'bid' || floor === price ? floor : floor + stepUnits;
+}
+
+/**
+ * My working orders shown on one ladder row (J-charts-desk-14 #7, one-click cancel): the orders whose price falls in that
+ * row's bucket at the step, buys and sells alike, with something left to fill. Exactly the orders the row's "mine" sizes
+ * add up.
+ */
+export function myOrdersAt<T extends WorkingOrder>(mine: readonly T[], rowPrice: string, step: string): T[] {
+  const row = scaled(rowPrice);
+  const stepUnits = scaled(step) ?? 0n;
+  if (row === null) return [];
+  return mine.filter((order) => {
+    const price = order.price ? scaled(order.price) : null;
+    const left = scaled(order.remaining);
+    return price !== null && left !== null && left > 0n && bucketUnits(price, order.side === 'buy' ? 'bid' : 'ask', stepUnits) === row;
+  });
+}
+
 /**
  * The ladder: every bucket of the book at the step, one row a price, highest first, with my working orders beside the
  * book's sizes. Bids round down and asks round up, so a bucket never shows a better price than its orders have.
@@ -93,11 +117,7 @@ export function buildLadder(
   const bids = groupLevels(book.bids as readonly RawLevel[], 'bid', step).slice(0, rowsPerSide);
   const asks = groupLevels(book.asks as readonly RawLevel[], 'ask', step).slice(0, rowsPerSide);
   const stepUnits = scaled(step) ?? 0n;
-  const bucket = (price: bigint, side: 'bid' | 'ask') => {
-    if (stepUnits <= 0n) return price;
-    const floor = (price / stepUnits) * stepUnits;
-    return side === 'bid' || floor === price ? floor : floor + stepUnits;
-  };
+  const bucket = (price: bigint, side: 'bid' | 'ask') => bucketUnits(price, side, stepUnits);
   const rows = new Map<bigint, { bid: bigint; ask: bigint; myBid: bigint; myAsk: bigint }>();
   const at = (price: bigint) => {
     let row = rows.get(price);
@@ -248,4 +268,45 @@ export function spreadOf(bestBid: string | null, bestAsk: string | null): string
   const ask = bestAsk === null ? null : scaled(bestAsk);
   if (bid === null || ask === null || ask < bid) return null;
   return unscale(ask - bid);
+}
+
+/**
+ * What the DOM says about one resting order's place in the queue. The chance is shown only when the service sent both
+ * the estimate and its basis (the owner's window is set); otherwise the readout is "not set" and holds no percent.
+ */
+export type QueueReadout = {
+  readonly ahead:
+    | { readonly kind: 'first' }
+    | { readonly kind: 'one'; readonly size: string }
+    | { readonly kind: 'many'; readonly n: number; readonly size: string };
+  readonly chance:
+    | {
+        readonly kind: 'estimate';
+        readonly ratio: string;
+        readonly windowSeconds: number;
+        readonly tradedThrough: string;
+        readonly sizeToFill: string;
+      }
+    | { readonly kind: 'unset' };
+};
+
+export function queueReadout(q: QueuePosition): QueueReadout {
+  const ahead: QueueReadout['ahead'] =
+    q.ordersAhead === 0
+      ? { kind: 'first' }
+      : q.ordersAhead === 1
+        ? { kind: 'one', size: q.sizeAhead }
+        : { kind: 'many', n: q.ordersAhead, size: q.sizeAhead };
+  const basis = q.fillProbabilityBasis;
+  const chance: QueueReadout['chance'] =
+    q.fillProbability !== undefined && basis !== undefined
+      ? {
+          kind: 'estimate',
+          ratio: q.fillProbability,
+          windowSeconds: basis.windowSeconds,
+          tradedThrough: basis.tradedThrough,
+          sizeToFill: basis.sizeToFill,
+        }
+      : { kind: 'unset' };
+  return { ahead, chance };
 }

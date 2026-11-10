@@ -21,6 +21,8 @@ export {
   SUPPORT_FRAUD_REPORT_KEY_REQUIRED,
   SUPPORT_FRAUD_ROUTE_MISSING,
   SUPPORT_FRAUD_ROUTE_UNSET,
+  SUPPORT_CATEGORY_GUIDED,
+  SUPPORT_GUIDED_CATEGORIES,
   supportCategoriesSchema,
   supportTicketCategorySchema,
   type SupportCategories,
@@ -29,6 +31,11 @@ export {
 
 // The header cap lives beside the categories so a browser reads it from a light subpath, never the package index.
 export { SUPPORT_HEADERS_TOO_LONG, SUPPORT_MESSAGE_HEADERS_MAX };
+/**
+ * The actor on an automatic assignment's trail rows (SP-routing-01): the routing worker, not a person. A fixed id, because
+ * every trail row names its actor by id; no account holds it, so a reader that resolves people shows it as the routing worker.
+ */
+export const SUPPORT_ROUTING_ACTOR_ID = '00000000-0000-4000-8000-0000000a0001';
 
 /**
  * What the customer reads as their request's status (SP-tickets-01, ENGINE TK-1): `awaiting_reply` when the team's last

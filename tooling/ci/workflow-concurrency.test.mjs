@@ -1,7 +1,8 @@
 /**
  * The concurrency shape of .github/workflows/*.yml (2026-11-07): CI drowned in runs for heads that had already been
  * superseded (47 Real-app journeys runs of 36 shards and 48 CI runs queued at 10:54 UTC), and one Journey seal re-check
- * queued per finished journeys run.
+ * queued per finished journeys run (that workflow is gone since 9 Nov 2026: each seal input ends with a `Start the seal`
+ * job, journey-seal.test.mjs).
  *
  * It holds four rules, each evaluated on the workflow's own `concurrency:` expressions with the event contexts that
  * matter (a tiny evaluator of GitHub's expression syntax below, so a rewrite that keeps the meaning still passes):
@@ -11,14 +12,20 @@
  *   2. A Real-app journeys run on main is never cancelled, and every main run shares one group (OWNER 206).
  *   3. A manual Real-app journeys run on a branch cancels the older run with the same journey selection on that branch,
  *      and never a run of another branch or another selection.
- *   4. Journey seal re-check queues one re-check per pull request head for finished journeys runs, never cancels a
- *      running one, and an event whose job is skipped, or a title or body edit, never displaces a waiting re-check.
+ *   4. (Retired with Journey seal re-check, 9 Nov 2026.)
+ *   5. CI merge seal (INTAFACED/project-state#1574 item 2): a push's or an open's first attempt cancels the older head's
+ *      seal (rule 1), and nothing else is ever cancelled or cancels: an edit's, an arming's or a reopen's seal runs on the head being
+ *      merged, and a re-run (run_attempt above 1) keeps its run's own group, so re-running a seal never cancels a newer
+ *      head's seal or an older red seal re-run beside it on the same head.
+ *   6. Main first (item 3): Real-app journeys holds a run off main back while main's jobs wait for runners, in a step
+ *      of the touch job that never runs on main and can't fail the run, inside the job's time limit.
  * Planted faults at the bottom prove each rule fails on the shape it forbids. Run by tooling/scripts/tooling-tests.mjs.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB } from './main-first.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -63,7 +70,7 @@ export function concurrency(text) {
 // ---- a minimal evaluator of GitHub's expression syntax -------------------------------------------------------------
 
 function tokenize(src) {
-  const re = /\s*(?:('(?:[^']|'')*')|(==|!=|&&|\|\||[!(),])|([A-Za-z_][A-Za-z0-9_.-]*)|(-?\d+))/y;
+  const re = /\s*(?:('(?:[^']|'')*')|(==|!=|&&|\|\||[!(),])|([A-Za-z_][A-Za-z0-9_.\-[\]]*)|(-?\d+))/y;
   const out = [];
   re.lastIndex = 0;
   while (re.lastIndex < src.length) {
@@ -114,9 +121,13 @@ export function evaluate(src, ctx) {
         }
         take(')');
         if (t.v === 'format') return args[0].replace(/\{(\d+)\}/g, (_, n) => str(args[1 + Number(n)]));
+        if (t.v === 'cancelled' && args.length === 0) return Boolean(ctx.cancelled);
         throw new Error(`function ${t.v} is not known to this test`);
       }
-      return t.v.split('.').reduce((o, k) => (o === null || o === undefined ? null : (o[k] ?? null)), ctx);
+      return t.v
+        .split(/\.|(?=\[)/)
+        .map((k) => k.replace(/^\[(\d+)\]$/, '$1'))
+        .reduce((o, k) => (o === null || o === undefined ? null : (o[k] ?? null)), ctx);
     }
     throw new Error(`unexpected ${t.v} in: ${src}`);
   };
@@ -178,6 +189,7 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
     repository: REPO,
     event_name,
     run_id: Math.random(),
+    run_attempt: extra.attempt ?? '1',
     // pull_request runs on the merge ref; pull_request_target on the base branch.
     ref: event_name === 'pull_request' ? `refs/pull/${n}/merge` : 'refs/heads/main',
     // GitHub sets the pull request's branch on both pull request events.
@@ -185,7 +197,11 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
     event: {
       action: extra.action ?? 'synchronize',
       changes: extra.changes ?? null,
-      pull_request: { number: n, head: { sha, ref: `branch-${n}`, repo: { full_name: REPO } }, base: { ref: 'main' } },
+      pull_request: {
+        number: extra.number ?? n,
+        head: { sha, ref: `branch-${n}`, repo: { full_name: REPO } },
+        base: { ref: 'main' },
+      },
     },
   },
   inputs: {},
@@ -197,12 +213,10 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
  * Workflows a pull request triggers that don't cancel the older run, and why. Each keeps a bounded number of runs.
  *  - ci-review.yml: a change to the review job can't pass its own review and waits for the owner (intafaced AGENTS.md);
  *    its group is one per head, so an older head's review finishes but a newer one never waits for it.
- *  - journey-seal-recheck.yml: rule 4 below.
- *  - merge-seal.yml: a cancelled seal is a red required check, and every `CI merge seal` run on a head must pass (probe
- *    #7547), so a cancel would block its head until someone re-ran it. Its group is its own run's, so nothing cancels it, even
- *    a pending one; an older head's seal finishes on its own head and never blocks the newer one.
+ * merge-seal.yml is no exception since INTAFACED/project-state#1574 item 2: a push cancels the older head's seal, and
+ * rule 5 below holds that nothing else is cancelled.
  */
-export const PR_EXCEPTIONS = new Set(['ci-review.yml', 'journey-seal-recheck.yml', 'merge-seal.yml']);
+export const PR_EXCEPTIONS = new Set(['ci-review.yml']);
 
 /** Problems with rule 1 in one workflow's text, or []. */
 export function prProblems(file, text) {
@@ -286,46 +300,181 @@ export function journeysProblems(text) {
   return problems;
 }
 
-// ---- rule 4: Journey seal re-check ---------------------------------------------------------------------------------
+// ---- rule 5: CI merge seal ----------------------------------------------------------------------------------------
 
-const finishedJourneys = (head_sha, extra = {}) => ({
-  github: {
-    workflow: 'Journey seal re-check',
-    repository: REPO,
-    event_name: 'workflow_run',
-    run_id: Math.random(),
-    ref: MAIN,
-    event: {
-      workflow_run: { head_sha, head_branch: extra.head_branch ?? 'feature', head_repository: { full_name: extra.repo ?? REPO } },
-    },
-  },
-  inputs: {},
-});
-
-/** Problems with rule 4 in journey-seal-recheck.yml's text, or []. */
-export function recheckProblems(text) {
-  if (!concurrency(text)) return ['Journey seal re-check has no concurrency group, so every finished journeys run queues its own re-check'];
+/** Problems with rule 5 in merge-seal.yml's text, or []. */
+export function sealProblems(text) {
+  if (!concurrency(text)) return ['merge-seal.yml has no top-level concurrency group'];
   const problems = [];
-  const a1 = resolve(text, finishedJourneys('aaa'));
-  const a2 = resolve(text, finishedJourneys('aaa'));
-  if (a1.group !== a2.group) problems.push('two finished journeys runs on one head queue two re-checks');
-  if (a1.group === resolve(text, finishedJourneys('bbb')).group) problems.push('re-checks of two heads share a group');
-  if (a1.cancel) problems.push('a re-check waiting out a running seal could be cancelled');
-  // Events whose job is skipped, and edits (whose old title the script reads), each get a group of their own.
-  const others = [
-    finishedJourneys('aaa', { head_branch: 'main' }),
-    finishedJourneys('aaa', { repo: 'fork/intafaced' }),
-    prEvent('pull_request_target', 101, 'aaa', { action: 'edited', changes: { title: { from: 'J-x #1' } } }),
-    prEvent('pull_request_target', 101, 'aaa', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
-  ];
-  for (const ctx of others) {
-    const r = resolve(text, ctx);
-    const again = resolve(text, { ...ctx, github: { ...ctx.github, run_id: Math.random() } });
-    if (r.group === a1.group || r.group === again.group)
-      problems.push(
-        `a ${ctx.github.event_name} event (${JSON.stringify(ctx.github.event.changes ?? ctx.github.event.workflow_run)}) could displace a waiting re-check`,
-      );
+  const at = (sha, extra) => resolve(text, prEvent('pull_request_target', 101, sha, extra));
+  const opened = at('aaa', { action: 'opened' });
+  const pushed = at('bbb', { action: 'synchronize' });
+  if (opened.group !== pushed.group || !pushed.cancel) problems.push("a push doesn't cancel the seal of the head it replaced");
+  if (pushed.group === at('ccc', { action: 'synchronize', number: 202 }).group) problems.push('two pull requests share a group');
+  // Runs on the head being merged: an edit or a reopen joins the pull request's group (a newer one replaces it while it
+  // waits, before it has a job) but never cancels a running seal; a re-run is in no group a push or an open cancels in.
+  // A title or body edit runs no seal (its job is skipped, INTAFACED/project-state#1574): in the pull request's group it
+  // could replace a push's waiting seal and leave the new head with none, so it keeps a group of its own.
+  const edit = at('bbb', { action: 'edited', changes: { title: { from: 'x' } } });
+  if (edit.cancel) problems.push('an edit cancels a running seal on the head being merged');
+  if (edit.group === pushed.group) problems.push("an edit shares the pull request's group, so it could replace a push's waiting seal");
+  // Arming (an input's Start the seal touches only armed pull requests, so arming seals one whose inputs already ended):
+  // like an edit, a group of its own, never cancelling.
+  const arm = at('bbb', { action: 'auto_merge_enabled' });
+  if (arm.cancel) problems.push('an arming cancels a running seal on the head being merged');
+  if (arm.group === pushed.group) problems.push("an arming shares the pull request's group, so it could replace a push's waiting seal");
+  const onHead = {
+    'a base change': at('bbb', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
+    'a reopen': at('bbb', { action: 'reopened' }),
+  };
+  for (const [what, r] of Object.entries(onHead)) {
+    if (r.cancel) problems.push(`${what} cancels a running seal on the head being merged`);
+    if (r.group !== pushed.group) problems.push(`${what} is not in the pull request's group, so its runs pile up on one head`);
   }
+  const reruns = {
+    "a push's re-run": at('bbb', { action: 'synchronize', attempt: '2' }),
+    "an open's re-run": at('aaa', { action: 'opened', attempt: '3' }),
+    "an edit's re-run": at('bbb', { action: 'edited', attempt: '2' }),
+  };
+  for (const [what, r] of Object.entries(reruns)) {
+    if (r.cancel) problems.push(`${what} cancels another seal`);
+    if (r.group === pushed.group) problems.push(`${what} shares the pull request's group, so a push or an open could cancel it`);
+  }
+  return problems;
+}
+
+// ---- rule 6: main first --------------------------------------------------------------------------------------------
+
+/** The text of one job of a workflow (from its key to the next job key), or ''. */
+function job(text, key) {
+  const start = text.indexOf(`\n  ${key}:\n`);
+  if (start < 0) return '';
+  const rest = text.slice(start + 1);
+  const next = rest.slice(1).search(/\n  [a-z][\w-]*:\n/);
+  return next < 0 ? rest : rest.slice(0, next + 1);
+}
+
+/** The text of one step of a job, from its `- name:` to the next step, or ''. */
+function step(jobText, name) {
+  const start = jobText.indexOf(`      - name: ${name}\n`);
+  if (start < 0) return '';
+  const rest = jobText.slice(start);
+  const next = rest.slice(1).search(/\n {6}- /);
+  return next < 0 ? rest : rest.slice(0, next + 1);
+}
+
+/** Problems with rule 6 in real-app-journeys.yml's text, or []. */
+export function mainFirstProblems(text) {
+  const touch = job(text, 'touch');
+  const wait = step(touch, "Main's journeys first");
+  if (!wait) return ["real-app-journeys.yml's touch job has no step `Main's journeys first`, so branch runs queue ahead of main"];
+  const problems = [];
+  const cond = /\n {8}if: (.*)\n/.exec(wait)?.[1] ?? '';
+  const runsOn = (ref) => cond && evaluate(cond, { github: { ref }, steps: { touch: { outputs: { mode: 'run' } } } });
+  if (runsOn(MAIN)) problems.push('the main-first step runs on main, so it could hold a main run');
+  if (!runsOn('refs/pull/7/merge') || !runsOn('refs/heads/b1')) problems.push('the main-first step does not run off main');
+  if (!/node "\$script"/.test(wait) || !/script=\.base\/tooling\/ci\/main-first\.mjs/.test(wait))
+    problems.push("the main-first step does not run the default branch's main-first.mjs");
+  if (!/\n {8}continue-on-error: true\n/.test(wait)) problems.push("the main-first step's wait can fail the run");
+  // It never holds a runner while it waits (the guide's CI audit, 9 Nov 2026): one read, then a deferred run runs nothing.
+  const stepLimit = Number(/\n {8}timeout-minutes: (\d+)/.exec(wait)?.[1]);
+  const jobLimit = Number(/\n {4}timeout-minutes: (\d+)/.exec(touch)?.[1]);
+  if (!(stepLimit <= 5 && jobLimit <= 15))
+    problems.push(`the touch job's limit (${jobLimit} min) or the step's (${stepLimit} min) lets a wait hold a runner`);
+  if (!/\n {8}id: first\n/.test(wait)) problems.push('the main-first step has no id `first`, so its decision reaches nothing');
+  if (!/\n {6}mode: \$\{\{ steps\.first\.outputs\.deferred == 'true' && 'none' \|\| steps\.touch\.outputs\.mode \}\}\n/.test(touch))
+    problems.push("a deferred run's mode is not `none`, so it would still queue its shards ahead of main's");
+  const defer = step(touch, `"${DEFER_MARK}"`);
+  if (!defer || !/\n {8}if: steps\.first\.outputs\.deferred == 'true'\n/.test(defer))
+    problems.push(`the touch job has no step "${DEFER_MARK}" run exactly when deferred, so the release can't find deferred runs`);
+  // Main skips this job, so it queues twice, not three times.
+  const touchIf = /\n {4}if: (.*)\n/.exec(touch)?.[1] ?? '';
+  if (!touchIf || evaluate(touchIf, { github: { ref: MAIN } }) || !evaluate(touchIf, { github: { ref: 'refs/heads/b1' } }))
+    problems.push("the touch job runs on main, so main's run queues for runners three times");
+  for (const key of ['plan', 'build', 'journeys'])
+    if (!/\n {4}if: \$\{\{ !cancelled\(\) && /.test(job(text, key)))
+      problems.push(`the ${key} job doesn't run on a skipped touch job (\`!cancelled()\`), so main would run nothing`);
+  // A touch job that never finished (GitHub dropped it, or it was cancelled) leaves its mode empty, and an empty mode
+  // isn't 'none': on 9 Nov 2026 from 17:48 UTC, PR runs whose touch job GitHub never ran fell back to the whole suite
+  // in 8 shards (run 42673388695, an AGENTS.md-only change). The shards, the planner and the build need a touch job
+  // that succeeded, or skipped on main.
+  for (const key of ['plan', 'build', 'journeys']) {
+    const cond = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(job(text, key))?.[1] ?? '';
+    const runs = (ref, result, mode) =>
+      cond &&
+      truthy(
+        evaluate(cond, {
+          github: { ref, event_name: ref === MAIN ? 'push' : 'workflow_dispatch' },
+          needs: { touch: { result, outputs: { mode, target: '' } }, plan: { result: 'success' } },
+        }),
+      );
+    if (runs('refs/heads/b1', 'cancelled', '') || runs('refs/heads/b1', '', '') || runs('refs/heads/b1', 'failure', ''))
+      problems.push(`the ${key} job runs when the touch job didn't finish, so a dropped touch job runs the whole suite`);
+    if (!runs(MAIN, 'skipped', '') || !runs('refs/heads/b1', 'success', 'run'))
+      problems.push(`the ${key} job doesn't run on main or after a touch job that says run`);
+  }
+  // ...and the run then fails outright, so a run that decided nothing never reads as an empty one.
+  const decided = step(job(text, 'scoreboard'), 'The run decided what it runs');
+  const decidedIf = /\n {8}if: (.*)\n/.exec(decided)?.[1] ?? '';
+  const failsOn = (ref, result) => decidedIf && truthy(evaluate(decidedIf, { github: { ref }, needs: { touch: { result } } }));
+  if (
+    !decided ||
+    !/\n {10}exit 1(\n|$)/.test(decided) ||
+    !failsOn('refs/heads/b1', 'cancelled') ||
+    !failsOn('refs/heads/b1', '') ||
+    failsOn('refs/heads/b1', 'success') ||
+    failsOn(MAIN, 'skipped')
+  )
+    problems.push("the scoreboard doesn't fail a run off main whose touch job didn't finish, so it can read as an empty run");
+  // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
+  const release = job(text, 'release');
+  const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
+  if (
+    !release ||
+    !/\n {4}needs: \[plan\]\n/.test(release) ||
+    !/\n {6}actions: write/.test(release) ||
+    !/main-first\.mjs --release/.test(release) ||
+    !relIf.includes("github.ref == 'refs/heads/main'")
+  )
+    problems.push('no `release` job lets deferred runs go on main once its shards are queued, so a deferred run never runs');
+  // A released re-run must not wait for main's queued shards again, or it defers every time.
+  if (!/\n {10}RUN_ATTEMPT: \$\{\{ github\.run_attempt \}\}/.test(step(touch, "Main's journeys first")))
+    problems.push("main-first doesn't get RUN_ATTEMPT, so a run the release let go defers again behind main's queued shards");
+  // After a hand-dispatched full run, release only from one that ran: deferred dispatch runs would re-run each other.
+  const after = job(text, 'release-after-dispatch');
+  if (!after || !/\n {4}needs: \[touch, journeys\]\n/.test(after) || !after.includes("needs.touch.outputs.mode != 'none'"))
+    problems.push('release-after-dispatch runs after a deferred run too, so deferred dispatch runs re-run each other');
+  // The cap on hand-dispatched full runs: the mark main-first.mjs counts, main's copy of the script, and the flag.
+  const mark = step(touch, DISPATCH_MARK);
+  const markIf = /\n {8}if: (.*)\n/.exec(mark)?.[1] ?? '';
+  const marks = (event, ref, target) =>
+    markIf && evaluate(markIf, { github: { event_name: event, ref }, env: { JOURNEYS_TARGET: target } });
+  if (
+    !mark ||
+    !marks('workflow_dispatch', 'refs/heads/b1', '') ||
+    marks('workflow_dispatch', 'refs/heads/b1', 'J-a.pw.mjs') ||
+    marks('workflow_dispatch', MAIN, '') ||
+    marks('pull_request', 'refs/pull/7/merge', '')
+  )
+    problems.push(
+      `the touch job's step "${DISPATCH_MARK}" doesn't mark exactly a hand-dispatched full run off main, so the cap can't count them`,
+    );
+  if (
+    !/\n {10}DISPATCH_FULL: \$\{\{ github\.event_name == 'workflow_dispatch' && env\.JOURNEYS_TARGET == '' \}\}\n/.test(wait) ||
+    !/\n {10}RUN_ID: \$\{\{ github\.run_id \}\}\n/.test(wait)
+  )
+    problems.push('the main-first step does not tell main-first.mjs a hand-dispatched full run from another, so the cap never applies');
+  const base = /- uses: actions\/checkout@[^\n]*\n {8}if: (.*)\n(?: {8}.*\n)*? {10}path: \.base\n/.exec(touch)?.[1] ?? '';
+  if (
+    !base ||
+    !evaluate(base, { github: { event_name: 'workflow_dispatch', ref: 'refs/heads/b1' } }) ||
+    !evaluate(base, { github: { event_name: 'pull_request', ref: 'refs/pull/7/merge' } })
+  )
+    problems.push(
+      "a manual run off main doesn't check out main's tooling (.base), so its branch's older main-first.mjs, without the cap, would run",
+    );
+  if (!new RegExp(`name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
+    problems.push(`no job is named "${PLAN_JOB}", the name main-first.mjs reads to know main's shards are queued`);
   return problems;
 }
 
@@ -352,8 +501,12 @@ test('CI: a run on main is never cancelled', () => {
   for (const e of ['push', 'workflow_dispatch']) assert.equal(resolve(ci, journeysRun(e, MAIN)).cancel, false, e);
 });
 
-test('Journey seal re-check: one waiting re-check per head, never a running one cancelled', () => {
-  assert.deepEqual(recheckProblems(read('journey-seal-recheck.yml')), []);
+test("CI merge seal: a push cancels the older head's seal; edits, reopens and re-runs are never cancelled and cancel nothing", () => {
+  assert.deepEqual(sealProblems(read('merge-seal.yml')), []);
+});
+
+test("Real-app journeys: a run off main waits for main's jobs to get runners, and never fails or holds main", () => {
+  assert.deepEqual(mainFirstProblems(read('real-app-journeys.yml')), []);
 });
 
 // ---- planted faults ------------------------------------------------------------------------------------------------
@@ -395,16 +548,14 @@ test("planted: today's branch rule (a newer branch run waits) and a missing sele
   assert.ok(journeysProblems(noInput).some((p) => /selections/.test(p)));
 });
 
-test("planted: today's re-check (no group) and a group edits share fail rule 4", () => {
-  const t = read('journey-seal-recheck.yml');
-  assert.match(recheckProblems(drop(t))[0], /no concurrency group/);
-  const shared = t.replace(
-    concurrency(t).group,
-    'journey-seal-recheck-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}',
+test("planted: an arming in the pull request's group (the group before #1574's Start the seal) fails rule 5", () => {
+  const t = read('merge-seal.yml');
+  const before = t.replace(
+    "((github.event.action != 'edited' && github.event.action != 'auto_merge_enabled') || github.event.changes.base)",
+    "(github.event.action != 'edited' || github.event.changes.base)",
   );
-  assert.ok(recheckProblems(shared).some((p) => /displace/.test(p)));
-  const cancels = t.replace('cancel-in-progress: false', 'cancel-in-progress: true');
-  assert.ok(recheckProblems(cancels).some((p) => /could be cancelled/.test(p)));
+  assert.notEqual(before, t);
+  assert.ok(sealProblems(before).some((x) => x.startsWith('an arming shares')));
 });
 
 test('the evaluator reads the expressions it is used on', () => {
@@ -422,4 +573,115 @@ test('planted: branch `x` + `J-a` and branch `x-J` + `a` in one group fail rule 
   const dash = t.replace("format('real-app-journeys-{0}:{1}'", "format('real-app-journeys-{0}-{1}'");
   assert.notEqual(dash, t);
   assert.ok(journeysProblems(dash).some((p) => /share a group: nothing splits/.test(p)));
+});
+
+test("planted: yesterday's seal (never cancelled), and one where every run joins the pull request's group, fail rules 1 and 5", () => {
+  const t = read('merge-seal.yml');
+  const c = concurrency(t);
+  const old = t.replace(c.group, 'merge-seal-${{ github.run_id }}').replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: false');
+  assert.notEqual(old, t);
+  assert.match(prProblems('merge-seal.yml', old).join(), /doesn't cancel/);
+  assert.ok(sealProblems(old).some((p) => /a push doesn't cancel/.test(p)));
+  const all = t
+    .replace(c.group, 'merge-seal-pr-${{ github.event.pull_request.number }}')
+    .replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: true');
+  const p = sealProblems(all);
+  for (const what of ['a base change', 'a reopen', "a push's re-run"])
+    assert.ok(
+      p.some((x) => x.startsWith(`${what} `)),
+      `${what}: ${p}`,
+    );
+  assert.ok(
+    p.some((x) => x.startsWith('an edit shares')),
+    `an edit in the group: ${p}`,
+  );
+  // Keyed on the event alone (no run_attempt), a re-run of an old head's push joins the group and cancels the new head's seal.
+  const noAttempt = t.replaceAll("github.run_attempt == '1' && ", '');
+  assert.notEqual(noAttempt, t);
+  assert.ok(sealProblems(noAttempt).some((x) => x.startsWith("a push's re-run ")));
+});
+
+test('planted: a main-first step that runs on main, can fail the run, outlives its job, or reads a renamed planner, fails rule 6', () => {
+  const t = read('real-app-journeys.yml');
+  const onMain = t.replace(
+    "if: github.ref != 'refs/heads/main' && steps.touch.outputs.mode == 'run'",
+    "if: steps.touch.outputs.mode == 'run'",
+  );
+  assert.notEqual(onMain, t);
+  assert.ok(mainFirstProblems(onMain).some((p) => /runs on main/.test(p)));
+  const hard = t.replace(/(- name: Main's journeys first\n(?: {8}.*\n)*?) {8}continue-on-error: true\n/, '$1');
+  assert.notEqual(hard, t);
+  assert.ok(mainFirstProblems(hard).some((p) => /can fail the run/.test(p)));
+  // A wait that holds a runner (the old 30- or 175-minute step) fails: main-first reads once and defers.
+  const holds = t.replace(/(- name: Main's journeys first\n(?: {8}.*\n)*? {8})timeout-minutes: \d+/, '$1timeout-minutes: 175');
+  assert.notEqual(holds, t);
+  assert.ok(mainFirstProblems(holds).some((p) => /lets a wait hold a runner/.test(p)));
+  const longJob = t.replace(/(\n  touch:\n(?: {4}.*\n)*? {4})timeout-minutes: \d+/, '$1timeout-minutes: 180');
+  assert.notEqual(longJob, t);
+  assert.ok(mainFirstProblems(longJob).some((p) => /lets a wait hold a runner/.test(p)));
+  const runsDeferred = t.replace(
+    "mode: ${{ steps.first.outputs.deferred == 'true' && 'none' || steps.touch.outputs.mode }}",
+    'mode: ${{ steps.touch.outputs.mode }}',
+  );
+  assert.notEqual(runsDeferred, t);
+  assert.ok(mainFirstProblems(runsDeferred).some((p) => /still queue its shards/.test(p)));
+  const noDefer = t.replace(`- name: "${DEFER_MARK}"`, '- name: Something');
+  assert.notEqual(noDefer, t);
+  assert.ok(mainFirstProblems(noDefer).some((p) => /release can't find/.test(p)));
+  const touchOnMain = t.replace(
+    "    name: What this run runs\n    if: github.ref != 'refs/heads/main'\n",
+    '    name: What this run runs\n',
+  );
+  assert.notEqual(touchOnMain, t);
+  assert.ok(mainFirstProblems(touchOnMain).some((p) => /three times/.test(p)));
+  const noRelease = t.replace('run: node .base/tooling/ci/main-first.mjs --release', 'run: node .base/tooling/ci/main-first.mjs');
+  assert.notEqual(noRelease, t);
+  assert.ok(mainFirstProblems(noRelease).some((p) => /never runs/.test(p)));
+  const noAttempt = t.replace(/\n {10}RUN_ATTEMPT: .*/, '');
+  assert.notEqual(noAttempt, t);
+  assert.ok(mainFirstProblems(noAttempt).some((p) => /defers again/.test(p)));
+  const afterDeferred = t.replace(" && needs.touch.outputs.mode != 'none' }}", ' }}');
+  assert.notEqual(afterDeferred, t);
+  assert.ok(mainFirstProblems(afterDeferred).some((p) => /re-run each other/.test(p)));
+  for (const key of ['plan', 'build', 'journeys']) {
+    const failOpen = t.replace(
+      new RegExp(
+        `(\\n  ${key}:\\n(?: {4}.*\\n|\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && )\\(needs\\.touch\\.result == 'success' \\|\\| \\(needs\\.touch\\.result == 'skipped' && github\\.ref == 'refs/heads/main'\\)\\) && `,
+      ),
+      '$1',
+    );
+    assert.notEqual(failOpen, t, key);
+    assert.ok(
+      mainFirstProblems(failOpen).some((p) => p.startsWith(`the ${key} job runs when the touch job didn't finish`)),
+      key,
+    );
+  }
+  const quiet = t.replace(
+    "if: github.ref != 'refs/heads/main' && needs.touch.result != 'success'",
+    "if: github.ref != 'refs/heads/main' && needs.touch.result == 'failure'",
+  );
+  assert.notEqual(quiet, t);
+  assert.ok(mainFirstProblems(quiet).some((p) => /can read as an empty run/.test(p)));
+  const noMark = t.replace(`- name: ${DISPATCH_MARK}\n`, '- name: Something\n');
+  assert.notEqual(noMark, t);
+  assert.ok(mainFirstProblems(noMark).some((p) => /can't count them/.test(p)));
+  const anyDispatch = t.replace(
+    "github.ref != 'refs/heads/main' && env.JOURNEYS_TARGET == ''\n        run: echo",
+    "github.ref != 'refs/heads/main'\n        run: echo",
+  );
+  assert.notEqual(anyDispatch, t);
+  assert.ok(mainFirstProblems(anyDispatch).some((p) => /can't count them/.test(p)));
+  const noFlag = t.replace(/\n {10}DISPATCH_FULL: .*\n/, '\n');
+  assert.notEqual(noFlag, t);
+  assert.ok(mainFirstProblems(noFlag).some((p) => /cap never applies/.test(p)));
+  const prBase = t.replace(
+    "if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')",
+    "if: github.event_name == 'pull_request'",
+  );
+  assert.notEqual(prBase, t);
+  assert.ok(mainFirstProblems(prBase).some((p) => /\.base/.test(p)));
+  const renamed = t.replace('name: Plan the shards\n', 'name: Plan shards\n');
+  assert.notEqual(renamed, t);
+  assert.ok(mainFirstProblems(renamed).some((p) => /Plan the shards/.test(p)));
+  assert.match(mainFirstProblems(t.replace("- name: Main's journeys first", '- name: Something else'))[0], /no step/);
 });

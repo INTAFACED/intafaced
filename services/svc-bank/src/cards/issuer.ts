@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { mulBps, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import { NOTHING_REPORTED, type CardPartnerTerms } from './partner-terms.js';
 
 /**
  * THE CARD ISSUER PORT (§8.1 `bank.cards`) — and the line this file is drawn on.
@@ -112,6 +113,54 @@ export interface CardIssuerAdapter {
     outcome: AuthorizationOutcome;
   }): Promise<void>;
 
+  /**
+   * What the card partner reports about the four unknowns (`partner-terms.ts`): custody mode, the assets it spends from,
+   * loss liability, reserve and funder. A `null` in any is "not known". It never moves value and never throws for an
+   * unknown; it throws only where there is no partner to ask (`bank.no_card_issuer`) or the simulator stands in a live
+   * deployment (`bank.card_sim_not_live`). Optional: an adapter without it reports nothing, so every answer reads "not known".
+   */
+  partnerTerms?(): CardPartnerTerms;
+
+  /**
+   * What the partner reports this cardholder can spend, per asset, as decimal strings (J-bank-29 #2). `null` is "not
+   * known". Reads only. Optional: an adapter without it reports no balances, and each reads "not known".
+   */
+  cardholderBalances?(input: { userId: string }): Promise<Readonly<Record<string, string>> | null>;
+
+  /**
+   * Send the partner one programme funding instruction (J-bank-26 #6): fund or defund an amount of the funding stablecoin,
+   * or set auto reload (top up `amount` when the programme falls below `threshold`). `requestId` is the business key the
+   * partner deduplicates on, so a retry after a crash is the same instruction. The partner moves the money under its own
+   * licence; nothing posts to our ledger. Optional: an adapter without it offers none of the three.
+   */
+  programmeFunding?(input: {
+    requestId: string;
+    kind: 'fund' | 'defund' | 'auto_reload';
+    assetId: string;
+    amount: string;
+    threshold: string | null;
+  }): Promise<{ partnerRef: string }>;
+
+  /**
+   * Ask the partner to credit its cardholder provisionally while a dispute is open (J-bank-27 #3). The credit is the
+   * partner's, under its licence: the partner answers with its reference and the amount it credited, and the cardholder's
+   * available, as the partner reports it, rises by that amount. `requestId` is the business key the partner deduplicates
+   * on, so a retry after a crash is the same credit. Nothing posts to our ledger. Optional: an adapter without it takes no
+   * provisional credit (`bank.card_dispute_partner_unset`).
+   */
+  provisionalCredit?(input: { requestId: string; userId: string; assetId: string; amount: string }): Promise<{
+    partnerRef: string;
+    amount: string;
+  }>;
+
+  /**
+   * Tell the partner how a dispute was decided (J-bank-27 #4): its provisional credit becomes final, or the partner
+   * reverses it. Deduplicated on `requestId`. Optional, as `provisionalCredit`.
+   */
+  settleProvisionalCredit?(input: { requestId: string; creditRequestId: string; settlement: 'final' | 'reversed' }): Promise<{
+    partnerRef: string;
+  }>;
+
   /** Freeze, unfreeze or close the card at the issuer. */
   setStatus(input: { cardId: string; issuerRef: string; status: 'active' | 'frozen' | 'closed' }): Promise<void>;
 
@@ -134,6 +183,109 @@ export interface CardIssuerAdapter {
    * CardService does not store the payload. Absent means `bank.card_wallet_issuer_unset`.
    */
   provisionWallet?(input: { cardId: string; issuerRef: string; wallet: 'apple' | 'google'; nonce: string }): Promise<{ payload: string }>;
+
+  /**
+   * Check a PIN entered at a terminal against the issuer's PIN (J-bank-14 #3). `tryLimit` is the owner's count of wrong
+   * tries (`BANK_CARD_PIN_TRY_LIMIT`): the issuer answers `blocked` once that many wrong tries in a row are reached, and
+   * keeps answering it until a new PIN is set. `unset` is a card with no PIN. The PIN is never stored by CardService.
+   * `authorizationRef` is the purchase's own reference: the same purchase delivered again gets the same answer and is
+   * never counted as a second wrong try.
+   */
+  verifyPin?(input: {
+    cardId: string;
+    issuerRef: string;
+    authorizationRef: string;
+    pin: string;
+    tryLimit: number;
+  }): Promise<'ok' | 'wrong' | 'blocked' | 'unset'>;
+
+  /**
+   * The card partner's 3D Secure code for one challenge (J-bank-14 #5): the code its access control server sends the
+   * cardholder for that online purchase. CardService compares what the person types against it and never stores it. The
+   * TEST partner derives a TEST code from the challenge id; absent means `bank.card_3ds_issuer_unset`.
+   */
+  threeDSCode?(input: { cardId: string; issuerRef: string; challengeId: string }): Promise<{ code: string }>;
+
+  /**
+   * TRUE ONLY ON THE TEST PARTNER ADAPTER WITH `secrets: "test"`: its card details, PIN and wallet tokens are TEST
+   * stand-ins, so CardService lets the secret calls run on a simulated programme and every answer says TEST. A live
+   * issuer never sets it.
+   */
+  readonly testSecrets?: true;
+}
+
+/** A TEST card number: the 999999 prefix (no scheme issues it), nine digits from the card id, and a Luhn check digit. */
+export function testCardNumber(cardId: string): string {
+  const body = `999999${(BigInt(`0x${createHash('sha256').update(`pan:${cardId}`).digest('hex').slice(0, 15)}`) % 1_000_000_000n)
+    .toString()
+    .padStart(9, '0')}`;
+  let sum = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    // Doubling starts at the digit next to the check digit, which is the last digit of the body.
+    let d = Number(body[body.length - 1 - i]);
+    if (i % 2 === 0) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return `${body}${(10 - (sum % 10)) % 10}`;
+}
+
+/** The TEST partner's card details, PIN and wallet calls (`secrets: "test"`). Held in this process only; a restart forgets PINs. */
+function testSecretMethods(): Pick<
+  CardIssuerAdapter,
+  'revealCredentials' | 'revealPin' | 'setPin' | 'verifyPin' | 'provisionWallet' | 'threeDSCode'
+> {
+  const pins = new Map<string, { pin: string; wrongInARow: number }>();
+  // One answer per purchase, so a redelivered purchase (even one racing the first) is never a second wrong try.
+  const answered = new Map<string, 'ok' | 'wrong' | 'blocked' | 'unset'>();
+  const digest = (label: string, cardId: string) => createHash('sha256').update(`${label}:${cardId}`).digest('hex');
+  return {
+    revealCredentials: async ({ cardId }) => {
+      const h = digest('details', cardId);
+      const month = (parseInt(h.slice(0, 2), 16) % 12) + 1;
+      return {
+        pan: testCardNumber(cardId),
+        expiry: `${String(month).padStart(2, '0')}/${30 + (parseInt(h.slice(2, 4), 16) % 5)}`,
+        cvv: (parseInt(h.slice(4, 10), 16) % 1000).toString().padStart(3, '0'),
+      };
+    },
+    revealPin: async ({ cardId }) => {
+      const held = pins.get(cardId);
+      if (!held) throw new BankError('This card has no PIN yet. Set one first.', 'bank.card_pin_not_set');
+      return { pin: held.pin };
+    },
+    setPin: async ({ cardId, pin }) => {
+      // A new PIN also clears the wrong tries, so a blocked PIN is unblocked by setting a new one.
+      pins.set(cardId, { pin, wrongInARow: 0 });
+    },
+    verifyPin: async ({ cardId, authorizationRef, pin, tryLimit }) => {
+      const key = `${cardId}:${authorizationRef}`;
+      const before = answered.get(key);
+      if (before) return before;
+      const verdict = ((): 'ok' | 'wrong' | 'blocked' | 'unset' => {
+        const held = pins.get(cardId);
+        if (!held) return 'unset';
+        if (held.wrongInARow >= tryLimit) return 'blocked';
+        if (held.pin === pin) {
+          held.wrongInARow = 0;
+          return 'ok';
+        }
+        held.wrongInARow += 1;
+        return held.wrongInARow >= tryLimit ? 'blocked' : 'wrong';
+      })();
+      answered.set(key, verdict);
+      return verdict;
+    },
+    // A TEST code of six digits, derived from the challenge id, so the same challenge always has the same code.
+    threeDSCode: async ({ challengeId }) => ({
+      code: (parseInt(digest('3ds', challengeId).slice(0, 12), 16) % 1_000_000).toString().padStart(6, '0'),
+    }),
+    provisionWallet: async ({ cardId, wallet, nonce }) => ({
+      payload: `TEST-wallet-${wallet}-${createHash('sha256').update(`${cardId}:${wallet}:${nonce}`).digest('hex').slice(0, 24)}`,
+    }),
+  };
 }
 
 /**
@@ -185,13 +337,16 @@ export function cardProgrammeOutput(programme: CardProgramme): CardProgramme {
   return { id: programme.id, simulated: programme.simulated, displayName: programme.displayName };
 }
 
-export function cardSim(options: { displayName?: string } = {}): CardIssuerAdapter {
+export function cardSim(options: { displayName?: string; partner?: CardPartnerTerms } = {}): CardIssuerAdapter {
+  // The TEST partner's answers (`BANK_CARD_SIM_PARTNER_JSON`), copied so a caller's object cannot change them later.
+  const partner: CardPartnerTerms = { ...(options.partner ?? NOTHING_REPORTED), test: true };
   const programme = cardProgrammeOutput({
     id: 'card-sim',
     simulated: true,
     // Says what it is in the name, because this string reaches a screen.
     displayName: options.displayName ?? 'Simulated card (no card programme)',
   });
+  const credits = new Map<string, { userId: string; assetId: string; amount: Amount; partnerRef: string; reversed: boolean }>();
 
   return {
     programme,
@@ -209,7 +364,63 @@ export function cardSim(options: { displayName?: string } = {}): CardIssuerAdapt
     // queue that never drains.
     respondToAuthorization: async () => undefined,
     setStatus: async () => undefined,
+    partnerTerms: () => partner,
+    // The TEST partner's card details, PIN and wallet tokens, only when its switches say `secrets: "test"`.
+    ...(partner.secrets === 'test' ? { ...testSecretMethods(), testSecrets: true as const } : {}),
+    // The TEST partner's figures: the same TEST balances for every cardholder, as its switches set them, plus any
+    // provisional dispute credit it has given that cardholder and not reversed (J-bank-27 #3).
+    cardholderBalances: async ({ userId }) => withCredits(partner.balances, userId, credits),
+    // The TEST partner takes an instruction it offers and answers with a TEST reference derived from the request's key,
+    // so the same request always gets the same reference. It moves nothing: there is no partner and no money behind it.
+    programmeFunding: async (input) => {
+      const offers = partner.fundingOffers;
+      const offered = offers && (input.kind === 'fund' ? offers.fund : input.kind === 'defund' ? offers.defund : offers.autoReload);
+      if (!offered || partner.fundingAssetId !== input.assetId) {
+        throw new BankError(`The TEST card partner does not offer ${input.kind} in ${input.assetId}`, 'bank.card_funding_not_offered');
+      }
+      return { partnerRef: `TEST-card-sim-${createHash('sha256').update(input.requestId).digest('hex').slice(0, 16)}` };
+    },
+    // TEST rule: the TEST partner credits the disputed amount in full, once per request key, and adds it to what it reports
+    // that cardholder can spend in that asset. It keeps its credits in this process only, as a stand-in: there is no
+    // partner and no money behind them, and nothing posts to the ledger.
+    provisionalCredit: async (input) => {
+      const prior = credits.get(input.requestId);
+      if (prior) return { partnerRef: prior.partnerRef, amount: formatAmount(prior.amount) };
+      const credit = {
+        userId: input.userId,
+        assetId: input.assetId,
+        amount: parseAmount(input.amount),
+        partnerRef: testRef('credit', input.requestId),
+        reversed: false,
+      };
+      credits.set(input.requestId, credit);
+      return { partnerRef: credit.partnerRef, amount: formatAmount(credit.amount) };
+    },
+    settleProvisionalCredit: async (input) => {
+      const credit = credits.get(input.creditRequestId);
+      if (credit && input.settlement === 'reversed') credit.reversed = true;
+      return { partnerRef: testRef(input.settlement, input.requestId) };
+    },
   };
+}
+
+const testRef = (kind: string, key: string): string =>
+  `TEST-card-sim-${kind}-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`;
+
+/** The TEST partner's reported balance for one cardholder: its TEST figure plus the provisional credits it has not reversed. */
+function withCredits(
+  balances: Readonly<Record<string, string>> | null,
+  userId: string,
+  credits: ReadonlyMap<string, { userId: string; assetId: string; amount: Amount; reversed: boolean }>,
+): Readonly<Record<string, string>> | null {
+  if (!balances) return balances;
+  const out: Record<string, string> = { ...balances };
+  for (const c of credits.values()) {
+    // An asset the partner reports no balance for stays "not known": a credit does not make it known.
+    if (c.userId !== userId || c.reversed || out[c.assetId] === undefined) continue;
+    out[c.assetId] = formatAmount(parseAmount(out[c.assetId]!) + c.amount);
+  }
+  return out;
 }
 
 /**
@@ -234,6 +445,21 @@ export const noCardIssuer: CardIssuerAdapter = {
   },
   setStatus: async () => {
     throw new BankError('No card issuer is configured — this deployment has no card programme', 'bank.no_card_issuer');
+  },
+  partnerTerms: () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to ask', 'bank.no_card_issuer');
+  },
+  cardholderBalances: async () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to ask', 'bank.no_card_issuer');
+  },
+  programmeFunding: async () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to fund', 'bank.no_card_issuer');
+  },
+  provisionalCredit: async () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to credit', 'bank.no_card_issuer');
+  },
+  settleProvisionalCredit: async () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to tell', 'bank.no_card_issuer');
   },
 };
 
@@ -295,6 +521,12 @@ export function cardSimNotLive(): CardIssuerAdapter {
     issue: async () => refuse(),
     respondToAuthorization: async () => refuse(),
     setStatus: async () => refuse(),
+    // The TEST partner's answers are never shown as a live partner's.
+    partnerTerms: () => refuse(),
+    cardholderBalances: async () => refuse(),
+    programmeFunding: async () => refuse(),
+    provisionalCredit: async () => refuse(),
+    settleProvisionalCredit: async () => refuse(),
   };
 }
 
@@ -350,10 +582,10 @@ export const LIVE_ISSUER_AUTH_DECISION_BUDGET_MS = 2_000;
  * `bank.card_sim_not_live` rather than issuing or authorising as if a BIN
  * exists. `none` is unchanged: `bank.no_card_issuer`.
  */
-export function cardIssuerFor(setting: CardIssuerSetting, posture: CardIssuerPosture = {}): CardIssuerAdapter {
+export function cardIssuerFor(setting: CardIssuerSetting, posture: CardIssuerPosture = {}, partner?: CardPartnerTerms): CardIssuerAdapter {
   switch (setting) {
     case 'card-sim':
-      return cardSimIsLivePosture(posture) ? cardSimNotLive() : cardSim();
+      return cardSimIsLivePosture(posture) ? cardSimNotLive() : cardSim(partner ? { partner } : {});
     case 'none':
       return noCardIssuer;
   }

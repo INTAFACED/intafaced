@@ -31,6 +31,7 @@ import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
 import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
+import { linkedWallets, registerLinkedWalletsRoute } from './auth/linked-wallets.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -126,6 +127,11 @@ import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.j
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
+import {
+  freezeWithdrawalsForSupport,
+  registerSupportWithdrawalFreezeRoute,
+  supportWithdrawalFreezeRecords,
+} from './auth/support-withdrawal-freeze.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
@@ -144,7 +150,10 @@ import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth
 import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
-import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { parseApiKeyCapByTier, parsePortfolioKeyCap, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { parseDeveloperRoles } from './auth/developer-team.js';
+import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
+import { createApiRateLimitsRouter } from './api-rate-limits-router.js';
 import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
 import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
@@ -569,6 +578,9 @@ const waitlist = new WaitlistService(
   parseWaveSize(env.IDENTITY_WAITLIST_WAVE_SIZE),
 );
 
+// The owner's API rate tiers (blank: none set). Every key exchange carries the key's limit for the edge.
+const ratePolicy = parseRatePolicy(env.IDENTITY_API_RATE_LIMITS);
+installApiKeyRateExchange(auth, sql, ratePolicy);
 installApiKeyIpExchange(auth, sql);
 installApiKeyAccountExchange(auth, sql);
 installApiKeyProductExchange(auth, sql);
@@ -739,7 +751,7 @@ export const appRouter = mergeRouters(
   createApiKeyRequestSignRouter(sql, auth, signingEncKey, env.API_KEY_SIGNING_OPTIONAL.trim() === 'true'),
   createRequestSigningPolicyRouter(requestSignWindowSeconds),
   createApiKeyOriginRouter(sql, auth, auth),
-  createApiKeyAccountRouter(sql, auth, auth),
+  createApiKeyAccountRouter(sql, auth, auth, parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX)),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
   createApiKeyExpireRouter(sql, auth),
   createApiKeyRevokeAllRouter(sql),
@@ -748,11 +760,14 @@ export const appRouter = mergeRouters(
     gate: auth,
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    portfolioKeyCap: parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX),
+    developerRoles: parseDeveloperRoles(env.IDENTITY_DEVELOPER_ROLES),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
     mayMint: passkeyMintRule(sql),
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
   }),
+  createApiRateLimitsRouter(sql, ratePolicy),
   createDeveloperSandboxesRouter({
     sql,
     gate: auth,
@@ -1060,6 +1075,14 @@ registerWalletSignatureVerifyRoute(app, {
   ...(doorS2s ? { s2s: doorS2s } : {}),
 });
 
+/** The wallets a customer linked, for svc-agents' payment method (linked-wallets.ts). */
+registerLinkedWalletsRoute(app, {
+  read: (userId) => linkedWallets(sql, userId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
 /** Whether a customer's trusted device can still be relied on, for a service that lets one device approve another's request. */
 registerTrustedDeviceReadRoute(app, {
   read: (userId, deviceId) => auth.trustedDeviceState(userId, deviceId),
@@ -1184,6 +1207,15 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return view;
+});
+
+/** A support agent's withdrawal freeze from a customer's request (J-support-public-20 #7): svc-support only. */
+registerSupportWithdrawalFreezeRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  freeze: (input) => freezeWithdrawalsForSupport(securityLock, input),
+  records: (input) => supportWithdrawalFreezeRecords(sql, input),
 });
 
 /**

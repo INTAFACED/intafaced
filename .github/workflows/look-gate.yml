@@ -4,7 +4,8 @@
 # digest), so baselines taken from it compare pixel for pixel.
 #
 # It reports, and is not a required check. The script itself decides when a failure blocks (policy.mjs BLOCKING_FROM:
-# report-only for two weeks, then only a kit, baseline or migrated-room change on a failing new-look page).
+# report-only for two weeks, then a failing row blocks only a pull request that changes what it draws: the kit answers
+# for every row, a baseline for its own room's rows, a migrated room for the new-look Customer pages; every row reports).
 # The rules come from main: the job runs main's copy of the script, so a pull request cannot loosen the gate it is
 # judged by (the pull request's own copy runs only while main has none).
 name: Look gate
@@ -49,7 +50,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
 
       - name: Install

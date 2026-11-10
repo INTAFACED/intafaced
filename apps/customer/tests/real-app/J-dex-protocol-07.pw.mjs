@@ -653,14 +653,28 @@ test(`${J} #7 creates a watchlist while signed out, then signs in: it persists i
 test(`${J} #8 opens the stocks screener with no asset registered: an empty state with its blocker, not a made-up list`, async ({
   page,
 }) => {
+  // No asset is registered on the stack: the stack's TEST chain holds no Registered event from any asset registry
+  // (services/svc-protocol/contracts/rwa/RwaRegistry.sol), from its first block to its head.
+  const registered = await chain.getLogs({
+    event: parseAbi(['event Registered(address indexed token, bytes32 indexed assetCommitment, address indexed issuer)'])[0],
+    fromBlock: 0n,
+    toBlock: 'latest',
+  });
+  expect(registered, 'asset registrations on the stack TEST chain').toHaveLength(0);
   await openTokens(page);
   await page.getByRole('tab', { name: 'Stocks' }).click();
   const panel = page.getByRole('tabpanel', { name: 'Stocks' });
-  await expect(panel).toContainText(/No stock is registered/);
-  await expect(panel).toContainText(/Blocked:/);
+  // The empty state names its blocker in plain words, with the blocker's code.
+  await expect(panel.getByRole('status')).toContainText('No stock is registered.');
+  await expect(panel.getByRole('status')).toContainText(
+    'Blocked: a tokenized stock is listed only once the asset registry records it with a licence, and none is recorded.',
+  );
   await expect(panel.locator('[data-code]')).toHaveCount(1);
   await expect(panel.locator('[data-code]')).toHaveAttribute('data-code', 'licence');
+  // Not a made-up list: no stock row, no table and no token link in the screener.
   await expect(panel.getByRole('row')).toHaveCount(0);
+  await expect(panel.getByRole('table')).toHaveCount(0);
+  await expect(panel.locator('a[href*="/dex/tokens/"]')).toHaveCount(0);
 });
 
 test(`${J} #9 uses the 50 percent shortcut in the quick ticket: the amount is half the balance and Review opens the swap sheet`, async ({

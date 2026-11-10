@@ -9,7 +9,7 @@
  * the jobs to `sealNeeded`, the rule ci.yml's own seal job applied to its `needs` until now.
  *
  * - The newest ci.yml run of the event on the head decides (a reopen starts a new one and cancels the old).
- * - A run still going fails this verdict with a wait line; journey-seal-recheck.yml re-runs the seal when CI finishes.
+ * - A run still going fails this verdict with a wait line; CI's last job (START_JOB) starts the seal when it finishes.
  * - Every test shard (`Tests (…)`) must succeed, and there must be one when the change needs tests; when the default
  *   branch says the change needs the full suite, every one of its SHARD_COUNT shards (`Tests (1/16)` …) must be there.
  * - A pull request's own ci.yml may differ from main's: a change to it is a gate file, so the seal's CI review step
@@ -18,7 +18,7 @@
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=<sha> (PR_NUMBER=<n> | MERGE_GROUP_HEAD_SHA=<sha>) node tooling/ci/ci-jobs-seal.mjs
  */
 import { SHARD_COUNT, classify, sealNeeded, shardMatrix } from './ci-affected.mjs';
-import { pullFiles } from './journey-seal.mjs';
+import { START_JOB, pullFiles } from './journey-seal.mjs';
 
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
@@ -59,8 +59,11 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
   if (!run) return { ok: false, wait: true, lines: ['CI (ci.yml) has not run on this head yet; the seal re-runs when it finishes'] };
   const id = `CI run ${run.id} (attempt ${run.run_attempt ?? 1})`;
   // A run is judged once every job but ci.yml's own seal has finished: a re-run of that seal alone puts the run back in
-  // progress, and must not turn this seal red (the CI review on 7a7eb9a0, 8 Nov 2026).
-  const pending = (jobs ?? []).filter((j) => j?.name !== 'CI merge seal' && j?.status !== 'completed');
+  // progress, and must not turn this seal red (the CI review on 7a7eb9a0, 8 Nov 2026). Its last job, START_JOB, is
+  // what starts this seal, so it is still going while this reads.
+  const pending = (jobs ?? []).filter(
+    (j) => j?.name !== 'CI merge seal' && j?.name !== 'CI jobs' && j?.name !== START_JOB && j?.status !== 'completed',
+  );
   if (run.status !== 'completed' && (pending.length || !(jobs ?? []).length))
     return { ok: false, wait: true, lines: [`${id} on this head is ${run.status}; the seal re-runs when it finishes`] };
   const flags = files === null ? { full: true, affected: false } : classify(files, { forceFull });

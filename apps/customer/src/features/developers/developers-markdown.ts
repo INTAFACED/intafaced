@@ -7,9 +7,18 @@
 import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
 import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
+import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
+import { deskCopy } from '../../screens/trade/desk/copy';
+import { acceptedCells, refusedName } from './trading/order-types-view';
+import { tradingApiCopy } from './trading/trading-api-copy';
+import { idempotencyCopy } from './idempotency/idempotency-copy';
 import { developersCopy } from './developers-copy';
+import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
+import { explorerCopy } from './explorer/explorer-copy';
+import { EXPLORER_ROUTES } from './explorer/explorer-model';
 import { docsCopy } from './developers-docs-copy';
 import { causeKey, fixKey, tradeErrorsCopy } from './errors/trade-errors-copy';
+import { categoryKey, errorClassCopy, severityKey } from './errors/error-class-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
 import { AUDIENCES, DATA_PRODUCTS, DATA_TERMS, SECTIONS, connectivityOptions, hostRows, type Section } from './developers-model';
 import {
@@ -27,7 +36,13 @@ import {
 
 const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
+const limits = rateLimitsCopy.forLocale('en').t;
+const explorer = explorerCopy.forLocale('en').t;
 const tradeErrors = tradeErrorsCopy.forLocale('en').t;
+const errorClass = errorClassCopy.forLocale('en').t;
+const trading = tradingApiCopy.forLocale('en').t;
+const idem = idempotencyCopy.forLocale('en').t;
+const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
 
 const table = (head: string[], rows: string[][]) =>
@@ -38,7 +53,7 @@ const code = (text: string) => `\`${text}\``;
 const sectionTarget = (section: Section) =>
   section.page ? `/developers/${section.id}` : section.published ? section.published.href : portal('waitsFor', { slice: section.waitsFor });
 
-/** Pages of this portal that read live data (notices an operator publishes), so they have no static markdown variant. */
+/** Pages of this portal that read live notices an operator publishes, so they have no static markdown variant. */
 const LIVE_PAGES = ['status', 'changelog'] as const;
 
 export type DocsPage = { slug: string; title: string; summary: string; body: () => string };
@@ -163,6 +178,41 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       ].join('\n\n'),
   },
   {
+    // The written part of the rate-limits page; its numbers are the owner's and are read live (DV-limits-01 to 03).
+    slug: 'rate-limits',
+    title: sectionTitle('rate-limits'),
+    summary: limits('lead'),
+    body: () =>
+      [
+        limits('lead'),
+        `## ${limits('modelTitle')}`,
+        limits('modelBucket'),
+        limits('modelCost'),
+        limits('modelReplica'),
+        limits('liveNumbers'),
+        `## ${limits('refusalTitle')}`,
+        limits('refusalBody'),
+        limits('refusalHeaders'),
+        `## ${limits('backoffTitle')}`,
+        limits('backoffBody'),
+        limits('backoffExample'),
+        `## ${limits('formTitle')}`,
+        limits('formLead'),
+      ].join('\n\n'),
+  },
+  {
+    // The written part of the API explorer (DV-console-01); the explorer itself runs on its page.
+    slug: 'explorer',
+    title: sectionTitle('explorer'),
+    summary: explorer('lead'),
+    body: () =>
+      [
+        explorer('lead'),
+        ...EXPLORER_ROUTES.map((route) => `- ${explorer(`route.${route.id}`)}: ${code(`${route.method} ${route.path.split('?')[0]}`)}`),
+        explorer('keyHint'),
+      ].join('\n\n'),
+  },
+  {
     slug: 'openapi',
     title: sectionTitle('openapi'),
     summary: docs('openapiLead'),
@@ -223,11 +273,21 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         tradeErrors('lead'),
         `## ${tradeErrors('tableTitle')}`,
         table(
-          [tradeErrors('colCode'), tradeErrors('colStatus'), tradeErrors('colDetail'), tradeErrors('colCause'), tradeErrors('colFix')],
+          [
+            tradeErrors('colCode'),
+            tradeErrors('colStatus'),
+            tradeErrors('colDetail'),
+            errorClass('colSeverity'),
+            errorClass('colCategory'),
+            tradeErrors('colCause'),
+            tradeErrors('colFix'),
+          ],
           TRADE_ERROR_CATALOGUE.map((entry) => [
             code(entry.code),
             String(entry.status),
             code(entry.intafacedCode),
+            errorClass(severityKey(entry.severity)),
+            errorClass(categoryKey(entry.category)),
             tradeErrors(causeKey(entry.cause)),
             tradeErrors(fixKey(entry.cause)),
           ]),
@@ -273,6 +333,63 @@ export const DOCS_PAGES: readonly DocsPage[] = [
           [docs('colProduct'), ...DATA_TERMS.map((term) => dataTermLabel(docs, term))],
           DATA_PRODUCTS.map((product) => [docs(`product_${product}`), ...DATA_TERMS.map(() => docs('termUnset'))]),
         ),
+      ].join('\n\n'),
+  },
+  {
+    slug: 'order-types',
+    title: sectionTitle('order-types'),
+    summary: trading('typesLead'),
+    body: () => {
+      const types = spotOrderTypes();
+      const rows = types.accepted.map((row) => ({ row, cells: acceptedCells(row, trading, desk) }));
+      return [
+        trading('typesLead'),
+        trading('typesStaticNote'),
+        `## ${trading('typesTitle')}`,
+        table(
+          [trading('colType'), trading('colBodyType'), trading('colFields'), trading('colTif'), trading('colNote')],
+          rows.map(({ cells }) => [
+            cells.name,
+            code(cells.bodyType),
+            cells.fields ? code(cells.fields) : trading('noFields'),
+            cells.timeInForce,
+            cells.note,
+          ]),
+        ),
+        `## ${trading('exampleTitle')}`,
+        ...rows.map(({ cells }) => `### ${cells.name}\n\n\`\`\`json\n${cells.example}\n\`\`\``),
+        `## ${trading('refusedTitle')}`,
+        trading('refusedLead'),
+        table(
+          [trading('colType'), trading('colCode')],
+          types.refused.map((row) => [refusedName(row, desk), code(row.code)]),
+        ),
+      ].join('\n\n');
+    },
+  },
+  {
+    slug: 'bot-policy',
+    title: sectionTitle('bot-policy'),
+    summary: trading('botLead'),
+    body: () => [trading('botLead'), trading('botStaticNote')].join('\n\n'),
+  },
+  {
+    slug: 'idempotency',
+    title: sectionTitle('idempotency'),
+    summary: idem('lead'),
+    body: () =>
+      [
+        idem('lead'),
+        `## ${idem('rulesTitle')}`,
+        [idem('rulePrepare'), idem('ruleSubmit'), idem('ruleReplay'), idem('ruleConflict'), idem('ruleInProgress')]
+          .map((rule, i) => `${i + 1}. ${rule}`)
+          .join('\n'),
+        `## ${idem('finalTitle')}`,
+        idem('finalBody'),
+        idem('finalRetry'),
+        `## ${idem('listTitle')}`,
+        idem('listBody'),
+        idem('listMax'),
       ].join('\n\n'),
   },
 ];

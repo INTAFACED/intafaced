@@ -109,6 +109,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    */
   'trade.market_closed': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.mode_limit_only': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.rpi_unavailable': { ccxt: 'InvalidOrder', status: 400 },
   'trade.mode_cancel_only': { ccxt: 'InvalidOrder', status: 400 },
   'trade.mode_post_only': { ccxt: 'InvalidOrder', status: 400 },
   'trade.market_halted': { ccxt: 'BadSymbol', status: 403 },
@@ -352,6 +353,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * and a client that re-fetches will find it in a terminal state.
    */
   'trade.order_not_open': { ccxt: 'InvalidOrder', status: 409 },
+  /** The native L3 queue is not readable now. Retryable; never answered from L2 sizes. */
+  'trade.queue_unavailable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /** Someone else's order. Not "not found" — do not leak existence either way. */
   'trade.not_owner': { ccxt: 'PermissionDenied', status: 403 },
 

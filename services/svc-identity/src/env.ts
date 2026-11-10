@@ -233,6 +233,17 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
+       * Owner-published cap on live keys bound to one sub-account (a portfolio-scoped key, DV-sub-accounts-01), a whole
+       * number. Blank refuses every portfolio-scoped create (`identity.portfolio_key_cap_unset`). Never git-default.
+       */
+      IDENTITY_PORTFOLIO_KEYS_MAX: z.string().optional(),
+      /**
+       * Owner-published developer roles for organisations (DV-console-01), joined by commas (`keys_admin,keys_read`).
+       * Blank is `roles not set`: no member has key authority and no role can be given (`identity.developer_roles_unset`).
+       * Never git-default. Parsed at start by `parseDeveloperRoles`; a malformed value stops the service.
+       */
+      IDENTITY_DEVELOPER_ROLES: z.string().optional(),
+      /**
        * Owner-published developer sandbox cap per verification level (`full=3`, levels none, basic, full, institutional).
        * Every account may hold one sandbox; blank, or a level left out, refuses a second (`identity.sandbox_cap_unset`).
        * Never git-default. Parsed at start by `parseSandboxCapByTier`; a malformed value stops the service.
@@ -250,6 +261,14 @@ const schema = serviceEnvSchema
        * a value that is not a positive whole number stops the service.
        */
       IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
+      /**
+       * Owner setting: API rate tiers for keys and the most a reviewer may grant one key (DV-limits-01, J-developer-06).
+       * JSON `{"tiers":[{"id":"base"|"sandbox","burst":n,"refillPerMinute":n}],"grantCeilingPerMinute":n|null}`. NO
+       * DEFAULT. Blank: no tier is set, so the key exchange hands the edge no limit and the edge refuses every key call
+       * (`edge.limits_unset`), the limits page shows the not-set banner and every limit request refuses
+       * `identity.rate_limits_unset`. Parsed at start by `parseRatePolicy`; a value that does not parse stops the service.
+       */
+      IDENTITY_API_RATE_LIMITS: z.string().optional(),
       /**
        * Owner setting: the most seconds a sign-in may go without a refresh before its next refresh is refused
        * (`auth.session_idle`, I-signin-sessions-06). NO DEFAULT. Blank: no idle sign-out; a sign-in still ends at its

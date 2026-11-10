@@ -4,20 +4,23 @@
  * chart draw the SAME book snapshot (its engine sequence is on both), and nothing here holds a balance or sends an order.
  * A click on a ladder cell asks the desk's own ticket for a draft at that price; the ticket reviews it (OrderForm).
  */
-import { memo, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import type { Order } from '../../../features/trade/trade-api';
 import type { Preferences } from '../../../shared/preferences';
-import { fmtAmount, fmtPrice, refusalCopy, StateBlock, Skeleton, type Loadable } from './deps';
-import { useTape } from './data';
+import { fmtAmount, fmtPct, fmtPrice, refusalCopy, StateBlock, Skeleton, type Loadable } from './deps';
+import { useQueuePosition, useTape } from './data';
 import { useNow } from './hooks';
 import type { DeskMarket } from './market';
 import { STALE_BOOK_MS } from './OrderBook';
 import { flowCopy } from './order-flow-copy';
+import { RowCancel } from './OneClick';
 import {
   buildLadder,
   depthCurve,
+  myOrdersAt,
   LADDER_STEPS,
+  queueReadout,
   stepOf,
   tapeView,
   type DomSetting,
@@ -45,6 +48,12 @@ interface Props {
   onSetting: (next: DomSetting) => void;
   onPick: (pick: LadderPick) => void;
   onClose: () => void;
+  /** Instant placement is on (J-charts-desk-14 #6): a ladder click and a row's cancel act at once. */
+  instant?: boolean;
+  /** The one-click strip (J-charts-desk-14 #6 and #7): instant placement, size presets and one-click close. */
+  oneClick?: ReactNode;
+  /** A one-click cancel finished. */
+  onCancelled?: () => void;
 }
 
 function Ladder({
@@ -54,6 +63,8 @@ function Ladder({
   columns,
   stepTicks,
   onPick,
+  instant,
+  onCancelled,
 }: {
   market: DeskMarket;
   data: OrderBook;
@@ -61,6 +72,8 @@ function Ladder({
   columns: LadderColumns;
   stepTicks: LadderStep;
   onPick: (pick: LadderPick) => void;
+  instant: boolean;
+  onCancelled: () => void;
 }) {
   const { t } = flowCopy.useCopy();
   const step = stepOf(market.tickSize, stepTicks) ?? market.tickSize;
@@ -145,12 +158,108 @@ function Ladder({
                 {double
                   ? size(row.myAsk)
                   : [row.myBid && `+${size(row.myBid)}`, row.myAsk && `−${size(row.myAsk)}`].filter(Boolean).join(' ')}
+                {row.myBid || row.myAsk ? (
+                  <RowCancel market={market} orders={myOrdersAt(mine, row.price, step)} instant={instant} onDone={onCancelled} />
+                ) : null}
               </span>
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+/** One of my resting orders: its place in the native queue and, only with the owner's window set, the chance of a fill. */
+function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
+  const { t } = flowCopy.useCopy();
+  const read = useQueuePosition(order.id);
+  const amountPlaces = placesOf(market.lotSize);
+  const size = (value: string) => fmtAmount(value, { places: amountPlaces });
+  const head = t('My queue order', {
+    side: order.side === 'buy' ? t('My queue side buy') : t('My queue side sell'),
+    // Once the queue read answers, its own remaining size, so the heading and the basis below never disagree.
+    amount: size(read.status === 'ready' ? read.data.remaining : order.remaining),
+    asset: market.base,
+    price: order.price ? fmtPrice(order.price, market.tickSize) : '—',
+  });
+  if (read.status !== 'ready')
+    return (
+      <li className="of-queue-row" data-testid="of-queue-row" data-order-id={order.id} data-state={read.status}>
+        <span className="of-queue-head">{head}</span>
+        <span className="of-note" role={read.status === 'loading' ? undefined : 'status'}>
+          {read.status === 'loading'
+            ? t('My queue loading')
+            : read.status === 'refused' && read.code === 'trade.queue_unavailable'
+              ? t('My queue unavailable')
+              : read.status === 'refused'
+                ? refusalCopy(read.code).title
+                : t('My queue unavailable')}
+        </span>
+      </li>
+    );
+  const q = read.data;
+  const view = queueReadout(q);
+  const chance = view.chance.kind === 'estimate' ? view.chance : null;
+  return (
+    <li
+      className="of-queue-row"
+      data-testid="of-queue-row"
+      data-state="ready"
+      data-order-id={q.orderId}
+      data-price={q.price}
+      data-orders-ahead={q.ordersAhead}
+      data-size-ahead={q.sizeAhead}
+      data-as-of={q.asOfSequence}
+      data-source={q.source}
+      data-chance={chance ? chance.ratio : 'unset'}
+      data-window={chance?.windowSeconds ?? ''}
+      data-traded={chance?.tradedThrough ?? ''}
+      data-to-fill={chance?.sizeToFill ?? ''}
+    >
+      <span className="of-queue-head">{head}</span>
+      <span data-testid="of-queue-ahead">
+        {view.ahead.kind === 'first'
+          ? t('My queue first')
+          : view.ahead.kind === 'one'
+            ? t('My queue ahead one', { size: size(view.ahead.size), asset: market.base })
+            : t('My queue ahead', { n: view.ahead.n, size: size(view.ahead.size), asset: market.base })}
+      </span>
+      <span data-testid="of-queue-chance">
+        {chance ? t('My queue chance', { pct: fmtPct(chance.ratio, { signed: false }) }) : t('My queue chance unset')}
+      </span>
+      <span className="of-note" data-testid="of-queue-basis">
+        {chance
+          ? t('My queue basis', {
+              traded: size(chance.tradedThrough),
+              asset: market.base,
+              seconds: chance.windowSeconds,
+              toFill: size(chance.sizeToFill),
+            })
+          : t('My queue basis unset')}{' '}
+        {t('My queue source')}
+      </span>
+    </li>
+  );
+}
+
+/** My resting limit orders in this market and where each stands in the queue. */
+function MyQueue({ market, mine }: { market: DeskMarket; mine: readonly Order[] }) {
+  const { t } = flowCopy.useCopy();
+  const resting = mine.filter((order) => order.type === 'limit' && order.price !== null);
+  return (
+    <section className="of-section" aria-label={t('My queue')} data-testid="of-queue">
+      <h3 className="of-title">{t('My queue')}</h3>
+      {resting.length === 0 ? (
+        <p className="of-note">{t('My queue none')}</p>
+      ) : (
+        <ul className="of-queue">
+          {resting.map((order) => (
+            <QueueRow key={order.id} market={market} order={order} />
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -361,8 +470,22 @@ function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
   );
 }
 
+const noop = () => {};
+
 /** The DOM widget on the desk: the ladder, time and sales and the depth chart for the chart's market. */
-export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zone, setting, onSetting, onPick, onClose }: Props) {
+export const OrderFlow = memo(function OrderFlow({
+  market,
+  book,
+  openOrders,
+  zone,
+  setting,
+  onSetting,
+  onPick,
+  onClose,
+  instant = false,
+  oneClick,
+  onCancelled,
+}: Props) {
   const { t } = flowCopy.useCopy();
   const now = useNow(1000);
   const data = book.status === 'ready' ? book.data : null;
@@ -381,7 +504,18 @@ export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zon
     const words = refusalCopy(book.code, { pair: market.symbol.replace('/', '-') });
     ladder = <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />;
   } else if (data)
-    ladder = <Ladder market={market} data={data} mine={mine} columns={setting.columns} stepTicks={setting.stepTicks} onPick={onPick} />;
+    ladder = (
+      <Ladder
+        market={market}
+        data={data}
+        mine={mine}
+        columns={setting.columns}
+        stepTicks={setting.stepTicks}
+        onPick={onPick}
+        instant={instant}
+        onCancelled={onCancelled ?? noop}
+      />
+    );
   else ladder = <p className="of-note">{t('Ladder empty')}</p>;
 
   return (
@@ -424,7 +558,10 @@ export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zon
           </button>
         </div>
       </div>
-      <p className="of-note">{t('Ladder hint')}</p>
+      {oneClick}
+      <p className="of-note" data-testid="of-ladder-hint">
+        {instant ? t('Ladder hint instant') : t('Ladder hint')}
+      </p>
       <p className="of-note of-legend">{t('Ladder highlights')}</p>
       {old ? (
         <p className="of-note of-note--warn" role="status">
@@ -432,7 +569,10 @@ export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zon
         </p>
       ) : null}
       <div className="of-body">
-        <div className="of-col">{ladder}</div>
+        <div className="of-col">
+          {ladder}
+          <MyQueue market={market} mine={mine} />
+        </div>
         <div className="of-col">
           {data ? <DepthChart market={market} data={data} /> : null}
           <TimeAndSales market={market} zone={zone} setting={setting} onSetting={onSetting} />

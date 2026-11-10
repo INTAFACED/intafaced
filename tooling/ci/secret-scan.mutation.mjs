@@ -452,6 +452,20 @@ const MUTANTS = [
     catch: true,
     why: 'the cache-key carve-out applies under .github/ only: the same shape in any other config is still a finding',
   },
+  {
+    id: 'actions-step-output-with-secret-fallback',
+    file: '.github/workflows/review.yml',
+    content: 'jobs:\n  r:\n    steps:\n      - env:\n          READ_TOKEN: ${{ steps.mint.outputs.token || secrets.READ_TOKEN }}\n',
+    catch: false,
+    why: "a minted token's step output, falling back to a secret: every operand is a reference, none a literal (project-state #1571)",
+  },
+  {
+    id: 'actions-step-output-with-literal-fallback',
+    file: '.github/workflows/review.yml',
+    content: `jobs:\n  r:\n    steps:\n      - env:\n          READ_TOKEN: \${{ steps.mint.outputs.token || '${V}' }}\n`,
+    catch: true,
+    why: 'a quoted literal as the fallback is a committed credential, whatever reference stands before it',
+  },
 ];
 
 // ── runner ───────────────────────────────────────────────────────────────────

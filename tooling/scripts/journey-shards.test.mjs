@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   JOURNEY_DIR,
+  TARGETED_MAX_SHARDS,
   estimateDurations,
   fileDurations,
   journeyFiles,
@@ -17,6 +18,7 @@ import {
   shardTarget,
   stepCounts,
   targetFiles,
+  targetedShards,
   timedSteps,
 } from './journey-shards.mjs';
 
@@ -208,7 +210,7 @@ test('the shard count keeps each shard near the target, within its floor and cei
   const min = 60_000;
   assert.equal(shardCount(236 * min, 25 * min), 10);
   assert.equal(shardCount(10 * min, 25 * min), 8);
-  assert.equal(shardCount(5000 * min, 25 * min), 48);
+  assert.equal(shardCount(5000 * min, 25 * min), 32);
   assert.equal(shardCount(200 * min, 25 * min), 8);
   assert.equal(shardCount(201 * min, 25 * min), 9);
 });
@@ -298,4 +300,45 @@ test('the planner as the workflow calls it prints shards that hold every real jo
   const printed = shards.flat().sort();
   assert.deepEqual(printed, journeyFiles(JOURNEY_DIR));
   assert.equal(new Set(printed).size, printed.length);
+});
+
+test('a targeted run takes at most 10 shards, packing the same files, while every shard stays clear of the limit', () => {
+  const min = 60_000;
+  assert.equal(TARGETED_MAX_SHARDS, 10);
+  const timed = (n, each) => {
+    const files = Array.from({ length: n }, (_, i) => `J-x-${String(i).padStart(3, '0')}.pw.mjs`);
+    return { files, durations: new Map(files.map((f) => [f, each * min])) };
+  };
+  // 60 files of 5 minutes: the 15-minute target asks 20 shards; 10 shards of 30 minutes each stay clear of 40.
+  const mid = timed(60, 5);
+  assert.equal(Math.min(60, Math.ceil(300 / 15)), 20, 'what the target alone asks');
+  assert.equal(targetedShards(mid.files, mid.durations, 15 * min), 10);
+  const plan = planShards(mid.files, mid.durations, 10);
+  assert.deepEqual(planCovers(plan, mid.files), [], 'the capped plan still runs every file exactly once');
+  // Few files take as few shards as before: the cap never adds one.
+  const few = timed(3, 5);
+  assert.equal(targetedShards(few.files, few.durations, 10 * min), 2);
+  assert.equal(targetedShards(few.files.slice(0, 1), few.durations, 10 * min), 1);
+  // Fails open: 120 files of 5 minutes in 10 shards would need 60 minutes each, so the uncapped count stands.
+  const big = timed(120, 5);
+  assert.equal(targetedShards(big.files, big.durations, 15 * min), 32);
+  // The boundary: exactly at the limit caps; one minute over doesn't.
+  const edge = timed(10, 40);
+  assert.equal(targetedShards(edge.files, edge.durations, 10 * min, 40 * min), 10);
+  assert.equal(targetedShards(edge.files, edge.durations, 10 * min, 39 * min), 10, 'never more shards than the target asks');
+  const over = timed(20, 21);
+  assert.equal(targetedShards(over.files, over.durations, 10 * min, 42 * min), 10);
+  assert.equal(targetedShards(over.files, over.durations, 10 * min, 42 * min - 1), 20);
+});
+
+test('the planner as the workflow calls it for a targeted run prints at most 10 shards holding exactly the named files', () => {
+  const all = journeyFiles(JOURNEY_DIR);
+  const named = all.slice(0, 40);
+  const out = execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', '--only', named.join(' ')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const shards = JSON.parse(out).map((s) => s.split(' '));
+  assert.ok(shards.length <= TARGETED_MAX_SHARDS, `${shards.length} shards`);
+  assert.deepEqual(shards.flat().sort(), [...named].sort());
 });

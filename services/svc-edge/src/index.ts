@@ -18,6 +18,7 @@ import {
   rateLimitSummary,
   registerRateLimit,
   registerSecurityHeaders,
+  stampKeyMeteredHeaders,
   stampRateLimitRefuseHeaders,
   type RateLimitConfig,
 } from './hardening.js';
@@ -26,14 +27,19 @@ import { adapterRead, FIX_STATUS_UPSTREAM_PATH, registerAdapterStatusRoute, SBE_
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
-import { createQuotaStore, decideGateway, parseSandboxHosts, sandboxOf } from './gateway-plane.js';
-import { apiKeyRefusalBody } from './api-key-refusal.js';
+import { decideGateway, parseSandboxHosts, sandboxOf } from './gateway-plane.js';
+import { KeyBuckets, parseRouteCosts } from './rate-bucket.js';
+import { registerRateLimitsDoor } from './rate-limits-door.js';
+import { API_KEY_DENIED, apiKeyRefusalBody } from './api-key-refusal.js';
+import { agentHeldAction, holdAgentKeyAttempt } from './agent-key-hold.js';
+import { EXPLORER_LIVE_WRITE_REFUSED, explorerLiveWrite } from './explorer-guard.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
 import { statusBadgeHeaders } from './status-badge-proxy.js';
+import { idempotencyHeaders } from './idempotency-headers.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
 import { edgeS2sFromEnv, signProxyHeaders } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
@@ -169,8 +175,10 @@ app.log[rateLimitState.level]({ appEnv: env.APP_ENV, ...rateLimit }, rateLimitSt
 
 const envLookup = (name: string): string | undefined => process.env[name];
 
-/** Per-key quota for the API-key plane (`gateway-plane.ts`). IP throttle stays in hardening.ts. */
-const keyQuota = createQuotaStore();
+/** Every API key's token bucket on this replica (`rate-bucket.ts`). The address throttle stays in hardening.ts. */
+const keyBuckets = new KeyBuckets();
+/** The owner's per-route cost table. Empty while unset: every key call is then refused `edge.cost_unset`. */
+const routeCosts = parseRouteCosts(env.EDGE_RATE_ROUTE_COSTS);
 /** Hosts that address the sandbox environment (`EDGE_SANDBOX_HOSTS`). Empty: every sandbox key refuses `env.mismatch`. */
 const sandboxHosts = parseSandboxHosts(env.EDGE_SANDBOX_HOSTS);
 
@@ -338,6 +346,9 @@ registerMatchingOperatorRoutes(app, {
   readApproval: httpMatchingApprovalRead(env.IDENTITY_URL, env.UPSTREAM_TIMEOUT_MS),
 });
 
+// The published cost table and a key's usage for its owner (J-developer-06 #1 #3).
+registerRateLimitsDoor(app, { tokens: tokenConfig, sessionLive, buckets: keyBuckets, costs: routeCosts });
+
 // The FIX and SBE adapters' own status (J-cex-spot-20 #3), each signed with its own read key.
 registerAdapterStatusRoute(app, {
   tokens: tokenConfig,
@@ -502,6 +513,47 @@ await app.register(async (api) => {
     // attaching the header. An availability panel that merges them shows neither.
     markAuthOutcome(req, exchanged.rejected ? 'refused' : exchanged.principal ? 'authenticated' : 'anonymous');
 
+    // The API explorer never writes with a live key (DV-console-01): its tagged write is refused before anything else.
+    if (explorerLiveWrite(req.method, req.headers, exchanged.principal)) {
+      req.log.info({ path: url.pathname }, 'edge: explorer write with a live key refused');
+      return reply.code(403).send({ error: userCopy(EXPLORER_LIVE_WRITE_REFUSED), code: EXPLORER_LIVE_WRITE_REFUSED });
+    }
+
+    // An agent key's sensitive action (a payout, a refund) is held for its owner and never forwarded (DV-keys-05):
+    // identity writes the waiting row, and the answer names it. Any other key's request goes on below.
+    const heldAction = exchanged.principal?.kid ? agentHeldAction(req.method, url.pathname) : undefined;
+    if (heldAction && exchanged.principal?.kid) {
+      const hold = env.IDENTITY_OWNERSHIP_SECRET
+        ? await holdAgentKeyAttempt({
+            identityUrl: env.IDENTITY_URL,
+            identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+            s2s: edgeS2s,
+            userId: exchanged.principal.userId,
+            keyId: exchanged.principal.kid,
+            action: heldAction,
+            method: req.method,
+            path: url.pathname,
+            body: rawBody,
+          })
+        : ({ kind: 'unavailable' } as const);
+      if (hold.kind === 'unavailable') {
+        req.log.warn({ path: url.pathname }, 'edge: agent hold could not be recorded');
+        return reply
+          .code(503)
+          .header('retry-after', '1')
+          .send({ error: userCopy('edge.authority_unavailable'), code: 'edge.authority_unavailable' });
+      }
+      if (hold.kind === 'refused') {
+        return reply.code(API_KEY_DENIED.status).send(apiKeyRefusalBody(API_KEY_DENIED));
+      }
+      if (hold.kind === 'held') {
+        req.log.info({ action: heldAction, approvalId: hold.approval.id }, 'edge: agent key action held for its owner');
+        return reply
+          .code(202)
+          .send({ error: userCopy('edge.agent_approval_required'), code: 'edge.agent_approval_required', approval: hold.approval });
+      }
+    }
+
     // One key/scope/quota/sandbox plane. Dialects stay two — refuse bodies are
     // CCXT on /api/v1 and tRPC on /api/pay. The environment rule (env.mismatch)
     // runs first for every principal; interactive sessions skip scope and quota.
@@ -509,10 +561,10 @@ await app.register(async (api) => {
       pathname: url.pathname,
       method: req.method,
       principal: exchanged.principal,
-      quota: keyQuota,
+      buckets: keyBuckets,
+      keyRateLimit: exchanged.keyRateLimit,
+      costs: routeCosts,
       now: Date.now(),
-      max: env.EDGE_RATE_LIMIT_MAX,
-      windowMs: env.EDGE_RATE_LIMIT_WINDOW_MS,
       host: req.headers.host,
       sandboxHosts,
     });
@@ -520,16 +572,18 @@ await app.register(async (api) => {
       reply.header('x-intafaced-key-env', sandboxOf(exchanged.principal) ? 'sandbox' : 'live');
     }
     if (!gate.allow) {
-      if (gate.status === 429) {
-        const resetSeconds = Math.max(1, Number(gate.body.retryAfterSeconds) || 1);
+      if (gate.status === 429 && gate.limited) {
         stampRateLimitRefuseHeaders(reply, {
-          limit: env.EDGE_RATE_LIMIT_MAX,
-          resetSeconds,
+          limit: gate.limited.limit,
+          resetSeconds: gate.limited.retryAfterSeconds,
           bucket: EDGE_API_KEY_RATE_BUCKET,
+          cost: gate.limited.cost,
+          reason: gate.limited.reason,
         });
       }
       return reply.code(gate.status).send(gate.body);
     }
+    if (gate.metered) stampKeyMeteredHeaders(reply, { ...gate.metered, bucket: EDGE_API_KEY_RATE_BUCKET });
 
     const csrf = refuseCookieCsrf({
       method: req.method,
@@ -584,6 +638,7 @@ await app.register(async (api) => {
           ...forwardUpstreamResponseHeaders(url.pathname, response.headers),
           ...hostedCheckoutHeaders(url.pathname, response.headers),
           ...statusBadgeHeaders(url.pathname, response.headers),
+          ...idempotencyHeaders(url.pathname, response.headers),
         };
         // Only checkout paths fetch with `redirect: 'manual'`; anywhere else a 3xx that reached here passes as before.
         if (isHostedCheckoutPath(url.pathname) && response.status >= 300 && response.status < 400) {

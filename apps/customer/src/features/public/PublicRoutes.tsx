@@ -22,6 +22,7 @@ import { PasswordRecovery } from './PasswordRecovery';
 import { AboutPage, AppPage, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
 import { LabPage } from './LabPage';
 import { OfficialChannels } from './OfficialChannels';
+import { MulePolicy } from './MulePolicy';
 import { FeesPage } from './FeesPage';
 import { MyTierPage } from './MyTierPage';
 import { RulebookRoom } from './rulebook/RulebookRoom';
@@ -32,6 +33,8 @@ import { StatusSubscriptionPage } from './StatusSubscription';
 // A guest's support links (SP-tickets-01) load only when one is opened.
 const GuestVerify = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestVerify })));
 const GuestRequest = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestRequest })));
+// Live chat as a guest (SP-chat-01).
+const GuestChat = lazy(() => import('../more/SupportChat').then((m) => ({ default: m.SupportChatRoom })));
 const GuestNewRequest = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestNewRequest })));
 
 // A backtest result shared by link (AL-report-03) loads only when one is opened.
@@ -103,12 +106,17 @@ export function PublicRoutes({ path }: { path: string }) {
           <Invitation />
         ) : path === '/help/official-channels' ? (
           <OfficialChannels />
+        ) : path === '/help/mule-policy' ? (
+          <MulePolicy />
         ) : path === '/help' || path === '/helpdetail' ? (
           <Help />
         ) : library ? (
           <HelpLibrary at={library} />
         ) : path === '/findPwd' ? (
           <PasswordRecovery />
+        ) : path === '/completePasswordReset' ? (
+          // The mailed reset link (J-identity-03 #2): its code opens the code step.
+          <PasswordRecovery linkCode={new URLSearchParams(window.location.search).get('code') ?? undefined} />
         ) : path === '/about-us' ? (
           <AboutPage />
         ) : path === '/developers' || path.startsWith('/developers/') ? (
@@ -121,6 +129,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <GuestVerify />
         ) : path === '/support/guest/request' ? (
           <GuestRequest />
+        ) : path === '/support/chat' ? (
+          <GuestChat />
         ) : path === '/support/new' ? (
           <GuestNewRequest />
         ) : path === '/partner' ? (

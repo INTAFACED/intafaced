@@ -292,6 +292,18 @@ const schema = serviceEnvSchema
        * refuses holding any call with agents.approval.ttl_unset: nothing is stored and the tool does not run.
        */
       AGENTS_APPROVAL_TTL_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(604_800).optional()),
+      /**
+       * The public EVM address of the Navigator's on-chain signer (RC-agents-01): the session key a person may grant the
+       * Navigator on their smart account. An address only, never a key. Blank refuses every navigator.onchain route with
+       * rail.crypto (no signer is configured); a malformed value stops the boot.
+       */
+      AGENTS_NAVIGATOR_ONCHAIN_SIGNER: blankAsAbsent(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x address')
+          .optional(),
+      ),
       // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
       // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
       /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */
@@ -309,6 +321,21 @@ const schema = serviceEnvSchema
        * transcript read refuses agents.transcript_retention_unset.
        */
       AGENTS_TRANSCRIPT_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(0).max(3650).optional()),
+      // ── Payment token of a wallet payment method (J-agents-02 #4) ─────────
+      // Owner values: the chain node a wallet's balance is read from, the chain it must be, and the token a run's worst
+      // case is checked against there (the fee asset's form on that chain), with its decimals. All four or none: with any
+      // one blank, a run of an agent whose payment method is a wallet refuses agents.funds_unread (payment_token_unset),
+      // never a made-up figure. Runs with no wallet method read the platform balance and need none of them.
+      AGENTS_PAYMENT_RPC_URL: blankAsAbsent(z.string().url().optional()),
+      AGENTS_PAYMENT_CHAIN_ID: blankAsAbsent(z.coerce.number().int().min(1).max(2_147_483_647).optional()),
+      AGENTS_PAYMENT_TOKEN_ADDRESS: blankAsAbsent(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x token address')
+          .optional(),
+      ),
+      AGENTS_PAYMENT_TOKEN_DECIMALS: blankAsAbsent(z.coerce.number().int().min(0).max(36).optional()),
     }),
   );
 

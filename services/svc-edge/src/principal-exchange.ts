@@ -1,9 +1,16 @@
+import { keyRateLimitSchema, type KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { forwardedPrincipalHeaders } from './forward-principal-signature.js';
 import { normalizeIp } from './request-client-ip.js';
 import { assertKeyNotExpired, optionalExpiresAtFromExchange, KeyExpiresError } from './api-key-expires.js';
-import { assertApiKeyAccount, optionalAccountIdFromExchange, requestAccountId, KeyAccountError } from './api-key-account.js';
+import {
+  assertApiKeyAccount,
+  optionalAccountIdFromExchange,
+  requestAccountId,
+  KeyAccountError,
+  subAccountKeyRouteAllowed,
+} from './api-key-account.js';
 import { assertUserNotFrozen, optionalUserStatusFromExchange, KeyUserStatusError } from './api-key-user-status.js';
 import { assertApiKeyOrigin, optionalOriginAllowlistFromExchange, KeyOriginError } from './api-key-origin.js';
 import { assertApiKeyIp, optionalIpAllowlist, optionalIpAllowlistFromExchange, KeyIpError } from './api-key-ip.js';
@@ -70,6 +77,11 @@ export interface ExchangeResult {
    * as anonymous, so it can reach `auth.refresh`.
    */
   apiKeyRefusal?: ApiKeyRefusal;
+  /**
+   * Set only for an opened API key: the key's rate limit as identity stated it in the exchange, or null when identity
+   * stated none (no tier set). The gateway refuses a null limit with `edge.limits_unset`; it never meters on a guess.
+   */
+  keyRateLimit?: KeyRateLimit | null;
 }
 
 export interface ExchangeOptions {
@@ -217,6 +229,8 @@ export interface ApiKeyExchanged {
   productScopes?: string[];
   requireSignature?: boolean;
   requireNonEmptyIpAllowlist?: boolean;
+  /** Null when identity stated no limit for the key (blank tiers), or stated one this edge cannot read. */
+  rateLimit: KeyRateLimit | null;
 }
 
 /**
@@ -340,6 +354,7 @@ export async function exchangeApiKeyOutcome(
     ...(productScopes === undefined ? {} : { productScopes }),
     ...(optionalFlag(data, 'requireSignature', 'require_signature') ? { requireSignature: true } : {}),
     ...(optionalFlag(data, 'requireNonEmptyIpAllowlist', 'require_non_empty_ip_allowlist') ? { requireNonEmptyIpAllowlist: true } : {}),
+    rateLimit: rateLimitFromExchange(data),
   };
   return { kind: 'opened', exchanged };
 }
@@ -381,6 +396,7 @@ export async function exchangePrincipal(
 
   let token = bearerFrom(headers);
   if (!token) return { headers: forward, principal: null, rejected: null };
+  let keyRateLimit: KeyRateLimit | null | undefined;
   const presentedApiKey = looksLikeApiKey(token);
 
   if (presentedApiKey) {
@@ -465,6 +481,7 @@ export async function exchangePrincipal(
       throw err;
     }
     token = exchanged.accessToken;
+    keyRateLimit = exchanged.rateLimit;
   }
 
   // From here a key has been opened by identity. A refusal is named only from identity's own code; without
@@ -482,6 +499,12 @@ export async function exchangePrincipal(
 
   if (principal.expiresAt.getTime() <= now.getTime()) {
     return { headers: forward, principal: null, rejected: 'expired', ...keyRefused };
+  }
+
+  // A key bound to a sub-account (its token carries `sub_account`, set by identity from the key's own record, never
+  // from what the caller sent) reaches only the routes that answer for that sub-account (DV-sub-accounts-01).
+  if (presentedApiKey && principal.sub_account !== undefined && !subAccountKeyRouteAllowed(options.request)) {
+    return { headers: forward, principal: null, rejected: 'invalid', apiKeyRefusal: API_KEY_DENIED };
   }
 
   const read = await readEdgeAuthority(principal, {
@@ -510,5 +533,12 @@ export async function exchangePrincipal(
     forwardedPrincipalHeaders(principal, { edgeSecret: options.edgeSecret, ed25519: options.ed25519, region: options.region, now }),
   );
 
-  return { headers: forward, principal, rejected: null };
+  return { headers: forward, principal, rejected: null, ...(keyRateLimit === undefined ? {} : { keyRateLimit }) };
+}
+
+/** The `rateLimit` identity put in the exchange answer. Absent, null or a shape this edge cannot read: no limit. */
+export function rateLimitFromExchange(data: unknown): KeyRateLimit | null {
+  if (!data || typeof data !== 'object') return null;
+  const parsed = keyRateLimitSchema.safeParse((data as { rateLimit?: unknown }).rateLimit);
+  return parsed.success ? parsed.data : null;
 }
