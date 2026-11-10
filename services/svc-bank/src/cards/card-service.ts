@@ -41,6 +41,7 @@ import { CARD_TIERS, type CardProgrammeTerms, type CardTier, type CashbackRates 
 import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
 import {
   NOTHING_REPORTED,
+  partnerFiguresAsOf,
   NOT_USED_FOR_CARDS,
   assertPayFromOrder,
   payFromAssets,
@@ -1089,6 +1090,7 @@ export class CardService {
    */
   async programmeFunding(): Promise<ProgrammeFundingView> {
     const terms = this.partnerTerms();
+    const now = this.clock();
     const app = await this.appProgrammeFigures();
     const assets = [...new Set([...app.keys(), ...Object.keys(terms.programmeFigures ?? {})])];
     const marks = terms.fundingAssetId ? await this.displayMarks(assets, terms.fundingAssetId) : new Map<string, DisplayMark>();
@@ -1101,7 +1103,12 @@ export class CardService {
       test: terms.test,
       fundingAssetId: terms.fundingAssetId,
       offers: fundingOfferStates(terms),
-      rows: reconcileProgramme(app, terms.programmeFigures, marks),
+      rows: reconcileProgramme(app, terms.programmeFigures, marks, {
+        asOf: partnerFiguresAsOf(terms, now),
+        staleAfterMs: terms.figuresStaleAfterMs,
+        source: terms.test ? 'TEST partner card' : 'Card partner',
+        now,
+      }),
       requests: requests.map(toFundingRequest),
     };
   }
@@ -2083,6 +2090,15 @@ export class CardService {
       // purchase cannot go through, and that is told as a decline naming the partner's reason, never left pending to be
       // re-driven into the same refusal. Any other error may follow a hold the partner made: pending, re-sent on redelivery.
       if (err instanceof PartnerCardRefusal && err.code !== 'bank.card_partner_key_conflict') return decline(err.code);
+      // The posting freeze refused before the partner was asked. That is a decline, but only once the partner confirms it
+      // holds nothing under this key: a redelivery after a hold the partner made (reply lost, then frozen) must not
+      // decline a purchase whose money the partner holds. Unconfirmed, the row stays pending and is re-sent later.
+      if (err instanceof BankError && err.code === 'bank.posting_frozen') {
+        const prior = await this.requirePartnerHolds()
+          .holdState({ holdKey: partnerCardKey('hold', claimed.id) })
+          .catch(() => undefined);
+        if (prior === null) return decline(err.code);
+      }
       throw err;
     }
     if (!answer.approved) return decline(answer.reason);

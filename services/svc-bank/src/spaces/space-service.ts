@@ -11,7 +11,16 @@ import {
 import { transaction } from '@intafaced/db';
 import { BankError } from '../errors.js';
 import { assertSpacesListLimit } from '../owner-list-limit.js';
-import { custodialOnly, partnerAccountFor, reportedAmount, type PartnerBalance, type PartnerCustody } from '../partner/partner-bank.js';
+import { heldFigureWire, type ReportedFigureWire } from '@intafaced/venue-contracts';
+import {
+  custodialOnly,
+  partnerAccountFor,
+  partnerBalanceNotKnown,
+  partnerFigure,
+  reportedAmount,
+  type PartnerBalance,
+  type PartnerCustody,
+} from '../partner/partner-bank.js';
 import {
   RecipientStateUnavailableError,
   unconfiguredRecipientState,
@@ -160,8 +169,11 @@ function heldAvailable<B extends { account: { kind: string; assetId: string }; a
 export interface SpaceView extends SpaceRecord {
   /** Decimal string, straight from the ledger, or from the partner bank when it holds this money. Never persisted. */
   balance: string;
-  /** Set when the partner holds this money: whose figure it is and when it reported it. Null: the ledger's. */
-  heldAt: { readonly label: string; readonly asOf: string } | null;
+  /**
+   * Set when the partner holds this money: whose figure it is, the partner's own time for it, and the displayed figure
+   * (b2 change 6: known or stale; an unknown figure refuses the read). Null: the ledger's.
+   */
+  heldAt: { readonly label: string; readonly asOf: string; readonly figure: ReportedFigureWire } | null;
 }
 
 export class SpaceService {
@@ -538,10 +550,13 @@ export class SpaceService {
       if (partner) {
         const account = partnerAccountFor(space);
         const reported = reports.get(`${account.assetId}|${account.spaceId ?? ''}`) ?? (await partner.balance(account));
+        const figure = partnerFigure(reported, partner.staleAfterMs, new Date());
+        // Unknown is never shown as a figure, and never as 0: the read refuses, naming the partner.
+        if (figure.state === 'unknown') throw partnerBalanceNotKnown(reported.label);
         views.push({
           ...space,
-          balance: formatAmount(reportedAmount(reported)),
-          heldAt: { label: reported.label, asOf: reported.asOf.toISOString() },
+          balance: figure.amount,
+          heldAt: { label: reported.label, asOf: figure.asOf.toISOString(), figure: heldFigureWire(figure) },
         });
       } else {
         views.push({ ...space, balance: formatAmount(await this.balanceOf(space)), heldAt: null });

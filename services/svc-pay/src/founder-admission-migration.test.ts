@@ -8,10 +8,10 @@ describe('pay owned migration runner real PostgreSQL', () => {
   let db: TestDatabase;
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'pay' });
-  });
+  }, 120_000);
   afterAll(async () => {
-    await db.drop();
-  });
+    await db?.drop();
+  }, 30_000);
   function migrate(down = false) {
     return run(
       process.execPath,

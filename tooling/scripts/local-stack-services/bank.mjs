@@ -71,7 +71,9 @@ function originationFee() {
  *   · `wallet_pull`: the same partner, but the card pulls from the person's own wallet (J-bank-29 in its second mode);
  *   · `reported`: the same partner, reporting TEST answers for loss liability, reserve, funder, its programme figures,
  *     the funding stablecoin and which of fund, defund and auto reload it offers, so a journey can see the reported path
- *     beside the "not known" one;
+ *     beside the "not known" one, with its own time for its figures and reserve (its clock at each read);
+ *   · `reported_stale` and `reported_no_time`: the same answers, with a TEST time long past the partner's limit, or with
+ *     no time (so the figures and reserve read "not known"), to prove the stale and unknown states (b2 change 6);
  *   · `narrow`: the same partner, spending from USDC and USD only, so an asset on the owner's list (BTC) reads "not
  *     offered by the partner" (J-bank-29 #2 tells the partner's list from the owner's);
  *   · `off`: the partner reports nothing at all (every answer "not known").
@@ -89,7 +91,7 @@ function cardPartner() {
   if (asked === 'off') return out;
   if (asked === 'wallet_pull') return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify({ ...partner, custodyMode: 'wallet_pull' }) };
   if (asked === 'narrow') return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify({ ...partner, spendFrom: ['USDC', 'USD'] }) };
-  if (asked === 'reported') {
+  if (asked === 'reported' || asked === 'reported_stale' || asked === 'reported_no_time') {
     // LOCAL TEST answers, made up for the stack: not a partner's terms.
     const reported = {
       ...partner,
@@ -99,14 +101,18 @@ function cardPartner() {
       // The partner's own programme figures, TEST: in USDC the 5 held and 20 captured J-bank-26 #6 makes on a fresh stack
       // (so that row matches there), and a BTC capture the app has no record of (a break).
       programmeFigures: { USDC: { held: '5', captured: '20' }, BTC: { held: '0', captured: '0.0005' } },
+      // The TEST partner's own time for its figures and reserve: its own clock at each read (b2 change 6).
+      figuresAsOf: 'now',
       fundingAssetId: 'USDC',
       // Fund and defund offered; auto reload not offered by this TEST partner.
       fundingOffers: { fund: true, defund: true, autoReload: false },
     };
-    return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify(reported) };
+    // `reported_stale`: the same answers with a TEST time long past the partner's limit; `reported_no_time`: with none.
+    const figuresAsOf = { reported: 'now', reported_stale: '2026-01-01T00:00:00.000Z', reported_no_time: null }[asked];
+    return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify({ ...reported, figuresAsOf }) };
   }
   throw new Error(
-    `LOCAL_STACK_BANK_CARD_PARTNER is "${asked}"; leave it unset for the TEST partner, or set it to wallet_pull, narrow, reported or off.`,
+    `LOCAL_STACK_BANK_CARD_PARTNER is "${asked}"; leave it unset for the TEST partner, or set it to wallet_pull, narrow, reported, reported_stale, reported_no_time or off.`,
   );
 }
 
