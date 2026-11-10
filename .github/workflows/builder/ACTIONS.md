@@ -23,7 +23,7 @@ The owner's safety floor, from claude-hub `PLAYBOOK.md` Part A (private, so copi
 
 - A fresh Linux runner, where you are the unprivileged user `factory-agent`: no sudo, no Docker, and **no GitHub token**. Your branch is checked out in your working tree, with its dependencies installed (`pnpm`, node 20).
 - Postgres (5432), Redis (6379), NATS (4222) and the dev chains (8545, 8546) are up, as in CI's Tests job, with the same test variables in your environment.
-- Run targeted checks while you build: the affected packages' tests, their typecheck, `pnpm exec prettier --check` on changed files and `node tooling/ci/gates.mjs`. The journeys proof runs on CI after you end.
+- Run targeted checks while you build: the affected packages' tests, their typecheck, `pnpm exec prettier --check` on changed files and `node tooling/ci/gates.mjs --changed`. The journeys proof runs on CI after you end.
 - Main's rules are at the path the run's facts give. They win over the branch's `AGENTS.md` and `CLAUDE.md`.
 - Nobody answers questions here, and nothing you print reaches anyone. A blocker goes on a `Blocked:` line of your handover; then build the next piece.
 

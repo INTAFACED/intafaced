@@ -122,6 +122,8 @@ export const lotBookLotSchema = z.object({
   counted: z.boolean(),
   /** The fee the buy took, on a lot bought on the exchange (not on a part carried between the customer's own accounts). */
   fee: lotBookFeeSchema.optional(),
+  /** Present when the lot was bought on a venue, in the person's own venue account (listed in `venue`); absent: our ledger. */
+  venueAccount: z.string().optional(),
 });
 
 /** The customer's named spaces whose lots the book follows, or why it could not ask which spaces are theirs. */
@@ -173,6 +175,8 @@ export const lotBookSaleSchema = z.object({
   matches: z.array(lotBookMatchSchema),
   /** Present when any part of this sale used a price the customer entered. */
   basisSource: z.literal('customer-entered').optional(),
+  /** Present when the sale was made on a venue, in the person's own venue account; it draws only on that account's lots. */
+  venueAccount: z.string().optional(),
 });
 
 export const lotBookAssetSchema = z.object({
@@ -183,7 +187,39 @@ export const lotBookAssetSchema = z.object({
   held: z.string(),
   /** Open quantity in the main account left out of the figures (from transfers, while transfers are left out). */
   uncountedQty: z.string(),
+  /** Present for a coin held in the person's own venue account: `held` is the venue's own balance, as of its time. */
+  venueAccount: z.string().optional(),
 });
+
+/**
+ * The person's own venue accounts whose spot trades the book adds (J-cex-spot-01 #11): the venue's own fills and
+ * balances, read through svc-trade at the moment of the read, never stored and never posted to the ledger. An account is
+ * listed only when its owner wallet signed an action this person prepared through us.
+ */
+export const lotBookVenueSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('read'),
+    /** True for the TEST venue: every figure from it is TEST. */
+    test: z.boolean(),
+    accounts: z.array(
+      z.object({
+        /** `venue:<venueId>:<owner>` (and `:<subAccount>`), the value of `venueAccount` on its lots, sales and coins. */
+        account: z.string(),
+        venueId: z.string(),
+        owner: z.string(),
+        subAccount: z.string().nullable(),
+        /** The venue's own time for the figures. */
+        asOf: z.string(),
+      }),
+    ),
+  }),
+  /** No svc-trade to ask: the book is our ledger only. */
+  z.object({ status: z.literal('unwired'), code: z.literal('tax.venue_unwired') }),
+  /** The venue door is off on this deployment: there is no venue account to add. */
+  z.object({ status: z.literal('off'), code: z.literal('tax.venue_off') }),
+  /** The venue could not be read just now: no venue figure is shown, and the realised total is not known. */
+  z.object({ status: z.literal('unavailable'), code: z.literal('tax.venue_unavailable') }),
+]);
 
 export const lotBookSchema = z.object({
   /** The account's method: the previewed one, else the saved one, else the product default. */
@@ -205,6 +241,8 @@ export const lotBookSchema = z.object({
   outsideAssets: z.array(z.string()).optional(),
   /** Absent from a book built without asking about spaces. */
   spaces: lotBookSpacesSchema.optional(),
+  /** The person's own venue accounts the book adds. Absent from a book built without asking about a venue. */
+  venue: lotBookVenueSchema.optional(),
   /**
    * Positions the customer typed that are not a balance and not a ledger lot. Absent when there are none, so a book
    * with no manual position stays the same shape.
@@ -353,5 +391,6 @@ export type LotBookLot = z.infer<typeof lotBookLotSchema>;
 export type LotBookSale = z.infer<typeof lotBookSaleSchema>;
 export type LotBookChoices = z.infer<typeof lotBookChoicesSchema>;
 export type LotBookSpaces = z.infer<typeof lotBookSpacesSchema>;
+export type LotBookVenue = z.infer<typeof lotBookVenueSchema>;
 export type LotBookFee = z.infer<typeof lotBookFeeSchema>;
 export type LotMethodSource = (typeof LOT_METHOD_SOURCES)[number];
