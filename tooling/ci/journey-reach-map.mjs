@@ -443,6 +443,81 @@ export function runsBehind(map, runs, repo = REPO) {
   ).length;
 }
 
+/** The workflow that builds the map after every green full run on main, and the artifact it uploads. */
+export const MAP_WORKFLOW = 'journey-reach-map.yml';
+export const MAP_ARTIFACT = 'journey-reach-map';
+
+/**
+ * Which build of the map speaks for main, from a list of MAP_WORKFLOW's runs: the newest one that succeeded (so its
+ * verify step passed) and was started by main's own journeys run (`workflow_run`, which always runs the default
+ * branch's workflow and skips its build for any other branch's run; a dispatch runs whatever ref it names, so it never
+ * counts), in this repository, and was created no later than `before` (ms; the journeys run's own creation,
+ * so its touch job and the seal pick the same build), or null. (Failure it prevents: on 9 Nov 2026 the committed map
+ * was built from runs up to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's
+ * journeys ran all 33 shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
+ */
+export function mapBuild(runs, { before = Infinity, repo = REPO } = {}) {
+  return (
+    (runs ?? [])
+      .filter(
+        (r) =>
+          r?.status === 'completed' &&
+          r?.conclusion === 'success' &&
+          r?.head_branch === 'main' &&
+          r?.head_repository?.full_name === repo &&
+          r?.event === 'workflow_run' &&
+          String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
+          Date.parse(r?.created_at) <= before,
+      )
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null
+  );
+}
+
+/** Whether a map holds what mapProblem needs before its age: version, reach mode, enough runs, journeys. Pure. */
+const usable = (m) =>
+  m?.v === MAP_VERSION &&
+  m?.mode === 'reach' &&
+  Array.isArray(m?.runs) &&
+  m.runs.length >= MIN_RUNS &&
+  Number.isFinite(Date.parse(m.runs[0]?.created)) &&
+  Array.isArray(m?.journeys) &&
+  m.journeys.length > 0;
+
+/** The map to use: the built one when it is usable and its newest run is newer than the committed map's, else the
+ *  committed one (the fallback, so a build that can't be read never makes things worse). Pure. */
+export function newerMap(built, committed) {
+  if (!usable(built)) return committed;
+  if (!usable(committed)) return built;
+  return Date.parse(built.runs[0].created) > Date.parse(committed.runs[0].created) ? built : committed;
+}
+
+/**
+ * The newest built map main's map workflow uploaded no later than `before` (mapBuild), or null when there is none or it
+ * can't be read. `get(path)` returns the API's JSON, `raw(path)` an artifact zip's bytes (either may be async).
+ */
+export async function builtMap({ get, raw, before = Date.now(), repo = REPO }) {
+  try {
+    const runs = (await get(`/repos/${repo}/actions/workflows/${MAP_WORKFLOW}/runs?branch=main&status=success&per_page=100`))
+      ?.workflow_runs;
+    const run = mapBuild(runs, { before, repo });
+    if (!run) return null;
+    const art = ((await get(`/repos/${repo}/actions/runs/${run.id}/artifacts?name=${MAP_ARTIFACT}`))?.artifacts ?? []).find(
+      (a) => a?.name === MAP_ARTIFACT && !a?.expired,
+    );
+    if (!art) return null;
+    const dir = mkdtempSync(join(tmpdir(), 'reach-map-'));
+    try {
+      const zip = join(dir, 'a.zip');
+      writeFileSync(zip, await raw(`/repos/${repo}/actions/artifacts/${art.id}/zip`));
+      return JSON.parse(execFileSync('unzip', ['-p', zip, 'journey-reach-map.json'], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  } catch {
+    return null;
+  }
+}
+
 /** Why the map can't be used at all, or null when it can. */
 export function mapProblem(map, behind, mode = REACH_MAP_MODE) {
   if (mode !== 'reach') return `the touched-journeys map is switched off (REACH_MAP_MODE is '${mode}')`;
