@@ -573,8 +573,19 @@ jobs:
           EOF
           chmod +x "$LOCAL_STACK_ANVIL_BIN"
 
+      # Each try has 8 minutes and there is one more try (failure it prevents: on 10 Nov at 04:52 and 05:08 UTC, `apt-get
+      # update` inside this install hung on the runner's Ubuntu mirror until the job's 90-minute limit, and the hung shard
+      # of main's run 42751940428 held main's one journeys lane for 66 minutes). A healthy install takes 14 s to 5 min
+      # (32 shards of run 42745917050). Two hung tries fail the shard, which sends no report, so the verdict is red.
       - name: Install the browser
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 18
+        run: |
+          for try in 1 2; do
+            if timeout --kill-after=30 480 pnpm exec playwright install --with-deps chromium; then exit 0; fi
+            echo "::warning::browser install try $try failed or ran past 8 minutes"
+          done
+          echo "::error::the browser install failed twice (an outside host: the Ubuntu mirror or the browser download)"
+          exit 1
 
       # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
       # setup above runs beside the build. It waits for that job at most 10 minutes, asking every 20 s (about 3 asks per

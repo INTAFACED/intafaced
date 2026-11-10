@@ -63,6 +63,23 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 
 "Person" is the signed-in session itself (`identity:write`, no `kid` or `sub_account`), as for spend limits. A draft's tools come only from `src/own/catalog.ts`; a tool that moves money is offered so it can be refused (`agents.own.money_tool`) and is never stored; each read tool declares its input and output shapes and the refusals its route returns (AG-tools-01), and one with no declared shape is refused (`agents.tool_shape_missing`) and never granted to a session; and a blank per-session cap stays blank (`agents.spend.cap_unset` blocks publishing). Building an agent moves no value. Table: `own_agents` (migration `0005`).
 
+### The Navigator on-chain (RC-agents-01, J-agents-19)
+
+The Navigator may act on the test network through a session key the person grants on their own smart account and can revoke. svc-agents never moves value, never builds or signs a call (svc-protocol builds the unsigned grant and revoke; the person's wallet signs both) and never claims chain state: whether the key is granted, live, spent or revoked is read from the chain.
+
+| Procedure                   | Scope            | Input                                                                           | Output                                                                                    |
+| --------------------------- | ---------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `navigator.onchain.signer`  | `agents:read`    | `{ chainId }`                                                                   | the signer's public address on the test network                                           |
+| `navigator.onchain.bind`    | `agents:execute` | `{ chainId, account, specHash, spendLimitWei, validUntil, targets, selectors }` | the binding the person prepared, keyed `agents:onchain:navigator:<chain>:<account>:<key>` |
+| `navigator.onchain.revoke`  | `agents:execute` | `{ chainId, account }`                                                          | the binding, marked revoking once                                                         |
+| `navigator.onchain.binding` | `agents:read`    | `{ chainId, account }`                                                          | the binding or null                                                                       |
+| `navigator.ask`             | `agents:execute` | `{ sessionId, requestId, text }`                                                | an approval request for a trade ask, or `none`                                            |
+| `navigator.approvals`       | `agents:read`    | `{ sessionId }`                                                                 | the session's held trade asks                                                             |
+
+Refusals: a mainnet (`audit.external`), no configured signer (`rail.crypto`), any other chain (`agents.onchain_chain_unsupported`), a blank cap (`agents.session_key_cap_unset`), no expiry (`agents.session_key_expiry_unset`) and an approve, permit or transfer selector (`agents.session_key_selector_forbidden`; svc-protocol refuses it first). The session key is always the configured signer, never the body's. The same scope again returns the first row; a new scope for the same key (each prepared grant has its own expiry, so its own hash) replaces what was prepared and clears an earlier revoke request. Bindings are unique per person, so one person never learns another bound the same account.
+
+**The key is a ceiling, not consent.** Any ask that names a trade (swap, buy, sell, trade or order as a whole word) becomes an approval request keyed `agents:approve:<session>:<request id>` that waits for the person until `AGENTS_APPROVAL_TTL_SECONDS` (blank refuses `agents.approval.ttl_unset`); nothing runs, no engine is called and nothing is charged, live key or not. Tables: `navigator_onchain_bindings`, `navigator_approval_requests`.
+
 `requestId` on `run.complete` is supplied by the caller and is the anti-double-bill handle: a client that retries after a timeout reuses it.
 
 ### Metered agent runs
@@ -271,6 +288,7 @@ ACADEMY_URL=http://svc-academy:4016      # coach spine; blank = empty catalog re
 AGENTS_LOG_READ_REASONS=                 # owner's comma-separated reasons for an operator log read; blank refuses every read
 AGENTS_OPS_ACTIONS_LIMIT=                # rows one operator read shows (1-500); blank refuses
 AGENTS_TRANSCRIPT_RETENTION_DAYS=        # days a prompt text is kept (0-3650); blank refuses a transcript read, 0 keeps none
+AGENTS_NAVIGATOR_ONCHAIN_SIGNER=         # public address of the Navigator's on-chain signer (never a key); blank refuses rail.crypto
 
 # Only when AGENTS_PROVIDER=upstream. Secrets come from vault in prod (§9).
 AGENTS_UPSTREAM_BASE_URL=https://…

@@ -5,6 +5,7 @@ import { parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import type { PlaceUserOrderIntent, PreparedVenueAction, UserVenueMarket, VenueIntent } from '@intafaced/venue-contracts';
 import { TradeError } from '../spot/types.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
+import { UserVenueRouter } from './venue-router.js';
 import { UserVenueDoor, UserVenueDoorError, marketProtectionBound, type ConnectedUserVenue } from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
 import { listedTestStore } from './venue-listing-store.js';
@@ -181,11 +182,15 @@ describe('POST /api/v1/venue/preview and /prepare answer the protection refusals
 
   async function mount(cap: number | null) {
     app = Fastify();
-    attachUserVenueRoutes(app, door(cap).d, {
-      requirePrincipal: () => principal,
-      requireTradeJurisdiction: () => true,
-      slippageCapBps: cap,
-    });
+    attachUserVenueRoutes(
+      app,
+      new UserVenueRouter({ doors: [door(cap).d], store: new InMemoryPreparedActionStore(), now: () => new Date() }),
+      {
+        requirePrincipal: () => principal,
+        requireTradeJurisdiction: () => true,
+        slippageCapBps: cap,
+      },
+    );
     await app.ready();
     return app;
   }

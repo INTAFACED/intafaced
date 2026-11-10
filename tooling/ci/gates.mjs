@@ -34,6 +34,12 @@
  * Usage:
  *   node tooling/ci/gates.mjs          run every gate, report all failures
  *   node tooling/ci/gates.mjs --list   print the gate ids, one per line
+ *   node tooling/ci/gates.mjs --changed
+ *        a builder's local run: the tooling tests (about four minutes on the Mac) run only when the branch's diff
+ *        against its merge-base with origin/main, plus uncommitted and untracked files, touches tooling/ or .github/
+ *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
+ *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
+ *        keep the full run (U4, project-state #1574).
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -386,6 +392,8 @@ export const NOT_GATES = {
     "not a gate: the headless builder's steps, run by .github/workflows/builder.yml (check the dispatched journey, read the factory switch, pick the branch, write the prompt, run the CLI watched by the switch and the clock with its output kept in files, the PR's handover line, usage as numbers). It needs the factory token and the CLI, so a laptop verify cannot run it; `tooling/ci/factory-builder.test.mjs` checks it and the workflow's shape.",
   'factory-builder.test.mjs':
     'not a gate: the node:test file of factory-builder.mjs and builder.yml, with planted faults in the workflow and an end-to-end run against a fake CLI and a local switch. tooling-tests.mjs runs it with every other tooling test.',
+  'gates.test.mjs':
+    'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
@@ -453,6 +461,33 @@ function manifestCheck() {
   return problems;
 }
 
+// ── --changed: which gates a builder's local run needs ──────────────────────
+/** Paths whose change can turn a tooling test red. Anything else cannot reach them, so `--changed` skips them. */
+export const TOOLING_TEST_PATHS = ['tooling/', '.github/'];
+
+/** The gates a run needs: all of them for a full run (`changed` null), else all but the tooling tests unless reached. */
+export function gatesToRun(gates, changed) {
+  if (changed === null) return gates;
+  const reachesTooling = changed.some((p) => TOOLING_TEST_PATHS.some((prefix) => p.startsWith(prefix)));
+  return reachesTooling ? gates : gates.filter((g) => g.id !== 'tooling-tests');
+}
+
+/**
+ * Files changed since the merge-base with origin/main, committed or not, renames as both sides; null when git cannot
+ * say (no origin/main, not a repo), so the caller runs everything rather than guessing a diff is product-only.
+ */
+export function changedSinceMain(cwd = ROOT, base = 'origin/main') {
+  const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  try {
+    const mergeBase = git('merge-base', 'HEAD', base).trim();
+    const tracked = git('diff', '--name-only', '--no-renames', mergeBase);
+    const untracked = git('ls-files', '--others', '--exclude-standard');
+    return [...new Set((tracked + '\n' + untracked).split('\n').filter(Boolean))].sort();
+  } catch {
+    return null;
+  }
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────
 /**
  * Guarded so this file can be IMPORTED as data without the import running 32
@@ -474,8 +509,15 @@ const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) 
 if (RUN_AS_SCRIPT) main();
 
 function main() {
+  const changedOnly = process.argv.includes('--changed');
+  // `--base <ref>` for a branch stacked on another (default origin/main).
+  const baseAt = process.argv.indexOf('--base');
+  const base = baseAt > 0 ? process.argv[baseAt + 1] : 'origin/main';
+  const changed = changedOnly ? changedSinceMain(ROOT, base) : null;
+  const gates = gatesToRun(GATES, changed);
+
   if (process.argv.includes('--list')) {
-    for (const gate of GATES) console.log(gate.id);
+    for (const gate of gates) console.log(gate.id);
     process.exit(0);
   }
 
@@ -486,13 +528,16 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`\n══ DOCTRINE GATES (${GATES.length}) ══\n`);
+  console.log(`\n══ DOCTRINE GATES (${gates.length}) ══\n`);
+  if (changedOnly && changed === null) console.log(`  --changed: the diff against ${base} is unreadable, so every gate runs\n`);
+  else if (gates.length < GATES.length)
+    console.log('  --changed: nothing under tooling/ or .github/ changed, so the tooling tests are left to CI\n');
 
   const failed = [];
   const advisoryNoise = [];
   let totalMs = 0;
 
-  for (const gate of GATES) {
+  for (const gate of gates) {
     const started = process.hrtime.bigint();
     let ok = true;
     let output = '';
@@ -539,7 +584,7 @@ function main() {
   }
 
   if (failed.length > 0) {
-    console.error(`\n✖ ${failed.length} of ${GATES.length} DOCTRINE GATE(S) FAILED\n`);
+    console.error(`\n✖ ${failed.length} of ${gates.length} DOCTRINE GATE(S) FAILED\n`);
     for (const { gate, output } of failed) {
       console.error(`── ${gate.id} — ${gate.doctrine} ──`);
       console.error(`   why this gate exists: ${gate.why}`);
@@ -549,5 +594,5 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`\n✓ all ${GATES.length} doctrine gates passed — ${totalMs}ms total\n`);
+  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total\n`);
 }
