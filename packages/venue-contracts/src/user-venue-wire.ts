@@ -78,7 +78,15 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
  */
 const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set(['realisedPnl', 'averagePrice', 'maxOrderQty', 'maxOrderNotional']);
 
-const DATE_FIELDS: ReadonlySet<string> = new Set(['asOf', 'preparedAt', 'filledAt', 'validUntil', 'since', 'lastOracleUpdateAt']);
+const DATE_FIELDS: ReadonlySet<string> = new Set([
+  'asOf',
+  'reportedAt',
+  'preparedAt',
+  'filledAt',
+  'validUntil',
+  'since',
+  'lastOracleUpdateAt',
+]);
 
 /**
  * Passed through untouched: the wallet's payload, and the venue's published words (a market's listing and rules, each a
