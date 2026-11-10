@@ -109,7 +109,8 @@ import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
-import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
+import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
 import { postBuilderFees } from './builder-fee/builder-fee-poster.js';
@@ -503,6 +504,7 @@ const userVenueDoors = userVenueUrls.map(
       store: userVenueStore,
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
@@ -511,6 +513,11 @@ const userVenueDoors = userVenueUrls.map(
 const userVenue = userVenueDoors[0] ?? null;
 const userVenueRouter =
   userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
+// Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
+// venue's door. Off with the door.
+const venueSellQuotes = userVenue
+  ? new VenueSellQuotes({ door: userVenue, store: new SqlVenueSellQuoteStore(sql), now: () => new Date() })
+  : null;
 // A delisting notice the bus did not take when it was written is sent again (the consumer files it once).
 setInterval(() => {
   for (const seed of testListingSeeds) void seed.retry();
@@ -886,11 +893,27 @@ if (userVenueDoors.length > 0 && env.TRADE_BUILDER_FEE_POSTER === 'on') {
     const stopped: unknown[] = [];
     for (const door of userVenueDoors) {
       try {
-        const run = await postBuilderFees({ venue: () => door.venue(), ledger, store: builderFeeStore, now: () => new Date() });
+        const run = await postBuilderFees({
+          venue: () => door.venue(),
+          ledger,
+          store: builderFeeStore,
+          ourOrders: (venueId, account, ids) => venueActions.sentBuilderFeeOrders(venueId, account, ids),
+          // OWNER 288 change 1c: a stopped run is an alert naming the venue, the account and the fill; the run stays
+          // stopped (the job host logs the throw) and the operations desk shows the time since the last complete run.
+          onStop: (stop) =>
+            app.log.error({ alert: 'trade.builder_fee_poster_stopped', job: 'venue.builder_fees', ...stop }, 'builder-fee poster stopped'),
+          now: () => new Date(),
+        });
         if (run.refused > 0 || run.unread.length > 0) {
           app.log.error(
             { job: 'venue.builder_fees', ...run },
             'builder fees the ledger refused, or accounts the venue would not read, stay unposted',
+          );
+        }
+        if (run.notOurOrder > 0) {
+          app.log.warn(
+            { job: 'venue.builder_fees', venueId: run.venueId, notOurOrder: run.notOurOrder },
+            'builder fees on orders not ours, not posted',
           );
         }
       } catch (error) {
@@ -1598,6 +1621,7 @@ registerPrivateRest(app, {
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
+  subAccountBalances: (subAccountId) => ledger.balances('subaccount', subAccountId),
   ...(env.TRADE_FUTURES_MATCHING_ENABLED
     ? {
         futuresOrders: {
@@ -1704,6 +1728,7 @@ registerPrivateRest(app, {
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   grid,
   userVenue: userVenueRouter,
+  venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

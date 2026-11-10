@@ -150,7 +150,8 @@ import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth
 import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
-import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { parseApiKeyCapByTier, parsePortfolioKeyCap, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { parseDeveloperRoles } from './auth/developer-team.js';
 import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
 import { createApiRateLimitsRouter } from './api-rate-limits-router.js';
 import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
@@ -750,7 +751,7 @@ export const appRouter = mergeRouters(
   createApiKeyRequestSignRouter(sql, auth, signingEncKey, env.API_KEY_SIGNING_OPTIONAL.trim() === 'true'),
   createRequestSigningPolicyRouter(requestSignWindowSeconds),
   createApiKeyOriginRouter(sql, auth, auth),
-  createApiKeyAccountRouter(sql, auth, auth),
+  createApiKeyAccountRouter(sql, auth, auth, parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX)),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
   createApiKeyExpireRouter(sql, auth),
   createApiKeyRevokeAllRouter(sql),
@@ -759,6 +760,8 @@ export const appRouter = mergeRouters(
     gate: auth,
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    portfolioKeyCap: parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX),
+    developerRoles: parseDeveloperRoles(env.IDENTITY_DEVELOPER_ROLES),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
     mayMint: passkeyMintRule(sql),
     signingEncKey,

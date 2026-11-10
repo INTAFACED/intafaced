@@ -14,12 +14,14 @@ import {
   parseOnrampFeesNotKnown,
   parseOnrampQuotes,
   parseSnapshotRuns,
+  parseVenueSellQuotes,
   type ConvertQuote,
   type ConvertSettings,
   type FeeNotice,
   type OnrampFeesNotKnown,
   type OnrampQuote,
   type SnapshotRun,
+  type VenueSellQuote,
 } from './fees-desk-parse';
 import {
   FEE_SCHEDULE_POLICY_VERSION,
@@ -51,6 +53,10 @@ export const readConvertSettings = (ctx: TradeCtx): Promise<Outcome<ConvertSetti
 export const readSellQuotes = (ctx: TradeCtx): Promise<Outcome<ConvertQuote[]>> =>
   edgeCall(ctx, trpcSpec('trade', 'admin.convertDesk.quotes', 'query', { side: 'sell', limit: FEES_DESK_ROWS }, parseConvertQuotes));
 
+/** The sells the venue priced on customers' own venue accounts, exactly as the venue gave them (J-cex-spot-17 #8). */
+export const readVenueSellQuotes = (ctx: TradeCtx): Promise<Outcome<VenueSellQuote[]>> =>
+  edgeCall(ctx, trpcSpec('trade', 'admin.convertDesk.venueSellQuotes', 'query', { limit: FEES_DESK_ROWS }, parseVenueSellQuotes));
+
 export const readOnrampQuotes = (ctx: TradeCtx): Promise<Outcome<OnrampQuote[]>> =>
   edgeCall(ctx, trpcSpec('bank', 'ops.onrampQuotes', 'query', { limit: FEES_DESK_ROWS }, parseOnrampQuotes));
 
@@ -63,6 +69,7 @@ export interface FeesDeskView {
   readonly snapshots: Outcome<SnapshotRun[]>;
   readonly convert: Outcome<ConvertSettings>;
   readonly sellQuotes: Outcome<ConvertQuote[]>;
+  readonly venueSellQuotes: Outcome<VenueSellQuote[]>;
   readonly onrampQuotes: Outcome<OnrampQuote[]>;
   readonly onrampFeesNotKnown: Outcome<OnrampFeesNotKnown>;
   /** When the console read it all, so the room's "now" is the read's, not the browser's. */
@@ -71,15 +78,16 @@ export interface FeesDeskView {
 
 /** Every read of the room at once. A read that fails says so in its own section and hides no other. */
 export async function loadFeesDesk(ctx: TradeCtx): Promise<FeesDeskView> {
-  const [fees, snapshots, convert, sellQuotes, onrampQuotes, onrampFeesNotKnown] = await Promise.all([
+  const [fees, snapshots, convert, sellQuotes, venueSellQuotes, onrampQuotes, onrampFeesNotKnown] = await Promise.all([
     readFeeHistory(ctx),
     readSnapshotRuns(ctx),
     readConvertSettings(ctx),
     readSellQuotes(ctx),
+    readVenueSellQuotes(ctx),
     readOnrampQuotes(ctx),
     readOnrampFeesNotKnown(ctx),
   ]);
-  return { fees, snapshots, convert, sellQuotes, onrampQuotes, onrampFeesNotKnown, asOf: new Date().toISOString() };
+  return { fees, snapshots, convert, sellQuotes, venueSellQuotes, onrampQuotes, onrampFeesNotKnown, asOf: new Date().toISOString() };
 }
 
 /** identity actionApproval.propose for one fee schedule version, bound to the hash of exactly what will be written. */

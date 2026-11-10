@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { OpsCapitalSnapshot } from '@intafaced/contracts/ops-capital';
+import { formatWhen } from '@/lib/as-of';
 import { CapitalMonitor, ScenarioResult } from './monitor';
 import { thresholdProblem } from './threshold-form';
 
@@ -23,7 +24,12 @@ const base: OpsCapitalSnapshot = {
     asOf: AT,
     partners: [
       { partner: 'bank', label: 'TEST partner bank', test: true, reserve: { status: 'not_known' } },
-      { partner: 'card', label: 'TEST partner card', test: true, reserve: { status: 'reported', assetId: 'USDC', amount: '25000' } },
+      {
+        partner: 'card',
+        label: 'TEST partner card',
+        test: true,
+        reserve: { status: 'reported', assetId: 'USDC', amount: '25000', asOf: AT },
+      },
     ],
   },
   buffers: [
@@ -39,7 +45,7 @@ describe('CapitalMonitor (J-ops-console-24 #1)', () => {
     expect(html).toContain('Ledger: 2 accounts');
     expect(html).toContain('house fees:trade');
     expect(html).toContain('data-status="not_known">not known<');
-    expect(html).toContain('25000 USDC, as the partner reports');
+    expect(html).toContain(`25000 USDC, as the partner reports, as of ${formatWhen(AT)}`);
     expect(html).toContain('svc-bank, the partner bank adapter');
     expect(html).toContain('data-not-connected="ops.capital.venue_not_connected"');
     expect(html).toContain('<strong>Not monitored</strong>');

@@ -39,24 +39,36 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?}   each fee a MaybeKnown<Amount>
+ *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
+ *                                                         take the venue away from its own person and no one else's:
+ *                                                         `down` refuses every call on that owner's account venue_down;
+ *                                                         `loseAnswers` applies the next N submits and answers each
+ *                                                         `definite: false` (timeout); `failAfterSend` applies the next N
+ *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
+ *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
  *        /test/fills {since}                              every account's fills since a time, with its account
+ *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP and XAU-PERP
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
  *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
- *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC and BTC-PERP
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
  *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
  *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"
  *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
  *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
+ *        /test/feed {symbol,state: 'live'|'stale'}        an oracle market's feed goes stale (the oracle stops) or live
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
 
+/** The venue itself as the lister of its own markets (the BTC markets). */
+const VENUE_LISTED = { kind: 'venue', name: 'TEST venue simulator' } as const;
+
 /**
- * The stack's TEST markets: BTC-USDC cash spot, the BTC-PERP perpetual (isolated margin only), and ETH-USDC cash spot
- * with no ladder (a market the venue lists that INTAFACED has not reviewed: J-cex-spot-16). Every market starts
- * `trading` with a TEST largest order. Figures are TEST.
+ * The stack's TEST markets: BTC-USDC cash spot, the BTC-PERP perpetual, ETH-USDC cash spot with no ladder (a market the
+ * venue lists that INTAFACED has not reviewed: J-cex-spot-16), and XAU-PERP, a TEST gold perpetual a TEST HIP-3 deployer
+ * lists, priced by the simulator's own TEST oracle; perpetuals take isolated margin only. Every market starts `trading`
+ * with a TEST largest order. Every figure and word is TEST: the oracle reads no outside gold price.
  */
 export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
   {
@@ -102,6 +114,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     // J-cex-spot-16 proves the venue's own caps on TEST markets of its own (/test/market-add, /test/market-limits).
     maxOrderQty: parseAmount('1000'),
     maxOrderNotional: parseAmount('100000000'),
+    listedBy: VENUE_LISTED,
   },
   {
     symbol: 'ETH-USDC',
@@ -122,17 +135,53 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     // TEST: the same spot builder-fee cap as BTC-USDC.
     builderFeeCapBps: { known: true, value: parseAmount('100') },
   },
+
+  {
+    symbol: 'XAU-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XAU',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.1'),
+    lotSize: parseAmount('0.01'),
+    makerFeeBps: { known: true, value: parseAmount('1') },
+    takerFeeBps: { known: true, value: parseAmount('3') },
+    // TEST: the same perpetual builder-fee cap as BTC-PERP.
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.01'),
+    markPrice: parseAmount('2650'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('10000000'),
+    listedBy: { kind: 'hip3', name: 'TEST gold deployer' },
+    oracleRule: "TEST oracle: one XAU/USD price, set by the simulator's TEST control; it reads no outside gold price.",
+    markRule: 'The mark price is the oracle price; fills do not move it.',
+    tradingHours: '24/7, no close',
+    oracle: {
+      staleRule: 'While the oracle is stale the mark holds at the last oracle price and only reduce-only orders are taken.',
+    },
+  },
 ];
 
-/** The markets `seed` rests a ladder on (its prices are around a BTC mid). */
-const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP']);
+/** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'XAU-PERP']);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
-/** The ladder `seed` rests: around 60000, five levels a side, 10 apart, 1 BTC each. TEST. */
-const SEED_MID = 60_000;
+/**
+ * The ladder `seed` rests on each market, five levels a side, around the market's own price: BTC around 60000, 10 apart,
+ * 1 BTC each; XAU-PERP around its oracle price 2650, 0.5 apart, 1 XAU each. TEST.
+ */
 const SEED_LEVELS = 5;
-const SEED_STEP = 10;
+/** Each level's size, in the market's base asset, unless `seedTestVenue` is given its own `levelSize`. TEST. */
 const SEED_SIZE = '1';
+const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
+  'BTC-USDC': { mid: parseAmount('60000'), step: parseAmount('10') },
+  'BTC-PERP': { mid: parseAmount('60000'), step: parseAmount('10') },
+  'XAU-PERP': { mid: parseAmount('2650'), step: parseAmount('0.5') },
+};
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
 function testMakerKey(name: string) {
@@ -190,7 +239,7 @@ async function makerRun(sim: TestVenueSimulator, name: string, intent: VenueInte
 const seededLevelSize = new WeakMap<TestVenueSimulator, string>();
 
 /**
- * Fund two TEST makers and rest a two-sided ladder (`levelSize` BTC a level, default 1) on every market (one maker a side: the simulator offers opening
+ * Fund two TEST makers and rest a two-sided ladder (`levelSize` of the base asset a level, default 1) on every market (one maker a side: the simulator offers opening
  * orders on one side of a perpetual per account). Idempotent: deposits by ref, orders by client key, so a second seed
  * adds nothing and a ladder level that was taken is not put back.
  */
@@ -216,8 +265,11 @@ export async function seedTestVenue(
         if (!lev.value)
           await makerRun(sim, name, { kind: 'update_leverage', symbol: market.symbol, leverageBps: 100_000, marginMode: 'isolated' });
       }
+      const ladder = SEED_LADDERS[market.symbol];
+      if (!ladder) throw new Error(`TEST seed: no ladder for ${market.symbol}`);
       for (let level = 1; level <= SEED_LEVELS; level += 1) {
-        const price = side === 'bid' ? SEED_MID - level * SEED_STEP : SEED_MID + level * SEED_STEP;
+        const offset = ladder.step * BigInt(level);
+        const price = side === 'bid' ? ladder.mid - offset : ladder.mid + offset;
         const clientOrderKey = `order:test-maker-${name}:seed:${market.symbol}:${level}`;
         if ((await sim.orderByClientId(acct, venueClientOrderId(sim.venue.id, clientOrderKey))).value) continue;
         const intent: PlaceUserOrderIntent = {
@@ -226,7 +278,7 @@ export async function seedTestVenue(
           side: side === 'bid' ? 'buy' : 'sell',
           type: 'limit',
           amount: levelSize,
-          price: parseAmount(String(price)),
+          price,
           timeInForce: 'GTC',
           reduceOnly: false,
           clientOrderKey,
@@ -238,6 +290,49 @@ export async function seedTestVenue(
     }
   }
   return { makers: [testMakerKey('bid').address.toLowerCase(), testMakerKey('ask').address.toLowerCase()], orders };
+}
+
+/** One owner's TEST switches (`/test/account-switches`). Kept per simulator, never part of UserVenue. */
+export interface AccountSwitches {
+  down: boolean;
+  loseAnswers: number;
+  failAfterSend: number;
+  submitDelayMs: number;
+}
+
+const ACCOUNT_SWITCHES = new WeakMap<TestVenueSimulator, Map<string, AccountSwitches>>();
+
+function switchesOf(sim: TestVenueSimulator, owner: string): AccountSwitches | null {
+  return ACCOUNT_SWITCHES.get(sim)?.get(owner.toLowerCase()) ?? null;
+}
+
+/** The owner a request acts on: its `account`, or the prepared action's account on a submit. */
+function ownerOf(body: Record<string, unknown>): string | null {
+  const a = (body.account ?? (body.prepared as { account?: unknown } | undefined)?.account) as { owner?: unknown } | undefined;
+  return a && typeof a.owner === 'string' ? a.owner.toLowerCase() : null;
+}
+
+function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknown>): AccountSwitches & { owner: string } {
+  const owner = str(body, 'owner').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(owner)) throw new VenueWireError('owner must be a 0x address');
+  const all = ACCOUNT_SWITCHES.get(sim) ?? new Map<string, AccountSwitches>();
+  ACCOUNT_SWITCHES.set(sim, all);
+  const s = all.get(owner) ?? { down: false, loseAnswers: 0, failAfterSend: 0, submitDelayMs: 0 };
+  if (body.down !== undefined) {
+    if (typeof body.down !== 'boolean') throw new VenueWireError('down is true or false');
+    s.down = body.down;
+  }
+  const whole = (k: 'loseAnswers' | 'failAfterSend' | 'submitDelayMs', max: number) => {
+    const v = body[k];
+    if (v === undefined) return;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > max) throw new VenueWireError(`${k} is a whole number 0 to ${max}`);
+    s[k] = v;
+  };
+  whole('loseAnswers', 100);
+  whole('failAfterSend', 100);
+  whole('submitDelayMs', 10_000);
+  all.set(owner, s);
+  return { owner, ...s };
 }
 
 /** One request's answer. Exported so a test can drive it without a socket. */
@@ -260,6 +355,28 @@ export async function answerTestVenue(
     return [400, { error: (err as Error).message }];
   }
   try {
+    const owner = path.startsWith('/test/') ? null : ownerOf(body);
+    const mine = owner ? switchesOf(sim, owner) : null;
+    if (mine?.down) {
+      throw new VenueRefusalError({
+        venueId: sim.venue.id,
+        code: 'venue_down',
+        detail: `${sim.venue.displayName} is down for this account (TEST switch)`,
+      });
+    }
+    if (path === '/submit' && mine && mine.submitDelayMs > 0) await new Promise((r) => setTimeout(r, mine.submitDelayMs));
+    if (path === '/submit' && mine && mine.loseAnswers > 0) {
+      // Applied, then the answer is lost, as a timeout after the bytes reached the venue.
+      await route(sim, path, body);
+      mine.loseAnswers -= 1;
+      return [200, encodeVenueWire({ definite: false, reason: 'timeout' })];
+    }
+    if (path === '/submit' && mine && mine.failAfterSend > 0) {
+      // Applied, then the venue answers a 5xx: an error after the bytes reached the venue.
+      await route(sim, path, body);
+      mine.failAfterSend -= 1;
+      return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
+    }
     const value = await route(sim, path, body);
     return value === undefined ? [404, { error: `no route ${path}` }] : [200, encodeVenueWire(value)];
   } catch (err) {
@@ -325,6 +442,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         label: 'TEST',
       };
     }
+    case '/test/account-switches':
+      return { ...setAccountSwitches(sim, body), label: 'TEST' };
     case '/test/settle-withdrawals':
       return { settled: sim.settleWithdrawals(), label: 'TEST' };
     case '/test/set-mark': {
@@ -332,6 +451,14 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
       sim.setMark(str(body, 'symbol'), price as Amount);
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/feed': {
+      const state = body.state;
+      if (state !== 'live' && state !== 'stale') throw new VenueWireError("state is required ('live' or 'stale')");
+      const symbol = str(body, 'symbol');
+      sim.setFeed(symbol, state);
+      const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
+      return { feed: market?.feed ?? { known: false }, label: 'TEST' };
     }
     case '/test/fills': {
       const since = body.since;

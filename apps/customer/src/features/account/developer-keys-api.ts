@@ -8,6 +8,12 @@ import {
   apiKeyRevokeOutputSchema,
   apiKeyScopesOutputSchema,
   apiKeySetExpiryOutputSchema,
+  agentKeyApprovalListOutputSchema,
+  developerSetRoleOutputSchema,
+  developerTeamSchema,
+  type AgentKeyApprovalList,
+  type DeveloperRole,
+  type DeveloperTeam,
   type ApiKeyCreateInput,
   type ApiKeyCreateOutput,
   type ApiKeyDetail,
@@ -16,9 +22,11 @@ import {
   type ApiKeyRevokeOutput,
   type ApiKeyScopeEntry,
 } from '@intafaced/contracts/api-keys';
+import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session/webauthn';
 import type { ApiKeysCopyKey } from './api-keys-copy';
+import { subaccountsIn, type Subaccount } from './subaccount-guards';
 
 /** The most keys the room reads at once; the owner's cap is far below it. */
 const LIST_LIMIT = 200;
@@ -29,6 +37,66 @@ export function readDeveloperKeys(api: ApiClient, signal: AbortSignal): Promise<
 
 export function readKeyScopes(api: ApiClient, signal: AbortSignal): Promise<ApiResult<{ scopes: ApiKeyScopeEntry[] }>> {
   return api.query('identity', 'developerKeys.scopes', undefined, apiKeyScopesOutputSchema, { signal });
+}
+
+/** The newest held agent attempts the key page shows (DV-keys-05). */
+const APPROVALS_LIMIT = 50;
+
+/** The agent keys' held attempts (a payout, a refund), each waiting for the owner; nothing was sent. */
+export function readAgentApprovals(api: ApiClient, signal: AbortSignal): Promise<ApiResult<AgentKeyApprovalList>> {
+  return api.query('identity', 'developerKeys.approvals', { limit: APPROVALS_LIMIT }, agentKeyApprovalListOutputSchema, { signal });
+}
+
+/** The most sub-accounts the key form offers at once; the owner's sub-account cap is far below it. */
+const SUBACCOUNT_LIMIT = 50;
+
+/**
+ * The master's live sub-accounts, offered on the create form so a key can be bound to one (DV-sub-accounts-01). A
+ * revoked one is left out: identity refuses a key for it (`identity.key_account_denied`).
+ */
+export async function readKeySubaccounts(api: ApiClient, signal: AbortSignal): Promise<ApiResult<Subaccount[]>> {
+  const rows = await api.query('identity', 'subAccounts.list', { limit: SUBACCOUNT_LIMIT }, subaccountsIn(SUBACCOUNT_LIMIT), { signal });
+  return rows.ok ? { ok: true, data: rows.data.filter((row) => !row.revoked) } : rows;
+}
+
+/** The organisations the person belongs to; the key page shows each one's developer area (DV-console-01). */
+const orgsOut = z.object({ orgs: z.array(z.object({ id: z.string(), name: z.string(), role: z.string() })) });
+export function readMyOrgs(api: ApiClient, signal: AbortSignal): Promise<ApiResult<z.infer<typeof orgsOut>>> {
+  return api.query('identity', 'listOrgs', undefined, orgsOut, { signal });
+}
+
+/** One organisation's developer area as the person sees it: their role, why they may not manage keys, and its keys. */
+export function readDeveloperTeam(api: ApiClient, orgId: string, signal: AbortSignal): Promise<ApiResult<DeveloperTeam>> {
+  return api.query('identity', 'developerKeys.team', { orgId }, developerTeamSchema, { signal });
+}
+
+/** The owner gives a member a developer role, or takes it away. The request id is new per press; a repeat changes nothing. */
+/**
+ * A role change's request id is a business key: the organisation, the member, how many changes the page saw, and the
+ * role asked. Pressing again after a lost answer repeats it (the service answers `changed: false`); a change made from
+ * a stale page names an old version, and a different role at that version refuses.
+ */
+export function developerRoleRequestId(orgId: string, userId: string, roleVersion: number, role: DeveloperRole | null): string {
+  return `dev-role:${orgId}:${userId}:v${roleVersion}:${role ?? 'none'}`;
+}
+
+export function setDeveloperRole(api: ApiClient, orgId: string, userId: string, role: DeveloperRole | null, requestId: string) {
+  return api.mutate('identity', 'developerKeys.setTeamRole', { orgId, userId, role, requestId }, developerSetRoleOutputSchema);
+}
+
+/** Revokes an organisation's key; only its owner or a key admin may, and the service decides. */
+export function revokeOrgKey(api: ApiClient, orgId: string, keyId: string, reason: string): Promise<ApiResult<ApiKeyRevokeOutput>> {
+  const trimmed = reason.trim();
+  if ([...trimmed].length > API_KEY_REVOKE_REASON_MAX) {
+    const code = 'identity.key_revoke_reason_invalid';
+    return Promise.resolve({ ok: false, reason: 'error', code, message: code });
+  }
+  return api.mutate(
+    'identity',
+    'developerKeys.revoke',
+    { keyId, orgId, ...(trimmed ? { reason: trimmed } : {}) },
+    apiKeyRevokeOutputSchema,
+  );
 }
 
 export type Preset = 'read' | 'trade' | 'custom';
@@ -183,6 +251,15 @@ const REFUSALS = new Set<string>([
   'identity.key_signing_unset',
   'identity.key_cap_reached',
   'identity.key_request_conflict',
+  'identity.key_account_required',
+  'identity.key_account_denied',
+  'identity.key_org_denied',
+  'identity.portfolio_key_cap_unset',
+  'identity.portfolio_key_cap_reached',
+  'identity.agent_scope_forbidden',
+  'identity.developer_roles_unset',
+  'identity.developer_role_read_only',
+  'identity.developer_role_none',
   'identity.delegated_refused',
   'auth.passkey_missing',
   'auth.passkey_verify_unavailable',

@@ -19,7 +19,7 @@ Public market data needs no key. Your own orders, balances and positions need a 
 - Errors: /developers/errors
 - Order types: /developers/order-types
 - Bot policy: /developers/bot-policy
-- Idempotency: Waits for DV-auth-03
+- Idempotency: /developers/idempotency
 - Versioning: Waits for DV-versioning-01
 - Changelog: /developers/changelog
 - Market data terms: /developers/data-terms
@@ -53,7 +53,7 @@ Open to everyone: reading these pages needs no account.
 - Libraries: Waits for DV-tools-01
 - Command line: Waits for DV-tools-02
 - Assistant tools: Waits for DV-tools-02
-- API explorer: Waits for DV-console-01
+- API explorer: /developers/explorer
 - Machine-readable specs: /developers/openapi
 - Developer support: Waits for DV-portal-03
 - Service status: /developers/status
