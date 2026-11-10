@@ -518,6 +518,38 @@ export interface UserVenueWithdrawal {
   readonly status: UserVenueWithdrawalStatus;
   /** The venue's withdrawal fee, or `known: false` when it does not publish one. */
   readonly fee: MaybeKnown<Amount>;
+  /**
+   * The network fee for sending the withdrawal on chain, in `asset`, as the venue reports it: taken from what arrives
+   * at `destination`, never from the venue balance a second time. `known: false` when the venue does not publish it,
+   * shown as "not known", never as 0.
+   */
+  readonly networkFee: MaybeKnown<Amount>;
+}
+
+/**
+ * Where a customer's own wallet sends a token on chain to fund their venue account (a venue's deposit bridge). The
+ * venue credits the SENDER's account, by the transfer's own id (`depositRef` = `<chainId>:<txHash>:<logIndex>`), once.
+ * INTAFACED moves nothing and the ledger posts nothing: the transfer is the customer's, signed in their wallet.
+ */
+export interface UserVenueDepositRoute {
+  /** The chain the transfer is sent on. */
+  readonly chainId: number;
+  /** The token contract the venue credits, lowercase. */
+  readonly token: string;
+  /** The token's on-chain decimals. */
+  readonly tokenDecimals: number;
+  /** The venue's deposit address on that chain, lowercase. */
+  readonly address: string;
+  /** The venue asset the transfer is credited as. */
+  readonly asset: string;
+}
+
+/** The venue's id for one on-chain deposit: the same transfer always gives the same id, so a replay credits nothing. */
+export function venueDepositRef(chainId: number, txHash: string, logIndex: number): string {
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`deposit chain id must be a positive integer, got ${chainId}`);
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new Error(`deposit tx hash must be 0x and 64 hex, got ${JSON.stringify(txHash)}`);
+  if (!Number.isSafeInteger(logIndex) || logIndex < 0) throw new Error(`deposit log index must be a whole number, got ${logIndex}`);
+  return `${chainId}:${txHash.toLowerCase()}:${logIndex}`;
 }
 
 export interface UserVenueAgent {

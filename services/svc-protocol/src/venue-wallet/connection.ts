@@ -41,7 +41,6 @@ export const WALLET_SANCTIONED = 'protocol.wallet_sanctioned' as const;
 export const VENUE_CHALLENGE_USED = 'protocol.venue_challenge_used' as const;
 export const VENUE_CONNECTION_NONE = 'protocol.venue_connection_none' as const;
 export const VENUE_CONNECTION_EXPIRED = 'protocol.venue_connection_expired' as const;
-export const VENUE_UNWIRED = 'protocol.venue_unwired' as const;
 
 export type VenueConnectionRefusalCode =
   | typeof WALLET_SESSION_UNSET
@@ -53,8 +52,7 @@ export type VenueConnectionRefusalCode =
   | typeof WALLET_SANCTIONED
   | typeof VENUE_CHALLENGE_USED
   | typeof VENUE_CONNECTION_NONE
-  | typeof VENUE_CONNECTION_EXPIRED
-  | typeof VENUE_UNWIRED;
+  | typeof VENUE_CONNECTION_EXPIRED;
 
 export class VenueConnectionRefusedError extends Error {
   constructor(
@@ -417,17 +415,15 @@ export async function assertVenueConnectionLive(
 }
 
 /**
- * A signed venue action (deposit, withdraw) before the venue is wired: the connection is checked first, so an expired one
- * refuses by its own name, and a live one refuses `protocol.venue_unwired`. Nothing is asked of the wallet either way.
+ * A signed venue action (deposit, withdraw), checked before the wallet is asked anything: a wallet never connected or
+ * disconnected, one whose expiry has passed, and one listed since it connected each refuse by name; a live one answers
+ * with its expiry, and the page then asks the wallet to sign the venue's own action.
  */
 export async function authorizeVenueAction(
   deps: VenueConnectionDeps,
   input: { userId: string; address: string; action: VenueWalletAction },
   now: Date = new Date(),
-): Promise<never> {
-  await assertVenueConnectionLive(deps, input, now);
-  throw new VenueConnectionRefusedError(
-    VENUE_UNWIRED,
-    `This build has no venue to take a ${input.action}, so it was not started and nothing was asked of your wallet.`,
-  );
+): Promise<{ address: string; action: VenueWalletAction; live: true; expiresAt: string }> {
+  const row = await assertVenueConnectionLive(deps, input, now);
+  return { address: row.address, action: input.action, live: true, expiresAt: row.expiresAt.toISOString() };
 }
