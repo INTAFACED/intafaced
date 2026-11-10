@@ -87,7 +87,7 @@ export function navigatorAskIsTrade(text: string): boolean {
 export const navigatorAskInputSchema = z.object({
   sessionId: z.string().uuid(),
   requestId: z.string().min(1).max(200),
-  text: z.string().trim().min(1).max(2000),
+  text: z.string().trim().min(1).max(200_000),
 });
 
 export const NAVIGATOR_APPROVAL_STATUSES = ['waiting', 'expired'] as const;
