@@ -2,14 +2,54 @@
 import { test, expect } from './journey.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { tool } from './stack.mjs';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // J-developer-01, in the running app (docs/roadmap/journeys.json): a signed-out developer reads the portal at /developers
 // and finds where to start. One test per step, titled "J-developer-01 #<n>". Nothing here needs an account or money.
 // The stack's banner also carries role=status, so a page's own status is found inside main.
 const J = 'J-developer-01';
-const AUDIENCES = ['Exchange API', 'Institutional', 'Embedded', 'Broker', 'Best practice'];
 
 test.describe.configure({ mode: 'default' });
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+const AUDIENCES = ['Exchange API', 'Institutional', 'Embedded', 'Broker', 'Best practice'];
+/** Who may use each audience's sections, as the portal states it. */
+const ACCESS = {
+  'Exchange API':
+    'Public market data needs no key. Your own orders, balances and positions need a key from your signed-in account, and a key does only what its permissions allow. Withdrawals are never reachable with a key.',
+  Institutional:
+    'FIX sessions are not opened from this portal: FIX access waits for its onboarding and session policy (DV-fix-01). The connectivity options say what is available today.',
+  Embedded: 'For merchant accounts: payment keys and webhooks are made inside the merchant portal, and sandboxes in the developer sandbox.',
+  Broker: 'A registered app acts for a person only after that person consents to the permissions it asks for.',
+  'Best practice': 'Open to everyone: reading these pages needs no account.',
+};
+
+/**
+ * The portal's own section list, read from the running app: /developers/index.md, the markdown variant of the portal home,
+ * which lists every section under its audience as `- <title>: <target>`, the target being its page here
+ * (`/developers/<id>`), the page it is published at, or `Waits for <slice>`.
+ */
+async function portalSections(page) {
+  const response = await page.request.get('/developers/index.md');
+  expect(response.status(), await response.text()).toBe(200);
+  const audiences = new Map();
+  let current = null;
+  for (const line of (await response.text()).split('\n')) {
+    const heading = /^## (.+)$/.exec(line);
+    if (heading) current = AUDIENCES.includes(heading[1]) ? heading[1] : null;
+    if (current && !audiences.has(current)) audiences.set(current, { access: null, sections: [] });
+    if (!current) continue;
+    const entry = /^- (.+?): (.+)$/.exec(line);
+    if (entry) {
+      const [, title, target] = entry;
+      const waits = /^Waits for (\S+)$/.exec(target);
+      audiences.get(current).sections.push({ title, href: waits ? null : target, waitsFor: waits ? waits[1] : null });
+    } else if (line && !heading && !audiences.get(current).access) audiences.get(current).access = line;
+  }
+  return audiences;
+}
 
 const card = (page, name) => page.getByRole('region', { name, exact: true });
 
@@ -100,33 +140,61 @@ const readDownload = async (download) => Buffer.concat(await (await download.cre
 test(`${J} #1 opens /developers: sections per audience with an access statement each, no section hidden, and an unbuilt section names its blocker`, async ({
   page,
 }) => {
+  const portal = await portalSections(page);
+  // The portal's own list has every audience, each with its sections.
+  expect([...portal.keys()]).toEqual(AUDIENCES);
+  for (const audience of AUDIENCES) expect(portal.get(audience).sections.length, audience).toBeGreaterThan(0);
+  const all = [...portal.values()].flatMap((audience) => audience.sections);
+  expect(new Set(all.map((section) => section.title)).size).toBe(all.length);
+
   await page.goto('/developers');
   await expect(page.getByRole('heading', { name: 'Developers', level: 1 })).toBeVisible();
-  await expect(card(page, 'Who gets access')).toBeVisible();
+  await expect(card(page, 'Who gets access')).toContainText(
+    'Access follows the account and the permissions on its key. No access tiers are published in this build, so none are listed here.',
+  );
+
   for (const audience of AUDIENCES) {
-    await expect(card(page, audience).getByRole('heading', { name: audience })).toBeVisible();
-    await expect(card(page, audience).getByRole('link').first()).toBeVisible();
-  }
-  // Every section the portal plans is listed, published or not: none is hidden.
-  for (const section of [
-    'REST conventions',
-    'API reference',
-    'Errors',
-    'Authentication',
-    'Sandbox',
-    'Quickstart',
-    'Machine-readable specs',
-  ]) {
-    await expect(page.getByRole('link', { name: section, exact: true })).toBeVisible();
+    const region = card(page, audience);
+    const { access, sections } = portal.get(audience);
+    // Sections per audience, with an access statement each: the card states who may use it, the same words as the portal's index.
+    await expect(region.getByRole('heading', { name: audience, level: 2 })).toBeVisible();
+    expect(access).toBe(ACCESS[audience]);
+    await expect(region.getByTestId('developers-access')).toHaveText(ACCESS[audience]);
+    // No section hidden: the card lists exactly the portal's sections for this audience, each once, with its state.
+    await expect(region.getByRole('listitem')).toHaveCount(sections.length);
+    for (const section of sections) {
+      const link = region.getByRole('link', { name: section.title, exact: true });
+      await expect(link, section.title).toHaveCount(1);
+      section.route = await link.getAttribute('href');
+      const item = region.getByRole('listitem').filter({ has: page.getByRole('link', { name: section.title, exact: true }) });
+      // Its state: the slice it waits for; published, when its page is elsewhere; else its page here or published.
+      if (section.waitsFor) await expect(item, section.title).toContainText(`Waits for ${section.waitsFor}`);
+      else if (section.href !== section.route) await expect(item, section.title).toContainText('Published');
+      else await expect(item, section.title).toContainText(/Page in this portal|Published/);
+    }
   }
 
-  // Each audience says who may use it.
-  for (const audience of AUDIENCES) await expect(card(page, audience).getByTestId('developers-access')).toBeVisible();
-  // A section with no page names what it waits for, not only that nothing is published.
-  await page.getByRole('link', { name: 'FIX', exact: true }).click();
-  await expect(page).toHaveURL(/\/developers\/fix$/);
-  // The blocker is named by its slice id (DV-fix-01), not only "waits".
-  await expect(page.getByRole('main').getByRole('status')).toContainText(/waits for [A-Z]{2}-[a-z]+-\d{2}/i);
+  // Each section opens as itself. A section not yet built shows its named blocker: the slice it waits for, a real slice id.
+  const sliceIds = new Set(JSON.parse(readFileSync(path.join(ROOT, 'docs/roadmap/slices.json'), 'utf8')).map((slice) => slice.id));
+  for (const section of all) {
+    await page.goto(section.route);
+    const main = page.getByRole('main');
+    await expect(main.getByRole('heading').first(), section.title).toBeVisible();
+    await expect(page.getByRole('heading', { name: /No such (developer )?page/ }), section.title).toHaveCount(0);
+    if (section.waitsFor) {
+      expect(sliceIds.has(section.waitsFor), `${section.title} waits for ${section.waitsFor}`).toBe(true);
+      await expect(main.getByRole('heading', { name: section.title, level: 1 })).toBeVisible();
+      await expect(main.getByRole('status'), section.title).toHaveText(
+        `No page is published for this section in this build. It waits for ${section.waitsFor}.`,
+      );
+    } else if (section.href !== section.route) {
+      // A section published elsewhere links to that page, and the page opens as itself.
+      await expect(main.getByRole('link', { name: /Open the published page/ }), section.title).toHaveAttribute('href', section.href);
+      await page.goto(section.href);
+      await expect(page.getByRole('main').getByRole('heading').first(), section.href).toBeVisible();
+      await expect(page.getByRole('heading', { name: /No such (developer )?page/ }), section.href).toHaveCount(0);
+    }
+  }
 });
 
 test(`${J} #2 opens the base-URL table: one row per protocol, environment and region, an unset host reads "host not set", and the regional rule waits for the owner`, async ({
