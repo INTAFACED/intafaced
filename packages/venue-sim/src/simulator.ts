@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
@@ -19,9 +20,14 @@ import {
   type UserVenueMarketStatus,
   type UserVenueOrder,
   type UserVenuePosition,
+  type UserVenueSubAccount,
+  type UserVenueSubAccountReads,
+  type UserVenueTransfer,
   type UserVenueWithdrawal,
   type VenueAssetAmount,
   type VenueIntent,
+  type VenueBook,
+  type VenueBookLevel,
   type VenueOrderPreview,
   type VenueMarginMode,
   type VenueRefusalCode,
@@ -47,10 +53,14 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *
  * Switches (CUSTODY-DELTA §4), each set through `switches`:
  *   · `venueDown` — every call refuses `venue_down`, nothing changes;
+ *   · `unlistPerpetuals` — the market list leaves out every perpetual, as a
+ *     venue that lists no contract for this account; nothing else changes;
  *   · a market's `orderTypes` / `timeInForce` / `marginModes` — anything not
  *     listed refuses `not_offered` at prepare, before the wallet is asked;
  *   · `makerFeeBps` / `takerFeeBps` `known: false` — the fee is not published;
  *   · `withdrawalFee` `known: false` — the withdrawal fee is shown as not known;
+ *   · `networkFee` `known: false` — the withdrawal's network fee is shown as
+ *     not known (what arrives is still the amount less the fee charged);
  *   · an agent key is always refused a withdrawal (`agent_not_permitted`);
  *   · `loseAnswers` — the next N submits are applied and then answered
  *     `definite: false`, so a caller's read-back is exercised;
@@ -60,7 +70,23 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     not admit refuses `market_halted` / `market_cancel_only` /
  *     `market_delisted`, one above its largest `order_above_venue_max`; cancels
  *     always pass.
+ *
+ * Sub-accounts and agents, as a real venue keeps them (Hyperliquid's rules,
+ * read 2026-11-09): the owner opens a sub-account and moves free balance in
+ * and out of it, both signed on the main account; a sub-account has no key,
+ * so it is never withdrawn from. An agent is approved per account (main or
+ * sub) and trades that account only. At most `MAX_NAMED_AGENTS_MAIN` named
+ * agents on a main account and `MAX_NAMED_AGENTS_SUB` on a sub-account (one
+ * unnamed agent besides); approving a new key under a name already in use
+ * replaces the old key. An expiry is at most `MAX_AGENT_VALIDITY_MS` ahead.
+ * An agent address once revoked or replaced on an account is never approved
+ * there again (a venue that prunes old nonces could accept a replay of its
+ * old signed actions).
  */
+
+export const MAX_NAMED_AGENTS_MAIN = 3;
+export const MAX_NAMED_AGENTS_SUB = 2;
+export const MAX_AGENT_VALIDITY_MS = 180 * 24 * 60 * 60 * 1000;
 
 const BPS = parseAmount('10000');
 const QUOTE_ROUND = 'ceil' as const;
@@ -96,9 +122,15 @@ export interface SimMarketConfig {
 
 export interface SimSwitches {
   venueDown: boolean;
+  /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
+  unlistPerpetuals: boolean;
   withdrawalFee: MaybeKnown<Amount>;
   /** The fee actually charged when `withdrawalFee` is not published (never 0 by default, so "not known" is never read as free). */
   unpublishedWithdrawalFee: Amount;
+  /** The network fee a withdrawal reports, taken from what arrives at its destination. */
+  networkFee: MaybeKnown<Amount>;
+  /** The network fee actually taken when `networkFee` is not published (never 0 by default, as `unpublishedWithdrawalFee`). */
+  unpublishedNetworkFee: Amount;
   /** The trading fees actually charged, and reported on fills, on a market whose fee is not published. */
   unpublishedMakerFeeBps: Amount;
   unpublishedTakerFeeBps: Amount;
@@ -127,6 +159,12 @@ interface AccountState {
   readonly agents: Map<string, UserVenueAgent>;
   readonly deposits: Set<string>;
   readonly leverage: Map<string, { leverageBps: number; marginMode: VenueMarginMode }>;
+  /** Main account only: its sub-accounts, by venue id. */
+  readonly subAccounts: Map<string, UserVenueSubAccount>;
+  /** Main account only: moves to and from its sub-accounts, by signed nonce. */
+  readonly transfers: Map<string, UserVenueTransfer>;
+  /** Agent addresses revoked or replaced on this account: never approved here again. */
+  readonly retiredAgents: Set<string>;
 }
 
 interface OrderState {
@@ -162,7 +200,7 @@ function accountKey(account: UserVenueAccount): string {
   return `${account.owner.toLowerCase()}/${account.subAccount ?? ''}`;
 }
 
-export class TestVenueSimulator implements UserVenue {
+export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   readonly venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
   /** The chain id every action's EIP-712 domain names. */
@@ -172,9 +210,13 @@ export class TestVenueSimulator implements UserVenue {
   private readonly marks = new Map<string, Amount>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
-  private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
+  /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
+  private readonly lostAnswers = new Map<string, number>();
+  private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
+  private readonly networkFeeCharged = new Map<string, Amount>();
+  private readonly withdrawalSubmittedAt = new Map<string, Date>();
   private seqCounter = 0;
   private fillCounter = 0;
   private venueOrderCounter = 0;
@@ -197,8 +239,11 @@ export class TestVenueSimulator implements UserVenue {
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
+      unlistPerpetuals: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
+      networkFee: { known: true, value: parseAmount('0.25') },
+      unpublishedNetworkFee: parseAmount('0.5'),
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
       loseAnswers: 0,
@@ -206,7 +251,7 @@ export class TestVenueSimulator implements UserVenue {
     };
     for (const market of options.markets) {
       this.marketsBySymbol.set(market.symbol, market);
-      this.book.set(market.symbol, []);
+      this.resting.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
       this.marketState.set(market.symbol, {
         status: market.status === undefined ? 'trading' : market.status,
@@ -225,7 +270,7 @@ export class TestVenueSimulator implements UserVenue {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is already listed on ${this.venue.displayName}`);
     }
     this.marketsBySymbol.set(market.symbol, market);
-    this.book.set(market.symbol, []);
+    this.resting.set(market.symbol, []);
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
     this.marketState.set(market.symbol, {
       status: market.status === undefined ? 'trading' : market.status,
@@ -240,6 +285,12 @@ export class TestVenueSimulator implements UserVenue {
     this.marketState.get(symbol)!.status = status;
   }
 
+  /** TEST control: the trading fees this market publishes; `known: false` publishes none (the venue still charges its unpublished rate). */
+  setMarketFees(symbol: string, fees: { makerFeeBps: MaybeKnown<Amount>; takerFeeBps: MaybeKnown<Amount> }): void {
+    const market = this.market(symbol);
+    this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+  }
+
   /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
   setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
     this.market(symbol);
@@ -249,6 +300,21 @@ export class TestVenueSimulator implements UserVenue {
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
+
+  /**
+   * TEST control: every account's fills since a time, each with the account it belongs to, so a TEST journey can
+   * account for every fill on the venue in a period (never part of UserVenue; a real venue reports only your own).
+   */
+  testAllFills(since: Date): AsOf<readonly { owner: string; subAccount: string | null; fill: UserVenueFill }[]> {
+    const out: { owner: string; subAccount: string | null; fill: UserVenueFill }[] = [];
+    for (const a of this.accounts.values()) {
+      const sub = a.key.slice(a.key.indexOf('/') + 1);
+      for (const fill of a.fills)
+        if (fill.filledAt.getTime() >= since.getTime()) out.push({ owner: a.owner, subAccount: sub === '' ? null : sub, fill });
+    }
+    out.sort((x, y) => x.fill.filledAt.getTime() - y.fill.filledAt.getTime());
+    return this.asOf(out);
+  }
 
   /**
    * Credit a deposit the customer signed on their own chain. Idempotent by
@@ -270,32 +336,88 @@ export class TestVenueSimulator implements UserVenue {
     this.marks.set(symbol, price);
   }
 
+  /** TEST: the next `count` submits on this account are applied and then answered `definite: false` (a lost answer). */
+  loseAnswersOn(account: UserVenueAccount, count: number): void {
+    if (!Number.isSafeInteger(count) || count < 0) throw new Error('count must be a whole number, zero or more');
+    this.lostAnswers.set(accountKey(account), count);
+  }
+
+  /**
+   * TEST: the expiry of this account's agent passes now, as it would when its time came: the venue's record keeps the
+   * agent with its expiry set to now, so it signs nothing more. Returns false when the account has no such agent.
+   */
+  expireAgent(account: UserVenueAccount, agentAddress: string): boolean {
+    const state = this.account(account);
+    const agent = state.agents.get(agentAddress.toLowerCase());
+    if (!agent) return false;
+    state.agents.set(agent.address, { ...agent, validUntil: this.clock() });
+    return true;
+  }
+
   /**
    * Settle every pending withdrawal: `done` (the chain confirmed it) or
    * `failed` (the venue returns the amount and its fee to free).
    */
   settleWithdrawals(outcome: 'done' | 'failed' = 'done'): number {
     let settled = 0;
-    for (const state of this.accounts.values()) {
-      for (const [nonce, withdrawal] of state.withdrawals) {
-        if (withdrawal.status === 'pending') {
-          if (outcome === 'failed') {
-            const balance = this.balance(state, withdrawal.asset);
-            balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
-          }
-          state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
-          settled += 1;
-        }
-      }
+    for (const pending of this.pendingWithdrawals()) {
+      if (this.settleWithdrawal(pending.account, pending.nonce, outcome)) settled += 1;
     }
     return settled;
+  }
+
+  /**
+   * Every pending withdrawal, oldest first, with what is to arrive at its destination: the amount less the network fee
+   * taken (published or not). What a chain sender pays out before it settles one `done` (chain-deposits.ts).
+   */
+  pendingWithdrawals(): Array<{
+    readonly account: UserVenueAccount;
+    readonly nonce: string;
+    readonly withdrawal: UserVenueWithdrawal;
+    readonly arrives: Amount;
+    readonly submittedAt: Date;
+  }> {
+    const out: ReturnType<TestVenueSimulator['pendingWithdrawals']> = [];
+    for (const state of this.accounts.values()) {
+      for (const [nonce, withdrawal] of state.withdrawals) {
+        if (withdrawal.status !== 'pending') continue;
+        const taken = this.networkFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO;
+        const arrives = compare(withdrawal.amount, taken) > 0 ? sub(withdrawal.amount, taken) : ZERO;
+        const subAccount = state.key.slice(state.key.indexOf('/') + 1);
+        out.push({
+          account: { venueId: this.venue.id, owner: state.owner, subAccount: subAccount === '' ? null : subAccount },
+          nonce,
+          withdrawal,
+          arrives,
+          submittedAt: this.withdrawalSubmittedAt.get(`${state.key}#${nonce}`) ?? new Date(0),
+        });
+      }
+    }
+    return out.sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
+  }
+
+  /**
+   * Settle one pending withdrawal: `done` (the chain confirmed it) or `failed` (the venue returns the amount and its fee
+   * to free). False when it is not pending (already settled, or unknown): settling twice changes nothing.
+   */
+  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed'): boolean {
+    const state = this.account(account);
+    const withdrawal = state.withdrawals.get(nonce);
+    if (!withdrawal || withdrawal.status !== 'pending') return false;
+    if (outcome === 'failed') {
+      const balance = this.balance(state, withdrawal.asset);
+      balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
+    }
+    state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
+    return true;
   }
 
   // ── UserVenue: market reads ────────────────────────────────────────────
 
   async markets(_account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
     this.up();
-    const list: UserVenueMarket[] = [...this.marketsBySymbol.values()].map((m) => ({
+    const listed = [...this.marketsBySymbol.values()].filter((m) => !(this.switches.unlistPerpetuals && m.kind === 'perpetual'));
+    const list: UserVenueMarket[] = listed.map((m) => ({
       symbol: m.symbol,
       kind: m.kind,
       baseAsset: m.baseAsset,
@@ -314,6 +436,26 @@ export class TestVenueSimulator implements UserVenue {
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
     }));
     return this.asOf(list);
+  }
+
+  async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    this.up();
+    this.market(symbol);
+    const levels = (side: 'buy' | 'sell'): VenueBookLevel[] => {
+      const out: VenueBookLevel[] = [];
+      const resting = this.bookOf(symbol)
+        .filter((o) => o.order.side === side && o.order.remaining > ZERO)
+        .sort((a, b) => (side === 'buy' ? compare(b.order.price, a.order.price) : compare(a.order.price, b.order.price)));
+      for (const o of resting) {
+        const last = out[out.length - 1];
+        if (last && compare(last.price, o.order.price) === 0)
+          out[out.length - 1] = { price: last.price, amount: add(last.amount, o.order.remaining) };
+        else if (out.length < depth) out.push({ price: o.order.price, amount: o.order.remaining });
+        else break;
+      }
+      return out;
+    };
+    return this.asOf({ symbol, bids: levels('buy'), asks: levels('sell') });
   }
 
   async preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
@@ -470,6 +612,9 @@ export class TestVenueSimulator implements UserVenue {
     if (signer.role === 'agent' && !this.agentLive(state, signer.address)) {
       refuse(this.venue.id, 'signer_not_authorised', `${signer.address.toLowerCase()} is not an approved, unexpired agent on this account`);
     }
+    // An action on a sub-account needs the sub-account to exist under this owner. A withdrawal from one is refused
+    // `not_offered` below whatever its state, so it keeps that one answer.
+    if (account.subAccount !== null && intent.kind !== 'withdraw') this.subAccountOf(account.owner, account.subAccount);
     switch (intent.kind) {
       case 'place_order': {
         this.checkOrderOnItsFace(state, intent);
@@ -516,8 +661,70 @@ export class TestVenueSimulator implements UserVenue {
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
         return;
       case 'approve_agent':
-      case 'revoke_agent':
+        this.checkAgentApproval(account, state, intent.agentAddress, intent.agentName, intent.validUntil);
         return;
+      case 'revoke_agent':
+        // Revoking an address that is not approved here would retire it for good without the owner meaning to.
+        if (!state.agents.has(intent.agentAddress.toLowerCase())) {
+          refuse(this.venue.id, 'venue_rejected', `${intent.agentAddress.toLowerCase()} is not an agent on this account`);
+        }
+        return;
+      case 'create_sub_account': {
+        const name = intent.name.trim();
+        if (name === '') refuse(this.venue.id, 'venue_rejected', 'a sub-account needs a name');
+        for (const existing of state.subAccounts.values()) {
+          if (existing.name === name) refuse(this.venue.id, 'venue_rejected', `this owner already has a sub-account named "${name}"`);
+        }
+        return;
+      }
+      case 'sub_account_transfer':
+        this.subAccountOf(account.owner, intent.subAccount);
+        return;
+    }
+  }
+
+  /** The owner's sub-account `id`, or `unknown_sub_account`. */
+  private subAccountOf(owner: string, id: string): UserVenueSubAccount {
+    const main = this.account({ venueId: this.venue.id, owner, subAccount: null });
+    // Exact match: the venue's id as it named it, the same string the account's state and the signed bytes carry.
+    const sub = main.subAccounts.get(id);
+    if (!sub) refuse(this.venue.id, 'unknown_sub_account', `no sub-account ${id} under ${owner.toLowerCase()}`);
+    return sub;
+  }
+
+  private checkAgentApproval(
+    account: UserVenueAccount,
+    state: AccountState,
+    agentAddress: string,
+    agentName: string,
+    validUntil: Date | null,
+  ): void {
+    const address = agentAddress.toLowerCase();
+    if (state.retiredAgents.has(address)) {
+      refuse(
+        this.venue.id,
+        'venue_rejected',
+        `agent ${address} was revoked or replaced on this account and is never approved again: use a new key`,
+      );
+    }
+    if (address === state.owner) refuse(this.venue.id, 'venue_rejected', 'the owner wallet cannot be its own agent');
+    if (validUntil !== null) {
+      const now = this.clock().getTime();
+      if (validUntil.getTime() <= now) refuse(this.venue.id, 'venue_rejected', 'an agent expiry must be in the future');
+      if (validUntil.getTime() > now + MAX_AGENT_VALIDITY_MS) {
+        refuse(this.venue.id, 'venue_rejected', 'an agent expiry is at most 180 days ahead');
+      }
+    }
+    const name = agentName.trim();
+    if (name === '') return; // the one unnamed agent: a new one replaces it
+    // An expired agent signs nothing, so it holds no slot.
+    const named = [...state.agents.values()].filter(
+      (a) => a.name.trim() !== '' && a.address !== address && this.agentLive(state, a.address),
+    );
+    if (named.some((a) => a.name.trim() === name)) return; // replaces the key under that name
+    const limit = account.subAccount === null ? MAX_NAMED_AGENTS_MAIN : MAX_NAMED_AGENTS_SUB;
+    if (named.length >= limit) {
+      refuse(this.venue.id, 'venue_rejected', `at most ${limit} named agents on this account: revoke one first`);
     }
   }
 
@@ -554,6 +761,11 @@ export class TestVenueSimulator implements UserVenue {
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
+      return { definite: false, reason: 'timeout' };
+    }
+    const lost = this.lostAnswers.get(key) ?? 0;
+    if (lost > 0) {
+      this.lostAnswers.set(key, lost - 1);
       return { definite: false, reason: 'timeout' };
     }
     return outcome;
@@ -636,6 +848,24 @@ export class TestVenueSimulator implements UserVenue {
     return this.asOf([...this.account(account).agents.values()]);
   }
 
+  // ── UserVenueSubAccountReads ───────────────────────────────────────────
+
+  async subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>> {
+    this.up();
+    this.mainOnly(account);
+    return this.asOf([...this.account(account).subAccounts.values()]);
+  }
+
+  async transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>> {
+    this.up();
+    this.mainOnly(account);
+    return this.asOf(this.account(account).transfers.get(nonce) ?? null);
+  }
+
+  private mainOnly(account: UserVenueAccount): void {
+    if (account.subAccount !== null) refuse(this.venue.id, 'not_offered', 'sub-accounts and transfers are read on the main account');
+  }
+
   // ── internals ──────────────────────────────────────────────────────────
 
   /** A balance below zero is money the venue made up: fail loudly, never report it. */
@@ -685,6 +915,9 @@ export class TestVenueSimulator implements UserVenue {
         agents: new Map(),
         deposits: new Set(),
         leverage: new Map(),
+        subAccounts: new Map(),
+        transfers: new Map(),
+        retiredAgents: new Set(),
       };
       this.accounts.set(key, state);
     }
@@ -837,6 +1070,12 @@ export class TestVenueSimulator implements UserVenue {
           return refused('insufficient_balance', `free ${intent.asset} does not cover the withdrawal and its fee`);
         balance.free = sub(balance.free, needed);
         this.withdrawalFeeCharged.set(`${state.key}#${prepared.nonce}`, fee);
+        const networkFee = this.switches.networkFee;
+        this.networkFeeCharged.set(
+          `${state.key}#${prepared.nonce}`,
+          networkFee.known ? networkFee.value : this.switches.unpublishedNetworkFee,
+        );
+        this.withdrawalSubmittedAt.set(`${state.key}#${prepared.nonce}`, this.clock());
         const withdrawal: UserVenueWithdrawal = {
           nonce: prepared.nonce,
           asset: intent.asset,
@@ -844,6 +1083,7 @@ export class TestVenueSimulator implements UserVenue {
           destination: intent.destination.toLowerCase(),
           status: 'pending',
           fee: this.switches.withdrawalFee,
+          networkFee,
         };
         state.withdrawals.set(prepared.nonce, withdrawal);
         return accepted(prepared.nonce, null);
@@ -860,16 +1100,57 @@ export class TestVenueSimulator implements UserVenue {
       case 'approve_builder_fee':
         state.builderApprovals.set(intent.builder.toLowerCase(), intent.maxFeeBps);
         return accepted(null, null);
-      case 'approve_agent':
-        state.agents.set(intent.agentAddress.toLowerCase(), {
-          address: intent.agentAddress.toLowerCase(),
-          name: intent.agentName,
-          validUntil: intent.validUntil,
+      case 'approve_agent': {
+        const address = intent.agentAddress.toLowerCase();
+        const name = intent.agentName.trim();
+        // A new key under a name in use (or a second unnamed key) replaces the old one, which is retired for good.
+        for (const existing of [...state.agents.values()]) {
+          if (existing.address !== address && existing.name.trim() === name) {
+            state.agents.delete(existing.address);
+            state.retiredAgents.add(existing.address);
+          }
+        }
+        state.agents.set(address, { address, name: intent.agentName, validUntil: intent.validUntil });
+        return accepted(null, null);
+      }
+      case 'revoke_agent': {
+        const address = intent.agentAddress.toLowerCase();
+        state.agents.delete(address);
+        state.retiredAgents.add(address);
+        return accepted(null, null);
+      }
+      case 'create_sub_account': {
+        // The venue names it: deterministic from the owner and the signed nonce, so a replayed run names the same one.
+        const id = `0x${createHash('sha256').update(`${this.venue.id}\u0000${state.owner}\u0000${prepared.nonce}`).digest('hex').slice(0, 40)}`;
+        state.subAccounts.set(id, { subAccount: id, name: intent.name.trim() });
+        this.account({ venueId: this.venue.id, owner: state.owner, subAccount: id });
+        return accepted(id, null);
+      }
+      case 'sub_account_transfer': {
+        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount });
+        const into = intent.direction === 'into_sub_account';
+        const fromState = into ? state : subState;
+        // Read before creating: a refused move leaves no new balance row behind.
+        if (compare(fromState.balances.get(intent.asset)?.free ?? ZERO, intent.amount) < 0) {
+          return refused(
+            'insufficient_balance',
+            `free ${intent.asset} on the ${into ? 'main account' : 'sub-account'} does not cover the move (what is locked or held as margin stays)`,
+          );
+        }
+        const from = this.balance(fromState, intent.asset);
+        const to = this.balance(into ? subState : state, intent.asset);
+        from.free = sub(from.free, intent.amount);
+        to.free = add(to.free, intent.amount);
+        state.transfers.set(prepared.nonce, {
+          nonce: prepared.nonce,
+          subAccount: intent.subAccount,
+          direction: intent.direction,
+          asset: intent.asset,
+          amount: intent.amount,
+          status: 'done',
         });
-        return accepted(null, null);
-      case 'revoke_agent':
-        state.agents.delete(intent.agentAddress.toLowerCase());
-        return accepted(null, null);
+        return accepted(prepared.nonce, null);
+      }
     }
   }
 
@@ -1026,7 +1307,7 @@ export class TestVenueSimulator implements UserVenue {
   }
 
   private bookOf(symbol: string): OrderState[] {
-    return this.book.get(symbol) as OrderState[];
+    return this.resting.get(symbol) as OrderState[];
   }
 
   /** One fill between a resting maker and an incoming taker at the maker's price. */

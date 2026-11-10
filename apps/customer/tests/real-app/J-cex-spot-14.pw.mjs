@@ -106,18 +106,64 @@ test(`${J} #1 the markets list shows open, upcoming and delisting markets with l
   await expect(list).toBeVisible();
   const pair = (m) => new RegExp(`^${m.base}/${m.quote}$`);
   const rowOf = (m) => list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(m) }) });
+  const action = (row) => row.getByRole('button', { name: /^(Trade|Buy) / });
   // An open market's row trades.
   const btc = rowOf(spot.find((m) => m.symbol === 'BTC/USDT'));
-  await expect(btc.getByRole('button', { name: /^(Trade|Buy) / })).toBeEnabled();
+  await expect(action(btc)).toBeEnabled();
   // The upcoming listing: named Upcoming, and not a tradeable row.
   const upRow = rowOf(upcoming);
   await expect(upRow.getByTestId('mkt-listing')).toHaveText('Upcoming', { timeout: UNBUILT_MS });
-  await expect(upRow.getByRole('button', { name: /^(Trade|Buy) / })).toBeDisabled();
-  // The delisting: named Delisting, with the date it leaves the board, and not a tradeable row.
+  await expect(action(upRow)).toBeDisabled();
+  // The delisting: named Delisting, with the day its own delistsAt falls on in the person's zone, and not a tradeable row.
   const downRow = rowOf(delisting);
+  const leaves = (iso) =>
+    page.evaluate(
+      (at) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(Date.parse(at)),
+      iso,
+    );
   await expect(downRow.getByTestId('mkt-listing')).toContainText('Delisting', { timeout: UNBUILT_MS });
-  await expect(downRow.getByTestId('mkt-listing')).toContainText(/Leaves the board on \d{1,2} [A-Z][a-z]{2} \d{4}/);
-  await expect(downRow.getByRole('button', { name: /^(Trade|Buy) / })).toBeDisabled();
+  await expect(downRow.getByTestId('mkt-listing')).toContainText(`Leaves the board on ${await leaves(delisting.delistsAt)}`);
+  await expect(action(downRow)).toBeDisabled();
+
+  // Every row the list draws, not a sample: the whole list, then each row against its own listing on the read. Only an
+  // open real market (orderable, its trading mode Open) is a tradeable row, a link to trade it; every other row's
+  // action is disabled and links nowhere. An upcoming row reads Upcoming, a delisting row reads Delisting with its own
+  // date, and an open row names no listing state. No paper market is drawn.
+  const more = page.getByRole('button', { name: /^Show \d+ more markets$/ });
+  while (await more.isVisible()) await more.click();
+  const rows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker') });
+  const drawn = await rows.count();
+  expect(drawn, 'the list draws rows').toBeGreaterThan(0);
+  const tradeable = (m) => m.orderable && (m.lifecycle ? m.lifecycle.state === 'OPEN' : true) && (m.listing ?? 'open') === 'open';
+  const seen = new Set();
+  for (let i = 0; i < drawn; i++) {
+    const row = rows.nth(i);
+    const name = (await row.getByTestId('mkt-name__ticker').innerText()).trim();
+    const named = markets.filter((x) => x.spot && `${x.base}/${x.quote}` === name);
+    const m = named.find((x) => !x.paper) ?? named[0];
+    expect(m, `${name} is a spot market on the read`).toBeTruthy();
+    expect(m.paper, `${name} is a real market, not paper`).toBeFalsy();
+    seen.add(m.symbol);
+    const button = action(row);
+    await expect(button, name).toHaveCount(1);
+    if (tradeable(m)) {
+      await expect(button, `${name} is open and trades`).toBeEnabled();
+      await expect(button, `${name} links to trading it`).toHaveAttribute('href', /\/trade\/|\/coin\//);
+      await expect(row.getByTestId('mkt-listing'), `${name} names no listing state`).toHaveCount(0);
+    } else {
+      await expect(button, `${name} is not a tradeable row`).toBeDisabled();
+      await expect(button, `${name} links nowhere`).not.toHaveAttribute('href', /./);
+    }
+    if (m.listing === 'upcoming') await expect(row.getByTestId('mkt-listing'), name).toHaveText('Upcoming');
+    if (m.listing === 'delisting') {
+      await expect(row.getByTestId('mkt-listing'), name).toContainText('Delisting');
+      expect(Date.parse(m.delistsAt), `${name} carries its delisting date`).toBeGreaterThan(Date.now());
+      await expect(row.getByTestId('mkt-listing'), name).toContainText(`Leaves the board on ${await leaves(m.delistsAt)}`);
+    }
+  }
+  // Open, upcoming and delisting markets are all on the list.
+  for (const m of [upcoming, delisting]) expect(seen.has(m.symbol), `${m.symbol} is drawn`).toBe(true);
+  expect(seen.has('BTC/USDT'), 'an open market is drawn').toBe(true);
   // Activating a row that does not trade opens no desk.
   await upRow.click();
   await expect(page).toHaveURL(/\/trade(\?.*)?$/);
@@ -351,19 +397,59 @@ test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window
 }) => {
   const who = await account(page);
   await signIn(page, who);
+  // Every analytics read the room makes, with the service's answer: the figures it shows are compared with these.
+  const reads = [];
+  page.on('response', async (r) => {
+    const url = new URL(r.url());
+    if (r.request().method() !== 'GET' || url.pathname !== `/api/v1/analytics/${encodeURIComponent('BTC/USDT')}`) return;
+    reads.push({ window: url.searchParams.get('window'), status: r.status(), body: await r.json().catch(() => null) });
+  });
   await page.goto('/trade/analytics/BTC-USDT');
-  // The figures are the service's own read of the public tape for the named window.
-  const read = await (await fetch(`${EDGE}/api/v1/analytics/${encodeURIComponent('BTC/USDT')}?window=1h`)).json();
-  expect(read).toMatchObject({ symbol: 'BTC/USDT', window: '1h' });
-  expect(toUnits(read.aggressorDifferential)).toBe(toUnits(read.buyVolume) - toUnits(read.sellVolume));
-  await expect(page.getByTestId('analytics-differential')).toContainText('Aggressor differential');
-  await expect(page.getByTestId('analytics-trades')).toContainText('Trades');
-  await expect(page.getByTestId('analytics-window')).toContainText(
-    /^Window: Last 1 hour, \d{4}-\d{2}-\d{2} \d{2}:\d{2} to \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/,
-  );
-  // Another named window is read again and named.
+  const utc = (iso) => iso.slice(0, 16).replace('T', ' ');
+  /** The room shows the service's latest read of `window`, figure for figure, with the window named. */
+  const showsRead = async (window, named) => {
+    let read;
+    await expect(async () => {
+      read = reads.filter((x) => x.window === window).at(-1);
+      expect(read, `the room read the ${window} window`).toBeTruthy();
+      expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+      expect(read.body).toMatchObject({ symbol: 'BTC/USDT', window });
+      const b = read.body;
+      // The service's own sum: the differential is taker buys minus taker sells, and the trades split adds up.
+      expect(toUnits(b.aggressorDifferential)).toBe(toUnits(b.buyVolume) - toUnits(b.sellVolume));
+      expect(b.buyTrades + b.sellTrades).toBe(b.trades);
+      await expect(page.getByTestId('analytics-differential').locator('strong')).toHaveText(b.aggressorDifferential, { timeout: 1_000 });
+      await expect(page.getByTestId('analytics-differential')).toContainText('Aggressor differential');
+      await expect(page.getByTestId('analytics-differential')).toContainText('Bought by takers minus sold by takers, in BTC');
+      await expect(page.getByTestId('analytics-bought').locator('strong')).toHaveText(b.buyVolume, { timeout: 1_000 });
+      await expect(page.getByTestId('analytics-sold').locator('strong')).toHaveText(b.sellVolume, { timeout: 1_000 });
+      await expect(page.getByTestId('analytics-trades').locator('strong')).toHaveText(String(b.trades), { timeout: 1_000 });
+      await expect(page.getByTestId('analytics-trades')).toContainText(`${b.buyTrades} buy-initiated, ${b.sellTrades} sell-initiated`, {
+        timeout: 1_000,
+      });
+      await expect(page.getByTestId('analytics-range')).toHaveText(
+        b.high !== null && b.low !== null ? `Range: ${b.low} – ${b.high}` : 'Range: No trades in this window',
+        { timeout: 1_000 },
+      );
+      await expect(page.getByTestId('analytics-window')).toHaveText(`Window: ${named}, ${utc(b.from)} to ${utc(b.to)} UTC`, {
+        timeout: 1_000,
+      });
+      if (b.complete) await expect(page.getByTestId('analytics-partial')).toHaveCount(0);
+      else
+        await expect(page.getByTestId('analytics-partial')).toHaveText(
+          `More trades than one read holds: these figures cover ${utc(b.coveredFrom ?? b.from)} to ${utc(b.to)} UTC only.`,
+          { timeout: 1_000 },
+        );
+    }).toPass({ timeout: 20_000 });
+    // The window it names is the window it read.
+    const span = Date.parse(read.body.to) - Date.parse(read.body.from);
+    expect(span).toBe({ '5m': 5 * 60_000, '1h': 3_600_000, '24h': 86_400_000 }[window]);
+  };
+  await showsRead('1h', 'Last 1 hour');
+  await expect(page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 1 hour' })).toHaveAttribute('aria-pressed', 'true');
+  // Another named window is read again and named, with its own figures.
   await page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 24 hours' }).click();
-  await expect(page.getByTestId('analytics-window')).toContainText('Window: Last 24 hours');
+  await showsRead('24h', 'Last 24 hours');
   // A blank window refuses with its typed code; it never falls back to a window of its own.
   const blank = await fetch(`${EDGE}/api/v1/analytics/${encodeURIComponent('BTC/USDT')}`);
   expect(blank.status).toBe(400);

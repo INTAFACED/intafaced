@@ -66,6 +66,10 @@
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
     },
+    "./protocol-liquidity": {
+      "types": "./dist/protocol-liquidity.d.ts",
+      "default": "./dist/protocol-liquidity.js"
+    },
     "./protocol-swap-v2": {
       "types": "./dist/protocol-swap-v2.d.ts",
       "default": "./dist/protocol-swap-v2.js"
@@ -309,6 +313,10 @@
     "./agents-own": {
       "types": "./dist/agents-own.d.ts",
       "default": "./dist/agents-own.js"
+    },
+    "./agents-onchain": {
+      "types": "./dist/agents-onchain.d.ts",
+      "default": "./dist/agents-onchain.js"
     },
     "./agents-usage-limits": {
       "types": "./dist/agents-usage-limits.d.ts",
