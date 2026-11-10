@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * The CI review (.github/workflows/ci-review.yml, AGENTS.md, "Where a mistake costs more"): one pull request head's diff, judged against
- * tooling/ci/ci-review/REVIEW.md by the pinned reviewer CLI with no tools. The seal (review-marker.mjs
+ * tooling/ci/ci-review/REVIEW.md by the pinned reviewer CLI, whose only tools read the default branch's checkout. The seal (review-marker.mjs
  * ciReviewVerdict) accepts only this job's `Verdict` step passing on the exact head, in a pull_request_target run.
  *
  * It is the one AI judge a pull request has (U4, project-state #1574: "Fold the AI test judge into the one CI review, so
@@ -26,7 +26,7 @@
  * PNGs, which the text diff shows only as "Binary files differ", are read as blobs at those same shas and given to the
  * reviewer as images, old and new, each labelled as the pull request's own file (collectBaselineImages; project-state
  * #1819: intafaced#7628 failed three rounds for want of them). The diff and the images are untrusted:
- * the reviewer has no tools, so the most a diff can do is argue for a PASS, and REVIEW.md makes any line addressed to
+ * the reviewer's only tools read the default branch's tree, never the pull request's, and none runs or writes, so the most a diff can do is argue for a PASS, and REVIEW.md makes any line addressed to
  * the reviewer a blocking finding. Only the `read` step turns the answer into a verdict, and a missing or malformed
  * answer (either part) is no verdict (the job fails before `Verdict`, so a re-run can try again); only a well-formed
  * FAIL fails a verdict step, which then stands for that head and any head with the same tree (ciReviewVerdict).

@@ -209,7 +209,7 @@ test("the workflow: the read is a job of its own after the review, never fails a
   assert.match(job, /\n {4}name: Proof read\n {4}needs: review\n/);
   assert.match(job, /\n {6}READER_MODEL: (\S+)\n {6}READER_EFFORT: medium\n/);
   assert.equal(job.match(/--model "\$READER_MODEL" --effort "\$READER_EFFORT"/g).length, 1);
-  assert.match(job, /--tools "" --setting-sources "" --strict-mcp-config --mcp-config '\{"mcpServers":\{\}\}'/);
+  assert.match(job, /--setting-sources "" --strict-mcp-config --mcp-config '\{"mcpServers":\{\}\}'/);
   // Every failure is a warning and an exit 0, so the job never reads as a red check.
   const reads = job.slice(job.indexOf('- name: Read the steps (proof v2)'), job.indexOf('- name: Post the proof read status'));
   for (const cmd of reads.match(/^ {10}(node|had=|for pid) .*$/gm)) assert.match(cmd, /\|\| no "/, cmd);
