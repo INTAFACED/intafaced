@@ -340,7 +340,9 @@ test(`${J} #1 the bell shows the unread count (capped at 99+) and a popover of r
     await page.goto('/');
     await bell(page).click();
     await expect(popup(page)).toBeVisible();
-    await expect(popup(page)).toContainText(/Couldn’t load your notifications\.|refused|not available|unavailable/i, { timeout: 30_000 });
+    // Edge answers 502 for a stopped svc-notify, which the inbox shows as its one load failure: these words and Try again.
+    await expect(popup(page).getByText('Couldn’t load your notifications.', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(popup(page).getByRole('button', { name: 'Try again' })).toBeVisible();
     await expect(popup(page).getByTestId('nf-row')).toHaveCount(0);
     expect(refusals.length, 'the inbox read was refused').toBeGreaterThan(0);
     const shown = await popup(page).innerText();
