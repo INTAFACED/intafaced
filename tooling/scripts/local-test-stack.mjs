@@ -1579,6 +1579,7 @@ function testChain() {
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
+    liquidityRouter: record.liquidityRouter ?? null,
     // The smart account factory and implementation (J-dex-protocol-08's session keys).
     accountFactory: record.accountFactory ?? null,
     accountImplementation: record.accountImplementation ?? null,
@@ -1921,7 +1922,16 @@ async function startTestVenue() {
   if (ownedAlive(procs['test-venue']) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(PORTS['test-venue']))
     fail(`port ${PORTS['test-venue']} (test-venue) is in use by a process this script did not start`);
-  const env = { ...baseEnv(), APP_ENV: 'dev', TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)) };
+  // With the TEST chain running, the venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09 #3, #5).
+  // It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol alone.
+  const chain = testChain();
+  const env = {
+    ...baseEnv(),
+    APP_ENV: 'dev',
+    TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)),
+    TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
+    TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
+  };
   const pid = startProc('test-venue', [process.execPath, SCRIPT, '__serve-test-venue'], env, REPO);
   await waitHealthy('test-venue', url, pid, 20_000);
 }
@@ -4156,6 +4166,8 @@ async function runCli() {
       port: PORTS['test-venue'],
       appEnv: process.env.APP_ENV,
       chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+      rpcUrl: process.env.TEST_VENUE_RPC_URL,
+      depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
     });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
