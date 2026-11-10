@@ -15,7 +15,7 @@ import {
   userStake,
 } from '../accounts.js';
 import { InsufficientFundsError, InvalidEntryError, type AccountKind, type LedgerTx } from '../types.js';
-import { campaignLockAccount, recipes } from '../recipes/index.js';
+import { campaignLockAccount, recipes, rewardOwedAccount } from '../recipes/index.js';
 import type { LedgerClient } from '../client.js';
 
 /**
@@ -237,6 +237,56 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
           }),
         ).rejects.toThrow(InsufficientFundsError);
         expect(formatAmount((await ledger.balance(partnerReserve('conf', 'USDT'))).amount)).toBe('0');
+      });
+
+      it('never pays a reward past what the paying place holds or past what is owed for it', async () => {
+        // 10 USDC earned and collected into our builder account; 6 swept to the rewards engine, set aside, and owed.
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            assetId: 'USDC',
+            amount: amt('10'),
+            userId: USER_A,
+          }),
+        );
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf', claimId: 'c1', assetId: 'USDC', amount: amt('10') }));
+        await ledger.post(recipes.sweepFeesToRewards({ windowId: 'w1', sourceModule: 'builder', assetId: 'USDC', amount: amt('6') }));
+        await ledger.post(recipes.campaignBudgetFund({ campaignId: 'conf', decisionId: 'd1', assetId: 'USDC', amount: amt('6') }));
+        const rewardId = `campaign:conf:${USER_A}:task`;
+        // TEST ceiling: the owner's ceiling is unset, and Owe refuses without one.
+        await ledger.post(
+          recipes.rewardOwe({
+            campaignId: 'conf',
+            rewardId,
+            userId: USER_A,
+            kind: 'reward',
+            assetId: 'USDC',
+            amount: amt('6'),
+            ceiling: { perCampaign: amt('6'), total: amt('6') },
+            owedSoFar: { campaign: 0n, total: 0n },
+          }),
+        );
+        const pay = (chainTx: string, amount: string, venueId: string) =>
+          recipes.rewardPayOut({
+            rewardId,
+            from: { kind: 'venue-builder-account', venueId },
+            toWallet: '0x00000000000000000000000000000000000000c1',
+            chainTx,
+            assetId: 'USDC',
+            amount: amt(amount),
+          });
+        // Out of a place that holds nothing: refused, nothing moves.
+        await expect(ledger.post(pay('0xempty', '1', 'empty'))).rejects.toThrow(InsufficientFundsError);
+        // More than is owed (the place holds 10, 6 is owed): refused, nothing moves.
+        await expect(ledger.post(pay('0xover', '7', 'conf'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(rewardOwedAccount(rewardId))).amount)).toBe('6');
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDC'))).amount)).toBe('-10');
+        // Exactly what is owed: paid, and the place holds 4.
+        await ledger.post(pay('0xpaid', '6', 'conf'));
+        expect(formatAmount((await ledger.balance(rewardOwedAccount(rewardId))).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDC'))).amount)).toBe('-4');
       });
     });
 
