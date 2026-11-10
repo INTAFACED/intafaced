@@ -75,6 +75,9 @@ export type BuilderFeeReconVenue =
       readonly displayName: string;
       readonly test: boolean;
       readonly asOf: string;
+      /** No fill on either side is `nothing_to_compare`: never green (OWNER 288). */
+      readonly result: 'matched' | 'break' | 'nothing_to_compare';
+      readonly compared: number;
       readonly matched: boolean;
       readonly totals: readonly BuilderFeeReconTotal[];
       readonly lines: readonly BuilderFeeReconLine[];
@@ -202,6 +205,10 @@ function venue(raw: unknown): BuilderFeeReconVenue | null {
   }
   if (raw.state !== 'read' || !str(raw.venueId) || !str(raw.displayName) || typeof raw.test !== 'boolean' || !str(raw.asOf)) return null;
   if (typeof raw.matched !== 'boolean' || !Array.isArray(raw.totals) || !Array.isArray(raw.lines)) return null;
+  if (raw.result !== 'matched' && raw.result !== 'break' && raw.result !== 'nothing_to_compare') return null;
+  if (typeof raw.compared !== 'number' || !Number.isInteger(raw.compared) || raw.compared < 0) return null;
+  // The three words must agree: a green that compared nothing, or a matched flag beside a break, is not shown.
+  if (raw.matched !== (raw.result === 'matched') || (raw.result === 'nothing_to_compare') !== (raw.compared === 0)) return null;
   const totals = raw.totals.map(total);
   const lines = raw.lines.map(line);
   if (totals.some((t) => t === null) || lines.some((l) => l === null)) return null;
@@ -216,6 +223,8 @@ function venue(raw: unknown): BuilderFeeReconVenue | null {
     displayName: raw.displayName,
     test: raw.test,
     asOf: raw.asOf,
+    result: raw.result,
+    compared: raw.compared,
     matched: raw.matched,
     totals: totals as BuilderFeeReconTotal[],
     lines: lines as BuilderFeeReconLine[],

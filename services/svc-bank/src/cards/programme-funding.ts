@@ -18,17 +18,21 @@ export interface AppProgrammeFigure {
   readonly captured: Amount;
 }
 
-export type ReconciliationStatus = 'matches' | 'break' | 'not_known';
+/**
+ * `missing`: the app holds no record for an asset the partner reports, a break by name, never read as 0 (OWNER 288).
+ * `not_known`: the partner has not reported its side.
+ */
+export type ReconciliationStatus = 'matches' | 'break' | 'missing' | 'not_known';
 
 export interface ReconciliationRow {
   readonly assetId: string;
-  /** The app's records: open holds, settled captures, and the two together. */
-  readonly appHeld: string;
-  readonly appCaptured: string;
-  readonly appFigure: string;
+  /** The app's records: open holds, settled captures, and the two together. Null when the app has no record ("missing"). */
+  readonly appHeld: string | null;
+  readonly appCaptured: string | null;
+  readonly appFigure: string | null;
   /** The partner's held plus captured for this asset, or null ("not known"). */
   readonly partnerFigure: string | null;
-  /** Partner minus app, signed; null when the partner's figure is not known. */
+  /** Partner minus app, signed; null when either side has no figure. */
   readonly difference: string | null;
   readonly status: ReconciliationStatus;
   /**
@@ -49,24 +53,25 @@ export function reconcileProgramme(
 ): ReconciliationRow[] {
   const assets = [...new Set([...app.keys(), ...Object.keys(partner ?? {})])].sort();
   return assets.map((assetId) => {
-    const mine = app.get(assetId) ?? { held: 0n, captured: 0n };
-    const appFigure = mine.held + mine.captured;
+    // The app holds no record for an asset the partner reports: our side is missing, a break by name, never 0 (OWNER 288).
+    const mine = app.get(assetId) ?? null;
+    const appFigure = mine === null ? null : mine.held + mine.captured;
     const theirs = partner?.[assetId];
     // A partner that reports figures but none for this asset has not reported it: "not known", not 0.
     const partnerFigure = theirs ? parseAmount(theirs.held) + parseAmount(theirs.captured) : null;
-    const difference = partnerFigure === null ? null : partnerFigure - appFigure;
+    const difference = partnerFigure === null || appFigure === null ? null : partnerFigure - appFigure;
     const mark = marks.get(assetId);
     return {
       assetId,
-      appHeld: formatAmount(mine.held),
-      appCaptured: formatAmount(mine.captured),
-      appFigure: formatAmount(appFigure),
+      appHeld: mine === null ? null : formatAmount(mine.held),
+      appCaptured: mine === null ? null : formatAmount(mine.captured),
+      appFigure: appFigure === null ? null : formatAmount(appFigure),
       partnerFigure: partnerFigure === null ? null : formatAmount(partnerFigure),
       difference: difference === null ? null : formatAmount(difference),
-      status: difference === null ? 'not_known' : difference === 0n ? 'matches' : 'break',
+      status: appFigure === null ? 'missing' : difference === null ? 'not_known' : difference === 0n ? 'matches' : 'break',
       fundingRate: mark ? formatAmount(mark.price) : null,
       fundingRateAsOf: mark ? mark.asOf.toISOString() : null,
-      appFigureInFunding: mark ? formatAmount(mul(appFigure, mark.price, 'ceil')) : null,
+      appFigureInFunding: mark && appFigure !== null ? formatAmount(mul(appFigure, mark.price, 'ceil')) : null,
     };
   });
 }

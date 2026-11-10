@@ -58,6 +58,7 @@ function evaluation(
       id: runId(n),
       controlId: CONTROL,
       status,
+      compared: Object.keys(differences).length,
       phase: error ? { status: 'set', value: error.phase } : { status: 'unset' },
       errorCode: error ? { status: 'set', value: error.code } : { status: 'unset' },
       asOf: '2026-10-29T10:00:00.000Z',

@@ -730,16 +730,20 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       },
     });
     try {
-      // At the past instant (margin 0) the ledger held the USDT credit and not yet the USDC one.
+      // At the past instant (margin 0) the ledger held the USDT credit and not yet the USDC one: the customer had no USDC
+      // account, so the ledger side is missing. That is a FAIL named "missing", never a PASS over a zero (OWNER 288).
       const past = await twoFounderRun(ownId, { instant: instant.toISOString().slice(0, 16), margin: '0' });
-      expect(past).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+      expect(past).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
       expect(past).toContain(`balances read at ${instant.toISOString()} (margin 0 s)`);
+      expect(past).toContain('1 record compared');
       expect(scaled(evidence(past, 'USDT').observed)).toBe(scaled('2.5'));
-      expect(scaled(evidence(past, 'USDC').observed)).toBe(0n);
+      expect(evidence(past, 'USDC')).toEqual({ observed: 'unset', expected: '0', difference: 'unset', tolerance: '0' });
+      expect(past).toContain('USDC is missing on the ledger side: a break, never read as a zero.');
 
       // Now: both credits, each equal to the customer's balance as the ledger answers it.
       const now = await twoFounderRun(ownId);
       expect(now).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+      expect(now).toContain('2 records compared');
       for (const [asset, total] of [
         ['USDT', '2.5'],
         ['USDC', '3'],
@@ -758,12 +762,12 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await choose(again, ownId);
       const runs = again.getByTestId('rc-runs');
       await expect(runs.getByTestId('rc-runs-count')).toContainText('showing 2 of 2 evaluations', { timeout: 30_000 });
-      for (const [answer, assets] of [
-        [past, ['USDT', 'USDC']],
-        [now, ['USDT', 'USDC']],
+      for (const [answer, assets, status] of [
+        [past, ['USDT', 'USDC'], 'FAIL'],
+        [now, ['USDT', 'USDC'], 'PASS'],
       ]) {
         const stored = runs.locator(`[data-testid="rc-run-row"][data-run-id="${runId(answer)}"]`);
-        await expect(stored).toHaveAttribute('data-status', 'PASS');
+        await expect(stored).toHaveAttribute('data-status', status);
         const text = (await stored.innerText()).replace(/\s+/g, ' ');
         for (const asset of assets)
           expect(evidence(text, asset), `${asset} evidence is stored as the run showed it`).toEqual(evidence(answer, asset));

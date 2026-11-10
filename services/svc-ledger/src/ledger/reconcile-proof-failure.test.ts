@@ -139,7 +139,7 @@ describe('reconciliation failed proofs — real book', () => {
         await sql`UPDATE accounts SET balance = 0`;
         await rehashBook(sql);
       });
-      const result = await runScheduledReconciliation(sql, svc);
+      const result = await runScheduledReconciliation(sql, svc, { custodyLayer: 'on' });
       expect(result.outcome).toBe('mismatch');
       if (result.outcome !== 'mismatch') throw new Error('replay overflow was treated as unfinished');
       expect(result.report.chain).toMatchObject({ ok: true });
@@ -167,7 +167,7 @@ describe('reconciliation failed proofs — real book', () => {
         await sql`UPDATE accounts SET balance = ${FITS}::numeric WHERE owner_type = 'user'`;
         await rehashBook(sql);
       });
-      const result = await runScheduledReconciliation(sql, svc);
+      const result = await runScheduledReconciliation(sql, svc, { custodyLayer: 'on' });
       expect(result.outcome).toBe('mismatch');
       if (result.outcome !== 'mismatch') throw new Error('asset-total overflow was treated as unfinished');
       expect(result.report.balances.ok).toBe(true);
@@ -188,7 +188,7 @@ describe('reconciliation failed proofs — real book', () => {
       await withTamper(sql, async () => {
         await sql`UPDATE ledger_tx SET posted_at = 'infinity'`;
       });
-      const result = await runScheduledReconciliation(sql, svc);
+      const result = await runScheduledReconciliation(sql, svc, { custodyLayer: 'on' });
       expect(result.outcome).toBe('mismatch');
       if (result.outcome !== 'mismatch') throw new Error('invalid posted_at was treated as unfinished');
       expect(result.report.chain).toEqual({ ok: false, brokenAt: tx!.id, length: 0 });
@@ -208,6 +208,7 @@ describe('reconciliation failed proofs — real book', () => {
       const log = { fatal() {} };
       const fail = () =>
         runScheduledReconciliation(sql, svc, {
+          custodyLayer: 'on',
           async prove() {
             throw new Error('proof blew up');
           },
@@ -246,7 +247,7 @@ describe('reconciliation failed proofs — real book', () => {
       const tls = Object.assign(new Error('certificate has expired'), { code: 'CERT_HAS_EXPIRED' });
       const state = createReconcileTickState();
       await runScheduledReconciliationTick(
-        () => runScheduledReconciliation(sql, svc, { reserveFailure: tls }),
+        () => runScheduledReconciliation(sql, svc, { custodyLayer: 'on', reserveFailure: tls }),
         svc,
         { fatal() {} },
         { state, maxConsecutiveIncomplete: 3 },
@@ -267,6 +268,7 @@ describe('reconciliation failed proofs — real book', () => {
       const { svc } = service(sql);
       await svc.post(deposit(USER_A));
       const result = await runScheduledReconciliation(sql, svc, {
+        custodyLayer: 'on',
         async prove(tx) {
           const bound = tx.unsafe.bind(tx);
           (tx as { unsafe: typeof tx.unsafe }).unsafe = ((query: string, parameters?: unknown[]) => {
@@ -280,6 +282,7 @@ describe('reconciliation failed proofs — real book', () => {
             chain: { ok: true, length: 1 },
             totals: {},
             unbalancedAssets: [],
+            result: 'matched',
           };
         },
       });
@@ -303,6 +306,7 @@ describe('reconciliation failed proofs — real book', () => {
       const log = { fatal() {} };
       const fail = () =>
         runScheduledReconciliation(sql, svc, {
+          custodyLayer: 'on',
           async prove() {
             throw new Error('proof blew up');
           },
@@ -341,6 +345,7 @@ describe('reconciliation failed proofs — real book', () => {
       const log = { fatal() {} };
       const fail = () =>
         runScheduledReconciliation(sql, svc, {
+          custodyLayer: 'on',
           async prove(tx) {
             await tx.unsafe(`SELECT 'not-a-number'::int`);
             throw new Error('expected the cast to fail');
@@ -374,6 +379,64 @@ describe('reconciliation failed proofs — real book', () => {
       ]);
     } finally {
       await sql.end({ timeout: 5 });
+    }
+  });
+});
+
+describe('the hourly proof with the custodial layer off (OWNER 288)', () => {
+  it('reads an empty book as nothing to compare, never matched, and freezes nothing', async () => {
+    const sql = connect();
+    try {
+      const { svc } = service(sql);
+      const result = await runScheduledReconciliation(sql, svc, { custodyLayer: 'off' });
+      expect(result.outcome).toBe('ok');
+      expect(result.report?.result).toBe('nothing_to_compare');
+      expect(result.report?.customerBalances).toEqual({ custodyLayer: 'off', ok: true, accountsChecked: 0, open: [] });
+      expect((await svc.status()).postingEnabled).toBe(true);
+    } finally {
+      await sql.end();
+    }
+  });
+
+  it('catches a planted customer balance and freezes posting; the same book with custody on is matched', async () => {
+    const sql = connect();
+    try {
+      const { svc } = service(sql);
+      // Planted fault: a customer balance on the book. It is posted with the layer on, as by any route the per-post
+      // refusal and the static scan did not close; the proof is then run as the custody-off process runs it.
+      await svc.post(deposit(USER_A));
+      const [customer] = await sql<Array<{ id: string }>>`
+        SELECT id::text AS id FROM accounts WHERE owner_type = 'user' AND owner_id = ${USER_A} AND balance <> 0
+      `;
+      expect(customer?.id).toMatch(/^[0-9a-f-]{36}$/);
+
+      // With custody on the check reads nothing and the book is matched: the planted balance is legitimate there.
+      const on = await runScheduledReconciliation(sql, svc, { custodyLayer: 'on' });
+      expect(on.outcome).toBe('ok');
+      expect(on.report?.result).toBe('matched');
+      expect(on.report?.customerBalances).toEqual({ custodyLayer: 'on' });
+
+      const off = await runScheduledReconciliation(sql, svc, { custodyLayer: 'off' });
+      expect(off.outcome).toBe('mismatch');
+      expect(off.report?.ok).toBe(false);
+      expect(off.report?.result).toBe('mismatch');
+      // Only the customer account is named: the rail's module counter-leg is ours, not a customer's.
+      expect(off.report?.customerBalances).toEqual({
+        custodyLayer: 'off',
+        ok: false,
+        accountsChecked: 1,
+        open: [{ accountId: customer!.id, assetId: 'USDT', balance: '10' }],
+      });
+      const status = await svc.status();
+      expect(status.postingEnabled).toBe(false);
+      expect(status.frozenBy).toBe('reconciliation');
+      const [row] = await sql<Array<{ outcome: string; detail: Record<string, unknown> }>>`
+        SELECT outcome, detail FROM reconcile_runs ORDER BY id DESC LIMIT 1
+      `;
+      expect(row?.outcome).toBe('mismatch');
+      expect(row?.detail).toMatchObject({ result: 'mismatch', customerBalancesOpen: 1, firstCustomerBalanceAccountId: customer!.id });
+    } finally {
+      await sql.end();
     }
   });
 });

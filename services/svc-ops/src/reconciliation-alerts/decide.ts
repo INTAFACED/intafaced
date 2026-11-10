@@ -7,6 +7,8 @@ type AssetEvidence = ReconciliationEvaluation['run']['assets'][number];
 
 /** The ledger's own rule (svc-ledger withinStored): a set, non-zero difference outside a set tolerance fails. */
 export function assetFails(asset: AssetEvidence): boolean {
+  // A side with no record is a break by name (OWNER 288), whatever the difference shows.
+  if (asset.missing !== undefined) return true;
   if (asset.difference === 'unset') return false;
   const difference = parseAmount(asset.difference);
   if (difference === 0n) return false;
@@ -47,7 +49,7 @@ export type AlertTarget =
 
 /**
  * The alerts an evaluation raises. A FAIL raises one per failing asset (finance); an ERROR raises one with no asset
- * (platform), naming the run's own code and phase, or `unset` when the ledger stored none. PASS and UNSET raise none.
+ * (platform), naming the run's own code and phase, or `unset` when the ledger stored none. PASS, UNSET and NOTHING_TO_COMPARE raise none.
  */
 export function alertTargets(evaluation: ReconciliationEvaluation): AlertTarget[] {
   const { run } = evaluation;

@@ -207,6 +207,20 @@ describe('the builder-fee recon (J-derivatives-17 #1 #2)', () => {
     expect(v.totals.every((t) => t.matched && t.venueTotal === t.ledgerTotal)).toBe(true);
   });
 
+  it('a period with no fill on either side is nothing to compare, never green (OWNER 288)', async () => {
+    await postBuilderFees(deps());
+    // Planted fault: a period before any fill. Before OWNER 288 `lines.every(...)` read zero lines as matched.
+    const [, to] = period();
+    const from = new Date(start.getTime() - 3 * 24 * 3_600_000);
+    const recon = await builderFeeRecon(deps(), from, new Date(start.getTime() - 1));
+    const v = recon.venues[0]!;
+    expect(to.getTime()).toBeGreaterThan(start.getTime());
+    expect(v).toMatchObject({ state: 'read', result: 'nothing_to_compare', compared: 0, matched: false, lines: [] });
+    // The same venue over the period of its fills: every fill compared, matched.
+    const full = (await builderFeeRecon(deps(), ...period())).venues[0]!;
+    expect(full).toMatchObject({ result: 'matched', compared: (await venueFees()).length, matched: true });
+  });
+
   it('#2: a fee the venue reports and the ledger does not is a break with its fill id and amount; posting it turns it green', async () => {
     const before = await builderFeeRecon(deps(), ...period());
     const v = before.venues[0]!;

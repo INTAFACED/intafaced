@@ -41,6 +41,14 @@ export interface BuilderFeeReconLine {
   readonly refusalCode: string | null;
 }
 
+export type BuilderFeeReconResult = 'matched' | 'break' | 'nothing_to_compare';
+
+/** What a read venue's lines say together (OWNER 288): zero lines compared nothing, so they are never matched. */
+export function builderFeeReconResult(lines: readonly Pick<BuilderFeeReconLine, 'status'>[]): BuilderFeeReconResult {
+  if (lines.length === 0) return 'nothing_to_compare';
+  return lines.every((l) => l.status === 'matched') ? 'matched' : 'break';
+}
+
 export interface BuilderFeeReconTotal {
   readonly assetId: string;
   readonly venueTotal: string;
@@ -109,7 +117,15 @@ export type BuilderFeeReconVenue =
       readonly displayName: string;
       readonly test: boolean;
       readonly state: 'read';
+      /** The time the venue was read through. */
       readonly asOf: string;
+      /**
+       * `matched` only when at least one fill was compared and none differs; no fill on either side is
+       * `nothing_to_compare`, never green (OWNER 288). `matched` below is true only for `matched`.
+       */
+      readonly result: BuilderFeeReconResult;
+      /** Fills compared, one per line. */
+      readonly compared: number;
       readonly matched: boolean;
       readonly totals: readonly BuilderFeeReconTotal[];
       readonly lines: readonly BuilderFeeReconLine[];
@@ -405,6 +421,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       ledgerTotal: formatAmount(t.ledger),
       matched: t.venue === t.ledger,
     }));
+  const result = builderFeeReconResult(lines);
   return {
     ...head,
     venues: [
@@ -414,7 +431,9 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
         test: isTestVenue(venue.venue),
         state: 'read',
         asOf: asOf.toISOString(),
-        matched: lines.every((l) => l.status === 'matched'),
+        result,
+        compared: lines.length,
+        matched: result === 'matched',
         totals: totalRows,
         lines,
         owed,

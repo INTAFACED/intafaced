@@ -126,6 +126,11 @@ function expectReconciled(row) {
     expect(row).toMatchObject({ Difference: 'not known', Reconciliation: 'not known' });
     return;
   }
+  // An asset the app holds no record of: its side is "missing", a break by name, never read as 0 (OWNER 288).
+  if (row['Held plus captured (app)'] === 'missing') {
+    expect(row).toMatchObject({ Difference: 'not known', Reconciliation: 'break: missing in this app’s records' });
+    return;
+  }
   const difference = units(row['Partner’s figure']) - units(row['Held plus captured (app)']);
   expect(row.Difference).toBe(decimal(difference));
   expect(row.Reconciliation).toBe(difference === 0n ? 'matches' : 'break');
@@ -208,8 +213,13 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
     const btc = rows.find((r) => r.Asset === 'BTC');
     expect(usdc['Partner’s figure']).toBe('25');
     expect(usdc['Held plus captured (app)']).toBe(read.rows.find((r) => r.assetId === 'USDC').appFigure);
-    // A BTC capture the partner reports and the app has no record of: a break, never folded into a match.
-    expect(btc).toMatchObject({ 'Partner’s figure': '0.0005', Reconciliation: 'break' });
+    // A BTC capture the partner reports and the app has no record of: a break named "missing", never folded into a match
+    // and never read as 0.
+    expect(btc).toMatchObject({
+      'Partner’s figure': '0.0005',
+      'Held plus captured (app)': 'missing',
+      Reconciliation: 'break: missing in this app’s records',
+    });
     // The stablecoin conversion into USDC: USDC itself at 1, BTC at the TEST ticker's rate with its time.
     expect(usdc['Rate in the funding stablecoin']).toBe('1');
     expect(usdc['App figure in the funding stablecoin']).toBe(usdc['Held plus captured (app)']);
@@ -218,7 +228,8 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
     expect(units(btcRead.fundingRate)).toBeGreaterThan(0n);
     expect(Date.parse(btcRead.fundingRateAsOf)).toBeGreaterThan(Date.now() - 10 * 60_000);
     expect(btc['Rate in the funding stablecoin']).toMatch(/^\d+(\.\d+)?$/);
-    expect(btc['App figure in the funding stablecoin']).toMatch(/^\d+(\.\d+)?$/);
+    // The app has no BTC figure to convert, so its conversion is "not known", never 0.
+    expect(btc['App figure in the funding stablecoin']).toBe('not known');
 
     // Fund and defund where the partner offers them; auto reload, which it does not, is switched off and says so.
     const action = page.getByTestId('card-funding-action');

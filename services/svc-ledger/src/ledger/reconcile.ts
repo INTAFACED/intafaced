@@ -1,7 +1,7 @@
 import postgres, { type Sql, type TransactionSql } from 'postgres';
 
 type ReconciliationDb = Sql | TransactionSql;
-import { formatAmount, LedgerError } from '@intafaced/ledger-client';
+import { formatAmount, isCustomerBalanceAccount, LedgerError, type CustodyLayerState } from '@intafaced/ledger-client';
 import { parseStoredAmount } from './live-money.js';
 import { writeFreezeInTransaction } from './freeze.js';
 import { RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON } from './reconcile-config.js';
@@ -25,6 +25,10 @@ import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, validReconcileStatementTimeoutM
  *     the tip names a different hash.
  *   · `totalsByAsset` — every asset must net to zero across all accounts.
  *     Catches value being created or destroyed by any means at all.
+ *   · `customerBalancesWhileCustodyOff` — while `LEDGER_CUSTODY_LAYER` is off,
+ *     every customer account's balance is zero (OWNER 288). Catches customer
+ *     money on our book by any route the per-post refusal and the static scan
+ *     missed. With the layer on it reads nothing.
  *
  * Operator-defined controls sit beside these three (reconciliation-controls.ts).
  * They do not post and they do not freeze the book.
@@ -233,6 +237,44 @@ export async function verifyChain(sql: ReconciliationDb, batchSize = 1000, asOf?
   return { ok: true, length };
 }
 
+/** A customer account that holds a balance while the custodial layer is off. */
+export interface CustomerBalanceHit {
+  readonly accountId: string;
+  readonly assetId: string;
+  readonly balance: string;
+}
+
+export type CustomerBalanceCheck =
+  | { readonly custodyLayer: 'on' }
+  | { readonly custodyLayer: 'off'; readonly ok: boolean; readonly accountsChecked: number; readonly open: readonly CustomerBalanceHit[] };
+
+/**
+ * While the custodial layer is off the ledger holds no customer money (OWNER 288): every account
+ * `isCustomerBalanceAccount` names must be at zero. The filter is the recipe package's own, so a new
+ * customer owner kind is covered the day it is named there. With the layer on it reads nothing.
+ */
+export async function customerBalancesWhileCustodyOff(
+  sql: ReconciliationDb,
+  custodyLayer: CustodyLayerState,
+): Promise<CustomerBalanceCheck> {
+  if (custodyLayer === 'on') return { custodyLayer: 'on' };
+  const rows = await sql<Array<{ id: string; asset_id: string; owner_type: string; owner_id: string; balance: string }>>`
+    SELECT id::text AS id, asset_id, owner_type, owner_id, balance::text AS balance
+      FROM accounts
+     WHERE owner_type IN ('user', 'subaccount', 'module')
+     ORDER BY id ASC
+  `;
+  const open: CustomerBalanceHit[] = [];
+  let accountsChecked = 0;
+  for (const row of rows) {
+    if (!isCustomerBalanceAccount({ ownerType: row.owner_type as never, ownerId: row.owner_id })) continue;
+    accountsChecked++;
+    const balance = parseReconcileAmount(row.balance, 'accounts.balance');
+    if (balance !== 0n) open.push({ accountId: row.id, assetId: row.asset_id, balance: formatAmount(balance) });
+  }
+  return { custodyLayer: 'off', ok: open.length === 0, accountsChecked, open };
+}
+
 /** Every asset must sum to exactly zero across every account. */
 export async function totalsByAsset(sql: ReconciliationDb): Promise<Record<string, string>> {
   const rows = await sql<Array<{ asset_id: string; total: string }>>`
@@ -249,8 +291,15 @@ export interface ReconciliationReport {
   readonly totals: Record<string, string>;
   /** Assets that do not net to zero — the most serious failure possible. */
   readonly unbalancedAssets: string[];
+  /**
+   * What the proof compared (OWNER 288): `matched` only when it compared at least one account or transaction and found
+   * no difference; an empty book reads `nothing_to_compare`, never matched. A not-ok report is `mismatch`.
+   */
+  readonly result: 'matched' | 'nothing_to_compare' | 'mismatch';
+  /** Customer accounts at zero while custody is off. Left out by a proof seam that does not run it. */
+  readonly customerBalances?: CustomerBalanceCheck;
   /** Unavailable checks in a mismatch report; false/empty fields do not claim those checks finished. */
-  readonly incompleteChecks?: readonly { check: 'balances' | 'chain' | 'totals'; errorCode: string }[];
+  readonly incompleteChecks?: readonly { check: 'balances' | 'chain' | 'totals' | 'customer_balances'; errorCode: string }[];
   /** Definitively invalid numeric values read from the book, without inventing a numeric drift. */
   readonly corruptAmountFields?: readonly string[];
 }
@@ -259,16 +308,23 @@ export interface ReconciliationReport {
  * The full run. Scheduled hourly; also runnable on demand from apps/admin when
  * an operator wants to prove the book is intact before, say, a treasury move.
  */
-export async function runReconciliation(sql: ReconciliationDb): Promise<ReconciliationReport> {
-  const checks = await Promise.allSettled([reconcileBalances(sql), verifyChain(sql), totalsByAsset(sql)]);
-  const [balanceCheck, chainCheck, totalCheck] = checks;
+export async function runReconciliation(sql: ReconciliationDb, custodyLayer: CustodyLayerState): Promise<ReconciliationReport> {
+  const checks = await Promise.allSettled([
+    reconcileBalances(sql),
+    verifyChain(sql),
+    totalsByAsset(sql),
+    customerBalancesWhileCustodyOff(sql, custodyLayer),
+  ]);
+  const [balanceCheck, chainCheck, totalCheck, customerCheck] = checks;
   const balances: ReconcileResult = balanceCheck.status === 'fulfilled' ? balanceCheck.value : { ok: false, drift: [], accountsChecked: 0 };
   const chain: ChainResult = chainCheck.status === 'fulfilled' ? chainCheck.value : { ok: false, brokenAt: 'incomplete', length: 0 };
   const totals = totalCheck.status === 'fulfilled' ? totalCheck.value : {};
   const unbalancedAssets = Object.entries(totals)
     .filter(([, total]) => total !== '0')
     .map(([asset]) => asset);
-  const names = ['balances', 'chain', 'totals'] as const;
+  const customerBalances = customerCheck.status === 'fulfilled' ? customerCheck.value : undefined;
+  const customerOpen = customerBalances?.custodyLayer === 'off' && !customerBalances.ok;
+  const names = ['balances', 'chain', 'totals', 'customer_balances'] as const;
   const incompleteChecks: Array<{ check: (typeof names)[number]; errorCode: string }> = [];
   const corruptAmountFields: string[] = [];
   for (const [index, check] of checks.entries()) {
@@ -280,6 +336,7 @@ export async function runReconciliation(sql: ReconciliationDb): Promise<Reconcil
     (balanceCheck.status === 'fulfilled' && !balanceCheck.value.ok) ||
     (chainCheck.status === 'fulfilled' && !chainCheck.value.ok) ||
     unbalancedAssets.length > 0 ||
+    customerOpen ||
     corruptAmountFields.length > 0;
   // A failed sibling cannot erase an established mismatch. Conversely, clean
   // partial checks never turn a timeout into a mismatch.
@@ -294,9 +351,22 @@ export async function runReconciliation(sql: ReconciliationDb): Promise<Reconcil
     chain,
     totals,
     unbalancedAssets,
+    result: proofResult(!mismatch, balances, chain),
+    ...(customerBalances ? { customerBalances } : {}),
     ...(incompleteChecks.length ? { incompleteChecks } : {}),
     ...(corruptAmountFields.length ? { corruptAmountFields } : {}),
   };
+}
+
+/** Customer accounts the proof found holding a balance with custody off; null with custody on or the check not run. */
+export function openCustomerBalances(report: ReconciliationReport): number | null {
+  return report.customerBalances?.custodyLayer === 'off' ? report.customerBalances.open.length : null;
+}
+
+/** `nothing_to_compare` when an ok proof read no account and no transaction: an empty book proves nothing. */
+export function proofResult(ok: boolean, balances: ReconcileResult, chain: ChainResult): ReconciliationReport['result'] {
+  if (!ok) return 'mismatch';
+  return balances.accountsChecked === 0 && chain.length === 0 ? 'nothing_to_compare' : 'matched';
 }
 
 // ── The snapshot runner ──────────────────────────────────────────────────────
@@ -357,6 +427,11 @@ export type SnapshotRun =
 export interface SnapshotRunOptions {
   /** Per-run `statement_timeout`. Defaults to 10 minutes. Validated before it reaches SQL. */
   readonly statementTimeoutMs?: number;
+  /**
+   * The custodial switch the proof checks customer balances against (OWNER 288). Required: a caller that left it out
+   * would lose the check without a word.
+   */
+  readonly custodyLayer: CustodyLayerState;
   /** The proof itself. A seam for tests; production always runs `runReconciliation`. */
   readonly prove?: (tx: ReconciliationDb) => Promise<ReconciliationReport>;
   /**
@@ -403,6 +478,7 @@ function failedProofReport(): ReconciliationReport {
     chain: { ok: false, brokenAt: 'proof', length: 0 },
     totals: {},
     unbalancedAssets: [],
+    result: 'mismatch',
   };
 }
 
@@ -421,6 +497,11 @@ function reportDetail(report: ReconciliationReport): Record<string, unknown> {
     chainLength: report.chain.length,
     chainBrokenAt: report.chain.ok ? null : report.chain.brokenAt,
     unbalancedAssets: report.unbalancedAssets,
+    result: report.result,
+    customerBalancesChecked: report.customerBalances?.custodyLayer === 'off' ? report.customerBalances.accountsChecked : null,
+    customerBalancesOpen: report.customerBalances?.custodyLayer === 'off' ? report.customerBalances.open.length : null,
+    firstCustomerBalanceAccountId:
+      report.customerBalances?.custodyLayer === 'off' ? (report.customerBalances.open[0]?.accountId ?? null) : null,
     incompleteChecks: report.incompleteChecks ?? [],
     corruptAmountFields: report.corruptAmountFields ?? [],
   };
@@ -564,9 +645,9 @@ async function recordFailedProof(
  *              fresh transaction. One incomplete run does not freeze.
  *   skipped    another run holds the advisory lock.
  */
-export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOptions = {}): Promise<SnapshotRun> {
+export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOptions): Promise<SnapshotRun> {
   const timeoutMs = validReconcileStatementTimeoutMs(options.statementTimeoutMs ?? DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS);
-  const prove = options.prove ?? runReconciliation;
+  const prove = options.prove ?? ((tx: ReconciliationDb) => runReconciliation(tx, options.custodyLayer));
   const startedAt = new Date();
 
   // One holder so the catch below sees what the run learned before it failed.
@@ -691,6 +772,7 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
           ...proved,
           ok: false,
           chain: { ok: false, brokenAt: 'chain_tip', length: proved.chain.length },
+          result: 'mismatch',
         };
     state.verdict = report;
 
@@ -849,7 +931,7 @@ export type ScheduledReconcileResult =
 export async function runScheduledReconciliation(
   sql: Sql,
   ledger: ScheduledReconcileLedger,
-  options: SnapshotRunOptions = {},
+  options: SnapshotRunOptions,
 ): Promise<ScheduledReconcileResult> {
   const run = await runSnapshotReconciliation(sql, options);
   switch (run.outcome) {

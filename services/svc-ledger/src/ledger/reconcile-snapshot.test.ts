@@ -47,6 +47,7 @@ const greenReport = (): ReconciliationReport => ({
   chain: { ok: true, length: 1 },
   totals: { USDT: '0' },
   unbalancedAssets: [],
+  result: 'matched',
 });
 const failedReport = (): ReconciliationReport => ({
   ok: false,
@@ -55,6 +56,7 @@ const failedReport = (): ReconciliationReport => ({
   chain: { ok: true, length: 1 },
   totals: { USDT: '1' },
   unbalancedAssets: ['USDT'],
+  result: 'mismatch',
 });
 
 describe('reconciliation snapshot runner — real book', () => {
@@ -109,6 +111,7 @@ describe('reconciliation snapshot runner — real book', () => {
     await poster.post(deposit());
     let postedMidProof = false;
     const run = await runSnapshotReconciliation(sql, {
+      custodyLayer: 'on',
       async prove(tx) {
         // The snapshot is open. A post from a second connection must complete (no FOR UPDATE on chain_tip held).
         await Promise.race([
@@ -151,7 +154,7 @@ describe('reconciliation snapshot runner — real book', () => {
     try {
       // The same key a replica or an operator request takes; held for the whole session here.
       await holder.unsafe(`SELECT pg_advisory_lock(${RECONCILE_LOCK_SQL})`);
-      const run = await runSnapshotReconciliation(connect());
+      const run = await runSnapshotReconciliation(connect(), { custodyLayer: 'on' });
       expect(run).toEqual({ outcome: 'skipped' });
       await expect(d().sql`SELECT 1 FROM reconcile_runs`).resolves.toHaveLength(0);
       await expect(d().sql`SELECT 1 FROM balance_snapshots`).resolves.toHaveLength(0);
@@ -161,7 +164,7 @@ describe('reconciliation snapshot runner — real book', () => {
     } finally {
       holder.release();
     }
-    expect((await runSnapshotReconciliation(connect())).outcome).toBe('ok');
+    expect((await runSnapshotReconciliation(connect(), { custodyLayer: 'on' })).outcome).toBe('ok');
   });
 
   it('two runs started together: exactly one proves, the other skips', async () => {
@@ -175,6 +178,7 @@ describe('reconciliation snapshot runner — real book', () => {
       release = resolve;
     });
     const first = runSnapshotReconciliation(connect(), {
+      custodyLayer: 'on',
       async prove() {
         enter();
         await gate;
@@ -182,7 +186,7 @@ describe('reconciliation snapshot runner — real book', () => {
       },
     });
     await entered;
-    const second = await runSnapshotReconciliation(connect());
+    const second = await runSnapshotReconciliation(connect(), { custodyLayer: 'on' });
     release();
     expect(second.outcome).toBe('skipped');
     expect((await first).outcome).toBe('ok');
@@ -197,9 +201,10 @@ describe('reconciliation snapshot runner — real book', () => {
       await blocker.unsafe('BEGIN');
       await blocker.unsafe('SELECT id FROM accounts FOR UPDATE');
       first = runSnapshotReconciliation(connect(), {
+        custodyLayer: 'on',
         async prove(tx) {
           backend = (await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
-          return runReconciliation(tx);
+          return runReconciliation(tx, 'on');
         },
       });
       let waiting = false;
@@ -215,7 +220,7 @@ describe('reconciliation snapshot runner — real book', () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       expect(waiting).toBe(true);
-      expect(await runSnapshotReconciliation(connect())).toEqual({ outcome: 'skipped' });
+      expect(await runSnapshotReconciliation(connect(), { custodyLayer: 'on' })).toEqual({ outcome: 'skipped' });
     } finally {
       await blocker.unsafe('ROLLBACK');
       blocker.release();
@@ -227,26 +232,27 @@ describe('reconciliation snapshot runner — real book', () => {
   it('failed advisory unlock closes only the proof session, releases its lock, and leaves the posting pool usable', async () => {
     const postingPool = connect(1);
     const first = await runSnapshotReconciliation(postingPool, {
+      custodyLayer: 'on',
       async prove(tx) {
         const unsafe = tx.unsafe.bind(tx);
         vi.spyOn(tx, 'unsafe').mockImplementation((...args) => {
           if (args[0].includes('pg_advisory_unlock')) throw new Error('injected unlock connection failure');
           return unsafe(...args);
         });
-        return runReconciliation(tx);
+        return runReconciliation(tx, 'on');
       },
     });
     expect(first.outcome).toBe('ok');
     await expect(postingPool`SELECT 1`).resolves.toHaveLength(1);
     await expect(service(postingPool).post(deposit())).resolves.toMatchObject({ module: 'ledger' });
-    expect((await runSnapshotReconciliation(postingPool)).outcome).toBe('ok');
+    expect((await runSnapshotReconciliation(postingPool, { custodyLayer: 'on' })).outcome).toBe('ok');
   });
 
   it('a completed structural mismatch commits its halt and outbox even when no caller publishes it', async () => {
     await service(connect()).post(deposit());
     await d().sql`DELETE FROM chain_tip WHERE id = true`;
     try {
-      expect((await runSnapshotReconciliation(connect())).outcome).toBe('mismatch');
+      expect((await runSnapshotReconciliation(connect(), { custodyLayer: 'on' })).outcome).toBe('mismatch');
       expect((await d().sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['mismatch']);
       expect((await d().sql`SELECT frozen, actor FROM posting_freeze`)[0]).toMatchObject({ frozen: true, actor: 'reconciliation' });
       expect(await d().sql`SELECT 1 FROM ledger_freeze_outbox WHERE published_at IS NULL`).toHaveLength(1);
@@ -269,7 +275,7 @@ describe('reconciliation snapshot runner — real book', () => {
           ),
         );
       }
-      const result = await runScheduledReconciliation(connect(), svc);
+      const result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on' });
       expect(result.outcome).toBe('mismatch');
       if (result.outcome !== 'mismatch') throw new Error('expected persisted corruption mismatch');
       if (field === 'ledger_entries.balance_after') {
@@ -293,7 +299,7 @@ describe('reconciliation snapshot runner — real book', () => {
     try {
       await blocker.unsafe('BEGIN');
       await blocker.unsafe('LOCK TABLE ledger_tx IN ACCESS EXCLUSIVE MODE');
-      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
+      result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on', statementTimeoutMs: 1000 });
     } finally {
       await blocker.unsafe('ROLLBACK');
       blocker.release();
@@ -314,7 +320,7 @@ describe('reconciliation snapshot runner — real book', () => {
     try {
       await blocker.unsafe('BEGIN');
       await blocker.unsafe('LOCK TABLE ledger_tx IN ACCESS EXCLUSIVE MODE');
-      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
+      result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on', statementTimeoutMs: 1000 });
     } finally {
       await blocker.unsafe('ROLLBACK');
       blocker.release();
@@ -332,12 +338,14 @@ describe('reconciliation snapshot runner — real book', () => {
     const seen: string[] = [];
     const probe = (tx: Sql) => tx<Array<{ statement_timeout: string }>>`SHOW statement_timeout`;
     await runSnapshotReconciliation(connect(), {
+      custodyLayer: 'on',
       async prove(tx) {
         seen.push((await probe(tx as unknown as Sql))[0]!.statement_timeout);
         return greenReport();
       },
     });
     await runSnapshotReconciliation(connect(), {
+      custodyLayer: 'on',
       statementTimeoutMs: 2_000,
       async prove(tx) {
         seen.push((await probe(tx as unknown as Sql))[0]!.statement_timeout);
@@ -352,13 +360,15 @@ describe('reconciliation snapshot runner — real book', () => {
       onnotice: () => undefined,
     });
     open.push(pool);
-    await runSnapshotReconciliation(pool);
+    await runSnapshotReconciliation(pool, { custodyLayer: 'on' });
     expect((await probe(pool))[0]!.statement_timeout).toBe('15s');
   });
 
   it('refuses a statement timeout that is not a bounded integer before it reaches SQL', async () => {
     for (const bad of [0, 999, 3_600_001, 1.5, Number.NaN]) {
-      await expect(runSnapshotReconciliation(connect(), { statementTimeoutMs: bad })).rejects.toBeInstanceOf(RangeError);
+      await expect(runSnapshotReconciliation(connect(), { custodyLayer: 'on', statementTimeoutMs: bad })).rejects.toBeInstanceOf(
+        RangeError,
+      );
     }
     await expect(d().sql`SELECT 1 FROM reconcile_runs`).resolves.toHaveLength(0);
   });
@@ -393,7 +403,7 @@ describe('reconciliation snapshot runner — real book', () => {
       // Snapshot reads remain possible, but the later anchor INSERT must wait
       // for the account FK's KEY SHARE lock: the historical failure phase.
       await blocker.unsafe('SELECT id FROM accounts FOR UPDATE');
-      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
+      result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on', statementTimeoutMs: 1000 });
     } finally {
       await blocker.unsafe('ROLLBACK');
       blocker.release();
@@ -405,7 +415,7 @@ describe('reconciliation snapshot runner — real book', () => {
     expect((await d().sql`SELECT outcome, error_code FROM reconcile_runs`).map((row) => [row.outcome, row.error_code])).toEqual([
       ['incomplete', '57014'],
     ]);
-    expect((await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 })).outcome).toBe('ok');
+    expect((await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on', statementTimeoutMs: 1000 })).outcome).toBe('ok');
     await expect(svc.post(deposit())).resolves.toMatchObject({ module: 'ledger' });
   });
 
@@ -435,7 +445,7 @@ describe('reconciliation snapshot runner — real book', () => {
        CREATE TRIGGER refuse_run BEFORE INSERT ON "${d().schema}".reconcile_runs FOR EACH ROW EXECUTE FUNCTION "${d().schema}".refuse_run();`,
     );
     try {
-      const result = await runScheduledReconciliation(connect(), svc);
+      const result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on' });
       expect(result).toMatchObject({ outcome: 'mismatch', run: { runId: null } });
       await expect(svc.status()).resolves.toMatchObject({ postingEnabled: false, frozenReason: 'reconciliation mismatch' });
     } finally {
@@ -451,6 +461,7 @@ describe('reconciliation snapshot runner — real book', () => {
     );
     try {
       const run = await runSnapshotReconciliation(sql, {
+        custodyLayer: 'on',
         async prove(tx) {
           await tx.unsafe(`SELECT 'not-a-number'::int`);
           throw new Error('expected the cast to fail');
@@ -467,7 +478,7 @@ describe('reconciliation snapshot runner — real book', () => {
     const svc = service(connect());
     await expect(svc.lastVerified()).resolves.toMatchObject({ at: null, seq: null });
     await svc.post(deposit());
-    await runSnapshotReconciliation(connect());
+    await runSnapshotReconciliation(connect(), { custodyLayer: 'on' });
     const last = await svc.lastVerified();
     expect(last.seq).toBe('1');
     expect(last.at).toBeInstanceOf(Date);

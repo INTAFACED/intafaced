@@ -18,6 +18,8 @@ const venue = {
   displayName: 'TEST venue',
   test: true,
   asOf: '2026-11-09T10:00:01.000Z',
+  result: 'break',
+  compared: 1,
   matched: false,
   totals: [{ assetId: 'USDC', venueTotal: '0.25', ledgerTotal: '0', matched: false }],
   lines: [line],
@@ -68,6 +70,28 @@ describe('parseBuilderFeeRecon', () => {
       matched: false,
       lines: [{ status: 'not_in_ledger', venueAmount: '0.25' }],
     });
+  });
+  it('reads a venue that compared nothing as nothing to compare, and refuses a green that compared nothing (OWNER 288)', () => {
+    const empty = {
+      ...venue,
+      result: 'nothing_to_compare',
+      compared: 0,
+      matched: false,
+      totals: [],
+      lines: [],
+      volume: [],
+      volumeGaps: [],
+      ledgerRecords: [],
+    };
+    expect(parseBuilderFeeRecon({ ...recon, venues: [empty] })?.venues[0]).toMatchObject({
+      result: 'nothing_to_compare',
+      compared: 0,
+      matched: false,
+    });
+    // The old answer: matched over zero lines. It is not shown as green.
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...empty, result: 'matched', matched: true }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...empty, matched: true }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, result: undefined }] })).toBeNull();
   });
   it('reads an unknown venue', () => {
     const unknown = { state: 'unknown', venueId: null, displayName: null, code: 'venue.venue_down', message: 'down' };

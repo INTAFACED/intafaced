@@ -31,16 +31,18 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
       className="dk-panel"
       data-testid="builder-fee-venue"
       data-venue-id={venue.venueId}
-      data-state={venue.matched ? 'green' : 'break'}
+      data-state={venue.result === 'matched' ? 'green' : venue.result === 'nothing_to_compare' ? 'nothing_to_compare' : 'break'}
     >
       <h2>
         {venue.displayName} {venue.test ? <span data-testid="builder-fee-test">TEST</span> : null}
       </h2>
       <p data-testid="builder-fee-verdict">
-        {venue.matched
+        {venue.result === 'matched'
           ? 'Green: every builder fee the venue reports matches the ledger.'
-          : 'Break: the venue and the ledger do not agree. Each break is listed below.'}{' '}
-        Venue id {venue.venueId}, read {when(venue.asOf)}.
+          : venue.result === 'nothing_to_compare'
+            ? 'Nothing to compare: neither the venue nor the ledger has a builder fee in this period, so this proves nothing.'
+            : 'Break: the venue and the ledger do not agree. Each break is listed below.'}{' '}
+        {venue.compared} fill{venue.compared === 1 ? '' : 's'} compared. Venue id {venue.venueId}, read {when(venue.asOf)}.
       </p>
       <table data-testid="builder-fee-totals">
         <thead>
@@ -134,7 +136,13 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
       <h3>Routed volume</h3>
       <div
         data-testid="builder-fee-volume"
-        data-state={venue.volume.every((v) => v.matched) && venue.volumeGaps.length === 0 ? 'green' : 'gap'}
+        data-state={
+          venue.volume.length === 0 && venue.volumeGaps.length === 0
+            ? 'nothing_to_compare'
+            : venue.volume.every((v) => v.matched) && venue.volumeGaps.length === 0
+              ? 'green'
+              : 'gap'
+        }
       >
         <p>
           The volume of the period&apos;s fills on orders we routed with our builder fee, against the builder fee the venue charged on them.

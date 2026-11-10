@@ -305,7 +305,7 @@ describe('PostgresLedger', () => {
       await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('500'), rail: 'test', railRef: 'full-1' }));
       await engine.post(recipes.orderHold({ orderId: 'full-o1', userId: USER, assetId: 'USDT', amount: amt('200') }));
 
-      const report = await runReconciliation(db!.sql);
+      const report = await runReconciliation(db!.sql, 'on');
       expect(report.ok).toBe(true);
       expect(report.unbalancedAssets).toEqual([]);
       expect(report.totals.USDT).toBe('0');

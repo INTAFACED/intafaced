@@ -55,6 +55,7 @@ function failedReport(): ReconciliationReport {
     chain: { ok: false, brokenAt: 'chain_tip', length: 0 },
     totals: {},
     unbalancedAssets: [],
+    result: 'mismatch',
   };
 }
 
@@ -487,7 +488,7 @@ describe('scheduled reconciliation tick — against a real book', () => {
     await requireDb().sql`UPDATE accounts SET balance = balance + 1 WHERE owner_type = 'user'`;
 
     const { log, fatal } = logSink();
-    await runScheduledReconciliationTick(() => runScheduledReconciliation(writerSql, writer), writer, log);
+    await runScheduledReconciliationTick(() => runScheduledReconciliation(writerSql, writer, { custodyLayer: 'on' }), writer, log);
 
     expect(fatal.map((entry) => entry.msg)).toEqual([FROZEN_LOG]);
     await expect(reader.status()).resolves.toEqual({
@@ -513,7 +514,11 @@ describe('scheduled reconciliation tick — against a real book', () => {
       await blocker.unsafe('BEGIN');
       await blocker.unsafe(`LOCK TABLE "${opened.schema}".ledger_entries IN ACCESS EXCLUSIVE MODE`);
       const { log, fatal } = logSink();
-      await runScheduledReconciliationTick(() => runScheduledReconciliation(writerSql, writer, { statementTimeoutMs: 1_000 }), writer, log);
+      await runScheduledReconciliationTick(
+        () => runScheduledReconciliation(writerSql, writer, { custodyLayer: 'on', statementTimeoutMs: 1_000 }),
+        writer,
+        log,
+      );
       expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG]);
       expect(fatal[0]?.obj).toMatchObject({ outcome: 'incomplete', errorCode: '57014' });
     } finally {
