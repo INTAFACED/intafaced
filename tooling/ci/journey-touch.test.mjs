@@ -389,15 +389,25 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
     t.split('github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft').length - 1,
     3,
   );
-  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing.
-  for (const job of ['plan', 'build'])
+  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing. The plan
+  // runs in the touch job, so each of its steps checks the touch step's decision and PLANS (never a draft or a fork).
+  assert.match(
+    t,
+    /\n {6}PLANS: \$\{\{ github\.event_name != 'pull_request' \|\| \(github\.event\.pull_request\.head\.repo\.full_name == github\.repository && !github\.event\.pull_request\.draft\) \}\}\n/,
+  );
+  for (const name of ["Last finished runs' reports", 'Plan', 'Fail-fast plan'])
     assert.match(
       t,
       new RegExp(
-        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && needs\\.touch\\.outputs\\.mode != 'none' && \\(github\\.event_name != 'pull_request'`,
+        `\\n {6}- name: ${name}\\n(?: {8}[^\\n]*\\n)*? {8}if: \\$\\{\\{ !cancelled\\(\\) && env\\.PLANS == 'true' && steps\\.touch\\.outputs\\.mode != 'none' && steps\\.first\\.outputs\\.deferred != 'true' \\}\\}\\n`,
       ),
     );
-  assert.match(t, /\.draft\)\) && !\(needs\.plan\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
+  assert.doesNotMatch(t, /\n  plan:\n/);
+  assert.match(
+    t,
+    /\n  build:\n(?: {4}[^\n]*\n)*? {4}if: \$\{\{ !cancelled\(\) && needs\.touch\.outputs\.mode != 'none' && \(github\.event_name != 'pull_request'/,
+  );
+  assert.match(t, /\.draft\)\) && !\(needs\.touch\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
   assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.touch\.outputs\.target \}\}/);
 });
 

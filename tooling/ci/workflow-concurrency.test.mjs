@@ -441,19 +441,21 @@ export function mainFirstProblems(text) {
   const defer = step(touch, `"${DEFER_MARK}"`);
   if (!defer || !/\n {8}if: steps\.first\.outputs\.deferred == 'true'\n/.test(defer))
     problems.push(`the touch job has no step "${DEFER_MARK}" run exactly when deferred, so the release can't find deferred runs`);
-  // Main skips this job, so it queues twice, not three times.
-  const touchIf = /\n {4}if: (.*)\n/.exec(touch)?.[1] ?? '';
-  if (!touchIf || evaluate(touchIf, { github: { ref: MAIN } }) || !evaluate(touchIf, { github: { ref: 'refs/heads/b1' } }))
-    problems.push("the touch job runs on main, so main's run queues for runners three times");
-  for (const key of ['plan', 'build', 'journeys'])
+  // The touch job plans the shards too, so every run, main's and a branch's, queues for runners twice (this job, then
+  // the shards), not three times: no planner job of its own, and the shards wait on the touch job alone.
+  if (job(text, 'plan') || !/\n {4}needs: \[touch\]\n/.test(job(text, 'journeys')))
+    problems.push('the shards wait on a job after the touch job, so every run queues for runners three times');
+  if (/\n {4}if: /.test(touch.split('\n    steps:\n')[0] ?? ''))
+    problems.push('the touch job is skipped somewhere, so that run plans no shards');
+  for (const key of ['build', 'journeys'])
     if (!/\n {4}if: \$\{\{ !cancelled\(\) && /.test(job(text, key)))
-      problems.push(`the ${key} job doesn't run on a skipped touch job (\`!cancelled()\`), so main would run nothing`);
+      problems.push(`the ${key} job doesn't run on a failed touch job (\`!cancelled()\`), so a broken planner would stop the run`);
   // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
   const release = job(text, 'release');
   const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
   if (
     !release ||
-    !/\n {4}needs: \[plan\]\n/.test(release) ||
+    !/\n {4}needs: \[touch\]\n/.test(release) ||
     !/\n {6}actions: write/.test(release) ||
     !/main-first\.mjs --release/.test(release) ||
     !relIf.includes("github.ref == 'refs/heads/main'")
@@ -495,7 +497,7 @@ export function mainFirstProblems(text) {
     problems.push(
       "a manual run off main doesn't check out main's tooling (.base), so its branch's older main-first.mjs, without the cap, would run",
     );
-  if (!new RegExp(`name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
+  if (!new RegExp(`\n {4}name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
     problems.push(`no job is named "${PLAN_JOB}", the name main-first.mjs reads to know main's shards are queued`);
   return problems;
 }
@@ -667,12 +669,15 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   const noDefer = t.replace(`- name: "${DEFER_MARK}"`, '- name: Something');
   assert.notEqual(noDefer, t);
   assert.ok(mainFirstProblems(noDefer).some((p) => /release can't find/.test(p)));
-  const touchOnMain = t.replace(
-    "    name: What this run runs\n    if: github.ref != 'refs/heads/main'\n",
+  const touchOffMain = t.replace(
     '    name: What this run runs\n',
+    "    name: What this run runs\n    if: github.ref != 'refs/heads/main'\n",
   );
-  assert.notEqual(touchOnMain, t);
-  assert.ok(mainFirstProblems(touchOnMain).some((p) => /three times/.test(p)));
+  assert.notEqual(touchOffMain, t);
+  assert.ok(mainFirstProblems(touchOffMain).some((p) => /plans no shards/.test(p)));
+  const planHop = t.replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch\]/, '$1needs: [touch, plan]');
+  assert.notEqual(planHop, t);
+  assert.ok(mainFirstProblems(planHop).some((p) => /three times/.test(p)));
   const noRelease = t.replace('run: node .base/tooling/ci/main-first.mjs --release', 'run: node .base/tooling/ci/main-first.mjs');
   assert.notEqual(noRelease, t);
   assert.ok(mainFirstProblems(noRelease).some((p) => /never runs/.test(p)));
@@ -700,8 +705,8 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   );
   assert.notEqual(prBase, t);
   assert.ok(mainFirstProblems(prBase).some((p) => /\.base/.test(p)));
-  const renamed = t.replace('name: Plan the shards\n', 'name: Plan shards\n');
+  const renamed = t.replace('\n    name: What this run runs\n', '\n    name: Plan the shards\n');
   assert.notEqual(renamed, t);
-  assert.ok(mainFirstProblems(renamed).some((p) => /Plan the shards/.test(p)));
+  assert.ok(mainFirstProblems(renamed).some((p) => /What this run runs/.test(p)));
   assert.match(mainFirstProblems(t.replace("- name: Main's journeys first", '- name: Something else'))[0], /no step/);
 });
