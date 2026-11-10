@@ -74,7 +74,7 @@ import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedS
 import { reduceMaps } from './journey-reach.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
-import { serveTestVenue, testVenueChainId, userVenueSwitchOn } from './local-test-venue.mjs';
+import { serveTestVenue, testVenueChainId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
 import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
@@ -205,6 +205,8 @@ const PORTS = {
   // The LOCAL TEST venue simulator behind svc-trade's user-venue door (local-test-venue.mjs). Started only with
   // LOCAL_STACK_USER_VENUE=on (userVenueOn).
   'test-venue': 14560,
+  // The second LOCAL TEST venue (J-derivatives-28, routing over two venues). Started only with LOCAL_STACK_USER_VENUE=two.
+  'test-venue-b': 14562,
   // The LOCAL TEST embedded-wallet provider (local-test-wallet-provider.mjs, J-wallet-22): svc-protocol's provider on
   // this stack. It holds its TEST keys in its own state file, never in a svc-* database. Always started with protocol.
   'test-wallet-provider': 14561,
@@ -1916,15 +1918,15 @@ export function userVenueOn(env = process.env) {
 }
 
 /** The LOCAL TEST venue simulator (local-test-venue.mjs), for svc-trade's user-venue door. TEST figures only. */
-async function startTestVenue() {
+async function startTestVenue(name = 'test-venue') {
   const procs = readProcs();
-  const url = `${urlOf('test-venue')}/health`;
-  if (ownedAlive(procs['test-venue']) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(PORTS['test-venue']))
-    fail(`port ${PORTS['test-venue']} (test-venue) is in use by a process this script did not start`);
-  // With the TEST chain running, the venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09 #3, #5).
-  // It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol alone.
-  const chain = testChain();
+  const url = `${urlOf(name)}/health`;
+  if (ownedAlive(procs[name]) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS[name])) fail(`port ${PORTS[name]} (${name}) is in use by a process this script did not start`);
+  // With the TEST chain running, the first venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09
+  // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
+  // alone. The second TEST venue (J-derivatives-28) takes no chain deposits: its journeys fund it with TEST deposits.
+  const chain = name === 'test-venue' ? testChain() : null;
   const env = {
     ...baseEnv(),
     APP_ENV: 'dev',
@@ -1932,8 +1934,9 @@ async function startTestVenue() {
     TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
     TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
   };
-  const pid = startProc('test-venue', [process.execPath, SCRIPT, '__serve-test-venue'], env, REPO);
-  await waitHealthy('test-venue', url, pid, 20_000);
+  const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
+  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
+  await waitHealthy(name, url, pid, 20_000);
 }
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
@@ -2336,7 +2339,11 @@ async function cmdStart(flags) {
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
   if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
   // Trade's env points at the TEST venue only while the setting is on, so `--only trade` starts it too.
-  if (userVenueOn() && (!only || only.includes('trade'))) await startTestVenue();
+  if (userVenueOn() && (!only || only.includes('trade'))) {
+    await startTestVenue();
+    // J-derivatives-28: the second TEST venue, only with LOCAL_STACK_USER_VENUE=two.
+    if (userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2) await startTestVenue('test-venue-b');
+  }
   // Protocol's env points at the TEST wallet provider, so `--only protocol` starts it too.
   if (!only || only.includes('test-wallet-provider') || only.includes('protocol')) await startTestWalletProvider();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
@@ -2420,6 +2427,7 @@ async function cmdStop(names = []) {
     'video-store',
     'rail-statements',
     'test-venue',
+    'test-venue-b',
     'test-wallet-provider',
     'nats',
   ];
@@ -2619,7 +2627,13 @@ const CSP_REPORT_PATH = '/__csp-report';
  * therefore run under the policy the deployed app has, and `csp-report --fail` turns any violation red.
  */
 export function customerSecurityHeaders() {
-  return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
+  // connect-src: the TEST sandbox address (IDENTITY_SANDBOX_BASE_URL, the edge's sandbox host) stands in for
+  // CUSTOMER_SANDBOX_API_ORIGIN, so the API explorer can send a sandbox key's request there (J-developer-15 #7).
+  return securityHeaders({
+    mediaSrc: `'self' blob: ${urlOf('video-store')}`,
+    connectSrc: `'self' http://localhost:${PORTS.edge}`,
+    reportUri: CSP_REPORT_PATH,
+  });
 }
 
 /**
@@ -4168,6 +4182,14 @@ async function runCli() {
       chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
       rpcUrl: process.env.TEST_VENUE_RPC_URL,
       depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
+    });
+  else if (cmd === '__serve-test-venue-b')
+    await serveTestVenue({
+      host: HOST,
+      port: PORTS['test-venue-b'],
+      appEnv: process.env.APP_ENV,
+      chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+      second: true,
     });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>

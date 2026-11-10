@@ -94,6 +94,14 @@ async function answered(browser) {
   return { ticket: shared.ticket, page };
 }
 
+/** A new request of this customer that the team has replied to, for a step that must see it before any rating. */
+async function freshAnswered(browser, step) {
+  const page = await person(browser);
+  const ticket = await send(shared.who, `TEST ${J} ${RUN} ${step} answered`);
+  await lead('mutation', 'comment', { ticketId: ticket.id, body: `TEST ${J} ${RUN} ${step} the team answers` });
+  return { ticket, page };
+}
+
 /** TEST attachment limits (LOCAL TEST values, not owner decisions), set by the lead when any is blank. */
 const TEST_LIMITS = { maxBytes: 1_048_576, allowedTypes: ['image/png', 'text/plain'], maxCount: 5 };
 async function testLimits(expectedRevision, reason) {
@@ -303,7 +311,8 @@ test(`${J} #7 a rating with a note is stored once; opening it again shows the st
 });
 
 test(`${J} #8 solved with no mail sender set: the in-app prompt shows and the rating mail waits with vendor.email`, async ({ browser }) => {
-  const { ticket } = await answered(browser);
+  // A request of its own that nobody has rated, so the page can only show the ask.
+  const { ticket, page } = await freshAnswered(browser, '#8');
   await solved(ticket, '#8');
   const client = await api(shared.who);
   // The in-app ask: one notice for this request, however often it was solved.
@@ -327,10 +336,15 @@ test(`${J} #8 solved with no mail sender set: the in-app prompt shows and the ra
     refusalCode: 'vendor.email',
     acceptedAt: null,
   });
-  // The in-app prompt shows on the request.
-  const page = await person(browser);
+  // The in-app prompt shows on the request, with the form to answer it.
   await page.goto(`/support/tickets/${ticket.id}`);
-  await expect(page.locator('main').getByText(/You rated this request|This request is solved\. Tell us how it went/)).toBeVisible();
+  const main = page.locator('main');
+  await expect(main.locator('.support-rate-ask')).toHaveText(
+    'This request is solved. Tell us how it went by rating it below. It takes one tap and you can add a note.',
+  );
+  await expect(main.getByRole('combobox', { name: 'Your score' })).toBeVisible();
+  // The inbox row the ask is: "How did we do?".
+  expect(ask).toMatchObject({ kind: 'support.rate_request' });
 });
 
 test(`${J} #9 writing on a closed request is refused with a typed reason and nothing stored; "follow up" makes a new request linked to it`, async ({
@@ -345,8 +359,9 @@ test(`${J} #9 writing on a closed request is refused with a typed reason and not
     body: 'TEST late words',
     clientRequestId: `j04:${RUN}:late`,
   });
+  // The typed reason the service gives a customer's write on a closed request.
   expect(refused.status).not.toBe(200);
-  expect(code(refused).some((c) => c.startsWith('support.'))).toBe(true);
+  expect(JSON.stringify(refused.body)).toContain('"support.comment.terminal"');
   expect((await client.get(query('listComments', { ticketId: ticket.id, limit: 500 }))).body.result.data).toHaveLength(before);
 
   await page.goto(`/support/tickets/${ticket.id}`);

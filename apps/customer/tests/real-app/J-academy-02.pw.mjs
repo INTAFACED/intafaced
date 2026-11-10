@@ -222,6 +222,21 @@ test(`${J} #5 Learning shows My learning by state with real progress, and Start 
   } finally {
     await setCourseStart(third, null);
   }
+
+  // Completed: the learner completes every item of the third course in the reader; its card moves to Completed with every
+  // item done and a full meter, and Completed no longer says it is empty.
+  for (const item of thirdItems.slice(1)) {
+    await page.goto(`/academy/${item}`);
+    await page.getByRole('button', { name: 'Review lesson completion' }).click();
+    await page.getByRole('button', { name: 'Record completion' }).click();
+    await expect(page.getByText('Lesson completion recorded.')).toBeVisible();
+  }
+  await page.goto('/academy/learning');
+  const done = page.locator(`[data-my-learning-section="completed"] [data-my-course="${third}"]`);
+  await expect(done.getByText(`${thirdItems.length} of ${thirdItems.length} items done`)).toBeVisible();
+  await expect(done.getByRole('meter')).toHaveAttribute('aria-valuenow', '100');
+  await expect(mine.getByText('No course completed.')).toHaveCount(0);
+  await expect(page.locator(`[data-my-learning-section="in_progress"] [data-my-course="${third}"]`)).toHaveCount(0);
 });
 
 test(`${J} #6 Start course opens the first open item with the outline: typed items, a locked one with its reason, Next skipping it`, async ({

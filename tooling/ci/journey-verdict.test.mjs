@@ -150,6 +150,25 @@ test('a targeted run judges only the files it ran', () => {
   assert.equal(judge({ newest: broken, named: named2, baseline, money, target: new Set(['J-a-01.pw.mjs']) }).red.length, 1);
 });
 
+test('a file whose tests each prove part of a step is listed as ran only when every one of them passed', () => {
+  const part = (t, status) => spec(t, status, 'J-p-15.pw.mjs');
+  const clean = readReport(report(part('J-p-15, part of #1: one half', 'expected'), part('J-p-15, part of #1: the other', 'expected')));
+  assert.deepEqual(clean.ran, ['J-p-15.pw.mjs']);
+  assert.deepEqual(clean.states, {}, 'a part of a step is no step state');
+  const oneFailed = readReport(
+    report(part('J-p-15, part of #1: one half', 'expected'), part('J-p-15, part of #1: the other', 'unexpected')),
+  );
+  assert.deepEqual(oneFailed.ran, [], 'a failing part keeps the file off the list, so the seal fails closed');
+  const allSkipped = readReport(report(part('J-p-15 step 12 (part 1)', 'skipped')));
+  assert.deepEqual(allSkipped.ran, [], 'a skipped part did not run');
+  // A file that also has whole-step tests is listed by them, as before, whatever its partial tests did.
+  const mixed = readReport(report(spec('J-p-15 #2 whole', 'unexpected', 'J-p-15.pw.mjs'), part('J-p-15, part of #1', 'unexpected')));
+  assert.deepEqual(mixed.ran, ['J-p-15.pw.mjs']);
+  assert.equal(mixed.states['J-p-15#2'], 'failed');
+  // A spec outside the journey files (the look sweep) is not listed by this.
+  assert.deepEqual(readReport(report(spec('every room at each width', 'expected', 'look-sweep.mjs'))).ran, []);
+});
+
 test('a failing duplicate title never hides behind a passing one', () => {
   assert.equal(readReport(report(ok('J-a-01 #1 first'), bad('J-a-01 #1 second'))).states['J-a-01#1'], 'failed');
 });
@@ -316,7 +335,57 @@ test('broken, not flaky: a set-aside step that fails outright in two runs in a r
   assert.match(run(report(bad('J-a-01 #1'), bad('J-a-01 #2')), { setAside }).red[0].why, /failing, not in the baseline/);
 });
 
-test('never set aside: a money step that failed, then passed on its retry, is red', () => {
+test('OWNER 278: on main, a money step that failed, then passed on its retry, stays red, marked for the seal, with its flaky issue', () => {
+  const v = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true });
+  assert.deepEqual(
+    v.red.map((r) => [r.step, r.money, r.retryFlaky]),
+    [['J-a-05#1', true, true]],
+    'red on main, marked as a retry pass',
+  );
+  assert.match(v.red[0].why, /failed, then passed on its retry, and a money step is never set aside/);
+  assert.deepEqual(v.moneyFlaky, ['J-a-05#1'], 'listed for its flaky issue, never proven');
+  assert.deepEqual(v.setAside, [], 'never set aside');
+  assert.equal(
+    v.red[0].why,
+    run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo }).red[0].why,
+    'the same verdict line off main',
+  );
+  // The planted break: the same money step failing outright on main is red.
+  const broke = run(report(ok('J-a-01 #1'), bad('J-a-05 #1')), { money: moneyToo, onMain: true });
+  assert.deepEqual(
+    broke.red.map((r) => [r.step, r.money]),
+    [['J-a-05#1', true]],
+  );
+  assert.deepEqual(broke.moneyFlaky, []);
+  assert.equal(broke.red[0].retryFlaky, undefined, 'failing outright is not marked as a retry pass');
+  // A baseline entry that breaks its rules is still red, flaky or not.
+  const listed = { ...baseline, notBaselined: [{ step: 'J-a-05#1' }] };
+  const notBase = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true, baseline: listed });
+  assert.deepEqual(
+    notBase.red.map((r) => r.step),
+    ['J-a-05#1'],
+  );
+  // It is not OWNER 278's retry pass: not marked for the seal, so the seal never passes it over, and no flaky issue.
+  assert.equal(notBase.red[0].retryFlaky, undefined, 'a notBaselined money step that passed on its retry is not marked retryFlaky');
+  assert.deepEqual(notBase.moneyFlaky, [], 'a notBaselined money step goes to no flaky issue');
+  // The same for a money step the baseline lists: red, never marked for the seal, no flaky issue.
+  const inBase = { ...baseline, steps: [...baseline.steps, { step: 'J-a-05#1', state: 'regression', money: true, issue: 9 }] };
+  const based = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true, baseline: inBase });
+  assert.deepEqual(
+    based.red.map((r) => r.step),
+    ['J-a-05#1'],
+    'a money step the baseline lists as a regression is red',
+  );
+  assert.equal(based.red[0].retryFlaky, undefined, 'a baselined money step that passed on its retry is not marked retryFlaky');
+  assert.deepEqual(based.moneyFlaky, [], 'a baselined money step goes to no flaky issue');
+  // A non-money flaky step with no set-aside is red, as before: OWNER 278 is about money steps only.
+  assert.deepEqual(
+    run(report(flaky('J-a-01 #1')), { onMain: true }).red.map((r) => r.step),
+    ['J-a-01#1'],
+  );
+});
+
+test('never set aside: off main, a money step that failed, then passed on its retry, is red', () => {
   const v = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, setAside: aside({ 'J-a-05#1': 'flaky' }, 3) });
   assert.deepEqual(
     v.red.map((r) => [r.step, r.money]),

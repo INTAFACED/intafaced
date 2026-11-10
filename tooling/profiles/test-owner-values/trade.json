@@ -145,6 +145,11 @@
       "service": "trade",
       "value": "0.5",
       "note": "LOCAL TEST ONLY, not an owner decision: half a basis point of notional as our builder fee on the TEST venue simulator. Blank, every venue order refuses builder_fee_not_published; LOCAL_STACK_USER_VENUE_BUILDER_FEE=off leaves it blank."
+    },
+    "TRADE_USER_VENUE_ORDERS_PAGE_MAX": {
+      "service": "trade",
+      "value": "50",
+      "note": "LOCAL TEST ONLY, not an owner decision: the largest page of GET /api/v1/venue/orders on the TEST venue (J-developer-05 #6). Blank, every list refuses trade.venue_orders_page_max_unset; LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off leaves it blank."
     }
   }
 }

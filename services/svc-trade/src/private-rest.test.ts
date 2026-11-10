@@ -2390,6 +2390,56 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
+  it('GET /account/balance: a sub-account key reads its sub-account; a signed-in tab on a sub-account reads its own (J-developer-15 #1)', async () => {
+    const SUB = '33333333-3333-4333-8333-333333333333';
+    const reads: string[] = [];
+    const app = await build(
+      deps({
+        userBalances: async (userId) => {
+          reads.push(`user:${userId}`);
+          return [];
+        },
+        subAccountBalances: async (id) => {
+          reads.push(`sub:${id}`);
+          return [];
+        },
+      }),
+    );
+    const keyed = await app.inject({
+      method: 'GET',
+      url: '/api/v1/account/balance',
+      headers: signedHeaders(principal({ kid: '44444444-4444-4444-8444-444444444444', sub_account: SUB })),
+    });
+    expect(keyed.statusCode, keyed.body).toBe(200);
+    const session = await app.inject({
+      method: 'GET',
+      url: '/api/v1/account/balance',
+      headers: signedHeaders(principal({ sub_account: SUB })),
+    });
+    expect(session.statusCode, session.body).toBe(200);
+    expect(reads).toEqual([`sub:${SUB}`, `user:${USER}`]);
+    await app.close();
+
+    // Without the sub-account door a sub-account key is refused, never answered with the person's own balance.
+    let read = false;
+    const bare = await build(
+      deps({
+        userBalances: async () => {
+          read = true;
+          return [];
+        },
+      }),
+    );
+    const refused = await bare.inject({
+      method: 'GET',
+      url: '/api/v1/account/balance',
+      headers: signedHeaders(principal({ kid: '44444444-4444-4444-8444-444444444444', sub_account: SUB })),
+    });
+    expect(refused.statusCode).toBe(403);
+    expect(read).toBe(false);
+    await bare.close();
+  });
+
   it('GET /account/balance: scope miss → 403; never reads ledger', async () => {
     let read = false;
     const app = await build(

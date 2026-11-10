@@ -1,4 +1,5 @@
 import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { heldFigure, type FigureState } from '@intafaced/venue-contracts';
 import { BankError } from '../errors.js';
 import type { CardPartnerTerms } from './partner-terms.js';
 
@@ -26,8 +27,12 @@ export interface ReconciliationRow {
   readonly appHeld: string;
   readonly appCaptured: string;
   readonly appFigure: string;
-  /** The partner's held plus captured for this asset, or null ("not known"). */
+  /** The partner's held plus captured for this asset, or null ("not known": not reported, or sent with no time). */
   readonly partnerFigure: string | null;
+  /** The partner's own time for its figure, or null when it sent none (b2 change 6). */
+  readonly partnerAsOf: string | null;
+  /** The partner's figure as displayed: known, stale (older than the partner's limit), or unknown. */
+  readonly partnerState: FigureState;
   /** Partner minus app, signed; null when the partner's figure is not known. */
   readonly difference: string | null;
   readonly status: ReconciliationStatus;
@@ -46,14 +51,25 @@ export function reconcileProgramme(
   app: ReadonlyMap<string, AppProgrammeFigure>,
   partner: CardPartnerTerms['programmeFigures'],
   marks: ReadonlyMap<string, { readonly price: Amount; readonly asOf: Date }>,
+  /** The partner's own time for its figures and its declared limit (b2 change 6); `asOf` null is "not known". */
+  reported: { readonly asOf: Date | null; readonly staleAfterMs: number; readonly source: string; readonly now: Date },
 ): ReconciliationRow[] {
   const assets = [...new Set([...app.keys(), ...Object.keys(partner ?? {})])].sort();
   return assets.map((assetId) => {
     const mine = app.get(assetId) ?? { held: 0n, captured: 0n };
     const appFigure = mine.held + mine.captured;
     const theirs = partner?.[assetId];
-    // A partner that reports figures but none for this asset has not reported it: "not known", not 0.
-    const partnerFigure = theirs ? parseAmount(theirs.held) + parseAmount(theirs.captured) : null;
+    // A partner that reports figures but none for this asset has not reported it: "not known", not 0. A figure it sent
+    // with no time is "not known" too: we cannot say how old it is, so it never "matches".
+    const sum = theirs ? parseAmount(theirs.held) + parseAmount(theirs.captured) : null;
+    const figure = heldFigure({
+      source: reported.source,
+      amount: sum === null ? null : formatAmount(sum),
+      asOf: reported.asOf,
+      staleAfterMs: reported.staleAfterMs,
+      now: reported.now,
+    });
+    const partnerFigure = figure.state === 'unknown' ? null : sum;
     const difference = partnerFigure === null ? null : partnerFigure - appFigure;
     const mark = marks.get(assetId);
     return {
@@ -62,6 +78,8 @@ export function reconcileProgramme(
       appCaptured: formatAmount(mine.captured),
       appFigure: formatAmount(appFigure),
       partnerFigure: partnerFigure === null ? null : formatAmount(partnerFigure),
+      partnerAsOf: figure.asOf ? figure.asOf.toISOString() : null,
+      partnerState: figure.state,
       difference: difference === null ? null : formatAmount(difference),
       status: difference === null ? 'not_known' : difference === 0n ? 'matches' : 'break',
       fundingRate: mark ? formatAmount(mark.price) : null,
