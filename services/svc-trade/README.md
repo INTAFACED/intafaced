@@ -165,6 +165,45 @@ no event is sent: the venue is the record of balances, locks, fills and withdraw
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
 
+### Our builder fee in the ledger (D-venue-07, J-derivatives-17)
+
+The one money the door's orders move for us. With the door on, the builder-fee poster (`src/venue/builder-fee-poster.ts`,
+job `venue.builder_fees`, every `TRADE_BUILDER_FEE_POSTER_INTERVAL_MS`; `TRADE_BUILDER_FEE_POSTER=off` stops it) reads the
+venue's fills for our users' accounts (those that sent an order carrying our builder fee) and posts `builderFeeEarn` for
+each fill with a builder fee above zero, keyed `builder-fee:<venueId>:<fillId>`, so a fill read twice posts once. It never
+posts a customer's fill, margin or balance. `trade.venue_builder_fees` records which fills were posted or refused by the
+ledger (an unknown fee asset stays unposted and listed); it is not a balance. `admin.builderFees.recon` (`admin:read`) is
+the founder console's `/ledger/treasury`: for one period, the venue's builder fee on each fill against the ledger's under
+the fill's key, green when every fill matches, and every break listed with its venue fill id and amounts. Read only: it
+never posts to make the two agree. `builderFeeReceive` (a venue's payout of builder fees) waits for the owner's payout
+model.
+
+**Venue markets we list (J-cex-spot-16).** The venue lists what it lists; `GET /api/v1/venue/markets` shows only markets
+two operators listed, each with our `listing` (`opensAt`, `delistsAt`, `routing`, `open`, `delisted`, our `maxOrderQty` /
+`maxOrderNotional` or `null`) beside the venue's own `status` and largest order. A new order (preview, prepare, and again
+at first send) refuses `trade.venue_market_not_listed`, `trade.venue_routing_stopped`, `trade.venue_market_not_open`,
+`trade.venue_market_delisted` (after `delistsAt`, unless reduce-only), `trade.venue_routing_close_only` (unless
+reduce-only) or `trade.venue_order_above_limit` (422). Cancels are never checked. With no limit version of ours, orders
+pass on the venue's own largest order. Operator doors under `admin.venueMarkets.*` (`src/admin/venue-markets.ts`), each
+write consuming identity's two-person approval (target `venue-listing:<venueId>:<symbol>` or
+`venue-limits:<venueId>:<symbol>`, expected version `0` when none):
+
+| Door                | Action type                      | Refusals of its own                                                                                                        |
+| ------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `list`              | (read, `admin:read`)             | `trade.user_venue_off`                                                                                                     |
+| `listingSet`        | `trade.venue_listing_set`        | `trade.venue_listing_opening_window_blank` / `_invalid`, `trade.venue_market_unknown`, `trade.venue_listing_stale`         |
+| `routingSet`        | `trade.venue_routing_set`        | `trade.venue_listing_missing`, `trade.venue_routing_invalid`, `trade.venue_routing_unchanged`, `trade.venue_listing_stale` |
+| `limitsSet`         | `trade.venue_limits_set`         | `trade.venue_limit_blank`, `_not_exact`, `_unknown` (venue reports none), `_above_venue`, `_stale`                         |
+| `delistingSchedule` | `trade.venue_delisting_schedule` | `trade.venue_delisting_date_blank` / `_invalid` / `_not_future`, `trade.venue_delisting_already_scheduled`                 |
+
+Each version is append-only in `trade.venue_listings` / `trade.venue_routed_limits` with its approval id (business key),
+proposer, approver and executor; a retry of an approved write answers the version it wrote. A delisting writes its notice
+row (`trade.venue_delisting_notices`, key `venue-delisting:<venueId>:<symbol>:<delistsAt>`) in the same transaction and
+publishes `trade.venue_delisting.created` after commit, again each minute until the bus takes it; svc-notify files one
+dated notice per key. None of this cancels an order, touches an open venue order, or posts to the ledger.
+`TRADE_USER_VENUE_TEST_LISTINGS` (set only by the local stack) lists the named markets on a TEST venue, proposed by the stack id
+`LOCAL TEST stack seed` and approved by `LOCAL TEST stack seed approval` (approval id `test-stack-listing:<venueId>:<symbol>`); refused outside APP_ENV dev or test and on a venue that is not TEST.
+
 ## Events
 
 **Publishes**

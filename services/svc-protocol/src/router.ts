@@ -43,6 +43,7 @@ import {
 import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from './accounts/address.js';
 import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/registry.js';
 import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLimitUnsetError } from './accounts/my-accounts-list-limit.js';
+import { createLiquidityProcedures } from './liquidity/procedures.js';
 import type { ProtocolChain } from './chain/client.js';
 import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, classifyChainError, isZeroAddress } from './chain/availability.js';
 import { GasPercentilesUnsetError, type GasPercentileSetting } from './chain/gas-price.js';
@@ -104,6 +105,8 @@ import { loadAuditRegistry } from './audit/registry.js';
 import { loadProductAudits } from './audit/products.js';
 import { createAddressReportsRouter, createAddressRiskRouter, type AddressRiskDeps } from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
+import { listSessions } from './session/list.js';
+import { protocolSessionsListInputSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
 import { protocolAuditProductsSchema, protocolPredictedAccountSchema } from '@intafaced/contracts/protocol-blockers';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
@@ -456,6 +459,10 @@ export interface ProtocolRouterDeps {
   relayEnabled: () => boolean;
   /** Pool factory address on PROTOCOL_CHAIN_ID (0x0 = not deployed yet). */
   ammFactoryAddress: () => Address;
+  /** `PROTOCOL_LIQUIDITY_ROUTER_ADDRESS` (D-liquidity-02..04). Absent or zero: liquidity calls refuse. */
+  liquidityRouter?: () => Address | null;
+  /** `PROTOCOL_AMM_FEE_TIERS_BPS` (D-liquidity-03). Absent or null: `amm.feeTiers` refuses `amm.fee_tiers_unset`. */
+  feeTiers?: () => number[] | null;
   /**
    * `PROTOCOL_SWAP_SLIPPAGE_BPS`. Null when blank. The swap builder and the
    * session check refuse — they do not invent a tolerance.
@@ -1322,6 +1329,22 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       deps.embeddedWallet ?? { store: unwiredEmbeddedWalletStore, setting: () => ({ kind: 'unset' }) },
     ),
 
+    // ── Session keys list (D-portfolio-wallet-02): src/session/list.ts ──
+    sessions: router({
+      /** Every key the account granted, from its own logs, with the on-chain status at one block. Public, like the chain. */
+      list: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolSessionsListInputSchema)
+        .output(protocolSessionsListSchema)
+        .query(async ({ input }) => {
+          try {
+            return await listSessions(chain.client, { account: input.account, chainId: chain.config.chainId });
+          } catch (err) {
+            // A chain failure is named as the chain's; anything else (a shape bug) is an internal error, never "unreachable".
+            throw toTrpcError(err instanceof z.ZodError ? err : classifyChainError(err, 'sessions.list', chain.config.rpcUrl));
+          }
+        }),
+    }),
+
     // ── Claim links (D-swap-12) and speed up / cancel (RC-dex-protocol-01): src/wallet-tx/ ──
     ...createWalletTxRouters({
       chain: () => chain.client,
@@ -1514,6 +1537,17 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     }),
 
     amm: router({
+      ...createLiquidityProcedures({
+        client: () => chain.client,
+        rpcUrl: () => chain.config.rpcUrl,
+        factory: () => deps.ammFactoryAddress(),
+        router: () => deps.liquidityRouter?.() ?? null,
+        feeTiers: () => deps.feeTiers?.() ?? null,
+        quoteTtlSeconds: () => deps.swapQuoteTtlSeconds?.() ?? null,
+        slippageBps: () => deps.swapSlippageBps(),
+        readPairs: (factory) => readPairs(factory),
+        toTrpcError,
+      }),
       ...createPoolFeesProcedures({
         chain: poolFeesChain(
           () => chain.client,

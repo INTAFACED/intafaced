@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PAYOUT_FAILURES, PAYOUT_RETURNS } from './payout-sim.js';
+import { PAYOUT_CANCELS, PAYOUT_FAILURES, PAYOUT_RETURNS } from './payout-sim.js';
 
 /** The banking partner's job bodies (`/internal/jobs/payout-sim/*`). Ids are the bank's own; the partner names none. */
 export const payoutVerifyBody = z.object({ accountId: z.string().uuid() }).strict();
@@ -7,6 +7,8 @@ export const payoutVerifyBody = z.object({ accountId: z.string().uuid() }).stric
 export const payoutPaidBody = z.object({ cashOutId: z.string().uuid() }).strict();
 
 export const payoutFailedBody = z.object({ cashOutId: z.string().uuid(), reason: z.enum(PAYOUT_FAILURES) }).strict();
+
+export const payoutCancelledBody = z.object({ cashOutId: z.string().uuid(), reason: z.enum(PAYOUT_CANCELS) }).strict();
 
 export const payoutReturnedBody = z
   .object({

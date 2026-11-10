@@ -66,6 +66,10 @@
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
     },
+    "./protocol-liquidity": {
+      "types": "./dist/protocol-liquidity.d.ts",
+      "default": "./dist/protocol-liquidity.js"
+    },
     "./protocol-swap-v2": {
       "types": "./dist/protocol-swap-v2.d.ts",
       "default": "./dist/protocol-swap-v2.js"
@@ -85,6 +89,10 @@
     "./protocol-embedded-wallet": {
       "types": "./dist/protocol-embedded-wallet.d.ts",
       "default": "./dist/protocol-embedded-wallet.js"
+    },
+    "./protocol-sessions": {
+      "types": "./dist/protocol-sessions.d.ts",
+      "default": "./dist/protocol-sessions.js"
     },
     "./protocol-venue-wallet": {
       "types": "./dist/protocol-venue-wallet.d.ts",

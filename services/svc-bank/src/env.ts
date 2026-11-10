@@ -542,6 +542,12 @@ const schema = serviceEnvSchema
       BANK_CARD_PIN_TRY_LIMIT: z.string().optional(),
 
       /**
+       * The owner's count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5), a whole number from 1 to 10.
+       * NO DEFAULT. Blank or malformed → answering a challenge refuses `bank.card_3ds_try_limit_unset`.
+       */
+      BANK_CARD_3DS_TRY_LIMIT: z.string().optional(),
+
+      /**
        * The owner's card dispute cap per asset as JSON (J-bank-27 #4): `{ "USDC": "100.00" }`, the most one dispute may be
        * provisionally credited or decided for the cardholder. NO DEFAULT. Blank, or an asset it leaves out, refuses
        * `bank.card_dispute_cap_unset`; a malformed value refuses to start.
@@ -554,6 +560,13 @@ const schema = serviceEnvSchema
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
        */
       BANK_EARN_RISK_WORDING_JSON: z.string().optional(),
+
+      /**
+       * The owner's notice for a person in a blocked region who opens a transfer (BK-safe-01, J-bank-18 #1): plain text.
+       * NO DEFAULT. Blank / unset → the notice names the restriction and says the wording is not published; the bank's
+       * doors refuse there either way (`denied.region_blocked`), so the wording never decides who is blocked.
+       */
+      BANK_BLOCKED_REGION_NOTICE: z.string().optional(),
 
       /**
        * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /

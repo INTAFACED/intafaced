@@ -91,6 +91,13 @@ const STABLE_ONLY_FUNDING = '100';
 /** J-dex-protocol-04's "contract address on the TEST chain": any code there makes it a contract. */
 export const TEST_CONTRACT: Address = '0x0000000000000000000000000000000000c0ffee';
 
+/**
+ * The ERC-4337 v0.7 EntryPoint address the smart account implementation is built for (the Base Sepolia address, as
+ * PROTOCOL_ENTRYPOINT_ADDRESS on the stack). The TEST chain has no code there: owner-signed calls go straight to the
+ * account, which is all the session-key journeys use (J-dex-protocol-08).
+ */
+export const TEST_ENTRYPOINT: Address = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
+
 type Artifact = { abi: Abi; bytecode: Hex };
 const artifact = (name: string): Artifact =>
   JSON.parse(readFileSync(new URL(`../contracts/out/${name}.json`, import.meta.url), 'utf8')) as Artifact;
@@ -194,7 +201,9 @@ async function seed(out: string) {
       factory: Address;
       oracle?: Address;
       claimEscrow?: Address;
+      liquidityRouter?: Address;
       tokens: typeof TEST_TOKENS;
+      accountFactory?: Address;
     };
     const [factoryCode, tokenCode, oracleCode] = await Promise.all([
       publicClient.getCode({ address: record.factory }),
@@ -210,6 +219,9 @@ async function seed(out: string) {
         const claimEscrow = await seedClaimLinkParts(clients());
         writeFileSync(out, `${JSON.stringify({ ...record, tokens: TEST_TOKENS, claimEscrow }, null, 2)}\n`);
       }
+      // A chain seeded before the smart account factory existed gets it now (J-dex-protocol-08).
+      const accounts = await ensureAccountParts(clients(), out);
+      if (accounts) console.log(`smart accounts: factory ${accounts.accountFactory}`);
       // A chain seeded before router v2 existed gets it (TEST Token C, TEST Wrapped ETH, their pools) now.
       const current = JSON.parse(readFileSync(out, 'utf8')) as { routerV2?: Address };
       const v2Code = current.routerV2 ? await publicClient.getCode({ address: current.routerV2 }) : undefined;
@@ -217,6 +229,10 @@ async function seed(out: string) {
         const v2 = await seedRouterV2Parts(clients(), record.factory);
         writeFileSync(out, `${JSON.stringify({ ...current, tokens: TEST_TOKENS, ...v2 }, null, 2)}\n`);
       }
+      // A chain seeded before the liquidity v2 contracts has a v1 factory, whose pools' shares cannot be moved, so no
+      // liquidity router is added to it: the liquidity rooms refuse protocol.liquidity_router_unset until it is reseeded.
+      if (!record.liquidityRouter)
+        console.log('this TEST chain predates the liquidity contracts: stop the chain and start it again to reseed it');
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
       return;
@@ -246,10 +262,12 @@ async function seed(out: string) {
   await publicClient.request({ method: 'anvil_setCode', params: [TEST_CONTRACT, '0x00'] } as never);
 
   // Factory and router: deterministic by the deployer's nonce on a fresh node; the pools by CREATE2 from the factory.
-  const factory = await deploy('PoolFactory');
+  // The factory is the liquidity v2 one (D-liquidity-01, J-dex-protocol-12): its pools keep the v1 pool's swap, mint,
+  // burn and event signatures, so every swap journey reads them as before, and their shares are ERC-20 tokens.
+  const factory = await deploy('LiquidityFactory');
   const router = await deploy('SovereignRouter');
-  const factoryAbi = artifact('PoolFactory').abi;
-  const poolAbi = artifact('ConstantProductPool').abi;
+  const factoryAbi = artifact('LiquidityFactory').abi;
+  const poolAbi = artifact('LiquidityPool').abi;
   const { A, B, THIN, USD, EUR } = TEST_TOKENS;
   const pools = [
     // Two A/B pools, one better: deeper reserves and the lower fee win any quote.
@@ -346,6 +364,8 @@ async function seed(out: string) {
 
   const claimEscrow = await seedClaimLinkParts(all);
   const v2 = await seedRouterV2Parts(all, factory);
+  // Last, so every address seeded before it stays where it was.
+  const liquidityRouter = await deploy('LiquidityRouter', [factory]);
 
   const record = {
     node: version,
@@ -363,11 +383,42 @@ async function seed(out: string) {
     claimEscrow,
     claimExpiryBounds: TEST_CLAIM_EXPIRY_BOUNDS,
     ...v2,
+    liquidityRouter,
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);
+  // Deployed after everything above, so no address seeded before it moves.
+  await ensureAccountParts(all, out);
   await mineOnInterval(publicClient);
   console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools, fee relay ${feeRelay}`);
+}
+
+/**
+ * The smart account implementation and its AccountFactory (D-portfolio-wallet-02, J-dex-protocol-08): the accounts whose
+ * session keys the Session keys panel lists, grants and revokes. Deployed once per chain and added to the record as
+ * `accountFactory` and `accountImplementation`; a chain that already has them keeps them. Returns them, or null when they
+ * were there already. Runs on automine, inside the seed.
+ */
+async function ensureAccountParts(
+  { publicClient, walletClient }: Clients,
+  out: string,
+): Promise<{ accountFactory: Address; accountImplementation: Address } | null> {
+  const record = JSON.parse(readFileSync(out, 'utf8')) as { accountFactory?: Address; accountImplementation?: Address };
+  if (record.accountFactory) {
+    const code = await publicClient.getCode({ address: record.accountFactory });
+    if (code && code !== '0x') return null;
+  }
+  const deployed = async (name: string, args: unknown[]) => {
+    const a = artifact(name);
+    const hash = await walletClient.deployContract({ abi: a.abi, bytecode: a.bytecode, args });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`${name} deploy failed: ${hash}`);
+    return receipt.contractAddress as Address;
+  };
+  const accountImplementation = await deployed('SmartAccount', [TEST_ENTRYPOINT]);
+  const accountFactory = await deployed('AccountFactory', [accountImplementation]);
+  writeFileSync(out, `${JSON.stringify({ ...record, accountFactory, accountImplementation }, null, 2)}\n`);
+  return { accountFactory, accountImplementation };
 }
 
 /**
@@ -550,10 +601,27 @@ async function fundStable(address: Address) {
   console.log(`funded ${address}: ${STABLE_ONLY_FUNDING} ${TEST_TOKENS.USD.name} only, no TEST ETH`);
 }
 
+/** What `fund <address> venue` gives (J-wallet-09 #3): TEST ETH for gas and TEST USD to deposit into the TEST venue. */
+const VENUE_FUNDING = '100';
+async function fundVenue(address: Address) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  await publicClient.request({ method: 'anvil_setBalance', params: [address, toHex(parseUnits('10', 18))] } as never);
+  const hash = await walletClient.writeContract({
+    address: TEST_TOKENS.USD.address,
+    abi: artifact('TestToken').abi,
+    functionName: 'mint',
+    args: [address, parseUnits(VENUE_FUNDING, TEST_TOKENS.USD.decimals)],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`funded ${address}: 10 TEST ETH, ${VENUE_FUNDING} ${TEST_TOKENS.USD.name}`);
+}
+
 const [command, arg, kind] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
+else if (command === 'fund' && arg && kind === 'venue') await fundVenue(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'plain') await fundPlain(getAddress(arg));
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|plain]');
+else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|venue|plain]');

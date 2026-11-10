@@ -351,6 +351,28 @@ describe('send to a bank account over a bank rail (J-bank-04 #1)', () => {
       expect(again.cooling.state).toBe('active');
     });
 
+    it('the first-time payee scam warning reads unread until read, once per recipient; someone else cannot read it (J-bank-18 #2)', async () => {
+      const bea = await add();
+      expect(bea.scamWarning).toEqual({ state: 'unread', readAt: null });
+      const read = await as(ADA, PLAIN).railSends.readPayeeWarning({ payeeId: bea.payeeId });
+      expect(read.scamWarning.state).toBe('read');
+      expect(Date.parse(read.scamWarning.readAt!)).not.toBeNaN();
+      // Reading again changes nothing: the first read's time stands.
+      expect((await as(ADA, PLAIN).railSends.readPayeeWarning({ payeeId: bea.payeeId })).scamWarning).toEqual(read.scamWarning);
+      expect((await as(ADA, PLAIN).railSends.payees({ limit: 10 }))[0]!.scamWarning).toEqual(read.scamWarning);
+      // Another recipient is a first-time payee of its own.
+      const us = await add({ nickname: 'Ada at home', country: 'US', rail: 'ach', recipient: ACH });
+      expect(us.scamWarning.state).toBe('unread');
+      // Someone else's recipient is not found, and theirs stays unread.
+      expect((await refused(as(BOB, PLAIN).railSends.readPayeeWarning({ payeeId: us.payeeId }))).bank).toBe('bank.payee_not_found');
+      expect((await as(ADA, PLAIN).railSends.payees({ limit: 10 })).find((p) => p.payeeId === us.payeeId)!.scamWarning.state).toBe(
+        'unread',
+      );
+      // A removed recipient cannot be read either.
+      await as(ADA).railSends.removePayee({ payeeId: us.payeeId });
+      expect((await refused(as(ADA, PLAIN).railSends.readPayeeWarning({ payeeId: us.payeeId }))).bank).toBe('bank.payee_not_found');
+    });
+
     it('an invite is refused by name: no email delivery is connected', async () => {
       expect(await refused(as(ADA).railSends.invitePayee({ email: 'bea@example.com' }))).toEqual({
         code: 'PRECONDITION_FAILED',
