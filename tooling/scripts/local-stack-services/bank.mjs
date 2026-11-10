@@ -14,6 +14,14 @@ function testValue(name) {
   return entry.value;
 }
 
+/** The blocked-region notice (BK-safe-01, J-bank-18 #1): the profile's TEST wording, or blank when asked to show it unset. */
+function blockedRegionNotice() {
+  const asked = process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+  if (asked === undefined || asked === '') return { BANK_BLOCKED_REGION_NOTICE: testValue('BANK_BLOCKED_REGION_NOTICE') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
+}
+
 /** The staking risk wording (BK-earn-04): the profile's TEST wording, or blank when the stack is asked to show it unset. */
 function earnRiskWording() {
   const asked = process.env.LOCAL_STACK_BANK_EARN_RISK_WORDING;
@@ -241,6 +249,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_CARD_PROGRAMME_JSON: testValue('BANK_CARD_PROGRAMME_JSON'),
     // LOCAL TEST count of wrong PIN tries that block a card's PIN (J-bank-14 #3).
     BANK_CARD_PIN_TRY_LIMIT: testValue('BANK_CARD_PIN_TRY_LIMIT'),
+    // LOCAL TEST count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5).
+    BANK_CARD_3DS_TRY_LIMIT: testValue('BANK_CARD_3DS_TRY_LIMIT'),
     // LOCAL TEST cashback by rank card tier (J-bank-13 #7): the profile's TEST rates in IFC, and the card simulator's
     // cashback stand-in (refused at boot outside dev/test), so a TEST card spend can be paid cashback from the one reward
     // pot. Without the stand-in a simulated card pays none (bank.rewards_issuer_unset).
@@ -327,6 +337,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST wording from the bank profile (BK-earn-04, J-bank-08 #6): what slashing means and who owns a staked saving.
     // `LOCAL_STACK_BANK_EARN_RISK_WORDING=off` on a restart leaves it blank, so the pool page's "not published" can be seen.
     ...earnRiskWording(),
+    // LOCAL TEST notice from the bank profile for a transfer opened from a blocked region (BK-safe-01, J-bank-18 #1).
+    // `LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE=off` on a restart leaves it blank, so the notice's "not published" can be seen.
+    ...blockedRegionNotice(),
+    // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart adds a TEST business block for the TEST region AA
+    // (packages/config jurisdiction.ts testBusinessBlocksFromEnv), and edge.mjs then stamps every request from AA, so the
+    // bank's doors refuse denied.region_blocked with its reason (J-bank-18 #1), as svc-protocol's do (J-wallet-09 #1).
+    ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' } : {}),
     // The money-out step-up rule is off unless `LOCAL_STACK_BANK_STEP_UP_MONEY_OUT=required` on a restart (J-pay-01 #5).
     ...moneyOutStepUp(),
     ...cardPartner(),

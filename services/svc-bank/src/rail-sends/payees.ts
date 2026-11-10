@@ -71,6 +71,11 @@ export interface PayeeView {
   readonly addedAt: string;
   /** `unset`: the owner has not published the window. `active`: money may go to it from `endsAt`. `open`: it may now. */
   readonly cooling: { readonly state: 'unset' | 'active' | 'open'; readonly endsAt: string | null };
+  /**
+   * The first-time payee scam warning (BK-safe-02, J-bank-18 #2): `unread` until the person reads it for this recipient,
+   * then `read` with when. The review shows it while unread and never again after; it never blocks a send by itself.
+   */
+  readonly scamWarning: { readonly state: 'unread' | 'read'; readonly readAt: string | null };
 }
 
 export interface PayeeRow {
@@ -83,6 +88,7 @@ export interface PayeeRow {
   destination_key: string;
   created_at: Date;
   removed_at: Date | null;
+  scam_warning_read_at?: Date | null;
 }
 
 const invalid = (message: string) => new BankError(message, 'bank.rail_send_invalid');
@@ -180,6 +186,20 @@ export class PayeeService {
     return { payeeId: rows[0].id, removed: true };
   }
 
+  /**
+   * The person read the first-time payee scam warning for one of their recipients (J-bank-18 #2). Once: the first read's
+   * time stands, and reading again changes nothing. Not found, not yours and removed read the same.
+   */
+  async readScamWarning(userId: string, payeeId: string): Promise<PayeeView> {
+    const rows = await this.sql<PayeeRow[]>`
+      UPDATE bank.rail_payees SET scam_warning_read_at = COALESCE(scam_warning_read_at, ${this.now()})
+       WHERE id = ${payeeId}::uuid AND user_id = ${userId} AND removed_at IS NULL
+      RETURNING *
+    `;
+    if (!rows[0]) throw new BankError(`Recipient ${payeeId} not found`, 'bank.payee_not_found');
+    return this.view(rows[0]);
+  }
+
   /** An invite emails the recipient a link to enter their own details: no email delivery is connected here. */
   invite(email: string): never {
     if (!/^[^\s@\p{Cc}]{1,64}@[^\s@\p{Cc}]{1,190}\.[^\s@\p{Cc}]{2,63}$/u.test(email.trim())) {
@@ -236,6 +256,9 @@ export class PayeeService {
       verificationRail: 'rail.bank',
       addedAt: row.created_at.toISOString(),
       cooling: cooling(readPayeeCoolingHours(this.coolingHours()), row.created_at, this.now()),
+      scamWarning: row.scam_warning_read_at
+        ? { state: 'read', readAt: row.scam_warning_read_at.toISOString() }
+        : { state: 'unread', readAt: null },
     };
   }
 }
