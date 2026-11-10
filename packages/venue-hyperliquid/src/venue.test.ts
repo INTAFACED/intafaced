@@ -730,8 +730,8 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     ];
     const fills = (await venueWith(fake).fills(account, new Date(NOW))).value;
     expect(fills.map((f) => [f.fillId, f.role, f.venueFee, f.builderFee, f.realisedPnl, f.venueClientOrderId])).toEqual([
-      ['9001', 'taker', a('0.35'), a('0.05'), null, '0xaa'],
-      ['9002', 'maker', a('0.1'), ZERO, a('50'), null],
+      [`${NOW}:ETH:9001`, 'taker', a('0.35'), a('0.05'), null, '0xaa'],
+      [`${NOW + 1}:ETH:9002`, 'maker', a('0.1'), ZERO, a('50'), null],
     ]);
   });
 
@@ -992,8 +992,8 @@ describe('review fixes: nonces, listing, symbols, paging, marks, destinations', 
     fake.info.userFillsByTime = () => [fill('@1', 1), fill('@2', 2)];
     const fills = (await venue.fills(account, new Date(NOW))).value;
     expect(fills.map((f) => [f.fillId, f.symbol])).toEqual([
-      ['1', 'TWIN-USDC@1'],
-      ['2', 'TWIN-USDC'],
+      [`${NOW}:@1:1`, 'TWIN-USDC@1'],
+      [`${NOW}:@2:2`, 'TWIN-USDC'],
     ]);
   });
 
@@ -1023,8 +1023,54 @@ describe('review fixes: nonces, listing, symbols, paging, marks, destinations', 
     const fills = (await venueWith(fake).fills(account, new Date(NOW))).value;
     expect(fills.length).toBe(2050);
     expect(new Set(fills.map((f) => f.fillId)).size).toBe(2050);
-    expect(fills.at(-1)!.fillId).toBe('2050');
+    expect(fills.at(-1)!.fillId).toBe(`${NOW + 1990}:ETH:2050`);
     expect(starts).toEqual([NOW, NOW + 1990]);
+  });
+
+  it('two trades on different coins with the same trade id on one account are two fills, each with its own id (D6, test 3)', async () => {
+    const fake = fakeVenue();
+    const fill = (coin: string, builderFee: string) => ({
+      coin,
+      px: '2000',
+      sz: '0.5',
+      side: 'B',
+      time: NOW,
+      dir: 'Open Long',
+      closedPnl: '0',
+      oid: 7,
+      crossed: true,
+      fee: '0.4',
+      builderFee,
+      tid: 4242,
+      feeToken: 'USDC',
+    });
+    fake.info.userFillsByTime = () => [fill('ETH', '0.05'), fill('BTC', '0.07')];
+    const fills = (await venueWith(fake).fills(account, new Date(NOW))).value;
+    expect(fills.map((f) => [f.fillId, f.symbol, f.builderFee])).toEqual([
+      [`${NOW}:BTC:4242`, 'BTC-PERP', a('0.07')],
+      [`${NOW}:ETH:4242`, 'ETH-PERP', a('0.05')],
+    ]);
+  });
+
+  it('a fill id keeps a coin that holds a colon whole, and the same fill read on two pages is one fill', async () => {
+    const fake = fakeVenue();
+    const f = {
+      coin: 'xyz:GOLD',
+      px: '1',
+      sz: '1',
+      side: 'B',
+      time: NOW,
+      dir: 'Buy',
+      closedPnl: '0',
+      oid: 1,
+      crossed: true,
+      fee: '0',
+      tid: 5,
+      feeToken: 'USDC',
+    };
+    fake.info.userFillsByTime = () => [f, { ...f }];
+    const fills = (await venueWith(fake).fills(account, new Date(NOW))).value;
+    expect(fills.map((x) => x.fillId)).toEqual([`${NOW}:xyz:GOLD:5`]);
   });
 
   it('a withdrawal reports the destination this instance signed and sent, and USDC-PERP as its asset', async () => {

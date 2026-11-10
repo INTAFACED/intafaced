@@ -1098,7 +1098,7 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
    * fills (and keeps only the 10000 most recent), so this pages: each next
    * page starts at the last fill's millisecond, not after it, so fills that
    * share that millisecond are neither dropped nor counted twice (deduped by
-   * the venue's `tid`). It stops on a short page, or a page that adds nothing.
+   * the fill id, `fillIdOf`). It stops on a short page, or a page that adds nothing.
    * The docs' general pagination note says ranged answers return 500
    * elements; the per-endpoint 2000 is the one used, and the "adds nothing"
    * stop keeps a smaller cap from looping.
@@ -1112,10 +1112,10 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       let lastTime = startTime;
       for (const entry of page) {
         const f = obj(entry, 'fill');
-        const tid = String(int(f.tid, 'tid'));
+        const id = fillIdOf(f);
         lastTime = Math.max(lastTime, int(f.time, 'fill time'));
-        if (!seen.has(tid)) {
-          seen.set(tid, f);
+        if (!seen.has(id)) {
+          seen.set(id, f);
           added += 1;
         }
       }
@@ -1126,8 +1126,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       }
       startTime = lastTime;
     }
-    const list: UserVenueFill[] = [];
-    for (const f of seen.values()) {
+    const list: (UserVenueFill & { readonly tid: string })[] = [];
+    for (const [fillId, f] of seen) {
       const coin = str(f.coin, 'fill coin');
       const m = await this.marketOfCoin(coin);
       const totalFee = amt(f.fee, 'fill fee');
@@ -1135,7 +1135,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       const dir = typeof f.dir === 'string' ? f.dir : '';
       const perp = m?.kind === 'perpetual';
       list.push({
-        fillId: String(int(f.tid, 'tid')),
+        fillId,
+        tid: String(int(f.tid, 'tid')),
         venueClientOrderId: typeof f.cloid === 'string' ? f.cloid.toLowerCase() : null,
         symbol: m?.symbol ?? coin,
         side: f.side === 'B' ? 'buy' : 'sell',
@@ -1150,8 +1151,11 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
         filledAt: new Date(int(f.time, 'fill time')),
       });
     }
-    list.sort((x, y) => x.filledAt.getTime() - y.filledAt.getTime() || compareTid(x.fillId, y.fillId));
-    return this.asOf(list);
+    list.sort(
+      (x, y) =>
+        x.filledAt.getTime() - y.filledAt.getTime() || compareTid(x.tid, y.tid) || (x.symbol < y.symbol ? -1 : x.symbol > y.symbol ? 1 : 0),
+    );
+    return this.asOf(list.map(({ tid: _tid, ...fill }) => fill));
   }
 
   async positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>> {
@@ -1256,6 +1260,17 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       marginMode: lev.type === 'isolated' ? 'isolated' : 'cross',
     });
   }
+}
+
+/**
+ * A fill's id, unique everywhere: the fill's time, its coin and the venue's trade id, `<time>:<coin>:<tid>`. The venue's
+ * `tid` alone is not unique: "For a globally unique trade id, use (block_time, coin, tid)" (Hyperliquid's websocket
+ * subscriptions page, read 10 Nov 2026), so two trades on different coins can share it. The id is born here and becomes
+ * the builder-fee ledger key, so it must never collapse two fills into one (owner decision D6, 10 Nov 2026). Time and
+ * `tid` are whole numbers, so the coin is everything between the first and the last colon, even a coin with a colon.
+ */
+function fillIdOf(f: { readonly [key: string]: Json }): string {
+  return `${int(f.time, 'fill time')}:${str(f.coin, 'fill coin')}:${int(f.tid, 'tid')}`;
 }
 
 /** Venue trade ids are whole numbers as decimal strings: order them as numbers, without a `number`. */

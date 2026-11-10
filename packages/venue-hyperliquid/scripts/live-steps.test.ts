@@ -651,7 +651,9 @@ describe('live steps against a scripted fake venue', () => {
     expect(code).toBe(0);
     // Evidence on the lines: cloids, fills, fees, as-of times.
     expect(stepLine(lines, 'J-cex-spot-01 #6')).toMatch(/cloid 0x[0-9a-f]{32}/);
-    expect(stepLine(lines, 'J-cex-spot-01 #8')).toMatch(/tid \d+, 0\.08 at 150\.5, maker, venue fee [\d.]+ HYPE, builder fee [\d.]+ HYPE/);
+    expect(stepLine(lines, 'J-cex-spot-01 #8')).toMatch(
+      /fill \d+:@\d+:\d+, 0\.08 at 150\.5, maker, venue fee [\d.]+ HYPE, builder fee [\d.]+ HYPE/,
+    );
     expect(stepLine(lines, 'J-cex-spot-01 #10')).toMatch(/repeat: not definite \(already_submitted\)/);
     expect(stepLine(lines, 'J-derivatives-01 #9')).toMatch(/as of 2026-11-09T/);
     expect(stepLine(lines, 'J-cex-spot-01 #12')).toMatch(/pending, fee 1; skipped: done \(the bridge settles/);

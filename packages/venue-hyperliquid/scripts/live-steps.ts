@@ -979,7 +979,7 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
         s.check(
           'size',
           filled === restSize,
-          `${fmt(filled)} of ${fmt(restSize)} in ${fills.length} fill(s): ${fills.map((f) => `tid ${f.fillId}`).join(', ')}`,
+          `${fmt(filled)} of ${fmt(restSize)} in ${fills.length} fill(s): ${fills.map((f) => `fill ${f.fillId}`).join(', ')}`,
         );
         s.check('price', fills.length > 0 && fills.every((f) => f.price === restPrice), `${fills.map((f) => fmt(f.price)).join(', ')}`);
         s.check('maker role', fills.length > 0 && fills.every((f) => f.role === 'maker'), `${fills.map((f) => f.role).join(', ')}`);
@@ -1013,7 +1013,7 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
           `${quote} ${fmt(dQuote)} (hold ${fmt(dHold)}), ${base} +${fmt(dBase)}`,
         );
         s.summary(
-          `filled by other's IOC sell; tid ${fills.map((f) => f.fillId).join(',')}, ${fmt(filled)} at ${fmt(restPrice)}, maker, venue fee ${fmt(venueFee)} ${feeAsset}, builder fee ${fmt(builderFee)} ${feeAsset}`,
+          `filled by other's IOC sell; fill ${fills.map((f) => f.fillId).join(',')}, ${fmt(filled)} at ${fmt(restPrice)}, maker, venue fee ${fmt(venueFee)} ${feeAsset}, builder fee ${fmt(builderFee)} ${feeAsset}`,
         );
       },
     );
@@ -1059,7 +1059,7 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
         s.check(
           'filled',
           fills.length > 0 && compare(filled, ZERO) > 0,
-          `${fmt(filled)} of ${fmt(marketSize)} (order ${order?.status ?? 'none'}), tid ${fills.map((f) => f.fillId).join(',')}`,
+          `${fmt(filled)} of ${fmt(marketSize)} (order ${order?.status ?? 'none'}), fill ${fills.map((f) => f.fillId).join(',')}`,
         );
         s.check(
           'inside the slippage limit',
@@ -1356,7 +1356,7 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
           );
         }
         s.summary(
-          `cloid ${cloid}, tid ${fills.map((f) => f.fillId).join(',')}, ${pos ? `${pos.side} ${fmt(pos.size)} at ${fmt(pos.entryPrice)}` : 'no position'}; second press: ${outcomeText(second)}`,
+          `cloid ${cloid}, fill ${fills.map((f) => f.fillId).join(',')}, ${pos ? `${pos.side} ${fmt(pos.size)} at ${fmt(pos.entryPrice)}` : 'no position'}; second press: ${outcomeText(second)}`,
         );
       },
     );
@@ -1467,7 +1467,7 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
         }
         perpOpened = false;
         s.summary(
-          `closed ${fmt(closePart)} + ${fmt(rest)}; tid ${closing.map((f) => f.fillId).join(',')}; realised ${fmt(realised)}, venue fees ${fmt(venueFees)}, builder fees ${fmt(builderFees)} USDC`,
+          `closed ${fmt(closePart)} + ${fmt(rest)}; fill ${closing.map((f) => f.fillId).join(',')}; realised ${fmt(realised)}, venue fees ${fmt(venueFees)}, builder fees ${fmt(builderFees)} USDC`,
         );
       },
     );
