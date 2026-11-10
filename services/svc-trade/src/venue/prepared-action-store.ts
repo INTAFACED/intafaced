@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { Amount } from '@intafaced/ledger-client/money';
 import {
   decodeVenueWire,
   encodeVenueWire,
@@ -32,6 +33,14 @@ export interface PreparedActionStore {
    */
   recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
   /**
+   * The orders we routed on `venueId` with our builder fee attached, among `venueClientOrderIds`: each venue client order
+   * id with the fee rate it carried (scaled decimal bps). Only an order signed and accepted by the venue through our door
+   * counts; a prepared order never sent is not routed. Where two share an id, the first prepared wins. The routed-volume
+   * recon reads it (J-derivatives-17 #4).
+   */
+  builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]): Promise<ReadonlyMap<string, Amount>>;
+
+  /**
    * The venue accounts on `venueId` whose OWNER wallet signed an action this person prepared: the door checked that each
    * stored signature recovers to its signer, so the person controls that wallet (J-cex-spot-01 #11). An agent's
    * signature, and an action never signed, name no account. Sorted by owner, then sub-account (main account first).
@@ -57,6 +66,14 @@ function signedAccountsOf(rows: Iterable<StoredVenueAction>, userId: string, ven
     seen.set(`${owner}\u0000${subAccount ?? ''}`, { owner, subAccount });
   }
   return [...seen.values()].sort((a, b) => a.owner.localeCompare(b.owner) || (a.subAccount ?? '').localeCompare(b.subAccount ?? ''));
+}
+
+/** The builder fee rate a routed order carried, or null for an action that is not an accepted order with our fee. */
+function builderFeeRate({ prepared, signature, lastOutcome }: StoredVenueAction): Amount | null {
+  if (!signature || !lastOutcome?.definite || !lastOutcome.accepted) return null;
+  return prepared.intent.kind === 'place_order' && prepared.venueClientOrderId !== null && prepared.builderFee
+    ? prepared.builderFee.feeBps
+    : null;
 }
 
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
@@ -106,6 +123,17 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
 
   async ownerSignedAccounts(userId: string, venueId: string) {
     return signedAccountsOf(this.rows.values(), userId, venueId);
+  }
+
+  async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {
+    const wanted = new Set(venueClientOrderIds);
+    const out = new Map<string, Amount>();
+    for (const row of this.rows.values()) {
+      const rate = builderFeeRate(row);
+      const id = row.prepared.venueClientOrderId!;
+      if (row.prepared.venueId === venueId && rate !== null && wanted.has(id) && !out.has(id)) out.set(id, rate);
+    }
+    return out;
   }
 }
 
@@ -175,5 +203,22 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND venue_id = ${venueId} AND signature IS NOT NULL`;
     return signedAccountsOf(rows.map(fromRow), userId, venueId);
+  }
+
+  async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {
+    const out = new Map<string, Amount>();
+    if (venueClientOrderIds.length === 0) return out;
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE venue_id = ${venueId} AND kind = 'place_order'
+        AND prepared->>'venueClientOrderId' = ANY(${this.sql.array([...venueClientOrderIds])})
+        AND signature IS NOT NULL
+      ORDER BY created_at, user_id, business_key`;
+    for (const row of rows.map(fromRow)) {
+      const rate = builderFeeRate(row);
+      const id = row.prepared.venueClientOrderId!;
+      if (rate !== null && !out.has(id)) out.set(id, rate);
+    }
+    return out;
   }
 }
