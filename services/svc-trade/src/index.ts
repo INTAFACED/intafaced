@@ -687,6 +687,8 @@ export const appRouter = createTradeRouter(
   }),
   grid,
   platformPauses,
+  // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
+  { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

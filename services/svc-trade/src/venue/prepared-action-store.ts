@@ -31,6 +31,32 @@ export interface PreparedActionStore {
    * outcome now stored (the earlier definite one when it was kept).
    */
   recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
+  /**
+   * The venue accounts on `venueId` whose OWNER wallet signed an action this person prepared: the door checked that each
+   * stored signature recovers to its signer, so the person controls that wallet (J-cex-spot-01 #11). An agent's
+   * signature, and an action never signed, name no account. Sorted by owner, then sub-account (main account first).
+   */
+  ownerSignedAccounts(userId: string, venueId: string): Promise<OwnerSignedAccount[]>;
+}
+
+export interface OwnerSignedAccount {
+  readonly owner: string;
+  readonly subAccount: string | null;
+}
+
+/** One account per owner and sub-account, sorted, from the stored actions that name it. */
+function signedAccountsOf(rows: Iterable<StoredVenueAction>, userId: string, venueId: string): OwnerSignedAccount[] {
+  const seen = new Map<string, OwnerSignedAccount>();
+  for (const row of rows) {
+    const p = row.prepared;
+    if (row.userId !== userId || p.venueId !== venueId || !row.signature) continue;
+    const owner = p.account.owner.toLowerCase();
+    if (p.signer.role !== 'owner' || p.signer.address.toLowerCase() !== owner) continue;
+    if (row.signature.signedBy.toLowerCase() !== owner) continue;
+    const subAccount = p.account.subAccount ?? null;
+    seen.set(`${owner}\u0000${subAccount ?? ''}`, { owner, subAccount });
+  }
+  return [...seen.values()].sort((a, b) => a.owner.localeCompare(b.owner) || (a.subAccount ?? '').localeCompare(b.subAccount ?? ''));
 }
 
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
@@ -76,6 +102,10 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     const next = { ...row, lastOutcome: wire(outcome) };
     this.rows.set(id, next);
     return next.lastOutcome;
+  }
+
+  async ownerSignedAccounts(userId: string, venueId: string) {
+    return signedAccountsOf(this.rows.values(), userId, venueId);
   }
 }
 
@@ -137,5 +167,13 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     const stored = await this.find(userId, businessKey);
     if (!stored?.lastOutcome) throw new Error(`no prepared venue action under ${businessKey}`);
     return stored.lastOutcome;
+  }
+
+  async ownerSignedAccounts(userId: string, venueId: string) {
+    // Every signed row of this person on this venue; the owner checks are the same code as the in-memory store's.
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE user_id = ${userId} AND venue_id = ${venueId} AND signature IS NOT NULL`;
+    return signedAccountsOf(rows.map(fromRow), userId, venueId);
   }
 }
