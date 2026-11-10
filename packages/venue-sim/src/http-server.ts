@@ -38,7 +38,7 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *        /builder-fee-approval {account,builder}, /leverage {account,symbol}
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,withdrawalFee?,networkFee?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -358,10 +358,12 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/test/switches': {
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;
+      if (typeof body.unlistPerpetuals === 'boolean') sim.switches.unlistPerpetuals = body.unlistPerpetuals;
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       return {
         venueDown: sim.switches.venueDown,
+        unlistPerpetuals: sim.switches.unlistPerpetuals,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         label: 'TEST',
