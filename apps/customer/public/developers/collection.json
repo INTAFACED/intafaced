@@ -1374,6 +1374,26 @@
           }
         },
         {
+          "name": "venueOrders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "orders"] }
+          }
+        },
+        {
+          "name": "venueOrderByKey",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/orders/by-key",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "orders", "by-key"]
+            }
+          }
+        },
+        {
           "name": "venueSession",
           "request": {
             "method": "GET",

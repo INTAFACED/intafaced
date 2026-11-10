@@ -39,6 +39,13 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?}   each fee a MaybeKnown<Amount>
+ *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
+ *                                                         take the venue away from its own person and no one else's:
+ *                                                         `down` refuses every call on that owner's account venue_down;
+ *                                                         `loseAnswers` applies the next N submits and answers each
+ *                                                         `definite: false` (timeout); `failAfterSend` applies the next N
+ *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
+ *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
  *        /test/fills {since}                              every account's fills since a time, with its account
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
@@ -240,6 +247,49 @@ export async function seedTestVenue(
   return { makers: [testMakerKey('bid').address.toLowerCase(), testMakerKey('ask').address.toLowerCase()], orders };
 }
 
+/** One owner's TEST switches (`/test/account-switches`). Kept per simulator, never part of UserVenue. */
+export interface AccountSwitches {
+  down: boolean;
+  loseAnswers: number;
+  failAfterSend: number;
+  submitDelayMs: number;
+}
+
+const ACCOUNT_SWITCHES = new WeakMap<TestVenueSimulator, Map<string, AccountSwitches>>();
+
+function switchesOf(sim: TestVenueSimulator, owner: string): AccountSwitches | null {
+  return ACCOUNT_SWITCHES.get(sim)?.get(owner.toLowerCase()) ?? null;
+}
+
+/** The owner a request acts on: its `account`, or the prepared action's account on a submit. */
+function ownerOf(body: Record<string, unknown>): string | null {
+  const a = (body.account ?? (body.prepared as { account?: unknown } | undefined)?.account) as { owner?: unknown } | undefined;
+  return a && typeof a.owner === 'string' ? a.owner.toLowerCase() : null;
+}
+
+function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknown>): AccountSwitches & { owner: string } {
+  const owner = str(body, 'owner').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(owner)) throw new VenueWireError('owner must be a 0x address');
+  const all = ACCOUNT_SWITCHES.get(sim) ?? new Map<string, AccountSwitches>();
+  ACCOUNT_SWITCHES.set(sim, all);
+  const s = all.get(owner) ?? { down: false, loseAnswers: 0, failAfterSend: 0, submitDelayMs: 0 };
+  if (body.down !== undefined) {
+    if (typeof body.down !== 'boolean') throw new VenueWireError('down is true or false');
+    s.down = body.down;
+  }
+  const whole = (k: 'loseAnswers' | 'failAfterSend' | 'submitDelayMs', max: number) => {
+    const v = body[k];
+    if (v === undefined) return;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > max) throw new VenueWireError(`${k} is a whole number 0 to ${max}`);
+    s[k] = v;
+  };
+  whole('loseAnswers', 100);
+  whole('failAfterSend', 100);
+  whole('submitDelayMs', 10_000);
+  all.set(owner, s);
+  return { owner, ...s };
+}
+
 /** One request's answer. Exported so a test can drive it without a socket. */
 export async function answerTestVenue(
   sim: TestVenueSimulator,
@@ -260,6 +310,28 @@ export async function answerTestVenue(
     return [400, { error: (err as Error).message }];
   }
   try {
+    const owner = path.startsWith('/test/') ? null : ownerOf(body);
+    const mine = owner ? switchesOf(sim, owner) : null;
+    if (mine?.down) {
+      throw new VenueRefusalError({
+        venueId: sim.venue.id,
+        code: 'venue_down',
+        detail: `${sim.venue.displayName} is down for this account (TEST switch)`,
+      });
+    }
+    if (path === '/submit' && mine && mine.submitDelayMs > 0) await new Promise((r) => setTimeout(r, mine.submitDelayMs));
+    if (path === '/submit' && mine && mine.loseAnswers > 0) {
+      // Applied, then the answer is lost, as a timeout after the bytes reached the venue.
+      await route(sim, path, body);
+      mine.loseAnswers -= 1;
+      return [200, encodeVenueWire({ definite: false, reason: 'timeout' })];
+    }
+    if (path === '/submit' && mine && mine.failAfterSend > 0) {
+      // Applied, then the venue answers a 5xx: an error after the bytes reached the venue.
+      await route(sim, path, body);
+      mine.failAfterSend -= 1;
+      return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
+    }
     const value = await route(sim, path, body);
     return value === undefined ? [404, { error: `no route ${path}` }] : [200, encodeVenueWire(value)];
   } catch (err) {
@@ -327,6 +399,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         label: 'TEST',
       };
     }
+    case '/test/account-switches':
+      return { ...setAccountSwitches(sim, body), label: 'TEST' };
     case '/test/settle-withdrawals':
       return { settled: sim.settleWithdrawals(), label: 'TEST' };
     case '/test/set-mark': {

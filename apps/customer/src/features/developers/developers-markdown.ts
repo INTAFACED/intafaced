@@ -11,6 +11,7 @@ import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import { deskCopy } from '../../screens/trade/desk/copy';
 import { acceptedCells, refusedName } from './trading/order-types-view';
 import { tradingApiCopy } from './trading/trading-api-copy';
+import { idempotencyCopy } from './idempotency/idempotency-copy';
 import { developersCopy } from './developers-copy';
 import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
 import { docsCopy } from './developers-docs-copy';
@@ -37,6 +38,7 @@ const limits = rateLimitsCopy.forLocale('en').t;
 const tradeErrors = tradeErrorsCopy.forLocale('en').t;
 const errorClass = errorClassCopy.forLocale('en').t;
 const trading = tradingApiCopy.forLocale('en').t;
+const idem = idempotencyCopy.forLocale('en').t;
 const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
 
@@ -355,6 +357,25 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: sectionTitle('bot-policy'),
     summary: trading('botLead'),
     body: () => [trading('botLead'), trading('botStaticNote')].join('\n\n'),
+  },
+  {
+    slug: 'idempotency',
+    title: sectionTitle('idempotency'),
+    summary: idem('lead'),
+    body: () =>
+      [
+        idem('lead'),
+        `## ${idem('rulesTitle')}`,
+        [idem('rulePrepare'), idem('ruleSubmit'), idem('ruleReplay'), idem('ruleConflict'), idem('ruleInProgress')]
+          .map((rule, i) => `${i + 1}. ${rule}`)
+          .join('\n'),
+        `## ${idem('finalTitle')}`,
+        idem('finalBody'),
+        idem('finalRetry'),
+        `## ${idem('listTitle')}`,
+        idem('listBody'),
+        idem('listMax'),
+      ].join('\n\n'),
   },
 ];
 
