@@ -11,15 +11,16 @@ import { fund, restartWith, tool } from './stack.mjs';
 // reads unknown and no scenario runs. The builder account at each venue is its own test: svc-ops reads it through its venue
 // port from the stack's TEST venues (`OPS_TEST_VENUE`), and with them switched down (`LOCAL_STACK_OPS_TEST_VENUE_READ=off`,
 // svc-ops restarted) each venue reads unknown, never 0.
-// The test always leaves the CAP24TEST threshold blank again, so the step starts blank on the next run.
+// The test always leaves the CHF threshold blank again, so the step starts blank on the next run.
 
 const J = 'J-ops-console-24';
 /**
- * A TEST asset only this step funds and sets a threshold on. Own funds in a traded asset (ETH) also move with every other
- * journey's fees and market-maker fills on the shared stack, so an exact before-and-after sum, and the buffer it feeds,
- * is only exact in an asset nothing else posts to.
+ * The asset this step funds and sets a threshold on: CHF, which the ledger lists (`0004_multi_asset_seed.sql`) and no other
+ * journey, TEST market or market-maker posts to on the stack. Own funds in a traded asset (ETH) also move with every other
+ * journey's fees and market-maker fills, so an exact before-and-after sum, and the buffer it feeds, is only exact in an
+ * asset nothing else posts to. The funding is the stack's TEST funding, never a real balance.
  */
-const ASSET = 'CAP24TEST';
+const ASSET = 'CHF';
 const CONTACT = 'TEST treasury on-call';
 const REASON = 'TEST buffer policy for J-ops-console-24 #1';
 const UNSET_WORDS =
