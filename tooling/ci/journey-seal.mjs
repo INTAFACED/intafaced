@@ -83,7 +83,7 @@ import {
 } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls } from './review-marker.mjs';
+import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -1290,7 +1290,7 @@ export const isWaitingSeal = (j) =>
 /** The workflows whose runs on a head are the seal's inputs, with the event their pull request runs carry. */
 export const SEAL_INPUTS = [
   { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
-  { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review' },
+  { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
 ];
 
@@ -1334,14 +1334,22 @@ export async function settleRuns(runs, jobsOf) {
 /**
  * The input runs still going on `sha` (`runsOf[workflow]`, each workflow's runs on the head), as lines; [] when every
  * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
- * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. Pure.
+ * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
+ * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
+ * still going when `needJudge` (readGoing sets it for every pull request), so its seal waits for the judge exactly as for a review
+ * still running, and is started when a review on the head next finishes (project-state OWNER 289 point 11: "A judge
+ * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). Pure.
  */
-export function inputsGoing({ sha, runsOf, needJourneys }) {
+export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false }) {
   const out = [];
-  for (const { workflow, event, what, journeys } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
-    for (const r of runsOf?.[workflow] ?? [])
-      if (r?.head_sha === sha && (!event || r?.event === event) && r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+    for (const r of runsOf?.[workflow] ?? []) {
+      if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+      if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+      else if (judge && needJudge && r?.judgeDown === true)
+        out.push(`${what} run ${r.id} (judge down: no verdict; it re-runs when the judge is back)`);
+    }
   }
   return out;
 }
@@ -1634,7 +1642,14 @@ export async function readVerdicts({ get, repo, sha }) {
  */
 export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green ? 'rerun-green' : 'leave');
 
-/** inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys). */
+/** The most CI review runs on one head whose jobs readGoing reads to find the newest that reviewed: one GET each. */
+export const REVIEW_RUNS_READ = 5;
+
+/**
+ * inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys), and a down
+ * judge for every pull request: the head's finished CI review runs' jobs are read, newest first, until one actually
+ * reviewed (review-marker.mjs reviewRan).
+ */
 export async function readGoing({ get, repo, sha, pulls }) {
   const runsOf = {};
   for (const { workflow, event } of SEAL_INPUTS) {
@@ -1652,8 +1667,30 @@ export async function readGoing({ get, repo, sha, pulls }) {
     );
   }
   let needJourneys = false;
-  for (const p of pulls ?? []) if (!needJourneys && needsJourneys(p, await pullFiles(get, repo, p.number))) needJourneys = true;
-  return inputsGoing({ sha, runsOf, needJourneys });
+  for (const p of pulls ?? []) {
+    if (needJourneys) break;
+    needJourneys ||= needsJourneys(p, await pullFiles(get, repo, p.number));
+  }
+  // No PR merges without its judge (project-state OWNER 289 point 11): a down judge holds every pull request it was asked
+  // to review, not only one whose change needs the review's verdict (CI review on 0cef53f9b, item 3).
+  const needJudge = true;
+  {
+    const { workflow, event } = SEAL_INPUTS.find((i) => i.judge);
+    // The newest finished run that actually reviewed: a title or body edit's run, whose job is skipped (reviewRan), is
+    // passed over, so it neither hides a down run nor stands for one. At most REVIEW_RUNS_READ runs' jobs are read.
+    const finished = runsOf[workflow]
+      .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
+      .sort((a, b) => b.id - a.id);
+    for (const run of finished.slice(0, REVIEW_RUNS_READ)) {
+      const jobs = (await get(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
+      const job = jobs.find(reviewRan);
+      if (!job) continue;
+      run.judgeDown = isJudgeDown(job);
+      break;
+    }
+  }
+  return inputsGoing({ sha, runsOf, needJourneys, needJudge });
 }
 
 /**
@@ -1802,8 +1839,11 @@ function report({ ok, lines, stepsOk = ok, fullOk = true }, how) {
         )}. A pull request is held to the journeys it touches (tooling/ci/journey-touch.mjs): shared setup, product code and anything else that can reach any journey need the newest finished full Real-app journeys run on its exact head clean by the journeys verdict (dispatch real-app-journeys.yml on the branch with no journeys input); a change to journey test files only needs those files run clean (the journeys input naming them). Read with the default branch's baseline; the seal re-runs when the run finishes. \`node tooling/ci/journey-touch.mjs --base origin/main\` prints which.`,
     );
   if (stepsOk) process.exit(1);
+  // A review the judge left without a verdict (review-marker.mjs ciReviewVerdict) says so in the title: judge down, never
+  // a red that reads as the change's own (OWNER 289 point 11). A seal that runs at once (sealNow) can meet one.
+  const down = lines.some((l) => /the judge was down in run/.test(l));
   console.error(
-    `::error title=Named journey steps not green on this head::${lines
+    `::error title=${down ? 'judge down: CI review (no verdict yet; the review re-runs when the judge is back)' : 'Named journey steps not green on this head'}::${lines
       .filter(
         (l) => !/on a Left-or-replaced line$/.test(l) && !/add this line to the body/.test(l) && !/: (full run|touched journeys): /.test(l),
       )

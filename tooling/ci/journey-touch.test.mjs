@@ -405,9 +405,13 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
   assert.doesNotMatch(t, /\n  plan:\n/);
   assert.match(
     t,
-    /\n  build:\n(?: {4}[^\n]*\n)*? {4}if: \$\{\{ !cancelled\(\) && needs\.touch\.outputs\.mode != 'none' && \(github\.event_name != 'pull_request'/,
+    /\n  build:\n(?: {4}[^\n]*\n)*? {4}if: \$\{\{ !cancelled\(\) && needs\.touch\.result == 'success' && needs\.touch\.outputs\.mode != 'none' && \(github\.event_name != 'pull_request'/,
   );
-  assert.match(t, /\.draft\)\) && !\(needs\.touch\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
+  // The shards wait on a touch job that succeeded: a targeted run without its plan fails that job, so no shard runs.
+  assert.match(
+    t,
+    /\n  journeys:\n(?: {4}[^\n]*\n)*? {4}if: \$\{\{ !cancelled\(\) && needs\.touch\.result == 'success' && needs\.touch\.outputs\.mode != 'none' && /,
+  );
   assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.touch\.outputs\.target \}\}/);
 });
 
