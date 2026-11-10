@@ -20,11 +20,17 @@
  *      head's seal or an older red seal re-run beside it on the same head.
  *   6. Main first (item 3): Real-app journeys holds a run off main back while main's jobs wait for runners, in a step
  *      of the touch job that never runs on main and can't fail the run, inside the job's time limit.
+ *   7. The verdict in the last shard (U4 C1): each journeys shard ends with a step that, once every other shard is
+ *      completed, makes it the finisher: it sets the job's `verdict` output to `done` and runs the run's verdict
+ *      (.github/actions/journeys-verdict) on full history. The Real-app journeys job is the fallback: it never runs once
+ *      a finisher set the output, and always runs when none did, whatever the shards ended in.
  * Planted faults at the bottom prove each rule fails on the shape it forbids. Run by tooling/scripts/tooling-tests.mjs.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB } from './main-first.mjs';
 
@@ -122,6 +128,11 @@ export function evaluate(src, ctx) {
         }
         take(')');
         if (t.v === 'format') return args[0].replace(/\{(\d+)\}/g, (_, n) => str(args[1 + Number(n)]));
+        // Status functions: always() is true; success() is whether every job this one needs succeeded (ctx.success).
+        if (t.v === 'always') return true;
+        if (t.v === 'success') return ctx.success !== false;
+        if (t.v === 'failure') return ctx.success === false;
+        if (t.v === 'cancelled') return false;
         throw new Error(`function ${t.v} is not known to this test`);
       }
       return t.v
@@ -709,4 +720,185 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   assert.notEqual(renamed, t);
   assert.ok(mainFirstProblems(renamed).some((p) => /What this run runs/.test(p)));
   assert.match(mainFirstProblems(t.replace("- name: Main's journeys first", '- name: Something else'))[0], /no step/);
+});
+
+// ---- rule 7: the verdict in the last shard -------------------------------------------------------------------------
+
+const ACTION = join(process.cwd(), '.github', 'actions', 'journeys-verdict', 'action.yml');
+const FINISHER = 'The last shard gives the verdict';
+
+/** A job's `if:` as GitHub runs it: with no status function, GitHub adds success(). */
+const jobIf = (jobText) => {
+  const raw = /\n {4}if: (.*)\n/.exec(jobText.split('\n    steps:\n')[0])?.[1] ?? 'true';
+  const cond = raw.replace(/^\$\{\{ (.*) \}\}$/, '$1');
+  return /\b(always|success|failure|cancelled)\(/.test(cond) ? cond : `success() && (${cond})`;
+};
+/** A step's `if:` (with the same implied success()). */
+const stepIf = (stepText) => {
+  const cond = (/\n {8}if: (.*)\n/.exec(stepText)?.[1] ?? 'true').replace(/^\$\{\{ (.*) \}\}$/, '$1');
+  return /\b(always|success|failure|cancelled)\(/.test(cond) ? cond : `success() && (${cond})`;
+};
+/** The step that uses the shared verdict action, in a job's text, or ''. */
+const verdictStep = (jobText) => {
+  const at = jobText.indexOf('uses: ./.github/actions/journeys-verdict\n');
+  if (at < 0) return '';
+  const start = jobText.lastIndexOf('\n      - ', at);
+  const next = jobText.slice(at).search(/\n {6}- /);
+  return jobText.slice(start + 1, next < 0 ? undefined : at + next + 1);
+};
+
+/** Problems with rule 7 in real-app-journeys.yml's text and the shared action's, or []. */
+export function verdictProblems(text, action) {
+  const problems = [];
+  const shards = job(text, 'journeys');
+  const fallback = job(text, 'scoreboard');
+  const last = step(shards, FINISHER);
+  if (!last) return [`the journeys shards have no step \`${FINISHER}\`, so every run waits for a runner for its verdict`];
+  if (!/\n {8}id: last\n/.test(last) || !/\n {8}if: always\(\)\n/.test(last) || !/\n {8}continue-on-error: true\n/.test(last))
+    problems.push('the finisher step is not `id: last`, run whatever the shard ended in, and unable to fail the shard');
+  if (shards.indexOf(last) < shards.indexOf("      - name: Keep the shard's report\n"))
+    problems.push("the finisher step runs before its shard's own report is kept, so its merge could miss it");
+  if (!/\n {4}outputs:\n {6}verdict: \$\{\{ steps\.last\.outputs\.verdict \}\}\n/.test(shards))
+    problems.push("the shards' `verdict` output is not the finisher step's, so the fallback can't tell that a shard gave the verdict");
+  if (!/\n {6}issues: read\b/.test(shards.split('\n    steps:\n')[0]))
+    problems.push("the shards can't read issues, so the finisher's verdict can't read the regression issues");
+  // The finisher's verdict: the shared action, only in the finisher, on full history, with the shards' result it read.
+  const mine = verdictStep(shards);
+  const runsIn = (s, verdict) => evaluate(stepIf(s), { success: false, steps: { last: { outputs: { verdict } } } });
+  if (!mine || !runsIn(mine, 'done') || runsIn(mine, ''))
+    problems.push('the shards do not run the shared verdict exactly when the finisher step said `done`');
+  else if (!/\n {10}shards-result: \$\{\{ steps\.last\.outputs\.shards \}\}\n/.test(mine))
+    problems.push("the finisher's verdict does not read the shards' result the finisher step read");
+  const history = step(shards, 'Full history for the verdict');
+  if (!history || !/git fetch --unshallow /.test(history) || !runsIn(history, 'done') || shards.indexOf(history) > shards.indexOf(mine))
+    problems.push('the finisher does not fetch full history before its verdict, which refuses a shallow clone');
+  // The fallback: never once a finisher set the output; always when none did, whatever the shards ended in.
+  const runs = (verdict, result) =>
+    evaluate(jobIf(fallback), { success: result === 'success', needs: { journeys: { result, outputs: { verdict } } } });
+  for (const result of ['success', 'failure', 'cancelled'])
+    if (runs('done', result)) problems.push(`the Real-app journeys job runs after a finisher gave the verdict (shards ${result})`);
+  for (const result of ['success', 'failure', 'cancelled', 'skipped'])
+    if (!runs('', result)) problems.push(`the Real-app journeys job can skip when no shard gave the verdict (shards ${result})`);
+  const theirs = verdictStep(fallback);
+  if (
+    !theirs ||
+    !evaluate(stepIf(theirs), { success: false }) ||
+    !/\n {10}shards-result: \$\{\{ needs\.journeys\.result \}\}\n/.test(theirs)
+  )
+    problems.push("the Real-app journeys job does not run the shared verdict on the shards' result");
+  // The shared action keeps every part of the verdict and the artifact the seal and Main trust read.
+  for (const [what, re] of [
+    ['merges the shards', /--pattern 'real-app-journeys-shard-\*'/],
+    ['is red when a shard was red', /name: Red when a shard was red or sent no report\n/],
+    ['runs the verdict', /node tooling\/ci\/journey-verdict\.mjs --report /],
+    ['keeps the report as `real-app-journeys`', /\n {8}name: real-app-journeys\n/],
+  ])
+    if (!re.test(action)) problems.push(`the shared verdict action no longer ${what}`);
+  return problems;
+}
+
+/** Runs the finisher step's script with a stand-in `gh` that lists `jobs`; its outputs, or null when it failed. */
+function runFinisher(text, { jobs, shard, total, self = 'success', ghFails = false }) {
+  const s = step(job(text, 'journeys'), FINISHER);
+  const body = s.slice(s.indexOf('        run: |\n') + '        run: |\n'.length);
+  const script = body
+    .split('\n')
+    .map((l) => l.replace(/^ {10}/, ''))
+    .join('\n');
+  const dir = mkdtempSync(join(tmpdir(), 'finisher-'));
+  try {
+    writeFileSync(join(dir, 'jobs.json'), JSON.stringify({ jobs }));
+    // `gh api --paginate <url> --jq <filter>`: the filter applied to the one page.
+    writeFileSync(
+      join(dir, 'gh'),
+      `#!/bin/bash\n${ghFails ? 'exit 1\n' : ''}while [ $# -gt 0 ]; do [ "$1" = --jq ] && f="$2"; shift; done\njq -c "$f" "${dir}/jobs.json"\n`,
+    );
+    chmodSync(join(dir, 'gh'), 0o755);
+    writeFileSync(join(dir, 'out'), '');
+    const r = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${dir}:${process.env.PATH}`,
+        GITHUB_OUTPUT: join(dir, 'out'),
+        GITHUB_REPOSITORY: 'o/r',
+        GITHUB_RUN_ID: '1',
+        GITHUB_RUN_ATTEMPT: '1',
+        SHARD: String(shard),
+        TOTAL: String(total),
+        SELF: self,
+      },
+    });
+    const out = Object.fromEntries(
+      readFileSync(join(dir, 'out'), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => l.split('=')),
+    );
+    return r.status === 0 ? out : null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const shardJob = (n, total, status, conclusion = status === 'completed' ? 'success' : null) => ({
+  name: `Journeys (shard ${n} of ${total})`,
+  status,
+  conclusion,
+});
+
+test('Real-app journeys: the last shard gives the verdict, and the Real-app journeys job runs exactly when none did', () => {
+  assert.deepEqual(verdictProblems(read('real-app-journeys.yml'), readFileSync(ACTION, 'utf8')), []);
+});
+
+test("the finisher step: the shard that sees every other shard completed says `done`, with the shards' result", () => {
+  const t = read('real-app-journeys.yml');
+  const others = [shardJob(1, 3, 'completed'), shardJob(3, 3, 'completed')];
+  const extra = [shardJob(1, 30, 'in_progress'), { name: 'Build the stack once', status: 'in_progress', conclusion: null }];
+  assert.deepEqual(runFinisher(t, { jobs: [...others, shardJob(2, 3, 'in_progress'), ...extra], shard: 2, total: 3 }), {
+    verdict: 'done',
+    shards: 'success',
+  });
+  // Another shard still running, or not listed: not the finisher, and nothing set.
+  assert.deepEqual(runFinisher(t, { jobs: [shardJob(1, 3, 'completed'), shardJob(3, 3, 'in_progress')], shard: 2, total: 3 }), {});
+  assert.deepEqual(runFinisher(t, { jobs: [shardJob(1, 3, 'completed')], shard: 2, total: 3 }), {});
+  // A red other shard, or this shard red so far: the finisher's verdict is red on the shards.
+  const red = [shardJob(1, 3, 'completed', 'failure'), shardJob(3, 3, 'completed')];
+  assert.deepEqual(runFinisher(t, { jobs: red, shard: 2, total: 3 }), { verdict: 'done', shards: 'failure' });
+  assert.deepEqual(runFinisher(t, { jobs: others, shard: 2, total: 3, self: 'failure' }), { verdict: 'done', shards: 'failure' });
+  // One shard alone is its own finisher; a jobs list that can't be read finishes nothing.
+  assert.deepEqual(runFinisher(t, { jobs: [shardJob(1, 1, 'in_progress')], shard: 1, total: 1 }), { verdict: 'done', shards: 'success' });
+  const unread = runFinisher(t, { jobs: others, shard: 2, total: 3, ghFails: true });
+  assert.ok(unread === null || !unread.verdict, 'an unreadable jobs list never says done');
+});
+
+test('planted: no finisher step, a fallback that runs after the finisher, or one that skips when no shard finished, fail rule 7', () => {
+  const t = read('real-app-journeys.yml');
+  const action = readFileSync(ACTION, 'utf8');
+  const noFinisher = t.replace(`- name: ${FINISHER}\n`, '- name: Something else\n');
+  assert.notEqual(noFinisher, t);
+  assert.match(verdictProblems(noFinisher, action)[0], /no step `The last shard gives the verdict`/);
+  const fallbackIf = "    if: always() && needs.journeys.outputs.verdict != 'done'\n";
+  assert.ok(t.includes(fallbackIf));
+  const alwaysRuns = t.replace(fallbackIf, '    if: always()\n');
+  assert.ok(verdictProblems(alwaysRuns, action).some((p) => /runs after a finisher gave the verdict/.test(p)));
+  const skipsOnRed = t.replace(fallbackIf, "    if: needs.journeys.outputs.verdict != 'done'\n");
+  assert.ok(verdictProblems(skipsOnRed, action).some((p) => /can skip when no shard gave the verdict \(shards failure\)/.test(p)));
+  const noOutput = t.replace('      verdict: ${{ steps.last.outputs.verdict }}\n', '');
+  assert.notEqual(noOutput, t);
+  assert.ok(verdictProblems(noOutput, action).some((p) => /`verdict` output/.test(p)));
+  const shallow = t.replace(/git fetch --unshallow /, 'git fetch ');
+  assert.notEqual(shallow, t);
+  assert.ok(verdictProblems(shallow, action).some((p) => /full history/.test(p)));
+  const noArtifact = action.replace('\n        name: real-app-journeys\n', '\n        name: journeys\n');
+  assert.notEqual(noArtifact, action);
+  assert.ok(verdictProblems(t, noArtifact).some((p) => /real-app-journeys/.test(p)));
+});
+
+test('planted: a finisher step that says done while another shard runs fails', () => {
+  const t = read('real-app-journeys.yml');
+  const eager = t.replace(' || [ "$ended" -ne "$others" ]', '');
+  assert.notEqual(eager, t);
+  const jobs = [shardJob(1, 3, 'completed'), shardJob(3, 3, 'in_progress')];
+  assert.deepEqual(runFinisher(eager, { jobs, shard: 2, total: 3 }).verdict, 'done', 'the planted step finishes early');
+  assert.deepEqual(runFinisher(t, { jobs, shard: 2, total: 3 }), {}, 'the real step waits for the other shard');
 });

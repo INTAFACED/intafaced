@@ -456,7 +456,13 @@ jobs:
     needs: [touch]
     permissions:
       contents: read
-      actions: read # to read the build job's state and download its build
+      actions: read # to read the build job's state and download its build, and, in the finisher, this run's jobs and shard reports
+      issues: read # the finisher's verdict reads the state line of each regression issue the baseline names
+    # `done` once the finisher (below) takes the verdict, so the Real-app journeys job skips. Only the finisher sets it,
+    # and GitHub combines a matrix's outputs over its jobs, where "An output with an empty value is not set, so it does
+    # not override a value set by another matrix job" (docs.github.com, Workflow syntax, jobs.<job_id>.outputs).
+    outputs:
+      verdict: ${{ steps.last.outputs.verdict }}
     # The shards run even when planning failed (they fall back to Playwright's split), except a targeted run's.
     if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) && !(needs.touch.result == 'failure' && needs.touch.outputs.target != '') }}
     runs-on: ubuntu-24.04
@@ -721,13 +727,74 @@ jobs:
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
 
+      # The verdict in the last shard (U4 C1, INTAFACED/project-state#1574): the shard that ends after every other one
+      # gives the run's verdict itself, so it never waits for another runner. (On 71 runs of 10 Nov the Real-app
+      # journeys job waited a median 7.2 minutes for a runner after the last shard ended, then ran 2.2.) After its own
+      # report is kept, this step reads this attempt's jobs once: when every other shard of the plan is completed, this
+      # shard is the finisher, and it says so in the job's `verdict` output before anything that can fail. At most one
+      # shard can be the finisher: a shard reads the others while it is itself still running, so of two shards, the one
+      # that reads second sees the first completed only if the first already read it running. Two shards ending
+      # together may each see the other running; then neither finishes and the Real-app journeys job gives the verdict,
+      # as it does when this read fails (it never fails the shard) or the run ran no shard.
+      - name: The last shard gives the verdict
+        id: last
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3 # one paged read
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ strategy.job-total }}
+          SELF: ${{ job.status }}
+        run: |
+          jobs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" --jq '.jobs[] | {name, status, conclusion}' | jq -s .)
+          # Every other shard of this plan: "Journeys (shard N of TOTAL)", N not this one.
+          read -r others ended green < <(jq -r --arg total "$TOTAL" --arg self "$SHARD" '
+            [.[] | select(.name | test("^Journeys \\(shard [0-9]+ of " + $total + "\\)$")) | select(.name != "Journeys (shard " + $self + " of " + $total + ")")] | unique_by(.name)
+            | "\(length) \(map(select(.status == "completed")) | length) \(map(select(.conclusion == "success")) | length)"' <<<"$jobs")
+          echo "shard $SHARD of $TOTAL: $ended of $others other shards completed, $green green"
+          if [ "$others" -ne $((TOTAL - 1)) ] || [ "$ended" -ne "$others" ]; then
+            echo "another shard is still running, so the Real-app journeys job or a later shard gives the verdict"
+            exit 0
+          fi
+          # Every other shard green (their journeys aside) and this one so far: the Real-app journeys job's needs.journeys.result.
+          if [ "$green" -eq "$others" ] && [ "$SELF" = success ]; then result=success; else result=failure; fi
+          echo "the last shard to finish: this shard gives the run's verdict (the shards: $result)"
+          { echo "verdict=done"; echo "shards=$result"; } >> "$GITHUB_OUTPUT"
+      # The verdict refuses a shallow clone (it reads main's earlier runs' commits), and the scoreboard counts merged
+      # slice PRs from history: the finisher fetches what the Real-app journeys job's fetch-depth 0 checkout fetches.
+      # The token goes to git through its environment, for this command only (persist-credentials stays false).
+      - name: Full history for the verdict
+        if: always() && steps.last.outputs.verdict == 'done'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              git fetch --unshallow --prune --no-recurse-submodules origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          fi
+          git rev-parse --is-shallow-repository
+      - name: The run's verdict (the finisher)
+        if: always() && steps.last.outputs.verdict == 'done'
+        uses: ./.github/actions/journeys-verdict
+        with:
+          nothing: 'false'
+          shard-count: ${{ needs.touch.outputs.count || 8 }}
+          shards-result: ${{ steps.last.outputs.shards }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
   # Merges the shards into one report: the scoreboard in the summary, and the `real-app-journeys` artifact with
   # report.json that Main trust's post-merge job compares run to run. Its conclusion is the run's verdict: red when any
-  # shard was red or sent no report, or when the verdict against the list is red.
+  # shard was red or sent no report, or when the verdict against the list is red. The fallback since U4 C1: the last
+  # shard gives the verdict itself (its step `The last shard gives the verdict`), and then this job skips and takes no
+  # runner. It runs when no shard did (Nothing to run, a targeted run without its plan), when two shards ended together
+  # and neither was the finisher, and when the finisher stopped before its job's `verdict` output was set.
   scoreboard:
     name: Real-app journeys
     needs: [touch, journeys]
-    if: always()
+    if: always() && needs.journeys.outputs.verdict != 'done'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -750,97 +817,12 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      # A pull request that touches nothing a journeys run reads (or a draft): no shard ran, the report is empty, and
-      # the run is green. The seal reads an empty report as saying nothing about any step or journey file.
-      - name: Nothing to run
-        if: env.NOTHING == 'true'
-        run: |
-          mkdir -p "$RUNNER_TEMP/journeys"
-          echo '{"suites":[],"errors":[],"stats":{"expected":0,"unexpected":0}}' > "$RUNNER_TEMP/journeys/report.json"
-          echo "Nothing to run: this pull request touches nothing a journeys run executes or reads (tooling/ci/journey-touch.mjs), or it is a draft." >> "$GITHUB_STEP_SUMMARY"
-      - name: Install
-        if: env.NOTHING != 'true'
-        run: pnpm install --frozen-lockfile
-
-      - name: Merge the shards
-        if: env.NOTHING != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHARD_COUNT: ${{ needs.touch.outputs.count || 8 }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/shards" "$RUNNER_TEMP/blobs" "$RUNNER_TEMP/journeys"
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'real-app-journeys-shard-*' --dir "$RUNNER_TEMP/shards" || true
-          # One folder per shard artifact; the blob keeps its own name, prefixed so two shards never collide.
-          for d in "$RUNNER_TEMP"/shards/real-app-journeys-shard-*; do
-            [ -d "$d" ] || continue
-            find "$d" -name '*.zip' | while read -r z; do cp "$z" "$RUNNER_TEMP/blobs/$(basename "$d")-$(basename "$z")"; done
-          done
-          found=$(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)
-          echo "shard reports found: $found of $SHARD_COUNT"
-          if [ "$found" -gt 0 ]; then
-            PLAYWRIGHT_JSON_OUTPUT_NAME="$RUNNER_TEMP/journeys/report.json" pnpm exec playwright merge-reports --reporter json "$RUNNER_TEMP/blobs" > /dev/null
-          fi
-
-      - name: Scoreboard
-        if: always() && env.NOTHING != 'true'
-        env:
-          SHARD_COUNT: ${{ needs.touch.outputs.count || 8 }}
-        run: |
-          report="$RUNNER_TEMP/journeys/report.json"
-          if [ -n "$JOURNEYS_TARGET" ]; then
-            echo "**Targeted run:** only the journey files named in the manual run's input, or the pull request's own journey files, ran; every other journey counts as not run below. This run is not main's scoreboard." >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -f "$report" ]; then
-            node tooling/scripts/roadmap.mjs --progress --results "$report" >> "$GITHUB_STEP_SUMMARY"
-            missing=$((SHARD_COUNT - $(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)))
-            if [ "$missing" -gt 0 ]; then
-              echo "Note: $missing of $SHARD_COUNT shards sent no report (their stack or browser did not start); their journeys count as not passing." >> "$GITHUB_STEP_SUMMARY"
-            fi
-          else
-            echo "No journey report: no shard's stack or browser started. See the shard jobs." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      # A shard is red only when something other than its journeys failed (its setup, the stack, the time limit, the
-      # Content-Security-Policy check); a shard that sent no report ran nothing the verdict could judge.
-      - name: Red when a shard was red or sent no report
-        if: always() && env.NOTHING != 'true'
-        env:
-          SHARDS_RESULT: ${{ needs.journeys.result }}
-          SHARD_COUNT: ${{ needs.touch.outputs.count || 8 }}
-        run: |
-          red=0
-          if [ "$SHARDS_RESULT" != success ]; then
-            echo "::error::at least one journeys shard was red for a reason other than its journeys ($SHARDS_RESULT); see the shard jobs"
-            red=1
-          fi
-          found=$(find "$RUNNER_TEMP/blobs" -name '*.zip' 2>/dev/null | wc -l)
-          if [ "$found" -lt "$SHARD_COUNT" ]; then
-            echo "::error::$((SHARD_COUNT - found)) of $SHARD_COUNT shards sent no report, so their journeys count as not run"
-            red=1
-          fi
-          exit "$red"
-
-      # The verdict (tooling/ci/journey-verdict.mjs): every failing step must be on the list by the runbook's rules, and
-      # nothing that passed in the baseline's run may be skipped or missing. It reads the baseline's named run's report,
-      # every finished run on main since (a pass there means the step was built) and the regression issues, GET only; an
-      # input it can't read is red. On a targeted run it judges only the files the run named.
-      - name: Verdict tests
-        if: always() && env.NOTHING != 'true'
-        run: node --test tooling/ci/journey-verdict.test.mjs
-      # It also writes the set-aside list (set-aside.json), kept with the report below.
-      - name: Verdict against the list of steps not built yet
-        if: always() && env.NOTHING != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch --set-aside-out "$RUNNER_TEMP/journeys/set-aside.json"
-
-      # After the verdict, so the set-aside list goes with the report; it runs whatever the verdict says.
-      - name: Keep the report
+      # The same steps the finisher runs (.github/actions/journeys-verdict).
+      - name: The run's verdict
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: ./.github/actions/journeys-verdict
         with:
-          name: real-app-journeys
-          path: |
-            ${{ runner.temp }}/journeys/report.json
-            ${{ runner.temp }}/journeys/set-aside.json
-          if-no-files-found: warn
+          nothing: ${{ env.NOTHING }}
+          shard-count: ${{ needs.touch.outputs.count || 8 }}
+          shards-result: ${{ needs.journeys.result }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}

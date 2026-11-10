@@ -1,0 +1,129 @@
+name: Journeys verdict
+description: >-
+  The Real-app journeys run's verdict, in one place for the two jobs that give it (.github/workflows/real-app-journeys.yml):
+  the last journeys shard to finish (the finisher) and, when no shard finished, the Real-app journeys job (the fallback).
+  It merges the shards' reports into the scoreboard, is red when a shard was red or sent no report, judges the merged
+  report against the list of steps not built yet, and keeps it as the run's `real-app-journeys` artifact. Expects a
+  checkout of the run's commit with full history (the verdict refuses a shallow clone), node and pnpm set up, and a
+  token that may read this run's artifacts and jobs and the repository's issues. Every step runs whatever the one
+  before it ended in, as the job's steps did, so each part that can run does and the job is red when any part was.
+
+inputs:
+  nothing:
+    description: "'true' when the run runs nothing (the touch job's mode none): an empty report, and the run is green."
+    required: true
+  shard-count:
+    description: How many shards the run planned (the touch job's count, or the fallback split's 8).
+    required: true
+  shards-result:
+    description: "'success' when every shard was green (their journeys aside); anything else is red."
+    required: true
+  github-token:
+    description: The job's GITHUB_TOKEN (a composite action reads no secrets).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # A pull request that touches nothing a journeys run reads (or a draft): no shard ran, the report is empty, and
+    # the run is green. The seal reads an empty report as saying nothing about any step or journey file.
+    - name: Nothing to run
+      if: always() && inputs.nothing == 'true'
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/journeys"
+        echo '{"suites":[],"errors":[],"stats":{"expected":0,"unexpected":0}}' > "$RUNNER_TEMP/journeys/report.json"
+        echo "Nothing to run: this pull request touches nothing a journeys run executes or reads (tooling/ci/journey-touch.mjs), or it is a draft." >> "$GITHUB_STEP_SUMMARY"
+    - name: Install
+      if: always() && inputs.nothing != 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    - name: Merge the shards
+      if: always() && inputs.nothing != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        SHARD_COUNT: ${{ inputs.shard-count }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/shards" "$RUNNER_TEMP/blobs" "$RUNNER_TEMP/journeys"
+        gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'real-app-journeys-shard-*' --dir "$RUNNER_TEMP/shards" || true
+        # One folder per shard artifact; the blob keeps its own name, prefixed so two shards never collide.
+        for d in "$RUNNER_TEMP"/shards/real-app-journeys-shard-*; do
+          [ -d "$d" ] || continue
+          find "$d" -name '*.zip' | while read -r z; do cp "$z" "$RUNNER_TEMP/blobs/$(basename "$d")-$(basename "$z")"; done
+        done
+        found=$(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)
+        echo "shard reports found: $found of $SHARD_COUNT"
+        if [ "$found" -gt 0 ]; then
+          PLAYWRIGHT_JSON_OUTPUT_NAME="$RUNNER_TEMP/journeys/report.json" pnpm exec playwright merge-reports --reporter json "$RUNNER_TEMP/blobs" > /dev/null
+        fi
+
+    - name: Scoreboard
+      if: always() && inputs.nothing != 'true'
+      shell: bash
+      env:
+        SHARD_COUNT: ${{ inputs.shard-count }}
+      run: |
+        report="$RUNNER_TEMP/journeys/report.json"
+        if [ -n "$JOURNEYS_TARGET" ]; then
+          echo "**Targeted run:** only the journey files named in the manual run's input, or the pull request's own journey files, ran; every other journey counts as not run below. This run is not main's scoreboard." >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ -f "$report" ]; then
+          node tooling/scripts/roadmap.mjs --progress --results "$report" >> "$GITHUB_STEP_SUMMARY"
+          missing=$((SHARD_COUNT - $(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)))
+          if [ "$missing" -gt 0 ]; then
+            echo "Note: $missing of $SHARD_COUNT shards sent no report (their stack or browser did not start); their journeys count as not passing." >> "$GITHUB_STEP_SUMMARY"
+          fi
+        else
+          echo "No journey report: no shard's stack or browser started. See the shard jobs." >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    # A shard is red only when something other than its journeys failed (its setup, the stack, the time limit, the
+    # Content-Security-Policy check); a shard that sent no report ran nothing the verdict could judge.
+    - name: Red when a shard was red or sent no report
+      if: always() && inputs.nothing != 'true'
+      shell: bash
+      env:
+        SHARDS_RESULT: ${{ inputs.shards-result }}
+        SHARD_COUNT: ${{ inputs.shard-count }}
+      run: |
+        red=0
+        if [ "$SHARDS_RESULT" != success ]; then
+          echo "::error::at least one journeys shard was red for a reason other than its journeys ($SHARDS_RESULT); see the shard jobs"
+          red=1
+        fi
+        found=$(find "$RUNNER_TEMP/blobs" -name '*.zip' 2>/dev/null | wc -l)
+        if [ "$found" -lt "$SHARD_COUNT" ]; then
+          echo "::error::$((SHARD_COUNT - found)) of $SHARD_COUNT shards sent no report, so their journeys count as not run"
+          red=1
+        fi
+        exit "$red"
+
+    # The verdict (tooling/ci/journey-verdict.mjs): every failing step must be on the list by the runbook's rules, and
+    # nothing that passed in the baseline's run may be skipped or missing. It reads the baseline's named run's report,
+    # every finished run on main since (a pass there means the step was built) and the regression issues, GET only; an
+    # input it can't read is red. On a targeted run it judges only the files the run named (JOURNEYS_TARGET, the
+    # calling job's env).
+    - name: Verdict tests
+      if: always() && inputs.nothing != 'true'
+      shell: bash
+      run: node --test tooling/ci/journey-verdict.test.mjs
+    # It also writes the set-aside list (set-aside.json), kept with the report below.
+    - name: Verdict against the list of steps not built yet
+      if: always() && inputs.nothing != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch --set-aside-out "$RUNNER_TEMP/journeys/set-aside.json"
+
+    # After the verdict, so the set-aside list goes with the report; it runs whatever the verdict says.
+    - name: Keep the report
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: real-app-journeys
+        path: |
+          ${{ runner.temp }}/journeys/report.json
+          ${{ runner.temp }}/journeys/set-aside.json
+        if-no-files-found: warn

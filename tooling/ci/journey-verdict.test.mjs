@@ -749,11 +749,20 @@ test('the verdict job has full history, and a shallow clone fails', () => {
   assert.throws(() => assertFullHistory(() => 'true\n'), /shallow/);
   assert.throws(() => assertFullHistory(() => ''), /shallow/);
   assert.doesNotThrow(() => assertFullHistory(() => 'false\n'));
+  // The verdict runs in the shared action, which both the finisher shard and the Real-app journeys job use; each has
+  // full history before it: the job's checkout fetches it all, and the finisher unshallows before its verdict.
   const wf = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  const action = readFileSync(join(ROOT, '.github/actions/journeys-verdict/action.yml'), 'utf8');
+  assert.ok(action.includes('journey-verdict.mjs --report'), 'the verdict runs in the shared verdict action');
+  const USES = 'uses: ./.github/actions/journeys-verdict\n';
   const job = wf.slice(wf.indexOf('\n  scoreboard:\n'));
-  assert.ok(job.includes('journey-verdict.mjs --report'), 'the verdict runs in the scoreboard job');
+  assert.ok(job.includes(USES), 'the scoreboard job runs the shared verdict');
   const checkout = job.slice(job.indexOf('actions/checkout@'), job.indexOf('\n      - uses:', job.indexOf('actions/checkout@')));
   assert.match(checkout, /fetch-depth: 0\b/);
+  const shard = wf.slice(wf.indexOf('\n  journeys:\n'), wf.indexOf('\n  scoreboard:\n'));
+  const unshallow = shard.indexOf('git fetch --unshallow ');
+  assert.ok(unshallow > 0 && unshallow < shard.indexOf(USES), 'the finisher shard unshallows before its verdict');
+  assert.equal(wf.split(USES).length - 1, 2, 'the verdict runs only in those two places');
   const src = readFileSync(join(ROOT, 'tooling/ci/journey-verdict.mjs'), 'utf8');
   assert.match(
     src.slice(src.indexOf('} else if (fetch) {\n      assertFullHistory')),
