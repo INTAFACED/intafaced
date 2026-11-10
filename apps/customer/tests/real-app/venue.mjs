@@ -5,7 +5,7 @@ import { restartWithSetting, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
-// What the venue journeys (J-derivatives-01-venue; J-cex-spot-01 reads the venue through venue-reads.mjs) share: svc-trade's user-venue door switched on
+// What the venue journeys (J-cex-spot-01-venue, J-derivatives-01-venue) share: svc-trade's user-venue door switched on
 // for one file and off after it, the stack's LOCAL TEST venue simulator (tooling/scripts/local-test-venue.mjs) reached
 // on loopback for its TEST controls and as the other TEST trader, and the desk opened with the browser TEST wallet.
 // Every figure the TEST venue reports is TEST.
