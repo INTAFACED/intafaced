@@ -1,6 +1,6 @@
 import type { BankPartnerReserves, OpsCapitalReserve } from '@intafaced/contracts';
 import { BankError } from '../errors.js';
-import type { CardPartnerTerms } from '../cards/partner-terms.js';
+import { partnerFiguresAsOf, type CardPartnerTerms } from '../cards/partner-terms.js';
 import { programmeReserve, type TestPartner } from './test-partner.js';
 
 /**
@@ -30,8 +30,15 @@ export function partnerReservesRead(input: {
   }
   if (input.cardTerms) {
     const r = input.cardTerms.reserve;
+    // The partner's own time for its reserve (b2 change 6): a reserve it sent with no time is "not known", never our
+    // read time. `asOf` on the answer is when we read it; this is when the partner says it was so.
+    const at = partnerFiguresAsOf(input.cardTerms, input.now);
     const reserve: OpsCapitalReserve =
-      r === null ? { status: 'not_known' } : r.required ? { status: 'reported', assetId: r.assetId, amount: r.amount } : { status: 'none' };
+      r === null || at === null
+        ? { status: 'not_known' }
+        : r.required
+          ? { status: 'reported', assetId: r.assetId, amount: r.amount, asOf: at.toISOString() }
+          : { status: 'none' };
     partners.push({
       partner: 'card',
       label: input.cardTerms.test ? 'TEST partner card' : 'Card partner',

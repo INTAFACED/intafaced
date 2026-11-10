@@ -69,6 +69,7 @@ export const GATE_PATHS = [
   ['turbo.json', 'which tasks CI runs and how they depend on each other'],
   ['.prettierignore', 'which files the format check skips'],
   ['package.json', 'the root scripts CI and verify run'],
+  ['.node-version', 'the Node version every CI job runs'],
   ['tooling/scripts/main-auto-revert.mjs', 'the auto-revert of a red main'],
   ['tooling/scripts/main-auto-revert.test.mjs', 'the auto-revert tests'],
   ['tooling/scripts/gate-file-guard.mjs', 'this guard'],

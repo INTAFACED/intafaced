@@ -1134,6 +1134,11 @@ console.log('local-test-stack: customer folder override checks passed');
     /media-src 'self' blob: http:\/\/127\.0\.0\.1:\d+;/,
     'the TEST video store stands in for the storage origin',
   );
+  assert.match(
+    headers['Content-Security-Policy'],
+    /connect-src 'self' http:\/\/localhost:14500;/,
+    'the TEST sandbox address stands in for the sandbox API origin',
+  );
   assert.match(headers['Content-Security-Policy'], /; report-uri \/__csp-report$/);
   assert.equal(headers['X-Frame-Options'], 'DENY');
   const legacy = cspReportRows(
