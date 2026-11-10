@@ -67,7 +67,7 @@ export const CUSTODY_OFF_CODE = 'local_test.custody_layer_off';
 export function custodyOffRefusal(what) {
   return (
     `${CUSTODY_OFF_CODE}: ${what} refused. This stack runs LEDGER_CUSTODY_LAYER off, as the launch build will, so ` +
-    "INTAFACED's ledger holds no customer money (docs/adr/2026-11-10-launch-money-model.md). A TEST person's money " +
+    "INTAFACED's ledger holds no customer money (OWNER 226, OWNER 288). A TEST person's money " +
     'is where launch keeps it: at the TEST partner (testPartner.fund) or on their own TEST venue account. ' +
     'Nothing was posted. Start the stack with LOCAL_STACK_CUSTODY_LAYER=on for the journeys marked Later: custody.'
   );
