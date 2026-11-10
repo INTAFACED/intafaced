@@ -148,7 +148,8 @@ jobs:
             exit 1
           fi
           # A failed call: an outage (reviewer-error.mjs classify `down`) ends this step without a verdict and without
-          # failing, its kind and action in this step's outputs; anything else fails as before.
+          # failing, its kind and action in this step's outputs; anything else fails as before. The CLI's stderr goes to a
+          # file beside the answer, read by reviewer-error.mjs (which prints only its error-shaped line, keys masked).
           failed() {
             node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" --outputs
             [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" --kind)" = down ] && exit 0
@@ -164,7 +165,7 @@ jobs:
               --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --input-format stream-json --output-format stream-json --verbose \
               --json-schema "$schema" \
-              < "$dir/input.jsonl" > "$dir/answer.jsonl" || failed "$dir/answer.jsonl" "$?"
+              < "$dir/input.jsonl" > "$dir/answer.jsonl" 2> "$dir/answer.jsonl.stderr" || failed "$dir/answer.jsonl" "$?"
             echo "called=true" >> "$GITHUB_OUTPUT"
           else
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
@@ -172,7 +173,7 @@ jobs:
               --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$schema" \
               "Review the pull request in the input against the brief at its top. Answer with the structured verdict only." \
-              < "$dir/prompt.txt" > "$dir/answer.json" || failed "$dir/answer.json" "$?"
+              < "$dir/prompt.txt" > "$dir/answer.json" 2> "$dir/answer.json.stderr" || failed "$dir/answer.json" "$?"
             echo "called=true" >> "$GITHUB_OUTPUT"
           fi
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
@@ -334,7 +335,7 @@ jobs:
               --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$(cat "$d/schema.json")" \
               "Read the steps in the input against the brief at its top. Answer with the structured reads only." \
-              < "$d/prompt.txt" > "$d/answer.json" &
+              < "$d/prompt.txt" > "$d/answer.json" 2> "$d/answer.json.stderr" &
             pids+=("$!")
             dirs+=("$d")
           done

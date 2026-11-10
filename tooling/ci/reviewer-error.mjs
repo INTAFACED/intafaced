@@ -5,12 +5,16 @@
  * the exit code and the answer's own error fields (`subtype`, `is_error`, `api_error_status`, the `result` text, at most
  * 300 characters, and only when it reads as an error: other text could be the model's answer, which may repeat the
  * prompt's private step words), from a `--output-format json` file or the `result` line of a `stream-json` one. It reads only the
- * answer file, never the environment, and masks anything shaped like a reviewer key (`sk-ant-…`), so no secret reaches the log.
+ * answer file and the CLI's stderr beside it (`<answer file>.stderr`, which the workflow writes and never prints raw),
+ * never the environment; of stderr it prints only the first line that reads as an error, and it masks anything shaped
+ * like a reviewer key (`sk-ant-…`), so no secret reaches the log.
  *
  * It also tells an outage from a verdict (classify; project-state OWNER 289 point 11: "A judge that stops shows as
  * 'judge down', with the one action it needs, never as red PRs. No PR merges without its judge."): `down` when the call
- * failed for a reason that is not the change (no answer; a refused, invalid, expired or used-up key; a usage or rate
- * limit; an overload; a network error or timeout), else `error`. (Failure it prevents: from about 04:39 UTC on 10 Nov
+ * failed for a reason that is not the change (a refused, invalid, expired or used-up key, or a usage limit, when the API
+ * sent a status or the CLI's stderr says so; a rate limit or an overload; a network error or timeout), else `error`: an
+ * empty answer is `down` only when stderr names a network, key or limit failure, so a CLI crash on the change's own input
+ * stays red. (Failure it prevents: from about 04:39 UTC on 10 Nov
  * every review failed on the account's weekly limit, so every open PR showed a red check that woke a builder who could
  * do nothing.) A down call prints a warning, not an error, since its job ends without a verdict and without failing.
  *
@@ -55,32 +59,42 @@ const errorText = (a) => (a.api_error_status != null || ERROR_TEXT.test(a.result
 
 const clean = (s) => String(s).replace(KEY, 'sk-ant-***').replace(/\s+/g, ' ').trim().slice(0, MAX);
 
+/** The first line of the CLI's stderr that reads as an error (ERROR_TEXT, or an outage's words), at most MAX characters; '' when none. */
+export const errLineOf = (err) =>
+  String(err ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l && [ERROR_TEXT, AUTH, USED_UP, BUSY, NETWORK].some((re) => re.test(l)))
+    ?.slice(0, MAX) ?? '';
+
 /** One line for the log. */
-export function explain(text, code) {
+export function explain(text, code, err = '') {
   const a = answerOf(text);
+  const e = errLineOf(err);
+  const tail = e ? `; stderr: ${clean(e)}` : '';
   const head = `the reviewer CLI exited ${code}`;
   if (!a) {
     const raw = clean(text ?? '');
-    return raw ? `${head}; its output, not JSON: ${raw}` : `${head} and wrote no answer`;
+    return (raw ? `${head}; its output, not JSON: ${raw}` : `${head} and wrote no answer`) + tail;
   }
   const parts = ['subtype', 'is_error', 'api_error_status']
     .filter((k) => a[k] !== undefined && a[k] !== null)
     .map((k) => `${k}=${clean(JSON.stringify(a[k]))}`);
   if (typeof a.result === 'string' && a.result)
     parts.push(errorText(a) ? `result: ${clean(a.result)}` : `result: ${a.result.length} characters, not printed`);
-  return parts.length ? `${head}; ${parts.join('; ')}` : `${head}; the answer carries no error fields`;
+  return (parts.length ? `${head}; ${parts.join('; ')}` : `${head}; the answer carries no error fields`) + tail;
 }
 
 // What reads as an outage, never as the change. Matched only against the API's or the CLI's own error (errorText,
 // below), never against what the model answered, so a review that quotes these words is not read as one.
 const AUTH = /invalid (api |bearer )?key|authenticat|unauthori[sz]ed|oauth|expired|revoked|log ?in|credential|forbidden/i;
 const USED_UP = /credit balance|quota|usage limit|(weekly|monthly|daily|session) limit|hit your .{0,20}limit|out of (extra )?usage/i;
-const BUSY = /overloaded|rate.?limit|too many requests|internal server error|service unavailable|bad gateway|gateway time/i;
+const OVERLOAD = /overloaded|internal server error|service unavailable|bad gateway|gateway time/i;
+// A limit's words count only from the API's status or stderr (classify): never from a result the model could shape.
+const BUSY = new RegExp(`${OVERLOAD.source}|rate.?limit|too many requests`, 'i');
 const NETWORK =
   /network|ECONN\w*|ENOTFOUND|EAI_AGAIN|socket hang up|timed? ?out|timeout|connection (error|refused|reset|closed)|fetch failed/i;
 const DOWN_STATUS = { 401: 'key', 403: 'key', 408: 'busy', 429: 'limit', 500: 'busy', 502: 'busy', 503: 'busy', 504: 'busy', 529: 'busy' };
-// An exit by signal or the runner's timeout: the call never answered.
-const KILLED = new Set(['124', '137', '143']);
 
 export const SIGN_IN_ACTION = 'sign-in or key renewal: a new CLAUDE_CODE_OAUTH_TOKEN in the ci-review environment';
 export const RETRY_ACTION = 'none, retried on the next push';
@@ -113,38 +127,57 @@ export function resetOf(result, now = new Date()) {
  * renewal for a refused or used-up key (`signIn`), the wait for a reset the answer states, else nothing (the next push
  * asks again). `error` keeps today's red: a malformed answer, a bad flag or anything else may be the change's own.
  */
-export function classify(text, code, now = new Date()) {
+export function classify(text, code, now = new Date(), err = '') {
   const down = (cause, action, signIn = false) => ({ kind: 'down', cause, action, signIn });
+  // The CLI's own stderr: what the model answers never goes there, so its words are evidence a PR's text can't plant.
+  const e = errLineOf(err);
+  const fromErr = () => {
+    if (USED_UP.test(e)) {
+      const reset = resetOf(e, now);
+      return reset ? down('a usage limit', `wait for the reset at ${reset}`) : down('a used-up key', SIGN_IN_ACTION, true);
+    }
+    if (AUTH.test(e)) return down('a refused key', SIGN_IN_ACTION, true);
+    if (BUSY.test(e)) return down('a limit or an overload', RETRY_ACTION);
+    if (NETWORK.test(e)) return down('a network error', RETRY_ACTION);
+    return null;
+  };
   const a = answerOf(text);
   if (!a) {
     const raw = String(text ?? '').trim();
-    if (!raw) return down('no answer', RETRY_ACTION);
-    if (KILLED.has(String(code))) return down('the call was stopped before it answered', RETRY_ACTION);
+    // No answer is an outage only when stderr says which: a crash on the change's own input stays red.
+    if (!raw) return fromErr() ?? { kind: 'error', cause: 'no answer, and nothing on stderr that names an outage' };
     if (NETWORK.test(raw.slice(0, MAX))) return down('a network error', RETRY_ACTION);
-    if (AUTH.test(raw.slice(0, MAX))) return down('a refused key', SIGN_IN_ACTION, true);
-    return { kind: 'error', cause: 'output that is not an answer' };
+    return fromErr() ?? { kind: 'error', cause: 'output that is not an answer' };
   }
   const result = typeof a.result === 'string' ? a.result : '';
+  const sent = a.api_error_status != null;
   const status = DOWN_STATUS[Number(a.api_error_status)];
-  // Only the API's or the CLI's own error text is read: a status the API sent, or a short error result.
-  const own = a.api_error_status != null || (a.is_error === true && !/^error_max/.test(String(a.subtype ?? '')) && errorText(a));
+  // Only the API's or the CLI's own error text is read: a status the API sent, or a short error result. A used-up or
+  // refused key, or a usage limit, also needs the API's status (or stderr, below): a short error result alone could be
+  // shaped by the model, and those classes must never be read from the change's own text.
+  const own = sent || (a.is_error === true && !/^error_max/.test(String(a.subtype ?? '')) && errorText(a));
   const words = own ? result : '';
-  const reset = own ? resetOf(result, now) : null;
-  if (USED_UP.test(words) || (status === 'limit' && reset))
+  const reset = sent ? resetOf(result, now) : null;
+  if (sent && (USED_UP.test(words) || (status === 'limit' && reset)))
     return reset ? down('a usage limit', `wait for the reset at ${reset}`) : down('a used-up key', SIGN_IN_ACTION, true);
-  if (status === 'key' || (!status && AUTH.test(words))) return down('a refused key', SIGN_IN_ACTION, true);
-  if (status === 'limit' || status === 'busy' || BUSY.test(words)) return down('a limit or an overload', RETRY_ACTION);
+  if (status === 'key' || (sent && !status && AUTH.test(words))) return down('a refused key', SIGN_IN_ACTION, true);
+  if (status === 'limit' || status === 'busy') return down('a limit or an overload', RETRY_ACTION);
+  const errDown = fromErr();
+  if (errDown) return errDown;
+  if (OVERLOAD.test(words)) return down('a limit or an overload', RETRY_ACTION);
   if (NETWORK.test(words)) return down('a network error', RETRY_ACTION);
   return { kind: 'error', cause: 'an answer that is not an outage' };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [file, code = '?', flag] = process.argv.slice(2);
-  const text = file && existsSync(file) ? readFileSync(file, 'utf8') : '';
-  const c = classify(text, code);
+  const read = (f) => (f && existsSync(f) ? readFileSync(f, 'utf8') : '');
+  const text = read(file);
+  const err = file ? read(`${file}.stderr`) : '';
+  const c = classify(text, code, new Date(), err);
   if (flag === '--kind') console.log(c.kind);
   else {
-    const line = explain(text, code);
+    const line = explain(text, code, err);
     console.log(c.kind === 'down' ? `::warning::judge down (${c.cause}): ${line}. One action: ${c.action}` : `::error::${line}`);
     if (flag === '--outputs' && process.env.GITHUB_OUTPUT)
       appendFileSync(process.env.GITHUB_OUTPUT, `kind=${c.kind}\naction=${c.action ?? ''}\nline=${line}\nsign_in=${c.signIn === true}\n`);

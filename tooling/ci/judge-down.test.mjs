@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JUDGE_CHECK, JUDGE_DOWN_STEP, REVIEW_CHECK, REVIEW_WORKFLOW, ciReviewVerdict, isJudgeDown, reviewJob } from './review-marker.mjs';
@@ -18,6 +18,7 @@ import { CATCH_UP_CAP, catchUpTargets, describe, issueBody } from './judge-down.
 const WF = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
 const REVIEW = WF.slice(WF.indexOf('\n  review:\n'), WF.indexOf('\n  # The proof read, a check'));
 const HEAD = 'a'.repeat(40);
+const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 const stepOf = (name, text = REVIEW) => {
   const at = text.indexOf(`- name: ${name}\n`);
   assert.ok(at > 0, `step ${name}`);
@@ -43,19 +44,48 @@ const WEEKLY = {
 };
 const MALFORMED = { type: 'result', subtype: 'error_max_structured_output_retries', is_error: true, result: 'no structured output' };
 
-/** The Review step's `failed` function, run by bash as the step runs it, on one planted answer file. */
-function replayFailedCall(answer, code = 1) {
-  const step = stepOf('Review');
-  const fn = /\n( {10}failed\(\) \{\n[\s\S]*?\n {10}\}\n)/.exec(step)?.[1];
-  assert.ok(fn, "the Review step's failed() function");
-  const d = mkdtempSync(join(tmpdir(), 'judge-down-'));
-  const file = join(d, 'answer.json');
-  const out = join(d, 'out');
-  writeFileSync(file, JSON.stringify(answer));
+/**
+ * The Review step's whole `run:` block (a YAML literal block: the lines indented past `run: |`, de-indented), exactly
+ * the script GitHub hands its default shell.
+ */
+function reviewScript(text = REVIEW) {
+  const step = stepOf('Review', text);
+  const lines = step.slice(step.indexOf('        run: |\n') + '        run: |\n'.length).split('\n');
+  const body = [];
+  for (const l of lines) {
+    if (l.trim() && !l.startsWith(' '.repeat(10))) break;
+    body.push(l.slice(10));
+  }
+  return `${body.join('\n').replace(/\n+$/, '')}\n`;
+}
+
+/**
+ * The Review step run as GitHub runs it (`bash --noprofile --norc -eo pipefail`), with a stub reviewer CLI on its path
+ * that prints `answer`, writes `err` to stderr and exits `code`; then the Verdict step's own command when its `if:`
+ * holds. Returns the step's exit, its log, its outputs, and the review folder.
+ */
+function replayReview(answer, code = 1, err = '') {
+  const t = mkdtempSync(join(tmpdir(), 'judge-down-'));
+  const dir = join(t, 'review');
+  mkdirSync(join(dir, 'tests'), { recursive: true });
+  writeFileSync(join(dir, 'schema.json'), '{}');
+  writeFileSync(join(dir, 'prompt.txt'), 'x');
+  writeFileSync(join(dir, 'head.txt'), HEAD);
+  writeFileSync(join(dir, 'tests', 'verdict.json'), JSON.stringify({ head: HEAD, verdict: 'PASS', lines: [], findings: [] }));
+  // The stub sits where the step calls the pinned reviewer CLI, under the name the step itself uses.
+  const cli = /\$RUNNER_TEMP\/reviewer\/node_modules\/\.bin\/([\w-]+)/.exec(reviewScript())?.[1];
+  assert.ok(cli, "the Review step's reviewer CLI path");
+  const bin = join(t, 'reviewer/node_modules/.bin');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(t, 'answer'), typeof answer === 'string' ? answer : JSON.stringify(answer));
+  writeFileSync(join(t, 'err'), err);
+  writeFileSync(join(bin, cli), `#!/bin/bash\ncat > /dev/null\ncat "${t}/answer"\ncat "${t}/err" >&2\nexit ${code}\n`);
+  chmodSync(join(bin, cli), 0o755);
+  const out = join(t, 'out');
   writeFileSync(out, '');
-  const r = spawnSync('bash', ['-e', '-c', `${fn}\nfalse || failed "$ANSWER" "${code}"\necho reached-the-read`], {
+  const r = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', reviewScript()], {
     encoding: 'utf8',
-    env: { ...process.env, GITHUB_WORKSPACE: new URL('../..', import.meta.url).pathname, GITHUB_OUTPUT: out, ANSWER: file },
+    env: { PATH: process.env.PATH, RUNNER_TEMP: t, GITHUB_WORKSPACE: ROOT, GITHUB_OUTPUT: out, CLAUDE_CODE_OAUTH_TOKEN: 'planted-bad-key' },
   });
   const outputs = Object.fromEntries(
     readFileSync(out, 'utf8')
@@ -63,7 +93,12 @@ function replayFailedCall(answer, code = 1) {
       .filter(Boolean)
       .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
   );
-  return { status: r.status, stdout: r.stdout, outputs };
+  // The Verdict step: `if: steps.review.outputs.kind != 'down'` with GitHub's implicit success().
+  let verdict = 'skipped';
+  if (r.status === 0 && outputs.kind !== 'down')
+    verdict =
+      spawnSync('node', [join(ROOT, 'tooling/ci/ci-review.mjs'), 'judge', dir], { encoding: 'utf8' }).status === 0 ? 'success' : 'failure';
+  return { status: r.status, stdout: `${r.stdout}${r.stderr}`, outputs, verdict };
 }
 
 /**
@@ -111,13 +146,30 @@ test('the workflow: on down the verdict steps are skipped, Judge down is the mar
   assert.doesNotMatch(js.slice(js.indexOf('if (process.argv[1]')), /run\(source\)[\s\S]*process\.exit\(1\)/);
 });
 
-test('replay: a planted bad key ends the Review step without failing and without a verdict, and the seal never reads a pass', async () => {
+const ok = (verdict) => ({
+  type: 'result',
+  subtype: 'success',
+  is_error: false,
+  structured_output: { verdict, findings: verdict === 'FAIL' ? ['blocking: x'] : [] },
+});
+const TOO_LONG = {
+  type: 'result',
+  subtype: 'success',
+  is_error: true,
+  api_error_status: 400,
+  result:
+    'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}',
+};
+
+test('replay, the whole Review step: a planted 401 and the real 429 end it without failing and without a verdict, and the seal never reads a pass', async () => {
   for (const answer of [BAD_KEY, WEEKLY]) {
-    const r = replayFailedCall(answer);
+    const r = replayReview(answer);
     assert.equal(r.status, 0, 'the step ends without failing');
-    assert.doesNotMatch(r.stdout, /reached-the-read/, 'the answer is never read as a verdict');
     assert.match(r.stdout, /^::warning::judge down/m);
+    assert.doesNotMatch(r.stdout, /verdict: review/, 'the answer is never read as a verdict');
     assert.equal(r.outputs.kind, 'down');
+    assert.equal(r.outputs.called, undefined, 'a down call is not a call that answered');
+    assert.equal(r.verdict, 'skipped');
     const job = jobAfter(r.outputs);
     assert.equal(isJudgeDown(job), true);
     for (const check of [REVIEW_CHECK, JUDGE_CHECK]) {
@@ -127,15 +179,43 @@ test('replay: a planted bad key ends the Review step without failing and without
       assert.match(v.why, /the judge was down/);
     }
   }
-  assert.equal(replayFailedCall(BAD_KEY).outputs.sign_in, 'true');
-  assert.match(replayFailedCall(WEEKLY).outputs.action, /^wait for the reset at Nov 14, 18:00 Bali time/);
+  assert.equal(replayReview(BAD_KEY).outputs.sign_in, 'true');
+  assert.match(replayReview(WEEKLY).outputs.action, /^wait for the reset at Nov 14, 18:00 Bali time/);
 });
 
-test('replay: a malformed answer still fails the step, as before', () => {
-  const r = replayFailedCall(MALFORMED, 1);
-  assert.equal(r.status, 1);
-  assert.equal(r.outputs.kind, 'error');
-  assert.match(r.stdout, /^::error::/m);
+test('replay, the whole Review step: a real PASS passes and a real FAIL blocks', async () => {
+  for (const [verdict, state, conclusion] of [
+    ['PASS', 'pass', 'success'],
+    ['FAIL', 'fail', 'failure'],
+  ]) {
+    const r = replayReview(ok(verdict), 0);
+    assert.equal(r.status, 0, verdict);
+    assert.equal(r.outputs.called, 'true');
+    assert.equal(r.outputs.kind, undefined);
+    assert.equal(r.verdict, conclusion);
+    assert.equal((await seal(jobAfter(r.outputs, r.verdict))).state, state);
+  }
+});
+
+test('replay, the whole Review step: a 400, a malformed answer, and a crash with no answer still fail it, as before', () => {
+  for (const [answer, err] of [
+    [TOO_LONG, ''],
+    [MALFORMED, ''],
+    ['', ''],
+    ['', 'TypeError: Cannot read properties of undefined (reading "map")\n'],
+  ]) {
+    const r = replayReview(answer, 1, err);
+    assert.equal(r.status, 1, JSON.stringify(answer).slice(0, 60));
+    assert.equal(r.outputs.kind, 'error');
+    assert.match(r.stdout, /^::error::/m);
+    assert.equal(r.verdict, 'skipped');
+  }
+  // No answer with an outage on stderr is down, and stderr is printed only as its error line, keys masked.
+  const r = replayReview('', 1, `noise\nError: getaddrinfo ENOTFOUND api.example.com sk-ant-oat01-${'Z'.repeat(30)}\n`);
+  assert.equal(r.status, 0);
+  assert.equal(r.outputs.kind, 'down');
+  assert.doesNotMatch(r.stdout, /noise|Z{30}/);
+  assert.match(r.stdout, /stderr: Error: getaddrinfo ENOTFOUND api\.example\.com sk-ant-\*\*\*/);
 });
 
 test("no shape of a down job reads as a pass: a failed marker, a missing marker, or verdict steps that didn't run", async () => {
@@ -263,4 +343,50 @@ test('the status says the one action in 140 characters, and a sign-in issue name
   assert.match(signIn, /12:39 Bali time \(2026-11-10 04:39 UTC\)/);
   assert.match(signIn, /api_error_status=401/);
   assert.doesNotMatch(issueBody({ source: 'CI review', line: 'l', action: 'wait', signIn: false, runUrl: 'u', now }), /Sign in/);
+});
+
+// A title or body edit starts a CI review run whose job is skipped by its `if:`, with no steps (head e1d3ad61: run
+// 42803694870 skipped, 0 steps; run 42803607208 the real review). It must neither hide a down run nor be re-run for one.
+const SKIPPED = { name: 'CI review', head_sha: HEAD, status: 'completed', conclusion: 'skipped', steps: [] };
+
+test('a skipped `edited` run on top of a down run: the seal still waits on the down run', async () => {
+  const runs = [
+    { id: 10, head_sha: HEAD, event: 'pull_request_target', status: 'completed' },
+    { id: 9, head_sha: HEAD, event: 'pull_request_target', status: 'completed' },
+  ];
+  const jobs = { 9: [jobAfter({ kind: 'down' })], 10: [SKIPPED] };
+  const get = async (p) => {
+    if (p.includes('/actions/workflows/ci-review.yml/runs')) return { workflow_runs: runs.map((r) => ({ ...r })) };
+    if (p.includes('/actions/workflows/')) return { workflow_runs: [] };
+    if (p.includes('/pulls/7/files')) return [{ filename: 'AGENTS.md', status: 'modified' }];
+    const m = /\/actions\/runs\/(\d+)\/jobs\?filter=latest&per_page=100$/.exec(p);
+    if (m) return { jobs: jobs[m[1]] };
+    throw new Error(`unexpected ${p}`);
+  };
+  const pulls = [{ number: 7, title: 'ci: x', body: '' }];
+  assert.deepEqual(await readGoing({ get, repo: 'o/r', sha: HEAD, pulls }), [
+    'the CI review run 9 (judge down: no verdict; it re-runs when the judge is back)',
+  ]);
+  // A real review after the down run (the judge back, a verdict) ends the wait, edit run or not.
+  jobs[9] = [reviewJob(HEAD, 'success')];
+  assert.deepEqual(await readGoing({ get, repo: 'o/r', sha: HEAD, pulls }), []);
+});
+
+test('catch-up: a skipped `edited` run on top of a down run re-runs the down run, never the skipped one', async () => {
+  const repo = 'o/r';
+  const pulls = [{ number: 7, state: 'open', base: { ref: 'main' }, head: { sha: HEAD, repo: { full_name: repo } } }];
+  const base = { path: REVIEW_WORKFLOW, event: 'pull_request_target', head_sha: HEAD, status: 'completed' };
+  const runs = [
+    { ...base, id: 10, created_at: '2026-11-10T06:00:00Z' },
+    { ...base, id: 9, created_at: '2026-11-10T05:00:00Z' },
+  ];
+  const jobs = { 9: [jobAfter({ kind: 'down' })], 10: [SKIPPED] };
+  const { targets } = await catchUpTargets({ pulls, runs, repo, skipSha: 'x', jobsOf: async (r) => jobs[r.id] });
+  assert.deepEqual(
+    targets.map((t) => t.run.id),
+    [9],
+  );
+  // A verdict under the skipped run is a verdict: nothing to re-run.
+  jobs[9] = [reviewJob(HEAD, 'failure')];
+  assert.deepEqual((await catchUpTargets({ pulls, runs, repo, skipSha: 'x', jobsOf: async (r) => jobs[r.id] })).targets, []);
 });

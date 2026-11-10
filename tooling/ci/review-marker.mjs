@@ -84,6 +84,11 @@ export const isJudgeDown = (job) =>
   job?.status === 'completed' &&
   (job.steps ?? []).some((s) => s?.name === JUDGE_DOWN_STEP && s?.conclusion === 'success') &&
   !(job.steps ?? []).some((s) => VERDICT_STEPS.includes(s?.name) && ['success', 'failure'].includes(s?.conclusion));
+/**
+ * Whether a REVIEW_JOB job actually ran: not skipped and with steps. A title or body edit starts a CI review run whose
+ * job is skipped by its `if:` (0 steps; head e1d3ad61, run 42803694870), so the newest run on a head may hold no review.
+ */
+export const reviewRan = (job) => job?.name === REVIEW_JOB && job?.conclusion !== 'skipped' && (job?.steps ?? []).length > 0;
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
 const SHA40 = /^[0-9a-f]{40}$/;

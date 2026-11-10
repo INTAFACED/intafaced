@@ -20,7 +20,7 @@
  * (continue-on-error), and the seal waits whatever it does.
  */
 import { fileURLToPath } from 'node:url';
-import { REVIEW_JOB, VERDICT_STEPS } from './review-marker.mjs';
+import { VERDICT_STEPS, reviewRan } from './review-marker.mjs';
 
 export const CONTEXT = 'judge';
 export const ISSUE_REPO = 'INTAFACED/project-state';
@@ -63,30 +63,41 @@ export const hasVerdict = (job) =>
 
 /**
  * The CI review runs to re-run when the judge is back: for each open in-repo pull request into main (`pulls`), the
- * newest pull_request_target run on its head (`runs`, newest first as GitHub lists them), when it finished with no
- * verdict (`jobsOf(run)` gives its latest attempt's jobs); oldest run first, at most `cap`. Runs still going, heads with
- * no run, and this run's own head are left. Returns { targets, left }: `left` counts heads past the cap found without a
- * verdict (heads whose jobs were not read, past JOBS_READ_CAP, are not counted).
+ * newest pull_request_target run on its head that actually reviewed (`runs`; `jobsOf(run)` gives its latest attempt's
+ * jobs; a title or body edit's run, whose job is skipped, is passed over: review-marker.mjs reviewRan), when it has no
+ * verdict; heads in the order their newest run was made, oldest first, at most `cap`. Heads whose newest run is still
+ * going, heads with no run, and this run's own head are left. Returns { targets, left }: `left` counts heads past the cap
+ * found without a verdict (heads not reached within JOBS_READ_CAP job reads are not counted).
  */
 export async function catchUpTargets({ pulls, runs, jobsOf, repo, skipSha, cap = CATCH_UP_CAP }) {
-  const newest = new Map();
+  const byHead = new Map();
   for (const r of runs ?? []) {
     if (r?.event !== 'pull_request_target' || r?.path !== '.github/workflows/ci-review.yml') continue;
-    const prev = newest.get(r.head_sha);
-    if (!prev || prev.id < r.id) newest.set(r.head_sha, r);
+    byHead.set(r.head_sha, [...(byHead.get(r.head_sha) ?? []), r]);
   }
+  for (const list of byHead.values()) list.sort((a, b) => b.id - a.id);
   const heads = (pulls ?? [])
     .filter((p) => p?.state === 'open' && p?.base?.ref === 'main' && p?.head?.repo?.full_name === repo && p?.head?.sha !== skipSha)
-    .map((p) => ({ pull: p, run: newest.get(p.head.sha) }))
-    .filter((h) => h.run?.status === 'completed')
-    .sort((a, b) => String(a.run.created_at).localeCompare(String(b.run.created_at)) || a.run.id - b.run.id);
+    .map((p) => ({ pull: p, runs: byHead.get(p.head.sha) ?? [] }))
+    .filter((h) => h.runs[0]?.status === 'completed')
+    .sort((a, b) => String(a.runs[0].created_at).localeCompare(String(b.runs[0].created_at)) || a.runs[0].id - b.runs[0].id);
   const targets = [];
   let left = 0;
-  for (const [i, h] of heads.entries()) {
-    if (i >= JOBS_READ_CAP) break;
-    const job = (await jobsOf(h.run)).find((j) => j?.name === REVIEW_JOB);
-    if (!job || hasVerdict(job)) continue;
-    if (targets.length < cap) targets.push(h);
+  let reads = 0;
+  for (const h of heads) {
+    let found = null;
+    for (const run of h.runs) {
+      if (reads >= JOBS_READ_CAP || run.status !== 'completed') break;
+      reads++;
+      const job = (await jobsOf(run)).find(reviewRan);
+      if (job) {
+        found = { run, job };
+        break;
+      }
+    }
+    if (reads >= JOBS_READ_CAP && !found) break;
+    if (!found || hasVerdict(found.job)) continue;
+    if (targets.length < cap) targets.push({ pull: h.pull, run: found.run });
     else left++;
   }
   return { targets, left };
