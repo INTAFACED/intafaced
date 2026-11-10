@@ -117,6 +117,10 @@ export const SAME_PERSON_ACTION_TYPES = [
   // svc-trade consumes it before the venue is asked to prepare the withdrawal, so the wallet is never asked to sign one
   // that was not confirmed. The venue moves the funds; svc-trade posts no ledger row.
   'trade.step_up.venue.withdraw',
+  // Create an agent account on the customer's own venue account, with its cap and first funding (J-agents-21 #3).
+  // Identity mints it; svc-trade consumes it before the venue is asked to open the sub-account, so the wallet is never
+  // asked to sign for an agent account that was not confirmed. The venue moves the funds; svc-trade posts no ledger row.
+  'trade.step_up.venue.agentAccount',
   // A founder changes one account's governance role (MC-token-02, J-more-catalogue-10 #6). Identity mints it for the
   // founder who runs the two-founder change; svc-token consumes it before the role is written. It moves no value.
   'token.step_up.governance.setRole',

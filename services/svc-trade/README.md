@@ -188,9 +188,15 @@ stored. The door off answers `{ state: 'off' }`; the venue down answers `SERVICE
 The one money the door's orders move for us. With the door on, the builder-fee poster (`src/builder-fee/builder-fee-poster.ts`,
 job `venue.builder_fees`, every `TRADE_BUILDER_FEE_POSTER_INTERVAL_MS`; `TRADE_BUILDER_FEE_POSTER=off` stops it) reads the
 venue's fills for our users' accounts (those that sent an order carrying our builder fee) and posts `builderFeeEarn` for
-each fill with a builder fee above zero, keyed `builder-fee:<venueId>:<fillId>`, so a fill read twice posts once. It never
-posts a customer's fill, margin or balance. `trade.venue_builder_fees` records which fills were posted or refused by the
-ledger (an unknown fee asset stays unposted and listed); it is not a balance. `admin.builderFees.recon` (`admin:read`) is
+each fill with a builder fee above zero on an order our door stored and signed for that account, keyed
+`builder-fee:<venueId>:<venueAccount>:<fillId>` (the account is the owner, or `<owner>/<subAccount>`), so a fill read twice
+posts once and the two sides of one trade, each one of our accounts, post twice (OWNER 288). A fill with a builder fee on any
+other order is recorded as `not_our_order` and never posted. It never posts a customer's fill, margin or balance.
+`trade.venue_builder_fees` records, per venue, account and fill, which fills were posted, refused by the ledger (an unknown
+fee asset stays unposted and listed) or not ours; it is not a balance. A run that fails other than on one fill (an
+idempotency conflict, the posting freeze, an outage) stops, as before, and raises the alert
+`trade.builder_fee_poster_stopped` (a log line naming the venue, the account and the fill); `trade.venue_builder_fee_runs`
+keeps the last complete run and the last stop, which the treasury desk shows. `admin.builderFees.recon` (`admin:read`) is
 the founder console's `/ledger/treasury`: for one period, the venue's builder fee on each fill against the ledger's under
 the fill's key, green when every fill matches, and every break listed with its venue fill id and amounts. Read only: it
 never posts to make the two agree. `builderFeeReceive` (a venue's payout of builder fees) waits for the owner's payout

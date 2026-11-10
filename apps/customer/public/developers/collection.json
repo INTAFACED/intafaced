@@ -1386,6 +1386,133 @@
           }
         },
         {
+          "name": "venueAgentAccountTerms",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/terms",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", "terms"]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccounts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts"]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccountCreate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts"]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccount",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccountSubmit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "submit"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccountAbandon",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/abandon",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "abandon"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccountFund",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/fund",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "fund"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccountWithdraw",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/withdraw",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "withdraw"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccountCap",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/cap",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "cap"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccountClose",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/close",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "close"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "venueOrders",
           "request": {
             "method": "GET",

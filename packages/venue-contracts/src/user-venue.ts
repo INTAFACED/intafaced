@@ -379,6 +379,16 @@ export type VenueRefusalCode =
   | 'unknown_market'
   /** A perpetual order on an account with no leverage set for that market (`update_leverage` first). */
   | 'leverage_not_set'
+  /**
+   * A leverage above the most the venue offers on this market. The detail names the venue's own cap
+   * (`XAU-PERP allows at most 10x`); nothing is applied.
+   */
+  | 'leverage_above_cap'
+  /**
+   * The market's price feed (its oracle) is stale, and the venue's own stale-feed rule refuses this order (a venue
+   * that takes only reduce-only orders while stale refuses an opening one). The detail is the venue's rule.
+   */
+  | 'feed_stale'
   /** No order with that client id exists on the venue. */
   | 'unknown_order'
   /** The order is already final (filled, cancelled, rejected). */
@@ -587,6 +597,27 @@ export interface AsOf<T> {
   readonly asOf: Date;
 }
 
+/**
+ * Who lists a market on the venue: the venue itself, or a deployer on it (a Hyperliquid HIP-3 deployer, an Ostium
+ * market). `name` is the lister's own published name.
+ */
+export interface UserVenueListing {
+  readonly kind: 'venue' | 'hip3' | 'ostium';
+  readonly name: string;
+}
+
+/**
+ * The state of a market's price feed (its oracle) as the venue publishes it, with the venue's own rule for what it does
+ * while the feed is stale. Never ours: the app shows this and claims no protection of its own.
+ */
+export interface UserVenueFeed {
+  readonly state: 'live' | 'stale';
+  /** The venue's time of the oracle's last update. */
+  readonly lastOracleUpdateAt: Date;
+  /** The venue's own published rule while the feed is stale, or `known: false` when it publishes none. */
+  readonly staleRule: MaybeKnown<string>;
+}
+
 export interface UserVenueMarket {
   readonly symbol: string;
   readonly kind: 'spot' | 'perpetual';
@@ -617,6 +648,16 @@ export interface UserVenueMarket {
    * `builder_fee_above_cap`, and our builder-fee versions are never written above it (J-cex-spot-17 #3).
    */
   readonly builderFeeCapBps: MaybeKnown<Amount>;
+  /**
+   * The venue's own published words for this market, each `known: false` where the venue publishes none (shown as "not
+   * published by this venue", never filled with our own text): who lists it, the oracle and mark-price rules it is priced
+   * by, its trading hours, and its price feed's state with the venue's rule while it is stale.
+   */
+  readonly listedBy: MaybeKnown<UserVenueListing>;
+  readonly oracleRule: MaybeKnown<string>;
+  readonly markRule: MaybeKnown<string>;
+  readonly tradingHours: MaybeKnown<string>;
+  readonly feed: MaybeKnown<UserVenueFeed>;
 }
 
 /**

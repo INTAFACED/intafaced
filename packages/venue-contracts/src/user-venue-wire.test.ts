@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { VenueWireError, decodeVenueWire, encodeVenueWire } from './user-venue-wire.js';
-import type { PreparedVenueAction } from './user-venue.js';
+import type { PreparedVenueAction, UserVenueMarket } from './user-venue.js';
 
 describe('user-venue wire', () => {
   const prepared: PreparedVenueAction = {
@@ -57,5 +57,42 @@ describe('user-venue wire', () => {
       builderFee: { builder: '0xb', feeBps: parseAmount('1') },
       fee: { known: true, value: parseAmount('0.5') },
     });
+  });
+
+  it("round-trips a market's published words as text, its feed time as a Date, and keeps an unpublished rule unknown", () => {
+    const market: UserVenueMarket = {
+      symbol: 'XAU-PERP',
+      kind: 'perpetual',
+      baseAsset: 'XAU',
+      quoteAsset: 'USDC',
+      orderTypes: ['limit', 'market'],
+      timeInForce: ['GTC', 'IOC'],
+      marginModes: ['isolated'],
+      maxLeverageBps: 100_000,
+      tickSize: parseAmount('0.1'),
+      lotSize: parseAmount('0.01'),
+      makerFeeBps: { known: true, value: parseAmount('1.5') },
+      takerFeeBps: { known: false },
+      status: 'trading',
+      maxOrderQty: null,
+      maxOrderNotional: null,
+      builderFeeCapBps: { known: false },
+      listedBy: { known: true, value: { kind: 'hip3', name: 'TEST deployer' } },
+      // Text that reads like a number stays text: a rule is never money.
+      oracleRule: { known: true, value: '3' },
+      markRule: { known: false },
+      tradingHours: { known: true, value: '24/7, no close' },
+      feed: {
+        known: true,
+        value: { state: 'stale', lastOracleUpdateAt: new Date('2026-11-09T10:00:00.000Z'), staleRule: { known: true, value: '10' } },
+      },
+    };
+    const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
+    expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
+    expect(json.oracleRule).toEqual({ known: true, value: '3' });
+    const back = decodeVenueWire<UserVenueMarket>(json);
+    expect(back).toEqual(market);
+    expect(typeof (back.oracleRule as { value: unknown }).value).toBe('string');
+    expect(back.markRule).toEqual({ known: false });
   });
 });
