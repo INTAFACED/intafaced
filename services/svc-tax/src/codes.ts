@@ -63,6 +63,12 @@ export const TAX_CHOICES_UNAVAILABLE = 'tax.choices_unavailable' as const;
 export const TAX_OWN_SPACES_UNAVAILABLE = 'tax.own_spaces_unavailable' as const;
 /** BANK_URL is unset: the lot book does not ask which spaces are the customer's and follows the main account only. */
 export const TAX_OWN_SPACES_UNWIRED = 'tax.own_spaces_unwired' as const;
+/** TRADE_URL or the service secret is unset: the lot book does not ask about the customer's own venue accounts. */
+export const TAX_VENUE_UNWIRED = 'tax.venue_unwired' as const;
+/** svc-trade's user-venue door is off on this deployment: there is no venue account to add. */
+export const TAX_VENUE_OFF = 'tax.venue_off' as const;
+/** The customer's own venue accounts could not be read just now: no venue figure is shown and the realised total is not known. */
+export const TAX_VENUE_UNAVAILABLE = 'tax.venue_unavailable' as const;
 /** A profit and loss range that ends before it starts, or ends in the future. */
 export const TAX_PNL_RANGE_INVALID = 'tax.pnl_range_invalid' as const;
 /** A range that starts too long ago for one read of candles to price it. */
@@ -101,6 +107,9 @@ export type TaxRefuseCode =
   | typeof TAX_CHOICES_UNAVAILABLE
   | typeof TAX_OWN_SPACES_UNAVAILABLE
   | typeof TAX_OWN_SPACES_UNWIRED
+  | typeof TAX_VENUE_UNWIRED
+  | typeof TAX_VENUE_OFF
+  | typeof TAX_VENUE_UNAVAILABLE
   | typeof TAX_PNL_RANGE_INVALID
   | typeof TAX_PNL_RANGE_TOO_LONG
   | typeof TAX_PNL_BREAKDOWN_MISMATCH

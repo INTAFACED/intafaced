@@ -8,8 +8,9 @@
  *     passkey, and reads a wallet back. Answers carry the wallet id, the address and the person, never a key.
  *   - The person's browser (the client side, `/client/*`, reached through the TEST stack's same-origin path
  *     `/__test-wallet-provider/client/*`) asks for a one-time challenge for one action, answers it with a WebAuthn
- *     assertion from a passkey bound to the wallet, and only then is a message signed, the key exported to the person,
- *     or a recovery passkey added. A session without that passkey cannot sign anything.
+ *     assertion from a passkey bound to the wallet, and only then is a message or EIP-712 typed data (a venue action:
+ *     the trading session's one approval, J-wallet-22 #8) signed, the key exported to the person, or a recovery passkey
+ *     added. A session without that passkey cannot sign anything.
  * No seed phrase exists anywhere: the key is a fresh random secp256k1 key, and export hands the person the key itself.
  *
  * It refuses to start unless APP_ENV is exactly `dev` or `test`. Never part of a real environment.
@@ -27,7 +28,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 export const TEST_WALLET_PROVIDER_LABEL = 'TEST wallet provider';
 /** How long a client challenge can be answered. */
 export const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-const ACTIONS = new Set(['sign', 'export', 'recovery']);
+const ACTIONS = new Set(['sign', 'signtyped', 'export', 'recovery']);
 /** Where the TEST stack's Customer site passes the provider's client routes, on the page's own origin. */
 export const TEST_WALLET_PROVIDER_CLIENT_PATH = '/__test-wallet-provider';
 
@@ -180,6 +181,30 @@ export function createTestWalletProvider({
       const signature = await accounts.privateKeyToAccount(w.privateKey).signMessage({ message: payload.message });
       return { status: 200, body: { signature, address: w.address } };
     }
+    if (action === 'signtyped') {
+      const t = payload?.typedData;
+      if (
+        !t ||
+        typeof t !== 'object' ||
+        typeof t.primaryType !== 'string' ||
+        !t.domain ||
+        typeof t.domain !== 'object' ||
+        !t.types ||
+        typeof t.types !== 'object' ||
+        !t.message ||
+        typeof t.message !== 'object'
+      )
+        return { status: 400, body: { error: 'bad_request' } };
+      let signature;
+      try {
+        signature = await accounts
+          .privateKeyToAccount(w.privateKey)
+          .signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+      } catch {
+        return { status: 400, body: { error: 'bad_request' } };
+      }
+      return { status: 200, body: { signature, address: w.address } };
+    }
     if (action === 'export') return { status: 200, body: { privateKey: w.privateKey, address: w.address, label: 'TEST' } };
     // recovery: a second passkey the person registered, added only with an assertion from a passkey already bound.
     const key = importPasskey(payload?.passkey);
@@ -267,7 +292,7 @@ export async function serveTestWalletProvider({ host, port, appEnv, origins, acc
         const r = provider.challenge(await readJson(req));
         return send(r.status, r.body);
       }
-      const action = /^\/client\/(sign|export|recovery)$/.exec(p);
+      const action = /^\/client\/(sign|signtyped|export|recovery)$/.exec(p);
       if (req.method === 'POST' && action) {
         const r = await provider.act(action[1], await readJson(req));
         return send(r.status, r.body);
