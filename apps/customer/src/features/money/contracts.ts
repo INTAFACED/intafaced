@@ -1063,6 +1063,34 @@ export const cardWalletTokensSchema = z.object({
   ),
 });
 export type CardWalletTokens = z.infer<typeof cardWalletTokensSchema>;
+/** A 3D Secure challenge as svc-bank answers it (J-bank-14 #5). `testCode` is the TEST partner's code, TEST stack only. */
+export const cardThreeDSChallengeSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  challengeRef: z.string(),
+  amount: z.string(),
+  merchant: z.string().nullable(),
+  merchantCountry: z.string().nullable(),
+  state: z.enum(['open', 'approved', 'locked']),
+  /** Null while the owner has not set the count. */
+  triesLeft: z.number().int().nullable(),
+  authorizationId: z.string().nullable(),
+  /** The completed authorisation's own decision: an approved code can still meet a declined purchase. */
+  decision: z.enum(['approved', 'declined']).nullable(),
+  declineCode: z.string().nullable(),
+  createdAt: z.string(),
+  testCode: z.string().nullable(),
+});
+export type CardThreeDSChallenge = z.infer<typeof cardThreeDSChallengeSchema>;
+/** One card fraud report (J-bank-14 #7). */
+export const cardFraudReportSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  authorizationId: z.string(),
+  state: z.literal('open'),
+  createdAt: z.string(),
+});
+export type CardFraudReport = z.infer<typeof cardFraudReportSchema>;
 
 export const bankReads = {
   'accounts.features': accountTermsSchema,
@@ -1167,6 +1195,8 @@ export const bankReads = {
   'cards.controls.get': cardControlsSchema,
   'cards.secretsOffered': cardSecretsOfferedSchema,
   'cards.walletTokens': cardWalletTokensSchema,
+  'cards.threeDS.list': z.object({ challenges: z.array(cardThreeDSChallengeSchema) }),
+  'cards.fraud.list': z.object({ reports: z.array(cardFraudReportSchema) }),
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
@@ -1278,6 +1308,8 @@ export const bankWrites = {
   'cards.pin.reveal': cardPinRevealSchema,
   'cards.pin.set': z.object({ ok: z.literal(true) }),
   'cards.walletProvision': z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }),
+  'cards.threeDS.answer': cardThreeDSChallengeSchema,
+  'cards.fraud.report': cardFraudReportSchema,
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,
