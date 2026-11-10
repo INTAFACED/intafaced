@@ -876,16 +876,26 @@ const stopTriggers = sqlStopTrigger(sql);
 const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, stopTriggers);
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
-// Our builder fee on our users' venue fills, posted once per fill while the door is on (D-venue-07).
-if (userVenue && env.TRADE_BUILDER_FEE_POSTER === 'on') {
+// Our builder fee on our users' venue fills, posted once per fill while the door is on (D-venue-07), on every venue an
+// order can be routed to (J-derivatives-28): each venue's accounts, fills and keys are its own, so one venue that can't
+// be read or stops its run leaves the others' fills posted, and the job still fails for the next tick to retry it.
+if (userVenueDoors.length > 0 && env.TRADE_BUILDER_FEE_POSTER === 'on') {
   futuresJobs.host.every('venue.builder_fees', env.TRADE_BUILDER_FEE_POSTER_INTERVAL_MS, async () => {
-    const run = await postBuilderFees({ venue: () => userVenue.venue(), ledger, store: builderFeeStore, now: () => new Date() });
-    if (run.refused > 0 || run.unread.length > 0) {
-      app.log.error(
-        { job: 'venue.builder_fees', ...run },
-        'builder fees the ledger refused, or accounts the venue would not read, stay unposted',
-      );
+    const stopped: unknown[] = [];
+    for (const door of userVenueDoors) {
+      try {
+        const run = await postBuilderFees({ venue: () => door.venue(), ledger, store: builderFeeStore, now: () => new Date() });
+        if (run.refused > 0 || run.unread.length > 0) {
+          app.log.error(
+            { job: 'venue.builder_fees', ...run },
+            'builder fees the ledger refused, or accounts the venue would not read, stay unposted',
+          );
+        }
+      } catch (error) {
+        stopped.push(error);
+      }
     }
+    if (stopped.length > 0) throw stopped[0];
   });
 }
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
