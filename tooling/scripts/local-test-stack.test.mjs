@@ -265,8 +265,8 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
-// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1): svc-protocol holds a TEST business block for the TEST region
-// AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
+// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1): svc-protocol and svc-bank hold a TEST business
+// block for the TEST region AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
 {
   const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
   const prior = process.env.LOCAL_STACK_TEST_REGION_SERVED;
@@ -276,15 +276,18 @@ const script = resolve(here, 'local-test-stack.mjs');
     delete process.env.LOCAL_STACK_TEST_REGION_SERVED;
     const served = envs();
     assert.equal(envOf(served, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST block by default');
+    assert.equal(envOf(served, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST bank block by default');
     assert.equal(envOf(served, 'edge').DEFAULT_REGION, undefined, 'edge keeps its own default region');
     process.env.LOCAL_STACK_TEST_REGION_SERVED = 'off';
     const blocked = envs();
     assert.equal(envOf(blocked, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
+    assert.equal(envOf(blocked, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'edge').DEFAULT_REGION, 'AA');
     for (const { name, env } of blocked) {
       const before = envOf(served, name);
       assert.equal(env.INTAFACED_SANCTIONS_REGIONS, before.INTAFACED_SANCTIONS_REGIONS, `${name}'s sanctions list is unchanged`);
-      if (name !== 'protocol') assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
+      if (name !== 'protocol' && name !== 'bank')
+        assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
       if (name !== 'edge') assert.equal(env.DEFAULT_REGION, before.DEFAULT_REGION, `${name}'s region is unchanged`);
     }
   } finally {
@@ -292,6 +295,26 @@ const script = resolve(here, 'local-test-stack.mjs');
     else process.env.LOCAL_STACK_TEST_REGION_SERVED = prior;
   }
   console.log('local-test-stack: the TEST blocked region switch');
+}
+
+// The blocked-region notice (J-bank-18 #1): the bank profile's TEST wording by default, blank with
+// `LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE=off`, and any other value is a typo that refuses.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const prior = process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+  const bankEnv = () => localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'bank').env;
+  try {
+    delete process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+    assert.match(bankEnv().BANK_BLOCKED_REGION_NOTICE, /^TEST wording, not the owner's: /);
+    process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = 'off';
+    assert.equal(bankEnv().BANK_BLOCKED_REGION_NOTICE, undefined);
+    process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = 'on';
+    assert.throws(bankEnv, /LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE is "on"/);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+    else process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = prior;
+  }
+  console.log('local-test-stack: the blocked-region notice wording switch');
 }
 
 // Every service file in local-stack-services/ is started, once, under its own name.

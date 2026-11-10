@@ -208,6 +208,9 @@ export function parsePinTryLimit(raw: string | undefined | null): number | null 
   return n >= 1 && n <= 10 ? n : null;
 }
 
+/** The owner's 3D Secure try limit (`BANK_CARD_3DS_TRY_LIMIT`, J-bank-14 #5): the same shape as the PIN's, 1 to 10, else null. */
+export const parseThreeDSTryLimit = parsePinTryLimit;
+
 export function requireSpendAssets(list: readonly string[] | null): readonly string[] {
   if (!list) {
     throw new BankError(

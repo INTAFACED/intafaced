@@ -251,8 +251,24 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
   await openCashOut(page);
   await see(page, '20', NEW);
   const blocker = page.getByTestId('cash-out-blocker');
-  await expect(blocker).toContainText('This account is new. Money can be sent to it from');
-  await expect(blocker).toContainText('when its cooling-off ends.');
+  // The end time the person reads is the account's own `coolingOffEndsAt`, as the page writes a time in the viewer's zone
+  // (`stamp` in screens/money/time.ts, zone "device": the browser's own, unnamed).
+  const shownEnd = await page.evaluate((iso) => {
+    const at = Date.parse(iso);
+    const year = (ms) => new Intl.DateTimeFormat('en-GB', { year: 'numeric' }).format(ms);
+    const text = new Intl.DateTimeFormat('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      ...(year(at) === year(Date.now()) ? {} : { year: 'numeric' }),
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+      .format(at)
+      .replace(',', '');
+    return `${text.slice(0, text.lastIndexOf(' '))}, ${text.slice(text.lastIndexOf(' ') + 1)}`;
+  }, fresh.coolingOffEndsAt);
+  await expect(blocker).toContainText(`This account is new. Money can be sent to it from ${shownEnd}, when its cooling-off ends.`);
   await expect(blocker).toContainText('bank.offramp_cooling_active');
   await expect(page.getByTestId('cash-out-quote').getByText('not set')).toHaveCount(2);
   expect(await api.query('cashOut.quote', { assetId: 'USDT', amount: '20', linkedAccountId: fresh.accountId })).toMatchObject({
@@ -284,6 +300,20 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
     await expect(page.getByTestId('cash-out-blocker')).toContainText(
       'The bank has published no cooling-off period for new accounts, so nothing can be sent to this one.',
     );
+    // Asked anyway with the window blank, it is kept refused and nothing reaches the partner: no payout reference, no
+    // partner move, the partner balance untouched.
+    await page.getByRole('button', { name: 'Cash out', exact: true }).click();
+    await confirmItsMe(page);
+    await expect(page.getByTestId('cash-out-kept')).toContainText('bank.offramp_cooling_unset');
+    const [keptBlank] = (await blank.query('cashOut.requests', { limit: 10 })).data;
+    expect(keptBlank).toMatchObject({
+      status: 'refused',
+      refusalCode: 'bank.offramp_cooling_unset',
+      linkedAccountId: saved.accountId,
+      payoutRef: null,
+      partnerMoveId: null,
+    });
+    expect(await usdt(blank)).toBe('50');
   } finally {
     restartWith('bank', 'LOCAL_STACK_BANK_OFFRAMP_COOLING', true);
   }

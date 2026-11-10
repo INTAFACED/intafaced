@@ -1,11 +1,15 @@
 import {
   serviceCallSigner,
   SUPPORT_WITHDRAWAL_FREEZE_PATH,
+  SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH,
+  supportWithdrawalFreezeRecordsResultSchema,
   supportWithdrawalFreezeResultSchema,
   type ServiceAuthMode,
   type ServiceSigner,
   type SupportTicket,
   type SupportWithdrawalFreezeInput,
+  type SupportWithdrawalFreezeRecordsInput,
+  type SupportWithdrawalFreezeRecordsResult,
   type SupportWithdrawalFreezeResult,
 } from '@intafaced/contracts';
 import { SupportError } from './support-service.js';
@@ -30,6 +34,8 @@ export const WITHDRAWAL_FREEZE_UNAVAILABLE = 'support.withdrawal_freeze_unavaila
 /** svc-identity's answer, or null when it gave none. */
 export interface IdentityWithdrawalFreeze {
   freeze(input: SupportWithdrawalFreezeInput): Promise<SupportWithdrawalFreezeResult | null>;
+  /** The audit rows svc-identity recorded for one request, or null when it gave no answer. */
+  records(input: SupportWithdrawalFreezeRecordsInput): Promise<SupportWithdrawalFreezeRecordsResult | null>;
 }
 
 type TicketReader = {
@@ -51,6 +57,19 @@ export class WithdrawalFreezes {
     if (!answer || answer.lock.userId !== ticket.userId || !answer.lock.locked) throw unavailable();
     return answer;
   }
+
+  /**
+   * What svc-identity recorded for this request, read back from it: the desk sees the freeze's own audit rows, never a
+   * copy kept here. Any request the desk can open, closed ones too; no answer refuses and nothing is claimed.
+   */
+  async records(operatorId: string, input: { ticketId: string }): Promise<SupportWithdrawalFreezeRecordsResult> {
+    const ticket = await this.support.getTicket({ userId: operatorId, ticketId: input.ticketId, asOperator: true });
+    if (!this.identity) throw unavailable();
+    const answer = await this.identity.records({ userId: ticket.userId, ticketId: ticket.id });
+    // Only rows of this request are its record.
+    if (!answer || answer.records.some((row) => row.ticketId !== ticket.id)) throw unavailable();
+    return answer;
+  }
 }
 
 function unavailable(): SupportError {
@@ -65,6 +84,7 @@ export function createIdentityWithdrawalFreezeClient(
 ): IdentityWithdrawalFreeze | null {
   if (!baseUrl || !identitySecretSet(internalSecret)) return null;
   const target = new URL(`${baseUrl.replace(/\/$/, '')}${SUPPORT_WITHDRAWAL_FREEZE_PATH}`);
+  const recordsTarget = new URL(`${baseUrl.replace(/\/$/, '')}${SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH}`);
   const sign = serviceCallSigner({ service: 'svc-support', audience: 'svc-identity', legacySecret: internalSecret, s2s });
   return {
     async freeze(input) {
@@ -82,6 +102,26 @@ export function createIdentityWithdrawalFreezeClient(
         });
         if (!res.ok) return null;
         const parsed = supportWithdrawalFreezeResultSchema.safeParse(await res.json());
+        return parsed.success ? parsed.data : null;
+      } catch {
+        return null;
+      }
+    },
+    async records(input) {
+      const body = JSON.stringify(input);
+      try {
+        const res = await fetch(recordsTarget, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json',
+            ...sign(body, { method: 'POST', url: recordsTarget, contentType: 'application/json' }),
+          },
+          body,
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!res.ok) return null;
+        const parsed = supportWithdrawalFreezeRecordsResultSchema.safeParse(await res.json());
         return parsed.success ? parsed.data : null;
       } catch {
         return null;

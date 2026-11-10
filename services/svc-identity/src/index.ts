@@ -127,7 +127,11 @@ import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.j
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
-import { freezeWithdrawalsForSupport, registerSupportWithdrawalFreezeRoute } from './auth/support-withdrawal-freeze.js';
+import {
+  freezeWithdrawalsForSupport,
+  registerSupportWithdrawalFreezeRoute,
+  supportWithdrawalFreezeRecords,
+} from './auth/support-withdrawal-freeze.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
@@ -1211,6 +1215,7 @@ registerSupportWithdrawalFreezeRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   freeze: (input) => freezeWithdrawalsForSupport(securityLock, input),
+  records: (input) => supportWithdrawalFreezeRecords(sql, input),
 });
 
 /**

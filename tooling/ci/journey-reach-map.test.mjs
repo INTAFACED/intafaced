@@ -11,6 +11,9 @@ import {
   unbuiltSteps,
   STALE_RUNS,
   buildMap,
+  builtMap,
+  mapBuild,
+  newerMap,
   candidates,
   dependentPackages,
   harnessImports,
@@ -827,4 +830,111 @@ test('planted: verify reads the workspace inputs from the checkout it is given, 
   assert.match(src, /opt\('--workspace'\)/);
   assert.match(src, /buildFromMain\(\{ until, root \}\)/);
   assert.match(src, /const inputs = workspaceInputs\(root\);/, 'the build reads its workspace inputs from the root it is given');
+});
+
+// ---- The map main's map workflow built, instead of a committed copy nobody refreshes (the OG, project-state#1574, 23:51 UTC 9 Nov) ----
+
+const mapRun = (id, created, over = {}) => ({
+  id,
+  status: 'completed',
+  conclusion: 'success',
+  head_branch: 'main',
+  event: 'workflow_run',
+  path: '.github/workflows/journey-reach-map.yml',
+  created_at: created,
+  head_repository: { full_name: REPO },
+  ...over,
+});
+
+test('mapBuild: the newest verified build from main, created no later than the journeys run', () => {
+  const runs = [
+    mapRun(1, '2026-11-09T15:00:00Z'),
+    mapRun(2, '2026-11-09T18:00:00Z'),
+    mapRun(3, '2026-11-09T23:00:00Z'),
+    mapRun(4, '2026-11-09T19:00:00Z', { conclusion: 'failure' }), // its verify step failed
+    mapRun(5, '2026-11-09T20:00:00Z', { head_branch: 'u4/x', event: 'workflow_dispatch' }), // another branch's builder
+    mapRun(8, '2026-11-09T23:30:00Z', { event: 'workflow_dispatch' }), // a dispatch runs whatever ref it names (a tag called main)
+    mapRun(6, '2026-11-09T21:00:00Z', { head_repository: { full_name: 'someone/fork' } }),
+    mapRun(7, '2026-11-09T22:00:00Z', { path: '.github/workflows/other.yml' }),
+  ];
+  assert.equal(mapBuild(runs, { repo: REPO })?.id, 3);
+  assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T22:30:00Z'), repo: REPO })?.id, 2);
+  assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T14:00:00Z'), repo: REPO }), null);
+  assert.equal(mapBuild(null), null);
+});
+
+test('newerMap: the built map when it is usable and newer than the committed one, else the committed one', () => {
+  const older = build(RUNS.slice(1).concat([run(0, '2026-11-08T12:00:00Z')]));
+  assert.equal(newerMap(MAP, older), MAP);
+  assert.equal(newerMap(older, MAP), MAP);
+  assert.equal(newerMap(null, MAP), MAP);
+  assert.equal(newerMap({ ...MAP, mode: 'full' }, older), older);
+  assert.equal(newerMap({ ...MAP, v: 99 }, older), older);
+  assert.equal(newerMap(MAP, null), MAP);
+});
+
+test('builtMap: reads the build’s artifact; any failed read is null, so the committed map stays', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'built-map-test-'));
+  try {
+    writeFileSync(join(dir, 'journey-reach-map.json'), mapText(MAP));
+    execFileSync('zip', ['-q', 'a.zip', 'journey-reach-map.json'], { cwd: dir });
+    const zip = readFileSync(join(dir, 'a.zip'));
+    const asked = [];
+    const get = async (path) => {
+      asked.push(path);
+      if (path.includes('/workflows/journey-reach-map.yml/runs')) return { workflow_runs: [mapRun(3, '2026-11-09T23:00:00Z')] };
+      if (path.endsWith('/runs/3/artifacts?name=journey-reach-map'))
+        return { artifacts: [{ id: 77, name: 'journey-reach-map', expired: false }] };
+      throw new Error(`unexpected ${path}`);
+    };
+    const got = await builtMap({ get, raw: async (path) => (path.endsWith('/artifacts/77/zip') ? zip : null), repo: REPO });
+    assert.deepEqual(got, MAP);
+    assert.match(asked[0], /branch=main&status=success/);
+    assert.equal(await builtMap({ get: async () => Promise.reject(new Error('HTTP 502')), raw: async () => zip, repo: REPO }), null);
+    const expired = async (path) =>
+      path.includes('/artifacts?') ? { artifacts: [{ id: 77, name: 'journey-reach-map', expired: true }] } : get(path);
+    assert.equal(await builtMap({ get: expired, raw: async () => zip, repo: REPO }), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('planted: a committed map too old to read makes a one-service change full; the fresh build narrows it, and the seal picks the build the run chose', async () => {
+  const files = ['services/svc-tax/src/rates.ts'];
+  // The case of 9 Nov: main's newest 100 runs don't reach back to the committed map's newest run, so its age is unknown.
+  const tooOld = { ...MAP, runs: MAP.runs.map((r) => ({ ...r, created: '2026-11-01T00:00:00Z' })) };
+  const mainRuns = [
+    ghRun(4, { created_at: '2026-11-08T16:00:00Z', head_branch: 'main', event: 'push' }),
+    ghRun(3, { created_at: '2026-11-08T15:00:00Z', head_branch: 'main', event: 'push' }),
+  ];
+  const behindOf = (m) => runsBehind(m, mainRuns, REPO);
+  assert.equal(behindOf(tooOld), null);
+  assert.equal(select(files, { map: tooOld, behind: behindOf(tooOld) }).mode, 'full');
+  const fresh = newerMap(MAP, tooOld);
+  assert.equal(fresh, MAP);
+  assert.deepEqual(select(files, { map: fresh, behind: behindOf(fresh) }).files, [POPUP, TAX]);
+  // The seal asks for the build no later than the head's newest journeys run, and holds the run to what it selects.
+  let asked;
+  const sealed = await sealPull({
+    repo: REPO,
+    number: 9,
+    sha: HEAD,
+    io: {
+      pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: 'b'.repeat(40) }, title: 'svc-tax: rates', body: '' }),
+      runs: async () => [ghRun(1, { created_at: '2026-11-08T17:00:00Z' }), ghRun(2, { created_at: '2026-11-08T17:30:00Z' })],
+      reportOf: async () => ({ states: {}, ran: [POPUP, TAX] }),
+      files: async () => files,
+      text: async () => '',
+      verdictOf: async () => clean,
+      reachMap: async (before) => {
+        asked = before;
+        return fresh;
+      },
+      mainRuns: async () => mainRuns,
+      journeyFiles: async () => FILES,
+      reachMode: 'reach',
+    },
+  });
+  assert.equal(asked, Date.parse('2026-11-08T17:30:00Z'));
+  assert.equal(sealed.ok, true, sealed.lines.join('\n'));
 });

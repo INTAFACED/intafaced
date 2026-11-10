@@ -200,6 +200,13 @@ export interface CardIssuerAdapter {
   }): Promise<'ok' | 'wrong' | 'blocked' | 'unset'>;
 
   /**
+   * The card partner's 3D Secure code for one challenge (J-bank-14 #5): the code its access control server sends the
+   * cardholder for that online purchase. CardService compares what the person types against it and never stores it. The
+   * TEST partner derives a TEST code from the challenge id; absent means `bank.card_3ds_issuer_unset`.
+   */
+  threeDSCode?(input: { cardId: string; issuerRef: string; challengeId: string }): Promise<{ code: string }>;
+
+  /**
    * TRUE ONLY ON THE TEST PARTNER ADAPTER WITH `secrets: "test"`: its card details, PIN and wallet tokens are TEST
    * stand-ins, so CardService lets the secret calls run on a simulated programme and every answer says TEST. A live
    * issuer never sets it.
@@ -226,7 +233,10 @@ export function testCardNumber(cardId: string): string {
 }
 
 /** The TEST partner's card details, PIN and wallet calls (`secrets: "test"`). Held in this process only; a restart forgets PINs. */
-function testSecretMethods(): Pick<CardIssuerAdapter, 'revealCredentials' | 'revealPin' | 'setPin' | 'verifyPin' | 'provisionWallet'> {
+function testSecretMethods(): Pick<
+  CardIssuerAdapter,
+  'revealCredentials' | 'revealPin' | 'setPin' | 'verifyPin' | 'provisionWallet' | 'threeDSCode'
+> {
   const pins = new Map<string, { pin: string; wrongInARow: number }>();
   // One answer per purchase, so a redelivered purchase (even one racing the first) is never a second wrong try.
   const answered = new Map<string, 'ok' | 'wrong' | 'blocked' | 'unset'>();
@@ -268,6 +278,10 @@ function testSecretMethods(): Pick<CardIssuerAdapter, 'revealCredentials' | 'rev
       answered.set(key, verdict);
       return verdict;
     },
+    // A TEST code of six digits, derived from the challenge id, so the same challenge always has the same code.
+    threeDSCode: async ({ challengeId }) => ({
+      code: (parseInt(digest('3ds', challengeId).slice(0, 12), 16) % 1_000_000).toString().padStart(6, '0'),
+    }),
     provisionWallet: async ({ cardId, wallet, nonce }) => ({
       payload: `TEST-wallet-${wallet}-${createHash('sha256').update(`${cardId}:${wallet}:${nonce}`).digest('hex').slice(0, 24)}`,
     }),
