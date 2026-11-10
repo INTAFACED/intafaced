@@ -179,6 +179,8 @@ async function openRecon(page, from, to) {
 }
 
 let start;
+/** The fills of #4's order placed on the venue directly, not through our door: the only fills that are not ours. */
+let directFillIds = [];
 test(`${J} #1 opens recon for a period: the venue's builder fees against the ledger's, green when matched`, async ({ page, browser }) => {
   test.setTimeout(300_000);
   // One second back, as #2 and #3 open theirs: the TEST venue shares the stack's clock, and the shard runs one file at a
@@ -376,7 +378,9 @@ test(`${J} #4 opens the routed-volume recon: volume by venue against the builder
   const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
   const sent = await testVenue('/submit', { prepared: prep.body, signature: { digest: prep.body.digest, signature, signedBy: owner } });
   expect(sent.body, JSON.stringify(sent.body).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
-  const [direct] = await venueFills(from);
+  const directFills = await venueFills(from);
+  directFillIds = directFills.map((f) => f.fillId);
+  const [direct] = directFills;
   expect(direct, 'the direct order filled with our builder fee').toBeTruthy();
 
   await page.reload();
@@ -403,7 +407,19 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
   const id = await venueId();
   const to = new Date(Date.now() + 10 * 60_000);
   await expect.poll(async () => (await recon(start, to)).venues[0]?.matched ?? null, { timeout: 60_000 }).toBe(true);
-  const fills = await venueFills(start);
+  // The ledger records our builder fee only on fills of orders we routed (OWNER 288 change 1b). The only fills that are
+  // not ours are the ones this test made itself in #4, by placing an order on the venue directly: exactly those read as
+  // not ours, and every other fill, each sent through our door, is matched, posted and in the file.
+  const reconLines = (await recon(start, to)).venues[0].lines;
+  expect(
+    reconLines
+      .filter((l) => l.status === 'not_our_order')
+      .map((l) => l.fillId)
+      .sort(),
+  ).toEqual([...directFillIds].sort());
+  const fills = (await venueFills(start)).filter((f) => !directFillIds.includes(f.fillId));
+  expect(fills.length, 'fills sent through our door').toBeGreaterThan(0);
+  for (const f of fills) expect(reconLines.find((l) => l.fillId === f.fillId)?.status, `fill ${f.fillId}`).toBe('matched');
 
   await staffSignIn(page, browser, 'finance');
   const venue = await openRecon(page, start, to);
@@ -428,7 +444,7 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
   for (const f of fills) {
     const [txId, key, venueCol, , , asset, amount, postedAt] = byFill.get(f.fillId);
     expect(venueCol).toBe(id);
-    expect(key).toBe(`builder-fee:${id}:${f.fillId}`);
+    expect(key).toBe(`builder-fee:${id}:${owner}:${f.fillId}`);
     const tx = await ledgerRead(`/operator/transactions/${encodeURIComponent(txId)}`);
     expect(tx).toMatchObject({ txId, businessKey: key, reason: 'trade.builder_fee.earned', postedAt });
     const debit = tx.postings.find((p) => p.direction === 'debit');

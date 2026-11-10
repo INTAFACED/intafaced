@@ -156,6 +156,36 @@
       "value": "0.5",
       "note": "LOCAL TEST ONLY, not an owner decision: half a basis point of notional as our builder fee on the TEST venue simulator. Blank, every venue order refuses builder_fee_not_published; LOCAL_STACK_USER_VENUE_BUILDER_FEE=off leaves it blank."
     },
+    "TRADE_AGENT_ACCOUNT_CEILING": {
+      "service": "trade",
+      "value": "500",
+      "note": "LOCAL TEST ONLY, not an owner decision: the most any person's agent-account cap may be, TEST 500 USDC (J-agents-21). Blank refuses every create agents.account_ceiling_unset; LOCAL_STACK_AGENT_ACCOUNT_CEILING=off leaves it blank for one restart (J-agents-21 #1)."
+    },
+    "TRADE_AGENT_ACCOUNT_ASSET": {
+      "service": "trade",
+      "value": "USDC",
+      "note": "LOCAL TEST ONLY, not an owner decision: the one asset an agent account is funded in and its cap counted in, the TEST venue's quote asset. Blank refuses every create agents.account_asset_unset."
+    },
+    "TRADE_AGENT_KEY_SEED": {
+      "service": "trade",
+      "value": "intafaced LOCAL TEST agent key seed - public, holds nothing real",
+      "note": "LOCAL TEST ONLY, a public phrase and never a secret: the seed the TEST stack's venue agent keys derive from (src/venue/agent-key.ts). Every key from it holds nothing anywhere but the TEST venue's memory. The real seed is a secret the owner sets; blank refuses every create agents.agent_key_unset."
+    },
+    "TRADE_AGENT_MAX_ORDER_NOTIONAL": {
+      "service": "trade",
+      "value": "100",
+      "note": "LOCAL TEST ONLY, not an owner decision: the largest notional of one assistant order, TEST 100 USDC (the drain bounds, J-agents-21). Blank refuses every agent order agents.order_bound_unset."
+    },
+    "TRADE_AGENT_WORST_PRICE_BPS": {
+      "service": "trade",
+      "value": "200",
+      "note": "LOCAL TEST ONLY, not an owner decision: the worst price an assistant order may name, 2% from the mark. Blank refuses every agent order agents.price_bound_unset."
+    },
+    "TRADE_AGENT_MARKETS": {
+      "service": "trade",
+      "value": "BTC-USDC,BTC-PERP",
+      "note": "LOCAL TEST ONLY, not an owner decision: the markets an assistant may trade on the TEST venue. Blank refuses every agent order agents.markets_unset."
+    },
     "TRADE_USER_VENUE_ORDERS_PAGE_MAX": {
       "service": "trade",
       "value": "50",

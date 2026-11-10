@@ -28,6 +28,7 @@ const UNKNOWN = {
   funder: null,
   balances: null,
   programmeFigures: null,
+  figuresAsOf: null,
   fundingAssetId: null,
   fundingOffers: null,
 };
@@ -81,11 +82,28 @@ describe('programme reserve switch: unknown is "not known", never 0 (J-bank-26 #
   });
 
   it('a required reserve shows its amount; none required says so in words, not as 0', () => {
-    const required = partnerTermsView(cardSimPartnerFor(json({ reserve: { required: true, amount: '25000.00', assetId: 'USDC' } }), DEV));
+    const required = partnerTermsView(
+      cardSimPartnerFor(json({ figuresAsOf: 'now', reserve: { required: true, amount: '25000.00', assetId: 'USDC' } }), DEV),
+    );
     expect(required.reserve).toBe('25000.00 USDC, as the partner reports');
-    const none = partnerTermsView(cardSimPartnerFor(json({ reserve: { required: false } }), DEV));
+    const none = partnerTermsView(cardSimPartnerFor(json({ figuresAsOf: 'now', reserve: { required: false } }), DEV));
     expect(none.reserve).toBe('None required, as the partner reports');
     expect(none.reserveStatus).toBe('reported');
+  });
+
+  it('b2 change 6: a reserve the partner sent with no time for it reads "not known", required or not', () => {
+    for (const reserve of [{ required: true, amount: '25000.00', assetId: 'USDC' }, { required: false }]) {
+      const view = partnerTermsView(cardSimPartnerFor(json({ reserve }), DEV));
+      expect(view).toMatchObject({ reserve: NOT_KNOWN, reserveStatus: 'not_known' });
+    }
+  });
+
+  it('b2 change 6: the partner time is now, an ISO time, or null; anything else refuses boot, and the limit is declared', () => {
+    expect(cardSimPartnerFor(json({ figuresAsOf: '2026-11-10T08:00:00.000Z' }), DEV).figuresAsOf).toBe('2026-11-10T08:00:00.000Z');
+    expect(cardSimPartnerFor(json({ figuresAsOf: 'now' }), DEV).figuresStaleAfterMs).toBeGreaterThan(0);
+    expect(() => cardSimPartnerFor(json({ figuresAsOf: 'yesterday' }), DEV)).toThrow(/figuresAsOf/);
+    const { figuresAsOf: _dropped, ...missing } = UNKNOWN;
+    expect(() => cardSimPartnerFor(JSON.stringify(missing), DEV)).toThrow(/figuresAsOf/);
   });
 
   it('a required reserve of zero is refused: a partner that requires none says required: false', () => {

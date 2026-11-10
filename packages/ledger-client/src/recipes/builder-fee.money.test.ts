@@ -12,23 +12,52 @@ import { earnedBuilderFeeKey, recipes } from './index.js';
  */
 const USER = '11111111-1111-4111-8111-111111111111';
 const VENUE = 'test-venue-sim';
+const ACCOUNT = '0x00000000000000000000000000000000000000a1';
+const OTHER_ACCOUNT = '0x00000000000000000000000000000000000000a2';
 
 let ledger: MemoryLedger;
 beforeEach(() => {
-  ledger = new MemoryLedger();
+  // A real svc-ledger is always in `refuse` mode (OWNER 288 change 1a): a reused key with another body is refused.
+  ledger = new MemoryLedger({ idempotencyConflict: 'refuse' });
 });
 const bal = async (ref: Parameters<MemoryLedger['balance']>[0]) => formatAmount((await ledger.balance(ref)).amount);
 const earn = (fillId: string, amount: string, over: Partial<Parameters<typeof recipes.builderFeeEarn>[0]> = {}) =>
-  recipes.builderFeeEarn({ venueId: VENUE, fillId, assetId: 'USDC', amount: amt(amount), userId: USER, ...over });
+  recipes.builderFeeEarn({ venueId: VENUE, venueAccount: ACCOUNT, fillId, assetId: 'USDC', amount: amt(amount), userId: USER, ...over });
 
 describe('builderFeeEarn and builderFeeReceive', () => {
   it('posts the fee once per venue fill: revenue up, what the venue owes us down by the same amount', async () => {
     await ledger.post(earn('f1', '0.25'));
     await ledger.post(earn('f2', '0.5'));
     const again = await ledger.post(earn('f1', '0.25'));
-    expect(again.idempotencyKey).toBe(earnedBuilderFeeKey(VENUE, 'f1'));
+    expect(again.idempotencyKey).toBe(earnedBuilderFeeKey(VENUE, ACCOUNT, 'f1'));
+    expect(again.idempotencyKey).toBe(`builder-fee:${VENUE}:${ACCOUNT}:f1`);
     expect(await bal(houseFees('builder', 'USDC'))).toBe('0.75');
     expect(await bal(venueBuilderFeeReceivable(VENUE, 'USDC'))).toBe('-0.75');
+  });
+
+  it('acceptance 1: the two sides of one trade, two of our accounts under one fill id with different fees, are two entries', async () => {
+    await ledger.post(earn('t7', '0.25'));
+    await ledger.post(earn('t7', '0.4', { venueAccount: OTHER_ACCOUNT }));
+    expect(await bal(houseFees('builder', 'USDC'))).toBe('0.65');
+    expect(await bal(venueBuilderFeeReceivable(VENUE, 'USDC'))).toBe('-0.65');
+  });
+
+  it('acceptance 2: the same with equal fees is still two entries, never one', async () => {
+    const a = await ledger.post(earn('t8', '0.25'));
+    const b = await ledger.post(earn('t8', '0.25', { venueAccount: OTHER_ACCOUNT }));
+    expect(a.id).not.toBe(b.id);
+    expect(await bal(houseFees('builder', 'USDC'))).toBe('0.5');
+  });
+
+  it('acceptance 5: the same fill delivered three times is one entry', async () => {
+    for (let i = 0; i < 3; i += 1) await ledger.post(earn('t9', '0.25'));
+    expect(await bal(houseFees('builder', 'USDC'))).toBe('0.25');
+  });
+
+  it('a fill whose key exists with another amount is refused (ledger.idempotency_conflict), never booked twice', async () => {
+    await ledger.post(earn('t6', '0.25'));
+    await expect(ledger.post(earn('t6', '0.3'))).rejects.toMatchObject({ code: 'ledger.idempotency_conflict' });
+    expect(await bal(houseFees('builder', 'USDC'))).toBe('0.25');
   });
 
   it('a payout clears the receivable by its amount once, into our builder account at the venue', async () => {
@@ -62,6 +91,8 @@ describe('builderFeeEarn and builderFeeReceive', () => {
     expect(() => earn('f 0', '0.1')).toThrow(InvalidEntryError);
     expect(() => earn('f0', '0.1', { assetId: ' USDC' })).toThrow(InvalidEntryError);
     expect(() => earn('f0', '0.1', { userId: '' })).toThrow(InvalidEntryError);
+    expect(() => earn('f0', '0.1', { venueAccount: '' })).toThrow(InvalidEntryError);
+    expect(() => earn('f0', '0.1', { venueAccount: 'a:b' })).toThrow(InvalidEntryError);
     expect(() => recipes.builderFeeReceive({ venueId: VENUE, payoutId: 'p1', assetId: 'USDC', amount: amt('0') })).toThrow(
       InvalidEntryError,
     );
