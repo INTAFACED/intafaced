@@ -129,6 +129,11 @@ test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on t
     for (const i of [0, 2, 3]) await expect(cell(page, i)).toBeHidden();
     await expect(cell(page, 1)).toBeVisible();
     expect(await width(page, 1)).toBeGreaterThan(1000);
+    // It fills the area: the maximised chart's box is the grid area's box, in width and in height.
+    const area = await page.getByTestId('cg-area').boundingBox();
+    const filled = await cell(page, 1).boundingBox();
+    for (const side of ['x', 'y', 'width', 'height'])
+      expect(Math.abs(filled[side] - area[side]), `the maximised chart's ${side} against the area's`).toBeLessThan(4);
     await page.keyboard.press('Alt+Enter');
     await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
     for (const i of [0, 1, 2, 3]) await expect(cell(page, i)).toBeVisible();
@@ -357,9 +362,12 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
     if (request.method() !== 'GET' && /\/orders?\b|order\.|\.place\b/i.test(new URL(request.url()).pathname))
       sent.push(`${request.method()} ${request.url()}`);
   });
+  // This chart's market, not the default: the chart is moved to ETH/USDT first, so a desk link fixed to BTC/USDT fails.
+  await cell(page, 0).getByLabel('Market').selectOption('ETH/USDT');
+  await expect(cell(page, 0)).toHaveAttribute('data-symbol', 'ETH/USDT');
   await canvasOf(page, 0).focus();
   await page.keyboard.press('Alt+T');
-  await expect(page).toHaveURL(/\/trade\/spot\/BTC-USDT/);
+  await expect(page).toHaveURL(/\/trade\/spot\/ETH-USDT/);
   await page.waitForLoadState('networkidle');
   expect(sent, 'order requests sent by Alt+T').toEqual([]);
 });

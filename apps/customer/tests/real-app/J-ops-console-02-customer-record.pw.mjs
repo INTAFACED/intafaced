@@ -1,11 +1,13 @@
 // World: restart
 import { expect, test } from './journey.mjs';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, fund, signUpInBrowser, tool } from './stack.mjs';
+import { verify } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
 
 // J-ops-console-02 steps #3 and #4: /accounts/:userId shows the money, trade, pay, cards, documents and tickets tabs for one
@@ -15,7 +17,41 @@ import { staffSignIn } from './staff.mjs';
 // #3's last clause, a staff member without the cards scope seeing "permission denied", signs in the stack's TEST support
 // staff member (staff.mjs). Step #5
 // (each document's status and the viewer) is its own test, J-ops-console-02-documents.pw.mjs.
-// The account looked at is the stack's second TEST founder, an account that always exists on the stack.
+// #4 looks at the stack's second TEST founder, an account that always exists on the stack. #3 looks at a fresh TEST
+// customer with money and a card on it: verified, funded with TEST USDT through the real ledger, and holding a TEST card
+// from the stack's card simulator, so each read has something of this customer's own to answer with.
+
+/** A fresh verified TEST customer with `usdt` TEST USDT through the real ledger and one TEST virtual card. */
+async function customerWithMoneyAndCard(browser, usdt) {
+  const tag = randomUUID().slice(0, 8);
+  const who = { handle: `ops23${tag}`, email: `ops23-${tag}@local-test.invalid`, password: `Ops23-${tag}-Test!pass` };
+  const page = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  try {
+    await signUpInBrowser(page, who);
+    await verify(page, who);
+  } finally {
+    await page.context().close();
+  }
+  expect(fund(who.email, 'USDT', usdt).tx, 'the TEST deposit posted to the ledger').toBeTruthy();
+  const cardId = randomUUID();
+  const own = await api(who);
+  const issued = await own.post('/api/bank/trpc/cards.issue', {
+    cardId,
+    assetId: 'USDT',
+    perAuthorizationLimit: '50',
+    cardType: 'virtual',
+  });
+  expect(issued.status, JSON.stringify(issued.body).slice(0, 300)).toBe(200);
+  expect(issued.body.result.data).toMatchObject({ status: 'active', simulated: true });
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  });
+  const userId = (await login.json())?.result?.data?.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} refused: ${login.status}`);
+  return { userId, cardId };
+}
 
 async function secondFounder() {
   const ctx = await makeContext({ log: () => {} });
@@ -74,8 +110,8 @@ test('J-ops-console-02 #4 the risk card says no risk level and the indicator str
 });
 
 test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing on its own', async ({ page, browser }) => {
-  test.setTimeout(480_000);
-  const customer = await secondFounder();
+  test.setTimeout(600_000);
+  const { userId: customer, cardId } = await customerWithMoneyAndCard(browser, '25');
   await founderSignIn(page, 'a');
 
   await page.goto(`${ADMIN}/accounts`, { waitUntil: 'load' });
@@ -86,14 +122,15 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   for (const tab of ['money', 'trade', 'pay', 'cards', 'documents', 'tickets'])
     await expect(page.getByTestId(`customer-tab-${tab}`)).toBeVisible();
 
-  // Money: the balance read answers or refuses in words; it is never blank.
+  // Money: the ledger's balance read answers with this customer's own TEST deposit: one USDT row with a total of 25.
   const balances = page.getByTestId('read-bank.customer-balances');
   await expect(balances).toBeVisible();
-  expect(await readState(balances), 'the balance read answered, or refused with its own heading and code').toMatch(
-    /^read$|^.+ \/ [a-z][\w.]*$/,
-  );
+  expect(await readState(balances), "the ledger's balance read answered").toBe('read');
+  const usdt = balances.locator('tbody tr').filter({ hasText: 'USDT' });
+  await expect(usdt).toHaveCount(1);
+  await expect(usdt.locator('td').nth(1)).toHaveText(/^\s*25(\.0+)?\s*$/);
 
-  // Trade: svc-trade's restriction history answers for a founder; orders and positions name their blocker.
+  // Trade: svc-trade's restriction history answers for this customer; orders and positions name their blocker.
   await page.getByTestId('customer-tab-trade').click();
   await expect(page.getByTestId('customer-panel-trade')).toBeVisible({ timeout: 60_000 });
   expect(await readState(page.getByTestId('read-trade.controls'))).toBe('read');
@@ -111,11 +148,21 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   await expect(documents.getByText(/As of /).first()).toBeVisible();
   await expect(page.getByTestId('unwired-documents.decisions')).toContainText('no source');
 
-  for (const tab of ['cards', 'tickets']) {
-    await page.getByTestId(`customer-tab-${tab}`).click();
-    await expect(page.getByTestId(`customer-panel-${tab}`)).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId(`customer-panel-${tab}`)).toContainText('ops.customer_record_source_unwired');
-  }
+  // Cards: svc-bank's card read answers with this customer's TEST card, active and simulated; card payments, which no
+  // service can read for one account, name why.
+  const cards = await tabStates(page, 'cards');
+  expect(cards['read-cards.list'], "svc-bank's card read answered").toBe('read');
+  const card = page.getByTestId('read-cards.list').locator('tbody tr').filter({ hasText: cardId });
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('Active');
+  await expect(page.getByTestId('unwired-cards.payments')).toContainText('no source');
+  await expect(page.getByTestId('unwired-cards.payments')).toContainText('ops.customer_record_source_unwired');
+
+  // Tickets: svc-support has no read of one customer's requests, so the tab names why in place of a list.
+  await page.getByTestId('customer-tab-tickets').click();
+  await expect(page.getByTestId('customer-panel-tickets')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('unwired-tickets.list')).toContainText('no source');
+  await expect(page.getByTestId('unwired-tickets.list')).toContainText('ops.customer_record_source_unwired');
 
   // svc-trade down: the trade tab's read refuses as unavailable, and every other tab (money, pay, cards, documents and
   // tickets) keeps the state it had before, so only the trade tab refuses.
