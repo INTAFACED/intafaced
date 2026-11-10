@@ -76,7 +76,7 @@ const owe = (over: Partial<RewardOweInput> = {}) =>
     ...over,
   });
 
-const pay = (amount: string, chainTx: string, rewardId = `campaign:${CAMPAIGN}:${USER}:first-trade`, from = WALLET) =>
+const pay = (amount: string, chainTx: string, rewardId = `campaign:${CAMPAIGN}:${USER}:first-trade`, from: OwnFundsPlace = WALLET) =>
   recipes.rewardPayOut({ rewardId, from, toWallet: CUSTOMER_WALLET, chainTx, assetId: 'USDC', amount: amt(amount) });
 
 function caught(fn: () => unknown): unknown {
