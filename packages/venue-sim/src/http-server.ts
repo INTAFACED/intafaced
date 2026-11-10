@@ -9,6 +9,7 @@ import {
   encodeVenueWire,
   refuseTestVenueOutsideTest,
   venueClientOrderId,
+  type AsOf,
   type MaybeKnown,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
@@ -20,7 +21,7 @@ import {
   type VenueSigner,
 } from '@intafaced/venue-contracts';
 import type { TestVenueTypedData } from './signing.js';
-import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
+import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketConfig } from './simulator.js';
 
 /**
  * THE TEST VENUE SIMULATOR OVER LOOPBACK HTTP — one `TestVenueSimulator` as an outside process, so "venue down" is a
@@ -296,6 +297,12 @@ export async function seedTestVenue(
 /** One owner's TEST switches (`/test/account-switches`). Kept per simulator, never part of UserVenue. */
 export interface AccountSwitches {
   down: boolean;
+  /**
+   * The account's balance and position figures (b2 change 6): `live` (the default) sends each read with the venue's time
+   * now; `stale` sends it with a time older than the venue's declared limit (`TEST_VENUE_FIGURE_STALE_AFTER_MS`);
+   * `unknown` sends it with no time, so every figure reads "not known", never known at our read time.
+   */
+  figures: 'live' | 'stale' | 'unknown';
   loseAnswers: number;
   failAfterSend: number;
   submitDelayMs: number;
@@ -305,6 +312,14 @@ const ACCOUNT_SWITCHES = new WeakMap<TestVenueSimulator, Map<string, AccountSwit
 
 function switchesOf(sim: TestVenueSimulator, owner: string): AccountSwitches | null {
   return ACCOUNT_SWITCHES.get(sim)?.get(owner.toLowerCase()) ?? null;
+}
+
+/** A balance or position read with the venue's time as the account's `figures` switch says (b2 change 6). */
+function figuresAsSwitched<T>(sim: TestVenueSimulator, owner: string, read: AsOf<T>): AsOf<T> {
+  const mode = switchesOf(sim, owner)?.figures ?? 'live';
+  if (mode === 'live') return read;
+  if (mode === 'unknown') return { ...read, reportedAt: null };
+  return { ...read, reportedAt: new Date(read.asOf.getTime() - 2 * TEST_VENUE_FIGURE_STALE_AFTER_MS) };
 }
 
 /** The owner a request acts on: its `account`, or the prepared action's account on a submit. */
@@ -318,7 +333,13 @@ function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknow
   if (!/^0x[0-9a-f]{40}$/.test(owner)) throw new VenueWireError('owner must be a 0x address');
   const all = ACCOUNT_SWITCHES.get(sim) ?? new Map<string, AccountSwitches>();
   ACCOUNT_SWITCHES.set(sim, all);
-  const s = all.get(owner) ?? { down: false, loseAnswers: 0, failAfterSend: 0, submitDelayMs: 0 };
+  const s = all.get(owner) ?? { down: false, figures: 'live', loseAnswers: 0, failAfterSend: 0, submitDelayMs: 0 };
+  if (body.figures !== undefined) {
+    if (body.figures !== 'live' && body.figures !== 'stale' && body.figures !== 'unknown') {
+      throw new VenueWireError("figures is 'live', 'stale' or 'unknown'");
+    }
+    s.figures = body.figures;
+  }
   if (body.down !== undefined) {
     if (typeof body.down !== 'boolean') throw new VenueWireError('down is true or false');
     s.down = body.down;
@@ -404,11 +425,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     case '/submit':
       return sim.submit(body.prepared as PreparedVenueAction, body.signature as VenueSignature);
     case '/balances':
-      return sim.balances(account(body));
+      return figuresAsSwitched(sim, account(body).owner, await sim.balances(account(body)));
     case '/open-orders':
       return sim.openOrders(account(body));
     case '/positions':
-      return sim.positions(account(body));
+      return figuresAsSwitched(sim, account(body).owner, await sim.positions(account(body)));
     case '/agents':
       return sim.agents(account(body));
     case '/order-by-client-id':

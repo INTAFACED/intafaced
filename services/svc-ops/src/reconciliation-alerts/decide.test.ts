@@ -10,6 +10,7 @@ function evaluation(status: ReconciliationEvaluation['run']['status'], assets: R
       id: '00000000-0000-4000-8000-000000000001',
       controlId: '00000000-0000-4000-8000-000000000002',
       status,
+      compared: assets.length,
       phase: { status: 'unset' },
       errorCode: { status: 'unset' },
       asOf: '2026-10-29T10:00:00.000Z',
@@ -36,11 +37,17 @@ describe('reconciliation alert decisions', () => {
     expect(assetFails({ ...asset('0', '0'), difference: 'unset' })).toBe(false);
   });
 
+  it('fails a row whose side is missing, never reading it as a zero (OWNER 288)', () => {
+    const missing = { assetId: 'USDC', observed: 'unset', expected: '0', difference: 'unset', tolerance: '0', missing: 'ledger' as const };
+    expect(assetFails(missing)).toBe(true);
+    expect(failingTargets(evaluation('FAIL', [missing as never])).map((target) => target?.assetId)).toEqual(['USDC']);
+  });
+
   it('raises one target per failing asset, a blank asset for a FAIL with none, and nothing for any other status', () => {
     const failing = evaluation('FAIL', [asset('2', '1'), { ...asset('0', '0'), assetId: 'BTC' }, { ...asset('-3', '1'), assetId: 'ETH' }]);
     expect(failingTargets(failing).map((target) => target?.assetId)).toEqual(['USDC', 'ETH']);
     expect(failingTargets(evaluation('FAIL', []))).toEqual([null]);
-    for (const status of ['PASS', 'ERROR', 'UNSET', 'started'] as const) {
+    for (const status of ['PASS', 'ERROR', 'UNSET', 'NOTHING_TO_COMPARE', 'started'] as const) {
       expect(failingTargets(evaluation(status, [asset('2', '1')]))).toEqual([]);
     }
   });
@@ -70,6 +77,18 @@ describe('reconciliation alert decisions', () => {
     expect(sameFrozenFigures(asset('7', '0'), asset('7.01', '0'))).toBe(false);
     expect(sameFrozenFigures(asset('7', '0'), { ...asset('7', '0'), assetId: 'EUR' })).toBe(false);
     expect(sameFrozenFigures({ ...asset('7', '0'), difference: 'unset' }, asset('7', '0'))).toBe(false);
+    // A missing side has no difference: the same row is the same figures; a raised bound is a new discrepancy (OWNER 288).
+    const missing = {
+      assetId: 'USDC',
+      observed: 'unset',
+      expected: '100',
+      difference: 'unset',
+      tolerance: '0',
+      missing: 'ledger' as const,
+    };
+    expect(sameFrozenFigures(missing, { ...missing })).toBe(true);
+    expect(sameFrozenFigures(missing, { ...missing, expected: '101' })).toBe(false);
+    expect(sameFrozenFigures(missing, { ...asset('7', '0'), assetId: 'USDC' })).toBe(false);
     expect(sameFrozenFigures(null, null)).toBe(true);
     expect(sameFrozenFigures(null, asset('7', '0'))).toBe(false);
   });

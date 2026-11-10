@@ -65,6 +65,19 @@ export const academySetCourseStateInputSchema = z
   .strict();
 export type AcademySetCourseStateInput = z.infer<typeof academySetCourseStateInputSchema>;
 
+/**
+ * `admin.withdrawCoursePrice`: a published paid course's price is taken down over the revision the editor read, with the
+ * reason staff give. The course stays published and paid, and shows with no price. Publishing without a price still refuses.
+ */
+export const academyWithdrawCoursePriceInputSchema = z
+  .object({
+    courseId: z.string().guid(),
+    revision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyWithdrawCoursePriceInput = z.infer<typeof academyWithdrawCoursePriceInputSchema>;
+
 const isoInstant = z.string().datetime({ offset: true });
 
 export const academyCourseSchema = z.object({
@@ -86,7 +99,16 @@ export const academyCourseSchema = z.object({
 });
 export type AcademyCourse = z.infer<typeof academyCourseSchema>;
 
-export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline', 'lesson', 'topics', 'withdrawn'] as const;
+export const ACADEMY_COURSE_EVENT_KINDS = [
+  'created',
+  'updated',
+  'state',
+  'outline',
+  'lesson',
+  'topics',
+  'withdrawn',
+  'price_withdrawn',
+] as const;
 export const academyCourseEventSchema = z.object({
   kind: z.enum(ACADEMY_COURSE_EVENT_KINDS),
   revision: z.number().int().positive(),

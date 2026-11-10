@@ -148,7 +148,7 @@ describe("the venue's own totals decide (OWNER 288 change 1e)", () => {
   });
 
   it('a payout the ledger received counts in its earned total and leaves the venue owing the rest', async () => {
-    await ledger.post(recipes.builderFeeReceive({ venueId: VENUE, payoutId: 'claim-1', assetId: 'USDC', amount: a('0.1') }));
+    await ledger.post(recipes.builderFeeReceive({ venueId: VENUE, claimId: 'claim-1', assetId: 'USDC', amount: a('0.1') }));
     // Received before it was earned here, so the receivable runs 0.1 ahead until the fills post; then 0.55 is owed.
     const v = await recon(twoFills(), venueTotals('0.65', '0.55'));
     expect(v.venueTotals).toMatchObject({

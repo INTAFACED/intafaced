@@ -2,12 +2,18 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres, { type Sql } from 'postgres';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { hashTx, parseAmount as amt, recipes } from '@intafaced/ledger-client';
+import { hashTx, isCustomerBalanceAccount, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { LedgerService } from '../service.js';
-import { runScheduledReconciliation } from './reconcile.js';
+import {
+  customerBalancesWhileCustodyOff,
+  proofResult,
+  runReconciliation,
+  runScheduledReconciliation,
+  runSnapshotReconciliation,
+} from './reconcile.js';
 import { createReconcileTickState, runScheduledReconciliationTick } from './scheduled-reconcile-tick.js';
 import { truncateBook, withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 
@@ -27,6 +33,12 @@ const migrations = readdirSync(drizzleDir)
   .sort()
   .map((f) => readFileSync(join(drizzleDir, f), 'utf8'))
   .map((body) => (schema: string) => rewriteSchemaSql(body, 'ledger', schema));
+
+// The recipe package's own filter, watched: it behaves exactly as shipped, and a test can see every account it was asked about.
+vi.mock('@intafaced/ledger-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@intafaced/ledger-client')>();
+  return { ...actual, isCustomerBalanceAccount: vi.fn(actual.isCustomerBalanceAccount) };
+});
 
 const USER_A = '55555555-5555-4555-8555-555555555555';
 const USER_B = '66666666-6666-4666-8666-666666666666';
@@ -280,6 +292,7 @@ describe('reconciliation failed proofs — real book', () => {
             chain: { ok: true, length: 1 },
             totals: {},
             unbalancedAssets: [],
+            result: 'matched',
           };
         },
       });
@@ -374,6 +387,147 @@ describe('reconciliation failed proofs — real book', () => {
       ]);
     } finally {
       await sql.end({ timeout: 5 });
+    }
+  });
+});
+
+/** A ledger on the same book whose custodial layer is off, as the launch process runs it. */
+const offService = (sql: Sql) => new LedgerService(sql, new MemoryEventBus('proof-custody-off'), { custodyLayer: 'off' });
+
+/** The report of a run that was not skipped. */
+const reportOf = (run: Awaited<ReturnType<typeof runScheduledReconciliation>>) => (run.outcome === 'skipped' ? null : run.report);
+
+describe('the hourly proof with the custodial layer off (OWNER 288)', () => {
+  it('refuses a missing or unknown switch before reading anything, never taking it as off or on', async () => {
+    const sql = connect();
+    try {
+      for (const custodyLayer of [undefined, 'maybe']) {
+        await expect(runSnapshotReconciliation(sql, { custodyLayer } as never)).rejects.toBeInstanceOf(TypeError);
+      }
+      expect(await sql`SELECT id FROM reconcile_runs`).toHaveLength(0);
+    } finally {
+      await sql.end();
+    }
+  });
+
+  it('reads an empty book as nothing to compare, never matched, and freezes nothing', async () => {
+    const sql = connect();
+    try {
+      const svc = offService(sql);
+      const result = await runScheduledReconciliation(sql, svc);
+      expect(result.outcome).toBe('ok');
+      expect(reportOf(result)?.result).toBe('nothing_to_compare');
+      expect(reportOf(result)?.customerBalances).toEqual({ custodyLayer: 'off', ok: true, accountsChecked: 0, open: [] });
+      expect((await svc.status()).postingEnabled).toBe(true);
+    } finally {
+      await sql.end();
+    }
+  });
+
+  it('catches a planted customer balance and freezes posting; the same book with custody on is matched', async () => {
+    const sql = connect();
+    try {
+      const { svc } = service(sql);
+      // Planted fault: a customer balance on the book. It is posted with the layer on, as by any route the per-post
+      // refusal and the static scan did not close; the proof is then run as the custody-off process runs it.
+      await svc.post(deposit(USER_A));
+      const [customer] = await sql<Array<{ id: string }>>`
+        SELECT id::text AS id FROM accounts WHERE owner_type = 'user' AND owner_id = ${USER_A} AND balance <> 0
+      `;
+      expect(customer?.id).toMatch(/^[0-9a-f-]{36}$/);
+
+      // With custody on the check reads nothing and the book is matched: the planted balance is legitimate there.
+      const on = await runScheduledReconciliation(sql, svc);
+      expect(on.outcome).toBe('ok');
+      expect(reportOf(on)?.result).toBe('matched');
+      expect(reportOf(on)?.customerBalances).toEqual({ custodyLayer: 'on' });
+
+      // The scheduled proof takes the switch from the ledger it freezes: here a custody-off process on the same book.
+      const offLedger = offService(sql);
+      const off = await runScheduledReconciliation(sql, offLedger);
+      expect(off.outcome).toBe('mismatch');
+      expect(reportOf(off)?.ok).toBe(false);
+      expect(reportOf(off)?.result).toBe('mismatch');
+      // Only the customer account is named: the rail's module counter-leg is ours, not a customer's.
+      expect(reportOf(off)?.customerBalances).toEqual({
+        custodyLayer: 'off',
+        ok: false,
+        accountsChecked: 1,
+        open: [{ accountId: customer!.id, assetId: 'USDT', balance: '10' }],
+      });
+      const status = await offLedger.status();
+      expect(status.postingEnabled).toBe(false);
+      expect(status.frozenBy).toBe('reconciliation');
+      const [row] = await sql<Array<{ outcome: string; detail: Record<string, unknown> }>>`
+        SELECT outcome, detail FROM reconcile_runs ORDER BY id DESC LIMIT 1
+      `;
+      expect(row?.outcome).toBe('mismatch');
+      expect(row?.detail).toMatchObject({ result: 'mismatch', customerBalancesOpen: 1, firstCustomerBalanceAccountId: customer!.id });
+    } finally {
+      await sql.end();
+    }
+  });
+  it('asks the recipe filter about every account, of every owner type, so no SQL narrowing decides which are customers (CI review)', async () => {
+    const sql = connect();
+    try {
+      const { svc } = service(sql);
+      await svc.post(deposit(USER_A));
+      // Owner types the filter does not name today: the check must still put them to it, so a kind named there later is read.
+      await sql`
+        INSERT INTO accounts (owner_type, owner_id, asset_id, kind)
+        VALUES ('house'::owner_type, 'house:proof-probe', 'USDT', 'available'::account_kind),
+               ('treasury'::owner_type, 'treasury:proof-probe', 'USDT', 'available'::account_kind)
+      `;
+      const book = await sql<
+        Array<{ owner_type: string; owner_id: string }>
+      >`SELECT owner_type::text AS owner_type, owner_id FROM accounts`;
+      expect(new Set(book.map((a) => a.owner_type))).toEqual(new Set(['user', 'house', 'treasury']));
+      const filter = vi.mocked(isCustomerBalanceAccount);
+      filter.mockClear();
+
+      const check = await customerBalancesWhileCustodyOff(sql, 'off');
+
+      const asked = filter.mock.calls.map(([ref]) => `${ref.ownerType}/${ref.ownerId}`).sort();
+      expect(asked).toEqual(book.map((a) => `${a.owner_type}/${a.owner_id}`).sort());
+      expect(check).toMatchObject({ custodyLayer: 'off', ok: false, accountsChecked: 1 });
+    } finally {
+      await sql.end();
+    }
+  });
+});
+
+describe('the proof result never reads matched for a proof that did not finish (OWNER 288; CI review)', () => {
+  it('derives result from the report: not ok or an unfinished check is mismatch, an empty ok book is nothing to compare', () => {
+    const balances = { ok: true as const, accountsChecked: 2 };
+    const chain = { ok: true as const, length: 3 };
+    expect(proofResult({ ok: true, balances, chain })).toBe('matched');
+    expect(proofResult({ ok: true, balances: { ok: true, accountsChecked: 0 }, chain: { ok: true, length: 0 } })).toBe(
+      'nothing_to_compare',
+    );
+    expect(proofResult({ ok: false, balances, chain })).toBe('mismatch');
+    expect(proofResult({ ok: true, balances, chain, incompleteChecks: [{ check: 'customer_balances', errorCode: '57014' }] })).toBe(
+      'mismatch',
+    );
+  });
+
+  it('a customer check that cannot finish on a consistent book throws (incomplete), never a matched report', async () => {
+    const sql = connect();
+    try {
+      const { svc } = service(sql);
+      await svc.post(deposit(USER_A));
+      // Planted fault: the customer-balance read fails (its column is gone), every other check finishes clean.
+      await sql.unsafe('ALTER TABLE accounts RENAME COLUMN owner_type TO owner_type_hidden');
+      try {
+        await expect(runReconciliation(sql, 'off')).rejects.toThrow();
+        // With the layer on the check reads nothing, so the same book proves matched.
+        await sql.unsafe('ALTER TABLE accounts RENAME COLUMN owner_type_hidden TO owner_type');
+        const on = await runReconciliation(sql, 'on');
+        expect(on).toMatchObject({ ok: true, result: 'matched' });
+      } finally {
+        await sql.unsafe('ALTER TABLE accounts RENAME COLUMN owner_type_hidden TO owner_type').catch(() => undefined);
+      }
+    } finally {
+      await sql.end();
     }
   });
 });
