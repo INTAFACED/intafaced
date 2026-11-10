@@ -4,6 +4,10 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { createNotifyRouter } from './router.js';
 import { assertNotifyListLimit, assertOperatorDeliveriesLimit, type NotifyService } from './notify-service.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 /**
  * THE MOUNT BOUNDARY for svc-notify (docs/decisions/mount-boundary.md).
  *
