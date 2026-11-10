@@ -1,8 +1,8 @@
 // World: book, restart, gates
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { fundedTrader } from './desk.mjs';
-import { api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { fundedTrader, openOrders } from './desk.mjs';
+import { api, fund, journeyState, otherTrader, toUnits, tool } from './stack.mjs';
 
 // J-cex-spot-20 "I see the venue's health: matching, FIX, seeded liquidity and the published rulebook", in the founder
 // console (apps/admin) against the running stack. One test per step, titled "J-cex-spot-20 #<n>". The founder is founder A;
@@ -12,6 +12,8 @@ import { api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from '.
 const J = 'J-cex-spot-20';
 const SYMBOL = 'BTC/USDT';
 const MATCHING = 'http://127.0.0.1:14505';
+/** The TEST market the market maker never quotes (seed-spot-test-listing.mjs `UNQUOTED_TEST_SPOT`): only a journey trades it. */
+const FEE_MARKET = 'IFC/USDC';
 const RUN = Date.now().toString(36);
 const run = journeyState(J);
 
@@ -422,32 +424,71 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
   const report = page.getByTestId('venue-report');
   await expect(report).toBeVisible();
 
-  // One customer buy through the best ask pays a fee; the ledger's fee accounts for this month grow by exactly that fee.
+  // One customer buy through a resting ask pays a fee; the ledger's fee accounts for this month grow by exactly that fee.
+  // The total is the whole venue's, and the stack's own taker buys and sells BTC/USDT on a timer, so its fee can land in
+  // BTC inside the same minute (#7868). The buy is made on the unquoted market, where nothing else takes IFC as a fee.
   const collected = async (asset) => {
     const cell = page.locator(`[data-testid=fees-table] tr[data-asset="${asset}"] [data-col=collected]`);
     return (await cell.count()) === 0 ? 0n : toUnits((await cell.textContent()).trim());
   };
-  const { ask } = await bestPrices(SYMBOL);
-  const one = toUnits('1');
-  const through = fromUnits(((toUnits(ask) * 105n) / 100n / one) * one);
-  const before = { USDT: await collected('USDT'), BTC: await collected('BTC') };
-  const order = await place(customer, { type: 'limit', side: 'buy', amount: '0.001', price: through, clientOrderId: `${J}-7-${RUN}` });
-  let fills = [];
-  await expect.poll(async () => (fills = await customerFills(customer, order.id)).length, { timeout: 30_000 }).toBeGreaterThan(0);
-  const fees = {};
-  for (const f of fills) fees[f.fee.currency] = (fees[f.fee.currency] ?? 0n) + toUnits(f.fee.cost);
-  // Fees are taken in the asset each side receives, so the buyer's fee asset moves by this fill alone: exactly its fee.
-  for (const [asset, fee] of Object.entries(fees)) {
-    expect(fee).toBeGreaterThan(0n);
+  const seller = otherTrader();
+  const theirs = await api(seller);
+  expect(fund(seller.email, 'IFC', '10').tx).toBeTruthy();
+  expect(fund(seller.email, 'USDC', '10').tx).toBeTruthy();
+  expect(fund(customer.email, 'USDC', '5').tx).toBeTruthy();
+  const rest = async (side, price, amount) => {
+    const res = await theirs.post('/api/v1/orders', {
+      symbol: FEE_MARKET,
+      type: 'limit',
+      side,
+      amount,
+      price,
+      timeInForce: 'GTC',
+      clientOrderId: `${J}-7-${side}-${RUN}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
+  };
+  try {
+    // A bid as well as the ask, so the market has a two-sided mark for the buy's price band.
+    await rest('buy', '0.99', '1');
+    await rest('sell', '1.01', '2');
+    const before = { IFC: await collected('IFC'), USDC: await collected('USDC') };
+    const order = await place(customer, {
+      symbol: FEE_MARKET,
+      type: 'limit',
+      side: 'buy',
+      amount: '1',
+      price: '1.01',
+      clientOrderId: `${J}-7-${RUN}`,
+    });
+    let fills = [];
     await expect
-      .poll(
-        async () => {
-          await page.reload();
-          return (await collected(asset)) - (before[asset] ?? 0n);
-        },
-        { timeout: 60_000 },
-      )
-      .toBe(fee);
+      .poll(async () => (fills = await customerFills(customer, order.id)).reduce((sum, f) => sum + toUnits(f.amount), 0n), {
+        timeout: 30_000,
+      })
+      .toBe(toUnits('1'));
+    const fees = {};
+    for (const f of fills) fees[f.fee.currency] = (fees[f.fee.currency] ?? 0n) + toUnits(f.fee.cost);
+    // Fees are taken in the asset each side receives, so the buyer's fee asset moves by this fill alone: exactly its fee.
+    expect(Object.keys(fees)).toEqual(['IFC']);
+    for (const [asset, fee] of Object.entries(fees)) {
+      expect(fee).toBeGreaterThan(0n);
+      await expect
+        .poll(
+          async () => {
+            await page.reload();
+            return (await collected(asset)) - (before[asset] ?? 0n);
+          },
+          { timeout: 60_000 },
+        )
+        .toBe(fee);
+    }
+  } finally {
+    // The seller's bid and what is left of its ask come off, so later steps find this market's book as it was.
+    for (const open of await openOrders(seller, FEE_MARKET)) {
+      const res = await theirs.delete(`/api/v1/orders/${open.id}`);
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+    }
   }
   // Each fee line is the ledger's own: what it kept is what it collected less what it returned, as decimal strings.
   const feeRows = page.locator('[data-testid=fees-table] tbody tr');
