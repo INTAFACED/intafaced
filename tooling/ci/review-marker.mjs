@@ -311,6 +311,17 @@ export function groupPulls(commits, headRef) {
  * the head and on the pull request's branch, `io.attempts(run)` the jobs of each attempt, `io.tree(sha)` a commit's tree.
  * Returns { ok, state, why }.
  */
+/**
+ * A change that needs no verdict (requiredChecks is empty) merges without one when the judge is up, by the owner's
+ * decisions of 2026-10-22 and 2026-11-06. When the judge was down on its head, it waits for the judge as a gate-file change
+ * does: "No PR merges without its judge" (project-state OWNER 289 point 11; CI review on 0cef53f9b, item 3). Returns that
+ * need, or null when the head's CI review was not down.
+ */
+export const judgeDownNeed = (verdict) =>
+  verdict?.state === 'none' && /the judge was down in run/.test(String(verdict.why ?? ''))
+    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and no pull request merges without its judge' }
+    : null;
+
 /** A sign-off missing because the judge was down says so in its title, never a red that reads as the change's own (OWNER 289 point 11). */
 export const missingTitle = (why) =>
   /the judge was down in run/.test(String(why ?? ''))
@@ -940,6 +951,23 @@ async function main() {
   }
   if (PR_NUMBER) {
     needs = requiredChecks(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
+    // A change that needs no verdict still waits for a judge that was down on its head (judgeDownNeed).
+    if (needs.length === 0) {
+      const down = judgeDownNeed(
+        await lookForSignoff({
+          sha: HEAD_SHA,
+          io: {
+            reviewRuns: (sha) => readReviewRuns(REPO, sha, GH_TOKEN, branch),
+            attempts: (run) => readAttempts(REPO, run, GH_TOKEN),
+            tree: (sha) => readTree(REPO, sha, GH_TOKEN),
+          },
+          base: pull?.base?.ref,
+          number: PR_NUMBER,
+          check: REVIEW_CHECK,
+        }),
+      );
+      if (down) needs = [down];
+    }
     if (needs.length === 0) {
       console.log(
         'independent review not required: no gate file, look baseline, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',
@@ -973,8 +1001,10 @@ async function main() {
       } else if (verdict.state === 'fail') failed = true;
     }
     if (open.size === 0) return;
-    // A FAIL stands for this head and for its code: waiting can't change it.
-    if (failed || Date.now() + REVIEW_POLL_MS > deadline) break;
+    // A FAIL stands for this head and for its code: waiting can't change it. Nor can waiting on a down judge: the run
+    // that catches up when it is back starts this seal again (judge-down.mjs catchup), so no runner is held for it.
+    const allDown = [...open.keys()].every((l) => judgeDownNeed(last.get(l)));
+    if (failed || allDown || Date.now() + REVIEW_POLL_MS > deadline) break;
     if (attempt === 1)
       console.log(
         `${[...open.keys()].map((l) => last.get(l).why).join('; ')}; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`,

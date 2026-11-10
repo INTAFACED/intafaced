@@ -150,7 +150,7 @@ async function downIssue(source) {
   const signIn = SIGN_IN === 'true';
   const made = await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues`, {
     title: ISSUE_TITLE,
-    labels: signIn ? [LABEL, 'nino'] : [LABEL],
+    labels: [LABEL],
     body: issueBody({ source, line: LINE, action: ACTION, signIn, signInUrl: SIGN_IN_URL, runUrl: RUN_URL }),
   });
   if (made.status !== 201) return console.log(`::warning::the "${ISSUE_TITLE}" issue wasn't opened: HTTP ${made.status}`);

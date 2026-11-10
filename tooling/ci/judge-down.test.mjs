@@ -18,6 +18,7 @@ import {
   REVIEW_WORKFLOW,
   ciReviewVerdict,
   isJudgeDown,
+  judgeDownNeed,
   missingTitle,
   reviewJob,
 } from './review-marker.mjs';
@@ -275,7 +276,7 @@ test('the seal waits on a down judge, as for a review still running, only for a 
   assert.deepEqual(inputsGoing({ sha: HEAD, runsOf, needJourneys: false, needJudge: true }), []);
 });
 
-test("readGoing reads the newest review run's job only for a change that needs the review, and finds the judge down", async () => {
+test('readGoing finds the judge down for every change, gate file or not: no PR merges without its judge', async () => {
   const asked = [];
   const fake = (files) => async (p) => {
     asked.push(p);
@@ -294,10 +295,26 @@ test("readGoing reads the newest review run's job only for a change that needs t
   const pulls = [{ number: 7, title: 'ci: x' }];
   const gate = await readGoing({ get: fake(['.github/workflows/ci-review.yml']), repo: 'o/r', sha: HEAD, pulls });
   assert.deepEqual(gate, ['the CI review run 9 (judge down: no verdict; it re-runs when the judge is back)']);
-  asked.length = 0;
   const plain = await readGoing({ get: fake(['docs/x.md']), repo: 'o/r', sha: HEAD, pulls });
-  assert.deepEqual(plain, []);
-  assert.ok(!asked.some((p) => p.includes('/jobs')), 'no job read for a change that needs no review');
+  assert.deepEqual(plain, gate, 'a change that needs no verdict still waits on a down judge (CI review on 0cef53f9b, item 3)');
+});
+
+test('judgeDownNeed: a head whose CI review was down needs the judge, whatever it changes; a pass, a FAIL, a review never run do not', () => {
+  const need = judgeDownNeed({
+    ok: false,
+    state: 'none',
+    why: 'the judge was down in run 9 attempt 1, so abc has no CI review verdict yet',
+  });
+  assert.equal(need?.check, REVIEW_CHECK);
+  assert.equal(judgeDownNeed({ ok: true, state: 'pass', why: 'CI review passed on abc' }), null);
+  assert.equal(judgeDownNeed({ ok: false, state: 'fail', why: 'CI review FAIL on abc' }), null);
+  assert.equal(judgeDownNeed({ ok: false, state: 'none', why: 'no CI review on abc' }), null);
+  assert.equal(judgeDownNeed(undefined), null);
+});
+
+test('the judge-down issue pages no one: it carries only its own label (CI review on 0cef53f9b, item 5)', () => {
+  const js = readFileSync(new URL('./judge-down.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(js, /'nino'/);
 });
 
 test('catch-up: the oldest heads with no verdict first, at most the cap, never a running run or this head', async () => {

@@ -83,7 +83,7 @@ import {
 } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls, isJudgeDown, requiredChecks, reviewRan } from './review-marker.mjs';
+import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -1290,7 +1290,7 @@ export async function settleRuns(runs, jobsOf) {
  * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
  * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
  * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
- * still going for a change that needs the review (`needJudge`), so its seal waits for the judge exactly as for a review
+ * still going when `needJudge` (readGoing sets it for every pull request), so its seal waits for the judge exactly as for a review
  * still running, and is started when a review on the head next finishes (project-state OWNER 289 point 11: "A judge
  * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). Pure.
  */
@@ -1601,8 +1601,8 @@ export const REVIEW_RUNS_READ = 5;
 
 /**
  * inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys), and a down
- * judge when any needs the review (review-marker.mjs requiredChecks): only then are the head's finished CI review runs'
- * jobs read, newest first, until one actually reviewed (review-marker.mjs reviewRan).
+ * judge for every pull request: the head's finished CI review runs' jobs are read, newest first, until one actually
+ * reviewed (review-marker.mjs reviewRan).
  */
 export async function readGoing({ get, repo, sha, pulls }) {
   const runsOf = {};
@@ -1621,14 +1621,14 @@ export async function readGoing({ get, repo, sha, pulls }) {
     );
   }
   let needJourneys = false;
-  let needJudge = false;
   for (const p of pulls ?? []) {
-    if (needJourneys && needJudge) break;
-    const files = await pullFiles(get, repo, p.number);
-    needJourneys ||= needsJourneys(p, files);
-    needJudge ||= requiredChecks(files).length > 0;
+    if (needJourneys) break;
+    needJourneys ||= needsJourneys(p, await pullFiles(get, repo, p.number));
   }
-  if (needJudge) {
+  // No PR merges without its judge (project-state OWNER 289 point 11): a down judge holds every pull request it was asked
+  // to review, not only one whose change needs the review's verdict (CI review on 0cef53f9b, item 3).
+  const needJudge = true;
+  {
     const { workflow, event } = SEAL_INPUTS.find((i) => i.judge);
     // The newest finished run that actually reviewed: a title or body edit's run, whose job is skipped (reviewRan), is
     // passed over, so it neither hides a down run nor stands for one. At most REVIEW_RUNS_READ runs' jobs are read.
