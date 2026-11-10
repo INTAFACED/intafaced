@@ -1027,7 +1027,7 @@ export const recoveryWrites = {
   }),
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
-/** BK-acct-08 (J-bank-16 #4): one budget with this month's spend, folded from the ledger by the bank. */
+/** BK-acct-08 (J-bank-16 #4): one budget with this month's spend, as the bank folds it. */
 export const budgetSchema = z.object({
   assetId: z.string(),
   category: z.string(),

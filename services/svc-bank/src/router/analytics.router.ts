@@ -61,7 +61,7 @@ export function createAnalyticsRouter(c: BankRouterContext) {
         }),
       ),
 
-    /** BK-acct-08: the person's budgets in one asset, each with this month's spend folded from the ledger. */
+    /** BK-acct-08: the person's budgets in one asset, each with this month's spend as the bank folds it. */
     budgets: scopedProcedure('bank:read', { module: 'bank' })
       .input(assetInput)
       .output(z.array(budgetOutput))

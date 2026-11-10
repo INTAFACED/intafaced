@@ -114,7 +114,7 @@ export interface BankServices {
   readonly recovery: RecoveryClaimService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
-  /** BK-acct-08: budgets by category (policy rows), left to spend and month comparison, every figure a ledger fold. */
+  /** BK-acct-08: budgets by category (policy rows), left to spend and month comparison, every figure a fold of the person's lines. */
   readonly budgets: BudgetService;
   readonly portfolio: PortfolioService;
   readonly activity: ActivityService;

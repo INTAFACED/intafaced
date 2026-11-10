@@ -7,8 +7,8 @@ import { SPEND_CATEGORIES, type SpendAnalytics, type SpendCategory, type SpendSu
  * BUDGETS AND MONTH COMPARISON (BK-acct-08, J-bank-16 #4, #5).
  *
  * A budget is a POLICY row: the person's monthly target for one spend category in one asset, and the share of it at
- * which they want an alert. What was spent is never stored here: every figure is the ledger fold `SpendAnalytics` makes
- * for the month, read each time. The alert shows once per month: the first read that finds the share reached returns
+ * which they want an alert. What was spent is never stored here: every figure is the fold `SpendAnalytics` makes
+ * for the month, over the partner's record for a person the partner holds money for, read each time. The alert shows once per month: the first read that finds the share reached returns
  * `new`, and once the page records it was shown (`budget-alert:<user>:<asset>:<category>:<YYYY-MM>`) every later read
  * that month returns `seen`.
  */
@@ -82,7 +82,7 @@ export class BudgetService {
     return all.find((b) => b.category === input.category)!;
   }
 
-  /** Every budget the person set in one asset, with this month's spend folded from the ledger. */
+  /** Every budget the person set in one asset, with this month's spend as `SpendAnalytics` folds it. */
   async list(userId: string, assetId: string): Promise<BudgetProgress[]> {
     const period = periodOf(this.now());
     const rows = await this.sql<Array<{ category: BudgetCategory; target: string; alert_bps: number }>>`
@@ -149,7 +149,7 @@ export class BudgetService {
     };
   }
 
-  /** Two to twelve months side by side, each category's outflow per month and its change, every figure from the ledger. */
+  /** Two to twelve months side by side, each category's outflow per month and its change, every figure as `SpendAnalytics` folds it. */
   async compare(userId: string, assetId: string, months: readonly string[]): Promise<MonthComparison> {
     const current = periodOf(this.now());
     if (months.length < 2 || months.length > 12 || new Set(months).size !== months.length) {

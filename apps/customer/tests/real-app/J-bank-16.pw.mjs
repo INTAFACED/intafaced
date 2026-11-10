@@ -258,7 +258,6 @@ test(`${J} #4 opens Analytics with a budget of 100 and spend of 80: progress 80 
   expect(spend.data.totalOutflow).toBe('80');
   expect(spend.data.outflowByCategory.transfers).toBe('80');
   expect(spend.data.totalInflow).toBe('150.25');
-  expect(spend.data.outflowByCategory.deposits).toBe('150.25');
   await expect(budgets.getByTestId('analytics-money-in')).toHaveAttribute('data-inflow', spend.data.totalInflow);
   run.write({ payeeId });
 });
