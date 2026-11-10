@@ -7,14 +7,14 @@ import type { StepUpCheck } from '@intafaced/contracts';
 import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, venueBuilderFeeReceivable } from '@intafaced/ledger-client';
 import { VenueRefusalError, type PlaceUserOrderIntent, type PreparedVenueAction, type UserVenue } from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
-import { HttpUserVenue } from './http-user-venue.js';
-import { InMemoryPreparedActionStore } from './prepared-action-store.js';
-import { UserVenueDoor, type BuilderFeeValue } from './user-venue-door.js';
+import { HttpUserVenue } from '../venue/http-user-venue.js';
+import { InMemoryPreparedActionStore } from '../venue/prepared-action-store.js';
+import { UserVenueDoor, type BuilderFeeValue } from '../venue/user-venue-door.js';
 import { postBuilderFees } from './builder-fee-poster.js';
 import { builderFeeRecon, BuilderFeeReconError, expectedBuilderFee } from './builder-fee-recon.js';
 import { InMemoryBuilderFeeStore, type BuilderFeeAccount } from './builder-fee-store.js';
-import { listedTestStore } from './venue-listing-store.js';
-import { StoreVenueRoutingGate } from './venue-listing.js';
+import { listedTestStore } from '../venue/venue-listing-store.js';
+import { StoreVenueRoutingGate } from '../venue/venue-listing.js';
 
 /**
  * D-venue-07 and J-derivatives-17 #1 #2: the poster posts our builder fee once per venue fill, and the recon reads the

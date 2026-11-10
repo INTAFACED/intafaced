@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertEligible, SignUpError, subdivisionCode, type SignUpStart } from './sign-up.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 /**
  * Sign-up's residence and citizenship check against Hyperliquid's restricted list, the launch default (OWNER 258 (1);
  * terms clause 1.6 at https://app.hyperliquid.xyz/terms, "Last updated on June 15, 2026", read 9 Nov 2026):

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import type { PreparedVenueAction } from '@intafaced/venue-contracts';
-import { SqlPreparedActionStore } from './prepared-action-store.js';
+import { SqlPreparedActionStore } from '../venue/prepared-action-store.js';
 import { BUILDER_FEE_READ_OVERLAP_MS, SqlBuilderFeeStore } from './builder-fee-store.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
