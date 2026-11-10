@@ -326,7 +326,9 @@ jobs:
   plan:
     name: Plan the shards
     needs: [touch]
-    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
+    # Only after a touch job that succeeded (skipped on main): a touch job GitHub dropped leaves its mode empty, which
+    # isn't 'none', and the shards then ran the whole suite (9 Nov 2026, run 42673388695). Same on build and journeys.
+    if: ${{ !cancelled() && (needs.touch.result == 'success' || (needs.touch.result == 'skipped' && github.ref == 'refs/heads/main')) && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -413,7 +415,7 @@ jobs:
   build:
     name: Build the stack once
     needs: [touch]
-    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
+    if: ${{ !cancelled() && (needs.touch.result == 'success' || (needs.touch.result == 'skipped' && github.ref == 'refs/heads/main')) && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20 # healthy run: about 3 minutes
     permissions:
@@ -480,7 +482,7 @@ jobs:
       contents: read
       actions: read # to read the build job's state and download its build
     # The shards run even when planning failed (they fall back to Playwright's split), except a targeted run's.
-    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) && !(needs.plan.result == 'failure' && needs.touch.outputs.target != '') }}
+    if: ${{ !cancelled() && (needs.touch.result == 'success' || (needs.touch.result == 'skipped' && github.ref == 'refs/heads/main')) && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) && !(needs.plan.result == 'failure' && needs.touch.outputs.target != '') }}
     runs-on: ubuntu-24.04
     # Setup (about 10 minutes, once 21 when the browser's system packages were slow) plus at most 60 minutes of journeys,
     # which Playwright stops itself (JOURNEY_GLOBAL_TIMEOUT_MS below), so the job's own limit is never what ends a shard
@@ -771,6 +773,13 @@ jobs:
       actions: read # to download this run's shard artifacts, and the reports the verdict reads
       issues: read # the verdict reads the state line of each regression issue the baseline names
     steps:
+      # A run whose touch job didn't finish (GitHub dropped or cancelled it) decided nothing and ran no shards: it fails
+      # here, outright, so it never reads as an empty run. The merge seal also fails closed on a run with no report.
+      - name: The run decided what it runs
+        if: github.ref != 'refs/heads/main' && needs.touch.result != 'success'
+        run: |
+          echo "::error::the touch job ended '${{ needs.touch.result }}', so this run decided nothing and ran no journeys; re-run the whole run"
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
