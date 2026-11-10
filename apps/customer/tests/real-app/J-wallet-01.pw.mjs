@@ -270,6 +270,8 @@ test(`${J} #1 opens Assets: the wallet's assets read from the chain and the venu
 test(`${J} #2 places an order, then looks again: the venue's lock shows as locked naming the order; cancelling it returns it to free, as the venue reports`, async ({
   page,
 }) => {
+  // The desk, a signed order, Assets, the desk again and a signed cancel: more than one default step's time.
+  test.setTimeout(240_000);
   const { owner, resting, ledgerStart } = state();
   const before = await venueBalance(owner, 'USDC');
   await withWallet(page);
@@ -329,10 +331,8 @@ test(`${J} #3 opens Withdraw: what can be withdrawn leaves out the venue's lock,
   expect(toUnits(venue.free)).toBeLessThan(toUnits(venue.total));
   await expect(page.getByTestId('source-partner')).toHaveAttribute('data-reported', 'false');
   await expect(page.getByTestId('source-partner')).toContainText('not reported by the partner');
-  // Withdraw from the venue account offers the venue's free figure.
-  await page.goto('/wallet/venue');
-  await connectWhenAsked(page, page.getByTestId('venue-balance'));
-  await expect(page.getByTestId('venue-balance')).toHaveText(`${shown(venue.free)} TEST USDC`, { timeout: 30_000 });
+  // Can withdraw is the venue's free figure, which leaves out the resting order's lock.
+  await expect(page.getByTestId('source-venue').locator('tr[data-asset="USDC"] [data-cell="withdrawable"]')).toHaveText(shown(venue.free));
   // A card or bank purchase needs a payment partner, which is not connected: nothing is bought, and nothing is held.
   await page.goto('/uc/recharge');
   await expect(page.locator('main').first()).toContainText('Needs a payment partner, which is not connected.');
