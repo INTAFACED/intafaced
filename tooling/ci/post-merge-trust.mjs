@@ -259,6 +259,9 @@ export function shardsWithoutReport(jobs, artifacts) {
     .map((n) => `shard ${n} of ${total}`);
 }
 
+/** Whether GitHub took a re-run request: a 2xx, or the "already running" 403 that gh() lets through. */
+export const rerunTaken = (r) => Boolean(r?.alreadyRunning) || (Number.isInteger(r?.status) && r.status >= 200 && r.status < 300);
+
 /**
  * Whether to re-run a red journeys run's failed jobs once because a shard sent no report. Only on its first attempt, and
  * only when that re-run can bring back nothing but the missing reports: every shard with no report has a job (an
@@ -521,13 +524,20 @@ async function journeysCheck(ctx) {
   const again = shardRerun({ attempt: ctx.attempt, conclusion: ctx.conclusion, jobs, missing });
   if (again.rerun) {
     const r = await gh('POST', `/repos/${ctx.repo}/actions/runs/${ctx.runId}/rerun-failed-jobs`, undefined, { alreadyRunningOk: true });
-    return summary([
+    // Hand the verdict to the next attempt only when GitHub took the re-run (or one is already going); a refused or
+    // failed request falls through, so this attempt's red is still judged and reported (CI review note on 65c75ec16).
+    if (rerunTaken(r))
+      return summary([
+        '### Shards with no report',
+        '',
+        `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Re-ran the failed jobs once (${r.status}); no shard that reported is re-run, and the next attempt is judged instead.`,
+      ]);
+    summary([
       '### Shards with no report',
       '',
-      `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Re-ran the failed jobs once (${r.status}); no shard that reported is re-run, and the next attempt is judged instead.`,
+      `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. GitHub didn't take the re-run (${r.status}), so this attempt is judged as it is: their journeys count as not passing.`,
     ]);
-  }
-  if (missing.length)
+  } else if (missing.length)
     summary([
       '### Shards with no report',
       '',
@@ -767,6 +777,9 @@ function selfTest() {
   );
   const jobsOf = (states) => Object.entries(states).map(([n, c]) => ({ name: `Journeys (shard ${n} of 4)`, conclusion: c }));
   const shardsOk = jobsOf({ 1: 'success', 2: 'failure', 3: 'success', 4: 'success' });
+  eq(rerunTaken({ status: 201, json: null }), true, 'a 201 re-run is taken');
+  eq(rerunTaken({ status: 403, json: null, alreadyRunning: true }), true, 'already running is taken');
+  for (const status of [404, 422, 500, 0]) eq(rerunTaken({ status, json: null }), false, `a ${status} re-run is not taken`);
   const go = (o) => shardRerun({ attempt: 1, conclusion: 'failure', jobs: shardsOk, missing: ['shard 2 of 4'], ...o }).rerun;
   eq(go({}), true, 'a red first attempt whose only failed shard sent no report re-runs its failed jobs');
   eq(go({ attempt: 2 }), false, 'once only: the re-run is judged as it is');
