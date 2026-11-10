@@ -1,7 +1,7 @@
 // World: gates, restart
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { journeyState, toUnits, fromUnits } from './stack.mjs';
+import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -22,9 +22,9 @@ import {
 // World: the door switched on for this file (restart), and #4's stale feed on the shared TEST venue (a runtime fault,
 // gates). The venue's own books are not the stack's shared books.
 // #4 makes the market's feed stale on the shared TEST venue and puts it back live in the same step (and again after the
-// file), so no other file sees it stale. #5's ledger half (our ledger posts only our builder fee, once per fill) is built
-// by J-derivatives-17 (intafaced #7690); until that merges and its ledger read lands here, #5 is left on the PR
-// (`Left-or-replaced`) and its test asserts only the venue's half.
+// file), so no other file sees it stale. #5's ledger half (our ledger posts only our builder fee, once per fill) is
+// J-derivatives-17's poster (intafaced #7690), read here as an operator reads it: the builder-fee recon for each fill,
+// and the person's own ledger accounts, which the venue trade never moves.
 const J = 'J-derivatives-21';
 const SYMBOL = 'XAU-PERP';
 const DESK = `/trade/futures?symbol=${SYMBOL}`;
@@ -67,6 +67,36 @@ const submitsOf = (page) => {
 };
 const rules = (page) => page.getByTestId('venue-market-rules');
 
+/** The stack's TEST founders' sessions, for #5's two operator reads (tooling/scripts/local-test-gates.mjs). */
+let staff;
+const staffDoor = () =>
+  (staff ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { ctx, sessions: await gates.approverSessions(ctx) };
+  })());
+/** svc-trade's builder-fee recon lines for a period, as the founders' trade-ops token reads them (admin.builderFees.recon). */
+async function reconLines(from, to) {
+  const { ctx, sessions } = await staffDoor();
+  const res = await ctx.edge.query('trade', 'admin.builderFees.recon', { from, to }, await sessions.a.tradeOpsToken());
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+  return JSON.parse(res.text).result.data.venues.flatMap((v) => v.lines);
+}
+/** Every ledger account of `user:<userId>`, kind and asset to balance, as svc-ledger's operator door with admin:treasury reads it. */
+async function ledgerOf(userId) {
+  const { ctx, sessions } = await staffDoor();
+  const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(`user:${userId}`)}`, {
+    headers: { authorization: `Bearer ${await sessions.a.treasuryToken()}` },
+  });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  const page = JSON.parse(text);
+  expect(page.nextCursor, 'one page holds every account of one owner').toBeNull();
+  return Object.fromEntries(
+    page.accounts.filter((a) => a.address === `user:${userId}`).map((a) => [`${a.kind}:${a.assetId}`, fromUnits(toUnits(a.balance))]),
+  );
+}
+
 /** The ticket filled for a market long of the gold perpetual and Review pressed. */
 async function reviewLong(page) {
   const ticket = page.getByTestId('venue-ticket');
@@ -95,7 +125,7 @@ test(`${J} #1 opens the gold perpetual: the venue that lists it (HIP-3 or Ostium
   const m = await market();
   expect(m, `${SYMBOL} is not listed on the TEST venue`).toBeTruthy();
   expect(m.kind).toBe('perpetual');
-  expect(m.listing.known && ['hip3', 'ostium'].includes(m.listing.value.kind)).toBe(true);
+  expect(m.listedBy.known && ['hip3', 'ostium'].includes(m.listedBy.value.kind)).toBe(true);
   // Opens it from the venue's contract list.
   await page
     .getByTestId('venue-contract-list')
@@ -111,10 +141,10 @@ test(`${J} #1 opens the gold perpetual: the venue that lists it (HIP-3 or Ostium
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
   // Who lists it: the kind of lister the venue names (HIP-3 or Ostium) and the lister's own name.
-  const kindWord = { hip3: 'HIP-3', ostium: 'Ostium' }[m.listing.value.kind];
-  await expect(panel.getByTestId('venue-listing')).toHaveAttribute('data-listing', m.listing.value.kind);
+  const kindWord = { hip3: 'HIP-3', ostium: 'Ostium' }[m.listedBy.value.kind];
+  await expect(panel.getByTestId('venue-listing')).toHaveAttribute('data-listing', m.listedBy.value.kind);
   await expect(panel.getByTestId('venue-listing')).toContainText(kindWord);
-  await expect(panel.getByTestId('venue-listing')).toContainText(m.listing.value.name);
+  await expect(panel.getByTestId('venue-listing')).toContainText(m.listedBy.value.name);
   // The oracle and mark rules and the trading hours: the venue's own words, or "not published by this venue".
   const words = (v) => (v.known ? v.value : 'not published by this venue');
   await expect(panel.getByTestId('venue-oracle-rule')).toHaveText(words(m.oracleRule));
@@ -265,10 +295,13 @@ test(`${J} #4 the venue's feed goes stale: the venue's own rule and state shown;
   await expect(panel.getByTestId('venue-feed-state')).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
 });
 
-test(`${J} #5 closes the position: the venue's realised result`, async ({ page }) => {
-  test.setTimeout(180_000);
+test(`${J} #5 closes the position: the venue's realised result; the ledger posts only our builder fee`, async ({ page }) => {
+  test.setTimeout(240_000);
   opened();
-  const { owner, wallet } = await desk(page);
+  const from = since();
+  const { owner, wallet, account } = await desk(page);
+  const { userId } = await api(account);
+  const before = await ledgerOf(userId);
   const row = page.getByTestId('venue-positions').locator(`tr[data-symbol="${SYMBOL}"]`);
   await expect(row).toBeVisible({ timeout: 15_000 });
   const close = row.getByTestId('venue-close');
@@ -299,5 +332,19 @@ test(`${J} #5 closes the position: the venue's realised result`, async ({ page }
   await expect(closed).toBeVisible({ timeout: 15_000 });
   expect(sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), realised)).toBe(true);
   expect(sameDecimal(await closed.locator('[data-cell="builder-fees"]').innerText(), builderFees)).toBe(true);
+
+  // Our ledger posts our builder fee once per fill, at the venue's amount (the poster's own cadence), and nothing of
+  // the person's: the venue holds the margin and settles, so their ledger accounts read as before the close.
+  const to = new Date(Date.now() + 10 * 60_000).toISOString();
+  const ours = (lines) => fills.map((f) => lines.filter((l) => l.fillId === f.fillId));
+  await expect
+    .poll(async () => ours(await reconLines(from, to)).map((ls) => ls.map((l) => l.status).join(',')), { timeout: 60_000 })
+    .toEqual(fills.map(() => 'matched'));
+  const lines = ours(await reconLines(from, to));
+  fills.forEach((f, i) => {
+    expect(lines[i], `fill ${f.fillId}: one recon line`).toHaveLength(1);
+    expect(sameDecimal(lines[i][0].ledgerAmount, f.builderFee), `fill ${f.fillId}: the ledger's fee is the venue's`).toBe(true);
+  });
+  expect(await ledgerOf(userId)).toEqual(before);
   run.write({ closed: { fillIds: fills.map((f) => f.fillId), builderFees } });
 });
