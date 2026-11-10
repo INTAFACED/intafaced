@@ -225,7 +225,9 @@ test(`${J} #2 adds a target list that includes an approve selector: the grant is
     .fill(APPROVE);
   await grant(page).getByRole('combobox', { name: 'Expires' }).selectOption({ label: 'In 1 day' });
   await grant(page).getByRole('button', { name: 'Prepare grant' }).click();
-  await expect(grant(page).getByRole('alert')).toContainText('A session key may not approve or permit tokens.');
+  await expect(grant(page).getByRole('alert')).toHaveText(
+    'A session key may not approve or permit tokens. Nothing was built. (agents.session_key_selector_forbidden)',
+  );
   await expect(onChain(page).getByTestId('unsigned-call')).toHaveCount(0);
   // Nothing was recorded either: no binding, and the chain holds no key for the Navigator.
   await expect(status(page)).toHaveCount(0);
