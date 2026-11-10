@@ -52,6 +52,9 @@ export const TEST_PARTNER_STALE_AFTER_MS = 60_000;
 export const TEST_PARTNER_DAILY_SEND = '1000';
 export const TEST_PARTNER_SEND_FEE = '0.5';
 
+/** The stand-in merchant a TEST payment at the partner goes to (`testPartner.spend`). It is on no person's list of balances. */
+export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';
+
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
 export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];

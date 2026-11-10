@@ -218,6 +218,22 @@ describe('partner-held bank moves (OWNER 226)', () => {
     );
   });
 
+  it('testPartner.spend moves TEST money once per id: a payment leaves as a transfer, a payout as a withdrawal', async () => {
+    const { api } = await partnerHeld(ADA);
+    const one = await api.testPartner.spend({ spendId: 'spend-ada-1', assetId: 'USDT', amount: '30', kind: 'payment' });
+    expect(await api.testPartner.spend({ spendId: 'spend-ada-1', assetId: 'USDT', amount: '30', kind: 'payment' })).toEqual(one);
+    await api.testPartner.spend({ spendId: 'spend-ada-2', assetId: 'USDT', amount: '10', kind: 'payout' });
+    const feed = await api.activity.list({ limit: 50 });
+    expect(feed.items.map((l) => [l.kind, l.direction, l.amount])).toEqual([
+      ['withdrawal', 'out', '10'],
+      ['transfer_out', 'out', '30'],
+      ['deposit', 'in', '100'],
+    ]);
+    await expect(api.testPartner.spend({ spendId: 'spend-ada-3', assetId: 'USDT', amount: '500', kind: 'payout' })).rejects.toSatisfy(
+      (err) => codeOf(err) === 'bank.partner_insufficient_funds',
+    );
+  });
+
   it("a move's note and reference show on both of its partner lines in History, and on the line read alone", async () => {
     const { api, trip, mainSpace } = await partnerHeld(ADA);
     await api.transfers.create({

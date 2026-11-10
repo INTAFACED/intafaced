@@ -15,11 +15,11 @@ import { setPartner } from './partner.mjs';
 // Steps 1 to 3 (BK-acct-07): a month's PDF statement with every line the partner reports, its hash proof and the same per-coin total
 // the activity list shows for those days, and a range across months refused; a search of the activity, and a bank
 // letter refused `rail.bank` (no banking partner); tax statements refused `vendor.tax` (no tax provider).
-// Steps 4 and 5 (BK-acct-08): after a TEST payment of 80 USDT to a second TEST person, a budget of 100 on transfers with
+// Steps 4 and 5 (BK-acct-08): after a TEST payment of 80 USDT at the partner, a budget of 100 on transfers with
 // an alert at 80 percent reads 80 percent with the alert once per month, deposits count as money in, and two months
 // compare side by side with left to spend. Step 6 (BK-acct-04): the partner's limits and fees, named, a blank fee "not set",
 // the owner's (blank) account fee table and our own TEST plan table. Step 7 (RC-bank-01): the bank's dormancy run,
-// as its scheduler would call it on a quiet day, notices a second TEST account; it withdraws everything and no fee is taken.
+// as its scheduler would call it on a quiet day, notices a second TEST account; a TEST payout takes out everything and no fee is taken.
 const J = 'J-bank-16';
 const PARTNER_BANK = 'TEST partner bank';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -55,6 +55,13 @@ async function activityLines(who, from, to) {
 }
 
 const centre = (page) => page.getByTestId('statement-centre');
+
+/** TEST money leaving `who`'s main balance at the partner, once per id: a `payment` to a stand-in merchant or a `payout`. */
+async function spendAtPartner(who, kind, amount, id) {
+  const session = await api(who);
+  const res = await session.post('/api/bank/trpc/testPartner.spend', { spendId: `${J}-${id}`, assetId: 'USDT', amount, kind });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+}
 
 /** Puts `who`'s bank money at the TEST partner, and pays in each amount there under its own id. */
 async function atPartner(who, ...amounts) {
@@ -199,28 +206,13 @@ async function bankRead(client, procedure, input) {
 }
 
 test(`${J} #4 opens Analytics with a budget of 100 and spend of 80: progress 80 percent, the alert once per period, deposits as money in`, async ({
-  browser,
   page,
 }) => {
   test.setTimeout(240_000);
   const who = person();
   const client = await api(who);
-  // Spend of 80 this month: the person pays 80 TEST USDT to a second TEST person from their main account.
-  const payeeContext = await browser.newContext();
-  const payeePage = await payeeContext.newPage();
-  const payee = await signUp(payeePage, 'bk16p');
-  await payeeContext.close();
-  await setPartner(payee, { custody: 'off' });
-  const payeeId = (await (await api(payee)).get('/api/identity/trpc/rank.get')).body.result.data.userId;
-  const spaces = await bankRead(client, 'spaces.list', { limit: 50 });
-  const main = spaces.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
-  const sent = await client.post('/api/bank/trpc/transfers.toUser', {
-    transferId: `${J}-spend-${who.email}`,
-    fromSpaceId: main.id,
-    toUserId: payeeId,
-    amount: '80',
-  });
-  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  // Spend of 80 this month: TEST activity at the partner (the journey's Starts), a TEST payment of 80 USDT from the main balance.
+  await spendAtPartner(who, 'payment', '80', 'spend-1');
 
   // No budget yet: left to spend is refused by name.
   expect(await bankRead(client, 'analytics.leftToSpend', { assetId: 'USDT' })).toMatchObject({ code: 'bank.budget_unset' });
@@ -259,7 +251,6 @@ test(`${J} #4 opens Analytics with a budget of 100 and spend of 80: progress 80 
   expect(spend.data.outflowByCategory.transfers).toBe('80');
   expect(spend.data.totalInflow).toBe('150.25');
   await expect(budgets.getByTestId('analytics-money-in')).toHaveAttribute('data-inflow', spend.data.totalInflow);
-  run.write({ payeeId });
 });
 
 test(`${J} #5 compares two months and reads "left to spend": each category per month side by side`, async ({ page }) => {
@@ -380,7 +371,7 @@ async function job(procedure, input) {
 }
 const DAY = 86_400_000;
 
-test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee after a full withdrawal`, async ({ browser, page }) => {
+test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee after a full withdrawal`, async ({ page }) => {
   test.setTimeout(240_000);
   // A second TEST account of the person's own, held at the partner, so the dormancy run reads one account whose whole
   // history this step knows: 20 TEST USDT paid in today and nothing else.
@@ -415,17 +406,10 @@ test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee afte
   await expect(notice).toContainText(`Dormancy fee notice: 5 USDT will be taken on ${debitDate}`);
   await expect(notice).toContainText(`no activity for ${rule.inactiveDays} days`);
 
-  // The person takes out everything before that date: the whole 20 TEST USDT, paid to their other TEST account.
-  const other = (await (await api(person())).get('/api/identity/trpc/rank.get')).body.result.data.userId;
+  // The person takes out everything before that date: the whole 20 TEST USDT, as a TEST payout at the partner.
   const main = (await bankRead(client, 'spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
   expect(main.balance).toBe('20');
-  const out = await client.post('/api/bank/trpc/transfers.toUser', {
-    transferId: `${J}-all-${userId}`,
-    fromSpaceId: main.id,
-    toUserId: other,
-    amount: '20',
-  });
-  expect(out.status, JSON.stringify(out.body).slice(0, 300)).toBe(200);
+  await spendAtPartner(who, 'payout', '20', 'payout-all');
 
   // The debit date comes: nothing is there, so no fee is taken, and the notice says why.
   const linesBefore = await activityLines(who, new Date(Date.now() - DAY).toISOString(), new Date(Date.now() + DAY).toISOString());

@@ -5,7 +5,8 @@ import { assertSelf } from '../assert-self.js';
 import { BankError } from '../errors.js';
 import { amountString, partnerFiguresOutput } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
-import { PARTNER_FEATURES, partnerReserve, type TestPartner, type TestPartnerSwitches } from './test-partner.js';
+import { partnerPayoutsAccount } from './partner-bank.js';
+import { PARTNER_FEATURES, TEST_PARTNER_MERCHANT, partnerReserve, type TestPartner, type TestPartnerSwitches } from './test-partner.js';
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
 
@@ -85,6 +86,40 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' |
             amount: parseAmount(input.amount),
           });
           return { label: now.label, assetId: input.assetId, balance: formatAmount(now.amount!), asOf: now.asOf!.toISOString() };
+        }),
+      ),
+    /**
+     * TEST money leaving the person's main balance at the TEST partner bank (J-bank-16 Starts: "a month of TEST activity
+     * at the partner"), once per `spendId`: a TEST `payment` to a stand-in merchant, or a TEST `payout` to the partner's
+     * outbound-payments account. A real send to a person at the partner is not built, and this door is not that: it is
+     * refused off the TEST stack (`bank.test_partner_off`) and posts nothing.
+     */
+    spend: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z
+          .object({
+            spendId: z.string().min(8).max(64),
+            assetId: z.string().regex(/^[A-Z0-9]{2,16}$/),
+            amount: amountString,
+            kind: z.enum(['payment', 'payout']),
+          })
+          .strict(),
+      )
+      .output(z.object({ label: z.string(), moveId: z.string(), amount: amountString }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const partner = on(bank.testPartner);
+          const userId = ctx.principal.userId;
+          const moved = await partner.bank.move({
+            key: `test-spend:${userId}:${input.spendId}`,
+            from: { userId, assetId: input.assetId, spaceId: null },
+            to:
+              input.kind === 'payout'
+                ? partnerPayoutsAccount(input.assetId)
+                : { userId: TEST_PARTNER_MERCHANT, assetId: input.assetId, spaceId: null },
+            amount: parseAmount(input.amount),
+          });
+          return { label: moved.label, moveId: moved.id, amount: formatAmount(moved.amount) };
         }),
       ),
     /**
