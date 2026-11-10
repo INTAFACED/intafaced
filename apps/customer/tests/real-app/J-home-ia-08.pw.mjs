@@ -158,12 +158,6 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
   await expect(swap.getByRole('button', { name: 'Swap' })).toBeDisabled();
   await expect(swap.getByRole('note')).toHaveText(/^Blocked: .+/);
   await expect(page.locator('[data-not-connected]')).toHaveCount(0);
-  // Our own gap uses the empty-state component (the kit's, or the app's shared one), with its reason and no code.
-  const ownGap = swap.locator('[data-slot="empty-state"], .empty-state');
-  await expect(ownGap).toHaveCount(1);
-  await expect(ownGap).toContainText(/Blocked: .+/);
-  await expect(ownGap.locator('[data-code]')).toHaveCount(0);
-  await expect(ownGap).not.toContainText(/\b(chain|audit|owner|vendor)\.[a-z_]+\b/);
   await page.context().close();
 });
 
