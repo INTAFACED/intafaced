@@ -535,6 +535,12 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
         .input(venueWrite.extend({ delistsAt: z.string().max(64).nullable() }).strict())
         .mutation(({ ctx, input }) => venueDesk().delistingSchedule(ctx.principal, input).catch(fail)),
     }),
+    // J-derivatives-28 #6: our users' routed volume and builder fees by venue; house exposure "none: routed".
+    venueRouting: router({
+      report: operator
+        .input(z.object({ from: z.string().trim().min(1).max(64), to: z.string().trim().min(1).max(64) }).strict())
+        .query(({ ctx, input }) => ready().venueRoutingReport(ctx.principal, input).catch(fail)),
+    }),
     marketMode: router({
       get: operator
         .input(z.object({ symbol: z.string().trim().min(1).max(40) }).strict())

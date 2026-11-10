@@ -314,6 +314,10 @@
       "types": "./dist/agents-own.d.ts",
       "default": "./dist/agents-own.js"
     },
+    "./agents-onchain": {
+      "types": "./dist/agents-onchain.d.ts",
+      "default": "./dist/agents-onchain.js"
+    },
     "./agents-usage-limits": {
       "types": "./dist/agents-usage-limits.d.ts",
       "default": "./dist/agents-usage-limits.js"
