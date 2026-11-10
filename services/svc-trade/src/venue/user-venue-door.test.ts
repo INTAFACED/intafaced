@@ -599,6 +599,7 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       store: new InMemoryPreparedActionStore(),
       stepUp: stepUp('approve').check,
       builder: BUILDER,
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });
 
