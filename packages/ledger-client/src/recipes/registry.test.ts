@@ -38,7 +38,7 @@ import { RECIPE_MATRIX } from './live-path-inventory.js';
  * marketPurchaseHold + marketPurchaseRefund + marketPurchaseRelease (a purchase held until its refund window ends, J-more-catalogue-02) → 85.
  * buybackOrderHold + buybackOrderHoldRelease + buybackTakerFill (the token buyback's IOC buy on the spot book, J-dex-protocol-17) → 88.
  * builderFeeEarn + builderFeeReceive (our builder fee on a routed venue fill, earned and paid out, D-venue-07, J-derivatives-17) → 90.
- * ownFundsMove (our own money moving between named outside places, launch money model rule 5) → 91.
+ * ownFundsMove (our own money moving between named outside places, launch money model rule 1) → 91.
  */
 describe('recipes registry', () => {
   it('exports every named recipe and nothing unnamed', () => {

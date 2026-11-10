@@ -4,7 +4,7 @@ import { InvalidEntryError } from '../types.js';
 import { isOwnFundsPlace, partnerReserve, treasuryWallet, venueBuilderAccount } from '../accounts.js';
 
 /**
- * OUR OWN FUNDS MOVING BETWEEN OUTSIDE PLACES (launch money model, rule 5; project-state OWNER.md item 288).
+ * OUR OWN FUNDS MOVING BETWEEN OUTSIDE PLACES (launch money model, rule 1; project-state OWNER.md item 288).
  *
  * `ownFundsMove` records INTAFACED's own money leaving one named place and arriving at another: collected builder fees
  * swept from our builder account at a venue to our treasury wallet, or our treasury wallet funding our reserve at a

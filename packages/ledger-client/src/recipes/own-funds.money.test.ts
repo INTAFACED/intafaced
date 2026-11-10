@@ -18,7 +18,7 @@ import { recipes } from './index.js';
 import { ownFundsMoveKey, type OwnFundsPlace } from './own-funds.js';
 
 /**
- * Our own funds at outside places (launch money model, rule 5): builder fees collected into our builder account at the
+ * Our own funds at outside places (launch money model, rules 1 and 5): builder fees collected into our builder account at the
  * venue, swept to our treasury wallet, and a reserve funded at a partner. TEST amounts only.
  */
 const VENUE = 'test-venue';

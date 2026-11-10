@@ -80,7 +80,7 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
   { name: 'bankTransferReversal', fingerprint: '56a8770216cd' },
   { name: 'builderFeeReceive', fingerprint: 'da565b45397a' },
-  { name: 'ownFundsMove', fingerprint: '39293173f57f' },
+  { name: 'ownFundsMove', fingerprint: 'e01e44fe1d12' },
 ];
 
 /**

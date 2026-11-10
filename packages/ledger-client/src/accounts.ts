@@ -396,7 +396,7 @@ export function venueBuilderAccount(venueId: string, assetId: string): AccountRe
 }
 
 /**
- * OUR FUNDS AT AN OUTSIDE PLACE (launch money model, rule 5; project-state OWNER.md item 288). INTAFACED's own money that
+ * OUR FUNDS AT AN OUTSIDE PLACE (launch money model, rule 1; project-state OWNER.md item 288). INTAFACED's own money that
  * sits somewhere we do not run the book of: our builder account at a venue (`venueBuilderAccount`), our reserve at a
  * partner, our treasury wallet on a chain. One named account per place. Each is a boundary, like `venueBuilderAccount`: its
  * negative balance is exactly our own money there, so "how much of ours is at that partner" is a query. Never a customer's.
