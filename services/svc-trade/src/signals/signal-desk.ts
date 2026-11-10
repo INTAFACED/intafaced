@@ -78,8 +78,9 @@ export interface SignalPorts {
   /** The trading admission of the webhook as a `strategy.start` operation, business id `signal:<webhookId>`. */
   admitStart(principal: Principal, businessId: string, payload: unknown): Promise<unknown>;
   /**
-   * The trading admission of one alert's order, a delegated `algo.child` of `signal:<webhookId>`: a restricted or frozen
-   * account is refused here by its own code, before anything is prepared.
+   * The trading admission of one alert's order. No session is behind an alert, so it is the person's standing
+   * instruction (the webhook, id `webhookId`), owned by svc-trade: identity still checks the person, and a restricted
+   * or frozen account is refused here by its own code, before anything is prepared.
    */
   admitAlert(principal: Principal, businessId: string, payload: unknown, webhookId: string): Promise<unknown>;
   /**
@@ -195,7 +196,7 @@ const refusal = (err: SignalError): AlertReply => ({
   body: { ok: false, code: err.code, message: err.message, ...(err.field ? { field: err.field } : {}) },
 });
 
-/** The webhook's admitted strategy: its alerts' orders are delegated children of it. */
+/** The webhook's admitted strategy, checked on the person's own session when they make it. */
 export const signalBusinessId = (webhookId: string) => `signal:${webhookId}`;
 
 /** One alert's order, as the user-venue door keeps it: the business key its prepared action is stored under. */
@@ -248,7 +249,8 @@ export class SignalDesk {
     const token = randomBytes(TOKEN_BYTES).toString('base64url');
     const now = this.ports.now();
     const expires = new Date(now.getTime() + days * 86_400_000);
-    // The webhook is admitted as a strategy, as a grid bot is: each alert's order is then a delegated child of it.
+    // The webhook is admitted as a strategy on the person's own session; each alert's order is then admitted on the webhook
+    // as a standing instruction, since no session is behind an alert.
     // The webhook's id comes from the person and their request key, so a retried create admits the same strategy.
     const webhookId = idFor(`signal-webhook:${principal.userId}:${requestId}`);
     await this.ports.admitStart(principal, signalBusinessId(webhookId), {

@@ -200,7 +200,7 @@ describe('a webhook prepares an order only for a person who may place a trade or
     }
   });
 
-  it("prepares one venue market IOC under the alert's own key, as a delegated child of the webhook, for a basic person", async () => {
+  it("prepares one venue market IOC under the alert's own key, admitted on the webhook as a standing instruction, for a basic person", async () => {
     const w = world({ liveTier: 'basic' });
     const out = await w.alert('a-ok');
     expect(out.status).toBe(200);

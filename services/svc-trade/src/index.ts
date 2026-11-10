@@ -44,7 +44,7 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
-import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays, signalBusinessId } from './signals/signal-desk.js';
+import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
 import { createLiveTierClient } from './signals/live-tier.js';
 import { PlatformPauseDesk } from './copy/platform-pauses.js';
@@ -684,8 +684,10 @@ const signalDesk = new SignalDesk({
   venueMarkets: async () => (userVenue ? (await userVenue.markets()).value.map((m) => m.symbol) : null),
   liveTier: (userId) => signalLiveTier.tierOf(userId),
   admitStart: (principal, businessId, payload) => trade.admitAccountOperation(principal, 'strategy.start', businessId, payload),
+  // An alert arrives with no session behind it, so it is admitted as the person's standing instruction (the webhook),
+  // owned by svc-trade, as a fired conditional order is: identity still checks the person, and a restriction refuses.
   admitAlert: (principal, businessId, payload, webhookId) =>
-    trade.admitAccountOperation(principal, 'algo.child', businessId, payload, signalBusinessId(webhookId)),
+    tradingControls.admitStanding(principal.userId, webhookId, businessId, payload, 'svc-trade'),
   prepareOrder: async (principal, input) => {
     if (!userVenue) return { ok: false, code: 'trade.user_venue_off' };
     try {
