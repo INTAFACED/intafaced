@@ -1,6 +1,6 @@
 import { formatAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import type { PartnerAccountRef, PartnerBank, PartnerMove } from '../partner/partner-bank.js';
+import { PARTNER_PAYOUTS_OWNER, type PartnerAccountRef, type PartnerBank, type PartnerMove } from '../partner/partner-bank.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import type { ActivityItem, ActivityPage, ActivityQuery } from './activity-service.js';
 import { ActivityLookupBoundedError, ActivityNotFoundError, ActivityRangeError } from './activity-service.js';
@@ -53,13 +53,18 @@ function sameUser(a: PartnerAccountRef, b: PartnerAccountRef): boolean {
   return a.userId === b.userId;
 }
 
-/** The person's lines for one move: out of the account it left, into the account it reached, theirs only. */
+/**
+ * The person's lines for one move: out of the account it left, into the account it reached, theirs only. A move to or
+ * from the partner's outbound-payments account is a cash-out leaving to a bank account, or its amount coming back
+ * (failed, cancelled or returned), never a transfer with another person: it reads as a withdrawal.
+ */
 export function partnerLines(userId: string, move: PartnerMove, names: ReadonlyMap<string, string>): ActivityItem[] {
   const own = sameUser(move.from, move.to);
+  const payout = move.from.userId === PARTNER_PAYOUTS_OWNER || move.to.userId === PARTNER_PAYOUTS_OWNER;
   const lines: ActivityItem[] = [];
   const line = (side: 'out' | 'in', account: PartnerAccountRef): ActivityItem => ({
     id: lineId(move, side),
-    kind: own ? 'space_move' : side === 'out' ? 'transfer_out' : 'transfer_in',
+    kind: own ? 'space_move' : payout ? 'withdrawal' : side === 'out' ? 'transfer_out' : 'transfer_in',
     direction: side,
     asset: account.assetId,
     amount: formatAmount(move.amount),

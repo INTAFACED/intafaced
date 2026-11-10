@@ -42,6 +42,8 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'fee',
   'withdrawalFee',
   'networkFee',
+  'maxOrderQty',
+  'maxOrderNotional',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -65,8 +67,11 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'value',
 ]);
 
-/** Amount fields that may be `null` (`UserVenueFill.realisedPnl`, `UserVenueOrder.averagePrice`). */
-const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set(['realisedPnl', 'averagePrice']);
+/**
+ * Amount fields that may be `null` (`UserVenueFill.realisedPnl`, `UserVenueOrder.averagePrice`, a venue market's
+ * `maxOrderQty` / `maxOrderNotional` when the venue reports none).
+ */
+const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set(['realisedPnl', 'averagePrice', 'maxOrderQty', 'maxOrderNotional']);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set(['asOf', 'preparedAt', 'filledAt', 'validUntil', 'since']);
 
