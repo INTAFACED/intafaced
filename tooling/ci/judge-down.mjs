@@ -9,16 +9,19 @@
  *   node tooling/ci/judge-down.mjs down "<source>" status   the `judge` status pending on the head
  *   node tooling/ci/judge-down.mjs down "<source>" issue    one project-state issue, none while one is open
  *   node tooling/ci/judge-down.mjs back "<source>" status   the `judge` status this source set, cleared
- *   node tooling/ci/judge-down.mjs back "CI review" issue   the issue closed and the heads left without a verdict re-run
+ *   node tooling/ci/judge-down.mjs back "CI review" issue   the issue closed; `closed=true` to GITHUB_OUTPUT when one was
+ *   node tooling/ci/judge-down.mjs back "CI review" catchup the heads left without a verdict re-run (the Start the seal
+ *                                                            job, which alone holds actions: write; the review job can't
+ *                                                            re-run a run, ci-review.test.mjs)
  *
  * The status is for people only, and posted from the proof read job, so the review job the seal reads holds no
  * statuses permission: the seal never reads a status (review-marker.mjs reads the job's steps), so a forged `judge`
  * status can neither pass nor block anything. Env: GH_TOKEN (this repository's statuses and runs), REPO, HEAD_SHA,
  * RUN_URL, and for `down` LINE, ACTION and SIGN_IN from reviewer-error.mjs --outputs and SIGN_IN_URL; for `issue`, ISSUE_TOKEN (the
- * App token, issues on project-state) and, optionally, RERUN_TOKEN (the App token, actions on this repository; without
- * it the re-runs use GH_TOKEN). Every failure warns: this runs only in steps that can't fail their job
+ * App token, issues on project-state). Every failure warns: this runs only in steps that can't fail their job
  * (continue-on-error), and the seal waits whatever it does.
  */
+import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { VERDICT_STEPS, reviewRan } from './review-marker.mjs';
 
@@ -180,7 +183,7 @@ async function backStatus(source) {
 }
 
 async function backIssue(source) {
-  const { GH_TOKEN, REPO, HEAD_SHA, RUN_URL = '', ISSUE_TOKEN, RERUN_TOKEN } = process.env;
+  const { RUN_URL = '', ISSUE_TOKEN, GITHUB_OUTPUT } = process.env;
   // Only the CI review's success catches up: the proof read's verdicts are not what the seal waits for.
   if (source !== 'CI review') return;
   if (!ISSUE_TOKEN) return console.log('::warning::no project-state issues token, so no judge-down issue is read or closed');
@@ -191,6 +194,16 @@ async function backIssue(source) {
     const c = await call(ISSUE_TOKEN, 'PATCH', `/repos/${ISSUE_REPO}/issues/${i.number}`, { state: 'closed', state_reason: 'completed' });
     if (c.status !== 200) return console.log(`::warning::${ISSUE_REPO}#${i.number} wasn't closed: HTTP ${c.status}; nothing re-run`);
   }
+  const note = `The judge is back: the CI review's reviewer call succeeded at ${times()} (${RUN_URL}). This run's Start the seal job re-runs the CI review on the oldest ${CATCH_UP_CAP} open PR heads with no verdict, and lists them in its log.`;
+  for (const i of open) await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues/${i.number}/comments`, { body: note });
+  // The catch-up runs only after this run closed the issue, so a second success at the same time re-runs nothing.
+  if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, 'closed=true\n');
+  console.log(note);
+}
+
+async function backCatchUp(source) {
+  const { GH_TOKEN, REPO, HEAD_SHA } = process.env;
+  if (source !== 'CI review') return;
   const pulls = await call(GH_TOKEN, 'GET', `/repos/${REPO}/pulls?state=open&base=main&sort=created&direction=asc&per_page=100`);
   const runs = await call(GH_TOKEN, 'GET', `/repos/${REPO}/actions/workflows/ci-review.yml/runs?event=pull_request_target&per_page=100`);
   if (pulls.status !== 200 || runs.status !== 200) throw new Error(`could not list the open PRs or the review runs`);
@@ -202,31 +215,35 @@ async function backIssue(source) {
     jobsOf: async (run) =>
       (await call(GH_TOKEN, 'GET', `/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`)).json?.jobs ?? [],
   });
-  // A re-run asked with the App token starts the seal re-check when it ends (journey-seal-recheck.yml, workflow_run);
-  // one asked with GITHUB_TOKEN may not, since GitHub starts no workflow from that token's events.
+  // A whole run re-run: its own Start the seal job starts that head's seal when the review ends.
   const done = [];
   for (const { pull, run } of targets) {
-    const r = await call(RERUN_TOKEN || GH_TOKEN, 'POST', `/repos/${REPO}/actions/runs/${run.id}/rerun`);
+    const r = await call(GH_TOKEN, 'POST', `/repos/${REPO}/actions/runs/${run.id}/rerun`);
     done.push(`#${pull.number} (run ${run.id}: ${r.status === 201 ? 're-run' : `HTTP ${r.status}`})`);
   }
-  const note = [
-    `The judge is back: the CI review's reviewer call succeeded at ${times()} (${RUN_URL}).`,
-    done.length
-      ? `Re-ran the CI review on the oldest ${done.length} open PR heads with no verdict: ${done.join(', ')}.`
-      : 'No open PR head was left without a verdict.',
-    left ? `${left} more head(s) have no verdict past the cap of ${CATCH_UP_CAP}; each is reviewed on its next push.` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-  for (const i of open) await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues/${i.number}/comments`, { body: note });
-  console.log(note);
+  console.log(
+    [
+      done.length
+        ? `Re-ran the CI review on the oldest ${done.length} open PR heads with no verdict: ${done.join(', ')}.`
+        : 'No open PR head was left without a verdict.',
+      left ? `${left} more head(s) have no verdict past the cap of ${CATCH_UP_CAP}; each is reviewed on its next push.` : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [cmd, source, part] = process.argv.slice(2);
-  const run = { 'down status': downStatus, 'down issue': downIssue, 'back status': backStatus, 'back issue': backIssue }[`${cmd} ${part}`];
+  const run = {
+    'down status': downStatus,
+    'down issue': downIssue,
+    'back status': backStatus,
+    'back issue': backIssue,
+    'back catchup': backCatchUp,
+  }[`${cmd} ${part}`];
   if (!run || !source) {
-    console.error('usage: judge-down.mjs down|back "<source>" status|issue');
+    console.error('usage: judge-down.mjs down|back "<source>" status|issue|catchup');
     process.exit(1);
   }
   // Exits 0 even when it fails: the Judge down step is the seal's marker (review-marker.mjs isJudgeDown reads that it

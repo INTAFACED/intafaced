@@ -34,6 +34,12 @@
  * Usage:
  *   node tooling/ci/gates.mjs          run every gate, report all failures
  *   node tooling/ci/gates.mjs --list   print the gate ids, one per line
+ *   node tooling/ci/gates.mjs --changed
+ *        a builder's local run: the tooling tests (about four minutes on the Mac) run only when the branch's diff
+ *        against its merge-base with origin/main, plus uncommitted and untracked files, touches tooling/ or .github/
+ *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
+ *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
+ *        keep the full run (U4, project-state #1574).
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -309,7 +315,7 @@ export const NOT_GATES = {
   'main-first.mjs':
     "not a gate: real-app-journeys.yml's `Main's journeys first` job, which defers a Real-app journeys run off main while a main run's jobs wait for runners, without holding a runner: the deferred run selects no journeys and ends, and the `release` job re-runs it when main's planner finishes (a hand-dispatched full run is also deferred while 2 others hold runners; INTAFACED/project-state#1574 item 3). It reads GitHub's Actions API, so a laptop verify has no input; ci.yml runs its `--self-test`.",
   'workflow-concurrency.test.mjs':
-    "not a gate: the node:test file of the workflows' concurrency shape (one run per pull request; a main journeys run never cancelled and in one group, OWNER 206; a superseded branch journeys run cancelled; one waiting Journey seal re-check per head), with planted faults for each. tooling-tests.mjs runs it with every other tooling test.",
+    "not a gate: the node:test file of the workflows' concurrency shape (one run per pull request; a main journeys run never cancelled and in one group, OWNER 206; a superseded branch journeys run cancelled), with planted faults for each. tooling-tests.mjs runs it with every other tooling test.",
   'journey-verdict.mjs':
     "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
   'journey-verdict.test.mjs':
@@ -338,10 +344,6 @@ export const NOT_GATES = {
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. It covers unit tests, the browser harnesses and look sweeps (`*.pw.mjs`; a changed journey step file `J-*.pw.mjs` on a pull request the test judge runs for is the judge’s, `judged-paths.mjs` leftToJudge) and look baselines (`look-baselines/<room>/*.png`, which need a `Baseline-change: <room>` line and the independent review). `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'look-drift.mjs':
     'PR-only guard, like test-diff-guard: judges only the lines a PR adds in apps/customer and packages/ui/src/lit, px allowed in the lit kit outside templates (raw colours, pixel sizes, left/right sides), so it needs the PR diff against origin/main and a laptop verify has no input. CI runs main’s copy from the `gates` job; `--self-test` runs in the `changes` job; `--all` prints how many lines across the tree still carry raw values (report only).',
-  'seal-rerun.mjs':
-    "not a check: after the CI review passes on a head, ci-review.mjs `rerun-seal` uses it to re-run that head's red CI merge seal job, so nobody re-runs it by hand. Moved unchanged from review-signoff.mjs when the comment sign-off retired (U4 C5). `tooling/ci/seal-rerun.test.mjs` holds its cases.",
-  'seal-rerun.test.mjs':
-    'not a gate: the node:test file of seal-rerun.mjs (wait out a running seal, re-run a red one once, fail loudly on an unreadable list or a refused re-run). tooling-tests.mjs runs it with every other tooling test.',
   'why-red.mjs':
     'not a check: a read-only helper that prints why a PR head is not green (failing checks, their error annotations, and whether the seal only waits for the independent review), so agents do not read whole job logs. It needs a GitHub token and a PR, so a laptop verify cannot run it; `node tooling/ci/why-red.mjs --self-test` runs in the `changes` job.',
   'ci-review.mjs':
@@ -371,7 +373,7 @@ export const NOT_GATES = {
   'ci-jobs-seal.test.mjs':
     'not a gate: the node:test file of ci-jobs-seal.mjs, its planted cases (a red or missing job, a test job the change needs but the pull request’s own ci.yml skipped, one red shard, unreadable files, a run still going, another workflow’s run never deciding). tooling-tests.mjs runs it with every other tooling test.',
   'journey-seal.mjs':
-    "merge-seal step: a pull request whose title names journey steps (`J-bank-13 #1 #2`) needs each one passing in a finished Real-app journeys run on its exact head, read from the run's `real-app-journeys` report through the Actions API, or the step exempted on a strict body line `Left-or-replaced: J-bank-13 #1` at column 0 outside code; anything else that looks like an exemption fails closed (owner decision 2026-11-06). A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs the newest finished full Real-app journeys run on its exact head with 0 steps outside the list or against its rules, the journeys verdict (journey-verdict.mjs judge) read with the default branch's baseline; a red step main's newest full run in the head's history has too stops only a pull request in its area (its journey, or a package changed since it last passed on main), and one that can't be bounded stops every pull request (owner decision 180). A pull request that changes a journey test file (`apps/customer/tests/real-app/J-*.pw.mjs`) names a step each changed file holds, in the title or on a `Left-or-replaced:` line, or the seal fails and prints the steps the files hold. `--recheck` re-runs the seal from journey-seal-recheck.yml. Needs a GitHub token and a pull request, so a laptop verify has no input; `tooling/ci/journey-seal.test.mjs` holds its planted cases and `--dry-run <pr>` reads any pull request without writing.",
+    "merge-seal step: a pull request whose title names journey steps (`J-bank-13 #1 #2`) needs each one passing in a finished Real-app journeys run on its exact head, read from the run's `real-app-journeys` report through the Actions API, or the step exempted on a strict body line `Left-or-replaced: J-bank-13 #1` at column 0 outside code; anything else that looks like an exemption fails closed (owner decision 2026-11-06). A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs the newest finished full Real-app journeys run on its exact head with 0 steps outside the list or against its rules, the journeys verdict (journey-verdict.mjs judge) read with the default branch's baseline; a red step main's newest full run in the head's history has too stops only a pull request in its area (its journey, or a package changed since it last passed on main), and one that can't be bounded stops every pull request (owner decision 180). A pull request that changes a journey test file (`apps/customer/tests/real-app/J-*.pw.mjs`) names a step each changed file holds, in the title or on a `Left-or-replaced:` line, or the seal fails and prints the steps the files hold. `--recheck`, the last job of each seal input (START_JOB), starts or re-runs the seal once every input on the head has finished; `--clear-older` re-runs older red seals on a head after a green verdict. Needs a GitHub token and a pull request, so a laptop verify has no input; `tooling/ci/journey-seal.test.mjs` holds its planted cases and `--dry-run <pr>` reads any pull request without writing.",
   'journey-touch.mjs':
     'the journeys a pull request touches, read by journey-seal.mjs from its changed paths: shared setup, tooling/scripts, the journeys workflow and its checks, docs, build files and product code need the full run; journey test files only need those files run; other workflows, CI checks the journeys run does not use and unit tests need none. A merge-seal input, not a gate of its own; `--base <ref>` prints what a branch must run, and `tooling/ci/journey-touch.test.mjs` holds its planted cases.',
   'journey-reach-map.mjs':
@@ -390,6 +392,8 @@ export const NOT_GATES = {
     "not a gate: the headless builder's steps, run by .github/workflows/builder.yml (check the dispatched journey, read the factory switch, pick the branch, write the prompt, run the CLI watched by the switch and the clock with its output kept in files, the PR's handover line, usage as numbers). It needs the factory token and the CLI, so a laptop verify cannot run it; `tooling/ci/factory-builder.test.mjs` checks it and the workflow's shape.",
   'factory-builder.test.mjs':
     'not a gate: the node:test file of factory-builder.mjs and builder.yml, with planted faults in the workflow and an end-to-end run against a fake CLI and a local switch. tooling-tests.mjs runs it with every other tooling test.',
+  'gates.test.mjs':
+    'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
@@ -457,6 +461,33 @@ function manifestCheck() {
   return problems;
 }
 
+// ── --changed: which gates a builder's local run needs ──────────────────────
+/** Paths whose change can turn a tooling test red. Anything else cannot reach them, so `--changed` skips them. */
+export const TOOLING_TEST_PATHS = ['tooling/', '.github/'];
+
+/** The gates a run needs: all of them for a full run (`changed` null), else all but the tooling tests unless reached. */
+export function gatesToRun(gates, changed) {
+  if (changed === null) return gates;
+  const reachesTooling = changed.some((p) => TOOLING_TEST_PATHS.some((prefix) => p.startsWith(prefix)));
+  return reachesTooling ? gates : gates.filter((g) => g.id !== 'tooling-tests');
+}
+
+/**
+ * Files changed since the merge-base with origin/main, committed or not, renames as both sides; null when git cannot
+ * say (no origin/main, not a repo), so the caller runs everything rather than guessing a diff is product-only.
+ */
+export function changedSinceMain(cwd = ROOT, base = 'origin/main') {
+  const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  try {
+    const mergeBase = git('merge-base', 'HEAD', base).trim();
+    const tracked = git('diff', '--name-only', '--no-renames', mergeBase);
+    const untracked = git('ls-files', '--others', '--exclude-standard');
+    return [...new Set((tracked + '\n' + untracked).split('\n').filter(Boolean))].sort();
+  } catch {
+    return null;
+  }
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────
 /**
  * Guarded so this file can be IMPORTED as data without the import running 32
@@ -478,8 +509,15 @@ const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) 
 if (RUN_AS_SCRIPT) main();
 
 function main() {
+  const changedOnly = process.argv.includes('--changed');
+  // `--base <ref>` for a branch stacked on another (default origin/main).
+  const baseAt = process.argv.indexOf('--base');
+  const base = baseAt > 0 ? process.argv[baseAt + 1] : 'origin/main';
+  const changed = changedOnly ? changedSinceMain(ROOT, base) : null;
+  const gates = gatesToRun(GATES, changed);
+
   if (process.argv.includes('--list')) {
-    for (const gate of GATES) console.log(gate.id);
+    for (const gate of gates) console.log(gate.id);
     process.exit(0);
   }
 
@@ -490,13 +528,16 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`\n══ DOCTRINE GATES (${GATES.length}) ══\n`);
+  console.log(`\n══ DOCTRINE GATES (${gates.length}) ══\n`);
+  if (changedOnly && changed === null) console.log(`  --changed: the diff against ${base} is unreadable, so every gate runs\n`);
+  else if (gates.length < GATES.length)
+    console.log('  --changed: nothing under tooling/ or .github/ changed, so the tooling tests are left to CI\n');
 
   const failed = [];
   const advisoryNoise = [];
   let totalMs = 0;
 
-  for (const gate of GATES) {
+  for (const gate of gates) {
     const started = process.hrtime.bigint();
     let ok = true;
     let output = '';
@@ -543,7 +584,7 @@ function main() {
   }
 
   if (failed.length > 0) {
-    console.error(`\n✖ ${failed.length} of ${GATES.length} DOCTRINE GATE(S) FAILED\n`);
+    console.error(`\n✖ ${failed.length} of ${gates.length} DOCTRINE GATE(S) FAILED\n`);
     for (const { gate, output } of failed) {
       console.error(`── ${gate.id} — ${gate.doctrine} ──`);
       console.error(`   why this gate exists: ${gate.why}`);
@@ -553,5 +594,5 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`\n✓ all ${GATES.length} doctrine gates passed — ${totalMs}ms total\n`);
+  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total\n`);
 }

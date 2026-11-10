@@ -408,3 +408,15 @@ test('a sign-off the seal finds missing because the judge was down is titled jud
   assert.equal(missingTitle('no CI review on abc'), 'Review sign-off missing');
   assert.equal(missingTitle(undefined), 'Review sign-off missing');
 });
+
+test('the catch-up re-runs are the Start the seal job’s, after the review job closed the issue; the review job re-runs nothing', () => {
+  const review = WF.slice(WF.indexOf('\n  review:\n'), WF.indexOf('\n  read:\n'));
+  const start = WF.slice(WF.indexOf('\n  seal-start:\n'));
+  assert.doesNotMatch(review, /catchup|permission-actions|RERUN_TOKEN/);
+  assert.match(review, /judge-closed: \$\{\{ steps\.judge-back\.outputs\.closed \}\}/);
+  assert.match(
+    start,
+    /if: \$\{\{ !cancelled\(\) && needs\.review\.outputs\.judge-closed == 'true' \}\}[\s\S]*judge-down\.mjs back "CI review" catchup/,
+  );
+  assert.match(start, /actions: write/);
+});
