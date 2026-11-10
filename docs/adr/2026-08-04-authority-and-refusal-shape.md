@@ -1,5 +1,7 @@
 # ADR: who may be named in a refusal
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The example of transfers between bank spaces on our ledger applies when the custodial layer is switched on; the authority and refusal rules hold at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** none — this is **not** D-S-11. That slot is already satisfied by `SPEC-SUBACCOUNTS-2026-08-02.md` (removed), which decided sub-account ownership, the cross-leak ban and trade ownership gates. This ADR is adjacent and narrower: the subaccounts spec governs value crossing between **partitions of one identity**; this one governs what a service may **say** to a caller about **another identity's** objects. Both are needed and neither replaces the other.
