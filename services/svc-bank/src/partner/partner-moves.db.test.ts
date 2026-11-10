@@ -273,6 +273,24 @@ describe('partner-held bank moves (OWNER 226)', () => {
     for (const line of feed.items) expect(line.note).toBeUndefined();
   });
 
+  it('testPartner.spend obeys the posting freeze, and refuses a person with no money at the partner', async () => {
+    const { api } = await partnerHeld(ADA);
+    const spend = { spendId: 'spend-frozen-1', assetId: 'USDT', amount: '30', kind: 'payment' } as const;
+    for (const state of [false, 'unreadable'] as const) {
+      posting = state;
+      await expect(api.testPartner.spend(spend)).rejects.toSatisfy((err) => codeOf(err) === 'bank.posting_frozen');
+    }
+    posting = true;
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
+    expect((await mainOf(api)).balance).toBe('100');
+    await api.testPartner.spend(spend);
+    expect((await mainOf(api)).balance).toBe('70');
+    const { api: custodial } = as(randomUUID());
+    await expect(custodial.testPartner.spend({ ...spend, spendId: 'spend-none-1' })).rejects.toSatisfy(
+      (err) => codeOf(err) === 'bank.no_partner_bank',
+    );
+  });
+
   it('with posting frozen on svc-ledger, or the freeze unreadable or not wired, a move refuses bank.posting_frozen and the partner moves nothing', async () => {
     const { api, trip, mainSpace } = await partnerHeld(ADA);
     for (const state of [false, 'unreadable'] as const) {

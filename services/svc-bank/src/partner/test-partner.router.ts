@@ -5,7 +5,7 @@ import { assertSelf } from '../assert-self.js';
 import { BankError } from '../errors.js';
 import { amountString, partnerFiguresOutput } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
-import { partnerPayoutsAccount } from './partner-bank.js';
+import { NO_PARTNER_BANK_CODE, partnerPayoutsAccount } from './partner-bank.js';
 import { PARTNER_FEATURES, TEST_PARTNER_MERCHANT, partnerReserve, type TestPartner, type TestPartnerSwitches } from './test-partner.js';
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -51,7 +51,7 @@ function out(partner: TestPartner, userId: string, now: TestPartnerSwitches) {
  * it does not offer, what it does not say, and whether it answers. Off the TEST stack every call refuses
  * `bank.test_partner_off`, because there is no TEST partner to switch.
  */
-export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' | 'cards'>, guard: Guard) {
+export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' | 'cards' | 'partnerCustody'>, guard: Guard) {
   return router({
     switches: scopedProcedure('bank:read', { module: 'bank' })
       .output(view)
@@ -92,7 +92,7 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' |
      * TEST money leaving the person's main balance at the TEST partner bank (J-bank-16 Starts: "a month of TEST activity
      * at the partner"), once per `spendId`: a TEST `payment` to a stand-in merchant, or a TEST `payout` to the partner's
      * outbound-payments account. A real send to a person at the partner is not built, and this door is not that: it is
-     * refused off the TEST stack (`bank.test_partner_off`) and posts nothing.
+     * refused off the TEST stack (`bank.test_partner_off`), obeys the posting freeze and partner stops, and posts nothing.
      */
     spend: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -108,9 +108,13 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' |
       .output(z.object({ label: z.string(), moveId: z.string(), amount: amountString }))
       .mutation(({ ctx, input }) =>
         guard(async () => {
-          const partner = on(bank.testPartner);
+          on(bank.testPartner);
           const userId = ctx.principal.userId;
-          const moved = await partner.bank.move({
+          // The guarded partner: the posting freeze and an operator's partner stop refuse this as they refuse any partner move.
+          const held = bank.partnerCustody.bankFor(userId);
+          if (!held)
+            throw new BankError('This person has no money at the TEST partner bank, so nothing can leave it.', NO_PARTNER_BANK_CODE);
+          const moved = await held.move({
             key: `test-spend:${userId}:${input.spendId}`,
             from: { userId, assetId: input.assetId, spaceId: null },
             to:
