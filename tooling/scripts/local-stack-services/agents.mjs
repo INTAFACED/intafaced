@@ -132,6 +132,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     // restart leaves it blank (holding refuses agents.approval.ttl_unset); `=short` uses the short TEST wait, so a journey
     // can watch a request expire.
     ...approvalTtl(),
+    // LOCAL TEST public address of the Navigator's on-chain signer (J-agents-19): the session key a person grants on the
+    // stack's TEST chain. An address only, never a key. `LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER=off` on a start or restart
+    // leaves it blank, so the on-chain panel shows the rail.crypto notice.
+    ...(process.env.LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER === 'off'
+      ? {}
+      : { AGENTS_NAVIGATOR_ONCHAIN_SIGNER: testValue('AGENTS_NAVIGATOR_ONCHAIN_SIGNER') }),
     ...engine(STATE),
     ...paymentToken(testChain?.() ?? null),
     // `LOCAL_STACK_AGENTS_IDENTITY=off` on a restart points this service's identity reads at a TEST address nothing
