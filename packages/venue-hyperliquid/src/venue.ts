@@ -817,6 +817,9 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
         throw refusal(venueId, 'not_offered', 'revoking an agent is not offered by this adapter yet');
       case 'amend_order':
         throw refusal(venueId, 'not_offered', 'amend is not offered by this adapter yet: cancel and place a new order');
+      case 'create_sub_account':
+      case 'sub_account_transfer':
+        throw refusal(venueId, 'not_offered', 'sub-accounts are not offered by this adapter yet');
     }
   }
 
