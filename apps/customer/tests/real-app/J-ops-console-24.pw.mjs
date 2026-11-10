@@ -102,11 +102,15 @@ async function ownAccounts(page, asset) {
   return rows;
 }
 
-/** The balance of the house market-maker account in `asset`, the account `fund('house', ...)` credits. */
-function houseBalance(rows) {
+/**
+ * The balance of the house market-maker account in `asset`, the account `fund('house', ...)` credits. The ledger lists
+ * only accounts with a balance above 0 (svc-ledger own-funds.ts), so no row reads 0 (`listed` false), never twice.
+ */
+function houseBalance(rows, { listed = false } = {}) {
   const house = rows.filter(([name]) => name === 'house market-maker');
-  expect(house, 'one house market-maker account in the own-funds accounts').toHaveLength(1);
-  return house[0][1];
+  expect(house.length, 'at most one house market-maker account in the own-funds accounts').toBeLessThanOrEqual(1);
+  if (listed) expect(house, 'the funded house market-maker account is listed').toHaveLength(1);
+  return house[0]?.[1] ?? '0';
 }
 
 test(`${J} #1 the capital monitor with the threshold blank: own funds from the ledger without customer money, partner reserves not known, ops.capital.threshold_unset and not monitored; a set threshold breached opens one alert per asset and day to the named contact; a stopped ledger reads unknown and runs no scenario`, async ({
@@ -148,7 +152,7 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   // accounts it sums in the same read, which never list the customer's.
   const after = await ownFunds(a, ASSET);
   const accountsAfter = await ownAccounts(a, ASSET);
-  expect(scale(houseBalance(accountsAfter)), 'the house funding counts').toBe(scale(plus(houseBefore, '2.5')));
+  expect(scale(houseBalance(accountsAfter, { listed: true })), 'the house funding counts').toBe(scale(plus(houseBefore, '2.5')));
   expect(
     accountsAfter.reduce((sum, [, balance]) => sum + scale(balance), 0n),
     'the total is the sum of house and module accounts alone',
