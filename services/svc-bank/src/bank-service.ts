@@ -4,6 +4,7 @@ import { moneyHeldBy } from './partner/test-partner.js';
 import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
+import { PartnerStopService, stopGuardedCardHolds, stopGuardedCustody, TEST_PARTNER_ID } from './partner/partner-stops.js';
 import type { Sql } from 'postgres';
 import type { CustodyLayerState, LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
@@ -115,6 +116,8 @@ export interface BankServices {
   readonly loans: LoanService;
   /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
   readonly assetPauses: AssetPauseService;
+  /** The operator's partner stop (project-state #1790): one partner, or one kind of instruction, without the posting freeze. */
+  readonly partnerStops: PartnerStopService;
   readonly cards: CardService;
   /** J-bank-13: the card room's product list, terms, order and delivery. */
   readonly cardOrders: CardOrderService;
@@ -339,7 +342,13 @@ export function createBankServices(
   // Every partner move first asks svc-ledger's posting freeze (floor 4). No freeze wired reads as frozen: a partner move
   // is refused, never made unguarded.
   const postingFreeze = options.postingFreeze ?? FREEZE_NOT_WIRED;
-  const custody = freezeGuardedCustody(testPartnerCustody(options.testPartner), postingFreeze);
+  // The operator's partner stop is asked too (a stopped kind refuses `bank.partner_stopped`), and never instead of the freeze.
+  const partnerStops = new PartnerStopService(sql);
+  const custody = stopGuardedCustody(
+    freezeGuardedCustody(testPartnerCustody(options.testPartner), postingFreeze),
+    TEST_PARTNER_ID,
+    partnerStops,
+  );
   const spaces = new SpaceService(sql, ledger, options.recipients, {
     spaceLimit: () => options.spaceLimit,
     unlockWaitHours: () => options.spaceUnlockWaitHours,
@@ -430,7 +439,9 @@ export function createBankServices(
           switches: (userId) => options.testPartner!.switches(userId),
         })
       : null);
-  const partnerHolds = unguardedHolds ? freezeGuardedCardHolds(unguardedHolds, postingFreeze) : null;
+  const partnerHolds = unguardedHolds
+    ? stopGuardedCardHolds(freezeGuardedCardHolds(unguardedHolds, postingFreeze), TEST_PARTNER_ID, partnerStops)
+    : null;
   const cards = new CardService(sql, ledger, {
     ...(options.cards ?? {}),
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
@@ -534,6 +545,7 @@ export function createBankServices(
     currencies,
     profiles,
     assetPauses,
+    partnerStops,
     loans,
     cards,
     cardOrders,

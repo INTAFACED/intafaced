@@ -18,6 +18,7 @@ import { createBankServices, memoryRecipientState, type BankServiceOptions } fro
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
 import { TEST_PARTNER_LABEL, testPartner, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_ID } from './partner-stops.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -243,6 +244,39 @@ describe('partner-held bank moves (OWNER 226)', () => {
     // Reads stay open while frozen, as on the ledger.
     posting = false;
     expect((await byName(api, 'Trip TEST')).balance).toBe('0');
+  });
+
+  it("PLANTED: the operator's partner stop refuses a partner move while posting is enabled, moving nothing; lifted, the same move is made once", async () => {
+    await sql`TRUNCATE bank.partner_stops, bank.partner_stop_history`;
+    const { bank, api, trip, mainSpace } = await partnerHeld(ADA);
+    const journal = ledger.journal().length;
+    const stop = (stoppedKinds: Array<'bank_move' | 'card_hold'>, expectedRevision: number) =>
+      bank.partnerStops.set({
+        partnerId: TEST_PARTNER_ID,
+        stoppedKinds,
+        expectedRevision,
+        reason: 'TEST wrong instructions seen from our side',
+        consume: async () => 'approver-2',
+      });
+    expect(posting).toBe(true);
+    await stop(['bank_move'], 0);
+    await expect(
+      api.transfers.create({ transferId: 'move-stopped', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '20' }),
+    ).rejects.toSatisfy((err) => codeOf(err) === 'bank.partner_stopped');
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
+    expect((await mainOf(api)).balance).toBe('100');
+    // Another kind stopped alone leaves bank moves open; lifting it all makes the refused move once.
+    await stop(['card_hold'], 1);
+    await stop([], 2);
+    await api.transfers.create({ transferId: 'move-stopped', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '20' });
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toHaveLength(1);
+    expect((await byName(api, 'Trip TEST')).balance).toBe('20');
+    // Lifting the stop never lifts the freeze: frozen, the move is still refused bank.posting_frozen.
+    posting = false;
+    await expect(
+      api.transfers.create({ transferId: 'move-stopped-frozen', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '5' }),
+    ).rejects.toSatisfy((err) => codeOf(err) === 'bank.posting_frozen');
+    expect(ledger.journal()).toHaveLength(journal);
   });
 
   it('a standing order due while posting is frozen moves nothing and is not refused; the first pass after the freeze lifts moves it once', async () => {

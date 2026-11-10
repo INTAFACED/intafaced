@@ -370,6 +370,9 @@ export interface CardShippingAddress {
 export type CardChannel = 'card-present' | 'online' | 'contactless' | 'atm' | 'foreign';
 export type CardReplaceReason = 'lost' | 'stolen' | 'damaged';
 
+/** Refusals made before the partner was asked: the posting freeze, and the operator's partner stop and its unread state. */
+const PARTNER_NOT_ASKED: ReadonlySet<string> = new Set(['bank.posting_frozen', 'bank.partner_stopped', 'bank.partner_stop_unreadable']);
+
 const SECRET_TTL_MS = 60_000;
 
 const PAN_UNSET =
@@ -2083,10 +2086,11 @@ export class CardService {
       // purchase cannot go through, and that is told as a decline naming the partner's reason, never left pending to be
       // re-driven into the same refusal. Any other error may follow a hold the partner made: pending, re-sent on redelivery.
       if (err instanceof PartnerCardRefusal && err.code !== 'bank.card_partner_key_conflict') return decline(err.code);
-      // The posting freeze refused before the partner was asked. That is a decline, but only once the partner confirms it
-      // holds nothing under this key: a redelivery after a hold the partner made (reply lost, then frozen) must not
-      // decline a purchase whose money the partner holds. Unconfirmed, the row stays pending and is re-sent later.
-      if (err instanceof BankError && err.code === 'bank.posting_frozen') {
+      // The posting freeze, or the operator's partner stop, refused before the partner was asked. That is a decline, but
+      // only once the partner confirms it holds nothing under this key: a redelivery after a hold the partner made (reply
+      // lost, then frozen or stopped) must not decline a purchase whose money the partner holds. Unconfirmed, the row
+      // stays pending and is re-sent later.
+      if (err instanceof BankError && PARTNER_NOT_ASKED.has(err.code)) {
         const prior = await this.requirePartnerHolds()
           .holdState({ holdKey: partnerCardKey('hold', claimed.id) })
           .catch(() => undefined);

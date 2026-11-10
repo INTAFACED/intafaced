@@ -28,6 +28,7 @@ import { CardService } from './card-service.js';
 import { cardSim } from './issuer.js';
 import { PartnerCardRefusal, partnerCardKey, testPartnerCardHolds, type PartnerCardHolds } from './partner-card-holds.js';
 import { NOTHING_REPORTED, type CardPartnerTerms } from './partner-terms.js';
+import { PartnerStopService, TEST_PARTNER_ID, type PartnerStopKind } from '../partner/partner-stops.js';
 
 const DB_URL = process.env.TEST_DATABASE_URL;
 if (!DB_URL) throw new Error('TEST_DATABASE_URL is unset: this money suite never skips');
@@ -672,6 +673,100 @@ describe('partner-held card authorisations (PG)', () => {
       const view = await cards.partnerHeld(card.id, 10);
       expect(view).toMatchObject({ heldBy: 'partner', figures: { available: '60', held: '40' } });
       expect(view.authorizations[0]?.report).toMatchObject({ status: 'held' });
+    });
+  });
+
+  describe("the operator's partner stop on partner card money", () => {
+    let stops: PartnerStopService;
+    let revision: number;
+    const stop = async (stoppedKinds: PartnerStopKind[]) => {
+      await stops.set({
+        partnerId: TEST_PARTNER_ID,
+        stoppedKinds,
+        expectedRevision: revision,
+        reason: 'TEST wrong card instructions seen',
+        consume: async () => 'approver-2',
+      });
+      revision += 1;
+    };
+
+    beforeEach(async () => {
+      await sql`TRUNCATE bank.partner_stops, bank.partner_stop_history`;
+      stops = new PartnerStopService(sql);
+      revision = 0;
+      partner.set(ADA, { custody: 'off' });
+    });
+
+    it('PLANTED: with posting enabled, a stopped hold is a decline naming the stop, and the partner holds nothing', async () => {
+      const card = await issue();
+      await stop(['card_hold']);
+      expect(posting).toBe(true);
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'stop-hold', amount: amt('40') });
+      expect(auth).toMatchObject({ decision: 'declined', declineCode: 'bank.partner_stopped', status: 'rejected', heldBy: 'partner' });
+      expect(await holds.holdState({ holdKey: partnerCardKey('hold', auth.id) })).toBeNull();
+      expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '100', held: '0' });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('a stopped capture stays pending, never rejected, while holds stay open; lifted, resumeSettlements captures once', async () => {
+      const card = await issue();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'stop-capture', amount: amt('40') });
+      await stop(['card_capture']);
+      await expect(codeOf(cards.capture({ cardId: card.id, authorizationRef: 'stop-capture', amount: amt('30') }))).resolves.toBe(
+        'bank.partner_stopped',
+      );
+      const [row] = await sql<Array<{ status: string; rejection_code: string | null }>>`
+        SELECT status, rejection_code FROM bank.card_settlements WHERE authorization_id = ${auth.id}
+      `;
+      expect(row).toEqual({ status: 'pending', rejection_code: null });
+      // Only the capture is stopped: a new hold is still made.
+      const other = await cards.authorize({ cardId: card.id, authorizationRef: 'stop-capture-other', amount: amt('10') });
+      expect(other).toMatchObject({ decision: 'approved' });
+      await stop([]);
+      const resumed = await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'stop-capture' });
+      expect(resumed.resumed).toEqual([expect.objectContaining({ sequence: 0, kind: 'capture', outcome: 'settled' })]);
+      expect(await holds.holdState({ holdKey: partnerCardKey('hold', auth.id) })).toMatchObject({ status: 'captured', captured: '30' });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('a stopped release or refund stays pending under its key, and is made once after the stop is lifted', async () => {
+      const card = await issue();
+      await cards.authorize({ cardId: card.id, authorizationRef: 'stop-release', amount: amt('20') });
+      const refundAuth = await cards.authorize({ cardId: card.id, authorizationRef: 'stop-refund', amount: amt('40') });
+      await cards.capture({ cardId: card.id, authorizationRef: 'stop-refund', amount: amt('40') });
+      await stop(['card_release', 'card_refund']);
+      await expect(codeOf(cards.reverse({ cardId: card.id, authorizationRef: 'stop-release' }))).resolves.toBe('bank.partner_stopped');
+      await expect(codeOf(cards.refund({ cardId: card.id, authorizationRef: 'stop-refund', amount: amt('10') }))).resolves.toBe(
+        'bank.partner_stopped',
+      );
+      const [refund] = await sql<Array<{ status: string }>>`
+        SELECT status FROM bank.card_partner_refunds WHERE authorization_id = ${refundAuth.id}
+      `;
+      expect(refund).toEqual({ status: 'pending' });
+      await stop([]);
+      await cards.reverse({ cardId: card.id, authorizationRef: 'stop-release' });
+      await expect(cards.refund({ cardId: card.id, authorizationRef: 'stop-refund', amount: amt('10') })).resolves.toMatchObject({
+        refunded: amt('10'),
+      });
+      expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '70', held: '0' });
+    });
+
+    it('a stop state that cannot be read declines a hold before the partner is asked', async () => {
+      const card = await issue();
+      const broken = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        testPartner: partner,
+        custodyLayer: layer,
+        postingFreeze: freeze,
+        cards: { issuer: cardSim({ partner: terms }), partnerHolds: holds },
+      });
+      await sql`ALTER TABLE bank.partner_stops RENAME TO partner_stops_moved`;
+      try {
+        const auth = await broken.cards.authorize({ cardId: card.id, authorizationRef: 'stop-unreadable', amount: amt('10') });
+        expect(auth).toMatchObject({ decision: 'declined', declineCode: 'bank.partner_stop_unreadable' });
+      } finally {
+        await sql`ALTER TABLE bank.partner_stops_moved RENAME TO partner_stops`;
+      }
+      expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '100', held: '0' });
     });
   });
 
