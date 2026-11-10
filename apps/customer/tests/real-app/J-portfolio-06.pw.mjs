@@ -303,9 +303,22 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
     expect(toUnits(row.change)).toBe(end[asset] - then[asset]);
   }
 
-  // The screen over "24 hours ago", read with the browser's clock a day after the moment before the sale, so the range
-  // starts there: BTC shows what was held then, what is held now and the fall; USDT shows the rise.
-  await page.clock.setFixedTime(new Date(startAt + 24 * 3_600_000));
+  // The screen over "24 hours ago", with that range's start moved to the moment before the sale on its way to the bank
+  // (the account is younger than a day, so a real day back holds nothing to fall from; a browser clock set a day ahead
+  // is refused by the stack): the screen draws the bank's own answer, so BTC shows what was held then, what is held now
+  // and the fall, and USDT shows the rise.
+  let moved = 0;
+  await page.route('**/api/bank/trpc/portfolio.holdingsChange**', async (route) => {
+    const url = new URL(route.request().url());
+    const input = JSON.parse(url.searchParams.get('input') ?? '{}');
+    if (typeof input.from === 'string' && Math.abs(Date.now() - 24 * 3_600_000 - Date.parse(input.from)) < 10 * 60_000) {
+      input.from = new Date(startAt).toISOString();
+      url.searchParams.set('input', JSON.stringify(input));
+      moved += 1;
+      return route.continue({ url: url.toString() });
+    }
+    return route.continue();
+  });
   await page.goto('/money');
   const day = page.getByRole('region', { name: 'What you hold, then and now' });
   await day.getByRole('group', { name: 'Compare with' }).getByRole('button', { name: '24 hours ago', exact: true }).click();
@@ -318,6 +331,8 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
   await expect(btcRow.locator('td').nth(2)).toHaveText(/^[-−][\d,.]+ BTC$/);
   expect(toUnits(await usdtRow.getAttribute('data-change'))).toBe(end.USDT - then.USDT);
   await expect(usdtRow.locator('td').nth(2)).toHaveText(/^\+[\d,.]+ USDT$/);
+  expect(moved, 'the screen asked the bank for the 24-hour range').toBeGreaterThan(0);
+  await page.unroute('**/api/bank/trpc/portfolio.holdingsChange**');
 });
 
 /** Picks the display currency on the View settings page, as the person would. */
