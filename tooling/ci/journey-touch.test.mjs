@@ -531,6 +531,17 @@ test('DOCS_READ holds every doc the journeys run, the stack or a service names b
     ...git('ls-files', 'apps/customer/tests/real-app'),
     ...product,
   ];
+  // A `pnpm <name>` the scanned code runs is followed to the files its root package.json script names (the stack, the
+  // seed, world-restore and the TEST market maker are reached that way too; CI review on cb864ce1).
+  const pnpmScripts = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts ?? {};
+  const scriptFiles = (name, depth = 0) => {
+    const cmd = pnpmScripts[name];
+    if (!cmd || depth > 5) return [];
+    return [
+      ...[...cmd.matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts|sh))\b/g)].map((m) => m[1]),
+      ...[...cmd.matchAll(/\bpnpm\s+(?:run\s+)?([\w:.-]+)/g)].flatMap((m) => scriptFiles(m[1], depth + 1)),
+    ];
+  };
   // Its own inline cases (paths a rule is tested on, never read): the review marker's, and this rule's own.
   const SELF_CASES = new Set(['tooling/ci/review-marker.mjs', 'tooling/ci/journey-touch.mjs']);
   const covered = (n) => DOCS_READ.some((d) => n === d || `${n}/` === d || n.startsWith(d));
@@ -552,6 +563,7 @@ test('DOCS_READ holds every doc the journeys run, the stack or a service names b
       ...[...code.matchAll(/[(,]\s*['"`]docs['"`](\s*,\s*['"`]([\w.-]+)['"`])?/g)].map((m) => (m[2] ? `docs/${m[2]}` : 'docs')),
     ];
     if (!SELF_CASES.has(f)) for (const n of names) if (!covered(n)) missed.push(`${f}: ${n}`);
+    for (const m of code.matchAll(/\bpnpm\s+(?:run\s+)?([\w:.-]+)/g)) queue.push(...scriptFiles(m[1]));
     if (/\.(m?[jt]sx?|cjs)$/.test(f))
       for (const m of text.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
         queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
