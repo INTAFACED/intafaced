@@ -337,6 +337,10 @@ export function judge({
     const isMoney = money[step] ?? true; // a step missing from journeys.json counts as money
     const e = entries.get(step);
     const flaky = newest.states[step] === 'flaky';
+    // OWNER 278's retry pass: failed, then passed on its retry, with no baseline entry and not listed as notBaselined.
+    // Only this row is marked retryFlaky for the seal, and on main only this row goes to moneyFlaky for its `flaky`
+    // issue, so the seal never passes over a money red that no flaky issue tracks (CI review on #7779, a4360da62).
+    const retryPass = flaky && !e && !notBaselined.has(step);
     const no = (why) =>
       red.push({
         step,
@@ -345,7 +349,7 @@ export function judge({
           : why,
         money: isMoney,
         // Failed, then passed on its retry: the seal may hold only the pull requests in its area (OWNER 278).
-        ...(flaky ? { retryFlaky: true } : {}),
+        ...(retryPass ? { retryFlaky: true } : {}),
       });
     // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
     // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
@@ -364,7 +368,7 @@ export function judge({
     // here, never set aside and never proven (notProven names it), and Main trust opens a `flaky` issue for its area
     // (moneyFlaky). Which pull requests it stops is the seal's: only those in its area (journey-seal.mjs
     // splitInherited). Two outright failures in a row still revert (journeys-revert.mjs counts outright failures only).
-    if (onMain && flaky && (guard[step] ?? true) && !e && !notBaselined.has(step)) moneyFlaky.push(step);
+    if (onMain && retryPass && (guard[step] ?? true)) moneyFlaky.push(step);
     if (!e) {
       if (notBaselined.has(step)) no(`listed as notBaselined in run ${runNo}'s baseline, so it counts as failing`);
       else

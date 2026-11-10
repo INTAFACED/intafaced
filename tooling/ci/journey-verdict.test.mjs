@@ -346,6 +346,19 @@ test('OWNER 278: on main, a money step that failed, then passed on its retry, st
     notBase.red.map((r) => r.step),
     ['J-a-05#1'],
   );
+  // It is not OWNER 278's retry pass: not marked for the seal, so the seal never passes it over, and no flaky issue.
+  assert.equal(notBase.red[0].retryFlaky, undefined, 'a notBaselined money step that passed on its retry is not marked retryFlaky');
+  assert.deepEqual(notBase.moneyFlaky, [], 'a notBaselined money step goes to no flaky issue');
+  // The same for a money step the baseline lists: red, never marked for the seal, no flaky issue.
+  const inBase = { ...baseline, steps: [...baseline.steps, { step: 'J-a-05#1', state: 'regression', money: true, issue: 9 }] };
+  const based = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true, baseline: inBase });
+  assert.deepEqual(
+    based.red.map((r) => r.step),
+    ['J-a-05#1'],
+    'a money step the baseline lists as a regression is red',
+  );
+  assert.equal(based.red[0].retryFlaky, undefined, 'a baselined money step that passed on its retry is not marked retryFlaky');
+  assert.deepEqual(based.moneyFlaky, [], 'a baselined money step goes to no flaky issue');
   // A non-money flaky step with no set-aside is red, as before: OWNER 278 is about money steps only.
   assert.deepEqual(
     run(report(flaky('J-a-01 #1')), { onMain: true }).red.map((r) => r.step),
