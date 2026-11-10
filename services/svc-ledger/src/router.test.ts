@@ -86,7 +86,14 @@ function stubService(overrides: Partial<Record<string, unknown>> = {}) {
     post: async () => ({ id: 'tx-1', hash: 'abc', postedAt: new Date('2026-07-27T00:00:00Z') }),
     balance: async () => ({ account: userAvailable(USER, 'USDT'), accountId: 'acct-1', amount: amt('100') }),
     balances: async () => [{ account: userAvailable(USER, 'USDT'), accountId: 'acct-1', amount: amt('100') }],
-    reconcile: async () => ({ ok: true, balances: { ok: true, accountsChecked: 3 }, chain: { ok: true, length: 7 }, unbalancedAssets: [] }),
+    reconcile: async () => ({
+      ok: true,
+      balances: { ok: true, accountsChecked: 3 },
+      chain: { ok: true, length: 7 },
+      unbalancedAssets: [],
+      result: 'matched',
+      customerBalances: { custodyLayer: 'off', ok: true, accountsChecked: 3, open: [] },
+    }),
     freezeState: async () => ({
       frozen: false,
       reason: null,
@@ -580,6 +587,8 @@ describe('operator controls', () => {
       ok: true,
       accountsChecked: 3,
       chainLength: 7,
+      result: 'matched',
+      customerBalancesOpen: 0,
       confirmOperatorId: OTHER,
     });
 
@@ -614,6 +623,7 @@ describe('operator controls', () => {
           chain: { ok: false, brokenAt: 'tx-broken', length: 5 },
           totals: { USDT: '0' },
           unbalancedAssets: [],
+          result: 'mismatch',
         }),
       }),
     ).createCaller(await ctx(['admin:treasury'], true));
@@ -624,6 +634,9 @@ describe('operator controls', () => {
       chainLength: 5,
       chainBrokenAt: 'tx-broken',
       unbalancedAssets: [],
+      result: 'mismatch',
+      // No custody check in this report: the door says so with null, never 0.
+      customerBalancesOpen: null,
       confirmOperatorId: OTHER,
     });
   });
