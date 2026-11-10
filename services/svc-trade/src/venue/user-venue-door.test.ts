@@ -320,7 +320,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
 
     // The same key for another intent is refused, never a second action.
     await expect(d.prepare(principal, { owner, signer, intent: order(2, { price: a('58000') }) })).rejects.toMatchObject({
-      code: 'trade.venue_action_key_reused',
+      code: 'idempotency.conflict',
     });
 
     const signature = await sign(first.prepared);
@@ -376,7 +376,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
   it('a definite outcome is never replaced by a later not-definite one (in-memory store)', async () => {
     const store = new InMemoryPreparedActionStore();
     const k = `order:${USER}:door-test:outcome`;
-    await store.insertOnce(USER, k, somePrepared('v'));
+    await store.insertOnce(USER, k, somePrepared('v'), new Date());
     const accepted = await store.recordOutcome(USER, k, { definite: false, reason: 'timeout' });
     expect(accepted).toEqual({ definite: false, reason: 'timeout' });
     const definite: VenueSubmitOutcome = {
@@ -410,7 +410,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     });
     // Another change to the order is still "key reused".
     await expect(after.d.prepare(principal, { owner, signer, intent: sellAt('71400') })).rejects.toMatchObject({
-      code: 'trade.venue_action_key_reused',
+      code: 'idempotency.conflict',
     });
   });
 

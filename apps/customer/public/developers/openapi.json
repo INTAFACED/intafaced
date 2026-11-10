@@ -2074,6 +2074,42 @@
         }
       }
     },
+    "/api/v1/venue/orders": {
+      "get": {
+        "operationId": "venueOrders",
+        "summary": "Your orders sent through the venue door, oldest first, a page at a time by cursor; each order once",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/venue/orders/by-key": {
+      "get": {
+        "operationId": "venueOrderByKey",
+        "summary": "One order by its Idempotency-Key or action key: accepted with the venue’s record, or unknown until the venue answers",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/venue/session": {
       "get": {
         "operationId": "venueSession",

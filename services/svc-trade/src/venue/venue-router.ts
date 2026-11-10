@@ -404,6 +404,12 @@ export class UserVenueRouter {
   }
 
   /** Send a stored action on the venue it was prepared for (found from the stored action), never on another. */
+  /** The door of the venue a stored action was prepared for; the primary one when no action has that key. */
+  async doorOfAction(principal: Principal, actionKey: string): Promise<UserVenueDoor> {
+    const row = await this.deps.store.find(principal.userId, (actionKey ?? '').trim());
+    return row ? this.door(row.prepared.venueId) : this.primary;
+  }
+
   async submit(principal: Principal, actionKey: string, signature: VenueSignature): Promise<SubmitAnswer> {
     const row = await this.deps.store.find(principal.userId, (actionKey ?? '').trim());
     const d = row ? await this.door(row.prepared.venueId) : this.primary;
