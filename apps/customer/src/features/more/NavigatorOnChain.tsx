@@ -161,6 +161,7 @@ function OnChainSigner({ owner, chainId }: { owner: string; chainId: number }) {
         chainId={chainId}
         account={account.resource.data.address}
         signer={signer.resource.data.signer}
+        pools={signer.resource.data.pools}
         agents={agents}
         protocol={protocol}
       />
@@ -176,6 +177,7 @@ function OnChainControls({
   chainId,
   account,
   signer,
+  pools,
   agents,
   protocol,
 }: {
@@ -183,6 +185,7 @@ function OnChainControls({
   chainId: number;
   account: string;
   signer: string;
+  pools: readonly string[];
   agents: Agents;
   protocol: ProtocolApi;
 }) {
@@ -252,7 +255,8 @@ function OnChainControls({
     const selectors = [...new Set([NAVIGATOR_DEFAULT_SELECTOR, ...extra.map((entry) => entry.toLowerCase())])];
     const spec = {
       key: signer,
-      targets: [router],
+      // The router and the Navigator's pools: a session key reaches only the pools in its own targets.
+      targets: [router, ...pools],
       selectors,
       spendLimitWei: wei,
       validUntil: Math.floor(Date.now() / 1000) + EXPIRY_SECONDS[expiry],

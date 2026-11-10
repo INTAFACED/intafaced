@@ -1,15 +1,16 @@
 import { defineCopy } from '../../shared/i18n';
 
 /**
- * Copy for the Navigator's on-chain access (RC-agents-01, J-agents-19) and the approval requests its trade asks become
- * (AG-approvals-01). It names no vendor, never calls the test network mainnet and never claims an audit.
+ * Copy for the Navigator's on-chain access (RC-agents-01, J-agents-19) and the trades it places inside the cap the
+ * person signed (J-agents-19 #4). It names no vendor, never calls the test network mainnet and never claims an audit.
  */
 export const navigatorOnchainCopy = defineCopy('navigator-onchain', {
   title: 'On-chain access',
   intro:
     'Let the Navigator act on-chain through a session key on your smart account: a scoped, expiring key you can revoke. You sign the grant and the revoke in your own wallet; no value moves through INTAFACED.',
-  ceiling: 'A session key is a ceiling, not your consent.',
-  ceilingRule: 'The Navigator never trades unasked: every trade it is asked for becomes an approval request for you, live key or not.',
+  ceiling: 'Inside the cap you sign, the Navigator trades without asking you again.',
+  ceilingRule:
+    'Above the cap a trade is refused before anything is signed, and the Navigator can never move money out of your account: a trade’s proceeds always come back to it.',
   testnet: 'TESTNET',
   testnetNote: 'The test network. No real funds.',
   needsWallet: 'Connect your wallet on the test network to give the Navigator a session key.',
@@ -27,7 +28,7 @@ export const navigatorOnchainCopy = defineCopy('navigator-onchain', {
   capHint: 'The most native currency the key may ever move in total. No default: you set it.',
   callsLabel: 'Allowed calls',
   callsHint: 'Extra four-byte function selectors, comma separated. Blank allows only the Navigator’s default call.',
-  defaultCall: 'Default call: swapExactIn ({selector}) on the router {router}.',
+  defaultCall: 'Default call: swapExactIn ({selector}) on the router {router}, in the pools the Navigator trades.',
   routerUnset: 'No router is published for this network, so the Navigator has no default call and no grant can be prepared.',
   expiresLabel: 'Expires',
   expiresChoose: 'Choose',
@@ -86,14 +87,36 @@ export const navigatorOnchainCopy = defineCopy('navigator-onchain', {
   refused_region: 'Signing is not offered in your region.',
   refused_representation_unset: 'Signing is off until the owner publishes the representation you accept before signing.',
   refused_representation_unavailable: 'The representation could not be read just now, so nothing was signed.',
-  approvalTitle: 'Approval request',
-  approvalWaiting: 'Waiting for your approval',
-  approvalExpired: 'Expired',
-  approvalAsk: 'You asked',
-  approvalStatus: 'Status',
-  approvalExpires: 'Expires',
-  approvalLive: 'Your Navigator holds a live session key on the test network; it still asks.',
-  approvalNothingRan: 'Nothing ran and nothing was charged.',
-  approvalsTitle: 'Trade asks held for you',
-  approvalsEmpty: 'No trade has been asked for in this session.',
+  capNoKey: 'The Navigator holds no live session key, so it places no trade. Give it one in its details, On-chain access.',
+  capLine: 'The cap you signed: {cap} TEST ETH. The Navigator’s trades hold {spent}; {left} TEST ETH is left.',
+  orderTitle: 'Order sent',
+  byAssistant: 'by your assistant',
+  orderInsideCap: 'Inside the cap you signed, so nothing was asked of you. The chain is what counts for the fill.',
+  orderAsk: 'You asked',
+  orderTrade: 'Trade',
+  orderTradeValue: '{amount} {from} for at least {min} {to}',
+  orderStatus: 'Status',
+  orderTx: 'Transaction',
+  orderNoTx: 'None: nothing reached the chain',
+  orderPlaced: 'Placed',
+  order_sending: 'Sending',
+  order_sent: 'Sent, waiting for the chain',
+  order_filled: 'Filled on the chain',
+  order_reverted: 'Reverted by the chain; nothing was spent',
+  order_failed: 'Not sent: the signer refused it; nothing was spent',
+  ordersTitle: 'Orders by your assistant',
+  ordersEmpty: 'The Navigator has placed no order in this session.',
+  refusalTitle: 'Trade refused',
+  refusalNothingSigned: 'Nothing was signed or sent, and nothing was charged.',
+  refused_over_cap: 'Refused: this trade is above what is left of the cap you signed.',
+  refused_over_cap_named: 'Refused: this trade is above the cap you signed, {cap} TEST ETH, of which {left} TEST ETH is left.',
+  refused_money_out: 'Refused: the Navigator never moves money out of your account.',
+  refused_no_live_key: 'Refused: the Navigator holds no live session key on your account.',
+  refused_unparsed: 'Refused: say the trade as “swap <amount> <token> for <token>”, with a pair the Navigator trades.',
+  refused_cap_unit: 'Refused: your cap is in TEST ETH, so the Navigator only spends TEST Wrapped ETH, which the cap measures.',
+  refused_out_of_scope: 'Refused: this trade is outside the scope the key was granted.',
+  refused_market_unset: 'Refused: no market is set for the Navigator to trade in here.',
+  refused_unquoted: 'Refused: the pool quotes nothing for this trade.',
+  refused_rail_crypto: 'Refused: the Navigator has no on-chain signer here.',
+  refused_other: 'Refused.',
 });

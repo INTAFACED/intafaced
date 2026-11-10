@@ -1,8 +1,6 @@
 import type { Sql } from 'postgres';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import {
-  navigatorApprovalsInputSchema,
-  navigatorApprovalsSchema,
   navigatorAskInputSchema,
   navigatorAskResultSchema,
   navigatorOnchainAccountInputSchema,
@@ -11,18 +9,27 @@ import {
   navigatorOnchainBindingSchema,
   navigatorOnchainSignerInputSchema,
   navigatorOnchainSignerSchema,
+  navigatorOrdersInputSchema,
+  navigatorOrdersSchema,
+  navigatorTradingSchema,
   type NavigatorAskResult,
 } from '@intafaced/contracts/agents-onchain';
 import { executeProcedure } from '../procedures.js';
 import { NAVIGATOR_AGENT_ID } from './session-run.js';
 import { NavigatorOnchainError, NavigatorOnchainStore, navigatorAskIsTrade, navigatorSigner, preparedGrant } from './onchain.js';
+import { navigatorTrade, navigatorTrading, type NavigatorChain, type NavigatorMarket, type NavigatorSender } from './onchain-trade.js';
+import { navigatorAskMovesMoneyOut } from '@intafaced/contracts/agents-onchain';
 
 export interface NavigatorOnchainDeps {
   readonly sql: Sql | undefined;
   /** AGENTS_NAVIGATOR_ONCHAIN_SIGNER: the signer's public address. Blank refuses `rail.crypto`. */
   readonly signer: string | null;
-  /** AGENTS_APPROVAL_TTL_SECONDS: how long a held trade ask waits. Blank refuses holding one `agents.approval.ttl_unset`. */
-  readonly approvalTtlSeconds: number | null;
+  /** AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL's signer: takes the session call. Blank refuses a trade `rail.crypto`. */
+  readonly sender: NavigatorSender | null;
+  /** AGENTS_NAVIGATOR_ONCHAIN_MARKET. Blank refuses a trade `agents.navigator_market_unset`. */
+  readonly market: NavigatorMarket | null;
+  /** The chain reads, on AGENTS_NAVIGATOR_ONCHAIN_RPC_URL. Blank refuses a trade `agents.navigator_market_unset`. */
+  readonly chain: NavigatorChain | null;
   /** The session's owner and agent, or null when there is no such session. */
   readonly session: (sessionId: string) => Promise<{ userId: string; agentId: string; status: string } | null>;
 }
@@ -33,8 +40,15 @@ const HTTP: Record<NavigatorOnchainError['code'], TRPCError['code']> = {
   'agents.session_key_selector_forbidden': 'FORBIDDEN',
   'agents.onchain_chain_unsupported': 'BAD_REQUEST',
   'agents.onchain_binding_not_found': 'NOT_FOUND',
-  'agents.approval.ttl_unset': 'PRECONDITION_FAILED',
   'agents.request_id_replay': 'CONFLICT',
+  'agents.navigator_money_out_forbidden': 'FORBIDDEN',
+  'agents.navigator_trade_over_cap': 'FORBIDDEN',
+  'agents.navigator_no_live_key': 'PRECONDITION_FAILED',
+  'agents.navigator_trade_unparsed': 'BAD_REQUEST',
+  'agents.navigator_trade_cap_unit': 'BAD_REQUEST',
+  'agents.navigator_trade_out_of_scope': 'FORBIDDEN',
+  'agents.navigator_market_unset': 'PRECONDITION_FAILED',
+  'agents.navigator_trade_unquoted': 'PRECONDITION_FAILED',
   'rail.crypto': 'PRECONDITION_FAILED',
   'audit.external': 'PRECONDITION_FAILED',
 };
@@ -55,7 +69,7 @@ function storeOf(sql: Sql | undefined): NavigatorOnchainStore {
 }
 
 /**
- * `navigator.onchain.*`, `navigator.ask` and `navigator.approvals`, spread into the navigator router. The person is the
+ * `navigator.onchain.*`, `navigator.ask`, `navigator.orders` and `navigator.trading`, spread into the navigator router. The person is the
  * signed principal, never the body; every row read or written is theirs.
  */
 export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
@@ -75,7 +89,12 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
       signer: readProcedure()
         .input(navigatorOnchainSignerInputSchema)
         .output(navigatorOnchainSignerSchema)
-        .query(({ input }) => guard(async () => navigatorSigner(input.chainId, deps.signer))),
+        .query(({ input }) =>
+          guard(async () => ({
+            ...navigatorSigner(input.chainId, deps.signer),
+            pools: deps.market?.pools.map((p) => p.toLowerCase()) ?? [],
+          })),
+        ),
 
       /** Records the grant the person prepared for the Navigator's key. Nothing is granted here: their wallet signs it. */
       bind: executeProcedure()
@@ -122,10 +141,11 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
     }),
 
     /**
-     * One ask to the Navigator, before anything runs. The Navigator never trades unasked: an ask that names a trade
-     * (swap, buy, sell, trade or order, as a whole word) is held as an approval request for the person, and nothing
-     * runs, no engine is called and nothing is charged, whether or not a session key is live. Any other ask stores
-     * nothing and goes on to the ordinary run.
+     * One ask to the Navigator, before anything runs. An ask to move money out is refused by name. An ask that names a
+     * trade (swap, buy, sell, trade or order, as a whole word) is the Navigator's to place inside the cap the person
+     * signed for its session key: inside the cap it is sent once, with no approval asked, and tagged as placed by the
+     * assistant; above the cap, or with no live key, it is refused by name before anything is signed. No engine is called
+     * and nothing is charged for it. Any other ask stores nothing and goes on to the ordinary run.
      */
     ask: executeProcedure()
       .input(navigatorAskInputSchema)
@@ -134,29 +154,36 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
         guard(async (): Promise<NavigatorAskResult> => {
           const session = await navigatorSession(input.sessionId, ctx.principal.userId);
           if (session.status !== 'open') throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.refused.session_closed' });
-          if (!navigatorAskIsTrade(input.text)) return { kind: 'none' };
-          if (!deps.approvalTtlSeconds) throw new NavigatorOnchainError('agents.approval.ttl_unset');
-          const store = storeOf(deps.sql);
-          const request = await store.hold({
-            userId: ctx.principal.userId,
-            sessionId: input.sessionId,
-            requestId: input.requestId,
-            text: input.text,
-            ttlSeconds: deps.approvalTtlSeconds,
-          });
-          return { kind: 'approval', request, ceiling: await store.holdsUnrevoked(ctx.principal.userId) };
+          if (!navigatorAskIsTrade(input.text) && !navigatorAskMovesMoneyOut(input.text)) return { kind: 'none' };
+          const order = await navigatorTrade(
+            { store: storeOf(deps.sql), signer: deps.signer, sender: deps.sender, market: deps.market, chain: deps.chain },
+            { userId: ctx.principal.userId, sessionId: input.sessionId, requestId: input.requestId, text: input.text },
+          );
+          return { kind: 'order', order };
         }),
       ),
 
-    /** The session's held trade asks, newest first: the person's own only. */
-    approvals: readProcedure()
-      .input(navigatorApprovalsInputSchema)
-      .output(navigatorApprovalsSchema)
+    /** The orders the Navigator placed in the session, newest first: the person's own only. */
+    orders: readProcedure()
+      .input(navigatorOrdersInputSchema)
+      .output(navigatorOrdersSchema)
       .query(({ ctx, input }) =>
         guard(async () => {
           await navigatorSession(input.sessionId, ctx.principal.userId);
-          return { requests: await storeOf(deps.sql).requests(ctx.principal.userId, input.sessionId) };
+          return { orders: await storeOf(deps.sql).orders(ctx.principal.userId, input.sessionId) };
         }),
+      ),
+
+    /** The person's live Navigator key: the cap they signed, read from the chain, and what its orders hold. Null with none. */
+    trading: readProcedure()
+      .output(navigatorTradingSchema)
+      .query(({ ctx }) =>
+        guard(async () =>
+          navigatorTrading(
+            { store: storeOf(deps.sql), signer: deps.signer, sender: deps.sender, market: deps.market, chain: deps.chain },
+            ctx.principal.userId,
+          ),
+        ),
       ),
   };
 }

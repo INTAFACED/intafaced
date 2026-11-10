@@ -1585,6 +1585,9 @@ function testChain() {
     // The smart account factory and implementation (J-dex-protocol-08's session keys).
     accountFactory: record.accountFactory ?? null,
     accountImplementation: record.accountImplementation ?? null,
+    // The wrapped TEST ETH and its pool with TEST Token B: where the Navigator trades inside its key's cap (J-agents-19).
+    wrappedNative: record.wrappedNative ?? null,
+    navigatorPool: record.v2Pools?.find((p) => p.label === 'TEST WETH/B 0.30%')?.pool ?? null,
   };
 }
 

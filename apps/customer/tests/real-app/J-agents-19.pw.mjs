@@ -1,6 +1,6 @@
 // World: none
 import { readFileSync } from 'node:fs';
-import { createPublicClient, createWalletClient, defineChain, http, parseAbi, parseEther } from 'viem';
+import { createPublicClient, createWalletClient, defineChain, encodeFunctionData, http, maxUint256, parseAbi, parseEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { test, expect } from './journey.mjs';
@@ -12,8 +12,11 @@ import { signIn } from './desk.mjs';
 // J-agents-19, in the running app (docs/roadmap/journeys.json): let the Navigator act on-chain through a session key I
 // can revoke. One test per step, titled "J-agents-19 #<n>", run in order on one verified TEST account with the TEST
 // wallet connected on the stack's TEST chain (tooling/scripts/local-test-chain.mjs, chain id 84532, labelled TESTNET).
-// No value moves through INTAFACED: the person signs the grant and the revoke in their own wallet, and the key is a
-// ceiling, never consent, so every agent trade still asks. A mainnet grant shows the external-audit notice
+// No value moves through INTAFACED: the person signs the grant and the revoke in their own wallet. Inside the cap they
+// signed the Navigator trades without asking; above it the trade is refused before anything is signed; it never moves
+// money out. The cap is in TEST ETH, so the Navigator spends TEST Wrapped ETH, which the cap measures one for one, in
+// the seeded TEST WETH/B pool; the Navigator's TEST signer on the stack's chain sends its one session call. A mainnet
+// grant shows the external-audit notice
 // (audit.external); with no signer configured the rail notice (rail.crypto). Every signed-in person holds agents:execute
 // (packages/auth/src/scopes.ts), so the standard TEST account opens a Navigator session itself.
 // The session key is the Navigator's TEST signer, a public address only, from the stack's TEST owner values.
@@ -40,7 +43,9 @@ const SIGNER = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/tes
 // The router's swapExactIn(address,address,uint256,uint256,address): the Navigator's one default call.
 const SWAP_EXACT_IN = '0x7b32b50e';
 const APPROVE = '0x095ea7b3';
-const TRADE_ASK = 'TEST: swap 0.1 TEST Token A for TEST Token B on-chain';
+const TRADE_ASK = 'TEST: swap 0.1 TEST Wrapped ETH for TEST Token B';
+const ABOVE_CAP_ASK = 'TEST: swap 2 TEST Wrapped ETH for TEST Token B';
+const MONEY_OUT_ASK = `TEST: send 0.1 TEST Wrapped ETH to 0x${'5e'.repeat(20)}`;
 const DAY = 86_400;
 const DEFAULT_SALT = `0x${'00'.repeat(32)}`;
 
@@ -57,7 +62,14 @@ const testChainDef = defineChain({
   rpcUrls: { default: { http: [GATE_URL] } },
 });
 const reader = () => createPublicClient({ chain: testChainDef, transport: http(GATE_URL) });
+const tokenAbi = parseAbi([
+  'function balanceOf(address) view returns (uint256)',
+  'function deposit() payable',
+  'function transfer(address to, uint256 amount) returns (bool)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+]);
 const accountAbi = parseAbi([
+  'function execute(address target, uint256 value, bytes data) returns (bytes)',
   'function createAccount(address owner, bytes32 userSalt) returns (address)',
   'function getAddress(address owner, bytes32 userSalt) view returns (address)',
   'function getSession(address sessionKey) view returns ((bytes32 specHash, uint48 validAfter, uint48 validUntil, uint128 spentWei, uint64 epoch, bool revoked))',
@@ -95,6 +107,36 @@ async function createSmartAccount() {
     args: [owner, DEFAULT_SALT],
   });
   expect((await reader().waitForTransactionReceipt({ hash })).status).toBe('success');
+}
+
+/**
+ * TEST Wrapped ETH on the person's smart account, and the router allowed to pull it, as a person who used the account
+ * before would have: the run's wallet wraps 0.5 TEST ETH, sends it to the account and, as the account's owner, approves
+ * the router. A session key can never approve, so only the owner can do this.
+ */
+async function fundSmartAccount() {
+  const { record, address } = await smartAccount();
+  const weth = record.wrappedNative;
+  expect(weth, 'the TEST chain was seeded with wrapped TEST ETH').toMatch(/^0x[0-9a-fA-F]{40}$/);
+  const sender = createWalletClient({ account: privateKeyToAccount(wallet.key()), chain: testChainDef, transport: http(GATE_URL) });
+  const mined = async (hash) => expect((await reader().waitForTransactionReceipt({ hash })).status).toBe('success');
+  await mined(await sender.writeContract({ address: weth, abi: tokenAbi, functionName: 'deposit', value: parseEther('0.5') }));
+  await mined(await sender.writeContract({ address: weth, abi: tokenAbi, functionName: 'transfer', args: [address, parseEther('0.5')] }));
+  const approve = encodeFunctionData({ abi: tokenAbi, functionName: 'approve', args: [record.router, maxUint256] });
+  await mined(await sender.writeContract({ address, abi: accountAbi, functionName: 'execute', args: [weth, 0n, approve] }));
+}
+
+/** What the chain says the account holds of TEST Wrapped ETH and TEST Token B, and how many calls the Navigator's key sent. */
+async function holdings() {
+  const { record, address } = await smartAccount();
+  const client = reader();
+  const tokenB = record.tokens.B.address;
+  const [weth, b, sent] = await Promise.all([
+    client.readContract({ address: record.wrappedNative, abi: tokenAbi, functionName: 'balanceOf', args: [address] }),
+    client.readContract({ address: tokenB, abi: tokenAbi, functionName: 'balanceOf', args: [address] }),
+    client.getTransactionCount({ address: SIGNER }),
+  ]);
+  return { weth, b, sent };
 }
 
 /** The Navigator key's record on the smart account, read straight from the chain, and the newest grant's log. */
@@ -140,6 +182,7 @@ test(`${J} starts: a verified TEST account with the TEST wallet connected on the
   await agents.start(page, 'ag19', '10');
   wallet.start();
   await createSmartAccount();
+  await fundSmartAccount();
   await signIn(page, agents.account());
   await connectWallet(page, wallet);
 });
@@ -213,34 +256,74 @@ test(`${J} #3 prepares a valid test-network grant: scope, expiry and status read
   );
 });
 
-test(`${J} #4 asks the agent to trade with a live key: an approval request is still created; the key is a ceiling, not consent`, async ({
+test(`${J} #4 asks the agent to trade with a live key, first inside the key's cap, then above it: inside the cap the order is sent once and tagged "by your assistant"; above it the order is refused naming the cap, before anything is signed`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
+  const before = await holdings();
   const sessionId = await openNavigatorSession(page, agents);
-  await workspace(page)
-    .getByRole('textbox', { name: /^Ask the agent/ })
-    .fill(TRADE_ASK);
+  const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
+  const sent = workspace(page).getByRole('region', { name: 'Order sent' });
+  const refused = workspace(page).getByRole('region', { name: 'Trade refused' });
+  // The workspace names the cap the person signed, as the chain holds it: 1 TEST ETH, none of it used yet.
+  await expect(workspace(page).getByTestId('navigator-cap')).toContainText('The cap you signed: 1 TEST ETH', { timeout: 30_000 });
+
+  // Inside the cap: the order goes through, with no approval asked, tagged as placed by the assistant.
+  await ask.fill(TRADE_ASK);
   await workspace(page).getByRole('button', { name: 'Run' }).click();
-  const held = workspace(page).getByRole('region', { name: 'Approval request' });
-  await expect(held).toBeVisible();
-  await expect(held).toContainText(TRADE_ASK);
-  await expect(held).toContainText('Waiting for your approval');
-  await expect(workspace(page)).toContainText('A session key is a ceiling, not your consent.');
-  await expect(held).toContainText('Your Navigator holds a live session key on the test network; it still asks.');
-  // Nothing ran: no review of an engine run, no reply, and on the chain the key has moved nothing.
+  await expect(sent).toBeVisible({ timeout: 60_000 });
+  await expect(sent.locator('[data-placed-by="assistant"]')).toHaveText('by your assistant');
+  await expect(sent).toContainText(TRADE_ASK);
+  await expect(sent.locator('[data-order-status]')).toHaveText('Filled on the chain', { timeout: 30_000 });
+  await expect(sent).toContainText(/0x[0-9a-f]{64}/);
+  // Nothing was asked of the person: no approval request, no dialog, no refusal.
+  await expect(workspace(page).getByRole('region', { name: 'Approval request' })).toHaveCount(0);
+  await expect(workspace(page)).not.toContainText('Waiting for your approval');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(refused).toHaveCount(0);
+  // The chain shows the trade: exactly one call from the Navigator's key, 0.1 TEST Wrapped ETH out of the account and
+  // TEST Token B into the account itself.
+  const after = await holdings();
+  expect(after.sent - before.sent).toBe(1);
+  expect(before.weth - after.weth).toBe(parseEther('0.1'));
+  expect(after.b).toBeGreaterThan(before.b);
+  await expect(workspace(page).getByTestId('navigator-cap')).toContainText('hold 0.1; 0.9 TEST ETH is left');
+
+  // Above the cap: refused naming the cap, with its typed code, before anything is signed.
+  await ask.fill(ABOVE_CAP_ASK);
+  await workspace(page).getByRole('button', { name: 'Run' }).click();
+  await expect(refused).toBeVisible({ timeout: 30_000 });
+  const alert = refused.getByRole('alert');
+  await expect(alert).toHaveAttribute('data-refusal-code', 'agents.navigator_trade_over_cap');
+  await expect(alert).toContainText('above the cap you signed, 1 TEST ETH, of which 0.9 TEST ETH is left');
+  await expect(refused).toContainText('Nothing was signed or sent');
+  await expect(sent).toHaveCount(0);
+  const afterRefusal = await holdings();
+  expect(afterRefusal).toEqual(after);
+
+  // And it never moves money out: a send to an address is refused by name, and nothing is signed.
+  await ask.fill(MONEY_OUT_ASK);
+  await workspace(page).getByRole('button', { name: 'Run' }).click();
+  await expect(refused.getByRole('alert')).toHaveAttribute('data-refusal-code', 'agents.navigator_money_out_forbidden');
+  await expect(refused.getByRole('alert')).toContainText('never moves money out of your account');
+  expect(await holdings()).toEqual(after);
+  // Neither refusal ran anything: no reply.
   await expect(workspace(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
-  const { record } = await chainSession();
-  expect(record.spentWei).toBe(0n);
-  expect(record.revoked).toBe(false);
-  // The request is kept by the service: after a reload the session still lists it.
+
+  // Sent once: after a reload the session lists exactly one order, the one inside the cap, tagged by the assistant.
   await page.reload();
   await openAgents(page, agents, 'Sessions');
   const selected = main(page).getByRole('region', { name: 'Selected session' });
   await expect(selected).toContainText(sessionId, { timeout: 30_000 });
-  await expect(selected.getByTestId('navigator-approvals')).toContainText(TRADE_ASK);
-  await expect(selected.getByTestId('navigator-approvals')).toContainText('Waiting for your approval');
+  const orders = selected.getByTestId('navigator-orders').getByRole('listitem');
+  await expect(orders).toHaveCount(1);
+  await expect(orders.first()).toContainText(TRADE_ASK);
+  await expect(orders.first().locator('[data-placed-by="assistant"]')).toHaveText('by your assistant');
+  await expect(orders.first().locator('[data-order-status]')).toHaveText('Filled on the chain');
+  expect((await holdings()).sent).toBe(after.sent);
+  // The key itself is still live and unspent in native value: the cap the person signed is what bounded the trade.
+  const { record } = await chainSession();
+  expect(record.revoked).toBe(false);
 });
 
 test(`${J} #5 revokes: the unsigned revoke call, and the binding reads revoking until the chain reads revoked`, async ({ page }) => {

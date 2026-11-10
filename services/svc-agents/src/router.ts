@@ -35,6 +35,7 @@ import { runCopyIntelStatsSession } from './copy-intel/session-run.js';
 import { describeMerchantPolicy } from './merchant/policy.js';
 import { describeNavigatorPolicy } from './navigator/policy.js';
 import { navigatorOnchainRoutes } from './navigator/onchain-routes.js';
+import type { NavigatorChain, NavigatorMarket, NavigatorSender } from './navigator/onchain-trade.js';
 import { describeCopyIntelPolicy } from './copy-intel/policy.js';
 import { describeSupportPolicy } from './support-agent/policy.js';
 import { watchApprovalFixtures } from './merchant/watch.js';
@@ -376,6 +377,11 @@ export interface AgentsRouterDeps {
    * Absent or blank: `navigator.onchain.*` refuses `rail.crypto`.
    */
   readonly navigatorOnchainSigner?: string | null;
+  /**
+   * The Navigator's trading through the key the person signed (J-agents-19 #4): its signer, the chain it reads and the
+   * market it may trade. Absent: a trade ask refuses `rail.crypto` or `agents.navigator_market_unset`.
+   */
+  readonly navigatorTrading?: { sender: NavigatorSender | null; market: NavigatorMarket | null; chain: NavigatorChain | null };
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -1647,7 +1653,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       ...navigatorOnchainRoutes({
         sql,
         signer: deps.navigatorOnchainSigner ?? null,
-        approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
+        sender: deps.navigatorTrading?.sender ?? null,
+        market: deps.navigatorTrading?.market ?? null,
+        chain: deps.navigatorTrading?.chain ?? null,
         session: (sessionId) => runtime.session(sessionId),
       }),
       policy: publicProcedure
