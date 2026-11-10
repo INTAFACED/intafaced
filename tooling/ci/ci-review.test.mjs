@@ -1617,9 +1617,16 @@ test('every reviewer call reads only the default branch checkout, with Read, Gre
   const { readFileSync } = await import('node:fs');
   const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
   assert.deepEqual(reviewerCallFaults(wf), []);
-  // The tree the tools read is the default branch's: both jobs check out only that, without credentials.
-  assert.equal(wf.match(/- uses: actions\/checkout@/g).length, 2);
-  assert.equal(wf.match(/\n {10}ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n {10}persist-credentials: false\n/g).length, 2);
+  // The tree the tools read is the default branch's: every job checks out only that, without credentials (the review,
+  // the proof read, and since #7731 the seal start).
+  const checkouts = wf.match(/- uses: actions\/checkout@/g).length;
+  assert.ok(checkouts >= 2, `${checkouts} checkouts`);
+  assert.equal(
+    wf.match(
+      /- uses: actions\/checkout@[^\n]*\n {8}with:\n {10}ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n {10}persist-credentials: false\n/g,
+    )?.length,
+    checkouts,
+  );
 });
 
 test('the reviewer-call check fails on each planted fault', async () => {
