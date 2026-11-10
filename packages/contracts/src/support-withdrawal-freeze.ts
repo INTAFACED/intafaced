@@ -47,3 +47,41 @@ export const supportWithdrawalFreezeResultSchema = z
   })
   .strict();
 export type SupportWithdrawalFreezeResult = z.infer<typeof supportWithdrawalFreezeResultSchema>;
+
+/**
+ * The desk reads back what svc-identity recorded for one request: its audit rows (J-support-public-20 #7). The same signed
+ * door shape, svc-support only, the customer taken off the request. It reads; it never writes or lifts anything.
+ */
+export const SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH = '/internal/support/withdrawal-freeze/records';
+
+export const supportWithdrawalFreezeRecordsInputSchema = z
+  .object({
+    /** The request's customer, taken off the request by svc-support. */
+    userId: z.string().guid(),
+    ticketId: z.string().guid(),
+  })
+  .strict();
+export type SupportWithdrawalFreezeRecordsInput = z.infer<typeof supportWithdrawalFreezeRecordsInputSchema>;
+
+export const supportWithdrawalFreezeRecordSchema = z
+  .object({
+    /** The audit row's id: the `auditId` its freeze answered. */
+    id: z.string().guid(),
+    ticketId: z.string().guid(),
+    operatorId: z.string().guid(),
+    reason: z.string().min(1).max(500),
+    /** True when this ask set the lock; false when a lock already held. */
+    lockSet: z.boolean(),
+    recordedAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type SupportWithdrawalFreezeRecord = z.infer<typeof supportWithdrawalFreezeRecordSchema>;
+
+export const supportWithdrawalFreezeRecordsResultSchema = z
+  .object({
+    recordedBy: z.literal('svc-identity'),
+    /** Oldest first; at most 50, since one request asks once per lock. */
+    records: z.array(supportWithdrawalFreezeRecordSchema).max(50),
+  })
+  .strict();
+export type SupportWithdrawalFreezeRecordsResult = z.infer<typeof supportWithdrawalFreezeRecordsResultSchema>;

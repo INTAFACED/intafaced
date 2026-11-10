@@ -1,4 +1,4 @@
-import { builderFeeAdminRouter, type BuilderFeeReconReader } from './venue/builder-fee-admin.js';
+import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
 import type { GridService } from './grid/grid-service.js';
@@ -71,6 +71,7 @@ import { TradingControlError, type TradingControls } from './controls/trading-co
 import { tradeOpsAdminRouter } from './admin/router.js';
 import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { supportTradeSummaryRouter } from './support/router.js';
+import { ownVenueActivityRouter, type OwnVenueActivityDeps } from './venue/own-activity-router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
 import { ALGO_STOP_REASONS, type AlgoStopReasonCode } from './algo/stop-reason.js';
@@ -897,6 +898,7 @@ export function createTradeRouter(
   grid?: GridService,
   platformPauses?: PlatformPauseDesk,
   builderFees?: BuilderFeeReconReader,
+  venueActivity?: OwnVenueActivityDeps,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -945,6 +947,8 @@ export function createTradeRouter(
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups), builderFeeAdminRouter(builderFees)),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
+    /** `venue.ownActivity`: a person's own venue spot trading, svc-tax only (J-cex-spot-01 #11). Read-only. */
+    venue: ownVenueActivityRouter(venueActivity),
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
     bots: router({ grid: gridRouter(grid) }),
     health: publicProcedure
