@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createBankOwnSpacesClient, createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createBankOwnSpacesClient, createEdgeContext, createTradeVenueActivityClient, s2sFromEnv } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { TAX_DATABASE_POOL_MAX_UNSET, TaxError } from './codes.js';
 import { env } from './env.js';
@@ -60,6 +60,10 @@ const tax = new TaxService({
   ...(env.BANK_URL === undefined
     ? {}
     : { spaces: createBankOwnSpacesClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET }) }),
+  // The customer's own venue spot trading, read through svc-trade's user-venue door (J-cex-spot-01 #11); nothing stored.
+  ...(env.TRADE_URL === undefined
+    ? {}
+    : { venue: createTradeVenueActivityClient({ tradeUrl: env.TRADE_URL, secret: env.INTERNAL_SERVICE_SECRET }) }),
 });
 
 const appRouter = createTaxRouter(tax);
