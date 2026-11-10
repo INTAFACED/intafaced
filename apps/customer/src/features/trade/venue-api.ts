@@ -125,6 +125,8 @@ export const venueWithdrawalSchema = z.object({
   destination: z.string(),
   status: z.enum(['pending', 'done', 'failed']),
   fee: maybeKnown(decimalSchema),
+  /** The network fee taken from what arrives (the contract's `UserVenueWithdrawal.networkFee`); "not known", never 0. */
+  networkFee: maybeKnown(decimalSchema),
 });
 export type VenueWithdrawal = z.infer<typeof venueWithdrawalSchema>;
 
