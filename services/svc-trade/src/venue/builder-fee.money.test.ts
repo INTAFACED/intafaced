@@ -67,6 +67,8 @@ beforeAll(async () => {
     store: actions,
     stepUp: approveStepUp,
     builder: BUILDER,
+    // Blank: these orders are limits, which the owner's market price protection never bounds.
+    slippageCapBps: null,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
   });
