@@ -34,7 +34,7 @@ describe('builderFeeEarn and builderFeeReceive', () => {
   it('a payout clears the receivable by its amount once, into our builder account at the venue', async () => {
     await ledger.post(earn('f1', '0.25'));
     await ledger.post(earn('f2', '0.5'));
-    const pay = recipes.builderFeeReceive({ venueId: VENUE, payoutId: 'p1', assetId: 'USDC', amount: amt('0.5') });
+    const pay = recipes.builderFeeReceive({ venueId: VENUE, claimId: 'p1', assetId: 'USDC', amount: amt('0.5') });
     await ledger.post(pay);
     await ledger.post(pay);
     expect(await bal(venueBuilderFeeReceivable(VENUE, 'USDC'))).toBe('-0.25');
@@ -50,7 +50,7 @@ describe('builderFeeEarn and builderFeeReceive', () => {
     for (const [i] of fees.entries()) {
       for (const e of earn(`f${i}`, '0.1').entries) expect(['house', 'treasury']).toContain(e.account.ownerType);
     }
-    for (const e of recipes.builderFeeReceive({ venueId: VENUE, payoutId: 'p', assetId: 'USDC', amount: amt('1') }).entries) {
+    for (const e of recipes.builderFeeReceive({ venueId: VENUE, claimId: 'p', assetId: 'USDC', amount: amt('1') }).entries) {
       expect(e.account.ownerType).toBe('treasury');
     }
   });
@@ -62,7 +62,7 @@ describe('builderFeeEarn and builderFeeReceive', () => {
     expect(() => earn('f 0', '0.1')).toThrow(InvalidEntryError);
     expect(() => earn('f0', '0.1', { assetId: ' USDC' })).toThrow(InvalidEntryError);
     expect(() => earn('f0', '0.1', { userId: '' })).toThrow(InvalidEntryError);
-    expect(() => recipes.builderFeeReceive({ venueId: VENUE, payoutId: 'p1', assetId: 'USDC', amount: amt('0') })).toThrow(
+    expect(() => recipes.builderFeeReceive({ venueId: VENUE, claimId: 'p1', assetId: 'USDC', amount: amt('0') })).toThrow(
       InvalidEntryError,
     );
   });

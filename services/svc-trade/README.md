@@ -184,8 +184,10 @@ posts a customer's fill, margin or balance. `trade.venue_builder_fees` records w
 ledger (an unknown fee asset stays unposted and listed); it is not a balance. `admin.builderFees.recon` (`admin:read`) is
 the founder console's `/ledger/treasury`: for one period, the venue's builder fee on each fill against the ledger's under
 the fill's key, green when every fill matches, and every break listed with its venue fill id and amounts. Read only: it
-never posts to make the two agree. `builderFeeReceive` (a venue's payout of builder fees) waits for the owner's payout
-model.
+never posts to make the two agree. Collect (`src/builder-fee/builder-fee-collect.ts`) posts one `builderFeeReceive` per
+claim the venue records for our builder address, keyed `builder-fee-payout:<venueId>:<claimId>`; a claim to any other
+address is never posted. It waits, posting nothing, until the venue adapter reads the builder's claim record (no
+`UserVenue` read does yet; docs/adr/2026-11-10-launch-money-model.md, rule 5).
 
 **Venue markets we list (J-cex-spot-16).** The venue lists what it lists; `GET /api/v1/venue/markets` shows only markets
 two operators listed, each with our `listing` (`opensAt`, `delistsAt`, `routing`, `open`, `delisted`, our `maxOrderQty` /

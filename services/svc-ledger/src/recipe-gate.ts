@@ -980,7 +980,17 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     {
       name: 'builderFeeReceive',
-      post: recipes.builderFeeReceive({ venueId: 'test-venue-sim', payoutId: 'p-builder', assetId: 'USDC', amount: AMT }),
+      post: recipes.builderFeeReceive({ venueId: 'test-venue-sim', claimId: 'p-builder', assetId: 'USDC', amount: AMT }),
+    },
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest',
+      }),
     },
     {
       name: 'tradeFillMakerRebate',

@@ -62,8 +62,13 @@ export const RECIPE_MATRIX = {
   builderFeeReceive: {
     kind: 'socket',
     socket: '§13',
+    reason: "§13 — waits for the venue adapter's read of the builder's claim record; see docs/adr/2026-11-10-launch-money-model.md, rule 5",
+  },
+  ownFundsMove: {
+    kind: 'socket',
+    socket: '§13',
     reason:
-      '§13 — the venue paying builder fees out to our builder account is the futures payout model, an owner decision (J-derivatives-17 Outside: owner.decision). No production writer posts this until it is set; the recipe-gate catalog samples it.',
+      '§13 — our own money moving between named outside places (our builder account at a venue, our reserve at a partner, our treasury wallet), keyed on the chain transaction or the partner statement line. No production writer: collected fees stay at the venue until the float and the claim schedule are set (docs/adr/2026-11-10-launch-money-model.md, rule 5). The recipe-gate catalog samples it and does not ledger.post.',
   },
   orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/order-place.ts' },
   orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/holds.ts' },
