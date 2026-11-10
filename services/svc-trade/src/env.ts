@@ -33,6 +33,13 @@ const schema = serviceEnvSchema
       TRADE_BUILDER_FEE_POSTER: z.enum(['on', 'off']).default('on'),
       TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(10_000),
 
+      /**
+       * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST
+       * venue when it connects, recorded with the stack ids `LOCAL TEST stack seed` / `... approval`, so the stack's venue journeys see their
+       * markets. Blank lists nothing (every market then needs two operators). Refused at boot unless the raw APP_ENV is
+       * exactly dev or test, and refused on a venue that is not a TEST venue. Set only by the local stack's launcher.
+       */
+      TRADE_USER_VENUE_TEST_LISTINGS: z.string().default(''),
       /** CB-bots-10 bot verification switch: `required` (unset) or `off`, written explicitly. See algo/bots-verification.ts. */
       TRADE_BOTS_VERIFICATION: z.enum(['required', 'off']).optional(),
       /** CB-bots-10 lowest tier allowed to create a bot (basic|full|institutional). Blank refuses every bot create. */
@@ -859,6 +866,16 @@ const schema = serviceEnvSchema
        * the rule waits for the owner. Longer than 1000 characters refuses boot. The text is owner content.
        */
       TRADE_DEVELOPER_REGIONAL_RULE: z.string().default(''),
+
+      /**
+       * The bot policy the developer portal publishes (developer-portal-rest.ts; J-cex-spot-15 #3): plain text, what
+       * automated trading through the API the platform permits and on what terms.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/bot-policy refuses trade.developer_bot_policy_unset and the page reads
+       * "Bot policy: not yet published"; nothing claims a bot is permitted. Longer than 4000 characters refuses boot.
+       * The text is owner content.
+       */
+      TRADE_DEVELOPER_BOT_POLICY: z.string().default(''),
 
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),

@@ -1,8 +1,9 @@
-// World: none
+// World: book
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { EDGE, journeyState, signOutBrowser } from './stack.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { EDGE, fund, journeyState, signOutBrowser } from './stack.mjs';
+import { fundedTrader, signIn, signUp } from './desk.mjs';
+import { takeBest } from './copy.mjs';
 
 // J-charts-desk-11, in the running app (docs/roadmap/journeys.json): watchlists beside the chart, kept on the account, with live
 // quotes, a row click or drag opening its chart, symbol details, and CSV export and import. One test per step, titled
@@ -148,7 +149,7 @@ test(`${J} #2 sorts the list, resizes a column, adds a section and a second name
   await expect(panel(page).getByRole('combobox', { name: 'List' }).locator('option', { hasText: 'Alts' })).toHaveCount(1);
 });
 
-test(`${J} #3 shows the last price and change of each row live, from the stack's own quotes`, async ({ page }) => {
+test(`${J} #3 shows the last price and change of each row live, from the stack's own quotes`, async ({ page, browser }) => {
   test.setTimeout(300_000);
   await signIn(page, account());
   await openWorkbench(page);
@@ -214,12 +215,37 @@ test(`${J} #3 shows the last price and change of each row live, from the stack's
     window.__ticks = seen;
   });
   const ticked = () => page.evaluate(() => window.__ticks);
+  const directions = async () => [...new Set((await ticked()).moves.map((m) => m.went))].sort();
+  // The market moves the last price itself: a TEST trader takes the best ask (the last trade, and so the last price, goes
+  // up to the ask) and then hits the best bid (down to the bid), with the list watched. Waiting for the TEST market maker's
+  // own drift to go both ways took 132 s of 180 in run 42633144480 and saw only `down` in 181 s in run 42636933736.
+  // A first buy at an ask the last price already sits on moves nothing, so a second round follows if one way is missing.
+  // Other files' trades on the same book move the price too: every move seen, theirs included, is held to the same mark
+  // and colour below. Each trade waits for the page's next ticker read (every 5 s) to show it before the next is sent, so
+  // the two moves are not folded into one read; a trade another file's trade overtook is not waited for again.
+  const traderContext = await browser.newContext({ baseURL: 'http://127.0.0.1:3210' });
+  try {
+    const trader = await fundedTrader(await traderContext.newPage(), 'wlq', '500');
+    expect(fund(trader.email, 'BTC', '0.01').tx).toBeTruthy();
+    const tag = `${process.env.JOURNEY_RUN_ID ?? 'local'}-${Date.now()}`;
+    const shows = async (price) => {
+      await expect
+        .poll(async () => (await ticked()).moves.some((m) => number(m.to) === Number(price)), { timeout: 12_000, intervals: [500] })
+        .toBe(true)
+        .catch(() => {});
+    };
+    for (let round = 0; round < 3; round += 1) {
+      const bought = await takeBest(trader, 'buy', '0.001', `${J}-3-buy-${round}-${tag}`);
+      await shows(bought.average ?? bought.price);
+      const sold = await takeBest(trader, 'sell', '0.001', `${J}-3-sell-${round}-${tag}`);
+      await shows(sold.average ?? sold.price);
+      if ((await directions()).length === 2) break;
+    }
+  } finally {
+    await traderContext.close();
+  }
   await expect
-    .poll(async () => [...new Set((await ticked()).moves.map((m) => m.went))].sort(), {
-      message: 'the stack quotes move both up and down while the list is watched',
-      timeout: 180_000,
-      intervals: [2_000],
-    })
+    .poll(directions, { message: 'the last price moves both up and down while the list is watched', intervals: [1_000] })
     .toEqual(['down', 'up']);
   const { up, down, moves } = await ticked();
   expect(up).not.toBe(down);

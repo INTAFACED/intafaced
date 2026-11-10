@@ -43,6 +43,21 @@ Four ways, in increasing order of strength — all of them are tests that run on
 
 Point 3 is the one that matters most, because it fails for a change nobody has made yet.
 
+### When the partner bank holds the money (OWNER 226)
+
+INTAFACED launches holding no customer money: a person's currency accounts and spaces are the partner bank's. svc-bank reads and moves them through one port, `src/partner/partner-bank.ts` (`PartnerBank`); no partner is named, so the only implementation is the TEST partner bank (`src/partner/test-partner.ts`, labelled TEST, dev and test stacks only). Which path runs is per person: `PartnerCustody.bankFor(userId)`.
+
+| Path                                                           | With the person's TEST switch `custody: 'off'`                                                                                              | Without it (the default)     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| A balance (`spaces.list`, `spaces.unnamed`, `currencies.list`) | the partner's figure, with `heldAt: { label, asOf }`, `ledgerAccount: null`; not reported refuses `bank.partner_balance_not_known`, never 0 | the ledger's, as above       |
+| `transfers.create`                                             | ONE partner move under `bank.transfer.own:<transferId>:0`; output `ledgerTxId: null`, `partnerMove`; nothing posted                         | `bankTransfer` on the ledger |
+| A standing order's occurrence                                  | ONE partner move under `bank.transfer.sched:<scheduleId>:<n>`; the run records `partner_move_id`; bills-pot top-up at the partner           | as before                    |
+| History (`activity.list`, `activity.get`, `transfers.list`)    | the partner's record of its moves, each line `heldAt: { label }`                                                                            | the ledger's feed            |
+
+The partner deduplicates on the key, so a retry after a lost reply (`bank.partner_reply_lost`) is answered with the move it made, once. A locked or archived source refuses before any partner request. One side partner-held and the other not refuses `bank.partner_custody_mismatch`; Send, business transfers and the other doors that record a ledger transaction refuse `bank.partner_path_not_built` for a partner-held person until their partner path is built. On the TEST stack, `testPartner.fund` pays TEST money into the person's main balance at the partner.
+
+Outside the TEST partner, svc-bank follows the custody switch, `LEDGER_CUSTODY_LAYER` (the value svc-ledger reads, the same parser, unset is off): off, every customer-balance post is refused `bank.no_partner_bank` before svc-ledger is asked. The TEST stack pins it `on`, as it pins svc-ledger's.
+
 ---
 
 ## API
@@ -608,6 +623,18 @@ Failure branches covered (sample, not exhaustive): insufficient funds on a one-o
 | cashback               | `rewardPay`       | `rewardsEngine(asset)` → available               |
 
 A `cardSpend` recipe would have been `withdrawSettle` with a different string in it — a second way to spell one movement, which is how two subsystems come to disagree about what happened.
+
+### Partner-held authorisations (OWNER 226): the partner holds it, and the ledger posts nothing
+
+INTAFACED holds no customer money at launch: the card's money is the card partner's. Each authorisation is decided once in one of two books, recorded on its row as `money_book` (`heldBy` in code), and every later movement of it follows that row, whatever the switches say by then.
+
+| Whose book | When                                                                                    | Hold, capture, release, refund                                                                                                                                    |
+| ---------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `partner`  | The person's TEST switch `testPartner.set({ custody: 'off' })`                          | The partner (`src/cards/partner-card-holds.ts`), once each under `card.partner.<hold\|capture\|release\|refund>:<authorisation id>`. No ledger post, no cashback. |
+| `ledger`   | Otherwise, with `LEDGER_CUSTODY_LAYER=on` (the TEST stack)                              | The four recipes above, exactly as before.                                                                                                                        |
+| none       | Otherwise, with `LEDGER_CUSTODY_LAYER` off (its default, the same parser as svc-ledger) | Refused `bank.partner_unset` before anything is written.                                                                                                          |
+
+Only the TEST partner card implements the port today (card-sim with `BANK_TEST_PARTNER=test`; in this process only, forgotten on a restart). It holds from its TEST balance per asset (`BANK_CARD_SIM_PARTNER_JSON` `balances`; an asset with none is "not known" and refuses `bank.card_partner_balance_not_known`), refuses a capture above the hold, gives an uncaptured hold back after its TEST hold time (or at once with the person's `cardHold: 'expired'`), and in `wallet_pull` mode answers that the card pulls from the person's own wallet. The doors: `ops.cardAuthorize`, `ops.cardCapture`, `ops.cardReverse` and `ops.cardResumeSettlement` (ledger ids null on the partner path, the partner's references and figures beside them), `cards.partnerHeld` (the partner's own report for a card), and `testPartner.cardRefund` (the TEST stand-in for a merchant's refund).
 
 ### `card-sim` is a simulator. What it is **not**
 

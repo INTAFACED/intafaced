@@ -23,6 +23,7 @@ import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from '
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
+import { ledgerPostingFreeze } from './partner/partner-bank.js';
 import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './cards/card-programme.js';
 import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
@@ -38,7 +39,14 @@ import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
-import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
+import {
+  payoutCancelledBody,
+  payoutFailedBody,
+  payoutPaidBody,
+  payoutReturnedBody,
+  payoutVerifyBody,
+  redriveBody,
+} from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
@@ -157,6 +165,10 @@ const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env
 
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
+  // A partner move posts nothing on the ledger, so it asks svc-ledger's posting freeze first (floor 4).
+  postingFreeze: ledgerPostingFreeze(env.LEDGER_URL),
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
@@ -762,6 +774,7 @@ function jobDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Promise
 jobDoor('/internal/jobs/payout-sim/verify', payoutVerifyBody, (b) => bank.cashOut.verifyAccount(b.accountId));
 jobDoor('/internal/jobs/payout-sim/paid', payoutPaidBody, (b) => bank.cashOut.complete(b.cashOutId));
 jobDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOut.fail(b.cashOutId, b.reason));
+jobDoor('/internal/jobs/payout-sim/cancelled', payoutCancelledBody, (b) => bank.cashOut.cancel(b.cashOutId, b.reason));
 jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );
