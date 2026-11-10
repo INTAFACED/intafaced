@@ -74,12 +74,27 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
 
   const { displayName } = await venueInfo();
   const markets = (await testVenue('/markets', {})).body.value.filter((m) => m.kind === 'perpetual');
-  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL]);
+  // The TEST venue lists BTC-PERP and the TEST gold perpetual XAU-PERP (J-derivatives-21); the desk lists every one, each
+  // with its venue named.
+  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'XAU-PERP']);
   const list = page.getByTestId('venue-contract-list');
-  await expect(list.getByRole('button', { name: `${SYMBOL} · ${displayName}` })).toBeVisible();
+  await expect(list.getByRole('button')).toHaveCount(markets.length);
+  for (const m of markets) await expect(list.getByRole('button', { name: `${m.symbol} · ${displayName}` })).toBeVisible();
   await expect(list.getByTestId('venue-test').first()).toHaveText('TEST');
   for (const part of ['venue-contract-strip', 'venue-wallet', 'venue-balances', 'venue-margin', 'venue-ticket', 'venue-blotter'])
     await expect(page.getByTestId(part)).toBeVisible();
+
+  // Where the venue lists no contract for this account: "No futures contract is listed", with the reason naming the venue.
+  try {
+    expect((await testVenue('/test/switches', { unlistPerpetuals: true })).status).toBe(200);
+    const none = page.getByTestId('venue-no-contract');
+    await expect(none).toContainText('No futures contract is listed', { timeout: 20_000 });
+    await expect(none).toContainText(`${displayName} lists no perpetual contract for this account.`);
+    await expect(list.getByRole('button', { name: `${SYMBOL} · ${displayName}` })).toHaveCount(0);
+  } finally {
+    await testVenue('/test/switches', { unlistPerpetuals: false });
+  }
+  await expect(list.getByRole('button', { name: `${SYMBOL} · ${displayName}` })).toBeVisible({ timeout: 20_000 });
 
   // The venue goes down: the desk names it, and a control answers with the venue's typed refusal; nothing is sent.
   try {

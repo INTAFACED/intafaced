@@ -150,6 +150,25 @@ test('a targeted run judges only the files it ran', () => {
   assert.equal(judge({ newest: broken, named: named2, baseline, money, target: new Set(['J-a-01.pw.mjs']) }).red.length, 1);
 });
 
+test('a file whose tests each prove part of a step is listed as ran only when every one of them passed', () => {
+  const part = (t, status) => spec(t, status, 'J-p-15.pw.mjs');
+  const clean = readReport(report(part('J-p-15, part of #1: one half', 'expected'), part('J-p-15, part of #1: the other', 'expected')));
+  assert.deepEqual(clean.ran, ['J-p-15.pw.mjs']);
+  assert.deepEqual(clean.states, {}, 'a part of a step is no step state');
+  const oneFailed = readReport(
+    report(part('J-p-15, part of #1: one half', 'expected'), part('J-p-15, part of #1: the other', 'unexpected')),
+  );
+  assert.deepEqual(oneFailed.ran, [], 'a failing part keeps the file off the list, so the seal fails closed');
+  const allSkipped = readReport(report(part('J-p-15 step 12 (part 1)', 'skipped')));
+  assert.deepEqual(allSkipped.ran, [], 'a skipped part did not run');
+  // A file that also has whole-step tests is listed by them, as before, whatever its partial tests did.
+  const mixed = readReport(report(spec('J-p-15 #2 whole', 'unexpected', 'J-p-15.pw.mjs'), part('J-p-15, part of #1', 'unexpected')));
+  assert.deepEqual(mixed.ran, ['J-p-15.pw.mjs']);
+  assert.equal(mixed.states['J-p-15#2'], 'failed');
+  // A spec outside the journey files (the look sweep) is not listed by this.
+  assert.deepEqual(readReport(report(spec('every room at each width', 'expected', 'look-sweep.mjs'))).ran, []);
+});
+
 test('a failing duplicate title never hides behind a passing one', () => {
   assert.equal(readReport(report(ok('J-a-01 #1 first'), bad('J-a-01 #1 second'))).states['J-a-01#1'], 'failed');
 });

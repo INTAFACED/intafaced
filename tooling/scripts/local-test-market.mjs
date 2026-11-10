@@ -1197,8 +1197,13 @@ async function runLoop(opts, home) {
 
 export const TAPE_CLIENT_PREFIX = 'LTEST-TAPE-';
 export const TAPE_RETIME_ROUTE = '/internal/local-test/tape-retime';
-/** Requests a second `history` sends: well below Edge's local budget of 6000 a minute per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
-export const HISTORY_REQUESTS_PER_SECOND = 14;
+/**
+ * Requests a second `history` sends at most: at most 2400 a minute, under half of Edge's local budget of 6000 a minute
+ * per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), so history never ends waiting for the window
+ * (historyBudgetWait) and the market maker after it starts on a fresh half. Three lanes of two markets
+ * (HISTORY_MARKETS_PER_REQUEST) send 2520 requests; at 14 a second, the old cap, they would wait on it.
+ */
+export const HISTORY_REQUESTS_PER_SECOND = 40;
 /**
  * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). When Edge did not say what is
  * left of its budget, `history` ends by waiting out the rest of one window after its last request (failure it prevents:
@@ -1251,11 +1256,15 @@ export function laterEdgeBudget(prev, next) {
   return next.remaining < prev.remaining ? next : prev;
 }
 /**
- * Markets per `history` batch request. Fewer requests leave Edge's budget room, more lanes side by side keep svc-trade
- * busy. On a 4-core machine (26 Oct), six markets took 6.1 minutes at one request per order, 7.7 in one request for
- * all six, and 4.7 at three per request in two lanes, where svc-trade's own speed sets the pace.
+ * Markets per `history` batch request, so the markets run in that many lanes side by side. Fewer requests leave Edge's
+ * budget room, more lanes keep svc-trade busy. On a 4-core machine (26 Oct), six markets took 6.1 minutes at one
+ * request per order, 7.7 in one request for all six, and 4.7 at three per request in two lanes. svc-trade places a
+ * batch's items one after another, so a lane waits on each of its markets in turn: on main run 2708 (9 Nov, shard 22)
+ * two lanes of three took 173 s for 1680 requests, about 10 a second, with 5954 of Edge's 6000 left, so svc-trade's
+ * time per order, not Edge, set the pace. Two per request makes three lanes: more side by side, while 2520 requests stay
+ * well inside Edge's budget (one per request, six lanes, would send 5040 and end waiting for Edge's window).
  */
-export const HISTORY_MARKETS_PER_REQUEST = 3;
+export const HISTORY_MARKETS_PER_REQUEST = 2;
 
 /**
  * Where `trades` tape trades go, `perBar` to a bar of `stepMs`: evenly spaced, the last one in the newest closed bar,

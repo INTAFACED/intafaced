@@ -1,4 +1,5 @@
 import type { OpsCapitalBufferState, OpsCapitalReserve, LedgerOwnFundsAccount } from '@intafaced/contracts/ops-capital';
+import { formatWhen } from '@/lib/as-of';
 
 /**
  * The capital monitor's words (J-ops-console-24 #1). Pure, so the page and its tests share one source. Each typed code
@@ -32,7 +33,7 @@ export function reserveWords(reserve: OpsCapitalReserve): string {
     case 'none':
       return 'None required, as the partner reports';
     case 'reported':
-      return `${reserve.amount} ${reserve.assetId}, as the partner reports`;
+      return `${reserve.amount} ${reserve.assetId}, as the partner reports, as of ${formatWhen(reserve.asOf)}`;
   }
 }
 

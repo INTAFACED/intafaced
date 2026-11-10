@@ -57,6 +57,7 @@ async function loadWith(overrides: Record<string, string | undefined> = {}) {
   vi.stubEnv('AGENTS_FEE_ASSET_ID', undefined);
   vi.stubEnv('AGENTS_USAGE_WINDOW_MINUTES', undefined);
   vi.stubEnv('AGENTS_OVERAGE_GRACE', undefined);
+  vi.stubEnv('AGENTS_NAVIGATOR_ONCHAIN_SIGNER', undefined);
   for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) {
     vi.stubEnv(key, value);
   }
@@ -104,6 +105,14 @@ describe('svc-agents money env refuse-closed', () => {
   it('a real fee asset id boots after trim', async () => {
     const parsed = await loadWith({ AGENTS_FEE_ASSET_ID: '  X  ' });
     expect(parsed.AGENTS_FEE_ASSET_ID).toBe('X');
+  });
+
+  it('blank AGENTS_NAVIGATOR_ONCHAIN_SIGNER is no signer (rail.crypto), a malformed one stops the boot', async () => {
+    expect((await loadWith()).AGENTS_NAVIGATOR_ONCHAIN_SIGNER).toBeUndefined();
+    expect((await loadWith({ AGENTS_NAVIGATOR_ONCHAIN_SIGNER: '  ' })).AGENTS_NAVIGATOR_ONCHAIN_SIGNER).toBeUndefined();
+    const signer = '0x00000000000000000000000000000000005e0019';
+    expect((await loadWith({ AGENTS_NAVIGATOR_ONCHAIN_SIGNER: ` ${signer} ` })).AGENTS_NAVIGATOR_ONCHAIN_SIGNER).toBe(signer);
+    await expect(loadWith({ AGENTS_NAVIGATOR_ONCHAIN_SIGNER: '0x1234' })).rejects.toThrow(/AGENTS_NAVIGATOR_ONCHAIN_SIGNER/);
   });
 
   it('unset or blank AGENTS_OVERAGE_GRACE is no grace at all, never a default amount', async () => {

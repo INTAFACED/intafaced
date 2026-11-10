@@ -20,8 +20,9 @@
  * that changes the code is reviewed afresh. (Failure it prevents: #7078 merged 12 minutes before its review, OWNER 154
  * (a); and a PASS comment from the one login every agent shares said nothing about who reviewed.)
  *
- * The seal waits up to REVIEW_WAIT_MS for the review before it fails, and the review job re-runs a red seal on its head
- * once it passes (ci-review.mjs), so nobody re-runs it by hand. Same requirement, later verdict: a head without the
+ * The seal waits up to REVIEW_WAIT_MS for the review before it fails, and the review run's last job (`Start the seal`,
+ * journey-seal.mjs START_JOB) re-runs the seal on its head once every input there has finished, so nobody re-runs it by
+ * hand. Same requirement, later verdict: a head without the
  * review still fails.
  *
  * Only gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
