@@ -29,6 +29,7 @@ import { cardSim } from './issuer.js';
 import { PartnerCardRefusal, partnerCardKey, testPartnerCardHolds, type PartnerCardHolds } from './partner-card-holds.js';
 import { NOTHING_REPORTED, type CardPartnerTerms } from './partner-terms.js';
 import { PartnerStopService, TEST_PARTNER_ID, type PartnerStopKind } from '../partner/partner-stops.js';
+import { PartnerRefusalCounts } from '../partner/partner-refusals.js';
 
 const DB_URL = process.env.TEST_DATABASE_URL;
 if (!DB_URL) throw new Error('TEST_DATABASE_URL is unset: this money suite never skips');
@@ -691,7 +692,7 @@ describe('partner-held card authorisations (PG)', () => {
     };
 
     beforeEach(async () => {
-      await sql`TRUNCATE bank.partner_stops, bank.partner_stop_history`;
+      await sql`TRUNCATE bank.partner_stops, bank.partner_stop_history, bank.partner_refusal_counts`;
       stops = new PartnerStopService(sql);
       revision = 0;
       partner.set(ADA, { custody: 'off' });
@@ -749,6 +750,22 @@ describe('partner-held card authorisations (PG)', () => {
         refunded: amt('10'),
       });
       expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '70', held: '0' });
+    });
+
+    it('the desk counts card authorisations and card instructions refused, by what refused them and why', async () => {
+      const card = await issue();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'count-capture', amount: amt('40') });
+      posting = false;
+      await cards.authorize({ cardId: card.id, authorizationRef: 'count-frozen-hold', amount: amt('10') });
+      posting = true;
+      await stop(['card_capture']);
+      await codeOf(cards.capture({ cardId: card.id, authorizationRef: 'count-capture', amount: amt('30') }));
+      const { counts } = await new PartnerRefusalCounts(sql).recent(1);
+      expect(counts.map((c) => [c.refusedBy, c.cause, c.kind, c.count])).toEqual([
+        ['partner_stop', 'stopped', 'card_capture', '1'],
+        ['posting_freeze', 'not_reported', 'card_hold', '1'],
+      ]);
+      expect(auth.decision).toBe('approved');
     });
 
     it('a stop state that cannot be read declines a hold before the partner is asked', async () => {

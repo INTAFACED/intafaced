@@ -14,6 +14,7 @@ import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';
 import { partnerStopsProcedure, setPartnerStopProcedure } from '../partner/partner-stops.js';
+import { partnerRefusalsProcedure } from '../partner/partner-refusals.js';
 import {
   cardPartnerTermsProcedure,
   cardProgrammeFundingProcedure,
@@ -1071,6 +1072,10 @@ export function createOpsRouter(c: BankRouterContext) {
     setAssetPause: setAssetPauseProcedure(() => bank.assetPauses, consumeOpsApproval, guard),
     partnerStops: partnerStopsProcedure(() => bank.partnerStops, guard),
     setPartnerStop: setPartnerStopProcedure(() => bank.partnerStops, consumeOpsApproval, guard),
+    partnerRefusals: partnerRefusalsProcedure(
+      () => ({ counts: bank.partnerRefusals, stops: bank.partnerStops, freeze: bank.postingFreeze }),
+      guard,
+    ),
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),

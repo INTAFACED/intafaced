@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { RECONCILE_ACTOR, RECONCILE_UNPROVEN_REASON } from './ledger/reconcile-config.js';
 
 /**
  * Liveness vs readiness — the freeze must be visible on the port, not only
@@ -34,8 +35,26 @@ export async function lastVerifiedFields(
   }
 }
 
+/**
+ * Why the posting freeze is on, in the few words a reader of `/health` sorts by (project-state #1790; the money model's
+ * change 4 item 4): `person` (an operator froze it, with their reason), `mismatch` (a proof found the book inconsistent),
+ * `unfinished_proofs` (too many proofs in a row never reached a verdict, `reconcile_unproven`), `startup_setting`
+ * (`LEDGER_POSTING_ENABLED=false` at boot). Null while posting is enabled. The reason text and actor stay beside it.
+ */
+export type FreezeCause = 'person' | 'mismatch' | 'unfinished_proofs' | 'startup_setting';
+
+export function freezeCause(status: { postingEnabled: boolean; frozenReason: string | null; frozenBy: string | null }): FreezeCause | null {
+  if (status.postingEnabled) return null;
+  if (status.frozenBy === RECONCILE_ACTOR) return status.frozenReason === RECONCILE_UNPROVEN_REASON ? 'unfinished_proofs' : 'mismatch';
+  if (status.frozenBy?.startsWith('env:')) return 'startup_setting';
+  return 'person';
+}
+
 export function registerLedgerStatusHttp(app: FastifyInstance, ledger: LedgerStatusPort, serviceName: string): void {
-  app.get('/health', async () => ({ ok: true, service: serviceName, ...(await ledger.status()), ...(await lastVerifiedFields(ledger)) }));
+  app.get('/health', async () => {
+    const status = await ledger.status();
+    return { ok: true, service: serviceName, ...status, frozenCause: freezeCause(status), ...(await lastVerifiedFields(ledger)) };
+  });
 
   app.get('/ready', async (_req, reply) => {
     const status = await ledger.status();

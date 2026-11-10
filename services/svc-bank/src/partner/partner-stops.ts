@@ -23,7 +23,7 @@ import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
 import type { PartnerCardHolds } from '../cards/partner-card-holds.js';
-import type { PartnerAccountRef, PartnerBank, PartnerCustody, PartnerMoveRequest, PartnerMovesQuery } from './partner-bank.js';
+import type { NoteRefusal, PartnerAccountRef, PartnerBank, PartnerCustody, PartnerMoveRequest, PartnerMovesQuery } from './partner-bank.js';
 
 export const PARTNER_STOP_KINDS = ['bank_move', 'card_hold', 'card_capture', 'card_release', 'card_refund'] as const;
 export type PartnerStopKind = (typeof PARTNER_STOP_KINDS)[number];
@@ -50,6 +50,18 @@ export interface PartnerStopChange {
   reason: string;
   /** Consumes the second person's approval; returns the approver id. */
   consume: () => Promise<string>;
+}
+
+/** Asks the gate, counting a refusal (`stopped` or `unreadable`) before it is thrown. */
+async function assertOpenCounted(gate: PartnerStopGate, partnerId: string, kind: PartnerStopKind, note?: NoteRefusal): Promise<void> {
+  try {
+    await gate.assertOpen(partnerId, kind);
+  } catch (err) {
+    if (err instanceof BankError && (err.code === 'bank.partner_stopped' || err.code === 'bank.partner_stop_unreadable')) {
+      await note?.({ refusedBy: 'partner_stop', cause: err.code === 'bank.partner_stopped' ? 'stopped' : 'unreadable', kind });
+    }
+    throw err;
+  }
 }
 
 /** What a partner instruction asks before it is sent. */
@@ -260,7 +272,7 @@ export class PartnerStopService implements PartnerStopGate {
  * Every partner bank move asks the stop first (`bank_move`). Reads stay open. Wrap outside the posting freeze's guard,
  * so the freeze is still asked for every move the stop lets through.
  */
-export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, gate: PartnerStopGate): PartnerCustody {
+export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, gate: PartnerStopGate, note?: NoteRefusal): PartnerCustody {
   const guarded = new WeakMap<PartnerBank, PartnerBank>();
   const guard = (bank: PartnerBank): PartnerBank => {
     let wrapped = guarded.get(bank);
@@ -273,7 +285,7 @@ export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, g
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         move: async (request: PartnerMoveRequest) => {
-          await gate.assertOpen(partnerId, 'bank_move');
+          await assertOpenCounted(gate, partnerId, 'bank_move', note);
           return bank.move(request);
         },
       });
@@ -295,25 +307,30 @@ export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, g
  * the stop is lifted. A stopped hold is a decline once the partner confirms it holds nothing under the key, exactly as
  * the posting freeze's (`card-service.ts`, `commitPartnerHold`). Reads (figures, holdState) stay open.
  */
-export function stopGuardedCardHolds(holds: PartnerCardHolds, partnerId: string, gate: PartnerStopGate): PartnerCardHolds {
+export function stopGuardedCardHolds(
+  holds: PartnerCardHolds,
+  partnerId: string,
+  gate: PartnerStopGate,
+  note?: NoteRefusal,
+): PartnerCardHolds {
   return Object.freeze({
     test: holds.test,
     figures: (input: { userId: string; assetId: string }) => holds.figures(input),
     holdState: (input: { holdKey: string }) => holds.holdState(input),
     hold: async (input: Parameters<PartnerCardHolds['hold']>[0]) => {
-      await gate.assertOpen(partnerId, 'card_hold');
+      await assertOpenCounted(gate, partnerId, 'card_hold', note);
       return holds.hold(input);
     },
     capture: async (input: Parameters<PartnerCardHolds['capture']>[0]) => {
-      await gate.assertOpen(partnerId, 'card_capture');
+      await assertOpenCounted(gate, partnerId, 'card_capture', note);
       return holds.capture(input);
     },
     release: async (input: Parameters<PartnerCardHolds['release']>[0]) => {
-      await gate.assertOpen(partnerId, 'card_release');
+      await assertOpenCounted(gate, partnerId, 'card_release', note);
       return holds.release(input);
     },
     refund: async (input: Parameters<PartnerCardHolds['refund']>[0]) => {
-      await gate.assertOpen(partnerId, 'card_refund');
+      await assertOpenCounted(gate, partnerId, 'card_refund', note);
       return holds.refund(input);
     },
   });
