@@ -1,8 +1,8 @@
 import { TEST_PARTNER_SETTINGS } from './partner/test-partner.js';
 import { z } from 'zod';
+import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
-import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { parseStatementJobsInterval, parseStatementJobsLease } from './statements/statement-jobs.js';
@@ -251,10 +251,12 @@ const schema = serviceEnvSchema
       BANK_TEST_PARTNER: z.enum(TEST_PARTNER_SETTINGS).default('off'),
 
       /**
-       * THE CUSTODY SWITCH (OWNER 226), the same variable and the same parser as svc-ledger (`parseCustodyLayer`): `on` |
-       * `off`; unset or blank is `off`, anything else refuses boot. With it off, a card authorisation for a person whose
-       * money no partner holds refuses `bank.partner_unset` (no partner is set, and INTAFACED holds no customer money)
-       * instead of meeting svc-ledger's raw `ledger.custody_layer_off`. The TEST journey stack runs it `on`.
+       * THE CUSTODY SWITCH (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any
+       * value but `on` or `off` refuses to start. Off: INTAFACED holds no customer money, so svc-bank posts no customer
+       * balance and refuses `bank.no_partner_bank` by name before svc-ledger would refuse `ledger.custody_layer_off`, and a card
+       * authorisation for a person whose money no partner holds refuses `bank.partner_unset`. A
+       * person the TEST partner holds money for (`custody: 'off'`) is read and moved at the partner either way. The local
+       * TEST stack pins `on`, as it does for svc-ledger, so the custodial journeys marked Later still run.
        */
       LEDGER_CUSTODY_LAYER: z
         .string()
@@ -263,7 +265,7 @@ const schema = serviceEnvSchema
           try {
             return parseCustodyLayer(raw);
           } catch (err) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : String(err) });
             return z.NEVER;
           }
         }),

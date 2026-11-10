@@ -105,7 +105,8 @@ describe('catalog — the key set is closed and complete', () => {
     // The ledger's custody-switch refusal, a money movement INTAFACED does not hold customer money for (OWNER 226), adds one error key.
     // An agent key's held payout or refund (J-developer-15 #6) and the API explorer's refused live write (J-developer-15 #7) add two error keys.
     // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(318);
+    // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(320);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

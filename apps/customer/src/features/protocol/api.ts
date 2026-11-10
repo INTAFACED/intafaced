@@ -4,6 +4,7 @@ import {
   protocolContractReadOutputSchema,
 } from '@intafaced/contracts/protocol-contract-source';
 import { z } from 'zod';
+import { protocolSessionGrantCallSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
 import {
   protocolAddressReportReceiptSchema,
   protocolAddressRiskSchema,
@@ -70,6 +71,14 @@ import type { ApiClient } from '../../shared/api';
  */
 export const chainStatusSchema = protocolChainStatusSchema;
 export const auditStatusSchema = protocolAuditStatusSchema;
+/** A session key's scope as `buildSessionGrant` takes it: unix seconds, wei as a decimal string, exact targets and selectors. */
+export type SessionGrantSpec = {
+  key: string;
+  validUntil: number;
+  spendLimitWei: string;
+  targets: string[];
+  selectors: string[];
+};
 export const protocolHealthSchema = protocolServiceHealthSchema;
 export { dexHealthSchema, indexerStatusSchema };
 export const dexQuoteSchema = z.object({
@@ -112,6 +121,18 @@ export function createProtocolApi(api: ApiClient) {
     /** Files a scam report as the signed-in person. A second open report for the same address refuses as a duplicate. */
     reportAddress: (input: ProtocolAddressReportInput) =>
       api.mutate('protocol', 'addressReports.submit', input, protocolAddressReportReceiptSchema),
+    /** Every session key `account` granted, from its own logs, with the on-chain status at one block (D-portfolio-wallet-02). */
+    sessionsList: (account: string, signal?: AbortSignal) =>
+      api.query('protocol', 'sessions.list', { account }, protocolSessionsListSchema, { signal }),
+    /** The unsigned owner call that grants one session key; a scope with transfer or approval power is refused here. */
+    buildSessionGrant: (input: { account: string; spec: SessionGrantSpec }) =>
+      api.query('protocol', 'buildSessionGrant', input, protocolSessionGrantCallSchema),
+    /** The unsigned owner call that revokes one key. */
+    buildSessionRevoke: (input: { account: string; sessionKey: string }) =>
+      api.query('protocol', 'buildSessionRevoke', input, protocolUnsignedCallSchema),
+    /** The one unsigned owner call that ends every key at once (the account's session epoch moves on). */
+    buildRevokeAllSessions: (input: { account: string }) =>
+      api.query('protocol', 'buildRevokeAllSessions', input, protocolUnsignedCallSchema),
     /** The smart account `owner` controls on this network (its counterfactual address) and whether it is deployed. */
     predictAccount: (owner: string, signal?: AbortSignal) =>
       api.query('protocol', 'predictAddress', { owner }, protocolPredictedAccountSchema, { signal }),

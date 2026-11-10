@@ -43,6 +43,10 @@ const uploadLimits = () =>
 // LOCAL TEST topic list limit (a TEST owner value): 100 (J-academy-11 #8).
 const topicsLimit = () => (process.env.LOCAL_STACK_ACADEMY_TOPICS_LIMIT === 'off' ? {} : { ACADEMY_TOPICS_LIST_LIMIT: '100' });
 
+// LOCAL TEST grant audit page size (a TEST owner value): 50 lines (J-academy-17 #1). `LOCAL_STACK_ACADEMY_GRANT_AUDIT=off`
+// leaves it blank, so the "page size not set" refusal can be seen too.
+const grantAuditPage = () => (process.env.LOCAL_STACK_ACADEMY_GRANT_AUDIT === 'off' ? {} : { ACADEMY_GRANT_AUDIT_PAGE_SIZE: '50' });
+
 // LOCAL TEST grader lease (a TEST owner value): 15 minutes (J-academy-04 #6).
 const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off' ? {} : { ACADEMY_GRADER_LEASE_SECONDS: '900' });
 
@@ -91,6 +95,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...importLimit(),
     ...uploadLimits(),
     ...topicsLimit(),
+    ...grantAuditPage(),
     ...graderLease(),
     ...reportRows(),
     ...bulkLimit(),

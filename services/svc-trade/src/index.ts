@@ -110,6 +110,15 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { SqlVenueListingStore } from './venue/venue-listing-store.js';
+import {
+  StoreVenueRoutingGate,
+  assertTestListingsAllowed,
+  busVenueDelistingNotices,
+  parseTestListings,
+  publishPendingDelistingNotices,
+  TestListingSeed,
+} from './venue/venue-listing.js';
 import { builderFeesAt } from './venue/builder-fee-versions.js';
 import { VenueRefusalError, isTestVenue } from '@intafaced/venue-contracts';
 import {
@@ -451,9 +460,32 @@ const stepUp = createStepUpCheck({
 // The B1 user-venue door (src/venue/): off unless TRADE_USER_VENUE_URL is set. A TEST venue is refused unless the RAW
 // APP_ENV is exactly dev or test; checked here at boot when the venue answers, and again whenever the door reconnects.
 const userVenueUrl = env.TRADE_USER_VENUE_URL.trim();
+// Our listings of the venue's markets (J-cex-spot-16). The LOCAL TEST seed lists the stack's TEST markets on a TEST venue
+// only, and is refused at boot outside APP_ENV dev or test.
+const venueListings = new SqlVenueListingStore(sql);
+const venueDelistingNotices = busVenueDelistingNotices(bus);
+const testListings = parseTestListings(env.TRADE_USER_VENUE_TEST_LISTINGS);
+assertTestListingsAllowed(testListings, process.env.APP_ENV);
+// Seeded once per process after the door first connects, never inside connect: a seed failure is logged and retried by
+// the sweep below, and the door (cancels included) keeps working.
+const testListingSeed = new TestListingSeed({
+  store: venueListings,
+  symbols: testListings,
+  appEnv: process.env.APP_ENV,
+  now: () => new Date(),
+  log: (err) =>
+    process.stderr.write(
+      `${JSON.stringify({ level: 'warn', msg: 'trade.venue_listings.test_seed_failed', message: err instanceof Error ? err.message : String(err) })}\n`,
+    ),
+});
 const userVenue = userVenueUrl
   ? new UserVenueDoor({
-      connect: () => HttpUserVenue.connect({ baseUrl: userVenueUrl, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS }),
+      connect: async () => {
+        const venue = await HttpUserVenue.connect({ baseUrl: userVenueUrl, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS });
+        testListingSeed.connected(venue);
+        return venue;
+      },
+      listings: new StoreVenueRoutingGate(venueListings),
       appEnv: process.env.APP_ENV,
       store: new SqlPreparedActionStore(sql),
       stepUp,
@@ -463,6 +495,13 @@ const userVenue = userVenueUrl
       now: () => new Date(),
     })
   : null;
+// A delisting notice the bus did not take when it was written is sent again (the consumer files it once).
+setInterval(() => {
+  void testListingSeed.retry();
+  publishPendingDelistingNotices(venueListings, venueDelistingNotices, () => new Date()).catch((err: unknown) =>
+    process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.venue_delisting.notice_sweep_failed', message: String(err) })}\n`),
+  );
+}, 60_000).unref();
 if (userVenue) {
   try {
     await userVenue.venue();
@@ -622,6 +661,7 @@ export const appRouter = createTradeRouter(
       // A malformed setting refuses both flows above, so the read shows both as not set.
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
     },
+    venueDesk: { venue: userVenue ? () => userVenue.venue() : null, store: venueListings, notices: venueDelistingNotices },
     // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
     venueMarkets: async () => {
       if (!userVenue) return null;

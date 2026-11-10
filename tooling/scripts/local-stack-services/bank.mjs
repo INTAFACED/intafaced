@@ -22,6 +22,17 @@ function earnRiskWording() {
   throw new Error(`LOCAL_STACK_BANK_EARN_RISK_WORDING is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
 }
 
+/**
+ * The owner's cooling-off for a new bank destination (J-bank-03 #2): the stack's TEST 24 hours, or blank when the stack is
+ * asked to show it unset, so a cash-out to any account refuses `bank.offramp_cooling_unset`.
+ */
+function offrampCooling() {
+  const asked = process.env.LOCAL_STACK_BANK_OFFRAMP_COOLING;
+  if (asked === undefined || asked === '') return { BANK_OFFRAMP_COOLING_HOURS: '24' };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_OFFRAMP_COOLING is "${asked}"; leave it unset for the TEST 24 hours, or set it to off.`);
+}
+
 /** The lending policy (BK-loan-01, J-bank-09 #1): new loans open, or switched off when the stack is asked to show it. */
 function lendingPolicy() {
   const asked = process.env.LOCAL_STACK_BANK_LOANS;
@@ -236,7 +247,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
     BANK_CARD_SIM_CASHBACK: 'test',
     BANK_ADDRESS_BOOK_CAP: '10',
-    BANK_OFFRAMP_COOLING_HOURS: '24',
+    ...offrampCooling(),
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a
     // listed address refused by name (bank.destination_sanctions_listed). Set only here, never in a deploy; unset, every
     // address save refuses bank.destination_sanctions_unset.
@@ -266,8 +277,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
-    // The custody switch as svc-ledger runs it on this stack (`ledger.mjs`): on, so the custodial journeys marked Later
-    // stay green. A person whose `testPartner.set({ custody: 'off' })` is set has partner-held card money instead.
+    // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
+    // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
+    // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
+    // partner-held (OWNER 226).
     LEDGER_CUSTODY_LAYER: 'on',
     // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
