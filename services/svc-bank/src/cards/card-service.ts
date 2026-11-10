@@ -41,6 +41,7 @@ import { CARD_TIERS, type CardProgrammeTerms, type CardTier, type CashbackRates 
 import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
 import {
   NOTHING_REPORTED,
+  partnerFiguresAsOf,
   NOT_USED_FOR_CARDS,
   assertPayFromOrder,
   payFromAssets,
@@ -1089,6 +1090,7 @@ export class CardService {
    */
   async programmeFunding(): Promise<ProgrammeFundingView> {
     const terms = this.partnerTerms();
+    const now = this.clock();
     const app = await this.appProgrammeFigures();
     const assets = [...new Set([...app.keys(), ...Object.keys(terms.programmeFigures ?? {})])];
     const marks = terms.fundingAssetId ? await this.displayMarks(assets, terms.fundingAssetId) : new Map<string, DisplayMark>();
@@ -1101,7 +1103,12 @@ export class CardService {
       test: terms.test,
       fundingAssetId: terms.fundingAssetId,
       offers: fundingOfferStates(terms),
-      rows: reconcileProgramme(app, terms.programmeFigures, marks),
+      rows: reconcileProgramme(app, terms.programmeFigures, marks, {
+        asOf: partnerFiguresAsOf(terms, now),
+        staleAfterMs: terms.figuresStaleAfterMs,
+        source: terms.test ? 'TEST partner card' : 'Card partner',
+        now,
+      }),
       requests: requests.map(toFundingRequest),
     };
   }
