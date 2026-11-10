@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { userVenueCount, userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -53,6 +54,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
     MATCHING_URL: urlOf('matching'),
+    NOTIFY_URL: urlOf('notify'), // market maintenance windows on the lifecycle read (J-cex-spot-14 #5)
     TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
     IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
     // LOCAL TEST owner risk limits, not owner decisions: the stack stands in for the owner
@@ -221,5 +223,26 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS === 'off'
       ? {}
       : { TRADE_DEVELOPER_DATA_TERMS: testValue('TRADE_DEVELOPER_DATA_TERMS') }),
+    // B1 user-venue door: on only with LOCAL_STACK_USER_VENUE=on (the stack validates it and starts the TEST venue,
+    // local-test-venue.mjs). Off, trade gets no TRADE_USER_VENUE_URL and nothing changes. The builder address and fee are
+    // the labelled LOCAL TEST values; `LOCAL_STACK_USER_VENUE_BUILDER_FEE=off` leaves the fee blank, so every venue order
+    // refuses builder_fee_not_published.
+    ...(userVenueSwitchOn(process.env.LOCAL_STACK_USER_VENUE)
+      ? {
+          TRADE_USER_VENUE_URL: urlOf('test-venue'),
+          // J-derivatives-28: LOCAL_STACK_USER_VENUE=two adds the second TEST venue; the ticket then routes over both.
+          ...(userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2 ? { TRADE_USER_VENUE_URLS: urlOf('test-venue-b') } : {}),
+          // J-cex-spot-16: the two TEST markets the other venue journeys trade, listed as a LOCAL TEST seed (svc-trade
+          // venue/venue-listing.ts). ETH-USDC is left unlisted, for two operators to review.
+          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP',
+          TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
+          TRADE_USER_VENUE_BUILDER_FEE_BPS:
+            process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),
+          // The builder-fee poster (J-derivatives-17): every 2 seconds on the stack; `LOCAL_STACK_BUILDER_FEE_POSTER=off`
+          // stops it, so a fill waits unposted and the recon lists it as a break.
+          TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
+          TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: '2000',
+        }
+      : {}),
   }),
 });

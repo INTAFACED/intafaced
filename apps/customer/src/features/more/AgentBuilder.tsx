@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -1582,6 +1582,56 @@ export function OwnAgentTitle({ id }: { id: string }) {
  * The person's own agents, listed in the Agents room with a way to make one. A draft can be deleted for good, only
  * after an irreversible confirmation (J-agents-03 #8). Agents others share with the person are listed apart.
  */
+/**
+ * One of the person's agents in the catalogue (AG-catalogue-01, AG-control-02): whether it may start new work, as
+ * svc-agents reads its switches, and its open button. Switched off by an operator, it reads Disabled and the button is
+ * off; on, the button opens a session, which the agent's page then lists.
+ */
+function MadeAgentOpen({ agent, children }: { agent: OwnAgent; children?: ReactNode }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const loaded = useResource(
+    (signal) => api.query('agents', 'own.status', { id: agent.id }, agentStatusSchema, { signal }),
+    `own-status:${agent.id}`,
+  );
+  const [opened, setOpened] = useState<string | null>(null);
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [busy, setBusy] = useState(false);
+  const off = loaded.resource.status === 'ready' ? loaded.resource.data.status !== 'active' : null;
+  async function open() {
+    setBusy(true);
+    setRefused(null);
+    const res = await api.mutate('agents', 'own.session.open', { id: agent.id }, ownAgentSessionSchema);
+    setBusy(false);
+    if (!res.ok) return setRefused(res);
+    setOpened(res.data.sessionId);
+  }
+  return (
+    <>
+      <td>
+        <Read resource={loaded.resource} retry={loaded.reload}>
+          {(view) => <span data-testid="agent-status">{t(view.status === 'active' ? 'status_active' : 'status_disabled')}</span>}
+        </Read>
+      </td>
+      <td>
+        <Button variant="secondary" disabled={off !== false || busy} onClick={() => void open()}>
+          {t('openSession')}
+        </Button>
+        {opened ? (
+          <p role="status">
+            {t('sessionOpen')}{' '}
+            <a className="text-link" href={`/agents/${agent.id}`}>
+              <code lang="zxx">{opened}</code>
+            </a>
+          </p>
+        ) : null}
+        {refused ? <Answer failed={refused} /> : null}
+        {children}
+      </td>
+    </>
+  );
+}
+
 export function MadeAgents() {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
@@ -1621,7 +1671,7 @@ export function MadeAgents() {
         </a>
         <Read resource={mine.resource} retry={mine.reload} empty={t('madeEmpty')}>
           {(rows) => (
-            <DataTable label={t('madeTitle')} headers={[t('madeName'), t('madeVersion'), t('madeActions')]}>
+            <DataTable label={t('madeTitle')} headers={[t('madeName'), t('madeVersion'), t('madeStatus'), t('madeActions')]}>
               {rows.map((row) => (
                 <tr key={row.id}>
                   <td>
@@ -1630,7 +1680,7 @@ export function MadeAgents() {
                     </a>
                   </td>
                   <td>{t(row.state === 'published' ? 'versionPublished' : 'versionDraft', { version: String(row.version) })}</td>
-                  <td>
+                  <MadeAgentOpen agent={row}>
                     {/* Only a draft never published can be deleted; one with a published version is kept. */}
                     {row.state === 'draft' && row.version === 1 ? (
                       <Button
@@ -1645,7 +1695,7 @@ export function MadeAgents() {
                         {t('deleteDraft')}
                       </Button>
                     ) : null}
-                  </td>
+                  </MadeAgentOpen>
                 </tr>
               ))}
             </DataTable>

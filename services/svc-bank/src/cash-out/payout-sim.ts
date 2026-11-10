@@ -34,6 +34,10 @@ export type PayoutFailure = (typeof PAYOUT_FAILURES)[number];
 export const PAYOUT_RETURNS = ['bank.payout_returned_account_closed', 'bank.payout_returned_by_bank'] as const;
 export type PayoutReturn = (typeof PAYOUT_RETURNS)[number];
 
+/** Why a partner cancelled a payout before paying it out. */
+export const PAYOUT_CANCELS = ['bank.payout_cancelled_by_bank', 'bank.payout_cancelled_compliance'] as const;
+export type PayoutCancel = (typeof PAYOUT_CANCELS)[number];
+
 const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/);
 
 const catalogueShape = z

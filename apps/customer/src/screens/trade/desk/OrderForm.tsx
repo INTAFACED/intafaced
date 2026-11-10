@@ -32,6 +32,7 @@ import {
   TabsTab,
   type Loadable,
 } from './deps';
+import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
@@ -77,7 +78,7 @@ import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
-import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
+import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, TYPE_TAB_KEY, type Tif } from './tif';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 
@@ -1450,13 +1451,11 @@ export const OrderPanel = memo(function OrderPanel({
     >
       <div className="dk-order-head">
         <TabsList className="dk-tabs" aria-label={t('Order type')}>
-          <TabsTab value="limit">{t('Limit')}</TabsTab>
-          <TabsTab value="stop_limit">{t('Order type stopLimit')}</TabsTab>
-          <TabsTab value="stop_market">{t('Order type stopMarket')}</TabsTab>
-          <TabsTab value="oco">{t('Order type oco')}</TabsTab>
-          <TabsTab value="bracket">{t('Order type bracket')}</TabsTab>
-          <TabsTab value="oto">{t('Order type oto')}</TabsTab>
-          <TabsTab value="market">{t('Market')}</TabsTab>
+          {SPOT_TICKET_ORDER_TYPES.map((kind) => (
+            <TabsTab key={kind} value={kind}>
+              {t(TYPE_TAB_KEY[kind])}
+            </TabsTab>
+          ))}
         </TabsList>
         <MoreOrderTypes />
         {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}

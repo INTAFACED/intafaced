@@ -564,6 +564,9 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.reset_unwired':
       // No mail port or no owner-published lifetime. Same answer for every address.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.reset_limit':
+      // The owner's cap per address, counted for every address alike: the sentence names the cap and its window.
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
     case 'auth.email_confirm_invalid':
       // A wrong, rebound or code-spent link. An expired or used one is named apart (auth.email_confirm_expired, _used).
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
@@ -1454,7 +1457,10 @@ export function createIdentityRouter(
             phone: z.string().trim().max(20).optional(),
             password: z.string().max(200),
             country: z.string().trim().length(2),
-            nationality: z.string().trim().length(2).optional(),
+            /** ISO 3166-2 subdivision of residence (`CA-QC`); asked for where a subdivision is blocked on its own. */
+            subdivision: z.string().trim().min(4).max(6).optional(),
+            /** Country of citizenship (ISO 3166-1 alpha-2) or an ISO 3166-2 subdivision. */
+            nationality: z.string().trim().min(2).max(6).optional(),
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
             referrerId: z.string().guid().optional(),
@@ -1996,13 +2002,22 @@ export function createIdentityRouter(
         .query(() => auth.passwordResetChannel()),
 
       /**
+       * The owner's reset request cap: how many codes one address may ask for inside the window (J-identity-03 #2).
+       * Null while the reset is unwired, so the page names no number it doesn't have. The same for every visitor.
+       */
+      passwordResetLimits: publicProcedure
+        .output(z.object({ requestMax: z.number().int().positive(), windowSeconds: z.number().int().positive() }).nullable())
+        .query(() => auth.passwordResetLimits()),
+
+      /**
        * Signed-out password reset, step 2. A correct proof replaces the hash
        * and ends the old sessions. This does not sign the caller in.
        */
       completePasswordReset: publicProcedure
         .input(
           z.object({
-            email: z.string().trim().email().max(320),
+            // Absent from the mailed link (J-identity-03 #2): the code alone names its flow.
+            email: z.string().trim().email().max(320).optional(),
             code: z.string().trim().min(1).max(200),
             newPassword: z.string().max(200),
           }),

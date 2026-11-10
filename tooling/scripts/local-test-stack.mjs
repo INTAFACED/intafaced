@@ -74,6 +74,8 @@ import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedS
 import { reduceMaps } from './journey-reach.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
+import { serveTestVenue, testVenueChainId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
+import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -200,6 +202,14 @@ const PORTS = {
   // LOCAL TEST statements of each rail stand-in's own records, read by svc-ledger's per-rail outside controls
   // (local-test-rail-statements.mjs).
   'rail-statements': 14525,
+  // The LOCAL TEST venue simulator behind svc-trade's user-venue door (local-test-venue.mjs). Started only with
+  // LOCAL_STACK_USER_VENUE=on (userVenueOn).
+  'test-venue': 14560,
+  // The second LOCAL TEST venue (J-derivatives-28, routing over two venues). Started only with LOCAL_STACK_USER_VENUE=two.
+  'test-venue-b': 14562,
+  // The LOCAL TEST embedded-wallet provider (local-test-wallet-provider.mjs, J-wallet-22): svc-protocol's provider on
+  // this stack. It holds its TEST keys in its own state file, never in a svc-* database. Always started with protocol.
+  'test-wallet-provider': 14561,
   // The FIX adapter (svc-fix, Java): its HTTP listener (health, drop-copy ingest, the adapter status). Its two FIX
   // sockets are FIX_SOCKET_PORTS, kept out of this table: one key here is one service (the marker's inventory).
   fix: 14526,
@@ -520,6 +530,26 @@ function ownedAlive(rec) {
   return processRecordMatches(rec, readProcessIdentity(rec?.pid));
 }
 
+/**
+ * The `LOCAL_STACK_*=off` values this command runs with, sorted: a journey that blanks an owner value restarts a service
+ * with one (J-agents-15). Recorded on each process it starts, so the world restore can see a service left blank after
+ * its file (apps/customer/tests/real-app/services.mjs) and start it again without them.
+ */
+export function offOverrides(env = process.env) {
+  return Object.keys(env)
+    .filter((k) => /^LOCAL_STACK_[A-Z0-9_]+$/.test(k) && env[k] === 'off')
+    .sort();
+}
+
+/** Running services that `restart` can name and that were started with an `off` override: { name: [variables] }. */
+function offOverridden() {
+  const restartable = new Set(restartNames());
+  const out = {};
+  for (const [name, rec] of Object.entries(readProcs()))
+    if (restartable.has(name) && rec?.offOverrides?.length && ownedAlive(rec)) out[name] = rec.offOverrides;
+  return out;
+}
+
 function startProc(name, argv, env, cwd, extra = {}) {
   const logPath = path.join(P.logs, `${name}.log`);
   const fd = fs.openSync(logPath, 'a', 0o600);
@@ -529,7 +559,15 @@ function startProc(name, argv, env, cwd, extra = {}) {
   const procs = readProcs();
   // The kernel's birth mark, read now while the child certainly lives, is what ownedAlive holds it to on Linux (#7488).
   const kernelStart = readKernelStart(child.pid) ?? undefined;
-  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), kernelStart, ...extra };
+  const off = offOverrides();
+  procs[name] = {
+    pid: child.pid,
+    argv,
+    startedAt: new Date().toISOString(),
+    kernelStart,
+    ...(off.length ? { offOverrides: off } : {}),
+    ...extra,
+  };
   writeProcs(procs);
   return child.pid;
 }
@@ -1543,6 +1581,10 @@ function testChain() {
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
+    liquidityRouter: record.liquidityRouter ?? null,
+    // The smart account factory and implementation (J-dex-protocol-08's session keys).
+    accountFactory: record.accountFactory ?? null,
+    accountImplementation: record.accountImplementation ?? null,
   };
 }
 
@@ -1844,6 +1886,59 @@ async function startRailStatements() {
   await waitHealthy('rail-statements', url, pid, 20_000);
 }
 
+/**
+ * The LOCAL TEST embedded-wallet provider (local-test-wallet-provider.mjs, J-wallet-22). Every wallet it makes is TEST,
+ * its keys live only in it and its own state file (test-wallet-provider.json, mode 0600), and passkey assertions are accepted only from the Customer app's own origins.
+ */
+async function startTestWalletProvider() {
+  const procs = readProcs();
+  const url = `${urlOf('test-wallet-provider')}/health`;
+  if (ownedAlive(procs['test-wallet-provider']) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS['test-wallet-provider']))
+    fail(`port ${PORTS['test-wallet-provider']} (test-wallet-provider) is in use by a process this script did not start`);
+  const pid = startProc(
+    'test-wallet-provider',
+    [process.execPath, SCRIPT, '__serve-test-wallet-provider'],
+    { ...baseEnv(), APP_ENV: 'dev' },
+    REPO,
+  );
+  await waitHealthy('test-wallet-provider', url, pid, 20_000);
+}
+
+/**
+ * svc-trade's user-venue door and the TEST venue behind it are off unless the stack is started (or trade restarted)
+ * with LOCAL_STACK_USER_VENUE=on. Off, nothing changes: the venue does not start and trade gets no TRADE_USER_VENUE_URL.
+ */
+export function userVenueOn(env = process.env) {
+  try {
+    return userVenueSwitchOn(env.LOCAL_STACK_USER_VENUE);
+  } catch (err) {
+    fail(err.message, 2);
+  }
+}
+
+/** The LOCAL TEST venue simulator (local-test-venue.mjs), for svc-trade's user-venue door. TEST figures only. */
+async function startTestVenue(name = 'test-venue') {
+  const procs = readProcs();
+  const url = `${urlOf(name)}/health`;
+  if (ownedAlive(procs[name]) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS[name])) fail(`port ${PORTS[name]} (${name}) is in use by a process this script did not start`);
+  // With the TEST chain running, the first venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09
+  // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
+  // alone. The second TEST venue (J-derivatives-28) takes no chain deposits: its journeys fund it with TEST deposits.
+  const chain = name === 'test-venue' ? testChain() : null;
+  const env = {
+    ...baseEnv(),
+    APP_ENV: 'dev',
+    TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)),
+    TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
+    TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
+  };
+  const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
+  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
+  await waitHealthy(name, url, pid, 20_000);
+}
+
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
 async function startInvitation() {
   const build = currentBuild('invitationBuild');
@@ -2118,7 +2213,17 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+  const known = [
+    ...serviceNames(),
+    'video-store',
+    'rail-statements',
+    'test-wallet-provider',
+    'customer',
+    'invitation',
+    'apex',
+    'admin',
+    'team-tls',
+  ];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -2233,6 +2338,14 @@ async function cmdStart(flags) {
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
   if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
+  // Trade's env points at the TEST venue only while the setting is on, so `--only trade` starts it too.
+  if (userVenueOn() && (!only || only.includes('trade'))) {
+    await startTestVenue();
+    // J-derivatives-28: the second TEST venue, only with LOCAL_STACK_USER_VENUE=two.
+    if (userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2) await startTestVenue('test-venue-b');
+  }
+  // Protocol's env points at the TEST wallet provider, so `--only protocol` starts it too.
+  if (!only || only.includes('test-wallet-provider') || only.includes('protocol')) await startTestWalletProvider();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
   await startServices([
     ...wanted,
@@ -2313,6 +2426,9 @@ async function cmdStop(names = []) {
     'chain',
     'video-store',
     'rail-statements',
+    'test-venue',
+    'test-venue-b',
+    'test-wallet-provider',
     'nats',
   ];
   // The console's HTTPS front starts with it (`--only admin`), so it stops with it too.
@@ -2390,8 +2506,23 @@ function cmdPlan(flags) {
 }
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
+/** What `restart` can name. */
+function restartNames() {
+  return [
+    ...serviceNames(),
+    'video-store',
+    'rail-statements',
+    'test-wallet-provider',
+    'customer',
+    'invitation',
+    'apex',
+    'admin',
+    'team-tls',
+  ];
+}
+
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+  const known = restartNames();
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -2621,6 +2752,25 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       );
       up.on('error', () =>
         res.headersSent ? res.destroy() : send(res, 502, 'application/json', JSON.stringify({ error: 'ws_unreachable' })),
+      );
+      return void req.pipe(up);
+    }
+    // LOCAL TEST only: the TEST wallet provider's client routes, on the Customer app's own origin, as a real provider's
+    // client is reached from the page (J-wallet-22). Only `/client/*` passes; the provider's server routes, which
+    // svc-protocol calls, are never reachable from a page. Nothing passes through Edge or reaches an INTAFACED service.
+    if (site === SITES.customer && p.startsWith(`${TEST_WALLET_PROVIDER_CLIENT_PATH}/`)) {
+      const rest = req.url.slice(TEST_WALLET_PROVIDER_CLIENT_PATH.length);
+      if (!/^\/client\/[a-z]+$/.test(rest) || req.method !== 'POST')
+        return send(res, 404, 'application/json', JSON.stringify({ error: 'not_found' }));
+      const up = http.request(
+        { host: HOST, port: PORTS['test-wallet-provider'], method: 'POST', path: rest, headers: { 'content-type': 'application/json' } },
+        (ur) => {
+          res.writeHead(ur.statusCode ?? 502, { ...API_SECURITY, 'content-type': 'application/json', 'cache-control': 'no-store' });
+          ur.pipe(res);
+        },
+      );
+      up.on('error', () =>
+        res.headersSent ? res.destroy() : send(res, 502, 'application/json', JSON.stringify({ error: 'provider_unreachable' })),
       );
       return void req.pipe(up);
     }
@@ -4010,6 +4160,31 @@ async function runCli() {
       uploadsDir: path.join(STATE, 'video-store-uploads'),
     });
   else if (cmd === '__serve-rail-statements') serveRailStatements({ host: HOST, port: PORTS['rail-statements'], stateDir: STATE });
+  else if (cmd === '__serve-test-wallet-provider')
+    await serveTestWalletProvider({
+      host: HOST,
+      port: PORTS['test-wallet-provider'],
+      appEnv: process.env.APP_ENV,
+      origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN],
+      stateFile: path.join(STATE, 'test-wallet-provider.json'),
+    });
+  else if (cmd === '__serve-test-venue')
+    await serveTestVenue({
+      host: HOST,
+      port: PORTS['test-venue'],
+      appEnv: process.env.APP_ENV,
+      chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+      rpcUrl: process.env.TEST_VENUE_RPC_URL,
+      depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
+    });
+  else if (cmd === '__serve-test-venue-b')
+    await serveTestVenue({
+      host: HOST,
+      port: PORTS['test-venue-b'],
+      appEnv: process.env.APP_ENV,
+      chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+      second: true,
+    });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);
@@ -4038,6 +4213,7 @@ async function runCli() {
   else if (cmd === 'seed-notice') cmdSeedNotice(rest);
   else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
+  else if (cmd === 'overrides') process.stdout.write(`${JSON.stringify(offOverridden())}\n`);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
     say('');
@@ -4045,7 +4221,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | build | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | build | stop | status | overrides | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

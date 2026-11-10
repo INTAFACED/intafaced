@@ -1,4 +1,4 @@
-// World: none
+// World: restart
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { draftNotice, openNotices, publishAs, publishNotice, publishedNotices } from './notices.mjs';
@@ -10,7 +10,7 @@ import {
   statusDefinition,
   statusRead,
 } from './status-page.mjs';
-import { ORIGIN, statusMail } from './stack.mjs';
+import { ORIGIN, restartWith, statusMail } from './stack.mjs';
 
 // J-support-public-19, in the running app (docs/roadmap/journeys.json): two operators publish an incident, a maintenance
 // window and an announcement from the founder console's notify desk, and the public pages, the notice board and the
@@ -449,6 +449,57 @@ test(`${J} #5 subscriber delivery: one row per subscriber and channel however of
   await expect(listed).toHaveAttribute('data-state', 'active');
   await expect(listed).toContainText('The /status form');
   await page.context().close();
+
+  // With no sender: svc-notify runs with no status mail sender (as before the owner connects the email gateway). The
+  // desk names vendor.email, a notice published now gives the subscriber one email row that waits pending, and no mail
+  // leaves for it.
+  const QUIET_TITLE = `${INCIDENT_PREFIX} no sender check (run ${RUN})`;
+  const quietKey = `j19-no-sender:${RUN}`;
+  let quiet;
+  restartWith('notify', 'LOCAL_STACK_NOTIFY_STATUS_MAIL', false);
+  try {
+    quiet = await publishNotice(
+      await draftNotice({
+        kind: 'incident',
+        title: QUIET_TITLE,
+        body: 'TEST Checking delivery with no sender.',
+        minutes: 15,
+        key: quietKey,
+        impact: 'minor',
+        components: ['api'],
+      }),
+      quietKey,
+    );
+    const desk = await subscriberDesk(browser);
+    await expect(desk.getByTestId('subscriber-channels').getByTestId('subscriber-channel-email')).toContainText('vendor.email');
+    const rows = desk.getByTestId('subscriber-deliveries');
+    const waiting = rows.locator(`[data-testid="subscriber-delivery"][data-email="${SUBSCRIBER}"]`);
+    await expect(async () => {
+      await desk.reload();
+      await rows.getByLabel('Published notice').selectOption(quiet.id);
+      await expect(waiting).toHaveCount(1, { timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(waiting).toHaveAttribute('data-channel', 'email');
+    await expect(waiting).toHaveAttribute('data-status', 'pending');
+    expect(statusMail(SUBSCRIBER).filter((m) => m.subject === `Status update: ${QUIET_TITLE}`)).toHaveLength(0);
+    await desk.context().close();
+  } finally {
+    restartWith('notify', 'LOCAL_STACK_NOTIFY_STATUS_MAIL', true);
+  }
+  // The check's incident is resolved, so later steps see only their own open incidents.
+  const closeKey = `j19-no-sender-resolve:${RUN}`;
+  await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: QUIET_TITLE,
+      body: 'TEST Delivery check over.',
+      minutes: 5,
+      key: closeKey,
+      parentId: quiet.id,
+      resolves: true,
+    }),
+    closeKey,
+  );
   // The subscriber leaves by the link in the update, so later runs do not keep mailing it.
   const leave = await browser.newPage({ baseURL: ORIGIN });
   await leave.goto(/(\/status\/unsubscribe\?token=\S+)/.exec(updates()[0].text)[1]);

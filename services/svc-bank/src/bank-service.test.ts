@@ -3074,9 +3074,14 @@ describe('svc-bank money PG-hard', () => {
         'cards.cash_limit': 'a POLICY ceiling for ATM cash in a UTC day; NULL means no ceiling; not a remaining balance',
         'card_authorizations.amount': 'a RECORD of one authorisation request, in the funding asset; written once',
         'card_settlements.amount': 'a RECORD of one completed capture or reversal; written once with its ledger tx id',
+        'card_partner_refunds.amount':
+          'the INSTRUCTION of one merchant refund sent to the card partner (OWNER 226); written once, the money is the partner’s and nothing posts with it',
         'card_programme_funding_requests.amount':
           'the INSTRUCTION one programme funding request sent the card partner; written once, nothing posts with it (the partner moves the money)',
         'card_programme_funding_requests.threshold': 'a POLICY: the auto reload trigger sent to the card partner; no money path writes it',
+        'card_disputes.amount': 'a RECORD of what one cardholder disputed on one settled capture; written once, nothing posts with it',
+        'card_disputes.credit_amount':
+          "a RECORD of the provisional credit the card partner reports it gave its cardholder; the partner's money, nothing posts with it",
         'card_cashback.amount': 'a RECORD of one reward; summing the table is the lifetime figure',
 
         // ── JIT conversion (§18) ─────────────────────────────────────────────

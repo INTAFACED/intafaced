@@ -15,8 +15,11 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | Route                                               | Name                      | Permission                    |
 | --------------------------------------------------- | ------------------------- | ----------------------------- |
 | `GET /api/v1/markets`                               | `fetchMarkets`            | public; with a key trade:read |
+| `GET /api/v1/order-types`                           | `fetchOrderTypes`         | public; with a key trade:read |
 | `GET /api/v1/ticker/:symbol`                        | `fetchTicker`             | public; with a key trade:read |
 | `GET /api/v1/tickers`                               | `fetchTickers`            | public; with a key trade:read |
+| `GET /api/v1/spreads`                               | `fetchSpreads`            | public; with a key trade:read |
+| `GET /api/v1/analytics/:symbol`                     | `fetchMarketAnalytics`    | public; with a key trade:read |
 | `GET /api/v1/orderbook/:symbol`                     | `fetchOrderBook`          | public; with a key trade:read |
 | `GET /api/v1/ohlcv/:symbol`                         | `fetchOHLCV`              | public; with a key trade:read |
 | `GET /api/v1/trades/:symbol`                        | `fetchTrades`             | public; with a key trade:read |
@@ -140,12 +143,31 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 
 ## Funding
 
-No deposit or withdrawal route is on the trading API: withdrawals are never reachable with a key, and deposits are made from the signed-in app.
+No deposit or custodial withdrawal route is on the trading API: withdrawals are never reachable with a key, and deposits are made from the signed-in app. POST /api/v1/venue/prepare and /submit take a venue withdrawal, a builder-fee approval or an agent approval only from your signed-in session: a key or a sub-account is refused with scope.interactive_only, so a key can trade on the venue but never send funds out or hand the account over.
 
 ## Accounts
 
 | Route                                          | Name                          | Permission              |
 | ---------------------------------------------- | ----------------------------- | ----------------------- |
+| `GET /api/v1/venue/status`                     | `venueStatus`                 | trade:read              |
+| `GET /api/v1/venue/markets`                    | `venueMarkets`                | trade:read              |
+| `GET /api/v1/venue/balances`                   | `venueBalances`               | trade:read              |
+| `GET /api/v1/venue/orders/open`                | `venueOpenOrders`             | trade:read              |
+| `GET /api/v1/venue/positions`                  | `venuePositions`              | trade:read              |
+| `GET /api/v1/venue/agents`                     | `venueAgents`                 | trade:read              |
+| `GET /api/v1/venue/orders/by-client-id`        | `venueOrderByClientId`        | trade:read              |
+| `GET /api/v1/venue/fills`                      | `venueFills`                  | trade:read              |
+| `GET /api/v1/venue/leverage`                   | `venueLeverage`               | trade:read              |
+| `GET /api/v1/venue/builder-fee-approval`       | `venueBuilderFeeApproval`     | trade:read              |
+| `GET /api/v1/venue/markets/:symbol/venues`     | `venueMarketVenues`           | trade:read              |
+| `POST /api/v1/venue/route-preview`             | `venueRoutePreview`           | trade:write             |
+| `GET /api/v1/venue/withdrawals/:nonce`         | `venueWithdrawal`             | trade:read              |
+| `POST /api/v1/venue/preview`                   | `venuePreview`                | trade:write             |
+| `POST /api/v1/venue/prepare`                   | `venuePrepare`                | trade:write             |
+| `POST /api/v1/venue/submit`                    | `venueSubmit`                 | trade:write             |
+| `GET /api/v1/venue/session`                    | `venueSession`                | trade:read              |
+| `POST /api/v1/venue/session/start`             | `venueSessionStart`           | trade:write             |
+| `POST /api/v1/venue/session/end`               | `venueSessionEnd`             | trade:write             |
 | `GET /api/v1/account/balance`                  | `fetchBalance`                | trade:read              |
 | `GET /api/v1/account/fees`                     | `fetchTradingFees`            | trade:read              |
 | `GET /api/v1/account/trades`                   | `fetchMyTrades`               | trade:read              |

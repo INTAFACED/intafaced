@@ -265,8 +265,8 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
-// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1): svc-protocol holds a TEST business block for the TEST region
-// AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
+// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1): svc-protocol and svc-bank hold a TEST business
+// block for the TEST region AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
 {
   const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
   const prior = process.env.LOCAL_STACK_TEST_REGION_SERVED;
@@ -276,15 +276,18 @@ const script = resolve(here, 'local-test-stack.mjs');
     delete process.env.LOCAL_STACK_TEST_REGION_SERVED;
     const served = envs();
     assert.equal(envOf(served, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST block by default');
+    assert.equal(envOf(served, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST bank block by default');
     assert.equal(envOf(served, 'edge').DEFAULT_REGION, undefined, 'edge keeps its own default region');
     process.env.LOCAL_STACK_TEST_REGION_SERVED = 'off';
     const blocked = envs();
     assert.equal(envOf(blocked, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
+    assert.equal(envOf(blocked, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'edge').DEFAULT_REGION, 'AA');
     for (const { name, env } of blocked) {
       const before = envOf(served, name);
       assert.equal(env.INTAFACED_SANCTIONS_REGIONS, before.INTAFACED_SANCTIONS_REGIONS, `${name}'s sanctions list is unchanged`);
-      if (name !== 'protocol') assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
+      if (name !== 'protocol' && name !== 'bank')
+        assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
       if (name !== 'edge') assert.equal(env.DEFAULT_REGION, before.DEFAULT_REGION, `${name}'s region is unchanged`);
     }
   } finally {
@@ -292,6 +295,26 @@ const script = resolve(here, 'local-test-stack.mjs');
     else process.env.LOCAL_STACK_TEST_REGION_SERVED = prior;
   }
   console.log('local-test-stack: the TEST blocked region switch');
+}
+
+// The blocked-region notice (J-bank-18 #1): the bank profile's TEST wording by default, blank with
+// `LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE=off`, and any other value is a typo that refuses.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const prior = process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+  const bankEnv = () => localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'bank').env;
+  try {
+    delete process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+    assert.match(bankEnv().BANK_BLOCKED_REGION_NOTICE, /^TEST wording, not the owner's: /);
+    process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = 'off';
+    assert.equal(bankEnv().BANK_BLOCKED_REGION_NOTICE, undefined);
+    process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = 'on';
+    assert.throws(bankEnv, /LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE is "on"/);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+    else process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = prior;
+  }
+  console.log('local-test-stack: the blocked-region notice wording switch');
 }
 
 // Every service file in local-stack-services/ is started, once, under its own name.
@@ -937,7 +960,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against.
   assert.match(
     source,
-    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'nats',?\s*\];/,
+    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
@@ -1457,4 +1480,49 @@ console.log('local-test-stack: customer folder override checks passed');
     rmSync(state, { recursive: true, force: true });
   }
   console.log("local-test-stack: the rebuild decision reads none with trade's seed state in place, full after a source edit");
+}
+
+// LOCAL_STACK_USER_VENUE is read by one helper in the stack and in trade's env, so a padded "on" starts the TEST venue
+// and points trade at it (never one without the other), and a bad value is refused by both.
+{
+  const { userVenueOn, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { userVenueSwitchOn } = await import('./local-test-venue.mjs');
+  const saved = process.env.LOCAL_STACK_USER_VENUE;
+  try {
+    for (const [raw, on, second] of [
+      [undefined, false, false],
+      ['', false, false],
+      [' off ', false, false],
+      ['on', true, false],
+      [' on ', true, false],
+      // J-derivatives-28: `two` is the first venue and the second TEST venue beside it.
+      ['two', true, true],
+    ]) {
+      if (raw === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+      else process.env.LOCAL_STACK_USER_VENUE = raw;
+      assert.equal(userVenueOn(), on, `stack: ${JSON.stringify(raw)}`);
+      const trade = localTestServiceEnvs().find((d) => d.name === 'trade').env;
+      assert.equal('TRADE_USER_VENUE_URL' in trade, on, `trade env: ${JSON.stringify(raw)}`);
+      assert.equal('TRADE_USER_VENUE_URLS' in trade, second, `trade env, second venue: ${JSON.stringify(raw)}`);
+      if (second) assert.match(trade.TRADE_USER_VENUE_URLS, /:14562$/);
+    }
+    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on or two/);
+  } finally {
+    if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+    else process.env.LOCAL_STACK_USER_VENUE = saved;
+  }
+  console.log('local-test-stack: LOCAL_STACK_USER_VENUE reads the same in the stack and in trade env');
+}
+
+// No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
+// every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
+{
+  const { CHAIN_PORTS } = await import('./local-test-chain.mjs');
+  const table = /const PORTS = \{([\s\S]*?)\n\};/.exec(source)?.[1] ?? '';
+  const stackPorts = [...table.matchAll(/'?[\w-]+'?: (\d{4,5}),/g)].map((m) => Number(m[1]));
+  assert.ok(stackPorts.length > 20, 'the stack port table was read');
+  const clash = stackPorts.filter((port) => Object.values(CHAIN_PORTS).includes(port));
+  assert.deepEqual(clash, [], `stack ports also used by the test chain: ${clash.join(', ')}`);
+  assert.equal(new Set(stackPorts).size, stackPorts.length, 'every stack port is used once');
+  console.log('local-test-stack: no stack port collides with the test chain or with another stack port');
 }

@@ -109,6 +109,8 @@ export async function sweepHead({
       step = recheckStep(runs, jobsByRun, event);
     }
     if (step.act === 'done') return step.msg.replace('read the steps', 'read the switch');
+    // A seal still waiting for its inputs holds no verdict to flip: it reads the switch when its last input's Start the seal job starts it.
+    if (step.act === 'start') return `no verdict yet (${step.msg}); it reads the switch when it gives one`;
     if (step.act === 'fail') throw new Error(step.msg);
     if (step.act === 'rerun') {
       // An older seal run on the same head (a reopen, a second push) is swept by the same rule (review 7552-R2).

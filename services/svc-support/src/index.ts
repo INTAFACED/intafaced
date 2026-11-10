@@ -1,11 +1,13 @@
 import postgres from 'postgres';
+import { createIdentityWithdrawalFreezeClient, WithdrawalFreezes } from './withdrawal-freeze.js';
+import { createPayOwnershipClient, SqlLinkBook, TicketLinks } from './ticket-links.js';
 import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
 import { officialChannelsFromEnv } from './official-channels.js';
 import { GuestRequests } from './guest-requests.js';
 import { createGuestVerificationClient } from './guest-verification-client.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createBankScamTransferClient, createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
@@ -260,6 +262,15 @@ const chat = new SupportChat(
   async () => (await contactBook.get()).chatHours,
 );
 const loop = createTicketKbLoopObserver();
+// A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay whose
+// a withdrawal or deposit is. An owner with no URL leaves its links refused as unverifiable.
+const links = new TicketLinks(
+  new SqlLinkBook(sql),
+  support,
+  env.TRADE_URL ? orders : null,
+  env.PAY_URL ? createPayOwnershipClient(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null,
+);
+support.useRecoveryLinks(() => links.recoveryTickets());
 const appRouter = createSupportRouter(
   support,
   loop,
@@ -281,9 +292,21 @@ const appRouter = createSupportRouter(
   new VerificationChecks(new SqlCheckBook(sql), support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
   officialChannelsFromEnv(env.SUPPORT_OFFICIAL_CHANNELS),
   // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
-  new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
+  new SafetyCases(
+    new SqlSafetyBook(sql),
+    support,
+    env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null,
+    undefined,
+    // A scam report's transfer is checked with svc-bank (J-bank-18 #3); unset BANK_URL leaves every report unchecked.
+    createBankScamTransferClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+    // The owner's money-mule policy (J-bank-18 #3); blank reads "not published".
+    env.SUPPORT_MULE_POLICY ?? null,
+  ),
   chat,
   routing,
+  // Withdrawal freezes (J-support-public-20 #7): svc-identity records each one.
+  new WithdrawalFreezes(support, createIdentityWithdrawalFreezeClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)),
+  links,
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
