@@ -1222,6 +1222,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
           // The ledger shows the debit; it does not report when the bridge paid out.
           status: 'pending',
           fee: typeof delta.fee === 'string' ? { known: true, value: parseAmount(delta.fee) } : { known: false },
+          // The ledger entry reports one fee and no separate network fee for the bridge's send: not known, never 0.
+          networkFee: { known: false },
         },
         typeof e.time === 'number' ? e.time : undefined,
       );

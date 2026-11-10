@@ -787,6 +787,8 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       destination: null,
       status: 'pending',
       fee: { known: true, value: a('1') },
+      // The venue reports one fee and no separate network fee: not known, never 0.
+      networkFee: { known: false },
     });
     expect((await venue.withdrawal(account, String(NOW + 1))).value).toBeNull();
   });
@@ -1089,6 +1091,8 @@ describe('review fixes: nonces, listing, symbols, paging, marks, destinations', 
     ];
     const w = (await venue.withdrawal(account, prepared.nonce)).value!;
     expect([w.asset, w.destination]).toEqual([PERP_COLLATERAL_ASSET, OWNER]);
+    // The venue reports no separate network fee for the bridge's send: not known, never 0.
+    expect(w.networkFee).toEqual({ known: false });
   });
 });
 
