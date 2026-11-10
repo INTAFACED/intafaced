@@ -56,7 +56,7 @@ INTAFACED launches holding no customer money: a person's currency accounts and s
 
 The partner deduplicates on the key, so a retry after a lost reply (`bank.partner_reply_lost`) is answered with the move it made, once. A locked or archived source refuses before any partner request. One side partner-held and the other not refuses `bank.partner_custody_mismatch`; Send, business transfers and the other doors that record a ledger transaction refuse `bank.partner_path_not_built` for a partner-held person until their partner path is built. On the TEST stack, `testPartner.fund` pays TEST money into the person's main balance at the partner.
 
-Outside the TEST partner, svc-bank follows the custody switch, `LEDGER_CUSTODY_LAYER` (the value svc-ledger reads, the same parser, unset is off): off, every customer-balance post is refused `bank.no_partner_bank` before svc-ledger is asked. The TEST stack pins it `on`, as it pins svc-ledger's.
+Outside the TEST partner, svc-bank follows the custody switch, `LEDGER_CUSTODY_LAYER` (the value svc-ledger reads, the same parser, unset is off): off, every customer-balance post is refused `bank.no_partner_bank` before svc-ledger is asked. `pnpm local:stack` gives it the value it gives svc-ledger: off, as at launch, unless started with `LOCAL_STACK_CUSTODY_LAYER=on` (the journeys marked `Later: custody`).
 
 ---
 

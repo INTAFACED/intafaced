@@ -256,7 +256,7 @@ const schema = serviceEnvSchema
        * balance and refuses `bank.no_partner_bank` by name before svc-ledger would refuse `ledger.custody_layer_off`, and a card
        * authorisation for a person whose money no partner holds refuses `bank.partner_unset`. A
        * person the TEST partner holds money for (`custody: 'off'`) is read and moved at the partner either way. The local
-       * TEST stack pins `on`, as it does for svc-ledger, so the custodial journeys marked Later still run.
+       * TEST stack gives it svc-ledger's value: off, as at launch, and on only for the journeys marked Later.
        */
       LEDGER_CUSTODY_LAYER: z
         .string()

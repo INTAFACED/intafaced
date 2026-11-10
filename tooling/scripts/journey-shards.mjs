@@ -25,14 +25,24 @@
 // never drop or repeat a journey; a plan that fails the check prints nothing and the workflow falls back to Playwright's
 // own split of every file.
 //
+// The custody switch (OWNER 226; project-state OWNER 288): the launch build runs `LEDGER_CUSTODY_LAYER` off, so every
+// launch journey runs on a stack with it off, and only the journeys marked `Later: custody` in their journey file (as
+// `docs/roadmap/journeys.json` records it, roadmap.mjs isLaterJourney) run on stacks with it on. A shard holds journeys
+// of one kind only (planCustodyShards); each shard reads its switch from its own files (`--custody`, custodyFor), which
+// refuses a mix. (Failure it prevents: every journey ran on a custody-on stack, so a launch step that works only while
+// INTAFACED holds customer money passed.)
+//
 // `--only` plans a targeted run: only the journey files it names (targetFiles), which must all exist. The workflow
 // passes it only for a manual run on a branch other than main (owner decision 2026-10-30).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isLaterJourney } from './roadmap.mjs';
 
 export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 export const JOURNEY_FILE = /\.pw\.mjs$/;
+// The journey list the roadmap builds from the journey files; it carries each journey's `Later: custody` mark.
+export const JOURNEY_INDEX = 'docs/roadmap/journeys.json';
 // The shard hands the names to Playwright's testMatch as globs, so a name must match only itself.
 const GLOB_CHARS = /[*?[\]{}()!+@\s\\]/;
 // A shard's journeys aim at the longest file's time less this, the spread of a shard's setup (7.6 minutes at the median,
@@ -214,6 +224,59 @@ export function planShards(files, durations, shards) {
   return bins.map((bin) => ({ ms: bin.ms, files: bin.files.sort() }));
 }
 
+/**
+ * The journey a file proves: the longest journey id its name is, or starts with before a `-` (J-ops-console-01-health
+ * proves J-ops-console-01). A file that names no journey (the look sweeps) proves none and runs as launch.
+ */
+export function journeyOf(file, ids) {
+  const base = path.basename(file).replace(JOURNEY_FILE, '');
+  let best = null;
+  for (const id of ids) if ((base === id || base.startsWith(`${id}-`)) && (!best || id.length > best.length)) best = id;
+  return best;
+}
+
+/** The files of journeys marked `Later: custody` (or whose every step is later), from the journey list. */
+export function laterFiles(files, journeys) {
+  const later = new Set(journeys.filter(isLaterJourney).map((j) => j.id));
+  const ids = journeys.map((j) => j.id);
+  return new Set(files.filter((f) => later.has(journeyOf(f, ids))));
+}
+
+/** The switch a shard's stack runs: `on` for Later journeys only, `off` for launch ones; a mix is refused. */
+export function custodyFor(files, later) {
+  if (!files.length) throw new Error('a shard with no journey file has no custody switch');
+  const on = files.filter((f) => later.has(f));
+  if (on.length === files.length) return 'on';
+  if (on.length === 0) return 'off';
+  throw new Error(`launch and Later: custody journeys in one shard (${on.join(' ')} are Later); plan them apart`);
+}
+
+/**
+ * planShards for each kind apart: launch journeys on custody-off shards, Later journeys on custody-on shards, about
+ * `shards` in all (at least one per kind present), split by each kind's share of the time so the shards still end together.
+ */
+export function planCustodyShards(files, durations, shards, later) {
+  const groups = [files.filter((f) => !later.has(f)), files.filter((f) => later.has(f))];
+  const ms = groups.map((g) => g.reduce((sum, f) => sum + (durations.get(f) > 0 ? durations.get(f) : 0), 0));
+  let counts;
+  if (!groups[1].length) counts = [shards, 0];
+  else if (!groups[0].length) counts = [0, shards];
+  else {
+    const total = Math.max(shards, 2);
+    const share = ms[0] + ms[1] > 0 ? ms[1] / (ms[0] + ms[1]) : groups[1].length / files.length;
+    const laterCount = Math.min(groups[1].length, total - 1, Math.max(1, Math.round(total * share)));
+    const launchCount = Math.min(groups[0].length, total - laterCount);
+    counts = [launchCount, Math.min(groups[1].length, total - launchCount)];
+  }
+  return groups.flatMap((g, i) =>
+    counts[i] ? planShards(g, durations, counts[i]).map((bin) => ({ ...bin, custody: i ? 'on' : 'off' })) : [],
+  );
+}
+
+function readJourneys() {
+  return JSON.parse(fs.readFileSync(JOURNEY_INDEX, 'utf8'));
+}
+
 function readReport(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -225,6 +288,13 @@ function readReport(file) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2);
+  // A shard's switch: `--custody "<its files>"` prints on or off, and fails on a mix or a name that is not a journey file.
+  if (argv.includes('--custody')) {
+    const all = journeyFiles(JOURNEY_DIR);
+    const files = targetFiles(argv[argv.indexOf('--custody') + 1], all);
+    process.stdout.write(custodyFor(files, laterFiles(all, readJourneys())));
+    process.exit(0);
+  }
   const asked = argv[argv.indexOf('--shards') + 1];
   const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null;
   const reports = argv.flatMap((a, i) => (argv[i - 1] === '--report' && fs.existsSync(a) ? [a] : []));
@@ -244,17 +314,20 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const floor = only === null ? MIN_SHARDS : 1;
   const target = shardTarget(durations);
   const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, target, floor)) : Number(asked);
-  const plan = planShards(files, durations, shards);
+  const later = laterFiles(files, readJourneys());
+  const plan = planCustodyShards(files, durations, shards, later);
   const problems = planCovers(plan, files);
   if (problems.length) {
     for (const p of problems) console.error(`::error::the shard plan does not run every journey file once: ${p}`);
     process.exit(1);
   }
   console.error(
-    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each`,
+    `journey-shards: ${files.length} files (${files.length - later.size} launch, ${later.size} Later: custody), about ${Math.round(totalMs / 60_000)} min in all, ${plan.length} shards aimed at about ${Math.round(target / 60_000)} min each`,
   );
   plan.forEach((bin, i) =>
-    console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
+    console.error(
+      `shard ${i + 1}: ${bin.files.length} files, custody ${bin.custody}, about ${Math.round(bin.ms / 60_000)} min by the last runs`,
+    ),
   );
   const longest = Math.max(...plan.map((bin) => bin.ms)) / 60_000;
   // Stderr, so the plan on stdout stays clean; the runner reads workflow commands from both.

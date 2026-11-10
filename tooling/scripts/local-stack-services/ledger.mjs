@@ -13,14 +13,27 @@ function outsideSnapshot() {
   throw new Error(`LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "${asked}"; leave it unset for no snapshot, or set it to unreachable.`);
 }
 
+/**
+ * The custody switch (OWNER 226) for this stack's svc-ledger and svc-bank, one value for both so they never disagree.
+ * Off unless `LOCAL_STACK_CUSTODY_LAYER=on` on a start or restart, as the launch build runs it
+ * (docs/adr/2026-11-10-launch-money-model.md). The Real-app journeys workflow sets it on only for a shard of journeys
+ * marked `Later: custody` (tooling/scripts/journey-shards.mjs, custodyFor), so every launch journey runs custody off.
+ */
+export function custodyLayer(env = process.env) {
+  const asked = env.LOCAL_STACK_CUSTODY_LAYER;
+  if (asked === undefined || asked === '' || asked === 'off') return 'off';
+  if (asked === 'on') return 'on';
+  throw new Error(`LOCAL_STACK_CUSTODY_LAYER is "${asked}"; leave it unset or off for the launch build, or set it to on.`);
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'ledger',
   env: () => ({
     ...c('svc-ledger', PORTS.ledger),
     DATABASE_URL: dbUrl('svc_ledger', secrets),
     LEDGER_POSTING_ENABLED: 'true',
-    // The TEST stack runs the custodial layer for the journeys marked Later (OWNER 226 keeps it built, switched off at launch).
-    LEDGER_CUSTODY_LAYER: 'on',
+    // Off as at launch; on only for the journeys marked Later (OWNER 226 keeps the custodial layer built).
+    LEDGER_CUSTODY_LAYER: custodyLayer(),
     // LOCAL TEST bound, not an owner decision: this process's clock may drift this far from the database's before a post
     // refuses, and a joint-restore cut-off must be this far past before the ledger fixes its position as of it.
     LEDGER_CLOCK_SKEW_BOUND_MS: '1000',

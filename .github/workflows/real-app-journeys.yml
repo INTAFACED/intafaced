@@ -628,6 +628,23 @@ jobs:
             ${{ runner.temp }}/stack-state/java-tools/maven.tgz
           key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
 
+      # The custody switch (OWNER 226, OWNER 288): the launch build runs LEDGER_CUSTODY_LAYER off, so this shard's stack
+      # does too, unless every journey file it runs is marked `Later: custody` (the plan never mixes the two kinds;
+      # tooling/scripts/journey-shards.mjs, custodyFor, refuses a mix). Every stack command after this one reads it.
+      - name: The custody switch for this shard's journeys
+        env:
+          SHARDS: ${{ needs.plan.outputs.shards }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          if [ -z "$SHARDS" ]; then
+            echo "::warning::no shard plan, so this shard runs custody off, as the launch build; a journey marked Later: custody in it can go red"
+            custody=off
+          else
+            custody=$(node tooling/scripts/journey-shards.mjs --custody "$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")")
+          fi
+          echo "custody layer: $custody"
+          echo "LOCAL_STACK_CUSTODY_LAYER=$custody" >> "$GITHUB_ENV"
+
       - name: Start the local test stack (TEST funds only)
         run: |
           df -h /

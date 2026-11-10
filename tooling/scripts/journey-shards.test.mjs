@@ -7,11 +7,16 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   JOURNEY_DIR,
+  JOURNEY_INDEX,
+  custodyFor,
   estimateDurations,
   fileDurations,
   journeyFiles,
+  journeyOf,
+  laterFiles,
   longestDurations,
   planCovers,
+  planCustodyShards,
   planShards,
   shardCount,
   shardTarget,
@@ -298,4 +303,75 @@ test('the planner as the workflow calls it prints shards that hold every real jo
   const printed = shards.flat().sort();
   assert.deepEqual(printed, journeyFiles(JOURNEY_DIR));
   assert.equal(new Set(printed).size, printed.length);
+});
+
+// The custody switch (OWNER 226, OWNER 288): launch journeys run custody off, as the launch build will; only the journeys
+// marked `Later: custody` run on custody-on stacks, and no shard holds both.
+const journeyList = [
+  { id: 'J-bank-01', steps: [{ n: 1 }] },
+  { id: 'J-wallet-05', later: 'custody', steps: [{ n: 1 }] },
+  { id: 'J-ops-console-01', steps: [{ n: 1 }] },
+  { id: 'J-p2p-02', steps: [{ n: 1, later: 'custody' }] },
+  { id: 'J-cex-spot-11', steps: [{ n: 1 }, { n: 9, later: 'custody' }] },
+];
+
+test('a file proves the longest journey id it names; a file naming none proves none', () => {
+  const ids = ['J-ops-console-01', 'J-ops-console-1', 'J-bank-01'];
+  assert.equal(journeyOf('J-ops-console-01-health.pw.mjs', ids), 'J-ops-console-01');
+  assert.equal(journeyOf('J-bank-01.pw.mjs', ids), 'J-bank-01');
+  assert.equal(journeyOf('J-bank-011.pw.mjs', ids), null);
+  assert.equal(journeyOf('look-sweep-390.pw.mjs', ids), null);
+});
+
+test('Later files come from the journey marks: Later: custody, or every step later; a later step alone is launch', () => {
+  const files = ['J-bank-01.pw.mjs', 'J-wallet-05.pw.mjs', 'J-p2p-02.pw.mjs', 'J-cex-spot-11.pw.mjs', 'look-sweep-390.pw.mjs'];
+  assert.deepEqual([...laterFiles(files, journeyList)].sort(), ['J-p2p-02.pw.mjs', 'J-wallet-05.pw.mjs']);
+});
+
+test('a shard runs custody on only when every file is Later, off when none is, and refuses a mix', () => {
+  const later = new Set(['J-wallet-05.pw.mjs', 'J-p2p-02.pw.mjs']);
+  assert.equal(custodyFor(['J-wallet-05.pw.mjs', 'J-p2p-02.pw.mjs'], later), 'on');
+  assert.equal(custodyFor(['J-bank-01.pw.mjs', 'look-sweep-390.pw.mjs'], later), 'off');
+  assert.throws(() => custodyFor(['J-bank-01.pw.mjs', 'J-wallet-05.pw.mjs'], later), /launch and Later: custody journeys in one shard/);
+  assert.throws(() => custodyFor([], later), /no journey file/);
+});
+
+test('the custody plan keeps the kinds apart, runs every file once, and splits the shards by time', () => {
+  const files = Array.from({ length: 40 }, (_, i) => `J-x-${String(i).padStart(2, '0')}.pw.mjs`);
+  const later = new Set(files.slice(0, 10));
+  const durations = new Map(files.map((f) => [f, 60_000]));
+  const plan = planCustodyShards(files, durations, 8, later);
+  assert.equal(plan.length, 8);
+  assert.deepEqual(planCovers(plan, files), []);
+  assert.deepEqual(
+    plan.map((bin) => bin.custody),
+    ['off', 'off', 'off', 'off', 'off', 'off', 'on', 'on'],
+  );
+  for (const bin of plan) assert.equal(custodyFor(bin.files, later), bin.custody);
+  // Only one kind: every shard is that kind. Both kinds and one shard asked: one shard each.
+  assert.deepEqual(new Set(planCustodyShards(files.slice(10), durations, 3, later).map((b) => b.custody)), new Set(['off']));
+  assert.deepEqual(new Set(planCustodyShards(files.slice(0, 10), durations, 3, later).map((b) => b.custody)), new Set(['on']));
+  assert.deepEqual(
+    planCustodyShards(files, durations, 1, later).map((b) => b.custody),
+    ['off', 'on'],
+  );
+});
+
+test('on the real journey list every launch journey runs custody off and every Later one custody on', () => {
+  const files = journeyFiles(JOURNEY_DIR);
+  const journeys = JSON.parse(fs.readFileSync(JOURNEY_INDEX, 'utf8'));
+  const later = laterFiles(files, journeys);
+  assert.ok(later.has('J-wallet-05.pw.mjs'), 'J-wallet-05 is marked Later: custody');
+  assert.ok(!later.has('J-bank-01.pw.mjs'), 'J-bank-01 is a launch journey');
+  assert.ok(later.size > 0 && later.size < files.length);
+  const out = execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  for (const shard of JSON.parse(out)) {
+    const custody = execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--custody', shard], { encoding: 'utf8' });
+    const names = shard.split(' ');
+    assert.equal(custody, names.every((f) => later.has(f)) ? 'on' : 'off');
+    assert.ok(names.every((f) => later.has(f)) || names.every((f) => !later.has(f)), `shard mixes kinds: ${shard}`);
+  }
 });

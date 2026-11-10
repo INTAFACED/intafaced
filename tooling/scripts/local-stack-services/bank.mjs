@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
+import { custodyLayer } from './ledger.mjs';
 
 /** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
 import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
@@ -287,11 +288,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
-    // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
-    // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
-    // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
+    // The custody switch as svc-bank reads it, the same value as svc-ledger's (ledger.mjs, custodyLayer): off as at launch,
+    // on only for the journeys marked Later. A journey puts its own person's money at the TEST partner with
+    // `testPartner.set({ custody: 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
     // partner-held (OWNER 226).
-    LEDGER_CUSTODY_LAYER: 'on',
+    LEDGER_CUSTODY_LAYER: custodyLayer(),
     // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
     // through the pay-in stand-in below.

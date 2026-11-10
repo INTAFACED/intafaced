@@ -436,6 +436,41 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank carries the LOCAL TEST destination sanctions list');
 }
 
+// The custody switch (OWNER 226, OWNER 288): svc-ledger and svc-bank run it off, as the launch build does, unless the
+// stack is started with LOCAL_STACK_CUSTODY_LAYER=on (the Real-app journeys shards of journeys marked Later: custody).
+// The two always carry the same value, and any other value refuses to start the stack.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const before = process.env.LOCAL_STACK_CUSTODY_LAYER;
+  const switches = () =>
+    localTestServiceEnvs()
+      .filter((service) => service.name === 'ledger' || service.name === 'bank')
+      .map((service) => [service.name, service.env.LEDGER_CUSTODY_LAYER]);
+  try {
+    delete process.env.LOCAL_STACK_CUSTODY_LAYER;
+    assert.deepEqual(switches().sort(), [
+      ['bank', 'off'],
+      ['ledger', 'off'],
+    ]);
+    process.env.LOCAL_STACK_CUSTODY_LAYER = 'off';
+    assert.deepEqual(switches().sort(), [
+      ['bank', 'off'],
+      ['ledger', 'off'],
+    ]);
+    process.env.LOCAL_STACK_CUSTODY_LAYER = 'on';
+    assert.deepEqual(switches().sort(), [
+      ['bank', 'on'],
+      ['ledger', 'on'],
+    ]);
+    process.env.LOCAL_STACK_CUSTODY_LAYER = 'ON';
+    assert.throws(switches, /LOCAL_STACK_CUSTODY_LAYER is "ON"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_CUSTODY_LAYER;
+    else process.env.LOCAL_STACK_CUSTODY_LAYER = before;
+  }
+  console.log('local-test-stack: the custody switch is off unless the stack is started for Later journeys');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
