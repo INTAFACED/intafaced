@@ -569,7 +569,23 @@ function startProc(name, argv, env, cwd, extra = {}) {
     ...extra,
   };
   writeProcs(procs);
+  if (env.LEDGER_CUSTODY_LAYER !== undefined) recordCustodyStart(name, env.LEDGER_CUSTODY_LAYER);
   return child.pid;
+}
+
+/**
+ * Every start of a process given the custody switch (svc-ledger, svc-bank and their second workers), one JSON line each,
+ * so tooling/scripts/journey-custody.mjs check can show which value each start ran with, restarts during the journeys
+ * included. Kept beside processes.json; a fresh state starts it empty.
+ */
+export const CUSTODY_STARTS = 'custody-starts.jsonl';
+function recordCustodyStart(name, custodyLayer) {
+  fs.mkdirSync(P.run, { recursive: true, mode: 0o700 });
+  fs.appendFileSync(
+    path.join(P.run, CUSTODY_STARTS),
+    `${JSON.stringify({ service: name, custodyLayer, at: new Date().toISOString() })}\n`,
+    { mode: 0o600 },
+  );
 }
 
 async function stopProc(name, rec) {

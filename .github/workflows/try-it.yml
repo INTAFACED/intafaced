@@ -40,6 +40,9 @@ jobs:
     env:
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+      # The stack's custody switch is off unless asked (tooling/scripts/local-test-custody.mjs); this demo keeps
+      # the custodial layer on, as it ran before that default, so its TEST market maker and TEST deposits still work.
+      LEDGER_CUSTODY_LAYER: 'on'
     steps:
       - name: Paths and end time
         env:

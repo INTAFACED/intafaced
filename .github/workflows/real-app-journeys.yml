@@ -76,6 +76,7 @@ on:
       - 'tooling/scripts/local-infra-bootstrap.sh'
       - 'tooling/scripts/roadmap.mjs'
       - 'tooling/scripts/journey-shards*.mjs'
+      - 'tooling/scripts/journey-custody*.mjs'
       - 'tooling/scripts/journey-fail-fast.mjs'
       - 'docs/runbooks/journey-baseline.json'
       - '.github/workflows/real-app-journeys.yml'
@@ -511,6 +512,24 @@ jobs:
           echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
           echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob" >> "$GITHUB_ENV"
 
+      # The custody switch this shard's stack runs svc-ledger and svc-bank with (OWNER 226, 288): on for a shard of
+      # journeys marked `Later: custody`, the custodial layer's own proof, and off, the launch build, for every other
+      # shard. The planner never mixes the two in one shard (tooling/scripts/journey-custody.mjs, journey-shards.mjs).
+      # Without a plan the shard runs off, and the custody check below fails it if a Later file ran there.
+      - name: Custody switch for this shard's journeys
+        env:
+          SHARDS: ${{ needs.plan.outputs.shards }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          if [ -z "$SHARDS" ]; then
+            custody=off
+            echo "::warning::no shard plan, so this shard runs with custody off; a Later: custody file in it fails the custody check"
+          else
+            custody=$(node tooling/scripts/journey-custody.mjs mode "$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")")
+          fi
+          echo "LEDGER_CUSTODY_LAYER=$custody" >> "$GITHUB_ENV"
+          echo "::notice::this shard's stack runs with LEDGER_CUSTODY_LAYER=$custody"
+
       # Edge refuses every money read without a screening list (edge.screening_unset), and the stack never invents one.
       # The runner takes the owner's labelled TEST placeholder from two repository secrets, never from this file.
       - name: Screening placeholder is set
@@ -641,7 +660,13 @@ jobs:
       # docs/LOCAL-TEST-STACK.md, "Chart history"), and it only writes on a market with no trades yet. It exits non-zero
       # when any market comes up short, and that fails this step on purpose: chart journeys on a partial history would
       # fail later for a reason the log no longer shows.
+      #
+      # With custody off the TEST market maker's funding is a customer-balance deposit, which the launch ledger refuses
+      # (ledger.custody_layer_off), so on a custody-off shard these three steps may fail. They then say so and the
+      # journeys still run: each step that needs the TEST market or content fails on its own, by name, in the verdict.
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
+        id: markets
+        continue-on-error: ${{ env.LEDGER_CUSTODY_LAYER == 'off' }}
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching
           node tooling/scripts/local-test-gates.mjs apply
@@ -659,9 +684,13 @@ jobs:
       # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates
       # published the limits they need (docs/LOCAL-TEST-STACK.md, "Local test content"). Production stays blank.
       - name: Load the TEST content
+        id: content
+        continue-on-error: ${{ env.LEDGER_CUSTODY_LAYER == 'off' }}
         run: LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
 
       - name: Wait for the first BTC/USDT trade
+        id: first-trade
+        continue-on-error: ${{ env.LEDGER_CUSTODY_LAYER == 'off' }}
         run: |
           for _ in $(seq 1 60); do
             grep -q 'BTC/USDT crossing trade by test_taker: .* -> HTTP 201' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && exit 0
@@ -670,6 +699,12 @@ jobs:
           echo "::error::no BTC/USDT trade from the TEST market maker within 5 minutes"
           tail -40 "$LOCAL_STACK_STATE/logs/market.log"
           exit 1
+
+      - name: TEST market setup on a custody-off stack
+        if: steps.markets.outcome == 'failure' || steps.content.outcome == 'failure' || steps.first-trade.outcome == 'failure'
+        run: |
+          echo "::warning::custody off: TEST market setup failed (markets ${{ steps.markets.outcome }}, content ${{ steps.content.outcome }}, first trade ${{ steps.first-trade.outcome }}); the journeys that need it fail on their own"
+          tail -40 "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null || true
 
       # No traces: they would carry the run's TEST session and password into a public artifact. Screenshots stay.
       # The plan's files for this shard, or Playwright's own split when the plan is missing.
@@ -725,6 +760,19 @@ jobs:
       - name: No Content-Security-Policy violation (the production policy)
         if: success() || failure()
         run: node tooling/scripts/local-test-stack.mjs csp-report --fail
+
+      # Every start of svc-ledger and svc-bank in this shard, restarts during the journeys included, ran the custody value
+      # its journey files need (tooling/scripts/journey-custody.mjs check): a launch file on a custody-on stack, or a
+      # Later: custody file on a custody-off one, fails the shard, so the run's verdict is red.
+      - name: Every ledger and bank start ran this shard's custody value
+        if: success() || failure()
+        env:
+          SHARDS: ${{ needs.plan.outputs.shards }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          files=""
+          [ -n "$SHARDS" ] && files=$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")
+          node tooling/scripts/journey-custody.mjs check --state "$LOCAL_STACK_STATE" --files "$files" --report "$JOURNEY_REPORT"
 
       # The shard's blob (merged by the scoreboard job) and its failure screenshots; the run's TEST account files stay
       # on the runner.
@@ -819,6 +867,9 @@ jobs:
           fi
           if [ -f "$report" ]; then
             node tooling/scripts/roadmap.mjs --progress --results "$report" >> "$GITHUB_STEP_SUMMARY"
+            # Steps by the custody switch their shard ran (each shard's custody check holds that it did).
+            node tooling/scripts/journey-custody.mjs count --report "$report" |
+              jq -r '"**Custody:** \(.launchOff) launch steps ran with custody off; \(.laterOn) steps of Later: custody journeys ran with it on; \(.laterStepsOff) later steps inside launch journeys ran off with their file."' >> "$GITHUB_STEP_SUMMARY" || true
             missing=$((SHARD_COUNT - $(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)))
             if [ "$missing" -gt 0 ]; then
               echo "Note: $missing of $SHARD_COUNT shards sent no report (their stack or browser did not start); their journeys count as not passing." >> "$GITHUB_STEP_SUMMARY"

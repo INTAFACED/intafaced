@@ -25,11 +25,16 @@
 // never drop or repeat a journey; a plan that fails the check prints nothing and the workflow falls back to Playwright's
 // own split of every file.
 //
+// Each shard runs one custody value (tooling/scripts/journey-custody.mjs): the files of journeys marked `Later: custody`
+// get shards of their own, which start the stack with custody on; every other file runs on a custody-off stack, the
+// launch build (planByCustody). The shards are shared out between the two by their time, each side at least one.
+//
 // `--only` plans a targeted run: only the journey files it names (targetFiles), which must all exist. The workflow
 // passes it only for a manual run on a branch other than main (owner decision 2026-10-30).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { JOURNEYS_JSON, custodyOf, partitionByCustody } from './journey-custody.mjs';
 
 export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 export const JOURNEY_FILE = /\.pw\.mjs$/;
@@ -190,6 +195,36 @@ export function planCovers(plan, files) {
   return problems;
 }
 
+/**
+ * A plan where no shard mixes custody values: the shards shared out between the custody-on and custody-off files by
+ * their expected time (each side that has files gets at least one, and never more than its files), and each side
+ * planned by planShards. A side's shards keep its custody as `custody`. With only one side it is planShards'. When
+ * both sides are present and `shards` is 1, the plan takes 2: one stack cannot run both.
+ */
+export function planByCustody(files, durations, shards, journeys) {
+  const sides = partitionByCustody(files, journeys);
+  const present = ['on', 'off'].filter((k) => sides[k].length);
+  if (present.length < 2) return planShards(files, durations, shards).map((bin) => ({ ...bin, custody: present[0] ?? 'off' }));
+  const ms = (list) => list.reduce((a, f) => a + Math.max(1, durations.get(f) ?? 0), 0);
+  const total = Math.max(2, shards);
+  let on = Math.round((total * ms(sides.on)) / (ms(sides.on) + ms(sides.off)));
+  on = Math.min(sides.on.length, Math.max(1, Math.min(total - 1, on)));
+  const off = Math.min(sides.off.length, total - on);
+  return [
+    ...planShards(sides.on, durations, on).map((bin) => ({ ...bin, custody: 'on' })),
+    ...planShards(sides.off, durations, off).map((bin) => ({ ...bin, custody: 'off' })),
+  ];
+}
+
+/** Shards whose files need both custody values (journey-custody.mjs custodyOf); an empty list means none. */
+export function planMixesCustody(plan, journeys) {
+  const out = [];
+  plan.forEach((bin, i) => {
+    if (new Set(bin.files.map((f) => custodyOf(f, journeys))).size > 1) out.push(`shard ${i + 1} mixes custody-on and custody-off files`);
+  });
+  return out;
+}
+
 /** How many shards keep each one's journeys near `targetMs`, between `min` and `max`. */
 export function shardCount(totalMs, targetMs, min = MIN_SHARDS, max = MAX_SHARDS) {
   return Math.min(max, Math.max(min, Math.ceil(totalMs / targetMs)));
@@ -272,17 +307,20 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       : only === null
         ? Math.min(files.length, shardCount(totalMs, target))
         : targetedShards(files, durations, target);
-  const plan = planShards(files, durations, shards);
-  const problems = planCovers(plan, files);
+  const journeys = JSON.parse(fs.readFileSync(JOURNEYS_JSON, 'utf8'));
+  const plan = planByCustody(files, durations, shards, journeys);
+  const problems = [...planCovers(plan, files), ...planMixesCustody(plan, journeys)];
   if (problems.length) {
-    for (const p of problems) console.error(`::error::the shard plan does not run every journey file once: ${p}`);
+    for (const p of problems) console.error(`::error::the shard plan does not run every journey file once on one custody value: ${p}`);
     process.exit(1);
   }
   console.error(
     `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only !== null ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit)` : ''}`,
   );
   plan.forEach((bin, i) =>
-    console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
+    console.error(
+      `shard ${i + 1}: ${bin.files.length} files, custody ${bin.custody}, about ${Math.round(bin.ms / 60_000)} min by the last runs`,
+    ),
   );
   const longest = Math.max(...plan.map((bin) => bin.ms)) / 60_000;
   // Stderr, so the plan on stdout stays clean; the runner reads workflow commands from both.

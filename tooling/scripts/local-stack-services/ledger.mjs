@@ -1,4 +1,5 @@
 import { STATEMENT_RAILS, railStatementEnv } from '../local-test-rail-statements.mjs';
+import { stackCustodyLayer } from '../local-test-custody.mjs';
 
 /**
  * The outside-balance snapshot svc-ledger reads (LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, an owner value). Unset by default, so an
@@ -19,8 +20,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...c('svc-ledger', PORTS.ledger),
     DATABASE_URL: dbUrl('svc_ledger', secrets),
     LEDGER_POSTING_ENABLED: 'true',
-    // The TEST stack runs the custodial layer for the journeys marked Later (OWNER 226 keeps it built, switched off at launch).
-    LEDGER_CUSTODY_LAYER: 'on',
+    // Off, the launch build, unless this start asks for on (tooling/scripts/local-test-custody.mjs): Real-app journeys
+    // runs the journeys marked `Later: custody` on stacks of their own with it on, and every launch step with it off
+    // (OWNER 226, 288).
+    LEDGER_CUSTODY_LAYER: stackCustodyLayer(),
     // LOCAL TEST bound, not an owner decision: this process's clock may drift this far from the database's before a post
     // refuses, and a joint-restore cut-off must be this far past before the ledger fixes its position as of it.
     LEDGER_CLOCK_SKEW_BOUND_MS: '1000',
