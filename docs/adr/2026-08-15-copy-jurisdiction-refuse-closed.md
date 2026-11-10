@@ -1,5 +1,7 @@
 # ADR: copy geo stays refuse-closed until counsel supplies the list (D26-P0-15)
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about the copy fee share paid through a customer balance on our ledger applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-15.** Seals **D26-P0-15** as **refuse-closed in all regions** until a **counsel-supplied** served-jurisdiction list exists. Supersedes the 2026-08-14 “owner published allowlist” note on [`2026-08-12-copy-jurisdiction-refuse-closed.md`](2026-08-12-copy-jurisdiction-refuse-closed.md). That earlier ADR’s **mechanism** (blank law refuses; no source default) still holds. The 2026-08-14 example array is **not** counsel law.
 **Decision owner (list content):** Nitro + counsel — Class X (`CLASS-X-SANCTIONS`). Engineers never draft the list.
 **Shape owner (this document):** Denon.
