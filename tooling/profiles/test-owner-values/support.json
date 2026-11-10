@@ -61,6 +61,11 @@
       "value": "14",
       "note": "A complaint's final-response limit in calendar days, so J-bank-18 #5 can show a deadline. Not an owner decision; blank, every deadline reads not set."
     },
+    "SUPPORT_MULE_POLICY": {
+      "service": "support",
+      "value": "TEST wording, not the owner's: receiving money into your account and passing it on for someone else is money laundering, even when they offer to pay you or say it is a job. If you think an account is being used this way, report it to us.",
+      "note": "A TEST money-mule policy, so J-bank-18 #3 can show the policy page with words on it. LOCAL_STACK_SUPPORT_MULE_POLICY=off on a restart leaves it blank (not published). Not an owner decision."
+    },
     "SUPPORT_FRAUD_GROUP": {
       "service": "support",
       "value": "TEST Compliance",

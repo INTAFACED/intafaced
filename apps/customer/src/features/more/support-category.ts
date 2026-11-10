@@ -10,6 +10,7 @@ const CATEGORY_KEYS = {
   other: 'support.category.other',
   complaint: 'support.category.complaint',
   bereavement: 'support.category.bereavement',
+  scam: 'support.category.scam',
 } as const;
 export const categoryLabel = (value: string): string =>
   value in CATEGORY_KEYS ? copyText(CATEGORY_KEYS[value as keyof typeof CATEGORY_KEYS]) : value;

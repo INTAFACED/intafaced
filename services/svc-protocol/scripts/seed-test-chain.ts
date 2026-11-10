@@ -201,6 +201,7 @@ async function seed(out: string) {
       factory: Address;
       oracle?: Address;
       claimEscrow?: Address;
+      liquidityRouter?: Address;
       tokens: typeof TEST_TOKENS;
       accountFactory?: Address;
     };
@@ -228,6 +229,10 @@ async function seed(out: string) {
         const v2 = await seedRouterV2Parts(clients(), record.factory);
         writeFileSync(out, `${JSON.stringify({ ...current, tokens: TEST_TOKENS, ...v2 }, null, 2)}\n`);
       }
+      // A chain seeded before the liquidity v2 contracts has a v1 factory, whose pools' shares cannot be moved, so no
+      // liquidity router is added to it: the liquidity rooms refuse protocol.liquidity_router_unset until it is reseeded.
+      if (!record.liquidityRouter)
+        console.log('this TEST chain predates the liquidity contracts: stop the chain and start it again to reseed it');
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
       return;
@@ -257,10 +262,12 @@ async function seed(out: string) {
   await publicClient.request({ method: 'anvil_setCode', params: [TEST_CONTRACT, '0x00'] } as never);
 
   // Factory and router: deterministic by the deployer's nonce on a fresh node; the pools by CREATE2 from the factory.
-  const factory = await deploy('PoolFactory');
+  // The factory is the liquidity v2 one (D-liquidity-01, J-dex-protocol-12): its pools keep the v1 pool's swap, mint,
+  // burn and event signatures, so every swap journey reads them as before, and their shares are ERC-20 tokens.
+  const factory = await deploy('LiquidityFactory');
   const router = await deploy('SovereignRouter');
-  const factoryAbi = artifact('PoolFactory').abi;
-  const poolAbi = artifact('ConstantProductPool').abi;
+  const factoryAbi = artifact('LiquidityFactory').abi;
+  const poolAbi = artifact('LiquidityPool').abi;
   const { A, B, THIN, USD, EUR } = TEST_TOKENS;
   const pools = [
     // Two A/B pools, one better: deeper reserves and the lower fee win any quote.
@@ -357,6 +364,8 @@ async function seed(out: string) {
 
   const claimEscrow = await seedClaimLinkParts(all);
   const v2 = await seedRouterV2Parts(all, factory);
+  // Last, so every address seeded before it stays where it was.
+  const liquidityRouter = await deploy('LiquidityRouter', [factory]);
 
   const record = {
     node: version,
@@ -374,6 +383,7 @@ async function seed(out: string) {
     claimEscrow,
     claimExpiryBounds: TEST_CLAIM_EXPIRY_BOUNDS,
     ...v2,
+    liquidityRouter,
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);
@@ -591,10 +601,27 @@ async function fundStable(address: Address) {
   console.log(`funded ${address}: ${STABLE_ONLY_FUNDING} ${TEST_TOKENS.USD.name} only, no TEST ETH`);
 }
 
+/** What `fund <address> venue` gives (J-wallet-09 #3): TEST ETH for gas and TEST USD to deposit into the TEST venue. */
+const VENUE_FUNDING = '100';
+async function fundVenue(address: Address) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  await publicClient.request({ method: 'anvil_setBalance', params: [address, toHex(parseUnits('10', 18))] } as never);
+  const hash = await walletClient.writeContract({
+    address: TEST_TOKENS.USD.address,
+    abi: artifact('TestToken').abi,
+    functionName: 'mint',
+    args: [address, parseUnits(VENUE_FUNDING, TEST_TOKENS.USD.decimals)],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`funded ${address}: 10 TEST ETH, ${VENUE_FUNDING} ${TEST_TOKENS.USD.name}`);
+}
+
 const [command, arg, kind] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
+else if (command === 'fund' && arg && kind === 'venue') await fundVenue(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'plain') await fundPlain(getAddress(arg));
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|plain]');
+else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|venue|plain]');
