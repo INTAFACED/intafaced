@@ -268,6 +268,7 @@ export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, g
       // One wrapper per partner, so two sides of one move still compare as the same partner.
       wrapped = Object.freeze({
         label: bank.label,
+        staleAfterMs: bank.staleAfterMs,
         balance: (account: PartnerAccountRef) => bank.balance(account),
         balances: (userId: string) => bank.balances(userId),
         moveByKey: (key: string) => bank.moveByKey(key),

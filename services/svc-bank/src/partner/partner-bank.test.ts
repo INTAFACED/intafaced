@@ -16,6 +16,7 @@ import {
   type PartnerAccountRef,
 } from './partner-bank.js';
 import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, testPartnerCustody } from './test-partner.js';
+import { stopGuardedCustody } from './partner-stops.js';
 
 const ADA = 'ada-0001';
 const BOB = 'bob-0002';
@@ -180,6 +181,11 @@ describe("the partner's displayed figure (b2 change 6)", () => {
     partner.set(ADA, { custody: 'off' });
     const wrapped = freezeGuardedCustody(testPartnerCustody(partner), { postingEnabled: async () => true }).bankFor(ADA)!;
     expect(wrapped.staleAfterMs).toBe(TEST_PARTNER_STALE_AFTER_MS);
+    // The operator's partner stop wraps it again, and keeps the partner's declared limit too.
+    const stopped = stopGuardedCustody(freezeGuardedCustody(testPartnerCustody(partner), { postingEnabled: async () => true }), 'test', {
+      assertOpen: async () => undefined,
+    }).bankFor(ADA)!;
+    expect(stopped.staleAfterMs).toBe(TEST_PARTNER_STALE_AFTER_MS);
   });
 
   it("live: known, with the partner's own time and its figure as a decimal string", async () => {
