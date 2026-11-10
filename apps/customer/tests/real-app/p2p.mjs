@@ -453,6 +453,44 @@ async function operatorMethodChange(proc, actionType, fields, input) {
 export const RETIRING_METHOD = 'test-retiring-transfer';
 
 /**
+ * The founder pair approves `userId` into the P2P merchant programme (`merchants.decide`, to `approved`): A proposes,
+ * B approves, A decides as a compliance operator. Returns the merchant record.
+ */
+export async function approveMerchant(userId, reason) {
+  const { ctx, pair } = await operators();
+  const actionType = 'p2p.merchants_decide';
+  const payloadHash = p2pActionHash(actionType, { userId, to: 'approved', reason });
+  const proposal = {
+    actionType,
+    targetService: 'svc-p2p',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion: gates.MARKERS.policyVersion,
+  };
+  const proposed = await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, await pair.a.approvalToken());
+  const ids = proposed.json?.result?.data;
+  if (!ids?.approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${proposed.text.slice(0, 300)}`);
+  const approved = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId: ids.approvalId, expectedPayloadHash: payloadHash },
+    await pair.b.approvalToken(),
+  );
+  if (approved.json?.result?.data?.status !== 'APPROVED')
+    throw new Error(`actionApproval.approve refused (${approved.status}): ${approved.text.slice(0, 300)}`);
+  const res = await ctx.edge.mutate(
+    'p2p',
+    'merchants.decide',
+    { userId, to: 'approved', reason, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.complianceToken(),
+  );
+  const row = res.json?.result?.data;
+  if (!row) throw new Error(`p2p merchants.decide refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return row;
+}
+
+/**
  * Registers a LOCAL TEST method switched on under `methodId`, the same TEST bank transfer as the shared one (DE, account
  * holder in the person's own name, IBAN), with an optional settlement profile. Registering again brings it back from an
  * earlier run's retirement. A journey that retires a method registers its own, so no other journey loses it.

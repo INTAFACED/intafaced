@@ -3,7 +3,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
-import { api, tool } from './stack.mjs';
+import { api, fund, restartWith, tool } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
@@ -182,6 +182,25 @@ test(`${J} #2 a filter by field saves as a view and is shared: list and count ag
   await expect(agent.getByRole('row').filter({ hasText: `TEST filter trading ${RUN}` })).toHaveCount(1);
   await expect(agent.getByRole('button', { name: 'Save view' })).toHaveCount(0);
   await agent.context().close();
+  // Not editable by the other agent: a change or a delete of the lead's shared view is refused by name, and it stays.
+  const view = (await desk('agent', 'query', 'viewsList')).find((v) => v.name === `TEST trading ${RUN}`);
+  expect(view, 'the agent reads the shared view').toBeTruthy();
+  expect(view.shared).toBe(true);
+  expect(
+    await refusedWith('agent', 'mutation', 'viewsSave', {
+      viewId: view.id,
+      name: `TEST trading ${RUN} changed`,
+      expectedRevision: view.revision,
+      shared: true,
+      filter: view.filter,
+      reason: `TEST ${J} edit by another agent`,
+    }),
+  ).toBe('support.view_not_owner');
+  expect(await refusedWith('agent', 'mutation', 'viewsDelete', { viewId: view.id, reason: `TEST ${J} delete by another agent` })).toBe(
+    'support.view_not_owner',
+  );
+  const still = (await desk('lead', 'query', 'viewsList')).find((v) => v.id === view.id);
+  expect(still).toMatchObject({ name: `TEST trading ${RUN}`, revision: view.revision });
 
   // A field the queue does not have is refused by name, and the list stays as it was.
   await page.goto(`${ADMIN}/support`);
@@ -191,6 +210,24 @@ test(`${J} #2 a filter by field saves as a view and is shared: list and count ag
   // Scoped to the page body: Next's route announcer is a second, empty alert outside it.
   await expect(page.getByRole('main').getByRole('alert')).toContainText('nosuchfield');
   await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' })).toHaveCount(before);
+
+  // With the owner's view cap blank, saving a view refuses and names the setting; nothing is saved.
+  restartWith('support', 'LOCAL_STACK_SUPPORT_VIEW_CAP', false);
+  try {
+    const name = `TEST capless ${RUN}`;
+    const refused = await asDesk('lead', 'mutation', 'viewsSave', {
+      name,
+      expectedRevision: 0,
+      shared: false,
+      filter: { field: 'category', op: 'eq', value: 'trading' },
+      reason: `TEST ${J} blank cap`,
+    });
+    expect(refused.json?.result?.data).toBeUndefined();
+    expect(refused.json?.error?.message).toBe('support.view_cap_unset');
+    expect((await desk('lead', 'query', 'viewsList')).some((v) => v.name === name)).toBe(false);
+  } finally {
+    restartWith('support', 'LOCAL_STACK_SUPPORT_VIEW_CAP', true);
+  }
 });
 
 test(`${J} #3 searching a word in a subject lists only requests this agent may see`, async ({ page }) => {
@@ -256,6 +293,44 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
   await expect(card.getByTestId('customer-account-state')).toHaveText(read.state.status);
   // The request names no order, so the related order is "none".
   await expect(card.getByTestId('customer-related-order')).toHaveText('none');
+
+  // A request about one of the customer's own orders shows that order on the card. The customer rests a TEST buy far
+  // under the market (it never fills) and asks about it.
+  expect(fund(customer.email, 'USDT', '20').tx).toBeTruthy();
+  const placed = await (
+    await api(customer)
+  ).post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    side: 'buy',
+    type: 'limit',
+    price: '1000',
+    qty: '0.001',
+    timeInForce: 'GTC',
+    clientOrderId: `${J}-${RUN}-card`,
+  });
+  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
+  const orderId = placed.body.orderId ?? placed.body.id;
+  expect(orderId, 'the order has an id').toBeTruthy();
+  const res = await (
+    await api(customer)
+  ).post('/api/support/trpc/create', {
+    category: 'trading',
+    subject: `TEST card order ${RUN}`,
+    body: `TEST ${J} request about my order`,
+    orderId,
+    clientRequestId: `${J}:${RUN}:card-order`,
+  });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  const withOrder = res.body.result.data;
+  await page.goto(`${ADMIN}/support`);
+  const orderCard = (await openRequest(page, page.getByRole('region', { name: 'Support queue' }), withOrder)).getByRole('region', {
+    name: 'Customer',
+    exact: true,
+  });
+  await expect(orderCard.getByTestId('customer-related-order')).toContainText(orderId);
+  await page.goto(`${ADMIN}/support`);
+  const back = await openRequest(page, page.getByRole('region', { name: 'Support queue' }), ticket);
+  await cardRead(back);
 
   // With identity unreachable the card says "unread", never "active".
   test.setTimeout(240_000);
