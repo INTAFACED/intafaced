@@ -9,6 +9,8 @@ import {
   ScreeningMoneyPostureError,
   envScreeningList,
   evaluateScreeningMoneyPosture,
+  isSubdivisionCode,
+  regionCodeChain,
   screeningMoneyGrade,
   type BlockAuthority,
   type ScreenedRegion,
@@ -103,7 +105,10 @@ export interface JurisdictionRule {
   readonly reviewedAt?: string;
 }
 
-/** ISO-3166 alpha-2, or `*` for the default rule. */
+/**
+ * ISO 3166-1 alpha-2 (`US`), an ISO 3166-2 subdivision (`CA-ON`), or `*` for the default rule. A subdivision row
+ * applies to that subdivision only; a country row applies to the country and every subdivision in it.
+ */
 export type RegionCode = string;
 
 export interface JurisdictionEntry {
@@ -218,12 +223,29 @@ export const JURISDICTION_MATRIX: readonly JurisdictionEntry[] = [
       },
     },
   },
-  // The US is not served at launch, on every module and plane, the same per-country switch a sanctioned region uses
-  // (OWNER 237, 8 Nov 2026). A business block, not a sanctions one: it never satisfies the screening guard.
+  // The launch default for blocked places is Hyperliquid's own restricted list (OWNER 258 (1)). Its terms
+  // (https://app.hyperliquid.xyz/terms, "Last updated on June 15, 2026", read 9 Nov 2026), clause 1.6: "Restricted
+  // Persons include: (a) persons or entities who reside in, are located in, are incorporated in, or have a registered
+  // office in the United States of America or Ontario, Canada; (b) ... jurisdictions subject to applicable economic
+  // and trade sanctions or export control laws and regulations (collectively, "Restricted Territories"); and (c)
+  // citizens of Restricted Territories, regardless of their location."
+  //
+  // (a) is the two business blocks below, on the per-country switch, which takes ISO 3166-2 subdivision rows so a
+  // region can be blocked without its country. (b) and (c) are the counsel-set screening list
+  // (`INTAFACED_SANCTIONS_REGIONS`, screening.ts), never this file: residence there refuses through `checkAccess`,
+  // citizenship through `checkCitizenship`. A business block never satisfies the screening guard.
+  //
+  // The US is not served at launch, on every module and plane (OWNER 237, 8 Nov 2026).
   {
     region: 'US',
     blocked: true,
     reason: 'The United States is not served at launch.',
+  },
+  // Ontario is not served at launch; the rest of Canada is (clause 1.6 (a), OWNER 258 (1)).
+  {
+    region: 'CA-ON',
+    blocked: true,
+    reason: 'Ontario, Canada is not served at launch.',
   },
 ];
 
@@ -373,7 +395,12 @@ export function businessBlockFor(
   if (!businessLookupCache || businessLookupCache.blocks !== business) {
     businessLookupCache = { blocks: business, byRegion: new Map(business.map((b) => [b.region, b])) };
   }
-  return businessLookupCache.byRegion.get(code);
+  const byRegion = businessLookupCache.byRegion;
+  for (const c of regionCodeChain(code)) {
+    const hit = byRegion.get(c);
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 /**
@@ -413,7 +440,32 @@ function screenedRegion(list: ScreeningList, region: RegionCode): ScreenedRegion
   if (!lookupCache || lookupCache.list !== list) {
     lookupCache = { list, byRegion: new Map(list.regions.map((r) => [r.region, r])) };
   }
-  return lookupCache.byRegion.get(code);
+  const byRegion = lookupCache.byRegion;
+  for (const c of regionCodeChain(code)) {
+    const hit = byRegion.get(c);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/**
+ * Does either authority hold a SUBDIVISION row inside this country (`CA-ON` for `CA`)?
+ *
+ * Then the country alone cannot say whether a person is served: Ontario is refused and Quebec is not. A caller that
+ * knows only the country must ask for the subdivision rather than let the bare country pass (sign-up does). It names
+ * no region, so a caller can say "choose your province" without printing the screening list.
+ */
+export function hasSubdivisionRows(
+  country: RegionCode,
+  screening: ScreeningList = activeScreeningList(),
+  business: readonly BusinessBlock[] = activeBusinessBlocks(),
+): boolean {
+  const prefix = `${canonicalRegion(country)}-`;
+  if (prefix.length !== 3) return false;
+  return (
+    business.some((b) => b.region.startsWith(prefix) && isSubdivisionCode(b.region)) ||
+    screening.regions.some((r) => r.region.startsWith(prefix) && isSubdivisionCode(r.region))
+  );
 }
 
 /**
@@ -653,8 +705,11 @@ export interface AccessDecision {
 export function ruleFor(module: ModuleId, region: RegionCode): JurisdictionRule {
   const code = canonicalRegion(region);
   if (isUnresolvedRegionCode(code)) return BLOCKED;
-  const entry = BY_REGION.get(code);
-  return entry?.modules?.[module] ?? DEFAULT_MODULE_RULES[module];
+  for (const c of regionCodeChain(code)) {
+    const rule = BY_REGION.get(c)?.modules?.[module];
+    if (rule) return rule;
+  }
+  return DEFAULT_MODULE_RULES[module];
 }
 
 /**
@@ -894,6 +949,61 @@ export function checkAccess(q: AccessQuery): AccessDecision {
   };
 }
 
+export interface CitizenshipQuery {
+  /** ISO 3166-1 alpha-2 country of citizenship, or an ISO 3166-2 subdivision when that is what is held. */
+  readonly citizenship: RegionCode;
+  /** Screen against this list instead of the process-wide one (tests). */
+  readonly screening?: ScreeningList;
+  /** Omitted → `screeningFailClosedFromEnv()`, exactly as `checkAccess`. */
+  readonly screeningFailClosed?: boolean;
+}
+
+export interface CitizenshipDecision {
+  readonly allowed: boolean;
+  readonly code: 'allowed' | 'denied.region_blocked' | 'denied.screening_unconfigured' | 'denied.screening_fixture';
+  readonly reason: string;
+  readonly screening: ScreeningProvenance;
+  /** `'screening'` on a refusal, always. A business block never refuses a citizenship. */
+  readonly blockedBy?: 'screening';
+}
+
+/**
+ * Is a person refused for their CITIZENSHIP, wherever they live? (Hyperliquid terms 1.6 (c): "citizens of Restricted
+ * Territories, regardless of their location", where Restricted Territories are the sanctioned ones of 1.6 (b).)
+ *
+ * Reads the SCREENING authority only. Business blocks (the US, Ontario) are about where a person lives or is, 1.6 (a),
+ * so a US citizen living outside the US is not refused here. No module rule is read either: citizenship is not a
+ * market. An unset or fixture list refuses with the same typed codes `checkAccess` uses, so a blank list is never
+ * read as "no citizen is sanctioned". A listed country covers citizens of its subdivisions; a listed subdivision
+ * (`UA-43`) covers a citizenship given as that subdivision, never the whole country's.
+ */
+export function checkCitizenship(q: CitizenshipQuery): CitizenshipDecision {
+  const screening = q.screening ?? activeScreeningList();
+  const provenance = provenanceOf(screening);
+  const failClosed = q.screeningFailClosed ?? screeningFailClosedFromEnv();
+  if (failClosed && provenance.moneyGrade === 'unconfigured') {
+    return {
+      allowed: false,
+      code: SCREENING_REFUSE_UNCONFIGURED,
+      reason: `Sanctions screening list is unset — citizenship was not screened. Supply ${SANCTIONS_REGIONS_ENV}.`,
+      screening: provenance,
+    };
+  }
+  if (failClosed && provenance.moneyGrade === 'fixture') {
+    return {
+      allowed: false,
+      code: SCREENING_REFUSE_FIXTURE,
+      reason: 'Sanctions screening list is a placeholder/test fixture — citizenship must not be read as screened clean.',
+      screening: provenance,
+    };
+  }
+  const hit = screenedRegion(screening, q.citizenship);
+  if (hit) {
+    return { allowed: false, code: 'denied.region_blocked', reason: hit.reason, screening: provenance, blockedBy: 'screening' };
+  }
+  return { allowed: true, code: 'allowed', reason: 'Citizenship is not on the screening list', screening: provenance };
+}
+
 export class UnreviewedJurisdictionError extends Error {
   constructor(readonly regions: readonly string[]) {
     super(
@@ -1047,7 +1157,7 @@ export class UnscreenedJurisdictionError extends Error {
             `supplied. Sanctions content has a different owner and comes in below.\n\n`) +
         `THERE ARE EXACTLY TWO WAYS TO SATISFY THIS, and both are a deliberate, attributable act:\n\n` +
         `  1. Supply the list:\n` +
-        `       ${SANCTIONS_REGIONS_ENV}="AA:reason,BB:reason"   (ISO-3166 alpha-2, comma separated)\n` +
+        `       ${SANCTIONS_REGIONS_ENV}="AA:reason,BB:reason"   (ISO 3166-1 alpha-2 or ISO 3166-2, comma separated)\n` +
         `       ${SANCTIONS_SOURCE_ENV}="<governance record>"\n\n` +
         `  2. Record that it was reviewed and is deliberately empty:\n` +
         `       ${SANCTIONS_REGIONS_ENV}="${SCREENING_REVIEWED_EMPTY}"\n` +

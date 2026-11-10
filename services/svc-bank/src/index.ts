@@ -29,7 +29,7 @@ import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { parseDisputeCap } from './cards/card-disputes.js';
-import { cardSimPartnerFor, parsePinTryLimit, parseSpendAssets } from './cards/partner-terms.js';
+import { cardSimPartnerFor, parsePinTryLimit, parseSpendAssets, parseThreeDSTryLimit } from './cards/partner-terms.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
@@ -39,7 +39,14 @@ import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
-import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
+import {
+  payoutCancelledBody,
+  payoutFailedBody,
+  payoutPaidBody,
+  payoutReturnedBody,
+  payoutVerifyBody,
+  redriveBody,
+} from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
@@ -261,6 +268,8 @@ const bank = createBankServices(sql, ledger, history, {
     spendAssets: parseSpendAssets(env.BANK_CARD_SPEND_ASSETS),
     /** The owner's count of wrong PIN tries that block a card's PIN (J-bank-14 #3). Blank declines a PIN by name. */
     pinTryLimit: parsePinTryLimit(env.BANK_CARD_PIN_TRY_LIMIT),
+    /** The owner's count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5). Blank refuses by name. */
+    threeDSTryLimit: parseThreeDSTryLimit(env.BANK_CARD_3DS_TRY_LIMIT),
     /** The owner's card programme terms (BK-cissue-01): eligibility, count limits, terms, designs, speeds. Blank refuses. */
     programmeTerms: parseCardProgramme(env.BANK_CARD_PROGRAMME_JSON),
     /** Cashback by rank card tier (RC-bank-02): the owner's rates, identity's rank door, and the simulator's TEST stand-in. */
@@ -767,6 +776,7 @@ function jobDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Promise
 jobDoor('/internal/jobs/payout-sim/verify', payoutVerifyBody, (b) => bank.cashOut.verifyAccount(b.accountId));
 jobDoor('/internal/jobs/payout-sim/paid', payoutPaidBody, (b) => bank.cashOut.complete(b.cashOutId));
 jobDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOut.fail(b.cashOutId, b.reason));
+jobDoor('/internal/jobs/payout-sim/cancelled', payoutCancelledBody, (b) => bank.cashOut.cancel(b.cashOutId, b.reason));
 jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );

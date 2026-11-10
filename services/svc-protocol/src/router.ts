@@ -83,6 +83,7 @@ import { bridgeRoutesLoader } from './bridge/routes.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
 import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
+import { createSwapV2Procedures, type SwapV2Setting } from './amm/swap-v2.js';
 import { tokenLogsChain } from './amm/token-reader.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
@@ -103,6 +104,8 @@ import { loadAuditRegistry } from './audit/registry.js';
 import { loadProductAudits } from './audit/products.js';
 import { createAddressReportsRouter, createAddressRiskRouter, type AddressRiskDeps } from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
+import { listSessions } from './session/list.js';
+import { protocolSessionsListInputSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
 import { protocolAuditProductsSchema, protocolPredictedAccountSchema } from '@intafaced/contracts/protocol-blockers';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
@@ -460,6 +463,13 @@ export interface ProtocolRouterDeps {
    * session check refuse — they do not invent a tolerance.
    */
   swapSlippageBps: () => number | null;
+  /**
+   * Router v2, SovereignPermit and the wrapped native token (D-swap-03, D-swap-intents-01, -02). Null or absent: the v2
+   * swap procedures refuse `protocol.router_v2_unset`.
+   */
+  swapV2?: () => SwapV2Setting | null;
+  /** `PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS`. Null or absent: `amm.buildPermit` refuses `protocol.permit.lifetime_unset`. */
+  permitLifetimeCapSeconds?: () => number | null;
   /** `PROTOCOL_SWAP_QUOTE_TTL_SECONDS`. Null or absent: `amm.swapSettings` refuses. */
   swapQuoteTtlSeconds?: () => number | null;
   /** `PROTOCOL_SWAP_CONFIRMATIONS`. Null or absent: `amm.swapSettings` refuses. */
@@ -1314,6 +1324,22 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       deps.embeddedWallet ?? { store: unwiredEmbeddedWalletStore, setting: () => ({ kind: 'unset' }) },
     ),
 
+    // ── Session keys list (D-portfolio-wallet-02): src/session/list.ts ──
+    sessions: router({
+      /** Every key the account granted, from its own logs, with the on-chain status at one block. Public, like the chain. */
+      list: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolSessionsListInputSchema)
+        .output(protocolSessionsListSchema)
+        .query(async ({ input }) => {
+          try {
+            return await listSessions(chain.client, { account: input.account, chainId: chain.config.chainId });
+          } catch (err) {
+            // A chain failure is named as the chain's; anything else (a shape bug) is an internal error, never "unreachable".
+            throw toTrpcError(err instanceof z.ZodError ? err : classifyChainError(err, 'sessions.list', chain.config.rpcUrl));
+          }
+        }),
+    }),
+
     // ── Claim links (D-swap-12) and speed up / cancel (RC-dex-protocol-01): src/wallet-tx/ ──
     ...createWalletTxRouters({
       chain: () => chain.client,
@@ -1514,6 +1540,26 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         ),
         factory: () => deps.ammFactoryAddress(),
         toTrpcError,
+      }),
+      ...createSwapV2Procedures({
+        client: () => chain.client,
+        chainId: () => chain.config.chainId,
+        setting: () => deps.swapV2?.() ?? null,
+        permitLifetimeCapSeconds: () => deps.permitLifetimeCapSeconds?.() ?? null,
+        slippageCeilingBps: () => requireSwapSlippageBps(deps.swapSlippageBps()),
+        pairs: async () => {
+          const factory = deps.ammFactoryAddress();
+          if (isZeroAddress(factory))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+            });
+          return readPairs(factory);
+        },
+        toTrpcError: (err) =>
+          err instanceof TRPCError || err instanceof SwapSlippageError
+            ? toTrpcError(err)
+            : toTrpcError(classifyChainError(err, 'amm.v2', chain.config.rpcUrl)),
       }),
       /**
        * PURE MATH OVER RESERVES THE CALLER SUPPLIES. Not a market quote.

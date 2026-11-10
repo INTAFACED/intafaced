@@ -22,6 +22,17 @@ function earnRiskWording() {
   throw new Error(`LOCAL_STACK_BANK_EARN_RISK_WORDING is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
 }
 
+/**
+ * The owner's cooling-off for a new bank destination (J-bank-03 #2): the stack's TEST 24 hours, or blank when the stack is
+ * asked to show it unset, so a cash-out to any account refuses `bank.offramp_cooling_unset`.
+ */
+function offrampCooling() {
+  const asked = process.env.LOCAL_STACK_BANK_OFFRAMP_COOLING;
+  if (asked === undefined || asked === '') return { BANK_OFFRAMP_COOLING_HOURS: '24' };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_OFFRAMP_COOLING is "${asked}"; leave it unset for the TEST 24 hours, or set it to off.`);
+}
+
 /** The lending policy (BK-loan-01, J-bank-09 #1): new loans open, or switched off when the stack is asked to show it. */
 function lendingPolicy() {
   const asked = process.env.LOCAL_STACK_BANK_LOANS;
@@ -230,13 +241,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_CARD_PROGRAMME_JSON: testValue('BANK_CARD_PROGRAMME_JSON'),
     // LOCAL TEST count of wrong PIN tries that block a card's PIN (J-bank-14 #3).
     BANK_CARD_PIN_TRY_LIMIT: testValue('BANK_CARD_PIN_TRY_LIMIT'),
+    // LOCAL TEST count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5).
+    BANK_CARD_3DS_TRY_LIMIT: testValue('BANK_CARD_3DS_TRY_LIMIT'),
     // LOCAL TEST cashback by rank card tier (J-bank-13 #7): the profile's TEST rates in IFC, and the card simulator's
     // cashback stand-in (refused at boot outside dev/test), so a TEST card spend can be paid cashback from the one reward
     // pot. Without the stand-in a simulated card pays none (bank.rewards_issuer_unset).
     BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
     BANK_CARD_SIM_CASHBACK: 'test',
     BANK_ADDRESS_BOOK_CAP: '10',
-    BANK_OFFRAMP_COOLING_HOURS: '24',
+    ...offrampCooling(),
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a
     // listed address refused by name (bank.destination_sanctions_listed). Set only here, never in a deploy; unset, every
     // address save refuses bank.destination_sanctions_unset.

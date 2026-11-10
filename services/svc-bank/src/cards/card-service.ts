@@ -35,6 +35,7 @@ import {
   type CardConversionPolicy,
   type ConversionQuote,
 } from './conversion.js';
+import { CardSafety } from './card-safety.js';
 import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
 import { CARD_TIERS, type CardProgrammeTerms, type CardTier, type CashbackRates } from './card-programme.js';
 import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
@@ -542,6 +543,11 @@ export interface CardServiceOptions {
    */
   readonly pinTryLimit?: number | null;
   /**
+   * The owner's count of wrong 3D Secure codes that lock a challenge (`BANK_CARD_3DS_TRY_LIMIT`, J-bank-14 #5). Absent or
+   * null, answering a challenge refuses `bank.card_3ds_try_limit_unset`.
+   */
+  readonly threeDSTryLimit?: number | null;
+  /**
    * WHOSE BOOK HOLDS THIS PERSON'S CARD MONEY (OWNER 226), asked once per new authorisation: `ledger` (the custodial
    * layer, as before), `partner` (the card partner holds it; `partnerHolds` below) or `none` (no partner and the custodial
    * layer off: refused `bank.partner_unset`, nothing written). Absent: always `ledger`, exactly as before.
@@ -617,7 +623,29 @@ export class CardService {
     this.heldByOf = options.heldBy ?? (() => 'ledger');
     this.partnerHolds = options.partnerHolds ?? null;
     this.pinTryLimit = options.pinTryLimit ?? null;
+    this.safety = new CardSafety({
+      sql: this.sql,
+      issuer: this.issuer,
+      tryLimit: options.threeDSTryLimit ?? null,
+      ownedCard: (cardId, userId) => this.ownedCard(cardId, userId),
+      card: (cardId) => this.card(cardId),
+      authorize: (input) => this.authorize(input),
+      usable: async (card) => {
+        const record = await this.card(card.id);
+        return record.status === 'active' && !cardInactive(record);
+      },
+      authorization: async (authorizationId) => {
+        const found = await this.authorizationById(authorizationId);
+        return found ? { cardId: found.cardId, decision: found.decision, declineCode: found.declineCode } : null;
+      },
+      freeze: async (cardId, userId) => {
+        await this.setStatus(cardId, 'frozen', userId);
+      },
+    });
   }
+
+  /** 3D Secure challenges and card fraud reports (J-bank-14 #5, #7; `card-safety.ts`). */
+  readonly safety: CardSafety;
 
   /**
    * What the card partner reports about its unknowns (CUSTODY-DELTA §1.3): custody mode, the assets it spends from, loss

@@ -231,7 +231,13 @@ test('step words: the does and sees cells of each step, by journey', () => {
     title: 'A secret journey title',
     does: 'Reads the private balance on the hidden page',
     sees: 'The balance equals the deposit exactly',
+    fields: {},
   });
+  // The journey's Starts, Ends, Money and Outside lines go with each of its steps, for the proof read alone.
+  const lined = parseStepWords(
+    ['## J-z-01: T', '- Starts: signed in', '- Money: none', '- Other: x', '| # | does | see |', '| 1 | a | b |'].join('\n'),
+  );
+  assert.deepEqual(lined.get('J-z-01 #1').fields, { Starts: 'signed in', Money: 'none' });
 });
 
 test('fails closed (planted): a reason that repeats the step words is withheld from the public summary', () => {

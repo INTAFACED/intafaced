@@ -15,8 +15,9 @@ name: Main bisect
 # and the first failing commit that broke it (one commit; else the commits whose files reach the failing journeys; else
 # a binary search that runs those journey files on a stack), and opens its revert with squash auto-merge, through the
 # normal merge seal (OWNER 249 (3): "a red main is reverted"). Never more than one revert per red, never a revert of a
-# revert, never a push to main. The revert opens with an App token from the `factory` environment, whose deployment
-# rule allows main alone, so only main's copy of this file can open one; `base` lets a person prove it on a test branch.
+# revert, never a push to main. The revert opens with a token of the App intafaced-mac-agents, minted from its key in
+# the `ci-review` environment (INTAFACED_APP_KEY, the key ci-review.yml mints with), whose deployment rule allows main
+# alone, so only main's copy of this file can open one; `base` lets a person prove it on a test branch.
 # (Failure it prevents: before this, a red journeys run on main named its commits in an issue and nothing reverted.)
 on:
   workflow_dispatch:
@@ -226,9 +227,10 @@ jobs:
     if: ${{ !cancelled() && (needs.revert-find.outputs.culprit != '' || needs.revert-probe.outputs.culprit != '' || (needs.bisect.outputs.culprit != '' && inputs.red_run != '')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10 # healthy run: under a minute
-    # FACTORY_APP_KEY: a pull request opened with GITHUB_TOKEN starts no workflow, so its seal would never run. The
-    # environment allows main alone.
-    environment: factory
+    # An App token: a pull request opened with GITHUB_TOKEN starts no workflow, so its seal would never run. The App's
+    # key is INTAFACED_APP_KEY in the `ci-review` environment, which allows main alone (the `factory` environment holds
+    # no FACTORY_APP_KEY, so the revert could never open: run 42637865386).
+    environment: ci-review
     permissions:
       contents: read
     steps:
@@ -241,7 +243,7 @@ jobs:
           node-version: 20
       - name: Open the revert
         env:
-          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
+          FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
           CULPRIT: ${{ needs.revert-find.outputs.culprit || needs.revert-probe.outputs.culprit || needs.bisect.outputs.culprit }}
           KIND: ${{ inputs.journeys != '' && 'journeys' || 'ci' }}
           STEPS: ${{ needs.revert-find.outputs.steps }}

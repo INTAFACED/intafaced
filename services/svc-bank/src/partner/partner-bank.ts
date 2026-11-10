@@ -27,6 +27,17 @@ export interface PartnerAccountRef {
   readonly spaceId: string | null;
 }
 
+/**
+ * The partner's own outbound-payments account in one currency: a payout to a person's bank account leaves their main
+ * balance into it, as one partner move under the payout's key, and an amount the partner gives back (a failed,
+ * cancelled or returned payout) comes out of it into the main balance, again as one move under its own key. It is the
+ * partner's, never a person's, so it is on no person's list of balances.
+ */
+export const PARTNER_PAYOUTS_OWNER = 'partner:outbound-payments';
+export function partnerPayoutsAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_PAYOUTS_OWNER, assetId, spaceId: null };
+}
+
 /** A space as svc-bank knows it, mapped to the partner's account: a primary space is the main balance. */
 export function partnerAccountFor(space: {
   readonly id: string;
