@@ -16,6 +16,7 @@ import {
   fillSettled,
   kycApproved,
   ledgerFreezeUpdated,
+  venueDelistingScheduled,
   orderUpdated,
   p2pEscrowLocked,
   p2pEscrowRefunded,
@@ -38,6 +39,7 @@ import {
 } from '@intafaced/events';
 import type { MessageKey } from '@intafaced/i18n';
 import { noticeFreezeChange } from './freeze-notice.js';
+import { noticeVenueDelisting } from './venue-delisting-notice.js';
 import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
@@ -1070,6 +1072,13 @@ export async function subscribeNotificationEvents(
     await attach(bus, 'ledgerFreezeUpdated', ledgerFreezeUpdated.subject, 'notify-ledger-freeze-updated', async (payload) => {
       // Reason and actor stay behind: a customer notice says only that postings paused or resumed.
       await noticeFreezeChange(notify, { frozen: payload.frozen, changedAt: payload.changedAt });
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'venueDelistingScheduled', venueDelistingScheduled.subject, 'notify-venue-delisting', async (payload) => {
+      // One dated notice for everyone, filed under the delisting's own key; the venue id is never shown.
+      await noticeVenueDelisting(notify, { symbol: payload.symbol, delistsAt: payload.delistsAt, noticeKey: payload.noticeKey });
     }),
   );
 

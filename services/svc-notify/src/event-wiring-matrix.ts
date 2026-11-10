@@ -212,6 +212,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     subject: 'intafaced.ledger.freeze.updated',
     effect: 'One audience-all inbox notice when the posting freeze is set or cleared (reason and actor never shown)',
   },
+  {
+    event: 'venueDelistingScheduled',
+    durable: 'notify-venue-delisting',
+    subject: 'intafaced.trade.venue_delisting.created',
+    effect: 'One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key',
+  },
 ] as const;
 
 /** Catalog subjects we deliberately do not fan out (and why). */
