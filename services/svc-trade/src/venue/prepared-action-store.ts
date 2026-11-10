@@ -90,6 +90,9 @@ function builderFeeRate({ prepared, signature, lastOutcome }: StoredVenueAction)
     : null;
 }
 
+/** One venue address, whatever its letter case: a hex address names the same account in upper or lower case. */
+const sameAddress = (a: string | null, b: string | null) => (a === null || b === null ? a === b : a.toLowerCase() === b.toLowerCase());
+
 /** True for an order this door stored for `account` with our builder fee attached and signed for sending. */
 function sentWithOurFee(row: StoredVenueAction, venueId: string, account: { owner: string; subAccount: string | null }): boolean {
   const p = row.prepared;
@@ -99,8 +102,8 @@ function sentWithOurFee(row: StoredVenueAction, venueId: string, account: { owne
     p.intent.kind === 'place_order' &&
     p.venueClientOrderId !== null &&
     !!p.builderFee &&
-    p.account.owner === account.owner &&
-    (p.account.subAccount ?? null) === account.subAccount
+    sameAddress(p.account.owner, account.owner) &&
+    sameAddress(p.account.subAccount ?? null, account.subAccount)
   );
 }
 
@@ -303,7 +306,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE venue_id = ${venueId} AND kind = 'place_order'
         AND prepared->>'venueClientOrderId' = ANY(${this.sql.array([...venueClientOrderIds])})
-        AND prepared->'account'->>'owner' = ${account.owner}
+        AND lower(prepared->'account'->>'owner') = lower(${account.owner})
         AND signature IS NOT NULL`;
     for (const row of rows.map(fromRow)) if (sentWithOurFee(row, venueId, account)) out.add(row.prepared.venueClientOrderId!);
     return out;

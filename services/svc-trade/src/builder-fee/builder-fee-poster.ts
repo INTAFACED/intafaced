@@ -135,15 +135,11 @@ async function postAll(
       unread.push({ owner: account.owner, subAccount: account.subAccount, code: `venue.${error.refusal.code}` });
       continue;
     }
-    // Posted and not-our-order fills of this account are settled; a refused one is tried again.
+    // Posted fills of this account are settled. A refused fill is tried again, and a not-our-order fill is checked again
+    // against the door's orders each run it is read, so an order the lookup missed once is still booked when found.
     const done = new Set(
       (await deps.store.inPeriod(venueId, since, FAR_FUTURE))
-        .filter(
-          (r) =>
-            (r.status === 'posted' || r.status === 'not_our_order') &&
-            r.account.owner === account.owner &&
-            r.account.subAccount === account.subAccount,
-        )
+        .filter((r) => r.status === 'posted' && r.account.owner === account.owner && r.account.subAccount === account.subAccount)
         .map((r) => r.fillId),
     );
     const todo = fills.filter((fill) => fill.builderFee > 0n && !done.has(fill.fillId));

@@ -140,6 +140,17 @@ describe('one builder-fee fact per venue, account and fill (refuse mode)', () =>
     expect(v.matched).toBe(true);
   });
 
+  it("a fill first read as not ours is checked again, and booked once the door's order is found", async () => {
+    const fills = new Map([[A.owner, [fill('t4r', 'cA4r', '0.2')]]]);
+    expect((await postBuilderFees(deps(fills, {}))).notOurOrder).toBe(1);
+    expect(await earned()).toBe(0n);
+    const run = await postBuilderFees(deps(fills, { [A.owner]: ['cA4r'] }));
+    expect(run).toMatchObject({ posted: 1, notOurOrder: 0 });
+    expect(await earned()).toBe(a('0.2'));
+    const [row] = await store.inPeriod(VENUE, since, new Date('2026-11-11T00:00:00.000Z'));
+    expect(row).toMatchObject({ fillId: 't4r', status: 'posted' });
+  });
+
   it('acceptance 5: the same fill delivered three times is one entry', async () => {
     const fills = new Map([[A.owner, [fill('t5', 'cA5', '0.25'), fill('t5', 'cA5', '0.25'), fill('t5', 'cA5', '0.25')]]]);
     await postBuilderFees(deps(fills, { [A.owner]: ['cA5'] }));

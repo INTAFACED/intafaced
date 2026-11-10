@@ -188,5 +188,11 @@ describe('SqlPreparedActionStore.sentBuilderFeeOrders on Postgres (OWNER 288 1b)
     expect([...(await actions.sentBuilderFeeOrders('another-venue', account, ['0x0123']))]).toEqual([]);
     expect([...(await actions.sentBuilderFeeOrders('test-venue-sim', { owner: OWNER, subAccount: '0xc3' }, ['0x0123']))]).toEqual([]);
     expect([...(await actions.sentBuilderFeeOrders('test-venue-sim', account, []))]).toEqual([]);
+    // A hex address is one account in either letter case: the order is still ours.
+    expect([
+      ...(await actions.sentBuilderFeeOrders('test-venue-sim', { owner: OWNER.toUpperCase().replace('0X', '0x'), subAccount: null }, [
+        '0x0123',
+      ])),
+    ]).toEqual(['0x0123']);
   });
 });
