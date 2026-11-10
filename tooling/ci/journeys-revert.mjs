@@ -508,14 +508,37 @@ async function open(env) {
     ]);
   } finally {
     if (token && !dry) {
-      // Revoke, then prove it: GitHub must refuse the token afterwards (401).
+      // Revoke, then prove it: GitHub must refuse the token afterwards (401). A revoke takes a moment to reach every
+      // GitHub front end (run 42748252246: revoke 204, then 200 at once), so the refusal is asked for a few times.
       const end = await fetch(`${API}/installation/token`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
-      const after = await fetch(`${API}/repos/${repo}`, { headers: { authorization: `Bearer ${token}` } });
-      if (end.status !== 204 || after.status !== 401)
-        throw new Error(`the revert token may still be live (revoke ${end.status}, then ${after.status})`);
-      console.log('the revert token is revoked: GitHub now refuses it (401)');
+      const after =
+        end.status === 204
+          ? await refusedAfterRevoke(
+              async () => (await fetch(`${API}/repos/${repo}`, { headers: { authorization: `Bearer ${token}` } })).status,
+            )
+          : { refused: false, status: 'not asked', tries: 0 };
+      if (end.status !== 204 || !after.refused)
+        throw new Error(`the revert token may still be live (revoke ${end.status}, then ${after.status} after ${after.tries} tries)`);
+      console.log(`the revert token is revoked: GitHub now refuses it (401, after ${after.tries} tries)`);
     }
   }
+}
+
+/** How many times, and how long apart, a revoked token's refusal is asked for: about 20 s in all. */
+export const REVOKE_PROBES = [0, 1000, 2000, 3000, 5000, 8000];
+/**
+ * Whether GitHub refuses a revoked token: `probe()` answers the HTTP status of a read made with it. Only a 401 counts as
+ * refused; any other answer (200, a 5xx) is asked again after the next wait, and still not 401 after the last one is not
+ * refused. `sleep` stands in for setTimeout in the self-test.
+ */
+export async function refusedAfterRevoke(probe, { waits = REVOKE_PROBES, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let status;
+  for (let i = 0; i < waits.length; i++) {
+    if (waits[i]) await sleep(waits[i]);
+    status = await probe();
+    if (status === 401) return { refused: true, status, tries: i + 1 };
+  }
+  return { refused: false, status, tries: waits.length };
 }
 
 // ── self-test ──────────────────────────────────────────────────────────────
@@ -603,9 +626,43 @@ function selfTest() {
   console.log('✓ journeys-revert --self-test OK (35 fixtures)');
 }
 
+async function selfTestRevoke() {
+  const eq = (got, want, m) => {
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+  };
+  const answers = (...list) => {
+    const left = [...list];
+    return async () => left.shift() ?? 200;
+  };
+  const sleep = async () => {};
+  eq(await refusedAfterRevoke(answers(401), { sleep }), { refused: true, status: 401, tries: 1 }, 'refused at once');
+  eq(
+    await refusedAfterRevoke(answers(200, 200, 401), { sleep }),
+    { refused: true, status: 401, tries: 3 },
+    'refused once the revoke lands',
+  );
+  eq(await refusedAfterRevoke(answers(502, 401), { sleep }), { refused: true, status: 401, tries: 2 }, 'a 5xx is asked again');
+  eq(
+    await refusedAfterRevoke(answers(), { sleep }),
+    { refused: false, status: 200, tries: REVOKE_PROBES.length },
+    'still live: not refused',
+  );
+  eq(
+    await refusedAfterRevoke(answers(403, 403, 403, 403, 403, 403), { sleep }),
+    { refused: false, status: 403, tries: 6 },
+    'only a 401 counts',
+  );
+  const slept = [];
+  await refusedAfterRevoke(answers(), { sleep: async (ms) => slept.push(ms) });
+  eq(slept, REVOKE_PROBES.filter(Boolean), 'waits between tries');
+  console.log('✓ journeys-revert revoke self-test OK (6 fixtures)');
+}
+
 const COMMANDS = { trigger, find, open };
-if (process.argv.includes('--self-test')) selfTest();
-else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv.includes('--self-test')) {
+  selfTest();
+  await selfTestRevoke();
+} else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {
     console.error('usage: journeys-revert.mjs trigger|find|open|--self-test');
