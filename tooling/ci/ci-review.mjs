@@ -17,7 +17,6 @@
  *   node tooling/ci/ci-review.mjs read      <out dir>   the reviewer's JSON answer into verdict.json and tests/verdict.json
  *                                                       (no verdict: exit 1)
  *   node tooling/ci/ci-review.mjs judge     <out dir>   the Verdict step: exit 1 on FAIL, 0 on PASS
- *   node tooling/ci/ci-review.mjs rerun-seal            re-run a red CI merge seal on this head once the review passed
  *
  * The Test verdict step is `test-judge.mjs judge <out dir>/tests`.
  *
@@ -108,6 +107,63 @@ export function jsonChanges(before, after, path = '') {
 }
 
 /**
+ * jsonChanges of two maps, with one step more for a map rebuilt from new runs: when many paths of one section (such as
+ * `customer`) gain and lose exactly the same journeys, they become one line naming every such path, instead of one line
+ * per path and journey (#7724: 1,488 customer paths each gaining the same journeys, about 1.5 MB of lines). Nothing is
+ * left out: each grouped line lists every path it covers and the exact entries each gains (+) and loses (-), and a
+ * path with any other change (an order or repeat change, a path added or removed) keeps its own lines.
+ */
+export function groupedChanges(before, after) {
+  const obj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+  if (!obj(before) || !obj(after)) return jsonChanges(before, after);
+  const out = [];
+  for (const k of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+    const sub = show(k);
+    const [b, a] = [before[k], after[k]];
+    if (!Object.hasOwn(after, k) || !Object.hasOwn(before, k) || !obj(b) || !obj(a)) {
+      // Added, removed, or not a section of paths: exactly as jsonChanges writes it.
+      const one = (o, has) => (has ? { [k]: o[k] } : {});
+      out.push(...jsonChanges(one(before, Object.hasOwn(before, k)), one(after, Object.hasOwn(after, k))));
+      continue;
+    }
+    const groups = new Map();
+    const lines = [];
+    for (const p of [...new Set([...Object.keys(b), ...Object.keys(a)])].sort()) {
+      const pick = (o) => (Object.hasOwn(o, p) ? { [p]: o[p] } : {});
+      const own = jsonChanges(pick(b), pick(a), sub);
+      if (own.length === 0) continue;
+      const once = (v) => Array.isArray(v) && v.every(isPlain) && new Set(v.map(show)).size === v.length;
+      const plain = Object.hasOwn(a, p) && Object.hasOwn(b, p) && once(b[p]) && once(a[p]);
+      if (!plain || own.some((l) => l.startsWith('~'))) {
+        lines.push(...own);
+        continue;
+      }
+      const was = new Set(b[p].map(show));
+      const now = new Set(a[p].map(show));
+      const gain = [...now].filter((v) => !was.has(v)).sort();
+      const lose = [...was].filter((v) => !now.has(v)).sort();
+      const sig = JSON.stringify([gain, lose]);
+      if (!groups.has(sig)) groups.set(sig, { gain, lose, paths: [], own: [] });
+      const g = groups.get(sig);
+      g.paths.push(p);
+      g.own.push(...own);
+    }
+    for (const g of groups.values()) {
+      if (g.paths.length < 2) {
+        lines.push(...g.own);
+        continue;
+      }
+      const list = (vs) => `[${vs.join(',')}]`;
+      lines.push(
+        `~ ${sub}: ${g.paths.length} entries each gain (+) ${list(g.gain)} and lose (-) ${list(g.lose)}, nothing else: ${show(g.paths)}`,
+      );
+    }
+    out.push(...lines);
+  }
+  return out;
+}
+
+/**
  * The diff with each GENERATED_JSON file's two lines replaced by jsonChanges of them. Only a section whose
  * `diff --git` header names that exact path on both sides is summarised: a rename into or out of it, or any other
  * path, stays whole, so nothing else can hide behind the name. git's header lines (new, deleted, mode, index) stay.
@@ -137,12 +193,12 @@ export function summarizeGenerated(diff) {
       const { readable, how } = GENERATED_JSON[m[1]];
       const [was, now] = [readable(before), readable(after)];
       if (was === undefined || now === undefined) return part; // not in the form `readable` can translate: whole
-      const changes = jsonChanges(was, now);
+      const changes = groupedChanges(was, now);
       const head = lines.slice(1, at).filter((l) => !/^(--- |\+\+\+ )/.test(l));
       const out = [
         `diff --git a/${m[1]} b/${m[1]}`,
         ...head,
-        `[generated one-line JSON, ${Buffer.byteLength(part)} bytes of diff; summarised by the CI review job from its old and new lines: every entry added (+), removed (-) or changed (~), ${changes.length} in all; ${how}]`,
+        `[generated one-line JSON, ${Buffer.byteLength(part)} bytes of diff; summarised by the CI review job from its old and new lines: every entry added (+), removed (-) or changed (~), ${changes.length} in all; ${how}; paths of one section that gain and lose exactly the same entries are one ~ line naming every such path]`,
         ...changes,
         '',
       ].join('\n');
@@ -598,20 +654,13 @@ function cmdJudge(dir) {
   }
 }
 
-async function cmdRerunSeal() {
-  const { rerunSeal } = await import('./seal-rerun.mjs');
-  const pull = eventPull(JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')), process.env.GITHUB_REPOSITORY);
-  console.log(await rerunSeal(process.env.GITHUB_REPOSITORY, pull.head, { number: pull.number }));
-}
-
 async function main() {
   const [cmd, dir] = process.argv.slice(2);
   if (cmd === 'index') return indexHead(dir);
   if (cmd === 'diff') return cmdDiff(dir);
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
-  if (cmd === 'rerun-seal') return cmdRerunSeal();
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | rerun-seal');
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir>');
   process.exit(2);
 }
 

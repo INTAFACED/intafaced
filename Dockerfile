@@ -89,6 +89,7 @@ COPY packages/ui/package.json                packages/ui/
 COPY packages/venue-adapter/package.json     packages/venue-adapter/
 COPY packages/venue-contracts/package.json   packages/venue-contracts/
 COPY packages/venue-sim/package.json         packages/venue-sim/
+COPY packages/venue-hyperliquid/package.json packages/venue-hyperliquid/
 
 COPY services/svc-academy/package.json       services/svc-academy/
 COPY services/svc-agents/package.json        services/svc-agents/

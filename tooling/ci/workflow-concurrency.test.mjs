@@ -1,7 +1,8 @@
 /**
  * The concurrency shape of .github/workflows/*.yml (2026-11-07): CI drowned in runs for heads that had already been
  * superseded (47 Real-app journeys runs of 36 shards and 48 CI runs queued at 10:54 UTC), and one Journey seal re-check
- * queued per finished journeys run.
+ * queued per finished journeys run (that workflow is gone since 9 Nov 2026: each seal input ends with a `Start the seal`
+ * job, journey-seal.test.mjs).
  *
  * It holds four rules, each evaluated on the workflow's own `concurrency:` expressions with the event contexts that
  * matter (a tiny evaluator of GitHub's expression syntax below, so a rewrite that keeps the meaning still passes):
@@ -11,11 +12,9 @@
  *   2. A Real-app journeys run on main is never cancelled, and every main run shares one group (OWNER 206).
  *   3. A manual Real-app journeys run on a branch cancels the older run with the same journey selection on that branch,
  *      and never a run of another branch or another selection.
- *   4. Journey seal re-check queues one re-check per pull request head for finished journeys runs, never cancels a
- *      running one, and an event whose job is skipped, a title or body edit, or arming auto-merge, never displaces a
- *      waiting re-check.
+ *   4. (Retired with Journey seal re-check, 9 Nov 2026.)
  *   5. CI merge seal (INTAFACED/project-state#1574 item 2): a push's or an open's first attempt cancels the older head's
- *      seal (rule 1), and nothing else is ever cancelled or cancels: an edit's or a reopen's seal runs on the head being
+ *      seal (rule 1), and nothing else is ever cancelled or cancels: an edit's, an arming's or a reopen's seal runs on the head being
  *      merged, and a re-run (run_attempt above 1) keeps its run's own group, so re-running a seal never cancels a newer
  *      head's seal or an older red seal re-run beside it on the same head.
  *   6. Main first (item 3): Real-app journeys holds a run off main back while main's jobs wait for runners, in a step
@@ -213,11 +212,10 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
  * Workflows a pull request triggers that don't cancel the older run, and why. Each keeps a bounded number of runs.
  *  - ci-review.yml: a change to the review job can't pass its own review and waits for the owner (intafaced AGENTS.md);
  *    its group is one per head, so an older head's review finishes but a newer one never waits for it.
- *  - journey-seal-recheck.yml: rule 4 below.
  * merge-seal.yml is no exception since INTAFACED/project-state#1574 item 2: a push cancels the older head's seal, and
  * rule 5 below holds that nothing else is cancelled.
  */
-export const PR_EXCEPTIONS = new Set(['ci-review.yml', 'journey-seal-recheck.yml']);
+export const PR_EXCEPTIONS = new Set(['ci-review.yml']);
 
 /** Problems with rule 1 in one workflow's text, or []. */
 export function prProblems(file, text) {
@@ -301,64 +299,6 @@ export function journeysProblems(text) {
   return problems;
 }
 
-// ---- rule 4: Journey seal re-check ---------------------------------------------------------------------------------
-
-const finishedJourneys = (head_sha, extra = {}) => ({
-  github: {
-    workflow: 'Journey seal re-check',
-    repository: REPO,
-    event_name: 'workflow_run',
-    run_id: Math.random(),
-    ref: MAIN,
-    event: {
-      workflow_run: {
-        head_sha,
-        name: extra.name ?? 'Real-app journeys',
-        head_branch: extra.head_branch ?? 'feature',
-        head_repository: { full_name: extra.repo ?? REPO },
-        pull_requests: 'pr' in extra ? (extra.pr === null ? [] : [{ number: extra.pr }]) : [{ number: 101 }],
-      },
-    },
-  },
-  inputs: {},
-});
-
-/** Problems with rule 4 in journey-seal-recheck.yml's text, or []. */
-export function recheckProblems(text) {
-  if (!concurrency(text)) return ['Journey seal re-check has no concurrency group, so every finished journeys run queues its own re-check'];
-  const problems = [];
-  const a1 = resolve(text, finishedJourneys('aaa'));
-  const a2 = resolve(text, finishedJourneys('bbb'));
-  if (a1.group !== a2.group) problems.push('two finished journeys runs on one pull request queue two re-checks');
-  if (!a2.cancel) problems.push("a newer finished run doesn't cancel its pull request's older re-check");
-  if (a1.group === resolve(text, finishedJourneys('aaa', { pr: 202 })).group) problems.push('re-checks of two pull requests share a group');
-  if (a1.group === resolve(text, finishedJourneys('aaa', { name: 'CI' })).group)
-    problems.push('a CI re-check and a journeys re-check of one pull request share a group, so one would cancel the other');
-  // A finished run that names no pull request: one group per head, never cancelled.
-  const n1 = resolve(text, finishedJourneys('aaa', { pr: null }));
-  const n2 = resolve(text, finishedJourneys('aaa', { pr: null }));
-  if (n1.group !== n2.group) problems.push('two finished runs on one head that name no pull request queue two re-checks');
-  if (n1.group === resolve(text, finishedJourneys('bbb', { pr: null })).group) problems.push('re-checks of two heads share a group');
-  if (n1.cancel) problems.push('a re-check of a head no pull request is named on could be cancelled');
-  // Events whose job is skipped, edits (whose old title the script reads) and arming each get a group of their own.
-  const others = [
-    finishedJourneys('aaa', { head_branch: 'main' }),
-    finishedJourneys('aaa', { repo: 'fork/intafaced' }),
-    prEvent('pull_request_target', 101, 'aaa', { action: 'edited', changes: { title: { from: 'J-x #1' } } }),
-    prEvent('pull_request_target', 101, 'aaa', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
-    prEvent('pull_request_target', 101, 'aaa', { action: 'auto_merge_enabled' }),
-  ];
-  for (const ctx of others) {
-    const r = resolve(text, ctx);
-    const again = resolve(text, { ...ctx, github: { ...ctx.github, run_id: Math.random() } });
-    if (r.group === a1.group || r.group === n1.group || r.group === again.group || r.cancel)
-      problems.push(
-        `a ${ctx.github.event_name} event (${JSON.stringify(ctx.github.event.changes ?? ctx.github.event.workflow_run)}) could displace or cancel a re-check`,
-      );
-  }
-  return problems;
-}
-
 // ---- rule 5: CI merge seal ----------------------------------------------------------------------------------------
 
 /** Problems with rule 5 in merge-seal.yml's text, or []. */
@@ -377,6 +317,11 @@ export function sealProblems(text) {
   const edit = at('bbb', { action: 'edited', changes: { title: { from: 'x' } } });
   if (edit.cancel) problems.push('an edit cancels a running seal on the head being merged');
   if (edit.group === pushed.group) problems.push("an edit shares the pull request's group, so it could replace a push's waiting seal");
+  // Arming (an input's Start the seal touches only armed pull requests, so arming seals one whose inputs already ended):
+  // like an edit, a group of its own, never cancelling.
+  const arm = at('bbb', { action: 'auto_merge_enabled' });
+  if (arm.cancel) problems.push('an arming cancels a running seal on the head being merged');
+  if (arm.group === pushed.group) problems.push("an arming shares the pull request's group, so it could replace a push's waiting seal");
   const onHead = {
     'a base change': at('bbb', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
     'a reopen': at('bbb', { action: 'reopened' }),
@@ -525,10 +470,6 @@ test('CI: a run on main is never cancelled', () => {
   for (const e of ['push', 'workflow_dispatch']) assert.equal(resolve(ci, journeysRun(e, MAIN)).cancel, false, e);
 });
 
-test('Journey seal re-check: one waiting re-check per head, never a running one cancelled', () => {
-  assert.deepEqual(recheckProblems(read('journey-seal-recheck.yml')), []);
-});
-
 test("CI merge seal: a push cancels the older head's seal; edits, reopens and re-runs are never cancelled and cancel nothing", () => {
   assert.deepEqual(sealProblems(read('merge-seal.yml')), []);
 });
@@ -576,27 +517,14 @@ test("planted: today's branch rule (a newer branch run waits) and a missing sele
   assert.ok(journeysProblems(noInput).some((p) => /selections/.test(p)));
 });
 
-test("planted: today's re-check (no group) and a group edits share fail rule 4", () => {
-  const t = read('journey-seal-recheck.yml');
-  assert.match(recheckProblems(drop(t))[0], /no concurrency group/);
-  const shared = t.replace(
-    concurrency(t).group,
-    'journey-seal-recheck-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}',
+test("planted: an arming in the pull request's group (the group before #1574's Start the seal) fails rule 5", () => {
+  const t = read('merge-seal.yml');
+  const before = t.replace(
+    "((github.event.action != 'edited' && github.event.action != 'auto_merge_enabled') || github.event.changes.base)",
+    "(github.event.action != 'edited' || github.event.changes.base)",
   );
-  assert.ok(recheckProblems(shared).some((p) => /displace/.test(p)));
-  const c = concurrency(t);
-  const always = t.replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: true');
-  assert.notEqual(always, t);
-  assert.ok(recheckProblems(always).some((p) => /no pull request is named on could be cancelled/.test(p)));
-  assert.ok(recheckProblems(always).some((p) => /displace or cancel/.test(p)));
-  const never = t.replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: false');
-  assert.ok(recheckProblems(never).some((p) => /doesn't cancel its pull request's older re-check/.test(p)));
-  const noName = t.replace(
-    ', github.event.workflow_run.pull_requests[0].number, github.event.workflow_run.name)',
-    ", github.event.workflow_run.pull_requests[0].number, 'x')",
-  );
-  assert.notEqual(noName, t);
-  assert.ok(recheckProblems(noName).some((p) => /CI re-check and a journeys re-check/.test(p)));
+  assert.notEqual(before, t);
+  assert.ok(sealProblems(before).some((x) => x.startsWith('an arming shares')));
 });
 
 test('the evaluator reads the expressions it is used on', () => {
