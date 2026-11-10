@@ -110,9 +110,9 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
-import { postBuilderFees } from './venue/builder-fee-poster.js';
-import { builderFeeRecon } from './venue/builder-fee-recon.js';
-import { SqlBuilderFeeStore } from './venue/builder-fee-store.js';
+import { postBuilderFees } from './builder-fee/builder-fee-poster.js';
+import { builderFeeRecon } from './builder-fee/builder-fee-recon.js';
+import { SqlBuilderFeeStore } from './builder-fee/builder-fee-store.js';
 import { SqlVenueListingStore } from './venue/venue-listing-store.js';
 import {
   StoreVenueRoutingGate,

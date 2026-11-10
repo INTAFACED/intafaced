@@ -1,7 +1,7 @@
-// World: freeze, gates
+// World: restart, freeze, gates
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, fund, journeyState, tool } from './stack.mjs';
+import { api, fund, journeyState, restartWith, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import {
@@ -296,16 +296,21 @@ test('J-p2p-04 #3 saving a payment method asks for a step-up and shows it masked
   const log = await s.query('instruments.accessLog', { limit: 50 });
   expect(log.some((entry) => entry.instrumentId === pounds.id && entry.viewerRole === 'owner' && entry.outcome === 'revealed')).toBe(true);
 
-  // With the owner's key service off, the owner-decision notice shows and the form stays shut.
-  await page.route('**/api/p2p/trpc/health*', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.result.data.instrumentKeyProvider = 'none';
-    await route.fulfill({ response, json: body });
-  });
-  await page.reload();
-  await expect(page.getByTestId('methods-key-off')).toContainText('the owner has not switched one on');
-  await expect(page.getByTestId('method-add-form').getByTestId('method-add-country')).toBeDisabled();
+  // With the key store off (p2p restarted without one, as production is until the owner switches one on): the service's
+  // own health says so, the owner-decision notice shows on the add control and the form stays shut.
+  expect((await s.bare.query('health')).body.result.data.instrumentKeyProvider).toBe('local-test');
+  await expect(page.getByTestId('methods-key-off')).toHaveCount(0);
+  restartWith('p2p', 'LOCAL_STACK_P2P_KEY_STORE', false);
+  try {
+    const health = await s.bare.query('health');
+    expect(health.status, JSON.stringify(health.body).slice(0, 300)).toBe(200);
+    expect(health.body.result.data.instrumentKeyProvider).toBe('none');
+    await page.reload();
+    await expect(page.getByTestId('methods-key-off')).toContainText('the owner has not switched one on');
+    await expect(page.getByTestId('method-add-form').getByTestId('method-add-country')).toBeDisabled();
+  } finally {
+    restartWith('p2p', 'LOCAL_STACK_P2P_KEY_STORE', true);
+  }
 });
 
 test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming pauses them and tells me; re-adding it and resuming works', async ({
