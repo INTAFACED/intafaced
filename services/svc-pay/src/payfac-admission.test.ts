@@ -33,10 +33,10 @@ describe('PayFac original credential admission real PostgreSQL', { timeout: 30_0
   let ledger: MemoryLedger;
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'pay', migrations });
-  });
+  }, 120_000);
   afterAll(async () => {
-    await db.drop();
-  });
+    await db?.drop();
+  }, 30_000);
   beforeEach(async () => {
     await truncatePayForTest(db.sql, 'pay', `TRUNCATE pay.merchants CASCADE`);
     trees = new SubMerchantService(db.sql);
