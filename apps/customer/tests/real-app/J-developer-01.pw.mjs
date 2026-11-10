@@ -205,8 +205,10 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
     for (const section of sections) {
       const link = region.getByRole('link', { name: section.title, exact: true });
       await expect(link, section.title).toHaveCount(1);
+      await expect(link, section.title).toBeVisible();
       section.route = await link.getAttribute('href');
       const item = region.getByRole('listitem').filter({ has: page.getByRole('link', { name: section.title, exact: true }) });
+      await expect(item, section.title).toBeVisible();
       // Its state: the slice it waits for; published, when its page is elsewhere; else its page here or published.
       if (section.waitsFor) await expect(item, section.title).toContainText(`Waits for ${section.waitsFor}`);
       else if (section.href !== section.route) await expect(item, section.title).toContainText('Published');
