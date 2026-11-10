@@ -15,6 +15,7 @@ const dormancyCopy = defineCopy('dormancy-notice', {
   unread: 'Dormancy fee notices could not be read from the bank just now.',
 });
 
+// hand-declared-ok: svc-bank's dormancy.notices has no browser-safe schema in packages/contracts yet
 const noticesSchema = z.array(
   z.object({
     assetId: z.string(),
