@@ -241,6 +241,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_CARD_PROGRAMME_JSON: testValue('BANK_CARD_PROGRAMME_JSON'),
     // LOCAL TEST count of wrong PIN tries that block a card's PIN (J-bank-14 #3).
     BANK_CARD_PIN_TRY_LIMIT: testValue('BANK_CARD_PIN_TRY_LIMIT'),
+    // LOCAL TEST count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5).
+    BANK_CARD_3DS_TRY_LIMIT: testValue('BANK_CARD_3DS_TRY_LIMIT'),
     // LOCAL TEST cashback by rank card tier (J-bank-13 #7): the profile's TEST rates in IFC, and the card simulator's
     // cashback stand-in (refused at boot outside dev/test), so a TEST card spend can be paid cashback from the one reward
     // pot. Without the stand-in a simulated card pays none (bank.rewards_issuer_unset).

@@ -679,6 +679,55 @@ export function createOpsRouter(c: BankRouterContext) {
         }),
       ),
 
+    /**
+     * THE ISSUER'S 3D SECURE REQUEST (J-bank-14 #5): the card partner asks the cardholder to confirm an online purchase
+     * before it is authorised. Like `cardAuthorize`, it is operator surface standing in for the issuer's message, with a
+     * second founder's approval, and never user surface. The cardholder answers it in the card room; the right code
+     * completes the authorisation once (`card-safety.ts`).
+     */
+    cardThreeDSChallenge: scopedProcedure('admin:treasury')
+      .input(
+        z.object({
+          cardId: z.string().guid(),
+          challengeId: z.string().guid(),
+          challengeRef: z.string().min(4).max(128),
+          /** The merchant's number, in the card's settlement asset. */
+          amount: amountString,
+          merchantCategory: z.string().min(1).max(64).optional(),
+          merchant: z.string().min(1).max(64).optional(),
+          merchantCountry: z
+            .string()
+            .regex(/^[A-Za-z]{2}$/)
+            .optional(),
+          ...actionApprovalFields,
+        }),
+      )
+      .output(z.object({ challengeId: z.string(), state: z.enum(['open', 'approved', 'locked']), confirmOperatorId: z.string() }))
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          // The founders' approval binds the whole purchase the cardholder will be asked about: the merchant parts too.
+          const confirmOperatorId = await consumeOpsApproval(input, 'bank.card_3ds_challenge', {
+            cardId: input.cardId,
+            challengeId: input.challengeId,
+            challengeRef: input.challengeRef,
+            amount: input.amount,
+            ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
+            ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
+          });
+          const challenge = await bank.cards.safety.open({
+            challengeId: input.challengeId,
+            cardId: input.cardId,
+            challengeRef: input.challengeRef,
+            amount: parseAmount(input.amount),
+            ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
+            ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
+          });
+          return { challengeId: challenge.id, state: challenge.state, confirmOperatorId };
+        }),
+      ),
+
     cardCapture: scopedProcedure('admin:treasury')
       .input(
         z.object({

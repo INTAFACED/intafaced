@@ -20,6 +20,7 @@ import {
 import { CardChannelsPanel, CardLimitsPanel } from './CardSettings';
 import { CardBlocksPanel } from './CardBlocks';
 import { CardDetailsReveal, CardPinPanel, CardWalletPanel, useSecretsOffered } from './CardSecrets';
+import { CardFraudPanel, CardThreeDSPanel } from './CardSafety';
 import { cardDepthCopy } from './card-depth-copy';
 import { bps, positiveMoney, type ActionSpec } from './components';
 import type { cardSchema } from './contracts';
@@ -264,6 +265,8 @@ export function CardControlPanels({
       <DepthPanel title={t('walletTitle')}>
         <CardWalletPanel card={card} offered={offered} />
       </DepthPanel>
+      <CardThreeDSPanel card={card} />
+      <CardFraudPanel card={card} />
       <DepthPanel title={t('rewardsTitle')}>
         <dl className="bd-facts">
           <Fact label={t('rewardsBalance')}>{t('disabledBecause')}</Fact>
