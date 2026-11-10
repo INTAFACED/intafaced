@@ -20,6 +20,11 @@
  *   one "Journey broken on main: <J-id>" issue per journey, naming the commits between the last run it passed and the
  *   first run it failed. A journey's issue closes when every step it names passes again.
  *   The run summary lists the steps newly passing and newly failing against the run before.
+ *   A shard that sent no report (no `real-app-journeys-shard-<n>` artifact: abandoned, cancelled by the platform, or
+ *   its stack or browser never started) on a red first attempt, after that attempt's own checks: re-run its failed jobs
+ *   once, then judge the next attempt (project-state #1786, 10 Nov). Only when every failed shard job sent no report and
+ *   every such shard has a job: a shard that reported keeps its reds, and the whole run is never re-run. A shard with no
+ *   report on the re-run, or one not re-run, still counts its journeys as not passing.
  *   A shard that hit its time limit (the job's, or the limit the shard puts on its own journeys so it still reports):
  *   open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue naming the jobs; it closes on the
  *   next run where no job hit its limit.
@@ -27,6 +32,9 @@
  *   retry, on main, and it is not money): open one "Set aside on main until <date>: <step>" issue naming its owner and
  *   end date, once per set-aside (never again once closed); its owner may close it with the fix, and it closes itself
  *   on the first run after its end date.
+ *   A money step that failed, then passed on its retry, on main (set-aside.json's `moneyFlaky`, project-state OWNER 278):
+ *   open one "Flaky money step on main: <step>" issue, labelled `flaky`, naming its area, unless one is open already.
+ *   Its owner closes it with the fix; the step never counts as proven meanwhile.
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -161,6 +169,34 @@ export function setAsideIssueActions(rows, issues) {
       .map((r) => ({ row: r, issue: byTitle.get(setAsideIssueTitle(r)) })),
   };
 }
+export const moneyFlakyIssueTitle = (row) => `Flaky money step on main: ${row.step.replace('#', ' #')}`;
+
+/** The issue for a money step that failed, then passed on its retry, on main (a row of set-aside.json's moneyFlaky). */
+export function moneyFlakyIssueBody(row, runUrl) {
+  return [
+    `\`${row.step.replace('#', ' #')}\` is a money step. It failed, then passed on its retry, on main in [this run](${runUrl}) (tooling/ci/journey-verdict.mjs).`,
+    '',
+    `- Owner: ${row.owner ?? 'no area named: its journey names no module in docs/roadmap/journeys.json'}.`,
+    '- It stops only its own journeys (project-state OWNER 278): it stays red on main, never counts as proven and is never set aside, and the merge seal holds only the pull requests in its area.',
+    '- Failing outright in two runs in a row on main still bisects and reverts the commit that broke it.',
+    `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real money bug can look like this.`,
+    '',
+    `<!-- money-flaky: ${row.step} -->`,
+    '_Opened by tooling/ci/post-merge-trust.mjs._',
+  ].join('\n');
+}
+
+/** Which money-flaky rows get an issue: `rows` is set-aside.json's moneyFlaky, `issues` the open ones (by title). */
+export function moneyFlakyIssueActions(rows, issues) {
+  const open = new Set((issues ?? []).filter((i) => i.state === 'open').map((i) => i.title));
+  const seen = new Set();
+  return (rows ?? []).filter((r) => {
+    if (typeof r?.step !== 'string' || seen.has(r.step)) return false;
+    seen.add(r.step);
+    return !open.has(moneyFlakyIssueTitle(r));
+  });
+}
+
 const CHECK_RED = /failed twice on `([0-9a-f]{7,40})`/g;
 const STEPS_MARK = /<!-- steps: ([^>]*) -->/g;
 
@@ -234,6 +270,61 @@ async function gh(method, path, body, { alreadyRunningOk = false } = {}) {
     throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
   }
   return { status: res.status, json: text ? JSON.parse(text) : null };
+}
+
+const SHARD_JOB = /^Journeys \(shard (\d+) of (\d+)\)$/;
+const SHARD_ARTIFACT = /^real-app-journeys-shard-(\d+)$/;
+
+/**
+ * The shards with no report: `jobs` the run's latest jobs, `artifacts` its artifact names. Every shard 1..N counts, N
+ * from the shard jobs' "of N", since a shard GitHub abandoned may have no job at all (run 42669837919: 25 of 32 jobs).
+ * Returns "shard <n> of <N>" for each shard whose `real-app-journeys-shard-<n>` artifact is missing.
+ */
+export function shardsWithoutReport(jobs, artifacts) {
+  const totals = (jobs ?? []).map((j) => SHARD_JOB.exec(j?.name ?? '')?.[2]).filter(Boolean);
+  if (!totals.length) return [];
+  const total = Math.max(...totals.map(Number));
+  const sent = new Set((artifacts ?? []).map((n) => SHARD_ARTIFACT.exec(n)?.[1]).filter(Boolean));
+  return Array.from({ length: total }, (_, i) => String(i + 1))
+    .filter((n) => !sent.has(n))
+    .map((n) => `shard ${n} of ${total}`);
+}
+
+/** Whether GitHub took a re-run request: a 2xx, or the "already running" 403 that gh() lets through. */
+export const rerunTaken = (r) => Boolean(r?.alreadyRunning) || (Number.isInteger(r?.status) && r.status >= 200 && r.status < 300);
+
+/**
+ * Whether to re-run a red journeys run's failed jobs once because a shard sent no report. Only on its first attempt, and
+ * only when that re-run can bring back nothing but the missing reports: every shard with no report has a job (an
+ * abandoned shard with none may not come back with "re-run failed jobs", and re-running the whole run would retry shards
+ * that reported reds), and every failed shard job is one with no report (a failed shard that did report keeps its
+ * result; a shard whose journeys failed passes its job, so it is never re-run). `jobs` the run's latest jobs, `missing`
+ * shardsWithoutReport(). Otherwise its red stands as reported. Returns { rerun, why }.
+ */
+export function shardRerun({ attempt, conclusion, jobs, missing }) {
+  if (!(attempt <= 1 && conclusion === 'failure' && missing.length > 0)) return { rerun: false };
+  const shardName = (j) => {
+    const m = SHARD_JOB.exec(j?.name ?? '');
+    return m ? `shard ${m[1]} of ${m[2]}` : null;
+  };
+  const withJob = new Set((jobs ?? []).map(shardName).filter(Boolean));
+  if (!missing.every((m) => withJob.has(m)))
+    return { rerun: false, why: 'a shard with no report has no job (abandoned), so only a person may re-run the whole run' };
+  const failed = (jobs ?? []).filter((j) => shardName(j) && j.conclusion && j.conclusion !== 'success' && j.conclusion !== 'skipped');
+  if (!failed.every((j) => missing.includes(shardName(j))))
+    return { rerun: false, why: 'a failed shard also sent a report, and a re-run would replace it' };
+  return { rerun: true };
+}
+
+async function missingShardReports(repo, runId) {
+  const { json: jobs } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/jobs?filter=latest&per_page=100`);
+  const { json: arts } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`);
+  if (!Array.isArray(jobs?.jobs) || !Array.isArray(arts?.artifacts)) throw new Error(`could not read run ${runId}'s jobs or artifacts`);
+  const missing = shardsWithoutReport(
+    jobs.jobs,
+    arts.artifacts.filter((a) => !a.expired).map((a) => a.name),
+  );
+  return { missing, jobs: jobs.jobs };
 }
 
 /** The names of a run's jobs (latest attempt) that hit their time limit. */
@@ -453,11 +544,56 @@ async function setAsideCheck({ repo, runId, runUrl }) {
   return lines;
 }
 
+/** One open `flaky` issue per money step that passed only on its retry in this run (OWNER 278). */
+async function moneyFlakyCheck({ repo, runId, runUrl }) {
+  const list = await journeyReport(repo, runId, 'set-aside.json');
+  if (!list?.moneyFlaky?.length) return null;
+  const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "Flaky money step on main"`);
+  const { json: found } = await gh('GET', `/search/issues?q=${q}&per_page=100`);
+  const lines = [];
+  for (const row of moneyFlakyIssueActions(list.moneyFlaky, found?.items ?? [])) {
+    const { json } = await gh('POST', `/repos/${repo}/issues`, {
+      title: moneyFlakyIssueTitle(row),
+      body: moneyFlakyIssueBody(row, runUrl),
+      labels: ['flaky'],
+    });
+    lines.push(`- ${row.step} (money) passed only on its retry (owner: ${row.owner ?? 'none named'}): opened #${json?.number}`);
+  }
+  return lines;
+}
+
 async function journeysCheck(ctx) {
   const timeLine = await timeLimitCheck(ctx);
   if (timeLine) summary(['### Journeys time limit', '', timeLine]);
   const asideLines = await setAsideCheck(ctx);
   if (asideLines?.length) summary(['### Set aside by the machine', '', ...asideLines]);
+  const flakyLines = await moneyFlakyCheck(ctx);
+  if (flakyLines?.length) summary(['### Money steps that passed only on their retry', '', ...flakyLines]);
+  // A shard that sent no report: re-run its failed jobs once, after this attempt's own checks above, and judge the next
+  // attempt instead (project-state #1786, 10 Nov). Never a shard that reported, and never the whole run.
+  const { missing, jobs } = await missingShardReports(ctx.repo, ctx.runId);
+  const again = shardRerun({ attempt: ctx.attempt, conclusion: ctx.conclusion, jobs, missing });
+  if (again.rerun) {
+    const r = await gh('POST', `/repos/${ctx.repo}/actions/runs/${ctx.runId}/rerun-failed-jobs`, undefined, { alreadyRunningOk: true });
+    // Hand the verdict to the next attempt only when GitHub took the re-run (or one is already going); a refused or
+    // failed request falls through, so this attempt's red is still judged and reported (CI review note on 65c75ec16).
+    if (rerunTaken(r))
+      return summary([
+        '### Shards with no report',
+        '',
+        `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Re-ran the failed jobs once (${r.status}); no shard that reported is re-run, and the next attempt is judged instead.`,
+      ]);
+    summary([
+      '### Shards with no report',
+      '',
+      `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. GitHub didn't take the re-run (${r.status}), so this attempt is judged as it is: their journeys count as not passing.`,
+    ]);
+  } else if (missing.length)
+    summary([
+      '### Shards with no report',
+      '',
+      `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Their journeys count as not passing${again.why ? `; not re-run: ${again.why}` : ''}.`,
+    ]);
   const { repo, runId, sha, runUrl, earlier } = ctx;
   const now = await journeyReport(repo, runId);
   if (!now)
@@ -670,6 +806,56 @@ function selfTest() {
     file: 'J-a-01.pw.mjs',
   };
   eq(setAsideIssueTitle(row), 'Set aside on main until 2026-11-14: J-a-01 #3', 'set-aside issue title');
+  const mf = { step: 'J-a-05#1', file: 'J-a-05.pw.mjs', owner: 'the alpha area' };
+  eq(moneyFlakyIssueTitle(mf), 'Flaky money step on main: J-a-05 #1', 'money-flaky issue title');
+  eq(
+    moneyFlakyIssueActions(
+      [mf, mf, { ...mf, step: 'J-a-05#2' }, { ...mf, step: 'J-a-05#3' }, { file: 'x' }],
+      [
+        { title: moneyFlakyIssueTitle({ step: 'J-a-05#2' }), state: 'open' },
+        { title: moneyFlakyIssueTitle({ step: 'J-a-05#3' }), state: 'closed' },
+      ],
+    ).map((r) => r.step),
+    ['J-a-05#1', 'J-a-05#3'],
+    'a money-flaky step gets one issue while none is open: once per step, again after its last one closed',
+  );
+  if (!/never counts as proven/.test(moneyFlakyIssueBody(mf, 'u'))) throw new Error('the money-flaky issue says it is never proven');
+  const shardJobs = [1, 2, 3, 4].map((n) => ({ name: `Journeys (shard ${n} of 4)` })).concat([{ name: 'Real-app journeys' }]);
+  eq(
+    shardsWithoutReport(shardJobs, ['real-app-journeys-shard-1', 'real-app-journeys-shard-3', 'real-app-journeys', 'x-shard-2']),
+    ['shard 2 of 4', 'shard 4 of 4'],
+    'the shards that sent no report, by their own artifact only',
+  );
+  eq(
+    shardsWithoutReport(shardJobs.slice(0, 2), ['real-app-journeys-shard-1', 'real-app-journeys-shard-2']),
+    ['shard 3 of 4', 'shard 4 of 4'],
+    'a shard with no job at all (abandoned) still counts as sending no report',
+  );
+  eq(shardsWithoutReport([{ name: 'Real-app journeys' }], []), [], 'no shard job: nothing ran to count');
+  eq(
+    shardsWithoutReport(
+      shardJobs,
+      [1, 2, 3, 4].map((n) => `real-app-journeys-shard-${n}`),
+    ),
+    [],
+    'every shard reported',
+  );
+  const jobsOf = (states) => Object.entries(states).map(([n, c]) => ({ name: `Journeys (shard ${n} of 4)`, conclusion: c }));
+  const shardsOk = jobsOf({ 1: 'success', 2: 'failure', 3: 'success', 4: 'success' });
+  eq(rerunTaken({ status: 201, json: null }), true, 'a 201 re-run is taken');
+  eq(rerunTaken({ status: 403, json: null, alreadyRunning: true }), true, 'already running is taken');
+  for (const status of [404, 422, 500, 0]) eq(rerunTaken({ status, json: null }), false, `a ${status} re-run is not taken`);
+  const go = (o) => shardRerun({ attempt: 1, conclusion: 'failure', jobs: shardsOk, missing: ['shard 2 of 4'], ...o }).rerun;
+  eq(go({}), true, 'a red first attempt whose only failed shard sent no report re-runs its failed jobs');
+  eq(go({ attempt: 2 }), false, 'once only: the re-run is judged as it is');
+  eq(go({ missing: [] }), false, 'every shard reported: no re-run');
+  eq(go({ conclusion: 'success' }), false, 'a green run is not re-run');
+  eq(
+    go({ jobs: jobsOf({ 1: 'failure', 2: 'failure', 3: 'success', 4: 'success' }) }),
+    false,
+    'a failed shard that sent its report is never re-run: its reds stand',
+  );
+  eq(go({ jobs: jobsOf({ 1: 'success', 3: 'success', 4: 'success' }) }), false, 'a missing shard with no job: no re-run of the whole run');
   const ended = { ...row, step: 'J-a-01#4', active: false };
   const acts = setAsideIssueActions(
     [row, ended, { ...row, step: 'J-a-01#5' }, { ...row, step: 'J-a-01#6' }],

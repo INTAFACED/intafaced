@@ -43,8 +43,6 @@
     "verify": "node tooling/ci/verify.mjs",
     "verify:verdict": "node tooling/ci/infra-verdict.mjs",
     "gate": "node tooling/ci/dod-gate.mjs",
-    "scan:coverage": "node tooling/ci/coverage-check.mjs",
-    "coverage:report": "node tooling/ci/coverage-check.mjs --report",
     "scan:brand": "node tooling/ci/brand-scan.mjs",
     "scan:custody": "node tooling/ci/custody-scan.mjs",
     "scan:s2s": "node tooling/ci/s2s-scan.mjs",
@@ -116,7 +114,11 @@
       "nanoid@>=4.0.0 <5.1.6": "5.1.6",
       "tinypool@1.1.1": "2.1.2",
       "undici@>=7.0.0 <7.30.1": "7.30.1",
-      "uuid@<11.1.1": "11.1.1"
+      "uuid@<11.1.1": "11.1.1",
+      "@nktkas/hyperliquid>@nktkas/rews": "4.1.0",
+      "@nktkas/hyperliquid>@noble/hashes": "2.4.0",
+      "@nktkas/hyperliquid>decimal.js": "10.6.0",
+      "@nktkas/hyperliquid>valibot": "1.5.0"
     }
   }
 }

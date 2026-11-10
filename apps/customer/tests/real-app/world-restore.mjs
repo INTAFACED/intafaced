@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
 import { declaredWorld } from './world-line.mjs';
+import { STATUS_MS, healStack } from './services.mjs';
 import { MAKER_SETTLE_MS, makerEmails, makerRecordArgs, makerSettled } from './market.mjs';
 
 /**
@@ -103,6 +104,10 @@ export async function clearAccountBooks(who) {
   return left;
 }
 
+/** The restore's own time, under journey.mjs's 150 s for the worldBetweenFiles fixture, and what taking orders down keeps. */
+export const RESTORE_MS = 140_000;
+export const BOOK_RESERVE_MS = 20_000;
+
 /**
  * Put back what the journey file `file` declared it changes. `makerArgs` are the options the market maker was running
  * with when that file began (null if it was not running), and `accounts` the TEST accounts it signed up or acted as.
@@ -111,6 +116,12 @@ export async function clearAccountBooks(who) {
 export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
   const parts = worldOf(file);
   const said = [];
+  if (parts.has('restart')) {
+    // A service the file restarted answers again before anything else here signs in (services.mjs). The heal's start
+    // gets what the restore's own time (journey.mjs, 150 s) leaves after the maker's wait and the book's.
+    const healMs = RESTORE_MS - (parts.has('market') ? MAKER_SETTLE_MS : 0) - BOOK_RESERVE_MS - 2 * STATUS_MS;
+    said.push(...(await healStack({ healMs })));
+  }
   if (parts.has('book')) {
     const own = makerEmails();
     const cleared = await Promise.all(

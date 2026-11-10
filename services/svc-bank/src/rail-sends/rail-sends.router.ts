@@ -38,6 +38,7 @@ const payee = z
     verificationRail: z.literal('rail.bank'),
     addedAt: z.string(),
     cooling: z.object({ state: z.enum(['unset', 'active', 'open']), endsAt: z.string().nullable() }).strict(),
+    scamWarning: z.object({ state: z.enum(['unread', 'read']), readAt: z.string().nullable() }).strict(),
   })
   .strict();
 
@@ -118,6 +119,12 @@ export function createRailSendsRouter(
       .input(z.object({ payeeId: z.string().guid() }).strict())
       .output(z.object({ payeeId: z.string(), removed: z.literal(true) }).strict())
       .mutation(({ ctx, input }) => guard(async () => bank.railPayees.remove(ctx.principal.userId, input.payeeId))),
+
+    /** The person read the first-time payee scam warning for a recipient (BK-safe-02, J-bank-18 #2). Once per recipient. */
+    readPayeeWarning: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ payeeId: z.string().guid() }).strict())
+      .output(payee)
+      .mutation(({ ctx, input }) => guard(async () => bank.railPayees.readScamWarning(ctx.principal.userId, input.payeeId))),
 
     /** Invite a recipient to enter their own details by email: refused by name while no email delivery is connected. */
     invitePayee: scopedProcedure('bank:write', { module: 'bank' })

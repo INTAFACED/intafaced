@@ -17,9 +17,6 @@ on:
   # reports. A path filter that skipped docs/** and **/*.md left that check
   # missing, and a required check that never reports cannot merge. Test shards
   # still skip docs and markdown: tooling/ci/ci-affected.mjs ignores them.
-  # The founding document coverage-check reads moved to the private
-  # INTAFACED/project-state repo (product/INTAFACED_DEFINITIVE_BUILD.md); the
-  # gate reads its structure from tooling/coverage-law-index.json, which `**` covers.
   # Agent-rule markdown stays listed so a rules-only change cannot be treated
   # as docs-only. No script mirrors this list (tooling/scripts/merge-gate.mjs,
   # which once did, is gone). The last matching pattern wins.
@@ -94,7 +91,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -194,7 +191,9 @@ jobs:
             exit 0
           fi
           git worktree add --detach "$RUNNER_TEMP/reach-base" "$base"
-          node "$RUNNER_TEMP/reach-base/tooling/ci/journey-reach-map.mjs" verify --map "$GITHUB_WORKSPACE/$map"
+          # The runs and the builder are main's; the workspace inputs (packages, consumers, money) are the pull request's own,
+          # so a pull request that adds a package holds the map its own build writes (B1, #7724).
+          node "$RUNNER_TEMP/reach-base/tooling/ci/journey-reach-map.mjs" verify --map "$GITHUB_WORKSPACE/$map" --workspace "$GITHUB_WORKSPACE"
 
       # The journey list is the finish line (OWNER 1), from main like the guard above (tooling/ci/journey-list-guard.mjs):
       # a journey or step on main may leave docs/roadmap/journeys.json, or its live count, only on a body line
@@ -263,7 +262,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node tooling/ci/ci-affected.mjs --self-test
@@ -273,6 +272,8 @@ jobs:
       - run: node tooling/ci/post-merge-trust.mjs --self-test
       - run: node --test tooling/ci/journey-verdict.test.mjs
       - run: node tooling/ci/bisect-main.mjs --self-test
+      - run: node tooling/ci/journeys-revert.mjs --self-test
+      - run: node tooling/ci/journeys-revert-probe.mjs --self-test
       - run: node tooling/ci/test-shards.mjs --self-test
       - run: node tooling/ci/test-diff-guard.mjs --self-test
       - run: node tooling/ci/look-drift.mjs --self-test
@@ -293,7 +294,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: format:check
@@ -312,7 +313,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Same selection as the tests (tooling/ci/ci-affected.mjs): a run-everything change (and every push to main)
@@ -426,7 +427,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -663,3 +664,34 @@ jobs:
             echo "::notice::the default branch has no tooling/ci/factory-switch.mjs yet; this pull request's copy reads the switch"
           fi
           node "$switch"
+
+  # CI on a pull request in this repository ends here (a fork's token can't re-run a run; a merge queue's commit needs no seal start).
+  # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
+  # review, and the journeys run the change needs (journey-seal.mjs --recheck, START_JOB). It needs every other job
+  # here, so the seal reads this run as finished while only this job is going (settledRun). It checks out and runs the
+  # default branch's script, never the pull request's code. It replaced journey-seal-recheck.yml, a workflow_run
+  # workflow that was a run of its own on every finished input, whether it did anything or not
+  # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
+  seal-start:
+    name: Start the seal
+    needs: [changes, gates, format, build, test-full, merge-seal]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
+    permissions:
+      contents: read
+      actions: write # start or re-run merge-seal.yml's seal on this head through the Actions API
+      pull-requests: read # the pull requests on the head, their titles and changed files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Start the seal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          FINISHED: CI
+        run: node tooling/ci/journey-seal.mjs --recheck

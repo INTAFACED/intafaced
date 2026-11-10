@@ -17,8 +17,13 @@
 #                            https://s3.eu-west-1.amazonaws.com.
 #   CUSTOMER_MEDIA_ORIGINS   Any further https origins for <video>/<audio>,
 #                            space separated.
+#   CUSTOMER_SANDBOX_API_ORIGIN  The developer sandbox's API address (the
+#                            origin of IDENTITY_SANDBOX_BASE_URL), e.g.
+#                            https://sandbox-api.example.com. The API explorer
+#                            (/developers/explorer) sends a sandbox key's request
+#                            there; one exact https origin, no wildcard.
 #
-# All three default to empty: connect-src is then 'self' only (the /api and /ws
+# All four default to empty: connect-src is then 'self' only (the /api and /ws
 # paths, ws included) and media-src is 'self' blob:.
 customer_csp_origins() {
   set -f
@@ -69,6 +74,24 @@ customer_csp_origins() {
     else
       csp_connect="$csp_connect ws://$host http://$host"
     fi
+  fi
+
+  if [ -n "${CUSTOMER_SANDBOX_API_ORIGIN:-}" ]; then
+    case "$CUSTOMER_SANDBOX_API_ORIGIN" in
+      *[!A-Za-z0-9.:/-]*)
+        echo "customer csp: CUSTOMER_SANDBOX_API_ORIGIN contains a character that is not allowed in an origin (newline, space, ';', '*' ...)" >&2
+        exit 1
+        ;;
+    esac
+    case "$CUSTOMER_SANDBOX_API_ORIGIN" in
+      https://*) host="${CUSTOMER_SANDBOX_API_ORIGIN#https://}" ;;
+      *) host="" ;;
+    esac
+    if ! printf '%s' "$host" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$'; then
+      echo "customer csp: '$CUSTOMER_SANDBOX_API_ORIGIN' is not an https origin like https://sandbox-api.example.com (CUSTOMER_SANDBOX_API_ORIGIN)" >&2
+      exit 1
+    fi
+    csp_connect="$csp_connect $CUSTOMER_SANDBOX_API_ORIGIN"
   fi
 
   # The names the template uses. The nginx entrypoint only substitutes variables

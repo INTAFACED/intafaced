@@ -43,6 +43,14 @@ export interface CardPartnerTerms {
    * it has captured, as decimal strings. `null` is "not known"; the reconciliation then reads "not known", never 0.
    */
   readonly programmeFigures: Readonly<Record<string, { readonly held: string; readonly captured: string }>> | null;
+  /**
+   * The partner's own time for its programme figures and its reserve (b2 change 6), as an ISO time, or null: it sent
+   * none, so both read "not known", whatever amounts it gave. On the TEST stack, `now` is the TEST partner reporting
+   * them with its own clock at each read.
+   */
+  readonly figuresAsOf: 'now' | string | null;
+  /** How old the partner says its figures may be before they are stale, in milliseconds, as its adapter declares it. */
+  readonly figuresStaleAfterMs: number;
   /** The stablecoin the programme is funded in, as the partner reports it (J-bank-26 #6), or null ("not known"). */
   readonly fundingAssetId: string | null;
   /** Which of fund, defund and auto reload the partner offers the programme (J-bank-26 #6), or null ("not known"). */
@@ -55,6 +63,15 @@ export interface CardPartnerTerms {
   readonly secrets?: 'test';
 }
 
+/** TEST: how old the TEST partner card says its figures may be before they are stale. A real partner declares its own. */
+export const CARD_SIM_FIGURES_STALE_AFTER_MS = 60_000;
+
+/** The partner's own time for its programme figures and reserve, read at `now`, or null when it sent none. */
+export function partnerFiguresAsOf(terms: CardPartnerTerms, now: Date): Date | null {
+  if (terms.figuresAsOf === null) return null;
+  return terms.figuresAsOf === 'now' ? now : new Date(terms.figuresAsOf);
+}
+
 /** Nothing reported: what a partner that has answered none of the four looks like. */
 export const NOTHING_REPORTED: CardPartnerTerms = {
   test: true,
@@ -65,6 +82,8 @@ export const NOTHING_REPORTED: CardPartnerTerms = {
   funder: null,
   balances: null,
   programmeFigures: null,
+  figuresAsOf: null,
+  figuresStaleAfterMs: CARD_SIM_FIGURES_STALE_AFTER_MS,
   fundingAssetId: null,
   fundingOffers: null,
 };
@@ -99,6 +118,7 @@ const simShape = z
       .record(assetId, z.object({ held: decimal, captured: decimal }).strict())
       .refine((m) => Object.keys(m).length <= 50, 'at most 50 assets')
       .nullable(),
+    figuresAsOf: z.union([z.literal('now'), z.string().datetime({ offset: true })]).nullable(),
     fundingAssetId: assetId.nullable(),
     fundingOffers: z.object({ fund: z.boolean(), defund: z.boolean(), autoReload: z.boolean() }).strict().nullable(),
     // Optional, unlike the unknowns above: absent is a partner that offers no card secrets, which refuses, never a guess.
@@ -142,7 +162,7 @@ export function cardSimPartnerFor(
   if (d.spendFrom && new Set(d.spendFrom).size !== d.spendFrom.length) {
     throw new Error(`${BANK_CARD_SIM_PARTNER_ENV} lists an asset twice in spendFrom`);
   }
-  return { test: true, ...d };
+  return { test: true, ...d, figuresStaleAfterMs: CARD_SIM_FIGURES_STALE_AFTER_MS };
 }
 
 /** The words every surface shows for an unknown. One constant so no surface can print a 0 or a guess instead. */
@@ -172,7 +192,8 @@ export interface CardPartnerTermsView {
 }
 
 export function partnerTermsView(terms: CardPartnerTerms): CardPartnerTermsView {
-  const r = terms.reserve;
+  // A reserve the partner sent with no time for it is "not known": we cannot say when it was so (b2 change 6).
+  const r = terms.figuresAsOf === null ? null : terms.reserve;
   return {
     test: terms.test,
     custodyMode: terms.custodyMode ? MODE_WORDS[terms.custodyMode] : NOT_KNOWN,
@@ -207,6 +228,9 @@ export function parsePinTryLimit(raw: string | undefined | null): number | null 
   const n = Number(raw.trim());
   return n >= 1 && n <= 10 ? n : null;
 }
+
+/** The owner's 3D Secure try limit (`BANK_CARD_3DS_TRY_LIMIT`, J-bank-14 #5): the same shape as the PIN's, 1 to 10, else null. */
+export const parseThreeDSTryLimit = parsePinTryLimit;
 
 export function requireSpendAssets(list: readonly string[] | null): readonly string[] {
   if (!list) {

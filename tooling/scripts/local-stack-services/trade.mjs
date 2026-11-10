@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { userVenueSwitchOn } from '../local-test-venue.mjs';
+import { userVenueCount, userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -230,9 +230,32 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     ...(userVenueSwitchOn(process.env.LOCAL_STACK_USER_VENUE)
       ? {
           TRADE_USER_VENUE_URL: urlOf('test-venue'),
+          // J-derivatives-28: LOCAL_STACK_USER_VENUE=two adds the second TEST venue; the ticket then routes over both.
+          ...(userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2 ? { TRADE_USER_VENUE_URLS: urlOf('test-venue-b') } : {}),
+          // J-cex-spot-16: the TEST markets the other venue journeys trade, listed as a LOCAL TEST seed (svc-trade
+          // venue/venue-listing.ts): the two BTC markets, and J-derivatives-21's TEST gold perpetual XAU-PERP. ETH-USDC
+          // is left unlisted, for two operators to review.
+          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,XAU-PERP',
           TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
           TRADE_USER_VENUE_BUILDER_FEE_BPS:
             process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),
+          // J-agents-21's agent account on the TEST venue: the labelled LOCAL TEST ceiling, funding asset, agent key seed
+          // and drain bounds. `LOCAL_STACK_AGENT_ACCOUNT_CEILING=off` leaves the ceiling blank for one restart, so a create
+          // refuses agents.account_ceiling_unset (J-agents-21 #1).
+          TRADE_AGENT_ACCOUNT_CEILING:
+            process.env.LOCAL_STACK_AGENT_ACCOUNT_CEILING === 'off' ? '' : testValue('TRADE_AGENT_ACCOUNT_CEILING'),
+          TRADE_AGENT_ACCOUNT_ASSET: testValue('TRADE_AGENT_ACCOUNT_ASSET'),
+          TRADE_AGENT_KEY_SEED: testValue('TRADE_AGENT_KEY_SEED'),
+          TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
+          TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
+          TRADE_AGENT_MARKETS: testValue('TRADE_AGENT_MARKETS'),
+          // J-developer-05 #6: `LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off` leaves the largest page blank, so a list refuses.
+          TRADE_USER_VENUE_ORDERS_PAGE_MAX:
+            process.env.LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX === 'off' ? '' : testValue('TRADE_USER_VENUE_ORDERS_PAGE_MAX'),
+          // The builder-fee poster (J-derivatives-17): every 2 seconds on the stack; `LOCAL_STACK_BUILDER_FEE_POSTER=off`
+          // stops it, so a fill waits unposted and the recon lists it as a break.
+          TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
+          TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: '2000',
         }
       : {}),
   }),

@@ -127,6 +127,11 @@ import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.j
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
+import {
+  freezeWithdrawalsForSupport,
+  registerSupportWithdrawalFreezeRoute,
+  supportWithdrawalFreezeRecords,
+} from './auth/support-withdrawal-freeze.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
@@ -145,7 +150,8 @@ import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth
 import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
-import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { parseApiKeyCapByTier, parsePortfolioKeyCap, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { parseDeveloperRoles } from './auth/developer-team.js';
 import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
 import { createApiRateLimitsRouter } from './api-rate-limits-router.js';
 import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
@@ -745,7 +751,7 @@ export const appRouter = mergeRouters(
   createApiKeyRequestSignRouter(sql, auth, signingEncKey, env.API_KEY_SIGNING_OPTIONAL.trim() === 'true'),
   createRequestSigningPolicyRouter(requestSignWindowSeconds),
   createApiKeyOriginRouter(sql, auth, auth),
-  createApiKeyAccountRouter(sql, auth, auth),
+  createApiKeyAccountRouter(sql, auth, auth, parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX)),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
   createApiKeyExpireRouter(sql, auth),
   createApiKeyRevokeAllRouter(sql),
@@ -754,6 +760,8 @@ export const appRouter = mergeRouters(
     gate: auth,
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    portfolioKeyCap: parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX),
+    developerRoles: parseDeveloperRoles(env.IDENTITY_DEVELOPER_ROLES),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
     mayMint: passkeyMintRule(sql),
     signingEncKey,
@@ -1199,6 +1207,15 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return view;
+});
+
+/** A support agent's withdrawal freeze from a customer's request (J-support-public-20 #7): svc-support only. */
+registerSupportWithdrawalFreezeRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  freeze: (input) => freezeWithdrawalsForSupport(securityLock, input),
+  records: (input) => supportWithdrawalFreezeRecords(sql, input),
 });
 
 /**

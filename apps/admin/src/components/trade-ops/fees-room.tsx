@@ -8,7 +8,9 @@ import { OutcomeNotice } from './outcome-notice';
 import { tradeOpsAction } from '@/lib/trade-ops/client';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import type { FeesDeskView } from '@/lib/trade-ops/fees-calls';
-import type { FeeNotice } from '@/lib/trade-ops/fees-desk-parse';
+import type { FeeNotice, VenueFigure } from '@/lib/trade-ops/fees-desk-parse';
+import type { BuilderCaps } from '@/lib/trade-ops/builder-fees-model';
+import { BuilderFeeInputs, BuilderFeeVersions } from './builder-fees';
 import {
   STATE_LABEL,
   buildProposal,
@@ -139,7 +141,7 @@ function Versions({ history, now }: { history: FeeHistory; now: Date }) {
 
 // ── #2-#4 the proposal ──
 
-function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: FeeVersionRow) => void }) {
+function Propose({ base, caps, onWritten }: { base: FeeVersionRow; caps: BuilderCaps | null; onWritten: (row: FeeVersionRow) => void }) {
   const [draft, setDraft] = useState<ProposalDraft>(() => draftFrom(base));
   const [reason, setReason] = useState('');
   const [localRefusal, setLocalRefusal] = useState<{ code: string; message: string } | null>(null);
@@ -149,6 +151,8 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: Fe
 
   const setRate = (i: number, field: 'makerBps' | 'takerBps', value: string) =>
     setDraft((d) => ({ ...d, rates: d.rates.map((r, j) => (j === i ? { ...r, [field]: value } : r)) }));
+  const setBuilderFee = (i: number, feeBps: string) =>
+    setDraft((d) => ({ ...d, builderFees: (d.builderFees ?? []).map((l, j) => (j === i ? { ...l, feeBps } : l)) }));
   const setThreshold = (i: number, value: string) =>
     setDraft((d) => ({ ...d, thresholds: d.thresholds?.map((t, j) => (j === i ? { ...t, minVolume30d: value } : t)) ?? null }));
   const body = () => ({ basisVersion: base.version, draft, reason: reason.trim() });
@@ -156,7 +160,7 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: Fe
   async function propose() {
     setProposed(null);
     // Checked here first: a blank or malformed value is refused with its typed code, and nothing is sent.
-    const check = buildProposal(base, draft, reason, new Date());
+    const check = buildProposal(base, draft, reason, new Date(), caps);
     if (!check.ok) {
       setLocalRefusal({ code: check.code, message: check.message });
       return;
@@ -167,7 +171,7 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: Fe
     setBusy(false);
   }
 
-  const check = buildProposal(base, draft, reason, new Date());
+  const check = buildProposal(base, draft, reason, new Date(), caps);
   return (
     <div className="flex flex-col gap-3" data-fees="propose">
       <p className="text-sm text-fg-2">
@@ -211,6 +215,7 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: Fe
           ))}
         </tbody>
       </table>
+      <BuilderFeeInputs lines={draft.builderFees ?? []} onChange={setBuilderFee} />
       {draft.thresholds === null ? (
         <p className="text-sm text-fg-2">
           This version has no VIP tier programme: thresholds not set, every account is on the regular tier.
@@ -652,6 +657,67 @@ function SellQuotes({ view }: { view: FeesDeskView['sellQuotes'] }) {
   );
 }
 
+/** A figure the venue gave, with its asset, or "not known": never a 0 standing in for one. */
+const venueFigure = (f: VenueFigure) => (f.known ? `${f.amount} ${f.asset}` : 'not known');
+
+function VenueSellQuotes({ view }: { view: FeesDeskView['venueSellQuotes'] }) {
+  if (view.kind !== 'ok') return <Problem outcome={view} title="The venue's sell prices could not be read" />;
+  const test = view.data.some((q) => q.test);
+  return (
+    <div data-fees="venue-sells" className="flex flex-col gap-2">
+      <p className="text-sm text-fg-2">
+        The latest sells priced by the venue on customers' own venue accounts: the venue's own preview of each sell, exactly as the venue
+        gave it, "not known" where it gave no figure. Read only.
+        {test ? ' TEST: these prices come from a TEST venue, not a live one.' : ''}
+      </p>
+      {view.data.length === 0 ? (
+        <p className="text-sm text-fg-2">No venue sell price has been given.</p>
+      ) : (
+        <table className={TABLE}>
+          <thead>
+            <tr>
+              <th scope="col">Quoted at</th>
+              <th scope="col">Customer</th>
+              <th scope="col">Venue</th>
+              <th scope="col">Sells</th>
+              <th scope="col">Fills now</th>
+              <th scope="col">Average price</th>
+              <th scope="col">Venue fee</th>
+              <th scope="col">Builder fee</th>
+              <th scope="col">Venue's time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view.data.map((q) => (
+              <tr key={q.quoteId} data-venue-quote={q.quoteId}>
+                <th scope="row" className="if-num">
+                  {shownTime(q.createdAt)}
+                </th>
+                <td className="if-num">{q.userId}</td>
+                <td>{q.venueId}</td>
+                <td className="if-num">
+                  {q.amount} {q.baseAsset} on {q.symbol}
+                </td>
+                <td className="if-num">{q.fill.known ? `${q.fill.amount} ${q.baseAsset}` : 'not known'}</td>
+                <td className="if-num">
+                  {q.fill.known
+                    ? q.fill.averagePrice === null
+                      ? 'none: nothing fills'
+                      : `${q.fill.averagePrice} ${q.quoteAsset}`
+                    : 'not known'}
+                </td>
+                <td className="if-num">{venueFigure(q.venueFee)}</td>
+                <td className="if-num">{venueFigure(q.builderFee)}</td>
+                <td className="if-num">{shownTime(q.asOf)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function FiatBuy({ view }: { view: FeesDeskView['onrampQuotes'] }) {
   if (view.kind !== 'ok') return <Problem outcome={view} title="The fiat buy fees could not be read" />;
   const standIn = view.data.some((q) => q.simulated);
@@ -751,7 +817,7 @@ function FiatBuyNotKnown({ view }: { view: FeesDeskView['onrampFeesNotKnown'] })
   );
 }
 
-export function FeesRoom({ initial }: { initial: FeesDeskView }) {
+export function FeesRoom({ initial, builderCaps = null }: { initial: FeesDeskView; builderCaps?: Outcome<BuilderCaps> | null }) {
   const [view, setView] = useState(initial);
   // Kept here, not in the form: the form starts again from the version just written, and this line must stay.
   const [written, setWritten] = useState<FeeVersionRow | null>(null);
@@ -780,11 +846,19 @@ export function FeesRoom({ initial }: { initial: FeesDeskView }) {
       <PageSection title="Fee versions by pair group">
         {history ? <Versions history={history} now={now} /> : <Problem outcome={fees} title="The fee versions could not be read" />}
       </PageSection>
+      <PageSection title="Builder-fee versions by venue and market group">
+        {history ? (
+          <BuilderFeeVersions history={history} now={now} caps={builderCaps} />
+        ) : (
+          <Problem outcome={fees} title="The fee versions could not be read" />
+        )}
+      </PageSection>
       <PageSection title="Propose a new version">
         {base ? (
           <Propose
             key={base.version}
             base={base}
+            caps={builderCaps?.kind === 'ok' ? builderCaps.data : null}
             onWritten={(row) => {
               setWritten(row);
               void reread();
@@ -815,6 +889,7 @@ export function FeesRoom({ initial }: { initial: FeesDeskView }) {
       </PageSection>
       <PageSection title="Sell quotes">
         <SellQuotes view={view.sellQuotes} />
+        <VenueSellQuotes view={view.venueSellQuotes} />
       </PageSection>
       <PageSection title="Partner buy fees">
         <FiatBuy view={view.onrampQuotes} />

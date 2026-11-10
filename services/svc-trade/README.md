@@ -165,6 +165,76 @@ no event is sent: the venue is the record of balances, locks, fills and withdraw
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
 
+**Convert sell quotes on the venue (J-cex-spot-17 #8).** `POST /api/v1/venue/convert/sell-quote`
+`{ owner, symbol, amount, quoteKey }` (trade:write, as the preview) prices a spot sell by the venue's own preview of a
+market IOC sell of that size on the customer's venue account (`src/venue/venue-sell-quotes.ts`): what fills now, its
+average price, the venue fee, our builder fee and the venue's time, stored exactly as given in `trade.venue_sell_quotes`
+under `venue-sell:<userId>:<quoteKey>`, a figure the venue does not give kept "not known". A retry returns the first
+quote; the same key for another ask refuses `trade.venue_sell_quote_key_reused` (409); a perp refuses
+`trade.venue_sell_quote_not_spot`, an unknown market `trade.venue_sell_quote_market_unknown`. Nothing is sent and the
+ledger posts nothing. Finance reads them in `admin.convertDesk.venueSellQuotes`.
+
+**The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
+`serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers
+one person's venue accounts with each one's balances and every spot fill, as the venue reports them at the moment of the
+call, with its as-of time. A venue account is the person's here only when its owner wallet signed an action they prepared
+through the door (`ownerSignedAccounts` over `trade.user_venue_actions`: owner role, signer equal to the account's owner,
+signature stored after the door checked it recovers); an account read only by address is not theirs, and an agent's
+signature names none. The fee is everything the venue charged (its fee and any builder fee), in the fee coin. Nothing is
+stored. The door off answers `{ state: 'off' }`; the venue down answers `SERVICE_UNAVAILABLE`, never an empty list.
+
+### Our builder fee in the ledger (D-venue-07, J-derivatives-17)
+
+The one money the door's orders move for us. With the door on, the builder-fee poster (`src/builder-fee/builder-fee-poster.ts`,
+job `venue.builder_fees`, every `TRADE_BUILDER_FEE_POSTER_INTERVAL_MS`; `TRADE_BUILDER_FEE_POSTER=off` stops it) reads the
+venue's fills for our users' accounts (those that sent an order carrying our builder fee) and posts `builderFeeEarn` for
+each fill with a builder fee above zero on an order our door stored and signed for that account, keyed
+`builder-fee:<venueId>:<venueAccount>:<fillId>` (the account is the owner, or `<owner>/<subAccount>`), so a fill read twice
+posts once and the two sides of one trade, each one of our accounts, post twice (OWNER 288). A fill with a builder fee on any
+other order is recorded as `not_our_order` and never posted. It never posts a customer's fill, margin or balance.
+`trade.venue_builder_fees` records, per venue, account and fill, which fills were posted, refused by the ledger (an unknown
+fee asset stays unposted and listed) or not ours; it is not a balance. A run that fails other than on one fill (an
+idempotency conflict, the posting freeze, an outage) stops, as before, and raises the alert
+`trade.builder_fee_poster_stopped` (a log line naming the venue, the account and the fill); `trade.venue_builder_fee_runs`
+keeps the last complete run and the last stop, which the treasury desk shows. `admin.builderFees.recon` (`admin:read`) is
+the founder console's `/ledger/treasury`: for one period, the venue's builder fee on each fill against the ledger's under
+the fill's key, and every break listed with its venue fill id and amounts. The venue's own totals decide (OWNER 288 change
+1e): per fee asset, the ledger's earned total at the venue (owed plus paid out to our builder account) against the venue's
+own earned total for our builder address (`TRADE_USER_VENUE_BUILDER_ADDRESS`), and what the ledger says is owed against the
+venue's own unclaimed figure (`UserVenue.builderTotals`). The verdict is `matched` only when every fill and both totals match
+and at least one fill was compared; no fill reads `nothing_to_compare`, and totals the venue can't give (a blank builder
+address, an adapter that reads none, the venue not knowing) read `totals_unknown`, never matched. Each result carries the
+fills compared and the time read through. Job `venue.builder_fee_recon` runs it over the last day every
+`TRADE_BUILDER_FEE_RECON_INTERVAL_MS` and logs the alert `trade.builder_fee_recon_break`. Read only: it never posts to make
+the two agree. `builderFeeReceive` (a venue's payout of builder fees) waits for the owner's payout
+model.
+
+**Venue markets we list (J-cex-spot-16).** The venue lists what it lists; `GET /api/v1/venue/markets` shows only markets
+two operators listed, each with our `listing` (`opensAt`, `delistsAt`, `routing`, `open`, `delisted`, our `maxOrderQty` /
+`maxOrderNotional` or `null`) beside the venue's own `status` and largest order. A new order (preview, prepare, and again
+at first send) refuses `trade.venue_market_not_listed`, `trade.venue_routing_stopped`, `trade.venue_market_not_open`,
+`trade.venue_market_delisted` (after `delistsAt`, unless reduce-only), `trade.venue_routing_close_only` (unless
+reduce-only) or `trade.venue_order_above_limit` (422). Cancels are never checked. With no limit version of ours, orders
+pass on the venue's own largest order. Operator doors under `admin.venueMarkets.*` (`src/admin/venue-markets.ts`), each
+write consuming identity's two-person approval (target `venue-listing:<venueId>:<symbol>` or
+`venue-limits:<venueId>:<symbol>`, expected version `0` when none):
+
+| Door                | Action type                      | Refusals of its own                                                                                                        |
+| ------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `list`              | (read, `admin:read`)             | `trade.user_venue_off`                                                                                                     |
+| `listingSet`        | `trade.venue_listing_set`        | `trade.venue_listing_opening_window_blank` / `_invalid`, `trade.venue_market_unknown`, `trade.venue_listing_stale`         |
+| `routingSet`        | `trade.venue_routing_set`        | `trade.venue_listing_missing`, `trade.venue_routing_invalid`, `trade.venue_routing_unchanged`, `trade.venue_listing_stale` |
+| `limitsSet`         | `trade.venue_limits_set`         | `trade.venue_limit_blank`, `_not_exact`, `_unknown` (venue reports none), `_above_venue`, `_stale`                         |
+| `delistingSchedule` | `trade.venue_delisting_schedule` | `trade.venue_delisting_date_blank` / `_invalid` / `_not_future`, `trade.venue_delisting_already_scheduled`                 |
+
+Each version is append-only in `trade.venue_listings` / `trade.venue_routed_limits` with its approval id (business key),
+proposer, approver and executor; a retry of an approved write answers the version it wrote. A delisting writes its notice
+row (`trade.venue_delisting_notices`, key `venue-delisting:<venueId>:<symbol>:<delistsAt>`) in the same transaction and
+publishes `trade.venue_delisting.created` after commit, again each minute until the bus takes it; svc-notify files one
+dated notice per key. None of this cancels an order, touches an open venue order, or posts to the ledger.
+`TRADE_USER_VENUE_TEST_LISTINGS` (set only by the local stack) lists the named markets on a TEST venue, proposed by the stack id
+`LOCAL TEST stack seed` and approved by `LOCAL TEST stack seed approval` (approval id `test-stack-listing:<venueId>:<symbol>`); refused outside APP_ENV dev or test and on a venue that is not TEST.
+
 ## Events
 
 **Publishes**
