@@ -9,6 +9,7 @@ export const PARTNER_OFF = Object.freeze({
   fee: 'known',
   reserve: 'none',
   down: false,
+  figures: 'live',
   rampQuote: 'live',
   rampFee: 'known',
   accountDetails: 'none',

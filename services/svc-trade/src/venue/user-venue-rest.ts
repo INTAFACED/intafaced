@@ -10,6 +10,7 @@
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
+ *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
  *   POST /api/v1/venue/submit    { actionKey, signature }    sent on the venue the action was prepared for
  *   GET  /api/v1/venue/markets/:symbol/venues?owner=&side=   every configured venue for the market (J-derivatives-28 #1)
@@ -55,6 +56,7 @@ import { privateRead, privateWrite } from '../route-inventory.js';
 import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
+import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
@@ -65,6 +67,8 @@ export interface UserVenueRestDeps {
    * a default: blank answers `{ known: false }`.
    */
   slippageCapBps?: number | null;
+  /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
+  sellQuotes?: VenueSellQuotes | null;
 }
 
 type Query = {
@@ -290,6 +294,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null }>(req, reply);
     if (!b) return;
     return answer(reply, async (d) => d.preview(principal, b.owner ?? '', b.intent as VenueIntent), b.venueId);
+  });
+
+  // A Convert sell priced by the venue's own preview on the customer's account, stored under its business key. Sends
+  // nothing to the venue and moves no money; a trade:write scope, as the preview it is made from.
+  app.post('/api/v1/venue/convert/sell-quote', privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async () => {
+      if (!deps.sellQuotes)
+        throw new UserVenueDoorError('venue sell quotes are not wired on this deployment', 'trade.venue_sell_quote_unwired', 503);
+      const b = body<{ owner?: string; symbol?: string; amount?: bigint; quoteKey?: string }>(req);
+      const quote = await deps.sellQuotes.quote(principal, {
+        owner: b.owner ?? '',
+        symbol: b.symbol ?? '',
+        amount: b.amount as bigint,
+        quoteKey: b.quoteKey ?? '',
+      });
+      return presentVenueSellQuote(quote);
+    });
   });
 
   app.post('/api/v1/venue/prepare', privateWrite, async (req, reply) => {
