@@ -891,12 +891,14 @@ function venueLots(fills) {
 
 /**
  * The realised result of `sells` against `lots`, first in first out (svc-tax's DEFAULT_LOT_BOOK_METHOD): what the sales
- * brought in (their quote legs, less the venue's USDC fees), less the cost of the lots they used up, a part lot at its
+ * brought in (their quote legs, less every USDC fee the venue charged on them), less the cost of the lots they used up, a part lot at its
  * share of the cost.
  */
 function realisedFifo(lots, sells) {
   let left = sells.reduce((s, f) => s + wireUnits(f.amount), 0n);
-  const proceeds = sells.reduce((s, f) => s + quoteOf(f) - (f.feeAsset === 'USDC' ? wireUnits(f.venueFee) : 0n), 0n);
+  // A sale's fee is everything the venue charged on it: its own fee and our builder fee (svc-trade README, own activity).
+  const charged = (f) => wireUnits(f.venueFee) + wireUnits(f.builderFee);
+  const proceeds = sells.reduce((s, f) => s + quoteOf(f) - (f.feeAsset === 'USDC' ? charged(f) : 0n), 0n);
   let used = 0n;
   for (const lot of lots) {
     if (left === 0n) break;
