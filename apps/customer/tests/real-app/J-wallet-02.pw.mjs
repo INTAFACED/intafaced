@@ -202,12 +202,14 @@ test(`${J} #5 sends TEST 100 ${ASSET} on the TEST chain: detected, then confirmi
   await page.reload();
   const pending = page.locator('section', { has: page.getByRole('heading', { name: 'On its way' }) });
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'detected');
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveText('Detected');
   await expect(pending).toContainText('0 of 6 confirmations');
   expect(await usdt()).toBe(before);
 
   chainDeposit(address, '100', 3, label);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'confirming');
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveText('Confirming');
   await expect(recordRow(page, tx)).toContainText('3 of 6 confirmations');
   await expect(pending).toContainText('3 of 6 confirmations');
   expect(await usdt()).toBe(before);
@@ -225,7 +227,7 @@ test(`${J} #5 sends TEST 100 ${ASSET} on the TEST chain: detected, then confirmi
   await page.reload();
   await expect(recordRow(page, small).locator('[data-status]')).toHaveAttribute('data-status', 'below_minimum');
   expect(await usdt()).toBe(before + toUnits('100'));
-  run.write({ credited: String(before + toUnits('100')), label, tx });
+  run.write({ credited: String(before + toUnits('100')), label, tx, small });
 });
 
 /** The screen's text for an amount (fmtAmount, round down): at most 8 places, no trailing zeros, the whole part grouped. */
@@ -310,13 +312,20 @@ test(`${J} #7 the credit lands in the inbox once, however often the chain delive
   await expect(page).toHaveURL(/\/uc\/recharge\?asset=USDT&network=ethereum$/);
   await expect(assetPicker(page)).toHaveValue(ASSET);
 
-  // History: the deposit's record names its state in plain words, Credited, beside its 100 USDT.
-  const { tx } = state();
+  // History: each deposit's record names its state in plain words. The 100 USDT reads Credited, once, and the one
+  // under the minimum reads Below minimum with its reason, so nothing was credited from it.
+  const { tx, small } = state();
   const row = recordRow(page, tx);
   await expect(row).toHaveCount(1);
   await expect(row.locator('[data-status]')).toHaveAttribute('data-status', 'credited');
   await expect(row.locator('[data-status]')).toHaveText('Credited');
   await expect(row).toContainText(`100 ${ASSET}`);
+  const under = recordRow(page, small);
+  await expect(under).toHaveCount(1);
+  await expect(under.locator('[data-status]')).toHaveAttribute('data-status', 'below_minimum');
+  await expect(under.locator('[data-status]')).toHaveText('Below minimum');
+  await expect(under).toContainText(`Under the minimum of 10 ${ASSET}, so it was not credited.`);
+  await expect(under).toContainText(`5 ${ASSET}`);
 
   // The email toggle: email is not connected on this stack, so svc-notify names vendor.email on every email cell, and
   // each email switch is off and fixed with the not-connected notice beside it.
