@@ -27,6 +27,41 @@ const ACCESS = {
 };
 
 /**
+ * The floor: every section this build lists, by audience, with the slice an unbuilt one waits for (null when it has a
+ * page). The portal's index may add sections; it may never drop one of these or lose a blocker.
+ */
+const FLOOR = {
+  'Exchange API': {
+    Permissions: null,
+    Authentication: null,
+    'REST conventions': null,
+    'API reference': null,
+    'WebSocket streams': 'DV-websocket-01',
+    'Rate limits': null,
+    Errors: null,
+    'Order types': null,
+    'Bot policy': null,
+    Idempotency: null,
+    Versioning: 'DV-versioning-01',
+    Changelog: null,
+    'Market data terms': null,
+  },
+  Institutional: { Connectivity: null, FIX: 'DV-fix-01', 'Choosing a protocol': 'DV-websocket-01' },
+  Embedded: { Webhooks: null, Sandbox: null },
+  Broker: { 'Registered apps': null },
+  'Best practice': {
+    Quickstart: null,
+    Libraries: 'DV-tools-01',
+    'Command line': 'DV-tools-02',
+    'Assistant tools': 'DV-tools-02',
+    'API explorer': 'DV-console-01',
+    'Machine-readable specs': null,
+    'Developer support': 'DV-portal-03',
+    'Service status': null,
+  },
+};
+
+/**
  * The portal's own section list, read from the running app: /developers/index.md, the markdown variant of the portal home,
  * which lists every section under its audience as `- <title>: <target>`, the target being its page here
  * (`/developers/<id>`), the page it is published at, or `Waits for <slice>`.
@@ -143,7 +178,11 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
   const portal = await portalSections(page);
   // The portal's own list has every audience, each with its sections.
   expect([...portal.keys()]).toEqual(AUDIENCES);
-  for (const audience of AUDIENCES) expect(portal.get(audience).sections.length, audience).toBeGreaterThan(0);
+  // None of the floor's sections is dropped, and each unbuilt one still waits for its named slice.
+  for (const audience of AUDIENCES) {
+    const listed = Object.fromEntries(portal.get(audience).sections.map((section) => [section.title, section.waitsFor]));
+    for (const [title, waitsFor] of Object.entries(FLOOR[audience])) expect(listed[title], `${audience}: ${title}`).toBe(waitsFor);
+  }
   const all = [...portal.values()].flatMap((audience) => audience.sections);
   expect(new Set(all.map((section) => section.title)).size).toBe(all.length);
 
