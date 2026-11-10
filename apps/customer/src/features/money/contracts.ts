@@ -838,6 +838,8 @@ export const cashOutQuoteSchema = z.object({
   assetId: z.string(),
   amount: money,
   available: money,
+  /** Who holds the balance read: the partner bank's label when it holds this person's money, else null (the ledger). */
+  heldAt: z.string().nullable().default(null),
   account: linkedAccountSchema,
   rail: z.literal('rail.bank'),
   fee: money.nullable(),
@@ -849,7 +851,7 @@ export const cashOutQuoteSchema = z.object({
   standIn: z.string().nullable().default(null),
 });
 export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
-export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'returned'] as const;
+export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'cancelled', 'returned'] as const;
 export const cashOutRequestSchema = z.object({
   requestId: z.string(),
   assetId: z.string(),
@@ -863,19 +865,24 @@ export const cashOutRequestSchema = z.object({
   receiveCurrency: z.string().nullable().default(null),
   payoutRef: z.string().nullable().default(null),
   ledgerTxId: z.string().nullable().default(null),
+  heldAt: z.string().nullable().default(null),
+  partnerMoveId: z.string().nullable().default(null),
   failureCode: z.string().nullable().default(null),
   returnedAmount: money.nullable().default(null),
   remainsPaidOut: money.nullable().default(null),
   createdAt: z.string(),
   completedAt: z.string().nullable().default(null),
   failedAt: z.string().nullable().default(null),
+  cancelledAt: z.string().nullable().default(null),
   returnedAt: z.string().nullable().default(null),
 });
 export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
 export const cashOutReceiptSchema = z.object({
   fileName: z.string(),
   text: z.string(),
-  ledgerTxId: z.string(),
+  /** The ledger transaction that paid it out; null when the partner bank holds the money and the ledger posted nothing. */
+  ledgerTxId: z.string().nullable(),
+  partnerMoveId: z.string().nullable().default(null),
   sha256: z.string(),
   signature: z.string(),
 });
@@ -1056,6 +1063,34 @@ export const cardWalletTokensSchema = z.object({
   ),
 });
 export type CardWalletTokens = z.infer<typeof cardWalletTokensSchema>;
+/** A 3D Secure challenge as svc-bank answers it (J-bank-14 #5). `testCode` is the TEST partner's code, TEST stack only. */
+export const cardThreeDSChallengeSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  challengeRef: z.string(),
+  amount: z.string(),
+  merchant: z.string().nullable(),
+  merchantCountry: z.string().nullable(),
+  state: z.enum(['open', 'approved', 'locked']),
+  /** Null while the owner has not set the count. */
+  triesLeft: z.number().int().nullable(),
+  authorizationId: z.string().nullable(),
+  /** The completed authorisation's own decision: an approved code can still meet a declined purchase. */
+  decision: z.enum(['approved', 'declined']).nullable(),
+  declineCode: z.string().nullable(),
+  createdAt: z.string(),
+  testCode: z.string().nullable(),
+});
+export type CardThreeDSChallenge = z.infer<typeof cardThreeDSChallengeSchema>;
+/** One card fraud report (J-bank-14 #7). */
+export const cardFraudReportSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  authorizationId: z.string(),
+  state: z.literal('open'),
+  createdAt: z.string(),
+});
+export type CardFraudReport = z.infer<typeof cardFraudReportSchema>;
 
 export const bankReads = {
   'accounts.features': accountTermsSchema,
@@ -1160,6 +1195,8 @@ export const bankReads = {
   'cards.controls.get': cardControlsSchema,
   'cards.secretsOffered': cardSecretsOfferedSchema,
   'cards.walletTokens': cardWalletTokensSchema,
+  'cards.threeDS.list': z.object({ challenges: z.array(cardThreeDSChallengeSchema) }),
+  'cards.fraud.list': z.object({ reports: z.array(cardFraudReportSchema) }),
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
@@ -1271,6 +1308,8 @@ export const bankWrites = {
   'cards.pin.reveal': cardPinRevealSchema,
   'cards.pin.set': z.object({ ok: z.literal(true) }),
   'cards.walletProvision': z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }),
+  'cards.threeDS.answer': cardThreeDSChallengeSchema,
+  'cards.fraud.report': cardFraudReportSchema,
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,
