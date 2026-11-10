@@ -703,6 +703,26 @@ test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, n
   expect(shownUnits(col(/^(Amount|Size|Filled)$/))).toBe(filled);
   expect(shownUnits(col(/venue.?s fee|^Fee$/i))).toBe(fills.reduce((s, f) => s + wireUnits(f.venueFee), 0n));
   expect(col(/builder fee/i)).toMatch(/none|^0(\.0+)?/i);
+  // Filled on the desk, read by this order's own client id: its Trade history rows are exactly the venue's fills of it,
+  // each a Buy as Maker at the order's price, adding up to the whole order; and the order has left Open orders.
+  const history = page.getByTestId('venue-fills');
+  const own = history.locator(`tr[data-client-order-id="${venueBuy.clientOrderId}"]`);
+  await expect(own).toHaveCount(fills.length);
+  expect((await own.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill')))).sort()).toEqual(fills.map((f) => f.fillId).sort());
+  let shownFilled = 0n;
+  for (let i = 0; i < fills.length; i++) {
+    const r = own.nth(i);
+    await expect(r).toContainText('Buy');
+    await expect(r.locator('[data-cell="role"]')).toHaveText('Maker');
+    expect(shownUnits(await r.locator('[data-cell="price"]').innerText())).toBe(toUnits(venueBuy.price));
+    shownFilled += shownUnits(await r.locator('[data-cell="amount"]').innerText());
+  }
+  expect(shownFilled, 'the desk shows the whole order filled').toBe(toUnits(VENUE_BUY));
+  await page
+    .locator('[role=tab]', { hasText: /^Open orders$/ })
+    .first()
+    .click();
+  await expect(page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${venueBuy.clientOrderId}"]`)).toHaveCount(0);
   // The venue balances moved by the fill: BTC up by what was bought (less a fee taken in BTC), USDC's lock spent.
   const after = { usdc: await venueBalance(who, owner, 'USDC'), btc: await venueBalance(who, owner, 'BTC') };
   const feeIn = (asset) => fills.filter((f) => f.feeAsset === asset).reduce((s, f) => s + wireUnits(f.venueFee), 0n);
