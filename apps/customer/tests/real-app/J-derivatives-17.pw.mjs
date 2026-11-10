@@ -181,7 +181,10 @@ async function openRecon(page, from, to) {
 let start;
 test(`${J} #1 opens recon for a period: the venue's builder fees against the ledger's, green when matched`, async ({ page, browser }) => {
   test.setTimeout(300_000);
-  start = new Date(Date.now() - 60_000);
+  // One second back, as #2 and #3 open theirs: the TEST venue shares the stack's clock, and the shard runs one file at a
+  // time, so the period holds this file's fills only. A minute back took in the builder-fee fills another journey had
+  // just made on the same stack, and #4's routed-volume count read them as ours (7 against 4, run 42777232331).
+  start = new Date(Date.now() - 1000);
   // A fresh TEST trader, funded on the TEST venue, who approves our builder fee and fills two orders through the door.
   const tab = await (await browser.newContext()).newPage();
   trader = await signUp(tab, 'jd17');
