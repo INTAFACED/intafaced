@@ -119,7 +119,9 @@ async function connectWhenAsked(page, connected) {
     .poll(
       async () => {
         if (await connected.isVisible().catch(() => false)) return true;
-        if (await connect.isVisible().catch(() => false)) await connect.click().catch(() => undefined);
+        // A short click: the page may restore the connection and drop the button mid-click, and a click with no limit
+        // of its own would then wait out the whole poll instead of letting it look again.
+        if (await connect.isVisible().catch(() => false)) await connect.click({ timeout: 2_000 }).catch(() => undefined);
         return false;
       },
       { timeout: 30_000, intervals: [500] },
