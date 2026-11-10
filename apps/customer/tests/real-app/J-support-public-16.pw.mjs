@@ -248,49 +248,52 @@ test(`${J} #7 restricting the article to a segment with the segment cap blank is
 test(`${J} #8 the help centre settings show name, theme and languages, and a missing translation is listed in the desk`, async ({
   browser,
 }) => {
-  const settings = await helpCentre();
-  // The desk's help centre settings, as the support lead (founder A) opens them.
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  const page = await context.newPage();
-  await founderSignIn(page, 'a');
-  await page.goto(`${ADMIN}/support/settings`);
-  const main = page.locator('main');
-  const centre = main.getByRole('region', { name: /help centre/i });
-  await expect(centre).toBeVisible();
-  // Name and theme, as the service holds them.
-  await expect(centre.getByText(/^Name\b/)).toBeVisible();
-  if (settings.name) await expect(centre).toContainText(settings.name);
-  await expect(centre.getByText(/^Theme\b/)).toBeVisible();
-  if (settings.theme) await expect(centre).toContainText(settings.theme);
-  // Languages: with none set, the desk says "languages are not set" and offers no picker.
-  if (settings.languages === null) {
-    await expect(centre.getByText(/languages are not set/i)).toBeVisible();
-    await expect(centre.getByRole('combobox', { name: /language/i })).toHaveCount(0);
-    await expect(centre.getByRole('listbox', { name: /language/i })).toHaveCount(0);
-  }
-  await context.close();
-  // Gaps are counted per offered language: a stack whose owner has offered none offers one for this part (its default
-  // language when one is set, which the offered list must hold), then puts it back.
-  const offered = settings.languages === null;
-  if (offered) await setHelpCentre({ languages: [settings.defaultLanguage ?? 'en'] }, `TEST ${J} #8 offer a language`);
+  const start = await helpCentre();
+  /** The desk's help centre settings, as the support lead (founder A) opens them. */
+  const settingsPage = async () => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const page = await context.newPage();
+    await founderSignIn(page, 'a');
+    await page.goto(`${ADMIN}/support/settings`);
+    const centre = page.locator('main').getByRole('region', { name: /help centre/i });
+    await expect(centre).toBeVisible();
+    return { context, centre };
+  };
+  const shown = (value) => (value ? value : /not set/i);
   try {
+    // No languages set: the desk says "languages are not set" and offers no picker.
+    if (start.languages !== null) await setHelpCentre({ languages: null }, `TEST ${J} #8 no languages`);
+    const blank = await helpCentre();
+    expect(blank.languages).toBeNull();
+    {
+      const { context, centre } = await settingsPage();
+      // Name and theme, as the service holds them (a blank one shown as not set, never filled in).
+      const name = centre.getByRole('group', { name: /^name$/i }).or(centre.locator('dt:text-is("Name") + dd'));
+      await expect(name.first()).toContainText(shown(blank.name));
+      const theme = centre.getByRole('group', { name: /^theme$/i }).or(centre.locator('dt:text-is("Theme") + dd'));
+      await expect(theme.first()).toContainText(shown(blank.theme));
+      await expect(centre.getByText(/languages are not set/i)).toBeVisible();
+      await expect(centre.getByRole('combobox', { name: /language/i })).toHaveCount(0);
+      await expect(centre.getByRole('listbox', { name: /language/i })).toHaveCount(0);
+      await context.close();
+    }
+    // A missing translation: gaps are counted per offered language, so one language is offered for this part (the default
+    // language when one is set, which the offered list must hold).
+    await setHelpCentre({ languages: [blank.defaultLanguage ?? 'en'] }, `TEST ${J} #8 offer a language`);
     const translations = await desk('lead', 'query', 'helpCentreTranslations', { limit: 100 });
     const missing = translations.rows.find((row) => row.state === 'missing');
     expect(missing, JSON.stringify(translations).slice(0, 300)).toMatchObject({
       articleId: expect.any(String),
-      language: expect.any(String),
+      language: blank.defaultLanguage ?? 'en',
       state: 'missing',
     });
-    // Listed in the desk: the missing translation's article and language on the desk's help centre settings.
-    const desk2 = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-    const view = await desk2.newPage();
-    await founderSignIn(view, 'a');
-    await view.goto(`${ADMIN}/support/settings`);
-    const row = view.locator('main').getByRole('row').filter({ hasText: missing.articleId }).filter({ hasText: missing.language });
+    // Listed in the desk: that article and language, marked missing, on the help centre settings.
+    const { context, centre } = await settingsPage();
+    const row = centre.getByRole('row').filter({ hasText: missing.articleId }).filter({ hasText: missing.language });
     await expect(row.first()).toContainText(/missing/i);
-    await desk2.close();
+    await context.close();
   } finally {
-    if (offered) await setHelpCentre({ languages: null }, `TEST ${J} #8 put the languages back`);
+    await setHelpCentre({ languages: start.languages }, `TEST ${J} #8 put the languages back`);
   }
 });
 
