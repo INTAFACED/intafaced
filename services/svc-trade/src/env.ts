@@ -44,6 +44,13 @@ const schema = serviceEnvSchema
       /** NO DEFAULT drain bound: the markets an assistant may trade, comma-separated venue symbols. Blank refuses `agents.markets_unset`. */
       TRADE_AGENT_MARKETS: z.string().default(''),
 
+      /**
+       * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST
+       * venue when it connects, recorded with the stack ids `LOCAL TEST stack seed` / `... approval`, so the stack's venue journeys see their
+       * markets. Blank lists nothing (every market then needs two operators). Refused at boot unless the raw APP_ENV is
+       * exactly dev or test, and refused on a venue that is not a TEST venue. Set only by the local stack's launcher.
+       */
+      TRADE_USER_VENUE_TEST_LISTINGS: z.string().default(''),
       /** CB-bots-10 bot verification switch: `required` (unset) or `off`, written explicitly. See algo/bots-verification.ts. */
       TRADE_BOTS_VERIFICATION: z.enum(['required', 'off']).optional(),
       /** CB-bots-10 lowest tier allowed to create a bot (basic|full|institutional). Blank refuses every bot create. */

@@ -74,6 +74,11 @@ export const HISTORY_MAX = 150;
 export const SET_ASIDE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
+/** A test title's journey step (`J-tax-01#3`), or null for a test that is not a numbered step (setup, `starts:`). */
+export const stepOf = (title) => {
+  const m = STEP_TITLE.exec(title ?? '');
+  return m ? `${m[1]}#${Number(m[2])}` : null;
+};
 const MEMBERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const REGRESSION_TITLE = /^(Journey broken on main|Broken on main): /;
 const STATE_LINE = /^Regression state: (fixed|reverted|parked)\b/;
@@ -99,6 +104,9 @@ export const passedAfterFailing = (t) => {
   const firstFail = r.findIndex((x) => FAILED_ATTEMPT.has(x));
   return firstFail !== -1 && r.slice(firstFail + 1).includes('passed');
 };
+/** Whether one Playwright test passed by this rule: it ended expected (a `test.fail()` that failed is expected), or
+ *  Playwright called it flaky and an attempt passed after a failing one. journey-reach-map.mjs reads tests by it too. */
+export const testPassed = (t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t));
 export function readReport(report) {
   const states = {};
   const files = {};
@@ -107,15 +115,14 @@ export function readReport(report) {
   const walk = (suite, file) => {
     const here = suite.file ?? file;
     for (const spec of suite.specs ?? []) {
-      const m = STEP_TITLE.exec(spec.title ?? '');
-      if (!m) continue;
-      const key = `${m[1]}#${Number(m[2])}`;
+      const key = stepOf(spec.title);
+      if (!key) continue;
       const tests = spec.tests ?? [];
       if (tests.some((t) => t.status === 'flaky')) retried.add(key);
       const state =
         tests.length && tests.every((t) => t.status === 'skipped')
           ? 'skipped'
-          : tests.length && tests.every((t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t)))
+          : tests.length && tests.every(testPassed)
             ? tests.some((t) => t.status === 'flaky')
               ? 'flaky'
               : 'passed'

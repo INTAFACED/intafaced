@@ -104,7 +104,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A copy skipped because the platform paused its lead or halted its market (J-copy-bots-otc-12 #1 #3) adds one reason body.
     // The ledger's custody-switch refusal, a money movement INTAFACED does not hold customer money for (OWNER 226), adds one error key.
     // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(316);
+    // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(318);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

@@ -16,6 +16,8 @@ import { agentAddressFor } from './agent-key.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError } from './user-venue-door.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 
 // J-agents-21 #1 #3 #4 #5 #13 #14 at the service, against the TEST venue simulator over loopback HTTP (every figure is
 // TEST). The person's wallet is a fixed TEST key signing the venue's own EIP-712 payloads.
@@ -111,6 +113,7 @@ describe('the agent account on the TEST venue', () => {
       store: actions,
       stepUp: su.check,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });
     accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values, now: () => new Date() });
