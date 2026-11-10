@@ -88,12 +88,12 @@ export interface SessionStatus {
 
 export interface SessionKeysDeps {
   readonly door: UserVenueDoor;
-  readonly store: Pick<PreparedActionStore, 'listByPrefix'>;
+  readonly store: Pick<PreparedActionStore, 'listByPrefix' | 'recordOutcome'>;
   readonly now: () => Date;
 }
 
 interface Parsed {
-  readonly row: StoredVenueAction;
+  row: StoredVenueAction;
   /** The venue account (owner wallet) it approves a key on. */
   readonly owner: string;
   readonly sid: string;
@@ -201,11 +201,17 @@ export class SessionKeys {
     if (answer?.definite && !answer.accepted) return { ...base, state: 'refused', refusal: answer.refusal };
     // Not on the venue, and past its expiry: whatever became of the approval, it can sign nothing now.
     if (expiredBy(base.validUntil)) return { ...base, state: 'expired' };
-    // Not on the venue. If it never landed, the approval is still out: re-send the stored bytes and read back.
-    if (!this.landed(p, listed)) return { ...base, state: 'approving' };
-    // It landed and is gone. A later session's key that landed explains it: the venue keeps one unnamed agent. `all` is
-    // oldest first (the store's order), so "later" is a later place in it.
+    // A later session's key that landed: the venue keeps one unnamed agent. `all` is oldest first (the store's order), so
+    // "later" is a later place in it.
     const later = all.slice(all.indexOf(p) + 1).find((q) => this.landed(q, listed));
+    if (!this.landed(p, listed)) {
+      // Never known to have landed, and a later session has: its bytes are never re-sent, since that could put this
+      // superseded key back on the venue over the newer one. It ends here.
+      if (later) return { ...base, state: 'ended' };
+      // Not on the venue and never landed: the approval is still out. Re-send the stored bytes and read back.
+      return { ...base, state: 'approving' };
+    }
+    // It landed and is gone: the later session replaced it.
     if (later) return { ...base, state: 'replaced', replacedBy: later.sid === p.sid ? 'this_sign_in' : 'another_sign_in' };
     return { ...base, state: 'ended' };
   }
@@ -224,6 +230,15 @@ export class SessionKeys {
     // `all`: this venue account's sessions. `every`: the person's on every account, which numbers a new session, since
     // one sign-in's sessions share one count whichever wallet they are on.
     const all = every.filter((p) => p.owner === account.owner);
+    // A signed approval whose answer was lost, and that the venue lists now, landed: record it so, definitely. Once the
+    // venue drops it (a later session's key replaced it), it must read `replaced` from then on, never `approving`, and its
+    // stored bytes must never be re-sent: that would put a key the person moved on from back on the venue.
+    const listedNow = new Set(agents.value.map((a) => a.address.toLowerCase()));
+    for (const p of all) {
+      if (!p.row.signature || p.row.lastOutcome?.definite || !listedNow.has(p.agentAddress)) continue;
+      const landed: VenueSubmitOutcome = { definite: true, accepted: true, venueRef: null, order: null, asOf: agents.asOf };
+      p.row = { ...p.row, lastOutcome: await this.deps.store.recordOutcome(principal.userId, p.row.businessKey, landed, this.deps.now()) };
+    }
     return { venue, account, all, every, ends, agents };
   }
 

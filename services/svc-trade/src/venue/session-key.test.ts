@@ -463,6 +463,43 @@ describe('J-wallet-22 #8: one approval per trading session for a fresh key that 
     expect(next.started.sessionId).toBe(`${SIGN_IN_A}.2`);
   });
 
+  it('a session whose answer was lost, read back live, then replaced by another device, reads replaced, and its approval is never re-sent', async () => {
+    const w = world();
+    const key = privateKeyToAccount(generatePrivateKey());
+    const p = person(SIGN_IN_A);
+    const started = await w.sessions.start(p, owner, key.address);
+    w.sim.loseAnswersOn(w.account, 1);
+    expect((await w.door.submit(p, started.actionKey, await w.ownerSign(started.prepared))).outcome).toEqual({
+      definite: false,
+      reason: 'timeout',
+    });
+    // The room reads it back: the venue lists the key, so it is live, and that it landed is now on record.
+    expect((await w.sessions.status(p, owner)).current).toMatchObject({ state: 'live' });
+    const other = await startSession(w, SIGN_IN_B);
+    expect(other.sent.outcome).toMatchObject({ accepted: true });
+    // Gone from the venue now, and replaced: never `approving`, which would re-send its approval over the newer key.
+    expect((await w.sessions.status(p, owner)).current).toMatchObject({ state: 'replaced', replacedBy: 'another_sign_in' });
+    expect((await w.sim.agents(w.account)).value.map((x) => x.address)).toEqual([other.key.address.toLowerCase()]);
+    expect(await refusal(w.sessions.start(p, owner, key.address))).toBe('trade.venue_session_key_reused');
+  });
+
+  it('an approval the venue never got, superseded by another device’s session, ends: its stored bytes are never re-sent', async () => {
+    const w = world();
+    const key = privateKeyToAccount(generatePrivateKey());
+    const p = person(SIGN_IN_A);
+    const started = await w.sessions.start(p, owner, key.address);
+    w.sim.switches.venueDown = true;
+    await expect(w.door.submit(p, started.actionKey, await w.ownerSign(started.prepared))).rejects.toThrow(/venue_down|down/);
+    w.sim.switches.venueDown = false;
+    expect((await w.sessions.status(p, owner)).current?.state).toBe('approving');
+    // Another device's session lands meanwhile. This one never landed: re-sending it now could put its key back over
+    // the newer one, so it ends instead of staying out.
+    const other = await startSession(w, SIGN_IN_B);
+    expect(other.sent.outcome).toMatchObject({ accepted: true });
+    expect((await w.sessions.status(p, owner)).current).toMatchObject({ state: 'ended' });
+    expect((await w.sim.agents(w.account)).value.map((x) => x.address)).toEqual([other.key.address.toLowerCase()]);
+  });
+
   it('planted fault: blind the door’s one never-again check and the old key reaches the venue, whose retired-agent rule is all that stops it', async () => {
     // The planted fault: a store whose agent-approval history is empty, so the door's check sees no earlier approval.
     class Blind extends InMemoryPreparedActionStore {
