@@ -47,6 +47,8 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *
  * Switches (CUSTODY-DELTA §4), each set through `switches`:
  *   · `venueDown` — every call refuses `venue_down`, nothing changes;
+ *   · `unlistPerpetuals` — the market list leaves out every perpetual, as a
+ *     venue that lists no contract for this account; nothing else changes;
  *   · a market's `orderTypes` / `timeInForce` / `marginModes` — anything not
  *     listed refuses `not_offered` at prepare, before the wallet is asked;
  *   · `makerFeeBps` / `takerFeeBps` `known: false` — the fee is not published;
@@ -96,6 +98,8 @@ export interface SimMarketConfig {
 
 export interface SimSwitches {
   venueDown: boolean;
+  /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
+  unlistPerpetuals: boolean;
   withdrawalFee: MaybeKnown<Amount>;
   /** The fee actually charged when `withdrawalFee` is not published (never 0 by default, so "not known" is never read as free). */
   unpublishedWithdrawalFee: Amount;
@@ -197,6 +201,7 @@ export class TestVenueSimulator implements UserVenue {
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
+      unlistPerpetuals: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
       unpublishedMakerFeeBps: parseAmount('2'),
@@ -295,7 +300,8 @@ export class TestVenueSimulator implements UserVenue {
 
   async markets(_account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
     this.up();
-    const list: UserVenueMarket[] = [...this.marketsBySymbol.values()].map((m) => ({
+    const listed = [...this.marketsBySymbol.values()].filter((m) => !(this.switches.unlistPerpetuals && m.kind === 'perpetual'));
+    const list: UserVenueMarket[] = listed.map((m) => ({
       symbol: m.symbol,
       kind: m.kind,
       baseAsset: m.baseAsset,

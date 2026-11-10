@@ -278,8 +278,14 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/test/switches': {
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;
+      if (typeof body.unlistPerpetuals === 'boolean') sim.switches.unlistPerpetuals = body.unlistPerpetuals;
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = body.withdrawalFee as MaybeKnown<Amount>;
-      return { venueDown: sim.switches.venueDown, withdrawalFee: sim.switches.withdrawalFee, label: 'TEST' };
+      return {
+        venueDown: sim.switches.venueDown,
+        unlistPerpetuals: sim.switches.unlistPerpetuals,
+        withdrawalFee: sim.switches.withdrawalFee,
+        label: 'TEST',
+      };
     }
     case '/test/settle-withdrawals':
       return { settled: sim.settleWithdrawals(), label: 'TEST' };
