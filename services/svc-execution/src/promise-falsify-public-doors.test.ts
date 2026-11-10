@@ -18,6 +18,10 @@ import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import { latencyGradeWire } from './oms-plan.js';
 import { createExecutionRouter } from './router.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 const EDGE_SECRET = 'execution-promise-falsify-public-doors-edge-secret-32';
 const SERVICE_SECRET = 'a'.repeat(32);
 const OP = '33333333-3333-4333-8333-333333333333';

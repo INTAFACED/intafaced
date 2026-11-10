@@ -11,6 +11,10 @@ import type { TaxLedgerReads } from './ledger-reads.js';
 import { createTaxRouter } from './router.js';
 import { TaxService } from './tax-service.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 const SECRET = 'a-tax-map-refusal-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-tax' });
