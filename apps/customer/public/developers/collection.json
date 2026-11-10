@@ -1358,6 +1358,18 @@
           }
         },
         {
+          "name": "venueConvertSellQuote",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/convert/sell-quote",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "convert", "sell-quote"]
+            }
+          }
+        },
+        {
           "name": "venuePrepare",
           "request": {
             "method": "POST",

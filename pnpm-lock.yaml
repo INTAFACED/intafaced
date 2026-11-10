@@ -1093,6 +1093,9 @@ importers:
       '@intafaced/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@intafaced/venue-contracts':
+        specifier: workspace:*
+        version: link:../../packages/venue-contracts
       '@noble/curves':
         specifier: 2.4.0
         version: 2.4.0

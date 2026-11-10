@@ -167,6 +167,15 @@ no event is sent: the venue is the record of balances, locks, fills and withdraw
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
 
+**Convert sell quotes on the venue (J-cex-spot-17 #8).** `POST /api/v1/venue/convert/sell-quote`
+`{ owner, symbol, amount, quoteKey }` (trade:write, as the preview) prices a spot sell by the venue's own preview of a
+market IOC sell of that size on the customer's venue account (`src/venue/venue-sell-quotes.ts`): what fills now, its
+average price, the venue fee, our builder fee and the venue's time, stored exactly as given in `trade.venue_sell_quotes`
+under `venue-sell:<userId>:<quoteKey>`, a figure the venue does not give kept "not known". A retry returns the first
+quote; the same key for another ask refuses `trade.venue_sell_quote_key_reused` (409); a perp refuses
+`trade.venue_sell_quote_not_spot`, an unknown market `trade.venue_sell_quote_market_unknown`. Nothing is sent and the
+ledger posts nothing. Finance reads them in `admin.convertDesk.venueSellQuotes`.
+
 **The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
 `serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers
 one person's venue accounts with each one's balances and every spot fill, as the venue reports them at the moment of the

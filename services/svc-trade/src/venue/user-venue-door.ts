@@ -109,6 +109,11 @@ export type UserVenueDoorCode =
   | 'trade.venue_session_none'
   | 'trade.venue_session_unavailable'
   | 'trade.venue_session_superseded'
+  // Convert's venue sell quotes (venue-sell-quotes.ts, J-cex-spot-17 #8).
+  | 'trade.venue_sell_quote_unwired'
+  | 'trade.venue_sell_quote_market_unknown'
+  | 'trade.venue_sell_quote_not_spot'
+  | 'trade.venue_sell_quote_key_reused'
   | VenueRouteRefusalCode;
 
 /**
@@ -456,6 +461,27 @@ export class UserVenueDoor {
 
   private async marketKind(venue: UserVenue, symbol: string): Promise<'spot' | 'perpetual'> {
     return (await this.market(venue, symbol)).kind;
+  }
+
+  /**
+   * The worst price a market order on `symbol` may carry under the owner's price protection: the bound
+   * `assertMarketProtection` holds every market order to, so a caller that builds a market order (Convert's sell quote)
+   * prices it inside. The same refusals: blank cap `trade.slippage_cap_unset`, no best price on that side
+   * `trade.no_reference_price`.
+   */
+  async marketWorstPrice(symbol: string, side: 'buy' | 'sell'): Promise<Amount> {
+    const venue = await this.venue();
+    const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
+    const market = await this.market(venue, symbol);
+    const best = venue.bestPrices ? (await venue.bestPrices(symbol)).value : null;
+    const bound = best ? marketProtectionBound(side, best, cap, market.tickSize) : null;
+    if (bound === null) {
+      throw new TradeError(
+        `${symbol} has no ${side === 'buy' ? 'ask' : 'bid'} on the venue to bound a market ${side} by the price protection; place a limit order`,
+        'trade.no_reference_price',
+      );
+    }
+    return bound;
   }
 
   /**

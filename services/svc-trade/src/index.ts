@@ -110,6 +110,7 @@ import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
+import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
 import { postBuilderFees } from './builder-fee/builder-fee-poster.js';
@@ -513,6 +514,11 @@ const userVenueDoors = userVenueUrls.map(
 const userVenue = userVenueDoors[0] ?? null;
 const userVenueRouter =
   userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
+// Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
+// venue's door. Off with the door.
+const venueSellQuotes = userVenue
+  ? new VenueSellQuotes({ door: userVenue, store: new SqlVenueSellQuoteStore(sql), now: () => new Date() })
+  : null;
 // A delisting notice the bus did not take when it was written is sent again (the consumer files it once).
 setInterval(() => {
   for (const seed of testListingSeeds) void seed.retry();
@@ -1707,6 +1713,7 @@ registerPrivateRest(app, {
   grid,
   userVenue: userVenueRouter,
   userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

@@ -96,6 +96,7 @@ import { privateRead, privateWith, privateWrite, publicRead } from './route-inve
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
 import type { UserVenueRouter } from './venue/venue-router.js';
+import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -204,6 +205,8 @@ export interface PrivateRestDeps {
   userVenue?: UserVenueRouter | null;
   /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank): a venue market order's worst price. */
   userVenueSlippageCapBps?: number | null;
+  /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
+  venueSellQuotes?: VenueSellQuotes | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -1354,6 +1357,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     // decided. Every custodial route above keeps reading the approved level alone.
     requireTradeJurisdiction: (req, reply, principal) => requireTradeJurisdiction(req, reply, principal, tradeTier(principal)),
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
+    sellQuotes: deps.venueSellQuotes ?? null,
   });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
