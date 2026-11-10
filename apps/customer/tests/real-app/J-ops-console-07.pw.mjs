@@ -707,10 +707,11 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), who);
     const session = await api(who);
     expect(fund(who.email, 'USDT', '2.5').tx, 'the USDT credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
-    // The past instant is the next whole minute after the USDT credit and before the USDC one.
+    expect(fund(who.email, 'USDC', '1').tx, 'the first USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+    // The past instant is the next whole minute after the USDT and first USDC credits, and before the second USDC one.
     const instant = new Date(Math.ceil((Date.now() + 1_000) / 60_000) * 60_000);
     await a.waitForTimeout(Math.max(0, instant.getTime() - Date.now()) + 2_000);
-    expect(fund(who.email, 'USDC', '3').tx, 'the USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+    expect(fund(who.email, 'USDC', '2').tx, 'the second USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
     const balances = await session.balances();
     expect(scaled(balances.USDT?.total ?? 'unset'), 'the customer holds the USDT credited').toBe(scaled('2.5'));
     expect(scaled(balances.USDC?.total ?? 'unset'), 'the customer holds the USDC credited').toBe(scaled('3'));
@@ -730,15 +731,23 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       },
     });
     try {
-      // At the past instant (margin 0) the ledger held the USDT credit and not yet the USDC one: the customer had no USDC
-      // account, so the ledger side is missing. That is a FAIL named "missing", never a PASS over a zero (OWNER 288).
+      // At the past instant (margin 0) the ledger held the USDT credit and the first USDC credit, not yet the second: both
+      // assets are compared from decimal figures, and USDC is its balance then, not now. A missing side is step #7's FAIL.
       const past = await twoFounderRun(ownId, { instant: instant.toISOString().slice(0, 16), margin: '0' });
-      expect(past).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(past).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       expect(past).toContain(`balances read at ${instant.toISOString()} (margin 0 s)`);
-      expect(past).toContain('1 record compared');
-      expect(scaled(evidence(past, 'USDT').observed)).toBe(scaled('2.5'));
-      expect(evidence(past, 'USDC')).toEqual({ observed: 'unset', expected: '0', difference: 'unset', tolerance: '0' });
-      expect(past).toContain('USDC is missing on the ledger side: a break, never read as a zero.');
+      expect(past).toContain('2 records compared');
+      expect(past).not.toContain('missing on the');
+      for (const [asset, total] of [
+        ['USDT', '2.5'],
+        ['USDC', '1'],
+      ]) {
+        const shown = evidence(past, asset);
+        expect(scaled(shown.observed), `${asset} observed is the customer's ledger balance at the instant`).toBe(scaled(total));
+        expect(shown.expected).toBe('0');
+        expect(scaled(shown.difference)).toBe(0n);
+        expect(shown.tolerance).toBe('0');
+      }
 
       // Now: both credits, each equal to the customer's balance as the ledger answers it.
       const now = await twoFounderRun(ownId);
@@ -762,15 +771,20 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await choose(again, ownId);
       const runs = again.getByTestId('rc-runs');
       await expect(runs.getByTestId('rc-runs-count')).toContainText('showing 2 of 2 evaluations', { timeout: 30_000 });
-      for (const [answer, assets, status] of [
-        [past, ['USDT', 'USDC'], 'FAIL'],
-        [now, ['USDT', 'USDC'], 'PASS'],
+      for (const [answer, assets] of [
+        [past, ['USDT', 'USDC']],
+        [now, ['USDT', 'USDC']],
       ]) {
         const stored = runs.locator(`[data-testid="rc-run-row"][data-run-id="${runId(answer)}"]`);
-        await expect(stored).toHaveAttribute('data-status', status);
+        await expect(stored).toHaveAttribute('data-status', 'PASS');
         const text = (await stored.innerText()).replace(/\s+/g, ' ');
-        for (const asset of assets)
-          expect(evidence(text, asset), `${asset} evidence is stored as the run showed it`).toEqual(evidence(answer, asset));
+        for (const asset of assets) {
+          const kept = evidence(text, asset);
+          expect(kept, `${asset} evidence is stored as the run showed it`).toEqual(evidence(answer, asset));
+          // Stored as decimal figures, never an unset one: a stored row that lost its figures is not the run shown.
+          for (const field of ['observed', 'expected', 'difference', 'tolerance'])
+            expect(kept[field], `${asset} stored ${field} is a decimal figure`).toMatch(/^-?\d+(?:\.\d+)?$/);
+        }
       }
     } finally {
       await lifecycle(ownId, 'retire', 'Retired');

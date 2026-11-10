@@ -250,8 +250,9 @@ export type CustomerBalanceCheck =
 
 /**
  * While the custodial layer is off the ledger holds no customer money (OWNER 288): every account
- * `isCustomerBalanceAccount` names must be at zero. The filter is the recipe package's own, so a new
- * customer owner kind is covered the day it is named there. With the layer on it reads nothing.
+ * `isCustomerBalanceAccount` names must be at zero. Every account is read and that recipe-package
+ * filter alone decides, with no owner-type narrowing in the SQL, so a new customer owner kind is
+ * covered the day it is named there. With the layer on it reads nothing.
  */
 export async function customerBalancesWhileCustodyOff(
   sql: ReconciliationDb,
@@ -261,7 +262,6 @@ export async function customerBalancesWhileCustodyOff(
   const rows = await sql<Array<{ id: string; asset_id: string; owner_type: string; owner_id: string; balance: string }>>`
     SELECT id::text AS id, asset_id, owner_type, owner_id, balance::text AS balance
       FROM accounts
-     WHERE owner_type IN ('user', 'subaccount', 'module')
      ORDER BY id ASC
   `;
   const open: CustomerBalanceHit[] = [];

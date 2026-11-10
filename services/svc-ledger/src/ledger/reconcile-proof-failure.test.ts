@@ -2,12 +2,18 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres, { type Sql } from 'postgres';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { hashTx, parseAmount as amt, recipes } from '@intafaced/ledger-client';
+import { hashTx, isCustomerBalanceAccount, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { LedgerService } from '../service.js';
-import { proofResult, runReconciliation, runScheduledReconciliation, runSnapshotReconciliation } from './reconcile.js';
+import {
+  customerBalancesWhileCustodyOff,
+  proofResult,
+  runReconciliation,
+  runScheduledReconciliation,
+  runSnapshotReconciliation,
+} from './reconcile.js';
 import { createReconcileTickState, runScheduledReconciliationTick } from './scheduled-reconcile-tick.js';
 import { truncateBook, withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 
@@ -27,6 +33,12 @@ const migrations = readdirSync(drizzleDir)
   .sort()
   .map((f) => readFileSync(join(drizzleDir, f), 'utf8'))
   .map((body) => (schema: string) => rewriteSchemaSql(body, 'ledger', schema));
+
+// The recipe package's own filter, watched: it behaves exactly as shipped, and a test can see every account it was asked about.
+vi.mock('@intafaced/ledger-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@intafaced/ledger-client')>();
+  return { ...actual, isCustomerBalanceAccount: vi.fn(actual.isCustomerBalanceAccount) };
+});
 
 const USER_A = '55555555-5555-4555-8555-555555555555';
 const USER_B = '66666666-6666-4666-8666-666666666666';
@@ -451,6 +463,33 @@ describe('the hourly proof with the custodial layer off (OWNER 288)', () => {
       `;
       expect(row?.outcome).toBe('mismatch');
       expect(row?.detail).toMatchObject({ result: 'mismatch', customerBalancesOpen: 1, firstCustomerBalanceAccountId: customer!.id });
+    } finally {
+      await sql.end();
+    }
+  });
+  it('asks the recipe filter about every account, of every owner type, so no SQL narrowing decides which are customers (CI review)', async () => {
+    const sql = connect();
+    try {
+      const { svc } = service(sql);
+      await svc.post(deposit(USER_A));
+      // Owner types the filter does not name today: the check must still put them to it, so a kind named there later is read.
+      await sql`
+        INSERT INTO accounts (owner_type, owner_id, asset_id, kind)
+        VALUES ('house'::owner_type, 'house:proof-probe', 'USDT', 'available'::account_kind),
+               ('treasury'::owner_type, 'treasury:proof-probe', 'USDT', 'available'::account_kind)
+      `;
+      const book = await sql<
+        Array<{ owner_type: string; owner_id: string }>
+      >`SELECT owner_type::text AS owner_type, owner_id FROM accounts`;
+      expect(new Set(book.map((a) => a.owner_type))).toEqual(new Set(['user', 'house', 'treasury']));
+      const filter = vi.mocked(isCustomerBalanceAccount);
+      filter.mockClear();
+
+      const check = await customerBalancesWhileCustodyOff(sql, 'off');
+
+      const asked = filter.mock.calls.map(([ref]) => `${ref.ownerType}/${ref.ownerId}`).sort();
+      expect(asked).toEqual(book.map((a) => `${a.owner_type}/${a.owner_id}`).sort());
+      expect(check).toMatchObject({ custodyLayer: 'off', ok: false, accountsChecked: 1 });
     } finally {
       await sql.end();
     }
