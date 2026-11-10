@@ -76,8 +76,12 @@ const desk = async (page) => {
 async function reconnect(page, wallet) {
   await page.reload();
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  await page.getByRole('button', { name: 'Connect TEST Wallet' }).click();
-  await expect(page.getByTestId('venue-wallet-address')).toHaveText(wallet.address);
+  // The desk may keep the wallet connected across the reload; connect it again only when it asks to be.
+  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
+  const address = page.getByTestId('venue-wallet-address');
+  await expect(connect.or(address)).toBeVisible({ timeout: 30_000 });
+  if (await connect.isVisible()) await connect.click();
+  await expect(address).toHaveText(wallet.address);
   await expect(page.getByTestId('venue-routes')).toBeVisible({ timeout: 30_000 });
 }
 const strip = (page) => page.getByTestId('venue-routes');
