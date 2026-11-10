@@ -12,6 +12,7 @@ import { Button, DataTable, EmptyState, Panel } from '../../shared/ui';
 import { Read } from '../more/common';
 import { preservePaperHref } from '../more/trade-context';
 import { useApi } from '../session/session';
+import { PaperRuns } from './PaperRuns';
 import { QuantRooms } from './QuantRooms';
 import { strategyPageCopy } from './strategy-page-copy';
 import './algo.css';
@@ -42,7 +43,12 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
         </a>
       </p>
       <Read resource={detail.resource} retry={detail.reload}>
-        {(strategy) => <StrategyVersions strategy={strategy} />}
+        {(strategy) => (
+          <>
+            <StrategyVersions strategy={strategy} />
+            <PaperRuns strategy={strategy} />
+          </>
+        )}
       </Read>
     </>
   );

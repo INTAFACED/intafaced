@@ -160,6 +160,7 @@ export type RefusalKey =
   | 'refEnrolmentClosed'
   | 'refItemNotOpen'
   | 'refNotReleasedYet'
+  | 'refGrantExpired'
   | 'refItemPrerequisite'
   | 'refCompletionRuleUnmet'
   | 'refRequestReused'
@@ -262,6 +263,8 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refItemNotOpen';
     case 'academy.not_released_yet':
       return 'refNotReleasedYet';
+    case 'academy.grant_expired':
+      return 'refGrantExpired';
     case 'academy.completion_rule_unmet':
       return 'refCompletionRuleUnmet';
     case 'academy.request_reused':

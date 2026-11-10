@@ -69,6 +69,15 @@ export function CopyRoom({ path }: { path: string }) {
 
   const desk = useLive((signal) => api.copyDesk(signal), 'copy-desk', 30_000);
   const follows = useLive((signal) => api.follows(signal), `copy-follows:${session ? 'in' : 'out'}`, 15_000);
+  const pauses = useLive((signal) => api.platformPauses(signal), 'copy-platform-pauses', 15_000);
+  // What the platform has paused that touches copying (CB-ops-03): a halted symbol for everyone, a paused lead for its
+  // followers. Said in words; what the follower holds stays as it is.
+  const pausedNotes = [
+    ...(pauses.data?.symbols ?? []).map((symbol) => `Copying on ${symbol} is paused by the platform.`),
+    ...(follows.data ?? [])
+      .filter((f) => f.leaderRef && pauses.data?.leads.includes(f.leaderRef))
+      .map((f) => `Copying ${f.leaderRef} is paused by the platform.`),
+  ];
   const markets = useLive((signal) => tradeApi.markets(signal), 'copy-markets', 300_000);
   const guard = useWriteGuard();
   const state = deskState(desk.data);
@@ -330,6 +339,15 @@ export function CopyRoom({ path }: { path: string }) {
               />
             )}
             {follows.status === 'ready' && follows.failure ? <RefusalNote failure={follows.failure} retry={follows.reload} /> : null}
+            {pausedNotes.length > 0 ? (
+              <InfoNote>
+                {pausedNotes.map((note) => (
+                  <span key={note} className="cb-wrap" style={{ display: 'block' }}>
+                    {note} Open positions stay as they are.
+                  </span>
+                ))}
+              </InfoNote>
+            ) : null}
             <InfoNote>
               {t(
                 'Leaving never sells your positions. After a stop, only the leader’s closes close what you copied. Close copied positions is a separate choice.',

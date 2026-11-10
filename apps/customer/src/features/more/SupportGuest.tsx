@@ -7,7 +7,7 @@ import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, Field } from '../../shared/ui';
 import { Select } from './common';
 import { CustomerStatusBadge } from './SupportRequest';
-import { categoryLabel } from './support-category';
+import { categoryLabel, topicFromAddress } from './support-category';
 import { CATEGORY_VALUES } from './support-schemas';
 import { deskCopy } from './support-desk-copy';
 import { guestCopy } from './support-guest-copy';
@@ -74,7 +74,8 @@ export function GuestNewRequest() {
   const { t } = guestCopy.useCopy();
   const { api } = useDataEnv();
   const [email, setEmail] = useState(''),
-    [category, setCategory] = useState('other'),
+    // `?topic=phishing` (Security's "Report a scam message") opens a scam report; any other topic is the default.
+    [category, setCategory] = useState<string>(() => topicFromAddress() ?? 'other'),
     [subject, setSubject] = useState(''),
     [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);

@@ -9,6 +9,7 @@ import {
   otelEnvSchema,
   s2sEnvSchema,
 } from '@intafaced/config';
+import { opsTestVenueSettingSchema } from './capital/test-venue.js';
 
 /**
  * svc-ops — durable outreach CRM / team / revenue / projects. No payroll, no
@@ -91,6 +92,16 @@ export const opsEnvSchema = baseEnvSchema
       BANK_URL: blankAsAbsent(z.string().url().optional()),
       PAY_URL: blankAsAbsent(z.string().url().optional()),
       /**
+       * The capital monitor's TEST venues (J-ops-console-24 #1): `off` (default) none, `test` they answer, `down` they refuse
+       * every read. `test` and `down` refuse to boot outside APP_ENV dev or test (`capital/test-venue.ts`).
+       */
+      OPS_TEST_VENUE: opsTestVenueSettingSchema,
+      /**
+       * INTAFACED's builder account the TEST venues report. Owner value, never invented: blank with a TEST venue chosen,
+       * svc-ops refuses to start with ops.capital.builder_account_unset.
+       */
+      OPS_TEST_VENUE_BUILDER_ACCOUNT: blankAsAbsent(z.string().trim().min(1).max(128).optional()),
+      /**
        * How often a still-failing reconciliation alert may notify again, in seconds (OPS-reconciliation-03).
        * Blank → nothing is re-sent and each repeat names ops.alert_repeat_unset; the alert still counts. Never invented.
        */
@@ -100,6 +111,12 @@ export const opsEnvSchema = baseEnvSchema
        * Blank → heartbeatStatus reports ops.heartbeat_window_unset and overdue stays null. Never invented.
        */
       OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS: blankAsAbsent(z.coerce.number().int().positive().optional()),
+      /**
+       * The severities a staff incident can be given (OPS-oncall-02), comma separated, lower snake case, never `pending`.
+       * Blank → an incident can only be declared pending, and declaring with a severity refuses ops.incident_severities_unset.
+       * A misspelt list refuses boot. Never invented.
+       */
+      OPS_INCIDENT_SEVERITIES: blankAsAbsent(z.string().optional()),
       /**
        * Optional deployment reason codes for hiding a pool or delisting a market, comma separated, lower snake case.
        * Blank → the built-in default list applies; an admin edit overrides both. A misspelt code refuses at boot.

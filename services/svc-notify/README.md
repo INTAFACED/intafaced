@@ -476,6 +476,7 @@ _None._
 | `intafaced.p2p.trade.disputed`                | `notify-p2p-trade-disputed`        | Inbox row for the opener only (no counterparty on payload)                                                                                                                           |
 | `intafaced.p2p.trade_fiat.sent`               | `notify-p2p-trade-fiat-sent`       | Inbox row `p2p.trade.fiat_sent` for the seller when the buyer marks the order paid                                                                                                   |
 | `intafaced.p2p.offer.paused`                  | `notify-p2p-offer-paused`          | Inbox row `p2p.offer.paused` for the maker when removing a payment method paused their ads                                                                                           |
+| `intafaced.p2p.trader.posted`                 | `notify-p2p-trader-posted`         | Inbox row `p2p.trader.posted` for each follower when a trader they follow posts a new public ad (once per ad and follower; edits send none)                                          |
 | `intafaced.p2p.remark_case.opened`            | `notify-p2p-remark-case-opened`    | Inbox row `p2p.remark_case.opened` for the reported party when a payment-note remark is reported                                                                                     |
 | `intafaced.identity.kyc.approved`             | `notify-kyc-approved`              | Inbox row when verification tier is granted                                                                                                                                          |
 | `intafaced.identity.security_factor.updated`  | `notify-security-factor-changed`   | Inbox row when a sign-in factor is turned on, off, replaced, added or removed                                                                                                        |
@@ -496,6 +497,7 @@ _None._
 | `intafaced.agents.action.rejected`            | `notify-agent-action-rejected`     | Inbox row when a guardrail refuses an agent action                                                                                                                                   |
 | `intafaced.agents.action.completed`           | `notify-agent-action-completed`    | Inbox row on completion / session_close only                                                                                                                                         |
 | `intafaced.ledger.freeze.updated`             | `notify-ledger-freeze-updated`     | One audience-all inbox notice when the posting freeze is set or cleared                                                                                                              |
+| `intafaced.trade.venue_delisting.created`     | `notify-venue-delisting`           | One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key                                                                                  |
 
 ### Posting-freeze notice (audience `all`)
 
@@ -507,6 +509,14 @@ inbox only (no out-of-app send). Copy keys `notify.ledger.freeze.set` and `.clea
 if a key is missing from the catalog the consumer throws `notify.freeze_copy_unset`, writes
 nothing and the event is redelivered. The event's reason and actor are never read. It
 reports the svc-ledger posting freeze only, not the single-account freeze of svc-identity.
+
+### Venue delisting notice (audience `all`, J-cex-spot-16 #8)
+
+`trade.venue_delisting.created` (svc-trade, after two operators schedule the date a venue market leaves the routed list)
+writes one row to `notify.system_notices`, keyed by the event's `noticeKey`
+(`venue-delisting:<venueId>:<symbol>:<delistsAt>`), so a republish or redelivery writes nothing new. Copy keys
+`notify.trade.venue_delisting.title` and `.body` name the market and the date, never the venue; a missing key throws
+`notify.venue_delisting_copy_unset`, writes nothing, and the event is redelivered. Inbox only (`venue-delisting-notice.ts`).
 
 ### Recipient health and quarantine
 
@@ -825,8 +835,18 @@ a row. A redelivery reuses the same key and cannot double-send.
 - Watchlist alert (C-alerts-scan-03c): `notify.createAlerts` takes up to 100 market ids and one rule and creates one alert per
   market, checked like a single create, as one step: all or none. The batch is held to the same price-alert quota as a whole
   (`alert.quota_reached`, with how many are open and how many were asked for), a market named twice is made once, and a blank cap
-  or price refuses as a single create does. The service holds no watchlist: the caller sends the list, so a market added to a
-  list later is not picked up (C-alerts-scan-03d needs the account-side list).
+  or price refuses as a single create does. This batch holds no watchlist: the caller sends the markets, so a later addition
+  is not picked up. Following a list (below) does pick additions up.
+- Following a watchlist (J-charts-desk-09 #7, C-alerts-scan-03d): `notify.createWatchlistAlert({listId, condition, targetPrice})`
+  reads the person's account lists from identity (`preferences.watchlistsFor`, a service-only door svc-notify alone may call,
+  signed with its own key once S2S is on, else `INTERNAL_SERVICE_SECRET`; `IDENTITY_URL`), maps each symbol to its market id
+  through the trade market list the marks read, and stores one price alert per market and the rule
+  (`notify.watchlist_alerts`, migration `20261107074033`) in one transaction under the price-alert quota. Each alert sweep first
+  reads every active rule's list again (one identity read per person) and adds an alert for each market added since, all or
+  none under the quota, before evaluating, so an addition is watched from that sweep on. A sweep that cannot read the lists or
+  the markets, finds the list gone, or meets the quota adds nothing and records why on the rule (`last_sync_code`). Nothing is
+  taken away: a market taken off the list keeps its alert, and a market once covered is never added again, even after its alert
+  was deleted. `notify.watchlistAlerts` lists the rules; `notify.stopWatchlistAlert({id})` stops following and keeps the alerts.
 - Not built here, and refused rather than faked: trigger frequencies other than once (C-alerts-scan-01c) and technical
   (indicator) alerts (C-alerts-scan-01d).
 

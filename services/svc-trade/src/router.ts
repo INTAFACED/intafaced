@@ -1,3 +1,4 @@
+import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
 import type { GridService } from './grid/grid-service.js';
@@ -48,6 +49,7 @@ import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from '
 import type { LeadDesk } from './copy/lead-applications.js';
 import { signalsRouter } from './signals/router.js';
 import type { SignalDesk } from './signals/signal-desk.js';
+import type { PlatformPauseDesk } from './copy/platform-pauses.js';
 import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
@@ -71,6 +73,7 @@ import { TradingControlError, type TradingControls } from './controls/trading-co
 import { tradeOpsAdminRouter } from './admin/router.js';
 import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { supportTradeSummaryRouter } from './support/router.js';
+import { ownVenueActivityRouter, type OwnVenueActivityDeps } from './venue/own-activity-router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
 import { ALGO_STOP_REASONS, type AlgoStopReasonCode } from './algo/stop-reason.js';
@@ -876,6 +879,9 @@ export function createTradeRouter(
   supportSummary?: SupportTradeSummaryReader,
   leadDesk?: LeadDesk,
   grid?: GridService,
+  platformPauses?: PlatformPauseDesk,
+  builderFees?: BuilderFeeReconReader,
+  venueActivity?: OwnVenueActivityDeps,
   signals?: SignalDesk,
 ) {
   const placeAttempts = new PlaceAttemptBook();
@@ -900,11 +906,33 @@ export function createTradeRouter(
       throw toTrpcError(err);
     }
   };
+  /** The copy and bots kill switch's refusals carry their code at the end of the message, where the console reads it. */
+  const pauses = async <T>(fn: (desk: PlatformPauseDesk) => Promise<T>): Promise<T> => {
+    try {
+      if (!platformPauses) throw new TradeOpsError('copy_bots_pauses_unavailable', 'The copy and bots kill switch is not available');
+      return await fn(platformPauses);
+    } catch (err) {
+      if (err instanceof TradeOpsError) {
+        const code = err.code.endsWith('_not_found')
+          ? 'NOT_FOUND'
+          : err.code === 'copy_bots_pauses_unavailable'
+            ? 'SERVICE_UNAVAILABLE'
+            : err.code.startsWith('approval_') || err.code.startsWith('copy_bots_scope_') || err.code.startsWith('copy_bots_request_')
+              ? 'CONFLICT'
+              : 'BAD_REQUEST';
+        throw new TRPCError({ code, message: `${err.message} [trade_ops.${err.code}]`, cause: err });
+      }
+      throw toTrpcError(err);
+    }
+  };
+  const pauseScope = z.object({ kind: z.enum(['lead', 'bot_type', 'symbol']), value: z.string().trim().min(1).max(80) }).strict();
   return router({
     accountControls: tradingControlsRouter(controls),
-    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
+    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups), builderFeeAdminRouter(builderFees)),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
+    /** `venue.ownActivity`: a person's own venue spot trading, svc-tax only (J-cex-spot-01 #11). Read-only. */
+    venue: ownVenueActivityRouter(venueActivity),
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
     bots: router({ grid: gridRouter(grid) }),
     /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
@@ -1915,7 +1943,36 @@ export function createTradeRouter(
       /** The caller's newest lead application, or null. */
       myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
 
+      /** The scopes the platform has paused now (CB-ops-03): leads by listing ref, bot types and symbols. */
+      platformPauses: scopedProcedure('trade:read', { module: 'trade' }).query(() => pauses((desk) => desk.publicPauses())),
+
       ops: router({
+        /**
+         * The copy and bots kill switch (CB-ops-03): pause or resume a lead, a bot type or a symbol, two founders each
+         * time. `propose` records the first founder's identity approval; `confirm` is the second founder's.
+         */
+        pauses: router({
+          desk: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => pauses((desk) => desk.desk(ctx.principal))),
+          request: scopedProcedure('admin:read', { module: 'trade' })
+            .input(z.object({ requestId: z.string().uuid() }).strict())
+            .query(({ ctx, input }) => pauses((desk) => desk.request(ctx.principal, input.requestId))),
+          propose: scopedProcedure('admin:write', { module: 'trade' })
+            .input(
+              z
+                .object({
+                  requestId: z.string().uuid(),
+                  op: z.enum(['pause', 'resume']),
+                  scope: pauseScope,
+                  approvalId: z.string().trim().min(1).max(128),
+                })
+                .strict(),
+            )
+            .mutation(({ ctx, input }) => pauses((desk) => desk.propose(ctx.principal, input))),
+          confirm: scopedProcedure('admin:write', { module: 'trade' })
+            .input(z.object({ requestId: z.string().uuid(), operationId: z.string().trim().min(1).max(128) }).strict())
+            .mutation(({ ctx, input }) => pauses((desk) => desk.confirm(ctx.principal, input))),
+        }),
+
         /** The founders' lead desk (CB-ops-01): the queue, the criteria, two-founder approval, rejection, leads, audit. */
         leadDesk: router({
           queue: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.queue(ctx.principal))),

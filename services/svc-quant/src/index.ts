@@ -12,6 +12,8 @@ import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
 import { openRunRepository } from './runs/open.js';
 import { openStrategyRepository } from './studio/open.js';
+import { openQuota } from './quota/open.js';
+import { parseQuotaSeed } from './quota/quota.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 registerProcessHooks(
@@ -38,8 +40,13 @@ const lake = missingLake();
 const history = env.TRADE_URL ? tradeHistoryPort({ tradeUrl: env.TRADE_URL, now: () => Date.now() }) : missingHistory();
 const fees = env.TRADE_URL ? tradeFeePort({ tradeUrl: env.TRADE_URL }) : missingFees();
 const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
-const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
-const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+// Quotas by plan (AL-limits-01): the gate is checked inside every strategy and run write's own transaction.
+const quota = openQuota(
+  { DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX },
+  { defaultProfile: env.QUANT_DEFAULT_QUOTA_PROFILE ?? null, seed: parseQuotaSeed(env.QUANT_TEST_QUOTA_SEED) },
+);
+const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
+const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const shares = openShareRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
@@ -84,6 +91,7 @@ export const appRouter = createQuantRouter({
   runs: runs.repository,
   disclosure: disclosure.repository,
   templates: templates.repository,
+  quota: quota.repository,
   releaseNoteMax: env.QUANT_RELEASE_NOTE_MAX === undefined ? null : Number(env.QUANT_RELEASE_NOTE_MAX),
   share: {
     repository: shares.repository,
@@ -125,6 +133,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await runs.close();
       await disclosure.close();
       await templates.close();
+      await quota.close();
       process.exit(0);
     })();
   });

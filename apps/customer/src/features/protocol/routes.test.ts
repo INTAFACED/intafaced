@@ -4,17 +4,19 @@ import { isWeb3Path, matchWeb3Route, WEB3_ROUTES } from './routes';
 import { lastShellRoute, rememberShellRoute, shellOf, SHELL_DEFAULT } from './shell-state';
 
 describe('Web3 routes (IA-SPEC 2.8)', () => {
-  it('has all thirty-four routes, each registered as a web3 room', () => {
+  it('has every route, each registered as a web3 room', () => {
     expect(WEB3_ROUTES.map((route) => route.path)).toEqual([
       '/dex',
       '/dex/pools',
       '/dex/pools/new',
       '/dex/pools/:poolId',
+      '/dex/pools/:poolId/add',
       '/dex/positions',
       '/dex/positions/:positionId',
       '/dex/tokens',
       '/dex/tokens/:address',
       '/dex/venue',
+      '/dex/orders',
       '/wallet',
       '/wallet/activity',
       '/wallet/send',
@@ -26,6 +28,8 @@ describe('Web3 routes (IA-SPEC 2.8)', () => {
       '/wallet/session-keys',
       '/wallet/accounts',
       '/wallet/safety',
+      '/wallet/venue',
+      '/wallet/embedded',
       '/wallet/groups/:groupId',
       '/wallet/claim/:linkId',
       '/chain',
@@ -48,7 +52,8 @@ describe('Web3 routes (IA-SPEC 2.8)', () => {
   });
 
   it('puts a specific route before the parameter route that could swallow it', () => {
-    expect(matchWeb3Route('/dex/pools/new')?.route.pending?.page).toBe('poolNew');
+    expect(matchWeb3Route('/dex/pools/new')?.route.liquidity).toBe('new');
+    expect(matchWeb3Route(`/dex/pools/0x${'ab'.repeat(20)}/add`)?.route.liquidity).toBe('add');
     expect(matchWeb3Route('/dex/pools/abc')?.route.pool).toBe('detail');
     expect(matchWeb3Route('/dex/pools/')?.route.tab).toBe('pools');
     expect(matchWeb3Route('/chain/blocks/123456')?.params).toEqual({ height: '123456' });

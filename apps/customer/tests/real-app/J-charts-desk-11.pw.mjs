@@ -1,8 +1,9 @@
-// World: none
+// World: book
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { EDGE, journeyState, signOutBrowser } from './stack.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { EDGE, fund, journeyState, signOutBrowser } from './stack.mjs';
+import { fundedTrader, signIn, signUp } from './desk.mjs';
+import { takeBest } from './copy.mjs';
 
 // J-charts-desk-11, in the running app (docs/roadmap/journeys.json): watchlists beside the chart, kept on the account, with live
 // quotes, a row click or drag opening its chart, symbol details, and CSV export and import. One test per step, titled
@@ -148,7 +149,8 @@ test(`${J} #2 sorts the list, resizes a column, adds a section and a second name
   await expect(panel(page).getByRole('combobox', { name: 'List' }).locator('option', { hasText: 'Alts' })).toHaveCount(1);
 });
 
-test(`${J} #3 shows the last price and change of each row live, from the stack's own quotes`, async ({ page }) => {
+test(`${J} #3 shows the last price and change of each row live, from the stack's own quotes`, async ({ page, browser }) => {
+  test.setTimeout(300_000);
   await signIn(page, account());
   await openWorkbench(page);
   // Every row on the list: its last price and its 24 h change are the ones Edge serves for that market. The quote may
@@ -174,6 +176,90 @@ test(`${J} #3 shows the last price and change of each row live, from the stack's
       )
       .toEqual([true, true]);
   }
+
+  // Tick colouring: as the stack's quotes move, a last price that went up is marked up and drawn in the up colour, one
+  // that went down is marked down and drawn in the down colour. The page is watched as it ticks: every change of a
+  // row's shown last price is recorded with the mark it carries, and a moment later the colour the cell is drawn in.
+  await panel(page).evaluate((root) => {
+    const swatch = (role) => {
+      const probe = document.createElement('span');
+      probe.style.color = `var(${role})`;
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    const seen = { up: swatch('--if-up'), down: swatch('--if-down'), moves: [] };
+    const value = (text) => Number(text.replace(/[^0-9.-]/g, ''));
+    const lastText = new Map();
+    const changes = new Map();
+    for (const cell of root.querySelectorAll('tr[data-symbol] td[data-column="last"]')) lastText.set(cell, cell.textContent);
+    new MutationObserver(() => {
+      for (const cell of root.querySelectorAll('tr[data-symbol] td[data-column="last"]')) {
+        const before = lastText.get(cell);
+        const now = cell.textContent;
+        lastText.set(cell, now);
+        if (before === undefined || before === now) continue;
+        const count = (changes.get(cell) ?? 0) + 1;
+        changes.set(cell, count);
+        if (!Number.isFinite(value(before)) || !Number.isFinite(value(now)) || value(now) === value(before)) continue;
+        const symbol = cell.closest('tr').dataset.symbol;
+        const went = value(now) > value(before) ? 'up' : 'down';
+        // Read once the move has settled: the mark and the colour the cell is drawn in, unless it moved again meanwhile.
+        setTimeout(() => {
+          if (changes.get(cell) !== count) return;
+          seen.moves.push({ symbol, from: before, to: now, went, tick: cell.dataset.tick, color: getComputedStyle(cell).color });
+        }, 400);
+      }
+    }).observe(root, { subtree: true, childList: true, characterData: true });
+    window.__ticks = seen;
+  });
+  const ticked = () => page.evaluate(() => window.__ticks);
+  const directions = async () => [...new Set((await ticked()).moves.map((m) => m.went))].sort();
+  // The market moves the last price itself: a TEST trader takes the best ask (the last trade, and so the last price, goes
+  // up to the ask) and then hits the best bid (down to the bid), with the list watched. Waiting for the TEST market maker's
+  // own drift to go both ways took 132 s of 180 in run 42633144480 and saw only `down` in 181 s in run 42636933736.
+  // A first buy at an ask the last price already sits on moves nothing, so a second round follows if one way is missing.
+  // Other files' trades on the same book move the price too: every move seen, theirs included, is held to the same mark
+  // and colour below. Each trade waits for the page's next ticker read (every 5 s) to show it before the next is sent, so
+  // the two moves are not folded into one read; a trade another file's trade overtook is not waited for again.
+  const traderContext = await browser.newContext({ baseURL: 'http://127.0.0.1:3210' });
+  try {
+    const trader = await fundedTrader(await traderContext.newPage(), 'wlq', '500');
+    expect(fund(trader.email, 'BTC', '0.01').tx).toBeTruthy();
+    const tag = `${process.env.JOURNEY_RUN_ID ?? 'local'}-${Date.now()}`;
+    // Only a move recorded after the trade was sent counts: the market maker quotes the same ask and bid round after round,
+    // so a move to that price from an earlier round would pass at once, the next trade would land inside the same 5 s read,
+    // and the two moves would fold into one (main's run 42734269665 saw only `down` in 28 s).
+    const shows = async (since, price) => {
+      await expect
+        .poll(async () => (await ticked()).moves.slice(since).some((m) => number(m.to) === Number(price)), {
+          timeout: 12_000,
+          intervals: [500],
+        })
+        .toBe(true)
+        .catch(() => {});
+    };
+    const seenSoFar = async () => (await ticked()).moves.length;
+    for (let round = 0; round < 3; round += 1) {
+      let since = await seenSoFar();
+      const bought = await takeBest(trader, 'buy', '0.001', `${J}-3-buy-${round}-${tag}`);
+      await shows(since, bought.average ?? bought.price);
+      since = await seenSoFar();
+      const sold = await takeBest(trader, 'sell', '0.001', `${J}-3-sell-${round}-${tag}`);
+      await shows(since, sold.average ?? sold.price);
+      if ((await directions()).length === 2) break;
+    }
+  } finally {
+    await traderContext.close();
+  }
+  await expect
+    .poll(directions, { message: 'the last price moves both up and down while the list is watched', intervals: [1_000] })
+    .toEqual(['down', 'up']);
+  const { up, down, moves } = await ticked();
+  expect(up).not.toBe(down);
+  const colourOf = { up, down };
+  for (const move of moves) expect(move, JSON.stringify(move)).toMatchObject({ tick: move.went, color: colourOf[move.went] });
 });
 
 test(`${J} #4 a row click shows that market on the chart at the interval the workbench has; a drag onto the chart does the same`, async ({

@@ -323,6 +323,8 @@ async function main() {
     HTTP_PORT: '4001',
     DATABASE_URL: ledgerUrl,
     LEDGER_POSTING_ENABLED: 'true',
+    // TEST stack: the custodial layer runs for the journeys marked Later (OWNER 226 keeps it built, off at launch).
+    LEDGER_CUSTODY_LAYER: 'on',
   });
 
   startIdentity();
@@ -365,9 +367,13 @@ async function main() {
       IDENTITY_URL: 'http://127.0.0.1:4002',
       TRADE_URL: 'http://127.0.0.1:4004',
       DATABASE_POOL_MAX: '5',
+      // The custody switch as svc-bank reads it, on as this rig's ledger runs it (OWNER 226 keeps the custodial layer built).
+      LEDGER_CUSTODY_LAYER: 'on',
       // SMOKE RIG ONLY — owner integers and ids that boot refuses without; not production values
       ...profileEnvFor('bank', common.APP_ENV),
       INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
+      // The custody switch as this rig's svc-ledger runs it (on), so the two services agree (OWNER 226).
+      LEDGER_CUSTODY_LAYER: 'on',
     });
 
   // Tax, for the profit and loss journey: it reads the caller's fills from the ledger (no database of its own). The jurisdiction map,

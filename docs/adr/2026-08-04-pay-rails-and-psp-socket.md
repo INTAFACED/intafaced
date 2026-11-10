@@ -1,5 +1,7 @@
 # ADR: what `socket.psp-partners` actually is, and why an orchestrator does not close it
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about merchant money and chargebacks posted on our ledger applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-10, **completing** it rather than opening it.

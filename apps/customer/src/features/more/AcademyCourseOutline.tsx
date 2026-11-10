@@ -225,6 +225,11 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
               <span data-testid="academy-lms-meta" className="academy-lms-meta">
                 <span>{kindLabel(t, row.kind)}</span>
                 {why && <span>{why}</span>}
+                {row.dueAt && (
+                  <span data-testid="outline-due" data-due-extended={row.dueExtended ? 'true' : 'false'}>
+                    {t(row.dueExtended ? 'outlineDueExtended' : 'outlineDue', { date: formatDay(row.dueAt, language) })}
+                  </span>
+                )}
               </span>
             </li>
           );

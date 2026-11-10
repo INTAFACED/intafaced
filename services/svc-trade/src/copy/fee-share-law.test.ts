@@ -81,19 +81,19 @@ describe('parseCopyFeeShareLawJson', () => {
     }
   });
 
-  it('publishes the shipped earnings cap with its owner decimals', () => {
+  it('keeps an earnings cap with trailing zero decimals as written', () => {
     const law = parseCopyFeeShareLawJson(
       JSON.stringify({
         published: true,
-        leaderShareBps: 1000,
-        earningsCapPerFollower: '1000.00',
-        decayRoundTrips: 50,
-        decayShareBps: 5000,
+        leaderShareBps: 1337,
+        earningsCapPerFollower: '7331.00',
+        decayRoundTrips: 37,
+        decayShareBps: 4321,
       }),
     );
     expect(law.published).toBe(true);
     if (law.published) {
-      expect(law.earningsCapPerFollower).toBe('1000.00');
+      expect(law.earningsCapPerFollower).toBe('7331.00');
       expect(typeof law.earningsCapPerFollower).toBe('string');
     }
   });

@@ -1,3 +1,4 @@
+import { keyRateLimitSchema } from '@intafaced/contracts/api-rate-limits';
 import { SecurityLockError } from './auth/security-lock.js';
 import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
@@ -141,6 +142,7 @@ import type { ProfileService } from './profile/profile-service.js';
 import { createProfileRouter } from './profile/profile-router.js';
 import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
+import { createCompromiseRouter } from './account/compromise-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
 import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
@@ -504,6 +506,7 @@ export function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.session_invalid':
     case 'auth.session_reused':
+    case 'auth.session_idle':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.handle_taken':
     case 'auth.email_taken':
@@ -561,6 +564,9 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.reset_unwired':
       // No mail port or no owner-published lifetime. Same answer for every address.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.reset_limit':
+      // The owner's cap per address, counted for every address alike: the sentence names the cap and its window.
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
     case 'auth.email_confirm_invalid':
       // A wrong, rebound or code-spent link. An expired or used one is named apart (auth.email_confirm_expired, _used).
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
@@ -931,7 +937,7 @@ export function createIdentityRouter(
     /**
      * Owner-published commission tier law (DIRECTION §8).
      * Blank / unpublished → accrue refuses when the request omits tiers.
-     * Default unpublished — never invent 10/5/2%.
+     * Default unpublished — never invent a rate.
      */
     accrualTierLaw?: AccrualTierLaw;
     /**
@@ -1226,7 +1232,7 @@ export function createIdentityRouter(
     }),
 
     profile: createProfileRouter(options.profile, options.antiPhishing),
-    account: createAccountRouter(options.account),
+    account: createAccountRouter(options.account, createCompromiseRouter(auth, privilegedUserIds)),
     accountClosure: createAccountClosureRouter(options.closure),
 
     users: router({
@@ -1451,7 +1457,10 @@ export function createIdentityRouter(
             phone: z.string().trim().max(20).optional(),
             password: z.string().max(200),
             country: z.string().trim().length(2),
-            nationality: z.string().trim().length(2).optional(),
+            /** ISO 3166-2 subdivision of residence (`CA-QC`); asked for where a subdivision is blocked on its own. */
+            subdivision: z.string().trim().min(4).max(6).optional(),
+            /** Country of citizenship (ISO 3166-1 alpha-2) or an ISO 3166-2 subdivision. */
+            nationality: z.string().trim().min(2).max(6).optional(),
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
             referrerId: z.string().guid().optional(),
@@ -1853,11 +1862,19 @@ export function createIdentityRouter(
         }),
 
       refresh: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
+        .input(
+          z
+            .object({
+              refreshToken: z.string().min(1).optional(),
+              /** The app saw no use since its last refresh (an unused tab's timer): the idle sign-out keeps counting. */
+              idle: z.boolean().optional(),
+            })
+            .optional(),
+        )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken));
+            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken), input?.idle === true ? { idle: true } : {});
             return sessionWire(ctx, session);
           } catch (err) {
             if (
@@ -1985,13 +2002,22 @@ export function createIdentityRouter(
         .query(() => auth.passwordResetChannel()),
 
       /**
+       * The owner's reset request cap: how many codes one address may ask for inside the window (J-identity-03 #2).
+       * Null while the reset is unwired, so the page names no number it doesn't have. The same for every visitor.
+       */
+      passwordResetLimits: publicProcedure
+        .output(z.object({ requestMax: z.number().int().positive(), windowSeconds: z.number().int().positive() }).nullable())
+        .query(() => auth.passwordResetLimits()),
+
+      /**
        * Signed-out password reset, step 2. A correct proof replaces the hash
        * and ends the old sessions. This does not sign the caller in.
        */
       completePasswordReset: publicProcedure
         .input(
           z.object({
-            email: z.string().trim().email().max(320),
+            // Absent from the mailed link (J-identity-03 #2): the code alone names its flow.
+            email: z.string().trim().email().max(320).optional(),
             code: z.string().trim().min(1).max(200),
             newPassword: z.string().max(200),
           }),
@@ -3196,6 +3222,7 @@ export function createIdentityRouter(
             requireSignature: z.boolean().optional(),
             requireNonEmptyIpAllowlist: z.boolean().optional(),
             ipAllowlist: z.array(z.string()).optional(),
+            rateLimit: keyRateLimitSchema.nullable().optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -3215,6 +3242,7 @@ export function createIdentityRouter(
               ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
               ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
               ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
+              ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
             };
           } catch (err) {
             throw toTrpcError(err);

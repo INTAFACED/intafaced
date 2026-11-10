@@ -26,6 +26,9 @@ test('reads the raw file on the factory-switch branch', async () => {
   assert.equal(await readSwitch({ repo: 'o/r', token: 't', fetchImpl }), 'run\n');
   assert.equal(seen.url, 'https://api.github.com/repos/o/r/contents/FACTORY?ref=factory-switch');
   assert.equal(seen.init.headers.accept, 'application/vnd.github.raw');
+  assert.equal(seen.init.headers.authorization, 'Bearer t');
+  await readSwitch({ repo: 'o/r', fetchImpl });
+  assert.equal(seen.init.headers.authorization, undefined, 'no token, no header (never "Bearer undefined")');
 });
 
 test('a missing branch or file, or any refusal, throws so the seal fails closed', async () => {
@@ -144,4 +147,21 @@ test('switchProblem: only a readable `run` is no problem; a refused, unreadable 
     }),
   });
   assert.equal(badBody?.title, 'Factory switch unreadable');
+});
+
+// INTAFACED/project-state#1574: a merge seal still waiting for its inputs has no verdict on the head; the sweep leaves it
+// (the re-check starts it, and it reads the switch then) instead of polling until its bound.
+test('sweepHead leaves a seal that still waits for its inputs, and re-runs nothing', async () => {
+  const waiting = {
+    id: 8,
+    name: "${{ (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') && 'CI merge seal' || 'x' }}",
+    status: 'completed',
+    conclusion: 'skipped',
+  };
+  const a = fakeApi({ job: waiting });
+  let slept = 0;
+  const msg = await sweepHead({ repo: 'o/r', sha: 'a', paused: true, ...a, sleep: async () => slept++ });
+  assert.match(msg, /^no verdict yet/);
+  assert.deepEqual(a.posted, []);
+  assert.equal(slept, 0, 'never polled');
 });

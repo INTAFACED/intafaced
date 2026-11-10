@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-bank-02, in the running app (docs/roadmap/journeys.json): I add money to my bank balance. One test per step, titled
 // "J-bank-02 #<n>", run in order on one TEST account funded with TEST 50 USDT. The stack connects no real payment partner
@@ -235,7 +236,9 @@ async function ask(page, method) {
   return confirm;
 }
 
-test(`${J} #1 presses Add money: every way to pay with its fee and arrival, a blank reading "not set"`, async ({ page }) => {
+test(`${J} #1 presses Add money: every way to pay with its fee and delivery estimate from the quote, a blank reading "not set"`, async ({
+  page,
+}) => {
   const who = await signUp(page, 'jb2');
   await verify(page, who);
   expect(fund(who.email, 'USDT', '50').tx).toBeTruthy();
@@ -252,6 +255,31 @@ test(`${J} #1 presses Add money: every way to pay with its fee and arrival, a bl
     await expect(row).toContainText('bank.fiat_ramp_socket');
   }
   await expect(page.getByTestId('add-money-ways')).not.toContainText(/fee[- ]free|0 EUR/i);
+
+  // From NL the stack's TEST rate stand-in quotes: each way it prices shows the quote's own fee, delivery estimate and pay
+  // amount (a blank estimate reads "not set"), and each way it does not price stays blank with the rail it needs.
+  await page.getByLabel('Country you pay from').fill('NL');
+  const answered = page.waitForResponse((res) => res.url().includes('/api/bank/trpc/addMoney.methods') && res.status() === 200);
+  await page.getByRole('button', { name: 'See ways to pay' }).click();
+  const methods = (await (await answered).json()).result.data.methods;
+  expect(methods.map((m) => m.method).sort()).toEqual(WAYS.map(([method]) => method).sort());
+  const figure = (amount, currency) => new RegExp(`${amount.replace('.', '\\.')}${amount.includes('.') ? '0*' : '(\\.0+)?'} ${currency}`);
+  const priced = methods.filter((m) => m.quote);
+  expect(priced.length, 'the TEST rate stand-in prices at least one way to pay from NL').toBeGreaterThan(0);
+  for (const [method, label, rail] of WAYS) {
+    const row = page.getByTestId(`method-${method}`);
+    await expect(row).toContainText(label);
+    const { quote } = methods.find((m) => m.method === method);
+    if (quote) {
+      await expect(row).toContainText(new RegExp(`Fee: ${figure(quote.fee, quote.payCurrency).source}`));
+      await expect(row).toContainText(`Arrives: ${quote.deliveryEstimate ?? 'not set'}`);
+      await expect(row).toContainText(new RegExp(`You pay: ${figure(quote.payAmount, quote.payCurrency).source}`));
+      await expect(row.getByText('not set')).toHaveCount(quote.deliveryEstimate === null ? 1 : 0);
+    } else {
+      await expect(row.getByText('not set')).toHaveCount(3);
+      await expect(row).toContainText(`Needs a partner for ${rail}. It is switched off in this build.`);
+    }
+  }
 });
 
 test(`${J} #2 picks bank transfer: the ownership rule, the rail.bank notice, and the request kept`, async ({ page }) => {
@@ -372,6 +400,23 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
   await page.getByRole('button', { name: 'See ways to pay' }).click();
   await expect(row).toContainText('TEST price from a stand-in');
   await expect(row).not.toContainText(`Price holds until: ${holds}`);
+
+  // The partner's own word that its quote expired (the TEST ramp switched to expire every quote it gave): a price still
+  // inside its own time is refused as expired when accepted, and nothing is asked for, kept or charged.
+  await withPartner(who, { rampQuote: 'expired' }, async () => {
+    await page.reload();
+    await page.getByLabel('Add to').selectOption('USDT');
+    await page.getByLabel('Amount').fill('20');
+    await page.getByLabel('Country you pay from').fill('NL');
+    await page.getByRole('button', { name: 'See ways to pay' }).click();
+    await expect(row).toContainText('Price holds until');
+    const fresh = await ask(page, 'bank_transfer');
+    await fresh.getByRole('button', { name: 'Ask for this payment' }).click();
+    await expect(refused).toContainText('The price ran out');
+    await expect(refused).toContainText('bank.onramp_quote_expired');
+    expect((await requests(who)).map((r) => r.method)).toEqual(['bank_transfer']);
+    expect(await usdt(who)).toBe('50');
+  });
 });
 
 test(`${J} #5 pays and watches the order: the tracker from created to credited, and the amount is the quote's receive amount exactly`, async ({
@@ -436,7 +481,7 @@ test(`${J} #5 pays and watches the order: the tracker from created to credited, 
   await expect(listed).toContainText('Credited');
 });
 
-test(`${J} #6 links an external bank account: listed unverified with rail.bank, and it cannot be used`, async ({ page }) => {
+test(`${J} #6 links an external bank account: listed unverified with rail.bank, and cashing out to it is refused`, async ({ page }) => {
   test.setTimeout(180_000);
   const who = person();
   await signIn(page, who);
@@ -494,6 +539,33 @@ test(`${J} #6 links an external bank account: listed unverified with rail.bank, 
   const plain = await api.mutate('linkedAccounts.link', { label: 'TEST other', holderName: 'TEST Holder', iban: 'DE89370400440532013000' });
   expect(plain).toMatchObject({ ok: false, status: 403 });
   expect((await api.query('linkedAccounts.list', undefined)).data.accounts).toHaveLength(1);
+  expect(await usdt(who)).toBe('50');
+
+  // It cannot be used: cashing out to it, with the fresh confirmation given, is refused for being unverified, and nothing
+  // leaves the balance.
+  await page.goto('/bank/ramps');
+  await page.getByRole('link', { name: 'Cash out to a bank account' }).click();
+  await expect(page).toHaveURL(/\/bank\/ramps\/cash-out$/);
+  await page.getByLabel('Currency to cash out').selectOption('USDT');
+  await page.getByLabel('Amount').fill('20');
+  await page.getByLabel('Bank account to pay into').selectOption({ label: 'TEST salary account (GB82 •••• 5432)' });
+  await page.getByRole('button', { name: 'See what you get' }).click();
+  await expect(page.getByTestId('cash-out-blocker')).toContainText('bank.linked_account_unverified');
+  await page.getByRole('button', { name: 'Cash out', exact: true }).click();
+  const confirmUse = page.getByRole('dialog', { name: 'Confirm it’s you' });
+  await expect(confirmUse).toBeVisible();
+  const useCode = await nextCode(totp, secret, run.read().step);
+  run.reset({ ...run.read(), step: useCode.step });
+  await confirmUse.getByLabel('Authenticator code or recovery code').fill(useCode.code);
+  await confirmUse.getByRole('button', { name: 'Confirm' }).click();
+  const kept = page.getByTestId('cash-out-kept');
+  await expect(kept).toContainText('This cash-out was not sent');
+  await expect(kept).toContainText('Nothing left your balance.');
+  await expect(kept).toContainText('bank.linked_account_unverified');
+  const used = await (await bank(who)).query('cashOut.requests', { limit: 10 });
+  expect(used.ok && used.data).toEqual([
+    expect.objectContaining({ amount: '20', assetId: 'USDT', status: 'refused', refusalCode: 'bank.linked_account_unverified' }),
+  ]);
   expect(await usdt(who)).toBe('50');
 });
 

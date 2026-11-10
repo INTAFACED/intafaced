@@ -1,5 +1,7 @@
 # ADR: the fill business key stays as it is — detect the loss, do not re-derive the id
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The `trade.fill:<fillId>` key is for the custodial layer. The rule it rests on holds at launch for every key: a key's derivation never changes once posts exist under it, because a changed key posts history a second time. It stays as written.
+
 **Status:** **Accepted — 2026-08-07.** Closes the open question left by [#899](https://github.com/Phantom-X-007/intafaced/pull/899) and [#959](https://github.com/Phantom-X-007/intafaced/pull/959).
 **Decision owner:** repo owner. **Class:** M (money key).
 **Reason this exists:** two PRs named a follow-up decision and neither took it. An open money-key question with two obvious answers is one somebody eventually picks in a hurry.

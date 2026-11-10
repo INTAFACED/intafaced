@@ -4,7 +4,8 @@ import { idempotencyConflict } from '../studio/keys.js';
 import { decodeListCursor, encodeListCursor } from '../studio/keys.js';
 import { assertResultFits, assertRunResultCap } from './limit.js';
 import type { BeginRun, ClaimInput, FinishRun, RunRepository } from './repository.js';
-import type { ClaimRow, RunCounts, RunKind, StoredRun } from './types.js';
+import type { ClaimRow, PaperSettings, RunCounts, RunKind, StoredPaperRun, StoredRun } from './types.js';
+import type { QuotaGate } from '../quota/quota.js';
 
 interface MemoryRun extends StoredRun {
   readonly scopeKey: string;
@@ -40,7 +41,7 @@ function cloneRun(row: MemoryRun): StoredRun {
  * Production index.ts passes the Postgres repository. A finished row cannot
  * be finished again.
  */
-export function createMemoryRunRepository(cap: number | null | undefined): RunRepository {
+export function createMemoryRunRepository(cap: number | null | undefined, quota?: QuotaGate): RunRepository {
   const limit = assertRunResultCap(cap);
   const rows = new Map<string, MemoryRun>();
   const labels = new Map<string, string>();
@@ -48,6 +49,7 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
   const claims = new Map<string, ClaimRow>();
   const claimsByRun = new Map<string, string>();
   const claimsByKey = new Map<string, string>();
+  const paperSettings = new Map<string, PaperSettings>();
 
   function keyOf(userId: string | null, idempotencyKey: string): string {
     return `${scopeKey(userId)}\0${idempotencyKey}`;
@@ -67,6 +69,21 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
     async begin(input: BeginRun) {
       const existing = findKey(input.userId, input.idempotencyKey);
       if (existing) return cloneRun(existing);
+      if (quota && input.userId) {
+        const own = [...rows.values()].filter((row) => row.userId === input.userId);
+        // Memory counts only this store's run results as storage; Postgres adds the strategies' source.
+        const stored = own.reduce((sum, row) => sum + BigInt(Buffer.byteLength(JSON.stringify(row.response ?? null), 'utf8')), 0n);
+        await quota.check(null, input.userId, [
+          { resource: 'concurrent_runs', used: BigInt(own.filter((row) => !row.finished).length), adding: 1n },
+          { resource: 'runs', used: BigInt(own.length), adding: 1n },
+          { resource: 'storage', used: stored, adding: 1n },
+          ...(input.kind === 'paper'
+            ? [{ resource: 'paper_runs' as const, used: BigInt(own.filter((row) => row.kind === 'paper').length), adding: 1n }]
+            : []),
+        ]);
+        const raced = findKey(input.userId, input.idempotencyKey);
+        if (raced) return cloneRun(raced);
+      }
       const row: MemoryRun = {
         id: `run_${randomUUID()}`,
         userId: input.userId,
@@ -83,6 +100,7 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
       };
       rows.set(row.id, row);
       byKey.set(keyOf(input.userId, input.idempotencyKey), row.id);
+      if (input.paper) paperSettings.set(row.id, structuredClone(input.paper));
       return cloneRun(row);
     },
 
@@ -171,6 +189,25 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
       return { label: input.label };
     },
 
+    async paperRuns(input) {
+      const own: StoredPaperRun[] = [];
+      for (const [id, settings] of paperSettings) {
+        const row = rows.get(id);
+        if (!row || row.userId !== input.userId) continue;
+        if (input.strategyId !== null && row.strategyId !== input.strategyId) continue;
+        own.push({ run: cloneRun(row), settings: structuredClone(settings) });
+      }
+      own.sort((a, b) => b.run.started.localeCompare(a.run.started) || b.run.id.localeCompare(a.run.id));
+      return own.slice(0, input.limit);
+    },
+
+    async paperRun(input) {
+      const row = rows.get(input.id);
+      const settings = paperSettings.get(input.id);
+      if (!row || !settings || row.userId !== input.userId) return null;
+      return { run: cloneRun(row), settings: structuredClone(settings) };
+    },
+
     async okKinds(input) {
       const ok = [...rows.values()].filter((row) => row.userId === input.userId && row.finished && row.outcome === 'ok');
       return { backtest: ok.some((row) => row.kind === 'backtest'), sandbox: ok.some((row) => row.kind === 'sandbox') };
@@ -181,14 +218,16 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
       const byOutcome = new Map<string, number>();
       let backtest = 0;
       let sandbox = 0;
+      let paper = 0;
       for (const row of matched) {
         if (row.kind === 'backtest') backtest += 1;
         if (row.kind === 'sandbox') sandbox += 1;
+        if (row.kind === 'paper') paper += 1;
         const outcome = row.outcome ?? '';
         byOutcome.set(outcome, (byOutcome.get(outcome) ?? 0) + 1);
       }
       return {
-        byKind: { backtest, sandbox },
+        byKind: { backtest, sandbox, paper },
         byOutcome: [...byOutcome.entries()].map(([outcome, count]) => ({ outcome, count })),
         asOf: new Date().toISOString(),
       };
@@ -229,5 +268,5 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
 }
 
 export function isRunKind(value: string | null | undefined): value is RunKind {
-  return value === 'backtest' || value === 'sandbox';
+  return value === 'backtest' || value === 'sandbox' || value === 'paper';
 }

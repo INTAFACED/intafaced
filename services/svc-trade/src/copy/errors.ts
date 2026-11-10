@@ -36,6 +36,7 @@ export type CopyErrorCode =
   | 'trade.copy_session_key_missing'
   | 'trade.copy_session_key_revoked'
   | 'trade.copy_paused'
+  | 'trade.copy_paused_by_platform'
   | 'trade.copy_stopped'
   | 'trade.copy_detached'
   | 'trade.copy_request_key_invalid'

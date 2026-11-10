@@ -191,6 +191,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { learnerDeskProcedures } from './learners/learner-desk-router.js';
 import { gradeReportProcedures } from './curriculum/grade-reports-router.js';
 import { relatedItems } from './curriculum/related.js';
 import { listPublicCourses, searchPublicCurriculum } from './curriculum/public-catalogue.js';
@@ -1009,10 +1010,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.assignment_has_submissions':
     case 'academy.review_already_sent':
     case 'academy.grader_locked':
+    case 'academy.grant_active':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.enrolment_required':
     case 'academy.permission_denied':
+    case 'academy.grant_expired':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.price_unset':
@@ -1066,6 +1069,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.assignment_not_found':
     case 'academy.review_task_not_found':
     case 'academy.submission_not_found':
+    case 'academy.grant_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
@@ -3293,6 +3297,7 @@ export function createAcademyRouter(
 
     admin: router({
       ...gradeReportProcedures(academy.gradeReports),
+      ...learnerDeskProcedures(academy, guard),
       /** AC-course-structure-01: the courses staff created, newest first, and how many are in each state. */
       courses: scopedProcedure('admin:read', { module: 'academy' })
         .input(academyCourseListInputSchema)
@@ -3882,37 +3887,61 @@ export function createAcademyRouter(
         )
         .query(() => ({ rows: [...settingsRegister(settings)] })),
 
+      /**
+       * AC-access-grants-02: the grant audit, newest first: course access grants, revokes, expiries and reinstatements,
+       * and certificates issued and revoked, each with who did it, when and why. The page size is the owner's
+       * (`ACADEMY_GRANT_AUDIT_PAGE_SIZE`); a caller may ask for fewer. Blank, it refuses `academy.grant_audit_list_limit_unset`.
+       */
       grantAudit: scopedProcedure('admin:read', { module: 'academy' })
         .input(
-          z.object({
-            limit: z.number().optional(),
-            cursor: z.string().min(1).max(512).optional(),
-            certificateId: z.string().min(1).max(64).optional(),
-          }),
+          z
+            .object({
+              limit: z.number().int().min(1).optional(),
+              cursor: z.string().min(1).max(512).optional(),
+              /** One course's lines (its slug) or one certificate's (its id); never both. */
+              course: z.string().min(1).max(120).optional(),
+              certificate: z.string().min(1).max(120).optional(),
+            })
+            .refine((v) => !(v.course && v.certificate), { message: 'name a course or a certificate, not both' })
+            .optional(),
         )
         .output(
           z.object({
             items: z.array(
               z.object({
                 accountId: z.string().guid(),
-                certificateId: z.string(),
-                grantedAt: z.date(),
-                status: z.literal('granted'),
+                kind: z.enum([
+                  'access_granted',
+                  'access_revoked',
+                  'access_expired',
+                  'access_reinstated',
+                  'certificate_granted',
+                  'certificate_revoked',
+                ]),
+                target: z.string(),
+                source: z.string().nullable(),
+                actorId: z.string().nullable(),
+                reason: z.string().nullable(),
+                at: z.date(),
                 reference: z.string(),
               }),
             ),
             nextCursor: z.string().nullable(),
           }),
         )
-        .query(({ input }) =>
-          guard(() =>
+        .query(({ input }) => {
+          const owner = settings.ACADEMY_GRANT_AUDIT_PAGE_SIZE;
+          // The owner's size, or fewer when the caller asks for fewer: never more than the owner set, and never a default.
+          const limit = owner === undefined ? undefined : Math.min(owner, input?.limit ?? owner);
+          return guard(() =>
             academy.grantAudit({
-              limit: input.limit,
-              cursor: input.cursor ?? null,
-              certificateId: input.certificateId ?? null,
+              limit,
+              cursor: input?.cursor ?? null,
+              course: input?.course ?? null,
+              certificate: input?.certificate ?? null,
             }),
-          ),
-        ),
+          );
+        }),
       opsMetrics: scopedProcedure('admin:read', { module: 'academy' })
         .input(z.object({ from: z.string(), to: z.string() }))
         .output(

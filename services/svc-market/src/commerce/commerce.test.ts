@@ -504,13 +504,13 @@ describe('market.commerce', () => {
       expect(again.ledgerTxId).toBe(resumed.ledgerTxId);
     });
 
-    it('settles with explicit zero house commission (owner free rate)', async () => {
+    it('settles with an explicit zero house commission (zero is a rate, not silence)', async () => {
       await approvedVendor(VENDOR_USER);
       const free = new CommerceService(sql, vendors, ledger, { commissionBps: 0 });
       const listing = await free.createListing({
         userId: VENDOR_USER,
         title: 'Free commission pack',
-        description: 'Owner set 0 bps',
+        description: 'Zero bps commission',
         offerType: 'one_time',
         assetId: 'USDT',
         price: '40',

@@ -5,7 +5,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { localStackState, localPgOsUser, assertStackOwnership, processRecordMatches, postgresProcessMatches } from './local-test-state.mjs';
+import {
+  localStackState,
+  localPgOsUser,
+  assertStackOwnership,
+  processRecordMatches,
+  postgresProcessMatches,
+  readKernelStart,
+} from './local-test-state.mjs';
 import { stackPaths as marketPaths } from './local-test-market.mjs';
 import { stackPaths as worldPaths } from './local-test-world.mjs';
 import { gatePaths } from './local-test-gates.mjs';
@@ -176,3 +183,64 @@ for (const alter of [
   assert.throws(() => assertStackOwnership(example), /refusing: selected local stack is not active/);
 }
 console.log('local-test-state: database, process reuse, checkout and listener ownership checks passed');
+
+// #7488: on Linux the kernel's birth mark (clock ticks since boot, /proc/<pid>/stat field 22) decides, not ps's lstart,
+// which drifted past the 2-second allowance on loaded runners and made the stack refuse its own service's port.
+const stat = '4242 (node (svc) x) S 1 4242 4242 0 -1 4194560 100 0 0 0 5 1 0 0 20 0 11 0 987654 1234 56 18446744073709551615';
+const readStat = () => stat;
+assert.equal(readKernelStart(4242, { platform: 'linux', read: readStat }), '987654', 'field 22, after a command name holding ") "');
+assert.equal(readKernelStart(4242, { platform: 'darwin', read: readStat }), null, 'no birth mark off Linux');
+assert.equal(
+  readKernelStart(4242, {
+    platform: 'linux',
+    read: () => {
+      throw new Error('ENOENT');
+    },
+  }),
+  null,
+  'a process that is gone has no birth mark',
+);
+assert.equal(readKernelStart(4242, { platform: 'linux', read: () => '4242 (node) S 1 2' }), null, 'a short stat line');
+assert.equal(readKernelStart(0, { platform: 'linux', read: readStat }), null, 'no pid');
+const marked = { ...processRecord, kernelStart: '987654' };
+assert.equal(
+  processRecordMatches(marked, { ...processIdentity, startedAt: startedAt + 5_000, kernelStart: '987654' }),
+  true,
+  'same kernel birth mark: ps drift no longer refuses the stack its own process (#7488)',
+);
+assert.equal(
+  processRecordMatches(marked, { ...processIdentity, kernelStart: '987655' }),
+  false,
+  'a different kernel birth mark refuses, even inside the 2-second allowance (reused PID)',
+);
+assert.equal(
+  processRecordMatches(marked, { ...processIdentity, command: `${command} x`, kernelStart: '987654' }),
+  false,
+  'argv still decides',
+);
+assert.equal(processRecordMatches(marked, processIdentity), true, 'no mark from ps (macOS): the 2-second allowance as before');
+assert.equal(
+  processRecordMatches(marked, { ...processIdentity, startedAt: startedAt + 2124 }),
+  false,
+  'no mark from ps (macOS): outside the allowance still refuses',
+);
+assert.equal(
+  processRecordMatches(processRecord, { ...processIdentity, startedAt: startedAt + 5_000, kernelStart: '987654' }),
+  false,
+  'an older record without a mark keeps the allowance',
+);
+{
+  const drifted = fixture();
+  drifted.records.edge.kernelStart = '987654';
+  drifted.processes.get(20).startedAt += 5_000;
+  drifted.processes.get(20).kernelStart = '987654';
+  assert.doesNotThrow(() => assertStackOwnership(drifted), 'ownership: same kernel birth mark passes despite ps drift');
+  drifted.processes.get(20).kernelStart = '1';
+  assert.throws(() => assertStackOwnership(drifted), /edge process was replaced/, 'ownership: another birth mark refuses');
+}
+if (process.platform === 'linux') {
+  const mine = readKernelStart(process.pid);
+  assert.match(mine ?? '', /^\d+$/, 'this process has a kernel birth mark');
+  assert.equal(readKernelStart(process.pid), mine, 'and it does not move');
+}
+console.log('local-test-state: kernel birth mark checks passed');

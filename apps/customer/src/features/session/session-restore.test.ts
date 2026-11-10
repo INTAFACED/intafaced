@@ -60,6 +60,13 @@ describe('boot refresh request', () => {
     expect(calls[0]!.init.body).toBe('{}');
     expect(headers(calls[0]!).authorization).toBeUndefined();
   });
+  it('says idle only when the browser saw no use since its last refresh (I-signin-sessions-06)', async () => {
+    const { calls, fetcher } = fakeFetch(() => ok(session('a1')));
+    const refresher = createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 });
+    await refresher.refresh({ unused: () => true });
+    await refresher.refresh({ unused: () => false });
+    expect(calls.map((call) => call.init.body)).toEqual(['{"idle":true}', '{}']);
+  });
   it('ignores a refreshToken in the reply: it is not in the session object', async () => {
     const { fetcher } = fakeFetch(() => ok({ ...session('a1'), refreshToken: SECRET }));
     const outcome = await createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 }).refresh();
@@ -297,6 +304,31 @@ describe('session controller', () => {
     expect(seen).toEqual([undefined]);
     controller.stop();
   });
+  it('logout drops the trading-session key this tab holds (J-wallet-22 #8): nothing on the device signs with it after', async () => {
+    const m = new Map<string, string>([
+      ['intafaced.venue-session-key:u-1', '{"address":"0x1"}'],
+      ['intafaced.other', 'kept'],
+    ]);
+    const sessionStorage = {
+      get length() {
+        return m.size;
+      },
+      key: (i: number) => [...m.keys()][i] ?? null,
+      removeItem: (k: string) => void m.delete(k),
+    };
+    vi.stubGlobal('window', { sessionStorage });
+    try {
+      const { controller } = build(() => ok(session('boot')));
+      await controller.start();
+      expect(m.has('intafaced.venue-session-key:u-1')).toBe(true);
+      await controller.logout();
+      expect([...m.keys()]).toEqual(['intafaced.other']);
+      controller.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('logout waits for a refresh already in flight, so a late Set-Cookie cannot undo the clear', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));

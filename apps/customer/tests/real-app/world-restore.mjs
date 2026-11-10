@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
-import { declaredWorld } from '../../../../tooling/scripts/journey-world.mjs';
-import { stackPaths } from '../../../../tooling/scripts/local-test-market.mjs';
+import { declaredWorld } from './world-line.mjs';
+import { STATUS_MS, healStack } from './services.mjs';
+import { MAKER_SETTLE_MS, makerEmails, makerRecordArgs, makerSettled } from './market.mjs';
 
 /**
- * Putting the shared world back between journey files (tooling/scripts/journey-world.mjs). Each file declares, in its
+ * Putting the shared world back between journey files (world-line.mjs, held by tooling/scripts/journey-world.mjs). Each file declares, in its
  * `// World:` line, what it changes; before the next file's first step this takes down what the last file left:
  *
  * - book: every open order, running algo and running grid bot of the TEST accounts the file signed up or acted as;
@@ -39,13 +40,7 @@ export function marketRunning() {
 
 /** The options the running market maker was started with (its pid record), or null when it is not running. */
 export function marketArgs() {
-  if (!marketRunning()) return null;
-  try {
-    const rec = JSON.parse(fs.readFileSync(stackPaths().pidFile, 'utf8'));
-    return Array.isArray(rec?.args) ? rec.args.map(String) : [];
-  } catch {
-    return [];
-  }
+  return marketRunning() ? makerRecordArgs() : null;
 }
 
 /** One account's own session on Edge, or null when it cannot sign in (an account with an authenticator, a frozen one). */
@@ -65,20 +60,6 @@ async function sessionOf(who) {
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(10_000),
     }).then(json);
-}
-
-/** The stack's own TEST accounts (the market maker and its taker): the maker loop owns their orders, never a journey. */
-function stackAccounts() {
-  try {
-    const accounts = JSON.parse(fs.readFileSync(stackPaths().accounts, 'utf8'));
-    return new Set(
-      Object.values(accounts)
-        .map((a) => a?.email)
-        .filter(Boolean),
-    );
-  } catch {
-    return new Set();
-  }
 }
 
 const rows = (body, ...keys) => {
@@ -123,6 +104,10 @@ export async function clearAccountBooks(who) {
   return left;
 }
 
+/** The restore's own time, under journey.mjs's 150 s for the worldBetweenFiles fixture, and what taking orders down keeps. */
+export const RESTORE_MS = 140_000;
+export const BOOK_RESERVE_MS = 20_000;
+
 /**
  * Put back what the journey file `file` declared it changes. `makerArgs` are the options the market maker was running
  * with when that file began (null if it was not running), and `accounts` the TEST accounts it signed up or acted as.
@@ -131,14 +116,22 @@ export async function clearAccountBooks(who) {
 export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
   const parts = worldOf(file);
   const said = [];
+  if (parts.has('restart')) {
+    // A service the file restarted answers again before anything else here signs in (services.mjs). The heal's start
+    // gets what the restore's own time (journey.mjs, 150 s) leaves after the maker's wait and the book's.
+    const healMs = RESTORE_MS - (parts.has('market') ? MAKER_SETTLE_MS : 0) - BOOK_RESERVE_MS - 2 * STATUS_MS;
+    said.push(...(await healStack({ healMs })));
+  }
   if (parts.has('book')) {
-    const own = stackAccounts();
+    const own = makerEmails();
     const cleared = await Promise.all(
       accounts.filter((who) => !own.has(who.email)).map((who) => clearAccountBooks(who).catch((err) => [`${who.email}: ${err.message}`])),
     );
     for (const lines of cleared) said.push(...lines);
   }
   if (parts.has('market')) {
+    // Every cycle the next file reads must have started after this point, so it sees the shifts and holds cleared.
+    const since = Date.now();
     try {
       tool('local-test-market.mjs', 'unshift');
     } catch (err) {
@@ -162,6 +155,13 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
             .slice(0, 200)}`,
         );
       }
+    // The next file starts on a settled book: a whole cycle that began after the `unshift` above (and after any restart)
+    // has quoted every market, unshifted and unheld (market.mjs `unsettled`). `unshift` and `start` both return before
+    // that. Failures it prevents: J-copy-bots-otc-14 #7 restarted the maker, and J-derivatives-03 #1, next in the shard,
+    // found no TEST perpetual quotes (main run 42373885351, #1 to #6 red); and, read from the code, a file after one that
+    // moved or held a price could read that book still shifted or held until the maker's next cycle.
+    const waiting = marketRunning() ? await makerSettled({ since }) : [];
+    if (waiting.length) said.push(`market maker not settled after ${MAKER_SETTLE_MS / 1000}s: ${waiting.join(', ')}`);
   }
   for (const line of said) console.log(`WORLD RESTORE after ${file.split('/').at(-1)}: ${line}`);
   return said;

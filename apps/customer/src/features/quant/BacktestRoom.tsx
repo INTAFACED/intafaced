@@ -22,7 +22,8 @@ import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Field, Loading, Panel, Tabs } from '../../shared/ui';
+import { QuotaAwareFailure } from './quota-refusal';
 import { downloadCsv } from '../more/depth-csv';
 import { utcInput } from '../more/quant-analysis';
 import { Read, Select } from '../more/common';
@@ -335,7 +336,7 @@ export function BacktestRoom() {
                     {t('run')}
                   </Button>
                   {busy && <Loading label={t('running')} />}
-                  {failure && <Failure result={failure} retry={() => strategy && void run(strategy)} />}
+                  {failure && <QuotaAwareFailure result={failure} retry={() => strategy && void run(strategy)} />}
                 </form>
               );
             }}

@@ -139,7 +139,14 @@ describe('the desks cover what the product order asks for', () => {
   it('bank: the operator reads of BANKOPS are on the desk, and the card freeze is a two-founder section action', () => {
     const procedures = allReads(DESKS.bank).map((r) => r.procedure);
     expect(procedures).toEqual(
-      expect.arrayContaining(['ops.poolTotals', 'ops.loanBook', 'ops.cardProgramme', 'ops.rampHealth', 'ops.businessApprovals']),
+      expect.arrayContaining([
+        'ops.poolTotals',
+        'ops.loanBook',
+        'ops.cardProgramme',
+        'ops.cardPartnerTerms',
+        'ops.rampHealth',
+        'ops.businessApprovals',
+      ]),
     );
     const cards = DESKS.bank.sections.find((s) => s.id === 'cards')!;
     expect(cards.sectionAction).toBe('bank.card.status');

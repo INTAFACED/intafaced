@@ -309,6 +309,31 @@ export type BankErrorCode =
   | 'bank.rank_unavailable'
   /** The owner has not published the card programme (countries, card limits, terms), so no card can be ordered. */
   | 'bank.card_eligibility_unset'
+  | 'bank.card_spend_assets_unset'
+  /** A pay-from order names an asset the card partner cannot spend from (J-bank-29 #2). */
+  | 'bank.card_pay_from_not_offered'
+  /** A pay-from order is empty or names an asset twice. */
+  | 'bank.card_pay_from_order_invalid'
+  /** The card partner does not offer this programme funding kind, or has not said (J-bank-26 #6). */
+  | 'bank.card_funding_not_offered'
+  /** A programme funding request needs a positive amount, and auto reload a positive threshold. */
+  | 'bank.card_funding_invalid'
+  /** No card dispute with that id (J-bank-27). */
+  | 'bank.card_dispute_not_found'
+  /** A dispute request is not in shape, or a case key was used for a different dispute. */
+  | 'bank.card_dispute_invalid'
+  /** That step is not open to a dispute in its state (a closed case, representment twice, arbitration before representment). */
+  | 'bank.card_dispute_state'
+  /** The authorisation has no settled capture to dispute, or the amount is above what was captured. */
+  | 'bank.card_dispute_not_disputable'
+  /** The owner has not published the dispute cap for this asset, so no credit or cardholder decision is made (J-bank-27 #4). */
+  | 'bank.card_dispute_cap_unset'
+  /** The disputed amount is above the owner's dispute cap (J-bank-27 #4). */
+  | 'bank.card_dispute_cap_exceeded'
+  /** The card partner does not take provisional credits or dispute decisions through this adapter. */
+  | 'bank.card_dispute_partner_unset'
+  /** The card partner answered a provisional credit with another amount than the one asked; nothing was recorded. */
+  | 'bank.card_dispute_partner_mismatch'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */
@@ -345,6 +370,20 @@ export type BankErrorCode =
   | 'bank.card_pin_issuer_unset'
   /** A PIN was not 4 to 12 digits. The refusal never echoes the PIN. */
   | 'bank.card_pin_invalid'
+  /** The card has no PIN at the issuer yet, so there is none to show. */
+  | 'bank.card_pin_not_set'
+  /** The owner has not set how many wrong PIN tries block a card (`BANK_CARD_PIN_TRY_LIMIT`), so no PIN is checked. */
+  | 'bank.card_pin_try_limit_unset'
+  /** No card partner can send a 3D Secure code for this card (J-bank-14 #5). The missing piece is `socket.live-issuer`. */
+  | 'bank.card_3ds_issuer_unset'
+  /** The owner has not set how many wrong 3D Secure codes lock a challenge (`BANK_CARD_3DS_TRY_LIMIT`), so none is checked. */
+  | 'bank.card_3ds_try_limit_unset'
+  /** No 3D Secure challenge with this id on this person's card. */
+  | 'bank.card_3ds_not_found'
+  /** This challenge reference was already opened for a different purchase. Nothing changed. */
+  | 'bank.card_3ds_conflict'
+  /** An open challenge was answered with no code. Nothing was counted. */
+  | 'bank.card_3ds_code_missing'
   /**
    * No live issuer can push a card into Apple Pay or Google Pay.
    * The missing piece is `socket.live-issuer`.
@@ -1027,7 +1066,67 @@ export type BankErrorCode =
   /** Identity refused the claim; the message names identity's code. Nothing moved. */
   | 'bank.recovery_claim_refused'
   /** Some of the owner's value is held, staked or pledged, so nothing is swept until it is free. */
-  | 'bank.recovery_blocked';
+  | 'bank.recovery_blocked'
+  // ── The TEST partner bank and ramp (CUSTODY-DELTA §4; OWNER 226) ───────
+  /** The partner bank does not offer this feature (currency accounts, spaces, pots or joint accounts); nothing written. */
+  | 'bank.not_offered_by_partner'
+  /** The partner bank is not answering; nothing was sent or changed. */
+  | 'bank.partner_unavailable'
+  /** The partner's ramp gave no fee, so the pay amount is not known; no quote was kept. */
+  | 'bank.onramp_fee_not_known'
+  /** The TEST partner switches exist only on a stack that runs the TEST partner (`BANK_TEST_PARTNER=test`). */
+  | 'bank.test_partner_off'
+  // ── Partner-held bank money (OWNER 226; `partner/partner-bank.ts`) ─────
+  /** The custodial layer is off and no partner bank holds this money, so no customer balance is posted. */
+  | 'bank.no_partner_bank'
+  /** svc-ledger's platform posting freeze is on, or could not be read: the partner is asked to move nothing. */
+  | 'bank.posting_frozen'
+  /** The partner has not reported this balance: "not known", never 0. */
+  | 'bank.partner_balance_not_known'
+  /** One side of a move is held at the partner and the other is not; no single partner move can make it. */
+  | 'bank.partner_custody_mismatch'
+  /** The partner holds a different move under this business key; nothing was moved. */
+  | 'bank.partner_move_conflict'
+  /** The source account at the partner does not hold the amount; nothing was moved. */
+  | 'bank.partner_insufficient_funds'
+  /** The partner's answer was lost: the move may have been made. Retry under the same key: it is made at most once. */
+  | 'bank.partner_reply_lost'
+  /** A partner move or TEST funding needs an amount above zero. */
+  | 'bank.partner_amount_invalid'
+  /** This payment's partner path is not built yet; nothing was sent. */
+  | 'bank.partner_path_not_built'
+  /** The partner's history cannot answer this filter here; nothing is silently ignored. */
+  | 'bank.partner_history_filter_unsupported'
+  // ── Partner-held money (OWNER 226; B3 on project-state #1790) ─────────
+  /** No partner holds this person's money and the custodial layer is off (`LEDGER_CUSTODY_LAYER`): nothing was written. */
+  | 'bank.partner_unset'
+  /** This person's card money is partner-held, but the card programme has no partner that holds authorisations. */
+  | 'bank.card_partner_holds_unset'
+  /** The card partner has not said whether it holds the crypto or pulls from the wallet; nothing was decided. */
+  | 'bank.card_partner_mode_not_known'
+  /** The card partner reports no balance for this asset, so no hold can be asked; nothing was decided. */
+  | 'bank.card_partner_balance_not_known'
+  /** The card partner refused a capture above what it holds for the authorisation. Nothing moved. */
+  | 'bank.card_partner_capture_exceeds_hold'
+  /** The card partner says the hold is already captured, released or expired. Nothing moved. */
+  | 'bank.card_partner_hold_closed'
+  /** The card partner refused a refund above what was captured. Nothing moved. */
+  | 'bank.card_partner_refund_exceeds_capture'
+  /** The card partner saw one business key with a different instruction. Nothing moved. */
+  | 'bank.card_partner_key_conflict'
+  /** The card partner has no record of this hold (the TEST partner forgets on a restart). */
+  | 'bank.card_partner_hold_not_found'
+  /** A refund on a card held in INTAFACED's own ledger is not built (`card-service.ts`, WHAT IS NOT HERE). */
+  | 'bank.card_refund_not_built'
+  /** A refund needs a settled capture first. */
+  | 'bank.card_refund_nothing_captured'
+  /** This authorisation's one refund was asked for a different amount. */
+  | 'bank.card_refund_amount_conflict'
+  // ── Card controls (BK-cctl-01, J-bank-14 #1) ───────
+  /** A card control names a category the programme doesn't list, an empty merchant, or a country that isn't two letters. */
+  | 'bank.card_control_invalid'
+  /** The control to lift is not a live control of this card. */
+  | 'bank.card_control_not_found';
 
 export class BankError extends Error {
   constructor(

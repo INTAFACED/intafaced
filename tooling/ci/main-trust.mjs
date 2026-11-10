@@ -12,13 +12,15 @@
  *
  * Owner of a flaky test = the author of the last commit that touched the file (the PR is named in the issue),
  * unless tooling/ci/flaky-owners.json maps a path prefix to a GitHub login. Failures are confirmed by re-run
- * before anything acts on them; there is no quarantine and no skip.
+ * before anything acts on them; there is no quarantine and no skip. (The one set-aside is the machine's, for journey
+ * steps on main, never a money step: tooling/ci/journey-verdict.mjs.)
  *
  *   node tooling/ci/main-trust.mjs --self-test
  *   (CI) GH_TOKEN GITHUB_REPOSITORY RUN_ID RUN_ATTEMPT CONCLUSION HEAD_SHA node tooling/ci/main-trust.mjs
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { JOB_PROBES } from './bisect-main.mjs';
 
 const GROUPS = ['apps', 'services', 'packages'];
 export const LAST_GREEN_BRANCH = 'last-green';
@@ -98,6 +100,21 @@ async function failedStepNames(repo, runId, attempt) {
   return names;
 }
 
+/** The failed jobs of a run attempt that bisect-main.mjs can probe by their own command (JOB_PROBES). */
+async function failedProbedJobs(repo, runId, attempt) {
+  const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`);
+  return probedJobs(json?.jobs);
+}
+
+/** Pure: the names of failed or timed-out jobs that have a probe, sorted, once each. */
+export function probedJobs(jobs) {
+  const names = (jobs ?? [])
+    .filter((j) => j?.conclusion === 'failure' || j?.conclusion === 'timed_out')
+    .map((j) => j.name)
+    .filter((n) => Object.hasOwn(JOB_PROBES, n));
+  return [...new Set(names)].sort();
+}
+
 async function findOpenIssue(repo, title) {
   const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "${title}"`);
   const { json } = await gh('GET', `/search/issues?q=${q}&per_page=5`);
@@ -166,8 +183,8 @@ async function publishLastGreen(repo, sha) {
 }
 
 /** Start the bisect between the last green and this red commit. Needs a last-green branch that is an ancestor. */
-async function startBisect(repo, sha, tests) {
-  if (!tests.length) return 'bisect not started: no failing test file was named';
+async function startBisect(repo, sha, tests, jobs = [], runId = '') {
+  if (!tests.length && !jobs.length) return 'bisect not started: no failing test file or probed job was named';
   const cur = await gh('GET', `/repos/${repo}/git/ref/heads/${LAST_GREEN_BRANCH}`);
   if (cur.status !== 200) return `bisect not started: no ${LAST_GREEN_BRANCH} branch yet`;
   const good = cur.json.object.sha;
@@ -176,7 +193,7 @@ async function startBisect(repo, sha, tests) {
     return `bisect not started: ${LAST_GREEN_BRANCH} (${good.slice(0, 10)}) is ${cmp.json?.status} of ${sha.slice(0, 10)}`;
   const r = await gh('POST', `/repos/${repo}/actions/workflows/main-bisect.yml/dispatches`, {
     ref: 'main',
-    inputs: { good, bad: sha, tests: tests.join('\n') },
+    inputs: { good, bad: sha, tests: tests.join('\n'), jobs: jobs.join(','), red_run: String(runId) },
   });
   return r.status === 204 ? `bisect started between ${good.slice(0, 10)} and ${sha.slice(0, 10)}` : `bisect not started: HTTP ${r.status}`;
 }
@@ -186,6 +203,17 @@ function selfTest() {
     if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
   };
   eq(decide({ conclusion: 'failure', attempt: 1 }), 'rerun', 'first red re-runs');
+  eq(
+    probedJobs([
+      { name: 'Doctrine gates', conclusion: 'failure' },
+      { name: 'Doctrine gates', conclusion: 'failure' },
+      { name: 'Tests (shard 1)', conclusion: 'failure' },
+      { name: 'Format', conclusion: 'success' },
+    ]),
+    ['Doctrine gates'],
+    'a failed Doctrine gates job is probed by its command; a job with no probe is left to its test files',
+  );
+  eq(probedJobs([{ name: 'Doctrine gates', conclusion: 'success' }]), [], 'a green job is not probed');
   eq(decide({ conclusion: 'failure', attempt: 2 }), 'real-red', 'second red is real');
   eq(decide({ conclusion: 'success', attempt: 2 }), 'green-after-rerun', 'green after re-run');
   eq(decide({ conclusion: 'success', attempt: 1 }), 'green', 'plain green');
@@ -247,7 +275,7 @@ async function main() {
       '_Opened by tooling/ci/main-trust.mjs._',
     ].join('\n');
     console.log(`opened or updated issue #${await upsertIssue(repo, 'Main is red', body)}`);
-    console.log(await startBisect(repo, sha, tests));
+    console.log(await startBisect(repo, sha, tests, await failedProbedJobs(repo, runId, attempt), runId));
     return;
   }
 

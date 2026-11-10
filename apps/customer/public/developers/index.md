@@ -15,8 +15,10 @@ Public market data needs no key. Your own orders, balances and positions need a 
 - REST conventions: /developers/rest
 - API reference: /developers/reference
 - WebSocket streams: Waits for DV-websocket-01
-- Rate limits: Waits for DV-limits-01
+- Rate limits: /developers/rate-limits
 - Errors: /developers/errors
+- Order types: /developers/order-types
+- Bot policy: /developers/bot-policy
 - Idempotency: Waits for DV-auth-03
 - Versioning: Waits for DV-versioning-01
 - Changelog: /developers/changelog

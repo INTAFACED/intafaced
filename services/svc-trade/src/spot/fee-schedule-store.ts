@@ -38,14 +38,24 @@ function scheduleOf(row: Pick<VersionDbRow, 'version' | 'schedule'>): OwnerFeeSc
   return parseFeeScheduleJson(JSON.stringify({ ...body, published: true, version: feeVersionLabel(row.version) }));
 }
 
-/** The schedule in force at `at`: the latest version effective by then, else `base`. */
-export async function feeScheduleAt(sql: Sql, base: OwnerFeeSchedule, at: Date): Promise<OwnerFeeSchedule> {
+/** The stored version in force at `at` (the latest effective by then, the higher version on a tie), or null. */
+export async function feeScheduleRowAt(sql: Sql, at: Date): Promise<{ version: string; schedule: Record<string, unknown> } | null> {
   const [row] = await sql<VersionDbRow[]>`
     SELECT version::text, schedule
       FROM trade.fee_schedule_versions
      WHERE effective_at <= ${at.toISOString()}
      ORDER BY effective_at DESC, fee_schedule_versions.version DESC
      LIMIT 1`;
+  if (!row) return null;
+  return {
+    version: row.version,
+    schedule: typeof row.schedule === 'string' ? (JSON.parse(row.schedule) as Record<string, unknown>) : row.schedule,
+  };
+}
+
+/** The schedule in force at `at`: the latest version effective by then, else `base`. */
+export async function feeScheduleAt(sql: Sql, base: OwnerFeeSchedule, at: Date): Promise<OwnerFeeSchedule> {
+  const row = await feeScheduleRowAt(sql, at);
   return row ? scheduleOf(row) : base;
 }
 

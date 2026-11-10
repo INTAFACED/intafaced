@@ -210,6 +210,13 @@ export const academyCourseOutlineItemSchema = z.object({
   ruleMet: z.boolean(),
   /** When the current completion was recorded; null while the item is not complete (or was undone). */
   completedAt: isoInstant.nullable(),
+  /**
+   * When the item is due for the caller: their own later date when staff moved it for them (J-academy-14 #5), else the
+   * item's date for everyone; null when no due date is set. No staff name or reason comes with it.
+   */
+  dueAt: isoInstant.nullable().optional(),
+  /** True when `dueAt` is the caller's own moved date, not everyone's. */
+  dueExtended: z.boolean().optional(),
 });
 export type AcademyCourseOutlineItem = z.infer<typeof academyCourseOutlineItemSchema>;
 export const academyCourseOutlineSchema = z.object({

@@ -16,12 +16,14 @@ import {
   fillSettled,
   kycApproved,
   ledgerFreezeUpdated,
+  venueDelistingScheduled,
   orderUpdated,
   p2pEscrowLocked,
   p2pEscrowRefunded,
   p2pEscrowReleased,
   p2pOfferPaused,
   p2pRemarkCaseOpened,
+  p2pTraderPosted,
   p2pTradeDisputed,
   p2pTradeFiatSent,
   positionUpdated,
@@ -37,6 +39,7 @@ import {
 } from '@intafaced/events';
 import type { MessageKey } from '@intafaced/i18n';
 import { noticeFreezeChange } from './freeze-notice.js';
+import { noticeVenueDelisting } from './venue-delisting-notice.js';
 import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
@@ -578,6 +581,32 @@ export async function subscribeNotificationEvents(
   );
 
   attachments.push(
+    await attach(bus, 'p2pTraderPosted', p2pTraderPosted.subject, 'notify-p2p-trader-posted', async (payload) => {
+      // P-ads-merchant-22: a trader this person follows posted a new public ad. One notice per (ad, follower): svc-p2p
+      // writes one outbox row per follower when the ad is posted and none on an edit, so the pair is the business key.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.followerId,
+          kind: 'p2p.trader.posted',
+          titleKey: 'notify.p2p.trader.posted.title',
+          bodyKey: 'notify.p2p.trader.posted.body',
+          params: {
+            offerId: payload.offerId,
+            traderId: payload.traderId,
+            side: payload.side,
+            asset: payload.asset,
+            fiatCurrency: payload.fiatCurrency,
+          },
+          href: `/p2p?makerId=${encodeURIComponent(payload.traderId)}`,
+          severity: 'info',
+          sourceSubject: p2pTraderPosted.subject,
+          sourceIdempotencyKey: `${payload.offerId}:${payload.followerId}`,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
     await attach(bus, 'p2pRemarkCaseOpened', p2pRemarkCaseOpened.subject, 'notify-p2p-remark-case-opened', async (payload) => {
       // P-ads-merchant-19: the seller reported a remark in the buyer's payment note (svc-p2p lets only the seller report)
       // and a case opened for staff. The reported party is told once per case, for information: staff decide, and the order shows the case. The remark itself
@@ -930,6 +959,9 @@ export async function subscribeNotificationEvents(
           sourceSubject: agentUsageAlertCrossed.subject,
           sourceIdempotencyKey: payload.alertKey,
           outOfApp: payload.email,
+          // The person ticked email for this alert: its row is recorded even when email can't go, so Delivery history
+          // shows what happened to it (J-agents-02 #6).
+          ...(payload.email ? { askedChannels: ['email' as const] } : {}),
         }),
       );
     }),
@@ -1040,6 +1072,13 @@ export async function subscribeNotificationEvents(
     await attach(bus, 'ledgerFreezeUpdated', ledgerFreezeUpdated.subject, 'notify-ledger-freeze-updated', async (payload) => {
       // Reason and actor stay behind: a customer notice says only that postings paused or resumed.
       await noticeFreezeChange(notify, { frozen: payload.frozen, changedAt: payload.changedAt });
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'venueDelistingScheduled', venueDelistingScheduled.subject, 'notify-venue-delisting', async (payload) => {
+      // One dated notice for everyone, filed under the delisting's own key; the venue id is never shown.
+      await noticeVenueDelisting(notify, { symbol: payload.symbol, delistsAt: payload.delistsAt, noticeKey: payload.noticeKey });
     }),
   );
 

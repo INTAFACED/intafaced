@@ -48,8 +48,8 @@
     },
     "TRADE_COPY_FEE_SHARE_LAW": {
       "service": "trade",
-      "value": "{\"published\": true, \"leaderShareBps\": 1000, \"earningsCapPerFollower\": \"1000.00\", \"decayRoundTrips\": 50, \"decayShareBps\": 5000}",
-      "note": "The fee share D26-P0-02 published in .env.example: 10% of the trading fee on copied orders, capped at 1000 per follower, halved after 50 round trips."
+      "value": "{\"published\": true, \"leaderShareBps\": 1234, \"earningsCapPerFollower\": \"5000.00\", \"decayRoundTrips\": 100, \"decayShareBps\": 2500}",
+      "note": "LOCAL TEST ONLY, not an owner decision: a synthetic copy fee share (the owner's figures are set on the host; see the private records). 12.34% of the trading fee on copied orders, a value chosen to look synthetic, capped at 5000 per follower, a quarter of that after 100 round trips."
     },
     "TRADE_COPY_JURISDICTION_LAW": {
       "service": "trade",
@@ -145,6 +145,16 @@
       "service": "trade",
       "value": "{\"ticker\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"depth_l1\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"depth_l2\":{\"entitlement\":\"TEST: signed-in account\",\"redistribution\":\"TEST: not allowed\",\"retention\":\"TEST: 24 hours\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"candles\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"trades\":{\"entitlement\":\"TEST: signed-in account\",\"redistribution\":\"TEST: not allowed\",\"retention\":\"TEST: 30 days\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"}}",
       "note": "LOCAL TEST ONLY, not an owner decision: data terms for five products; index is left out so its row reads not set (J-developer-01 #6)."
+    },
+    "TRADE_USER_VENUE_BUILDER_ADDRESS": {
+      "service": "trade",
+      "value": "0x7e57000000000000000000000000000000000b1d",
+      "note": "LOCAL TEST ONLY, not an owner decision: a synthetic builder address on the TEST venue simulator (B1 user-venue door). It holds no key and receives only TEST builder fees in the simulator's memory."
+    },
+    "TRADE_USER_VENUE_BUILDER_FEE_BPS": {
+      "service": "trade",
+      "value": "0.5",
+      "note": "LOCAL TEST ONLY, not an owner decision: half a basis point of notional as our builder fee on the TEST venue simulator. Blank, every venue order refuses builder_fee_not_published; LOCAL_STACK_USER_VENUE_BUILDER_FEE=off leaves it blank."
     }
   }
 }

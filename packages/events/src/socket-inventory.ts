@@ -74,7 +74,7 @@ const ENDS: readonly WiringEnd[] = ['publisher', 'subscriber'];
 export const EVENT_BUS_MATRIX = {
   xpEarned: { kind: 'live' },
   rankUpdated: { kind: 'live' },
-  userCreated: { kind: 'socket', socketClass: 'A' },
+  userCreated: { kind: 'live' },
   kycApproved: { kind: 'live' },
   kycSubmitted: { kind: 'socket', socketClass: 'A' },
   kycRejected: { kind: 'socket', socketClass: 'A' },
@@ -147,6 +147,7 @@ export const EVENT_BUS_MATRIX = {
   p2pTradeFiatSent: { kind: 'live' },
   p2pTradeReminderSent: { kind: 'socket', socketClass: 'A' },
   p2pOfferPaused: { kind: 'live' },
+  p2pTraderPosted: { kind: 'live' },
   p2pRemarkCaseOpened: { kind: 'live' },
   p2pChatMessageSent: { kind: 'socket', socketClass: 'A' },
   p2pDisputeEscalated: { kind: 'socket', socketClass: 'A' },
@@ -154,6 +155,7 @@ export const EVENT_BUS_MATRIX = {
   copySkipped: { kind: 'live' },
   copyFailed: { kind: 'socket', socketClass: 'A' },
   copyStopped: { kind: 'live' },
+  venueDelistingScheduled: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;

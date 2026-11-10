@@ -190,6 +190,38 @@ test(`${J} #5 Learning shows My learning by state with real progress, and Start 
     await expect(card.getByRole('link', { name: 'Continue' })).toHaveCount(0);
     await expect(card.getByRole('link', { name: 'Start course' })).toHaveAttribute('href', `/academy/${items[0]}`);
   }
+
+  // Real progress: the learner completes the first item of the third course (#4 enrolled them, and its start is cleared).
+  // Its card then counts one item done and offers Continue instead of Start course.
+  const third = (await courses())[2];
+  const thirdItems = await syllabus(third);
+  await page.goto(`/academy/${thirdItems[0]}`);
+  await page.getByRole('button', { name: 'Review lesson completion' }).click();
+  await page.getByRole('button', { name: 'Record completion' }).click();
+  await expect(page.getByText('Lesson completion recorded.')).toBeVisible();
+  await page.goto('/academy/learning');
+  const progressed = page.locator(`[data-my-learning-section="in_progress"] [data-my-course="${third}"]`);
+  await expect(progressed.getByText(`1 of ${thirdItems.length} items done`)).toBeVisible();
+  await expect(progressed.getByRole('meter')).toHaveAttribute('aria-valuenow', String(Math.round(100 / thirdItems.length)));
+  await expect(progressed.getByRole('link', { name: 'Continue' })).toBeVisible();
+  await expect(progressed.getByRole('link', { name: 'Start course' })).toHaveCount(0);
+
+  // Future start, with its start date: the same course given a start next week moves to Starts later, dated, keeping its
+  // real progress, with neither Start course nor Continue until it opens.
+  const startsAt = new Date(Date.now() + 7 * 24 * 3600_000);
+  startsAt.setUTCSeconds(0, 0);
+  await setCourseStart(third, startsAt.toISOString());
+  try {
+    await page.reload();
+    const later = page.locator(`[data-my-learning-section="future_start"] [data-my-course="${third}"]`);
+    await expect(later.locator(`time[datetime="${startsAt.toISOString()}"]`)).toHaveText(/^Starts /);
+    await expect(later.getByText(`1 of ${thirdItems.length} items done`)).toBeVisible();
+    await expect(later.getByRole('link', { name: /Start course|Continue/ })).toHaveCount(0);
+    await expect(page.locator(`[data-my-learning-section="in_progress"] [data-my-course="${third}"]`)).toHaveCount(0);
+    await expect(mine.getByText('No course with a later start date.')).toHaveCount(0);
+  } finally {
+    await setCourseStart(third, null);
+  }
 });
 
 test(`${J} #6 Start course opens the first open item with the outline: typed items, a locked one with its reason, Next skipping it`, async ({

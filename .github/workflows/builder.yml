@@ -1,0 +1,505 @@
+# The headless builder: one journey per run, the pinned CLI headless (`-p`) on a fresh runner of its own, as an
+# unprivileged agent user that holds no GitHub token. A second job, on a fresh runner the agent never touched, pushes
+# the agent's commits with a GitHub App token after the agent has ended, so CI runs on them; the proof is the Real-app
+# journeys branch run, the merge the squash auto-merge behind the CI merge seal. Started by hand or by
+# tooling/factory/dispatch.mjs, from main only; a successor is a new run for the same journey, which resumes the
+# journey's open PR from its handover lines.
+# (Failure it prevents: the cloud sessions acted as the owner's own login, couldn't arm auto-merge, couldn't be stopped
+# by a script and waited on his clicks; the Mac's builders hit its memory ceiling. Round 3 B's recommendation, adopted
+# by the system design's section 4.)
+#
+# Four jobs (`key`, `gate`, `build`, `publish`), so the agent's runner holds no GitHub credential at all. `gate` mints a read-only App token in memory,
+# picks the branch, writes the agent's CI status and prompt, and revokes the token; it hands the branch and the prompt
+# to `build` as job outputs (data). `build` runs the agent in the account's own environment, whose one secret is that
+# account's CLI token: the App key and the other accounts' tokens are never referenced there, so they never reach its
+# runner. The agent's commits and PR text leave that runner only as data (an artifact). `publish` runs on a fresh
+# runner, mints a write token, and treats that data as untrusted. (Failure it prevents: on one runner, the steps after
+# the agent held the factory token, so anything the agent could plant on that runner, such as a fake `git` reached
+# through a chain of links in a world-writable directory, ran with it; review round 1 on #7448 found two such holes in
+# the PATH check this file still keeps. And the CI review on #7560: the App key on the agent's runner would be worse.)
+#
+# Trust: every step runs main's code from the job's checkout of main ($GITHUB_WORKSPACE, owned by the runner user).
+# The journey's branch is only the agent's working tree, /home/factory-agent/work, cloned and installed by the agent
+# user, which can't write the runner's files, read its environment or temp files, or use Docker (shown on a hosted
+# runner by the probe on #7386). The CLI loads no settings from the branch: `--setting-sources ""` and main's
+# .github/workflows/builder/settings.json, copied root-owned next to the pinned CLI.
+#
+# Secrets, in environments whose deployment rule allows main alone, so a copy of this file on another branch gets none:
+#   `factory`: FACTORY_APP_KEY, a private key of the GitHub App intafaced-mac-agents, referenced only by `gate` and
+#     `publish`. Each of their GitHub steps (factory-builder.mjs `before` and `publish`) mints its own installation
+#     token in memory, narrowed to named repositories and permissions, and revokes it when it ends, so no token is ever
+#     in a step's environment. Never the workflows permission, so a commit that changes .github/workflows is refused.
+#   `factory-acct1`, `factory-acct3`, `factory-acct4`: CLAUDE_FACTORY_TOKEN, that account's CLI token, the one secret
+#     the agent holds (it can't be avoided, and its owner can revoke it). The `account` input picks the environment, so
+#     builders spread over accounts and never draw on the CI review's.
+# GITHUB_TOKEN is never used: GitHub runs no workflow on a push made with it. The prompt (private: project-state's brief
+# and the journey's step words) passes from `gate` to `build` sealed: a job output and a step's environment are
+# printed in the public log, so only ciphertext crosses, to a key that only the account's CLI token derives (`key`).
+#
+# Public-repo hygiene: anyone can read this repository's logs and download its artifacts. The CLI's output goes to
+# files inside the build job that no step prints or uploads. No step prints text from project-state or from the
+# agent's PR text. The artifact holds the agent's commits beyond main, its PR text, its asks and the end record: what
+# publish puts on GitHub, unless publish refuses it (a rewritten history, a workflow change). Publish deletes it once the
+# commits are pushed and the PR written; a run whose publish fails or never runs leaves it a day. Written limit: until
+# then, a refused commit or PR text can be downloaded. The Actions trial's marker check reads what reaches the PR, and an
+# artifact only while it is kept; refused content that was deleted is not checked.
+#
+# The steps' logic is tooling/ci/factory-builder.mjs, with its planted cases in factory-builder.test.mjs.
+name: Builder
+# The run title names the journey and the account, so the trial reads usage per account from the runs list alone.
+run-name: Builder ${{ inputs.journey }} (${{ inputs.account }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      journey:
+        description: 'The journey to build, e.g. J-identity-13 (docs/roadmap/journeys.json)'
+        required: true
+        type: string
+      area:
+        description: 'The area the builder works in, e.g. identity; it takes the next journey there when this one is done'
+        required: true
+        type: string
+      account:
+        description: 'The account whose CLI token this builder uses (its environment factory-<account>, secret CLAUDE_FACTORY_TOKEN)'
+        required: true
+        type: choice
+        options: [acct1, acct3, acct4]
+
+permissions: {}
+
+# One run per journey at a time: a second dispatch waits for the running one (GitHub keeps one waiting and replaces an
+# older waiting one), and a running builder is never cancelled by a newer dispatch.
+concurrency:
+  group: builder-${{ inputs.journey }}
+  cancel-in-progress: false
+
+jobs:
+  # The public half of this run's prompt key, derived from the account's CLI token in the account's environment, so the
+  # gate can seal the prompt to it (factory-builder.mjs promptKey). Its output is public, by design.
+  key:
+    name: Prompt key
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: under a minute
+    environment: factory-${{ inputs.account }}
+    permissions:
+      contents: read
+    outputs:
+      pub: ${{ steps.key.outputs.pub }}
+    steps:
+      - name: Only from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error title=Not main::builder.yml runs only from main; dispatch it with --ref main"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            tooling/ci
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      - name: The prompt key
+        id: key
+        env:
+          CLAUDE_FACTORY_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+        run: node tooling/ci/factory-builder.mjs pubkey
+
+  gate:
+    name: Gate
+    needs: key
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: under a minute
+    environment: factory
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.switch.outputs.run }}
+      branch: ${{ steps.before.outputs.branch }}
+      resume: ${{ steps.before.outputs.resume }}
+      started_at: ${{ steps.before.outputs.started_at }}
+      prompt: ${{ steps.before.outputs.prompt }}
+    steps:
+      - name: Only from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error title=Not main::builder.yml runs only from main; dispatch it with --ref main"
+            exit 1
+          fi
+
+      - name: The factory secrets are set
+        env:
+          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
+        run: |
+          if [ -z "$FACTORY_APP_KEY" ]; then
+            echo "::error title=Factory secret missing::the environment factory has no FACTORY_APP_KEY (Settings, Environments, factory; deployment branches: main only), so no builder starts. It mints the App tokens that push so CI runs; GITHUB_TOKEN can't stand in for it."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            tooling/ci
+            docs/roadmap
+            .github/workflows/builder
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      - name: Check the journey
+        id: check
+        env:
+          JOURNEY: ${{ inputs.journey }}
+          AREA: ${{ inputs.area }}
+        run: node tooling/ci/factory-builder.mjs check
+
+      # No token: the repository is public.
+      - name: Read the factory switch
+        id: switch
+        env:
+          REPO: ${{ github.repository }}
+        run: node tooling/ci/factory-builder.mjs switch
+
+      # The only step that reads GitHub before the agent exists, on a runner the agent never uses: a read-only App token
+      # minted in memory (intafaced and project-state; contents, pull requests and actions, read), the branch, the
+      # agent's CI status and its prompt, then the token revoked and checked refused. The deadlines count from here.
+      - name: Read GitHub before the agent
+        id: before
+        if: steps.switch.outputs.run == 'true'
+        env:
+          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
+          REPO: ${{ github.repository }}
+          JOURNEY: ${{ inputs.journey }}
+          AREA: ${{ inputs.area }}
+          MODULE: ${{ steps.check.outputs.module }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORK: /home/factory-agent/work
+          OUT: /home/factory-agent/out
+          PROMPT_PUB: ${{ needs.key.outputs.pub }}
+        run: node tooling/ci/factory-builder.mjs before
+
+  build:
+    name: Build ${{ inputs.journey }}
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360
+    environment: factory-${{ inputs.account }}
+    permissions:
+      contents: read
+    outputs:
+      took: ${{ steps.take.outcome == 'success' }}
+      # The build attempt's own name, so a re-run of the publish job alone still finds it.
+      artifact: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
+
+    # The same databases CI's Tests job declares (ci.yml), for .github/actions/test-infra below.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      REPO: ${{ github.repository }}
+      JOURNEY: ${{ inputs.journey }}
+      AREA: ${{ inputs.area }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      AGENT_USER: factory-agent
+      WORK: /home/factory-agent/work
+      OUT: /home/factory-agent/out
+      TURBO_TELEMETRY_DISABLED: 1
+
+    steps:
+      # The deadlines count from the gate's read (the prompt states them), so they fall early, never late. BUILDER_DIR
+      # (the prompt, the CLI's files, the bundle) is under the runner's temp folder, which the agent user can't open.
+      - name: Start the clock
+        env:
+          GATE_STARTED_AT: ${{ needs.gate.outputs.started_at }}
+        run: |
+          case "$GATE_STARTED_AT" in ''|*[!0-9]*) echo "::error::the gate gave no start time"; exit 1 ;; esac
+          echo "STARTED_AT=$GATE_STARTED_AT" >> "$GITHUB_ENV"
+          echo "BUILDER_DIR=$RUNNER_TEMP/builder" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/builder"
+
+      # This environment's one secret, checked before anything else is set up.
+      - name: The account's CLI token is set
+        env:
+          CLAUDE_FACTORY_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
+          ACCOUNT: ${{ inputs.account }}
+        run: |
+          if [ -z "$CLAUDE_FACTORY_TOKEN" ]; then
+            echo "::error title=Factory secret missing::the environment factory-$ACCOUNT has no CLAUDE_FACTORY_TOKEN (Settings, Environments, factory-$ACCOUNT; deployment branches: main only), so no builder starts"
+            exit 1
+          fi
+
+      # Main's code, the only code the job's own steps run, fetched without a credential (the repository is public).
+      # Plain git rather than actions/checkout, whose post step would run `git` from PATH after the agent has run.
+      - name: Main's code
+        env:
+          SERVER: ${{ github.server_url }}
+          SHA: ${{ github.sha }}
+        run: |
+          git init -q .
+          git fetch -q --depth 1 --no-tags "$SERVER/$REPO.git" "$SHA"
+          git checkout -q --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SHA"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      # The job's steps call this node by its path: the agent user can't write the tool cache (/usr/local/bin/node,
+      # which any user can write, is never used).
+      - name: Pin the job's node
+        run: echo "NODE_BIN=$(command -v node)" >> "$GITHUB_ENV"
+
+      # The test databases, bus and chains CI's Tests job uses (main's copy of the action); the agent reaches them on
+      # their ports.
+      - uses: ./.github/actions/test-infra
+
+      # The CLI at the version and tarball hashes the CI review pins (.github/workflows/ci-review/package-lock.json; npm
+      # ci refuses any other bytes), then copied root-owned, with main's CLI settings and AGENTS.md, where the agent can
+      # read and run but not change them.
+      - name: Install the pinned CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/cli"
+          cp .github/workflows/ci-review/package.json .github/workflows/ci-review/package-lock.json "$RUNNER_TEMP/cli/"
+          npm ci --prefix "$RUNNER_TEMP/cli" --no-audit --no-fund
+          sudo cp -a "$RUNNER_TEMP/cli" /opt/factory-cli
+          sudo cp .github/workflows/builder/settings.json /opt/factory-cli/settings.json
+          sudo cp AGENTS.md /opt/factory-cli/main-AGENTS.md
+          sudo chown -R root:root /opt/factory-cli
+          sudo chmod -R a+rX,go-w /opt/factory-cli
+          echo "CLAUDE_BIN=/opt/factory-cli/node_modules/.bin/claude" >> "$GITHUB_ENV"
+
+      # The prompt the gate sealed to this run's key: opened with the account's CLI token into BUILDER_DIR. Only the
+      # ciphertext is in a job output or this step's environment, which GitHub prints in the log.
+      - name: Write the prompt
+        env:
+          PROMPT_SEALED: ${{ needs.gate.outputs.prompt }}
+          CLAUDE_FACTORY_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
+        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs prompt-in'
+
+      # Before the agent user exists: no directory on PATH (nor the tool-cache node's, nor any directory above them) may
+      # be writable by group or others, and no program in them either. The runner image makes /usr/local/bin
+      # world-writable, and it sits ahead of /usr/bin, so the agent could otherwise plant a fake `git` or `sudo` that a
+      # later step runs as the runner. This job references one secret, the account's CLI token, which the agent holds
+      # anyway; no GitHub credential is on this runner. So this check now guards the runner's own artifact token.
+      # (Found by review round 2 on #7386 with a planted fake `git`; #7448's chain and loop gaps remain open, bounded by
+      # the split.)
+      - name: Close every directory on PATH
+        shell: /usr/bin/bash -e {0}
+        run: |
+          # The PATH directories and the node's, plus the directory of everything their links point to (a link in
+          # /usr/local/bin may name a program under /usr/local/lib), with every directory above each.
+          dirs=$(printf '%s\n' "${PATH//:/$'\n'}" "$(/usr/bin/dirname "$NODE_BIN")" | /usr/bin/sort -u)
+          roots=""
+          for d in $dirs; do
+            [ -d "$d" ] || continue
+            roots="$roots $d"
+            for l in $(/usr/bin/find "$d" -maxdepth 1 -type l); do
+              t=$(/usr/bin/readlink -f "$l" || true)
+              [ -n "$t" ] && roots="$roots $(/usr/bin/dirname "$t")"
+            done
+          done
+          roots=$(printf '%s\n' $roots | /usr/bin/sort -u)
+          for d in $roots; do
+            /usr/bin/sudo /usr/bin/chmod -R go-w "$d"
+            up="$d"
+            while [ "$up" != "/" ]; do /usr/bin/sudo /usr/bin/chmod go-w "$up"; up=$(/usr/bin/dirname "$up"); done
+          done
+          open=""
+          for d in $roots; do
+            up="$d"
+            while [ "$up" != "/" ]; do
+              # -H: a directory that is a link (/bin and /sbin on Ubuntu 24.04) is judged by what it names; a link's
+              # own mode is always 0777. (Review round 3 on #7386: without it the check flagged /bin on every runner.)
+              if [ -n "$(/usr/bin/find -H "$up" -maxdepth 0 -perm /022)" ]; then open="$open $up"; fi
+              up=$(/usr/bin/dirname "$up")
+            done
+            # The programs too, following links to what they name.
+            w=$(/usr/bin/find -L "$d" -maxdepth 1 -perm /022 2>/dev/null | /usr/bin/head -5)
+            if [ -n "$w" ]; then open="$open $w"; fi
+          done
+          if [ -n "$open" ]; then echo "::error title=PATH writable::still writable by group or others:$open"; exit 1; fi
+          echo "every directory on PATH, the directories its links name, every directory above them and their programs are closed to group and others"
+
+      # The agent user and its working tree: everything from the branch (its clone, its install scripts) runs as that
+      # user, never as the runner. No secret is in this step. From here on every step runs with PATH=/usr/bin:/bin and
+      # calls each program by its full path (the job's node by its tool-cache path).
+      - name: The agent user and its working tree
+        id: agent
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
+          BRANCH: ${{ needs.gate.outputs.branch }}
+          RESUME: ${{ needs.gate.outputs.resume }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          /usr/bin/sudo /usr/sbin/useradd --create-home --shell /bin/bash "$AGENT_USER"
+          if /usr/bin/sudo -n -u "$AGENT_USER" -H /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then echo "::error::the agent user can sudo"; exit 1; fi
+          AGENT_PATH="/home/$AGENT_USER/.tools/node_modules/.bin:$(/usr/bin/dirname "$NODE_BIN"):/usr/sbin:/usr/bin:/sbin:/bin"
+          echo "AGENT_PATH=$AGENT_PATH" >> "$GITHUB_ENV"
+          # Nothing on the job's PATH, nor the node it runs, is writable by the agent user.
+          for f in $(/usr/bin/printf '%s\n' /usr/bin /bin /usr/sbin /sbin "$(/usr/bin/dirname "$NODE_BIN")" "$NODE_BIN" /usr/local/bin); do
+            if /usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/test -w "$f"; then echo "::error::the agent user can write $f"; exit 1; fi
+          done
+          as_agent() { /usr/bin/sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "/home/$AGENT_USER" PATH="$AGENT_PATH" "$@"; }
+          as_agent mkdir -p "$OUT"
+          as_agent git clone -q --no-tags "$SERVER/$REPO.git" "$WORK"
+          if [ "$RESUME" = "true" ]; then
+            as_agent git -C "$WORK" fetch -q --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+            as_agent git -C "$WORK" switch -q -c "$BRANCH" --track "origin/$BRANCH"
+          else
+            as_agent git -C "$WORK" switch -q -c "$BRANCH" origin/main
+          fi
+          as_agent git -C "$WORK" config user.name "intafaced-factory"
+          as_agent git -C "$WORK" config user.email "intafaced-factory@users.noreply.github.com"
+          pnpm_version=$("$NODE_BIN" -p "require('./package.json').packageManager.split('@')[1]")
+          as_agent npm install -s --prefix "/home/$AGENT_USER/.tools" --no-audit --no-fund "pnpm@$pnpm_version"
+          as_agent /usr/bin/env -C "$WORK" pnpm install --frozen-lockfile
+          as_agent git -C "$WORK" rev-parse --short HEAD
+
+      # The CLI as the agent user, watched: the switch every 2 minutes (no token: the repository is public), the hard
+      # stop at 320 minutes. Its stdout and stderr go to files in BUILDER_DIR. Opus at effort medium (every agent runs
+      # at medium, owner decision 2026-11-07), both pinned; headless, so no permission prompt waits for a person. The
+      # step's environment holds no GitHub token; the CLI's holds the account's token alone, as CLAUDE_CODE_OAUTH_TOKEN.
+      - name: Build
+        id: build
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
+          FACTORY_OUT: /home/factory-agent/out
+          CLAUDE_ARGS: '["-p","--model","claude-opus-5-5","--effort","medium","--dangerously-skip-permissions","--setting-sources","","--settings","/opt/factory-cli/settings.json","--output-format","stream-json","--verbose"]'
+        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs run'
+
+      # Nothing of the agent's outlives the CLI into the steps after it.
+      - name: Stop every process of the agent
+        if: always() && steps.agent.outcome != 'skipped'
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
+        run: |
+          /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true
+          /usr/bin/sleep 2
+          if /usr/bin/pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi
+
+      # The agent's commits as a bundle (data), made by the agent user; then its processes are stopped again, and the
+      # files it leaves for the publish job are read as the agent user (a link it planted reaches nothing more).
+      - name: Take the agent's commits
+        id: take
+        if: always() && steps.agent.outcome == 'success'
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
+        run: |
+          /usr/bin/sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "$WORK" PATH=/usr/bin:/bin /usr/bin/git bundle create -q "$OUT/branch.bundle" HEAD ^origin/main || true
+          /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true
+          /usr/bin/sleep 1
+          if /usr/bin/pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi
+          for f in branch.bundle pr.md actions.json; do
+            if /usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/test -f "$OUT/$f"; then
+              /usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/cat "$OUT/$f" > "$BUILDER_DIR/$f"
+            fi
+          done
+
+      # The publish job's input: data only, kept a day. The end record says how the CLI ended, for the handover line.
+      - name: Hand the agent's output to the publish job
+        if: always() && steps.take.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.BUILDER_DIR }}/branch.bundle
+            ${{ env.BUILDER_DIR }}/pr.md
+            ${{ env.BUILDER_DIR }}/actions.json
+            ${{ env.BUILDER_DIR }}/end.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Usage (numbers only)
+        if: always() && steps.build.outcome != 'skipped'
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
+        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs stats'
+
+      - name: Last, stop anything left
+        if: always()
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
+        run: |
+          if /usr/bin/id "$AGENT_USER" > /dev/null 2>&1; then /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true; fi
+
+  # A fresh runner the agent never touched: the only job that holds a GitHub write token. It pushes
+  # refs/heads/<the picked branch> and nothing else (no force), opens or updates the PR, the handover line, then what
+  # the agent asked for (the journeys run, squash auto-merge). The artifact is data: a bundle fetched into a fresh
+  # repository, and two text files read with limits (factory-builder.mjs readAgentOutput).
+  publish:
+    name: Publish ${{ inputs.journey }}
+    needs: [gate, build]
+    if: always() && needs.build.outputs.took == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # healthy run: under two minutes
+    environment: factory
+    permissions:
+      contents: read
+    env:
+      REPO: ${{ github.repository }}
+      JOURNEY: ${{ inputs.journey }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            tooling/ci
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      - name: The agent's output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/builder
+
+      # It mints its write token in memory (intafaced only; contents, pull requests and actions; never workflows) and
+      # revokes it when it ends.
+      - name: Publish
+        env:
+          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
+          BRANCH: ${{ needs.gate.outputs.branch }}
+          ARTIFACT: ${{ needs.build.outputs.artifact }}
+          BUILDER_DIR: ${{ runner.temp }}/builder
+        run: node tooling/ci/factory-builder.mjs publish

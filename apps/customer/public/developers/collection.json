@@ -50,6 +50,14 @@
           }
         },
         {
+          "name": "fetchOrderTypes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/order-types", "host": ["{{baseUrl}}"], "path": ["api", "v1", "order-types"] }
+          }
+        },
+        {
           "name": "fetchTicker",
           "request": {
             "method": "GET",
@@ -68,6 +76,27 @@
             "method": "GET",
             "header": [],
             "url": { "raw": "{{baseUrl}}/api/v1/tickers", "host": ["{{baseUrl}}"], "path": ["api", "v1", "tickers"] }
+          }
+        },
+        {
+          "name": "fetchSpreads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/spreads", "host": ["{{baseUrl}}"], "path": ["api", "v1", "spreads"] }
+          }
+        },
+        {
+          "name": "fetchMarketAnalytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/:symbol",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", ":symbol"],
+              "variable": [{ "key": "symbol", "value": "" }]
+            }
           }
         },
         {
@@ -357,6 +386,19 @@
               "raw": "{{baseUrl}}/api/v1/orders/:id/amendments",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "orders", ":id", "amendments"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "fetchOrderQueuePosition",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/:id/queue",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "orders", ":id", "queue"],
               "variable": [{ "key": "id", "value": "" }]
             }
           }
@@ -1182,6 +1224,192 @@
     {
       "name": "accounts",
       "item": [
+        {
+          "name": "venueStatus",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "status"] }
+          }
+        },
+        {
+          "name": "venueMarkets",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/markets", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "markets"] }
+          }
+        },
+        {
+          "name": "venueBalances",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/balances", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "balances"] }
+          }
+        },
+        {
+          "name": "venueOpenOrders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/orders/open",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "orders", "open"]
+            }
+          }
+        },
+        {
+          "name": "venuePositions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/positions", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "positions"] }
+          }
+        },
+        {
+          "name": "venueAgents",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/agents", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "agents"] }
+          }
+        },
+        {
+          "name": "venueOrderByClientId",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/orders/by-client-id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "orders", "by-client-id"]
+            }
+          }
+        },
+        {
+          "name": "venueFills",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/fills", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "fills"] }
+          }
+        },
+        {
+          "name": "venueLeverage",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/leverage", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "leverage"] }
+          }
+        },
+        {
+          "name": "venueBuilderFeeApproval",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/builder-fee-approval",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "builder-fee-approval"]
+            }
+          }
+        },
+        {
+          "name": "venueMarketVenues",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/markets/:symbol/venues",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "markets", ":symbol", "venues"],
+              "variable": [{ "key": "symbol", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueRoutePreview",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/route-preview",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "route-preview"]
+            }
+          }
+        },
+        {
+          "name": "venueWithdrawal",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/withdrawals/:nonce",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "withdrawals", ":nonce"],
+              "variable": [{ "key": "nonce", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venuePreview",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/preview", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "preview"] }
+          }
+        },
+        {
+          "name": "venuePrepare",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/prepare", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "prepare"] }
+          }
+        },
+        {
+          "name": "venueSubmit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/submit", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "submit"] }
+          }
+        },
+        {
+          "name": "venueSession",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/session", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "session"] }
+          }
+        },
+        {
+          "name": "venueSessionStart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/session/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "session", "start"]
+            }
+          }
+        },
+        {
+          "name": "venueSessionEnd",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/session/end",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "session", "end"]
+            }
+          }
+        },
         {
           "name": "fetchBalance",
           "request": {

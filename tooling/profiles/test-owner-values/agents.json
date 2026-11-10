@@ -46,6 +46,21 @@
       "value": "50",
       "note": "LOCAL TEST rows per operator log read or export. Not an owner decision (blank refuses agents.ops_actions_limit_unset)."
     },
+    "AGENTS_REGISTRY_LIST_LIMIT": {
+      "service": "agents",
+      "value": "200",
+      "note": "LOCAL TEST rows per operator fleet registry read (J-agents-14). Not an owner decision (blank refuses agents.registry_list_limit_unset)."
+    },
+    "AGENTS_BACKGROUND_TEST_STEPS": {
+      "service": "agents",
+      "value": "600",
+      "note": "LOCAL TEST steps of one background test run of an own agent (J-agents-14 #3). Not an owner decision (blank refuses agents.background_unset)."
+    },
+    "AGENTS_BACKGROUND_STEP_MS": {
+      "service": "agents",
+      "value": "1000",
+      "note": "LOCAL TEST length of one background step, so a run is still going when a journey quarantines its agent (J-agents-14 #3). Not an owner decision (blank refuses agents.background_unset)."
+    },
     "AGENTS_POLICY_BASELINE": {
       "service": "agents",
       "value": "{\"own_data\":\"act_on_request\",\"market_data\":\"act_on_request\",\"draft_write\":\"ask_before\",\"live_write\":\"act_on_request\"}",
@@ -80,6 +95,11 @@
       "service": "agents",
       "value": "15",
       "note": "LOCAL TEST short wait, so a journey can watch a held call expire (J-agents-05 #6) on a restart with LOCAL_STACK_AGENTS_APPROVAL_TTL=short. Never an owner value."
+    },
+    "AGENTS_NAVIGATOR_ONCHAIN_SIGNER": {
+      "service": "agents",
+      "value": "0x00000000000000000000000000000000005e0019",
+      "note": "LOCAL TEST public address the Navigator's session key is granted to on the stack's TEST chain (RC-agents-01; J-agents-19). An address only: no key exists for it and it never signs. Not an owner decision; production stays blank and every navigator.onchain route refuses rail.crypto. LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER=off leaves it blank."
     }
   }
 }

@@ -41,7 +41,7 @@ export interface StoredRunResult {
   readonly response: unknown;
 }
 
-export type RunKind = 'backtest' | 'sandbox';
+export type RunKind = 'backtest' | 'sandbox' | 'paper';
 
 export interface StoredRun {
   readonly id: string;
@@ -88,7 +88,7 @@ export interface RunListPage {
 }
 
 export interface RunCounts {
-  readonly byKind: { readonly backtest: number; readonly sandbox: number };
+  readonly byKind: { readonly backtest: number; readonly sandbox: number; readonly paper: number };
   readonly byOutcome: readonly { readonly outcome: string; readonly count: number }[];
   readonly asOf: string;
 }
@@ -104,4 +104,20 @@ export interface ClaimRow {
   readonly live: false;
   readonly simulated: true;
   readonly createdAt: string;
+}
+
+/** A paper run's start settings (AL-live-01), kept beside its run row and never changed. Amounts are decimal strings. */
+export interface PaperSettings {
+  readonly cash: string;
+  readonly holdings: readonly { readonly symbol: string; readonly qty: string }[];
+  readonly feed: 'own_venue';
+  readonly feeRole: 'taker' | 'maker';
+  readonly slippageBps: string;
+  readonly delayBars: number;
+}
+
+/** A paper run: its run row (open while it runs, finished once when stopped) and its start settings. */
+export interface StoredPaperRun {
+  readonly run: StoredRun;
+  readonly settings: PaperSettings;
 }

@@ -44,6 +44,7 @@ import { GridError } from './errors.js';
 import { orderIdFor } from '../spot/ids.js';
 import { floorTo, levelsBelowMark, markInRange, planGrid, type GridLevelPlan } from './plan.js';
 import type { GridPolicy } from './policy.js';
+import { NO_PAUSES, botOrdersHalted, newBotPausedReason, type PauseSnapshot } from '../copy/platform-pauses.js';
 import type { GridStore } from './store.js';
 import {
   gridBusinessId,
@@ -78,6 +79,12 @@ export interface GridPorts {
   fillsForOrder(principal: Principal, orderId: string): Promise<FillRecord[]>;
   /** Identity's step-up check (contracts step-up-check.ts). Its two codes reach the caller unchanged. */
   readonly stepUp: StepUpCheck;
+  /**
+   * The platform's copy and bots pauses (CB-ops-03): a paused grid type or a halted symbol refuses a new grid
+   * `trade.bots_paused_by_platform`, and a halted symbol stops a running grid's orders until it is resumed. Omitted →
+   * nothing is paused.
+   */
+  readonly platformPauses?: () => Promise<PauseSnapshot>;
   now?: () => Date;
 }
 
@@ -318,6 +325,10 @@ export class GridService {
     return { countRange: this.ports.policy.countRange, boundsMaxDistanceBps: this.ports.policy.boundsMaxDistanceBps };
   }
 
+  private pauses(): Promise<PauseSnapshot> {
+    return this.ports.platformPauses ? this.ports.platformPauses() : Promise.resolve(NO_PAUSES);
+  }
+
   async create(principal: Principal, input: GridCreateInput): Promise<GridBotView> {
     assertBotVerification(this.ports.verification(), principal.tier);
     const botId = gridBotIdFor(principal.userId, input.clientRequestId);
@@ -346,6 +357,8 @@ export class GridService {
     if (market.kind !== 'spot' || market.paper || market.status !== 'active') {
       throw new GridError(`${market.symbol} is not an open spot market`, 'trade.grid_market_not_spot');
     }
+    const pausedWhy = newBotPausedReason(await this.pauses(), 'grid', market.symbol, market.id);
+    if (pausedWhy) throw new GridError(pausedWhy, 'trade.bots_paused_by_platform');
     const plan = planGrid({ lower, upper, count, investment, market });
     const mark = markOf(await this.ports.depth(market.id));
     if (mark === null) throw new GridError(`${market.symbol} has no bid and ask to place a grid around`, 'trade.grid_mark_unavailable');
@@ -787,6 +800,9 @@ export class GridService {
   private async drive(principal: Principal, bot: GridBot): Promise<void> {
     const market = await this.ports.marketBySymbol(bot.symbol);
     if (!market) throw new GridError(`Market ${bot.symbol} not found`, 'trade.grid_market_not_found');
+    // A halted symbol (CB-ops-03) stops the grid's orders: nothing is placed, and the fills of its resting orders are
+    // settled (each with its next level) once the symbol is resumed. Resting orders stay as they are.
+    if (botOrdersHalted(await this.pauses(), market.symbol, market.id)) return;
 
     for (const order of await this.ports.store.listOrders(bot.botId)) {
       if (order.status !== 'open') continue;

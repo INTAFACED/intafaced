@@ -167,6 +167,11 @@ async function customerApi(who) {
       if (status !== 200) throw new Error(`network catalogue read refused: ${status}`);
       return body.result.data;
     },
+    /** svc-pay's limits for the person's tier and `assetId`: the owner's figures, what 24 hours used and what is left. */
+    async limits(assetId) {
+      const { status, body } = await get(`/api/pay/trpc/withdrawal.limits?input=${encodeURIComponent(JSON.stringify({ assetId }))}`);
+      return { status, data: body?.result?.data ?? null, body };
+    },
     async withdrawals(limit = 10) {
       const { status, body } = await get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit }))}`);
       if (status !== 200) throw new Error(`withdrawal history refused: ${status}`);
@@ -525,6 +530,17 @@ test(`${J} #4 a blank limit refuses and holds nothing`, async ({ page }) => {
   test.setTimeout(300_000);
   await signInWithCode(page);
   const api = await customerApi();
+  // "The remaining allowance for the person's tier": svc-pay's limits for this account's level, and the limit line
+  // shows exactly those figures. Nothing has been sent yet, so all of the 24-hour limit is left.
+  const limits = await api.limits('USDT');
+  expect(limits.status, JSON.stringify(limits.body).slice(0, 400)).toBe(200);
+  expect(limits.data).toMatchObject({ tier: 'full', assetId: 'USDT', perTx: '1000', rolling24h: '5000', used24h: '0' });
+  expect(limits.data.remaining).toEqual({ perTx: '1000', rolling24h: '5000' });
+  expect(limits.data.maxNow).toBe('1000');
+  await fillSend(page, '25');
+  await expect(page.getByTestId('withdraw-limit')).toContainText(
+    'You can send up to 1,000 USDT now: 1,000 per withdrawal, and 5,000 of 5,000 left in the last 24 hours.',
+  );
   // The account's level (full) and USDT: the stack's TEST limit is cleared to unset through the founders' own door for this
   // step only, and put back in the finally, so every other step still meets the TEST figures.
   try {
@@ -839,6 +855,31 @@ test(`${J} #8 watches the status: requested, held, broadcast, confirming and set
     await own.mouse.move(0, 600);
     const row6 = own.getByTestId('withdrawal-history').locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${sent6}"]`);
     await expect(row6.locator('[data-withdrawal-status]')).toHaveText('Settled', { timeout: 30_000 });
+
+    // "An old `sent` row reads settled": a withdrawal svc-pay stored as `sent` (written as svc-pay's withdraw leaves one it
+    // broadcast and settled, local-test-stack.mjs seed-withdrawal) reads Settled in svc-pay's answer, on its page and in the list.
+    const seededOut = tool(
+      'local-test-stack.mjs',
+      'seed-withdrawal',
+      account().account.email,
+      'USDT',
+      '2',
+      '--state',
+      'sent',
+      '--ref',
+      `jw05-sent-${process.env.JOURNEY_RUN_ID ?? 'local'}-${Date.now().toString(36)}`,
+    );
+    const oldSent = /^\s*withdrawal\s+([0-9a-f-]{36})$/m.exec(seededOut)?.[1];
+    expect(oldSent, seededOut).toMatch(/^[0-9a-f-]{36}$/);
+    expect(seededOut).toMatch(/state\s+sent\b/);
+    expect((await api.withdrawal(oldSent)).customerStatus).toBe('settled');
+    expect(await record(oldSent)).toMatchObject({ status: 'settled' });
+    expect(await look(own, oldSent)).toBe('settled');
+    await expect(own.getByTestId('withdrawal-status')).toHaveText('Settled');
+    await own.goto('/uc/withdraw');
+    await own.mouse.move(0, 600);
+    const sentRow = own.getByTestId('withdrawal-history').locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${oldSent}"]`);
+    await expect(sentRow.locator('[data-withdrawal-status]')).toHaveText('Settled', { timeout: 30_000 });
 
     // A new real send of 12, watched from the request to Settled. svc-pay books the hold inside the create and answers
     // Held; its advance worker then sends it on the stack's TEST chain, which answers after a few seconds and makes a block

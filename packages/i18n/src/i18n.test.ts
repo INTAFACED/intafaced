@@ -101,7 +101,11 @@ describe('catalog — the key set is closed and complete', () => {
     // The guest verification email for a support request (SP-tickets-01) adds a title and a body key.
     // A held tool call of an own agent in the inbox (J-agents-05 #4) adds two title keys and a body key.
     // A new device approved and signed in (I-signin-sessions-08, J-identity-06 #7) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(312);
+    // A copy skipped because the platform paused its lead or halted its market (J-copy-bots-otc-12 #1 #3) adds one reason body.
+    // The ledger's custody-switch refusal, a money movement INTAFACED does not hold customer money for (OWNER 226), adds one error key.
+    // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
+    // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(318);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

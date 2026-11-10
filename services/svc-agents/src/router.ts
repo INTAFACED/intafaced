@@ -34,6 +34,7 @@ import { presentLeaderDirectory, sortDirectoryByLeaderId } from './copy-intel/di
 import { runCopyIntelStatsSession } from './copy-intel/session-run.js';
 import { describeMerchantPolicy } from './merchant/policy.js';
 import { describeNavigatorPolicy } from './navigator/policy.js';
+import { navigatorOnchainRoutes } from './navigator/onchain-routes.js';
 import { describeCopyIntelPolicy } from './copy-intel/policy.js';
 import { describeSupportPolicy } from './support-agent/policy.js';
 import { watchApprovalFixtures } from './merchant/watch.js';
@@ -64,6 +65,7 @@ import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
 import { marketplaceInstallDoor } from './fleet/install.js';
 import { listCatalogue } from './ops/catalogue.js';
+import { agentEligibility } from './fleet/eligibility.js';
 import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, resolveRoute, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
@@ -73,6 +75,9 @@ import type { PolicyBaseline } from './own/guardrails.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
+import { fleetRouter, type FleetSettings } from './fleet/control.js';
+import type { BackgroundSettings } from './own/background.js';
+import type { LinkedWalletsPort } from './own/payment-method.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -304,6 +309,12 @@ export interface AgentsRouterDeps {
   readonly runtime: AgentRuntime;
   /** The owner's values for the operator agent log. Absent, every value is blank and each read refuses its code. */
   readonly opsLog?: OpsLogSettings;
+  /** The operator fleet registry's owner values (AG-registry-01). Absent is blank: the registry read refuses. */
+  readonly fleet?: FleetSettings;
+  /** Background test runs of own agents (AG-control-02). Absent is blank: a new background run refuses. */
+  readonly ownBackground?: BackgroundSettings;
+  /** Identity's list of a person's linked wallets, for an own agent's payment method (J-agents-02 #4). */
+  readonly ownLinkedWallets?: LinkedWalletsPort | null;
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
@@ -360,6 +371,11 @@ export interface AgentsRouterDeps {
   readonly ownApprovalTtlSeconds?: number | null;
   /** AGENTS_REVIEWER_MODEL: the automatic reviewer's model (AG-approvals-02); blank sends every call to the person. */
   readonly ownReviewerModel?: string | null;
+  /**
+   * AGENTS_NAVIGATOR_ONCHAIN_SIGNER: the public address of the Navigator's on-chain signer (RC-agents-01), never a key.
+   * Absent or blank: `navigator.onchain.*` refuses `rail.crypto`.
+   */
+  readonly navigatorOnchainSigner?: string | null;
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -602,10 +618,29 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               }),
               engine: z.enum(['sandbox', 'live', 'unknown']),
               metered: z.boolean(),
+              /** Who may use the agent under its published law, and whether this person may (fleet/eligibility.ts). */
+              eligibility: z.discriminatedUnion('rule', [
+                z.object({
+                  rule: z.literal('none'),
+                  eligible: z.literal(true),
+                  reason: z.null(),
+                  code: z.null(),
+                  yourPlan: z.string(),
+                }),
+                z.object({
+                  rule: z.literal('plan'),
+                  published: z.boolean(),
+                  plans: z.array(z.string()),
+                  yourPlan: z.string(),
+                  eligible: z.boolean(),
+                  reason: z.literal('plan').nullable(),
+                  code: z.string().nullable(),
+                }),
+              ]),
             })
             .nullable(),
         )
-        .query(({ input }) =>
+        .query(({ ctx, input }) =>
           guard(async () => {
             const definition = await runtime.agentDefinition(input.agentId);
             if (!definition) return null;
@@ -634,6 +669,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               },
               engine: flagged.engine,
               metered: flagged.metered,
+              eligibility: agentEligibility(guardrail.agentId, tierLaws, ctx.principal.tier),
             };
           }),
         ),
@@ -1604,6 +1640,16 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      * Spec: docs/ops/trk/agents.navigator.md Stage 2.
      */
     navigator: router({
+      /**
+       * On-chain access through a session key the person can revoke, and the approval request every trade ask becomes
+       * (RC-agents-01, J-agents-19). The key is a ceiling, not consent; nothing here moves value or builds a call.
+       */
+      ...navigatorOnchainRoutes({
+        sql,
+        signer: deps.navigatorOnchainSigner ?? null,
+        approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
+        session: (sessionId) => runtime.session(sessionId),
+      }),
       policy: publicProcedure
         .output(
           z.object({
@@ -4046,10 +4092,14 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       assistantModel: deps.ownAssistantModel ?? null,
       approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
       reviewerModel: deps.ownReviewerModel ?? null,
+      background: deps.ownBackground ?? null,
+      linkedWallets: deps.ownLinkedWallets ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),
     opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
+    /** Every agent on the platform for an operator: the registry, its export and the switches (AG-registry-01, AG-control-02). */
+    fleet: fleetRouter(sql, deps.fleet ?? { registryLimit: null }),
   });
 }
 

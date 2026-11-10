@@ -90,6 +90,16 @@ const ANSWERS: Record<string, unknown> = {
     frozen: 2,
     days: [{ day: '2026-10-17', volume: [{ assetId: 'USDC', amount: '12.5' }], declines: 1 }],
   },
+  'ops.cardPartnerTerms': {
+    test: true,
+    label: 'TEST partner card adapter',
+    custodyMode: 'The partner holds the cardholder’s crypto and spends it',
+    funder: 'not known',
+    reserve: 'not known',
+    reserveStatus: 'not_known',
+    lossLiability: 'not known',
+    lossLiabilityStatus: 'not_known',
+  },
   'ops.rampHealth': {
     asOf: AT,
     rails: [

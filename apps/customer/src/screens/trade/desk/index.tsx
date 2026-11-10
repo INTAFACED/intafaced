@@ -30,8 +30,14 @@ import {
 } from './deps';
 import { findMarket, type DeskMarket } from './market';
 import { useNow } from './hooks';
+import { useDeviceSetting } from '../../../features/trade/hooks';
+import { OrderFlow, type LadderPick } from './OrderFlow';
+import { ChartTrade, clickAmountOk, type ChartPick } from './ChartTrade';
+import { DEFAULT_DOM, isDomSetting, type DomSetting } from './order-flow';
 import type { Reference, Side } from './order-math';
 import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueSpotGate } from './VenueSpotDesk';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();
@@ -119,6 +125,42 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
     (price: string) => setSuggestion((previous) => ({ price, amount: '', nonce: (previous?.nonce ?? 0) + 1 })),
     [],
   );
+  // The DOM (J-charts-desk-14): open or not and its ladder and tape settings are kept per device; the symbol is never
+  // kept, it is always the chart's, so a new market re-binds the DOM with the same settings.
+  const [dom, setDom] = useDeviceSetting<DomSetting>('trade-desk-dom', DEFAULT_DOM, isDomSetting);
+  const toggleDom = useCallback(() => setDom((now) => ({ ...now, open: !now.open })), [setDom]);
+  const closeDom = useCallback(() => setDom((now) => ({ ...now, open: false })), [setDom]);
+  // The amount a ladder click or a chart Buy/Sell puts on the ticket.
+  const [clickAmount, setClickAmount] = useState('');
+  const lot = market.lotSize;
+  const onLadderPick = useCallback(
+    (pick: LadderPick) =>
+      setSuggestion((previous) => ({
+        price: pick.price,
+        amount: clickAmountOk(clickAmount, lot) ? clickAmount.trim() : '',
+        nonce: (previous?.nonce ?? 0) + 1,
+        review: true,
+        side: pick.side,
+        type: 'limit',
+      })),
+    [clickAmount, lot],
+  );
+  const onChartTrade = useCallback(
+    (pick: ChartPick) =>
+      setSuggestion((previous) => ({
+        price: pick.price,
+        amount: pick.amount,
+        nonce: (previous?.nonce ?? 0) + 1,
+        review: true,
+        side: pick.side,
+        type: pick.type,
+      })),
+    [],
+  );
+  const chartTrade = useMemo(
+    () => <ChartTrade market={market} reference={reference} amount={clickAmount} onAmount={setClickAmount} onTrade={onChartTrade} />,
+    [market, reference, clickAmount, onChartTrade],
+  );
 
   return (
     <div
@@ -160,7 +202,19 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         </aside>
         <div data-testid="dk-centre" className="dk-centre" {...frame('chart')}>
           {chrome('chart')}
-          <ChartPanel market={market} openOrders={openOrders} fills={fills} />
+          <ChartPanel market={market} openOrders={openOrders} fills={fills} domOpen={dom.open} onToggleDom={toggleDom} trade={chartTrade} />
+          {dom.open ? (
+            <OrderFlow
+              market={market}
+              book={book}
+              openOrders={openOrders}
+              zone={timeZone}
+              setting={dom}
+              onSetting={setDom}
+              onPick={onLadderPick}
+              onClose={closeDom}
+            />
+          ) : null}
           <OrderPanel
             market={market}
             reference={reference}
@@ -234,8 +288,22 @@ function DeskSkeleton() {
   );
 }
 
-/** Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). */
-export default function TradeDeskScreen({ params, search }: ScreenProps) {
+/**
+ * Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). In venue mode (B1: `/api/v1/venue/status` says the user-venue door is on)
+ * a pair the venue lists as spot trades on the customer's own venue account (VenueSpotDesk.tsx); everything else, and
+ * every deployment with the door off, is today's desk unchanged.
+ */
+export default function TradeDeskScreen(props: ScreenProps) {
+  const venue = useVenueMode();
+  // While venue mode is still being read, a neutral skeleton: never today's desk, which could take a custodial order in
+  // the window before the venue desk appears.
+  if (venue.mode === 'checking') return <DeskSkeleton />;
+  const today = <TodayDeskScreen {...props} />;
+  if (venue.mode !== 'on') return today;
+  return <VenueSpotGate mode={venue} pair={normalizePair(props.params.pair ?? defaultDeskPair)} fallback={today} />;
+}
+
+function TodayDeskScreen({ params, search }: ScreenProps) {
   const { t } = deskCopy.useCopy();
   const markets = useDeskMarkets();
   const pair = normalizePair(params.pair ?? defaultDeskPair);

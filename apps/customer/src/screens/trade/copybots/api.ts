@@ -28,6 +28,13 @@ export const signalWebhookSchema = z.object({
   token: z.string().nullable().optional(),
 });
 export type SignalWebhook = z.infer<typeof signalWebhookSchema>;
+/** The scopes the platform has paused now (svc-trade `copy.platformPauses`, CB-ops-03). */
+export const platformPausesSchema = z.object({
+  leads: z.array(z.string()),
+  botTypes: z.array(z.string()),
+  symbols: z.array(z.string()),
+});
+export type PlatformPauses = z.infer<typeof platformPausesSchema>;
 
 export const algoPolicySchema = z.object({
   capability: z.object({ createEnabled: z.boolean(), jobsEnabled: z.boolean() }),
@@ -316,6 +323,7 @@ export function createRoomApi(api: ApiClient) {
     webhooks: (signal?: AbortSignal) => api.query('trade', 'signals.webhooks.list', undefined, z.array(signalWebhookSchema), { signal }),
     createWebhook: (input: { symbol: string; clientRequestId: string }) =>
       api.mutate('trade', 'signals.webhooks.create', input, signalWebhookSchema),
+    platformPauses: (signal?: AbortSignal) => api.query('trade', 'copy.platformPauses', undefined, platformPausesSchema, { signal }),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),
     algoList: (limit: number, signal?: AbortSignal) => api.query('trade', 'algo.list', { limit }, botListSchema, { signal }),
     algoGet: tools.algoGet,

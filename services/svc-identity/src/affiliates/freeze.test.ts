@@ -15,9 +15,9 @@ import {
 
 /** Test fixture only — not a production default (DIRECTION §8). */
 const FIXTURE_TIERS = [
-  { hop: 0, rate: '0.10' },
-  { hop: 1, rate: '0.05' },
-  { hop: 2, rate: '0.02' },
+  { hop: 0, rate: '0.130' },
+  { hop: 1, rate: '0.07' },
+  { hop: 2, rate: '0.03' },
 ] as const;
 
 describe('affiliates freeze at accrual (no payout)', () => {

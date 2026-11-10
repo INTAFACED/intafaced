@@ -13,6 +13,35 @@ const schema = serviceEnvSchema
     z.object({
       SERVICE_NAME: z.string().default('svc-trade'),
 
+      /**
+       * B1 user-venue door (src/venue/): the base URL of a user-signed venue reached over HTTP. Unset is off: every
+       * `/api/v1/venue/*` route but `status` refuses `trade.user_venue_off`. A TEST venue (the simulator) is refused at boot
+       * unless the raw APP_ENV is exactly dev or test (`refuseTestVenueOutsideTest`).
+       */
+      TRADE_USER_VENUE_URL: z.string().default(''),
+      // J-derivatives-28: more user-signed venues beside TRADE_USER_VENUE_URL, comma-separated; the ticket routes over all.
+      TRADE_USER_VENUE_URLS: z.string().default(''),
+      /** Per call to the venue, milliseconds. A submit that times out is `definite: false` and is read back. */
+      TRADE_USER_VENUE_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(5_000),
+      /** Owner value: our builder address on the venue (lowercase 0x). Blank refuses orders `builder_fee_not_published`. */
+      TRADE_USER_VENUE_BUILDER_ADDRESS: z.string().default(''),
+      /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
+      TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
+      /**
+       * D-venue-07 builder-fee poster (src/builder-fee/builder-fee-poster.ts): with the door on, how often it reads our users'
+       * venue fills and posts our builder fee on each to the ledger. `off` stops it, so fills wait unposted (the recon then
+       * lists them as not in the ledger); the next run posts each once.
+       */
+      TRADE_BUILDER_FEE_POSTER: z.enum(['on', 'off']).default('on'),
+      TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(10_000),
+
+      /**
+       * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST
+       * venue when it connects, recorded with the stack ids `LOCAL TEST stack seed` / `... approval`, so the stack's venue journeys see their
+       * markets. Blank lists nothing (every market then needs two operators). Refused at boot unless the raw APP_ENV is
+       * exactly dev or test, and refused on a venue that is not a TEST venue. Set only by the local stack's launcher.
+       */
+      TRADE_USER_VENUE_TEST_LISTINGS: z.string().default(''),
       /** CB-bots-10 bot verification switch: `required` (unset) or `off`, written explicitly. See algo/bots-verification.ts. */
       TRADE_BOTS_VERIFICATION: z.enum(['required', 'off']).optional(),
       /** CB-bots-10 lowest tier allowed to create a bot (basic|full|institutional). Blank refuses every bot create. */
@@ -48,6 +77,12 @@ const schema = serviceEnvSchema
       IDENTITY_URL: z.string().url().default('http://localhost:4002'),
       /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
       IDENTITY_ADMISSION_SECRET: z.string().default(''),
+
+      /**
+       * svc-notify's address, for the market maintenance windows on the lifecycle read (J-cex-spot-14 #5). Blank: the
+       * read says maintenance is unavailable, never that there is none.
+       */
+      NOTIFY_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
 
       /** svc-matching — the book. This service never runs one of its own. */
       MATCHING_URL: z.string().url().default('http://localhost:4005'),
@@ -846,6 +881,16 @@ const schema = serviceEnvSchema
        * the rule waits for the owner. Longer than 1000 characters refuses boot. The text is owner content.
        */
       TRADE_DEVELOPER_REGIONAL_RULE: z.string().default(''),
+
+      /**
+       * The bot policy the developer portal publishes (developer-portal-rest.ts; J-cex-spot-15 #3): plain text, what
+       * automated trading through the API the platform permits and on what terms.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/bot-policy refuses trade.developer_bot_policy_unset and the page reads
+       * "Bot policy: not yet published"; nothing claims a bot is permitted. Longer than 4000 characters refuses boot.
+       * The text is owner content.
+       */
+      TRADE_DEVELOPER_BOT_POLICY: z.string().default(''),
 
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),

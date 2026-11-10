@@ -272,7 +272,13 @@ function extensionReplayAgrees(
 }
 
 export class ReleaseAccess {
+  private accessGate: ((userId: string, path: string, now: Date) => Promise<void>) | null = null;
   constructor(private readonly sql: Sql) {}
+
+  /** J-academy-14: the learner's access record for an item's course, asked before every signed-in read and completion. */
+  useAccessGate(gate: (userId: string, path: string, now: Date) => Promise<void>): void {
+    this.accessGate = gate;
+  }
 
   /**
    * `courseStartsAt` lets a caller that reads every item of one course read its start once; left out, it is read here.
@@ -286,8 +292,11 @@ export class ReleaseAccess {
   /** Same decision as completion. A lock throws before a lesson body is read. */
   async assertMayRead(input: { userId: string; itemSlug: string; now?: Date }): Promise<void> {
     const itemSlug = requireCurriculumSlug(input.itemSlug);
-    const view = await this.load(input.userId, itemSlug, input.now ?? new Date(), await this.courseStartsAt(itemSlug));
+    const now = input.now ?? new Date();
+    const view = await this.load(input.userId, itemSlug, now, await this.courseStartsAt(itemSlug));
     refuseRelease(view);
+    const path = getCurriculumItem(itemSlug)?.path;
+    if (path && this.accessGate) await this.accessGate(input.userId, path, now);
   }
 
   /**

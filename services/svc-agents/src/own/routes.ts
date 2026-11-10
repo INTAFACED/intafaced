@@ -13,15 +13,23 @@ import {
   ownAgentEvalStartSchema,
   ownAgentAnalyticsSchema,
   ownAgentDryRunStartSchema,
+  ownAgentTestApproveSchema,
   ownAgentTestRunStartSchema,
   ownAgentToolTestStartSchema,
   type OwnAgentLiveEngine,
   ownAgentHoldsSchema,
   ownAgentTestRunSchema,
   ownAgentRuleSchema,
+  OWN_AGENT_POLICY_ACTIONS,
+  OWN_AGENT_POLICY_EFFECTS,
+  OWN_AGENT_POLICY_SCOPES,
+  ownAgentPolicyDecisionSchema,
+  ownAgentPolicySchema,
   ownAgentToolCallSchema,
   ownAgentCatalogueSchema,
   ownAgentLimitsSchema,
+  ownAgentPaymentMethodInputSchema,
+  ownAgentPaymentMethodSchema,
   ownAgentRunResultSchema,
   ownAgentInboxRowSchema,
   ownAgentRunRowSchema,
@@ -57,7 +65,10 @@ import {
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 import { evaluateToolCall, parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
+import { OwnPolicyStore } from './policy.js';
 import { executeProcedure } from '../procedures.js';
+import { AGENT_DISABLED, ownAgentSwitch } from '../fleet/control.js';
+import { BackgroundRunStore, ownBackgroundRunSchema, type BackgroundSettings } from './background.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { assertPersonSetsLimits } from '../spend/routes.js';
 import {
@@ -72,6 +83,7 @@ import {
 } from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
+import { OwnPaymentMethodStore, type LinkedWalletsPort } from './payment-method.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
 import { checkCoOwner, checkSurfaces, OwnPublishingStore, type OwnAccountDirectory } from './publishing.js';
 import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
@@ -243,6 +255,16 @@ function owner(run: OwnRunDeps | undefined): { overageGrace: string | null; asse
 
 const idInput = z.object({ id: z.string().min(1).max(64) });
 
+/** An action row's stored words' parameters, strings and numbers only; anything else is left out. */
+function messageParamsOf(raw: unknown): Record<string, string | number> {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      (entry): entry is [string, string | number] => typeof entry[1] === 'string' || typeof entry[1] === 'number',
+    ),
+  );
+}
+
 /**
  * What the own agent's tool gates and doors need: the owner's baseline (blank refuses), and the doors of the tools
  * that are wired. Today that is the support desk's help search, read with the person's own forwarded principal.
@@ -261,6 +283,10 @@ export interface OwnToolDeps {
   readonly approvalTtlSeconds?: number | null;
   /** The owner's model for the automatic reviewer (AG-approvals-02); blank sends every call to the person. */
   readonly reviewerModel?: string | null;
+  /** The owner's values for background test runs (AG-control-02); blank refuses agents.background_unset. */
+  readonly background?: BackgroundSettings | null;
+  /** Identity's list of the person's linked wallets, for the agent's payment method (J-agents-02 #4); absent reads unread. */
+  readonly linkedWallets?: LinkedWalletsPort | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
 
@@ -276,6 +302,11 @@ class DoorRefusal extends Error {
 function wholeNumber(text: string | undefined): number | undefined {
   const value = text?.trim() ?? '';
   return /^[0-9]{1,6}$/.test(value) ? Number(value) : undefined;
+}
+
+/** New work of a quarantined agent, or of one whose kind is off, refuses `agents.agent.disabled` (AG-control-02). */
+async function assertOwnAgentOn(sql: Sql, agentId: string): Promise<void> {
+  if ((await ownAgentSwitch(sql, agentId)) !== 'active') throw new TRPCError({ code: 'FORBIDDEN', message: AGENT_DISABLED });
 }
 
 /** The person's own agent and a session of it. Not theirs, or not this agent's: one answer, so no oracle for others. */
@@ -559,6 +590,80 @@ export function ownRouter(
             checkRule(tooling.baseline, agent.tools, input.tool, input.choice);
             return new OwnRuleStore(sqlOf(sql)).save(ctx.principal.userId, agent.id, input.tool, input.choice);
           });
+        }),
+    }),
+
+    /**
+     * The person's allow and deny rules for what this agent may do, by action and account (AG-spend-02, J-agents-08 #1).
+     * A deny at any scope wins whatever order the rules were written in; with rules required, an action no rule allows
+     * is refused. Only the person writes them: an agent's token is refused, and the user comes from the signed principal.
+     */
+    policy: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentPolicySchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnPolicyStore(sqlOf(sql)).read(ctx.principal.userId, agent.id);
+          });
+        }),
+      add: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(
+          idInput.extend({
+            effect: z.enum(OWN_AGENT_POLICY_EFFECTS),
+            action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+            scope: z.enum(OWN_AGENT_POLICY_SCOPES),
+          }),
+        )
+        .output(ownAgentPolicySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const store = new OwnPolicyStore(sqlOf(sql));
+            await store.add(ctx.principal.userId, agent.id, { effect: input.effect, action: input.action, scope: input.scope });
+            return store.read(ctx.principal.userId, agent.id);
+          });
+        }),
+      remove: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ ruleId: z.string().uuid() }))
+        .output(ownAgentPolicySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const store = new OwnPolicyStore(sqlOf(sql));
+            await store.remove(ctx.principal.userId, agent.id, input.ruleId);
+            return store.read(ctx.principal.userId, agent.id);
+          });
+        }),
+      require: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ rulesRequired: z.boolean() }))
+        .output(ownAgentPolicySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const store = new OwnPolicyStore(sqlOf(sql));
+            await store.setRulesRequired(ctx.principal.userId, agent.id, input.rulesRequired);
+            return store.read(ctx.principal.userId, agent.id);
+          });
+        }),
+      /** The gate an agent action passes first: allowed, or refused `agents.policy_denied` / `agents.policy_no_match`. */
+      check: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ action: z.enum(OWN_AGENT_POLICY_ACTIONS), account: z.literal('main') }))
+        .output(ownAgentPolicyDecisionSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(
+            async () => {
+              const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+              return new OwnPolicyStore(sqlOf(sql)).assertAllows(ctx.principal.userId, agent.id, input.action, input.account);
+            },
+            (code) => (code === 'agents.policy_denied' || code === 'agents.policy_no_match' ? 'FORBIDDEN' : null),
+          );
         }),
     }),
 
@@ -895,6 +1000,53 @@ export function ownRouter(
      * run keeps beside it: no provider is called, no session is opened, and no reservation, usage row or ledger call is
      * made. The same request id again is that run.
      */
+    /**
+     * Whether the agent may start new work: `active`, or the operator's switch that stops it (AG-control-02). The owner
+     * reads it; only an operator sets it, and only two founders lift it.
+     */
+    status: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput)
+      .output(z.object({ status: z.enum(['active', 'quarantined', 'disabled_by_kind']) }))
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return { status: await ownAgentSwitch(sqlOf(sql), agent.id) };
+        }),
+      ),
+
+    /**
+     * A test run that goes on in the background, one step at a time, on the test engine (AG-control-02; J-agents-14 #3):
+     * mode test, cost 0, labelled TEST, never billed. Before each step it re-reads the agent's switches, so a quarantine
+     * stops it at its next step. The same request id again is that run.
+     */
+    backgroundRun: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(z.object({ id: z.string().min(1).max(64), requestId: z.string().min(8).max(200), ask: z.string().max(4000) }))
+      .output(ownBackgroundRunSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const steps = tooling.background?.steps ?? null;
+          if (steps === null || (tooling.background?.stepMs ?? null) === null) {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'agents.background_unset' });
+          }
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          await assertOwnAgentOn(sqlOf(sql), agent.id);
+          return new BackgroundRunStore(sqlOf(sql)).start(ctx.principal.userId, agent.id, input.requestId, input.ask, steps);
+        });
+      }),
+
+    /** The agent's background test runs, newest first, each with its state and the code that stopped it. */
+    backgroundRuns: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownBackgroundRunSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return new BackgroundRunStore(sqlOf(sql)).list(ctx.principal.userId, agent.id, input.limit);
+        });
+      }),
+
     testRun: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(ownAgentTestRunStartSchema)
       .output(ownAgentTestRunSchema)
@@ -903,8 +1055,30 @@ export function ownRouter(
         return guard(async () => {
           const { feeAssetId, liveEngine } = runDepsOf(run);
           const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          await assertOwnAgentOn(sqlOf(sql), agent.id);
           const engine = liveEngine ? liveEngine() : 'unknown';
-          return new OwnTestRunStore(sqlOf(sql), feeAssetId).engineRun(ctx.principal.userId, agent.id, input.requestId, input.ask, engine);
+          return new OwnTestRunStore(sqlOf(sql), feeAssetId).engineRun(ctx.principal.userId, agent.id, input.requestId, input.ask, engine, {
+            content: input.content ?? null,
+            outputSchema: input.outputSchema ?? null,
+          });
+        });
+      }),
+
+    /**
+     * The person approves a test run's value-moving action (AG-guardrails-03; J-agents-10 #2). Only the payload approved
+     * here counts: it must be the request's own, and the step the engine drafted must match it, or the run is refused
+     * `agents.payload.mismatch`. A test run sends nothing either way: no session, no reservation and no ledger call.
+     * Approving a decided run again returns its decision.
+     */
+    testApprove: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(ownAgentTestApproveSchema)
+      .output(ownAgentTestRunSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const { feeAssetId } = runDepsOf(run);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return new OwnTestRunStore(sqlOf(sql), feeAssetId).approve(ctx.principal.userId, agent.id, input.runId, input.payload);
         });
       }),
 
@@ -1154,6 +1328,30 @@ export function ownRouter(
         }),
     }),
 
+    /**
+     * The payment method the person chose for this agent's runs, and their linked wallets to choose from (J-agents-02
+     * #4). Choosing checks through identity that the wallet is linked now; `address: null` clears the choice.
+     */
+    paymentMethod: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentPaymentMethodSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(() => new OwnPaymentMethodStore(sqlOf(sql), tooling.linkedWallets ?? null).get(ctx.principal.userId, input.id));
+        }),
+      set: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentPaymentMethodInputSchema)
+        .output(ownAgentPaymentMethodSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(
+            () => new OwnPaymentMethodStore(sqlOf(sql), tooling.linkedWallets ?? null).set(ctx.principal.userId, input.id, input.address),
+            (code) => (code === 'agents.payment_method.wallets_unread' ? 'SERVICE_UNAVAILABLE' : null),
+          );
+        }),
+    }),
+
     session: router({
       /**
        * Opens a session of the person's own agent. Refused `agents.spend.cap_unset`, with no session made, until the
@@ -1166,6 +1364,7 @@ export function ownRouter(
           guard(async () => {
             const { runtime } = runDepsOf(run);
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            await assertOwnAgentOn(sqlOf(sql), agent.id);
             if (!(await readOwnCaps(sqlOf(sql), ctx.principal.userId, agent.id))) throw new OwnAgentRefusal('agents.spend.cap_unset');
             const session = await runtime.openOwnSession({ userId: ctx.principal.userId, guardrail: ownGuardrail(agent) });
             // The session keeps this version's instructions for its whole life (AG-builder-03); its tools and cap are in
@@ -1261,9 +1460,11 @@ export function ownRouter(
               refusal_code: string | null;
               cost: string;
               occurred_at: Date;
+              user_message_params: Record<string, string | number> | null;
             }>
           >`
-            SELECT a.session_id::text, a.sequence, a.status, a.task, a.refusal_code, a.cost::text, a.occurred_at
+            SELECT a.session_id::text, a.sequence, a.status, a.task, a.refusal_code, a.cost::text, a.occurred_at,
+                   a.user_message_params
               FROM agents.agent_actions a
              WHERE a.user_id = ${ctx.principal.userId}
                AND a.agent_id = ${ownSessionAgentId(agent.id)}
@@ -1282,6 +1483,8 @@ export function ownRouter(
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,
             occurredAt: row.occurred_at.toISOString(),
+            // A refusal's words name what it was refused on (a funds refusal: the method, figure, source and as-of time).
+            messageParams: row.status === 'refused' ? messageParamsOf(row.user_message_params) : {},
           }));
           // The tool calls a rule holds for the person (AG-approvals-01): a held call has not run, so it has no action of
           // its own and cost nothing.
@@ -1298,6 +1501,7 @@ export function ownRouter(
             cost: '0',
             assetId: feeAssetId,
             occurredAt: request.createdAt,
+            messageParams: {},
           }));
           // Newest first; at one instant a held call (made after the engine call it followed) comes first.
           return [...completions, ...held]
