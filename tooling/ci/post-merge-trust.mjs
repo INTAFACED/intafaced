@@ -20,6 +20,10 @@
  *   one "Journey broken on main: <J-id>" issue per journey, naming the commits between the last run it passed and the
  *   first run it failed. A journey's issue closes when every step it names passes again.
  *   The run summary lists the steps newly passing and newly failing against the run before.
+ *   A shard that sent no report (no `real-app-journeys-shard-<n>` artifact: abandoned, cancelled by the platform, or
+ *   its stack or browser never started) on a red first attempt: re-run the failed jobs once, then judge that attempt
+ *   instead (project-state #1786, 10 Nov; run 3131 lost 8 of 32 shards in GitHub's Actions incident). A shard with no
+ *   report on the re-run still counts its journeys as not passing.
  *   A shard that hit its time limit (the job's, or the limit the shard puts on its own journeys so it still reports):
  *   open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue naming the jobs; it closes on the
  *   next run where no job hit its limit.
@@ -234,6 +238,52 @@ async function gh(method, path, body, { alreadyRunningOk = false } = {}) {
     throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
   }
   return { status: res.status, json: text ? JSON.parse(text) : null };
+}
+
+const SHARD_JOB = /^Journeys \(shard (\d+) of (\d+)\)$/;
+const SHARD_ARTIFACT = /^real-app-journeys-shard-(\d+)$/;
+
+/**
+ * The shards with no report: `jobs` the run's latest jobs, `artifacts` its artifact names. Every shard 1..N counts, N
+ * from the shard jobs' "of N", since a shard GitHub abandoned may have no job at all (run 42669837919: 25 of 32 jobs).
+ * Returns "shard <n> of <N>" for each shard whose `real-app-journeys-shard-<n>` artifact is missing.
+ */
+export function shardsWithoutReport(jobs, artifacts) {
+  const totals = (jobs ?? []).map((j) => SHARD_JOB.exec(j?.name ?? '')?.[2]).filter(Boolean);
+  if (!totals.length) return [];
+  const total = Math.max(...totals.map(Number));
+  const sent = new Set((artifacts ?? []).map((n) => SHARD_ARTIFACT.exec(n)?.[1]).filter(Boolean));
+  return Array.from({ length: total }, (_, i) => String(i + 1))
+    .filter((n) => !sent.has(n))
+    .map((n) => `shard ${n} of ${total}`);
+}
+
+/** Re-run a red journeys run's failed jobs once when a shard sent no report: only on its first attempt, never again. */
+export const shardRerun = ({ attempt, conclusion, missing }) => attempt <= 1 && conclusion === 'failure' && missing.length > 0;
+
+/**
+ * How to re-run: a missing shard with no job at all (abandoned) may not come back with "re-run failed jobs", so the
+ * whole run re-runs; otherwise only the failed jobs. `jobs` the run's latest jobs, `missing` shardsWithoutReport().
+ */
+export function shardRerunPath(jobs, missing) {
+  const withJob = new Set(
+    (jobs ?? [])
+      .map((j) => SHARD_JOB.exec(j?.name ?? ''))
+      .filter(Boolean)
+      .map((m) => `shard ${m[1]} of ${m[2]}`),
+  );
+  return missing.every((m) => withJob.has(m)) ? 'rerun-failed-jobs' : 'rerun';
+}
+
+async function missingShardReports(repo, runId) {
+  const { json: jobs } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/jobs?filter=latest&per_page=100`);
+  const { json: arts } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`);
+  if (!Array.isArray(jobs?.jobs) || !Array.isArray(arts?.artifacts)) throw new Error(`could not read run ${runId}'s jobs or artifacts`);
+  const missing = shardsWithoutReport(
+    jobs.jobs,
+    arts.artifacts.filter((a) => !a.expired).map((a) => a.name),
+  );
+  return { missing, path: shardRerunPath(jobs.jobs, missing) };
 }
 
 /** The names of a run's jobs (latest attempt) that hit their time limit. */
@@ -454,6 +504,21 @@ async function setAsideCheck({ repo, runId, runUrl }) {
 }
 
 async function journeysCheck(ctx) {
+  const { missing, path } = await missingShardReports(ctx.repo, ctx.runId);
+  if (shardRerun({ attempt: ctx.attempt, conclusion: ctx.conclusion, missing })) {
+    const r = await gh('POST', `/repos/${ctx.repo}/actions/runs/${ctx.runId}/${path}`, undefined, { alreadyRunningOk: true });
+    return summary([
+      '### Shards with no report',
+      '',
+      `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Re-ran ${path === 'rerun' ? 'the whole run (a shard with no report had no job)' : 'the failed jobs'} once (${r.status}); the next attempt is judged instead.`,
+    ]);
+  }
+  if (missing.length)
+    summary([
+      '### Shards with no report',
+      '',
+      `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Their journeys count as not passing.`,
+    ]);
   const timeLine = await timeLimitCheck(ctx);
   if (timeLine) summary(['### Journeys time limit', '', timeLine]);
   const asideLines = await setAsideCheck(ctx);
@@ -670,6 +735,32 @@ function selfTest() {
     file: 'J-a-01.pw.mjs',
   };
   eq(setAsideIssueTitle(row), 'Set aside on main until 2026-11-14: J-a-01 #3', 'set-aside issue title');
+  const shardJobs = [1, 2, 3, 4].map((n) => ({ name: `Journeys (shard ${n} of 4)` })).concat([{ name: 'Real-app journeys' }]);
+  eq(
+    shardsWithoutReport(shardJobs, ['real-app-journeys-shard-1', 'real-app-journeys-shard-3', 'real-app-journeys', 'x-shard-2']),
+    ['shard 2 of 4', 'shard 4 of 4'],
+    'the shards that sent no report, by their own artifact only',
+  );
+  eq(
+    shardsWithoutReport(shardJobs.slice(0, 2), ['real-app-journeys-shard-1', 'real-app-journeys-shard-2']),
+    ['shard 3 of 4', 'shard 4 of 4'],
+    'a shard with no job at all (abandoned) still counts as sending no report',
+  );
+  eq(shardsWithoutReport([{ name: 'Real-app journeys' }], []), [], 'no shard job: nothing ran to count');
+  eq(shardRerunPath(shardJobs, ['shard 2 of 4']), 'rerun-failed-jobs', 'every missing shard has a job: re-run the failed jobs');
+  eq(shardRerunPath(shardJobs.slice(0, 2), ['shard 3 of 4']), 'rerun', 'a missing shard with no job: re-run the whole run');
+  eq(
+    shardsWithoutReport(
+      shardJobs,
+      [1, 2, 3, 4].map((n) => `real-app-journeys-shard-${n}`),
+    ),
+    [],
+    'every shard reported',
+  );
+  eq(shardRerun({ attempt: 1, conclusion: 'failure', missing: ['s'] }), true, 'a red first attempt with a missing report re-runs');
+  eq(shardRerun({ attempt: 2, conclusion: 'failure', missing: ['s'] }), false, 'once only: the re-run is judged as it is');
+  eq(shardRerun({ attempt: 1, conclusion: 'failure', missing: [] }), false, 'every shard reported: no re-run');
+  eq(shardRerun({ attempt: 1, conclusion: 'success', missing: ['s'] }), false, 'a green run is not re-run');
   const ended = { ...row, step: 'J-a-01#4', active: false };
   const acts = setAsideIssueActions(
     [row, ended, { ...row, step: 'J-a-01#5' }, { ...row, step: 'J-a-01#6' }],
