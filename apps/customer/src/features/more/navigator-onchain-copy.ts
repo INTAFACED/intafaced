@@ -99,7 +99,7 @@ export const navigatorOnchainCopy = defineCopy('navigator-onchain', {
   orderTx: 'Transaction',
   orderNoTx: 'None: nothing reached the chain',
   orderPlaced: 'Placed',
-  order_sending: 'Sending: not yet confirmed. It holds its part of your cap until the chain shows it.',
+  order_sending: 'Sending: the chain has not confirmed it. It holds its part of your cap until the chain shows it.',
   order_sent: 'Sent, waiting for the chain',
   order_filled: 'Filled on the chain',
   order_reverted: 'Reverted by the chain; nothing was spent',
