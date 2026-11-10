@@ -647,7 +647,13 @@ async function recordFailedProof(
  */
 export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOptions): Promise<SnapshotRun> {
   const timeoutMs = validReconcileStatementTimeoutMs(options.statementTimeoutMs ?? DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS);
-  const prove = options.prove ?? ((tx: ReconciliationDb) => runReconciliation(tx, options.custodyLayer));
+  // Refused before anything is read: a missing or unknown switch is never taken as off (that would freeze a custody-on
+  // book over its legitimate customer balances) nor as on (that would drop the check).
+  if (options.custodyLayer !== 'on' && options.custodyLayer !== 'off') {
+    throw new TypeError(`reconciliation custodyLayer must be 'on' or 'off', got ${String(options.custodyLayer)}`);
+  }
+  const custodyLayer = options.custodyLayer;
+  const prove = options.prove ?? ((tx: ReconciliationDb) => runReconciliation(tx, custodyLayer));
   const startedAt = new Date();
 
   // One holder so the catch below sees what the run learned before it failed.
@@ -893,8 +899,13 @@ export class ReconcileFreezeFailedError extends LedgerError {
   }
 }
 
-/** What the scheduled job needs from the service: the mismatch handler, nothing else. */
+/** What the scheduled job needs from the service: its custody switch and the mismatch handler. */
 export interface ScheduledReconcileLedger {
+  /**
+   * The switch this ledger's own `post()` enforces. The proof checks customer balances against it, so the proof and the
+   * posting path can never disagree about whether custody is on (OWNER 288).
+   */
+  readonly custodyLayer: CustodyLayerState;
   /**
    * Freeze posting for a completed not-ok report, in its own READ COMMITTED
    * transaction, then publish. An operator freeze already standing is left standing.
@@ -931,9 +942,9 @@ export type ScheduledReconcileResult =
 export async function runScheduledReconciliation(
   sql: Sql,
   ledger: ScheduledReconcileLedger,
-  options: SnapshotRunOptions,
+  options: Omit<SnapshotRunOptions, 'custodyLayer'> = {},
 ): Promise<ScheduledReconcileResult> {
-  const run = await runSnapshotReconciliation(sql, options);
+  const run = await runSnapshotReconciliation(sql, { ...options, custodyLayer: ledger.custodyLayer });
   switch (run.outcome) {
     case 'skipped':
       return { outcome: 'skipped' };

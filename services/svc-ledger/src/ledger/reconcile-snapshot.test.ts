@@ -275,7 +275,7 @@ describe('reconciliation snapshot runner — real book', () => {
           ),
         );
       }
-      const result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on' });
+      const result = await runScheduledReconciliation(connect(), svc);
       expect(result.outcome).toBe('mismatch');
       if (result.outcome !== 'mismatch') throw new Error('expected persisted corruption mismatch');
       if (field === 'ledger_entries.balance_after') {
@@ -299,7 +299,7 @@ describe('reconciliation snapshot runner — real book', () => {
     try {
       await blocker.unsafe('BEGIN');
       await blocker.unsafe('LOCK TABLE ledger_tx IN ACCESS EXCLUSIVE MODE');
-      result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on', statementTimeoutMs: 1000 });
+      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
     } finally {
       await blocker.unsafe('ROLLBACK');
       blocker.release();
@@ -320,7 +320,7 @@ describe('reconciliation snapshot runner — real book', () => {
     try {
       await blocker.unsafe('BEGIN');
       await blocker.unsafe('LOCK TABLE ledger_tx IN ACCESS EXCLUSIVE MODE');
-      result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on', statementTimeoutMs: 1000 });
+      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
     } finally {
       await blocker.unsafe('ROLLBACK');
       blocker.release();
@@ -403,7 +403,7 @@ describe('reconciliation snapshot runner — real book', () => {
       // Snapshot reads remain possible, but the later anchor INSERT must wait
       // for the account FK's KEY SHARE lock: the historical failure phase.
       await blocker.unsafe('SELECT id FROM accounts FOR UPDATE');
-      result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on', statementTimeoutMs: 1000 });
+      result = await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 });
     } finally {
       await blocker.unsafe('ROLLBACK');
       blocker.release();
@@ -415,7 +415,7 @@ describe('reconciliation snapshot runner — real book', () => {
     expect((await d().sql`SELECT outcome, error_code FROM reconcile_runs`).map((row) => [row.outcome, row.error_code])).toEqual([
       ['incomplete', '57014'],
     ]);
-    expect((await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on', statementTimeoutMs: 1000 })).outcome).toBe('ok');
+    expect((await runScheduledReconciliation(connect(), svc, { statementTimeoutMs: 1000 })).outcome).toBe('ok');
     await expect(svc.post(deposit())).resolves.toMatchObject({ module: 'ledger' });
   });
 
@@ -445,7 +445,7 @@ describe('reconciliation snapshot runner — real book', () => {
        CREATE TRIGGER refuse_run BEFORE INSERT ON "${d().schema}".reconcile_runs FOR EACH ROW EXECUTE FUNCTION "${d().schema}".refuse_run();`,
     );
     try {
-      const result = await runScheduledReconciliation(connect(), svc, { custodyLayer: 'on' });
+      const result = await runScheduledReconciliation(connect(), svc);
       expect(result).toMatchObject({ outcome: 'mismatch', run: { runId: null } });
       await expect(svc.status()).resolves.toMatchObject({ postingEnabled: false, frozenReason: 'reconciliation mismatch' });
     } finally {

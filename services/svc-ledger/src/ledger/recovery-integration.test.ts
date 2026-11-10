@@ -79,7 +79,7 @@ describe('native recovery integration with the actual ledger service', () => {
         try {
           await blocker.unsafe('BEGIN');
           await blocker.unsafe(`LOCK TABLE "${db.schema}".ledger_entries IN ACCESS EXCLUSIVE MODE`);
-          const scheduled = runScheduledReconciliation(pool, ledger, { custodyLayer: 'on' });
+          const scheduled = runScheduledReconciliation(pool, ledger);
           const observed = scheduled.then(
             (value) => ({ value }),
             (error: unknown) => ({ error }),
@@ -129,7 +129,7 @@ describe('native recovery integration with the actual ledger service', () => {
         try {
           await blocker.unsafe('BEGIN');
           await blocker.unsafe(`LOCK TABLE "${db.schema}".ledger_entries IN ACCESS EXCLUSIVE MODE`);
-          const scheduledObserved = runScheduledReconciliation(pool, ledger, { custodyLayer: 'on' }).then(
+          const scheduledObserved = runScheduledReconciliation(pool, ledger).then(
             (value) => ({ value }),
             (error: unknown) => ({ error }),
           );
@@ -165,7 +165,7 @@ describe('native recovery integration with the actual ledger service', () => {
         const ledger = new LedgerService(pool, bus, { custodyLayer: 'on' });
         await ledger.post(deposit('proof-error'));
         await db.sql`ALTER TABLE ledger_entries RENAME COLUMN amount TO hidden_amount`;
-        const result = await bounded(runScheduledReconciliation(pool, ledger, { custodyLayer: 'on' }));
+        const result = await bounded(runScheduledReconciliation(pool, ledger));
         expect(result).toMatchObject({ outcome: 'incomplete', report: null, snapshotted: false, run: { errorCode: '42703' } });
         expect(await readFreeze(pool)).toMatchObject({ frozen: false });
         expect(await db.sql`SELECT * FROM balance_snapshots`).toHaveLength(0);
@@ -190,7 +190,7 @@ describe('native recovery integration with the actual ledger service', () => {
         await db.sql.unsafe(
           `CREATE FUNCTION "${db.schema}".refuse_snapshot() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'native snapshot refusal'; END $$; CREATE TRIGGER refuse_snapshot BEFORE INSERT ON "${db.schema}".balance_snapshots FOR EACH ROW EXECUTE FUNCTION "${db.schema}".refuse_snapshot();`,
         );
-        const result = await bounded(runScheduledReconciliation(pool, ledger, { custodyLayer: 'on' }));
+        const result = await bounded(runScheduledReconciliation(pool, ledger));
         expect(result).toMatchObject({
           outcome: 'incomplete',
           run: { phase: 'snapshot', error: expect.objectContaining({ message: 'native snapshot refusal' }) },

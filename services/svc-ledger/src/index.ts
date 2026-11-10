@@ -150,11 +150,7 @@ try {
 const reconcileTickState = createReconcileTickState();
 const reconcileTimer = setInterval(() => {
   void runScheduledReconciliationTick(
-    () =>
-      runScheduledReconciliation(sql, ledger, {
-        statementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
-        custodyLayer: env.LEDGER_CUSTODY_LAYER,
-      }),
+    () => runScheduledReconciliation(sql, ledger, { statementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS }),
     ledger,
     app.log,
     {
