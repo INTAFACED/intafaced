@@ -43,6 +43,12 @@ export const TEST_PARTNER_LABEL = 'TEST partner bank';
 /** The reason the TEST partner card declines with under `cardDecline: 'unlisted'`: a code nothing here has words for. */
 export const TEST_PARTNER_UNLISTED_DECLINE = 'test_partner.unlisted_reason';
 
+/**
+ * TEST: how old the TEST partner bank says its figure may be before it is stale (b2 change 6). A real partner declares
+ * its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_PARTNER_STALE_AFTER_MS = 60_000;
+
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
 export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
@@ -57,10 +63,17 @@ export interface TestPartnerSwitches {
   /**
    * The partner is not answering: every write to a currency account, space, pot or joint account, a send to a person,
    * and a standing order's create, change or resume refuses `bank.partner_unavailable`, nothing written. Freezing a
-   * shared pot's card, and cancelling or pausing a standing order, stay open (they only protect), and reads still show
-   * what was last read.
+   * shared pot's card, and cancelling or pausing a standing order, stay open (they only protect), and a balance read
+   * gives the last figure the partner gave for that account, with the partner's time for it, or "not known" when it
+   * gave none: never a fresh figure stamped now.
    */
   readonly down: boolean;
+  /**
+   * The partner's balance figures (b2 change 6): `live` (the default) reports each with its time now; `stale` reports
+   * each with a time older than the partner's limit (`TEST_PARTNER_STALE_AFTER_MS`); `unknown` reports none, with no
+   * time, so every balance reads "not known", never 0.
+   */
+  readonly figures: 'live' | 'stale' | 'unknown';
   /** `expired`: the ramp says any quote it gave has expired when it is accepted. */
   readonly rampQuote: 'live' | 'expired';
   /** `unknown`: the ramp gives no fee, so no pay amount: the quote reads "not known" and nothing can be asked. */
@@ -97,6 +110,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   fee: 'known',
   reserve: 'none',
   down: false,
+  figures: 'live',
   rampQuote: 'live',
   rampFee: 'known',
   custody: 'on',
@@ -185,8 +199,28 @@ export function testPartner(): TestPartner {
     if (kept.size > MAX_PEOPLE) kept.delete(kept.keys().next().value!);
     return next;
   };
-  const report = (account: PartnerAccountRef): PartnerBalance =>
+  /** The last figure the partner gave for each account, for a read while it is down. Bounded with the switches. */
+  const lastGiven = new Map<string, PartnerBalance>();
+  /** The partner's answer to a funding it made: what the account now holds, with its time now, whatever `figures` says. */
+  const funded = (account: PartnerAccountRef): PartnerBalance =>
     Object.freeze({ account, amount: held.get(accountKey(account)) ?? 0n, asOf: new Date(), label: TEST_PARTNER_LABEL });
+  const report = (account: PartnerAccountRef): PartnerBalance => {
+    const key = accountKey(account);
+    const now = switches(account.userId);
+    if (now.down) {
+      const last = lastGiven.get(key);
+      return last
+        ? Object.freeze({ ...last, unavailable: true })
+        : Object.freeze({ account, amount: null, asOf: null, label: TEST_PARTNER_LABEL, unavailable: true });
+    }
+    if (now.figures === 'unknown') return Object.freeze({ account, amount: null, asOf: null, label: TEST_PARTNER_LABEL });
+    const asOf = now.figures === 'stale' ? new Date(Date.now() - 2 * TEST_PARTNER_STALE_AFTER_MS) : new Date();
+    const given: PartnerBalance = Object.freeze({ account, amount: held.get(key) ?? 0n, asOf, label: TEST_PARTNER_LABEL });
+    lastGiven.delete(key);
+    lastGiven.set(key, given);
+    if (lastGiven.size > MAX_PEOPLE * 4) lastGiven.delete(lastGiven.keys().next().value!);
+    return given;
+  };
   const remember = (move: PartnerMove) => {
     byKey.set(move.key, move);
     for (const userId of new Set([move.from.userId, move.to.userId])) {
@@ -198,6 +232,7 @@ export function testPartner(): TestPartner {
 
   const bank: PartnerBank = {
     label: TEST_PARTNER_LABEL,
+    staleAfterMs: TEST_PARTNER_STALE_AFTER_MS,
     balance: async (account) => report(account),
     async balances(userId) {
       const out: PartnerBalance[] = [];
@@ -288,13 +323,13 @@ export function testPartner(): TestPartner {
         if (prior.assetId !== funding.assetId || prior.amount !== funding.amount) {
           throw moveConflict(funding.fundId);
         }
-        return report(account);
+        return funded(account);
       }
       if (switches(userId).down) throw partnerDown();
       if (funding.amount <= 0n) throw new BankError('TEST funding needs an amount above zero.', 'bank.partner_amount_invalid');
       funds.set(fundKey, { userId, assetId: funding.assetId, amount: funding.amount });
       held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + funding.amount);
-      return report(account);
+      return funded(account);
     },
   };
 }

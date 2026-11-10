@@ -15,6 +15,7 @@ const switches = z
     fee: z.enum(['known', 'unknown']),
     reserve: z.enum(['none', 'required']),
     down: z.boolean(),
+    figures: z.enum(['live', 'stale', 'unknown']),
     rampQuote: z.enum(['live', 'expired']),
     rampFee: z.enum(['known', 'unknown']),
     custody: z.enum(['on', 'off']),
@@ -84,7 +85,7 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' |
             assetId: input.assetId,
             amount: parseAmount(input.amount),
           });
-          return { label: now.label, assetId: input.assetId, balance: formatAmount(now.amount!), asOf: now.asOf.toISOString() };
+          return { label: now.label, assetId: input.assetId, balance: formatAmount(now.amount!), asOf: now.asOf!.toISOString() };
         }),
       ),
     /**
