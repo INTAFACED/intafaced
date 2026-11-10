@@ -199,15 +199,55 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   await page.getByRole('button', { name: 'Account menu' }).click();
   await expect(page.getByTestId('account-summary')).toContainText(/Verification: .*trading/i);
   await page.keyboard.press('Escape');
-  // The desk accepts orders: the venue's own order preview for this account is answered, with no refusal on
-  // verification (the person has not funded a venue account yet, so the venue's figures are all it can say).
+  // The desk accepts orders: on the venue desk with the person's TEST wallet connected, the venue's own preview of this
+  // exact order (the price and amount typed below) is answered, its lock in USDC the order's price times its amount, and
+  // Buy is open with no refusal on verification.
   await venueStatus(who);
-  await desk(page);
-  await page.getByRole('textbox', { name: 'Price' }).first().fill('1000');
-  await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
+  const { wallet, owner } = await venueDesk(page);
+  const { bid } = await venueBook(VENUE_SPOT);
+  const away = fromUnits((bid / 2n / toUnits('1')) * toUnits('1'));
+  const amount = '0.001';
+  const check = page.waitForResponse((r) => {
+    if (r.request().method() !== 'POST' || new URL(r.url()).pathname !== '/api/v1/venue/preview') return false;
+    const sent = r.request().postDataJSON();
+    const same = (value, want) => typeof value === 'string' && /^\d+(\.\d+)?$/.test(value) && toUnits(value) === toUnits(want);
+    return sent?.owner === owner && sent?.intent?.side === 'buy' && same(sent?.intent?.amount, amount) && same(sent?.intent?.price, away);
+  });
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  await page.getByRole('textbox', { name: 'Price' }).first().fill(away);
+  await page.getByRole('textbox', { name: 'Amount' }).first().fill(amount);
+  const answer = await check;
+  expect(answer.status()).toBe(200);
+  const preview = (await answer.json()).value;
+  expect(preview?.lock?.asset, JSON.stringify(preview).slice(0, 400)).toBe('USDC');
+  expect(wireUnits(preview.lock.amount)).toBe((toUnits(away) * toUnits(amount)) / toUnits('1'));
+  const buy = page.getByRole('button', { name: 'Buy BTC' });
+  await expect(buy).toBeEnabled();
   const reason = page.locator('#dk-reason-buy');
   await expect(reason).not.toContainText('Verify your identity first');
   await expect(reason).not.toContainText('Verify now');
+  // The place door takes the same order past verification to the venue's money check: confirmed and signed, the venue
+  // answers on funds (the venue account holds nothing until #4), not on permission; no order rests and nothing is locked
+  // on the venue or held in our ledger.
+  const submitted = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/submit');
+  await buy.click();
+  await expect(reviewSheet(page)).toBeVisible();
+  const asked = wallet.requests.length;
+  await confirm(page, 'buy');
+  await continueInWallet(page);
+  const placed = await submitted;
+  const placedBody = await placed.json();
+  expect(placed.status(), JSON.stringify(placedBody).slice(0, 400)).toBe(200);
+  expect(placedBody.outcome, JSON.stringify(placedBody).slice(0, 400)).toMatchObject({
+    definite: true,
+    accepted: false,
+    refusal: { code: 'insufficient_balance' },
+  });
+  expect(wallet.requests.length).toBe(asked + 1);
+  expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(0n);
+  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 
   // A sanctions hit: another TEST person whose name, date of birth and country are on the stack's TEST list passes the
   // same checks and is held behind a neutral "under review" that never mentions screening; the desk keeps refusing.
@@ -225,7 +265,11 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
     await expect(hitPage.locator('main')).not.toContainText(/screen|sanction|watch ?list|list match/i);
     await hitPage.goto('/trade');
     await expect(hitPage.getByTestId('trade-access')).not.toHaveAttribute('data-state', 'verified');
+    // With a TEST wallet connected, so the closed Buy is the refusal and never a missing wallet.
+    const hitWallet = await installTestWallet(hitPage, { chainId: CHAIN_ID, privateKey: testWalletKey(), rpcUrl: testChain().gateUrl });
     await openDesk(hitPage, listed, DESK_SYMBOL);
+    await connectWallet(hitPage, hitWallet);
+    await hitPage.locator('[role=tab]', { hasText: /^Limit$/ }).click();
     await hitPage.getByRole('textbox', { name: 'Price' }).first().fill('1000');
     await hitPage.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
     await expect(hitPage.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
@@ -289,6 +333,12 @@ async function venueDesk(page, { signedIn = false } = {}) {
     await page.goto(deskPath(DESK_SYMBOL));
     await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
   } else await openDesk(page, account(), DESK_SYMBOL);
+  const panel = await connectWallet(page, wallet);
+  return { wallet, owner: wallet.address.toLowerCase(), panel };
+}
+
+/** Connects `wallet` on the open venue desk's venue-account panel, and waits for the panel to show its address. */
+async function connectWallet(page, wallet) {
   const panel = venuePanel(page);
   await expect(panel).toBeVisible();
   const connect = panel.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
@@ -297,7 +347,7 @@ async function venueDesk(page, { signedIn = false } = {}) {
   await expect(connect.or(panel.getByText(short))).toBeVisible();
   if (await connect.isVisible()) await connect.click();
   await expect(panel).toContainText(short);
-  return { wallet, owner: wallet.address.toLowerCase(), panel };
+  return panel;
 }
 
 /**
@@ -718,9 +768,13 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(wireUnits(before.locked) + wireUnits(order.locked));
   // Cancels it from Open orders: the wallet signs the cancel, and the venue cancels the order.
   const prepared = [];
+  const submits = [];
   page.on('response', async (r) => {
-    if (r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/prepare')
-      prepared.push({ sent: r.request().postDataJSON(), answer: await r.json().catch(() => null) });
+    if (r.request().method() !== 'POST') return;
+    const where = new URL(r.url()).pathname;
+    if (where === '/api/v1/venue/prepare') prepared.push({ sent: r.request().postDataJSON(), answer: await r.json().catch(() => null) });
+    if (where === '/api/v1/venue/submit')
+      submits.push({ sent: r.request().postDataJSON(), status: r.status(), answer: await r.json().catch(() => null) });
   });
   await page.locator('[role=tab]', { hasText: 'Open orders' }).click();
   const row = page.locator('tr', { hasText: Number(away).toLocaleString('en-US') });
@@ -742,7 +796,31 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   const digestOf = (answer) => answer?.prepared?.digest ?? answer?.digest;
   expect(digestOf(first.answer), JSON.stringify(first.answer).slice(0, 300)).toMatch(/^0x[0-9a-f]{64}$/);
   expect(digestOf(repeat.body)).toBe(digestOf(first.answer));
+  // The first cancel's own submit: the venue accepted it, and the order it names is canceled.
+  const key = first.answer?.actionKey;
+  expect(key, JSON.stringify(first.answer).slice(0, 300)).toBeTruthy();
+  expect(repeat.body.actionKey).toBe(key);
+  await expect.poll(() => submits.filter((s) => s.sent?.actionKey === key).length, { timeout: 20_000 }).toBe(1);
+  const cancel = submits.find((s) => s.sent?.actionKey === key);
+  expect(cancel.status, JSON.stringify(cancel.answer).slice(0, 300)).toBe(200);
+  expect(cancel.answer?.outcome, JSON.stringify(cancel.answer).slice(0, 300)).toMatchObject({
+    definite: true,
+    accepted: true,
+    order: { status: 'canceled' },
+  });
+  // The second cancel is submitted: the same action, answered with the same outcome, and nothing moves.
+  const again = await (await api(who)).post('/api/v1/venue/submit', cancel.sent);
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body.actionKey).toBe(key);
+  expect(again.body.outcome, JSON.stringify(again.body).slice(0, 300)).toMatchObject({
+    definite: true,
+    accepted: true,
+    order: { status: 'canceled' },
+  });
+  expect(again.body.outcome.venueRef).toBe(cancel.answer.outcome.venueRef);
+  expect(wallet.requests.length, 'the repeat asks the wallet nothing').toBe(asked + 1);
   expect((await venueOrder(who, owner, order.venueClientOrderId))?.status).toBe('canceled');
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(wireUnits(before.locked));
 });
 
@@ -802,11 +880,42 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   // After the buy: Profit and loss shows the bought lots as open at their cost: what is left of each, its cost in
   // dollars and a number of days held (an open lot, not Sold). Together they hold the venue's BTC and cost what the
   // venue's fills paid, each row's cost rounded to the shown cent.
+  // Profit and loss as svc-tax works it out for this account (the room's own read): one open BTC lot for each of the
+  // venue's buy fills, each holding what that fill delivered at what it cost, bought (trade), nothing of it sold.
+  const client = await api(who);
+  const lotBook = async () => {
+    const { status, body } = await client.get('/api/tax/trpc/lotBook');
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    const book = body.result.data;
+    return { book, lots: book.lots.filter((lot) => String(lot.assetId).toUpperCase() === 'BTC') };
+  };
+  const booked = (await lotBook()).lots;
+  expect(booked.length, "a lot for each of the venue's buy fills").toBe(lots.length);
+  for (const lot of booked) {
+    expect(lot, JSON.stringify(lot)).toMatchObject({ source: 'trade' });
+    expect(wireUnits(lot.remaining), JSON.stringify(lot)).toBe(wireUnits(lot.qty));
+    expect(lot.daysHeld, JSON.stringify(lot)).not.toBeNull();
+    expect(lot.costUsd, JSON.stringify(lot)).not.toBeNull();
+  }
+  const pairs = (list) => list.map(({ qty, cost }) => `${qty}:${cost}`).sort();
+  expect(pairs(booked.map((lot) => ({ qty: wireUnits(lot.qty), cost: wireUnits(lot.costUsd) })))).toEqual(pairs(lots));
+  expect(booked.reduce((s, lot) => s + wireUnits(lot.costUsd), 0n)).toBe(paid);
+  expect(booked.reduce((s, lot) => s + wireUnits(lot.remaining), 0n)).toBe(wireUnits(btc.total));
   await signIn(page, who);
   await page.goto('/money/pnl?asset=BTC');
   const main = page.locator('main').first();
   const rows = main.locator('tr[data-lot]');
   await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  // The room shows each of those lots, and only those: what is left, its cost to the shown cent, and days held.
+  await expect(rows).toHaveCount(booked.length);
+  for (const lot of booked) {
+    const row = main.locator(`tr[data-lot="${lot.id}"]`);
+    await expect(row).toHaveCount(1);
+    expect(shownUnits(await row.locator('td[data-col=left]').innerText())).toBe(wireUnits(lot.remaining));
+    await expect(row.locator('td[data-col=cost]')).toHaveText(new RegExp(`^${DOLLARS}$`));
+    expect(shownUnits(await row.locator('td[data-col=cost]').innerText())).toBe(asShownUsd(lot.costUsd));
+    await expect(row.locator('td[data-col=days]')).toHaveText(/^\d+$/);
+  }
   const count = await rows.count();
   let shownLeft = 0n;
   let shownCost = 0n;
