@@ -44,7 +44,7 @@ async function caller(router: ReturnType<typeof createOpsRouter>, userId: string
 function evaluation(
   n: number,
   control: string,
-  status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET',
+  status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' | 'NOTHING_TO_COMPARE',
   differences: Record<string, string>,
 ): ReconciliationEvaluation {
   return {
