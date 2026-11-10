@@ -14,6 +14,7 @@ const SYMBOL = 'BTC/USDT';
 const MATCHING = 'http://127.0.0.1:14505';
 /** The TEST market the market maker never quotes (seed-spot-test-listing.mjs `UNQUOTED_TEST_SPOT`): only a journey trades it. */
 const FEE_MARKET = 'IFC/USDC';
+const FEE_ASSET = 'IFC';
 const RUN = Date.now().toString(36);
 const run = journeyState(J);
 
@@ -414,8 +415,56 @@ test(`${J} #6 opens the published trading rulebook: versioned rulebook text cust
   await customer.context().close();
 });
 
-test(`${J} #7 opens the venue unit economics report: revenue and cost lines from real postings or named blockers`, async ({ page }) => {
-  test.setTimeout(240_000);
+/** The seven cost lines of the venue report, with the TEST figure #7 enters for each, in the asset #7's fee is paid in. */
+const COST_ASSET = FEE_ASSET;
+const COST_LINES = [
+  { category: 'liquidity', label: 'Liquidity', amount: '0.1' },
+  { category: 'insurance_default_capital', label: 'Insurance and default capital', amount: '0.2' },
+  { category: 'custody', label: 'Custody', amount: '0.3' },
+  { category: 'data', label: 'Data', amount: '0.4' },
+  { category: 'support', label: 'Support', amount: '0.5' },
+  { category: 'compliance', label: 'Compliance', amount: '0.6' },
+  { category: 'infrastructure', label: 'Infrastructure', amount: '0.7' },
+];
+/** A month no journey enters a cost for: #7 enters only in the current month. */
+const BLANK_MONTH = '2001-01';
+const costNote = (category) => `TEST invoice ${category} ${RUN}`;
+
+/** Founder A asks for one cost line, founder B approves exactly that packet, founder A runs it. */
+async function enterCost(a, b, period, { category, amount }) {
+  const url = `${ADMIN}/more-ops/venue-economics?period=${period}`;
+  const phrase = `RECORD COST ${category} ${period}`;
+  await a.goto(url);
+  const entry = a.getByTestId('venue-cost-entry');
+  await entry.getByLabel('Cost line').selectOption(category);
+  await entry.getByLabel('Amount for the month').fill(amount);
+  await entry.getByLabel('Currency or asset').fill(COST_ASSET);
+  await entry.getByLabel(/^Source note/).fill(costNote(category));
+  await entry.getByLabel(/to confirm$/).fill(phrase);
+  await entry.getByRole('button', { name: 'Ask a second founder to approve this cost' }).click();
+  await expect(entry.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+  const packet = (await entry.getByLabel('Request packet').inputValue()).trim();
+
+  await b.goto(url);
+  const theirs = b.getByTestId('venue-cost-entry');
+  await theirs.getByLabel('Request packet').fill(packet);
+  await expect(theirs.getByTestId('packet-summary')).toContainText(
+    `Record a venue cost for ${period}: ${category.replace(/_/g, ' ')} is ${amount} ${COST_ASSET}`,
+  );
+  await theirs.getByLabel(/to approve or run it$/).fill(phrase);
+  await theirs.getByRole('button', { name: 'Approve this request' }).click();
+  await expect(theirs.getByTestId('step-reply')).toContainText('Approved.');
+
+  await entry.getByLabel(/to approve or run it$/).fill(phrase);
+  await entry.getByRole('button', { name: 'Run the approved request' }).click();
+  await expect(entry.getByTestId('step-reply')).toContainText(`of ${category.replace(/_/g, ' ')} for ${period}.`, { timeout: 60_000 });
+}
+
+test(`${J} #7 opens the venue unit economics report: revenue and cost lines from real postings or named blockers`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(480_000);
   const { customer } = run.read();
   await founderSignIn(page, 'a');
   await page.goto(`${ADMIN}/trade-ops`);
@@ -500,52 +549,58 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
     expect(toUnits(k), `${await row.getAttribute('data-asset')}: kept = collected - returned`).toBe(toUnits(c) - toUnits(r));
   }
 
-  // The warehouse revenue: exactly one answer, and it is a figure or a named blocker, never a blank.
-  const revenue = page.locator('[data-testid=revenue-table], [data-testid=revenue-empty], [data-testid=revenue-unavailable]');
-  await expect(revenue).toHaveCount(1);
-  if ((await page.getByTestId('revenue-unavailable').count()) > 0) {
-    await expect(page.getByTestId('revenue-unavailable')).toContainText('Revenue not available');
-    await expect(page.getByTestId('revenue-unavailable')).toContainText(/Code: [a-z][a-z0-9_.]*\. /);
-  } else if ((await page.getByTestId('revenue-table').count()) > 0) {
-    for (const value of await page.locator('[data-testid=revenue-table] tbody tr td:nth-child(3)').allTextContents())
-      expect(value.trim()).toMatch(/^-?\d+(\.\d+)?$/);
-  } else {
-    await expect(page.getByTestId('revenue-empty')).toHaveText(
-      'The analytics warehouse has no revenue to report. That is shown as empty, not as zero.',
-    );
-  }
+  // The warehouse read: the stack wires no analytics replica, so this is the named blocker, and no figure stands in for it.
+  const blocked = page.getByTestId('revenue-unavailable');
+  await expect(blocked).toContainText('Revenue not available');
+  await expect(blocked).toContainText('Code: ops.warehouse_unwired.');
+  await expect(page.getByTestId('revenue-table')).toHaveCount(0);
+  await expect(page.getByTestId('revenue-empty')).toHaveCount(0);
 
-  // Each of the seven cost lines: an entered figure with its asset, or exactly "Not entered", which the incomplete
-  // notice then names; a line nobody entered is never a zero.
-  const labels = {
-    liquidity: 'Liquidity',
-    insurance_default_capital: 'Insurance and default capital',
-    custody: 'Custody',
-    data: 'Data',
-    support: 'Support',
-    compliance: 'Compliance',
-    infrastructure: 'Infrastructure',
-  };
-  const missing = [];
-  for (const [category, label] of Object.entries(labels)) {
-    const cells = (await page.getByTestId(`cost-${category}`).locator('td').allTextContents()).map((t) => t.trim());
-    expect(cells[0]).toBe(label);
-    if (cells[1] === 'Not entered') missing.push(label);
-    else expect(cells[1], `${label} is an entered figure`).toMatch(/^\d+(\.\d+)? [A-Z0-9]{2,12}$/);
+  // A month nobody enters costs for: each of the seven lines is exactly "Not entered", which the incomplete notice names,
+  // and net is the named blocker. A line nobody entered is never a zero.
+  const period = await page.getByLabel('Month').inputValue();
+  await page.goto(`${ADMIN}/more-ops/venue-economics?period=${BLANK_MONTH}`);
+  for (const { category, label } of COST_LINES) {
+    await expect(page.getByTestId(`cost-${category}`).locator('td')).toHaveText([label, 'Not entered']);
   }
-  // Net: a figure only when every line is entered; otherwise the named blocker for exactly that.
-  if (missing.length > 0) {
-    await expect(page.getByTestId('incomplete')).toContainText(`Not entered: ${missing.join(', ')}.`);
-    await expect(page.getByTestId('net-table')).toHaveCount(0);
-    await expect(page.getByTestId('net-unavailable')).toHaveAttribute('data-reason', 'costs_incomplete');
-    await expect(page.getByTestId('net-unavailable')).toContainText('Code: costs_incomplete.');
-  } else {
-    await expect(page.getByTestId('incomplete')).toHaveCount(0);
-    const net = page.locator('[data-testid=net-table], [data-testid=net-unavailable]');
-    await expect(net).toHaveCount(1);
-    if ((await page.getByTestId('net-unavailable').count()) > 0)
-      await expect(page.getByTestId('net-unavailable')).toHaveAttribute('data-reason', /^(revenue_unavailable|revenue_asset_unknown)$/);
+  await expect(page.getByTestId('incomplete')).toContainText(`Not entered: ${COST_LINES.map((l) => l.label).join(', ')}.`);
+  await expect(page.getByTestId('net-table')).toHaveCount(0);
+  await expect(page.getByTestId('net-unavailable')).toHaveAttribute('data-reason', 'costs_incomplete');
+  await expect(page.getByTestId('net-unavailable')).toContainText('Code: costs_incomplete.');
+
+  // This month: all seven lines entered through the two-founder form, each shown as exactly the figure and note entered.
+  const b = await (await browser.newContext()).newPage();
+  await founderSignIn(b, 'b');
+  try {
+    for (const line of COST_LINES) await enterCost(page, b, period, line);
+  } finally {
+    await b.context().close();
   }
+  await page.goto(`${ADMIN}/more-ops/venue-economics?period=${period}`);
+  for (const { category, label, amount } of COST_LINES) {
+    const cells = page.getByTestId(`cost-${category}`).locator('td');
+    await expect(cells.nth(0)).toHaveText(label);
+    await expect(cells.nth(1)).toHaveText(`${amount} ${COST_ASSET}`);
+    await expect(cells.nth(2)).toHaveText(costNote(category));
+  }
+  await expect(page.getByTestId('incomplete')).toHaveCount(0);
+  await expect(page.getByTestId('net-unavailable')).toHaveCount(0);
+
+  // Net, per asset: the ledger's kept fee less the costs entered in that asset. Fee table and net table are one read.
+  const entered = COST_LINES.reduce((sum, l) => sum + toUnits(l.amount), 0n);
+  const kept = new Map();
+  for (const row of await page.locator('[data-testid=fees-table] tbody tr').all())
+    kept.set(await row.getAttribute('data-asset'), toUnits((await row.locator('[data-col=kept]').textContent()).trim()));
+  expect(kept.has(FEE_ASSET)).toBe(true);
+  const netted = [];
+  for (const row of await page.locator('[data-testid=net-table] tbody tr').all()) {
+    const [asset, revenue, costs, net] = (await row.locator('td').allTextContents()).map((t) => t.trim());
+    netted.push(asset);
+    expect(toUnits(revenue), `${asset}: revenue is the ledger's kept fee`).toBe(kept.get(asset) ?? 0n);
+    expect(toUnits(costs), `${asset}: costs are the entered lines`).toBe(asset === COST_ASSET ? entered : 0n);
+    expect(toUnits(net), `${asset}: net = revenue - costs`).toBe(toUnits(revenue) - toUnits(costs));
+  }
+  expect(netted.sort()).toEqual([...new Set([...kept.keys(), COST_ASSET])].sort());
 });
 
 /** The market the #8 plan is written for: the unquoted TEST spot market, so no owner market's plan is touched. */
