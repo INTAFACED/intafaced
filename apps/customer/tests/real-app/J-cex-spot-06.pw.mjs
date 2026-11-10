@@ -232,7 +232,10 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
   let price;
   const partlyFilled = (o) => o?.status === 'open' && o.filled !== '0';
   for (let attempt = 0; attempt < 3 && !partlyFilled(part); attempt++) {
-    const { bid } = await bestPrices();
+    // Priced from the maker's two-sided quote, not the bare top of the book: with another journey's far bid on top,
+    // 1% under it is under the 10% price band around the middle of bid and ask, and the sale below was refused 400
+    // (issue #7354; #6 met the same band, runs 631 to 640 on main).
+    const { bid } = await makerQuote();
     const tick = toUnits('0.01');
     price = fromUnits(((toUnits(bid) * 99n) / 100n / tick) * tick);
     order = await place(who, { type: 'limit', side: 'buy', amount: '0.002', price, timeInForce: 'GTC' }, `part${attempt}`);
@@ -251,7 +254,7 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
         timeInForce: 'IOC',
         clientOrderId: `${J}-4-${order.id}-${sale}`,
       });
-      expect(sell.status).toBeLessThan(300);
+      expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
       await expect
         .poll(async () => (await orderById(who, order.id)).filled, { timeout: 5_000 })
         .not.toBe('0')
@@ -337,7 +340,7 @@ test(`${J} #6 a stop that fired says why: its stop price, the price that reached
     timeInForce: 'IOC',
     clientOrderId: `${J}-6-${order.id}`,
   });
-  expect(lift.status).toBeLessThan(300);
+  expect(lift.status, JSON.stringify(lift.body).slice(0, 300)).toBeLessThan(300);
   await expect.poll(async () => (await orderById(who, order.id)).triggered ?? null, { timeout: 30_000 }).not.toBeNull();
   await expect.poll(async () => (await orderById(who, order.id)).filled, { timeout: 30_000 }).toBe('0.001');
   const fired = await orderById(who, order.id);
