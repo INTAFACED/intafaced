@@ -42,7 +42,10 @@ const migrations = readdirSync(drizzleDir)
   .sort()
   .map((name) => readFileSync(join(drizzleDir, name), 'utf8'));
 
-const MAP = parseKycCapabilitiesByLevel(JSON.stringify({ basic: ['trade_crypto'], full: ['custody_fiat'] }));
+// As the TEST owner values map it: basic also holds crypto custody and transfer, which a trading clear must never grant.
+const MAP = parseKycCapabilitiesByLevel(
+  JSON.stringify({ basic: ['custody_crypto', 'transfer_crypto', 'trade_crypto'], full: ['custody_fiat'] }),
+);
 const REASONS = parseKycRejectReasons(
   JSON.stringify([{ code: 'compliance_hold', reason: 'TEST: switched off.', guidance: 'TEST: ask Support.' }]),
   'IDENTITY_KYC_CAPABILITY_REASONS',
@@ -123,10 +126,9 @@ if (!available) {
     db.sql<Array<{ tier: string; status: string; reviewed_by: string | null; jurisdiction: string }>>`
       SELECT tier, status, reviewed_by, jurisdiction FROM kyc_records WHERE user_id = ${userId}`;
   const checks = (userId: string) => db.sql`SELECT outcome, business_key FROM trading_checks WHERE user_id = ${userId}`;
-  const capability = async (userId: string) =>
-    kycCapabilitiesOutputSchema
-      .parse(await auth.listKycCapabilities(userId, REASONS))
-      .capabilities.find((c) => c.capability === 'trade_crypto')!.state;
+  const capability = async (userId: string, name = 'trade_crypto') =>
+    kycCapabilitiesOutputSchema.parse(await auth.listKycCapabilities(userId, REASONS)).capabilities.find((c) => c.capability === name)!
+      .state;
   const refusal = async (promise: Promise<unknown>) =>
     (await promise.then(
       () => ({ code: 'resolved' }),
@@ -140,16 +142,25 @@ if (!available) {
       expect((await desk(null).read(userId)).listSet).toBe(false);
     });
 
-    it('a clear grants level basic for trading, with its case and capability, in one step', async () => {
+    it('a clear grants trading alone (level basic marked for trading), with its case and the trading capability, in one step', async () => {
       const userId = await person();
       const result = await desk().run(userId, { legalName: 'TEST Trader One', country: 'DE', confirmed: true });
       expect(result).toMatchObject({ outcome: 'cleared', fresh: true });
-      expect(await auth.kycTier(userId)).toBe('basic');
+      // No approved level: the clear is for trading alone, so every lookup of the level reads none.
+      expect(await auth.kycTier(userId)).toBe('none');
       expect(await auth.kycTradingOnly(userId)).toBe(true);
       expect(await records(userId)).toEqual([
         { tier: 'basic', status: 'approved', reviewed_by: TRADING_CHECKS_REVIEWER, jurisdiction: 'DE' },
       ]);
       expect(await capability(userId)).toBe('active');
+      // For trading only: custody and transfer, which basic also maps to, stay unrequested, and no row grants them.
+      expect(await capability(userId, 'custody_crypto')).toBe('unrequested');
+      expect(await capability(userId, 'transfer_crypto')).toBe('unrequested');
+      expect(await db.sql`SELECT capability, state FROM kyc_capabilities WHERE user_id = ${userId}`).toEqual([
+        { capability: 'trade_crypto', state: 'active' },
+      ]);
+      // The session carries no approved level, only the trading clear: custody, transfer and withdrawal gates read none.
+      expect(await auth.sessionTier(userId)).toEqual({ tier: 'none', tradingCleared: true });
       expect(await db.sql`SELECT state FROM kyc_cases WHERE user_id = ${userId}`).toEqual([{ state: 'approved' }]);
       expect(bus.published.some((e) => e.subject.endsWith('identity.kyc.approved'))).toBe(true);
       expect((await desk().read(userId)).state).toBe('cleared');

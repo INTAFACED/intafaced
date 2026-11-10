@@ -524,6 +524,9 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     expect(cancel.actionKey).toBeTruthy();
     // The same order at the trading level is prepared.
     expect((await d.prepare(principal, { owner, signer, intent: order(7) })).actionKey).toBe(order(7).clientOrderKey);
+    // The trading checks' clear (`trd`, no approved level) opens a venue order too (OWNER 258 (4)).
+    const cleared = { ...principal, tier: 'none', trd: true } as Principal;
+    expect((await d.prepare(cleared, { owner, signer, intent: order(8) })).actionKey).toBe(order(8).clientOrderKey);
   });
 
   it('a withdrawal prepared in the session cannot be submitted from an API key', async () => {

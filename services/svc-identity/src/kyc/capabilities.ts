@@ -253,11 +253,13 @@ export async function listCapabilities(
   userId: string,
   heldTier: KycTier,
   reasons: KycRejectReasons,
+  /** Capabilities held beside the level: the trading checks' clear holds trading alone (`TRADING_CAPABILITIES`). */
+  alsoHeld: readonly KycCapability[] = [],
 ): Promise<KycCapabilitiesOutput> {
   const rows = await sql<CapabilityRow[]>`
     SELECT capability, state, case_id, version, reason_code, at FROM kyc_capabilities WHERE user_id = ${userId}`;
   const byCap = new Map(rows.map((r) => [r.capability, r]));
-  const held = new Set(capabilitiesOfLevel(map, heldTier));
+  const held = new Set([...capabilitiesOfLevel(map, heldTier), ...alsoHeld.filter((cap) => lowestLevelOf(map, cap) !== null)]);
   return {
     mapped: map.size > 0,
     capabilities: KYC_CAPABILITIES.map((capability) => {

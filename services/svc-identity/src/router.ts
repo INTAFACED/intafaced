@@ -2515,13 +2515,15 @@ export function createIdentityRouter(
         )
         .query(async ({ ctx, input }) => {
           try {
+            // Read from the same function the token issuer uses, rather than
+            // re-deriving "highest approved, unexpired" here. Two implementations
+            // of that rule would eventually disagree, and the one the user is
+            // shown is not the one that decides what they can do. A trading-checks
+            // clear reads `basic` with `tradingOnly`: the token's `trd`, for trading alone.
+            const tradingOnly = await auth.kycTradingOnly(ctx.principal.userId);
             return {
-              tradingOnly: await auth.kycTradingOnly(ctx.principal.userId),
-              // Read from the same function the token issuer uses, rather than
-              // re-deriving "highest approved, unexpired" here. Two implementations
-              // of that rule would eventually disagree, and the one the user is
-              // shown is not the one that decides what they can do.
-              tier: await auth.kycTier(ctx.principal.userId),
+              tradingOnly,
+              tier: tradingOnly ? 'basic' : await auth.kycTier(ctx.principal.userId),
               records: (await auth.listKycRecords(ctx.principal.userId, input.limit)).map(presentKyc),
             };
           } catch (err) {

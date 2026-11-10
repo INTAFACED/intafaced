@@ -19,7 +19,8 @@ import { checkAccess, type KycTier } from '@intafaced/config';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { countryCode } from '../auth/sign-up.js';
-import { grantOnApproval, markRequested, type KycCapabilityMap } from './capabilities.js';
+import { capabilitiesOfLevel, grantOnApproval, markRequested, type KycCapabilityMap } from './capabilities.js';
+import type { KycCapability } from '@intafaced/contracts';
 import { approveKycCase, openKycCase } from './cases.js';
 import { openBirthDate } from './birth-date.js';
 import { encryptDocument } from './document-crypto.js';
@@ -48,6 +49,17 @@ export class TradingCheckError extends Error {
 
 /** Who reviewed a level the trading checks cleared. Never a person's id, so it can never be read as an operator's. */
 export const TRADING_CHECKS_REVIEWER = 'trading-checks';
+
+/**
+ * What the trading checks' clear holds: trading, and nothing that custody, transfer or withdrawal reads (OWNER 258 (4):
+ * "trading-only users get country and sanctions checks. The full ID vendor comes with the bank").
+ */
+export const TRADING_CAPABILITIES: readonly KycCapability[] = ['trade_crypto'];
+
+/** The owner's map cut to the trading capabilities at `basic`: what a clear grants, and what a hold marks requested. */
+export function tradingCapabilityMap(map: KycCapabilityMap): KycCapabilityMap {
+  return new Map([['basic', capabilitiesOfLevel(map, 'basic').filter((cap) => TRADING_CAPABILITIES.includes(cap))]]);
+}
 
 export interface SanctionsPerson {
   readonly legalName: string;
@@ -240,9 +252,15 @@ export class TradingChecksDesk {
           { id: recordId, userId, status: 'pending', createdAt: record!.created_at, reviewedAt: null },
           { by: TRADING_CHECKS_REVIEWER, at: now },
         );
-        await grantOnApproval(tx, this.deps.capabilities, { userId, tier: 'basic', caseId, by: TRADING_CHECKS_REVIEWER, at: now });
+        await grantOnApproval(tx, tradingCapabilityMap(this.deps.capabilities), {
+          userId,
+          tier: 'basic',
+          caseId,
+          by: TRADING_CHECKS_REVIEWER,
+          at: now,
+        });
       } else {
-        await markRequested(tx, this.deps.capabilities, { userId, tier: 'basic', heldTier: 'none', caseId, at: now });
+        await markRequested(tx, tradingCapabilityMap(this.deps.capabilities), { userId, tier: 'basic', heldTier: 'none', caseId, at: now });
       }
       const name = encryptDocument(key, Buffer.from(JSON.stringify({ legalName }), 'utf8'));
       await tx`

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { requireScope, type Principal } from '@intafaced/auth';
+import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachConvertRestRoutes, type ConvertRestPort } from './convert/convert-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
@@ -1326,13 +1326,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
    * Scope is still enforced inside TradeService; this refuses a region that may not trade.
    */
-  function requireTradeJurisdiction(req: FastifyRequest, reply: FastifyReply, principal: Principal): boolean {
+  function requireTradeJurisdiction(req: FastifyRequest, reply: FastifyReply, principal: Principal, kycTier = principal.tier): boolean {
     const { region } = contextFrom(req);
     const decision = checkAccess({
       module: 'trade',
       plane: 'fiat',
       region,
-      kycTier: principal.tier,
+      kycTier,
     });
     if (!decision.allowed) {
       // Credentials were fine; this principal may not trade from here. CCXT
@@ -1350,7 +1350,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
   attachUserVenueRoutes(app, deps.userVenue ?? null, {
     requirePrincipal,
-    requireTradeJurisdiction,
+    // The venue holds the person's own funds, not ours: the trading checks' clear (`trd`) opens it, as OWNER 258 (4)
+    // decided. Every custodial route above keeps reading the approved level alone.
+    requireTradeJurisdiction: (req, reply, principal) => requireTradeJurisdiction(req, reply, principal, tradeTier(principal)),
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
   });
 
