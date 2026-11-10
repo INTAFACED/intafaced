@@ -264,6 +264,44 @@ test(`${J} #6 subscribe to status updates by email: proof of work in the browser
   expect(mail[0].subject).toBe('Confirm your status updates');
   await page.context().close();
 
+  // Nothing is sent before they confirm: an incident published on the component they chose reaches no unconfirmed
+  // subscriber, so the confirmation stays their only message and nothing is delivered to them for it.
+  const earlyKey = `${J}-unconfirmed-${RUN}`;
+  const early = await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: `TEST unconfirmed incident ${RUN}`,
+      body: 'TEST unconfirmed',
+      minutes: 15,
+      key: earlyKey,
+      impact: 'minor',
+      components: ['trading'],
+    }),
+    earlyKey,
+  );
+  try {
+    expect(await statusMailAtLeast(SUBSCRIBER, 2, 5_000)).toHaveLength(1);
+    const still = await findSubscriber(SUBSCRIBER);
+    expect(still.state).toBe('unconfirmed');
+    expect(still.deliveries.filter((row) => row.event === early.id)).toEqual([]);
+  } finally {
+    // Resolved at once, so later steps start with no open incident of this step's.
+    const key = `${J}-unconfirmed-resolve-${early.id}`;
+    await publishNotice(
+      await draftNotice({
+        kind: 'incident',
+        title: early.title,
+        body: 'TEST resolved',
+        minutes: 15,
+        key,
+        parentId: early.id,
+        resolves: true,
+      }),
+      key,
+    );
+  }
+  expect(statusMail(SUBSCRIBER)).toHaveLength(1);
+
   // With no email sender (svc-notify started without one), the form says email needs a sender with vendor.email, SMS
   // and push keep their own codes, and nothing is mailed to an address typed in.
   const quiet = `status-nosender-${RUN}@example.com`;
