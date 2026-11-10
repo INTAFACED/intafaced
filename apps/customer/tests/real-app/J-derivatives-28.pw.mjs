@@ -475,6 +475,8 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
     await route.abort('failed');
   });
   const order = await sizeFor(v.a);
+  // Every order and fill of this person's from here on, on either venue, is this step's.
+  const t0 = new Date(Date.now() - 1000).toISOString();
   const sheet = await reviewLong(page, order);
   const chosen = await byId(await line(sheet, 'route-venue').getAttribute('data-venue'));
   const before = wallet.requests.length;
@@ -496,6 +498,18 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
   expect(placed.status).toBe('filled');
   expect(sameDecimal(filled(await fillsOf(chosen, owner, s.startedAt), p.venueClientOrderId), order.size)).toBe(true);
   expect(sameDecimal(placed.filled, order.size)).toBe(true);
+  // No second order under any other id: every fill of this person's since the step began, on either venue, is that one
+  // order's, they add up to its size once, and nothing of theirs rests open on either venue.
+  for (const venue of [v.a, v.b]) {
+    const since = await fillsOf(venue, owner, t0);
+    if (venue.id === chosen.id) {
+      expect(new Set(since.map((f) => f.venueClientOrderId))).toEqual(new Set([p.venueClientOrderId]));
+      expect(sameDecimal(fromUnits(since.reduce((t, f) => t + toUnits(f.amount), 0n)), order.size)).toBe(true);
+    } else {
+      expect(since, `${venue.displayName} took nothing in this step`).toEqual([]);
+    }
+    expect((await at(venue.base, '/open-orders', { account: account(venue, owner) })).value).toEqual([]);
+  }
   await page.unroute('**/api/v1/venue/submit');
   run.write({ lastVenueId: chosen.id });
 });
