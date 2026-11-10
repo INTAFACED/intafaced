@@ -31,6 +31,11 @@ const MARKET: VenueMarket = {
   lotSize: '0.00001',
   makerFeeBps: { known: true, value: '1' },
   takerFeeBps: { known: true, value: '3.5' },
+  listedBy: { known: false },
+  oracleRule: { known: false },
+  markRule: { known: false },
+  tradingHours: { known: false },
+  feed: { known: false },
 };
 const limitBuy: TicketFields = { side: 'buy', type: 'limit', price: '60000.1', amount: '0.1' };
 
