@@ -12,6 +12,12 @@
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
  *   POST /api/v1/venue/submit    { actionKey, signature }
+ *   GET  /api/v1/venue/session?owner=0x…               this sign-in's trading session, read against the venue's agents
+ *   POST /api/v1/venue/session/start { owner, agentAddress }   the owner's one approval for a fresh session key (prepared)
+ *   POST /api/v1/venue/session/end   { owner }                 the owner's revoke of this sign-in's session key (prepared)
+ *
+ * The session approval and its revoke are signed by the owner wallet and sent with `/submit`, as any action
+ * (src/venue/session-key.ts, J-wallet-22 #8). Orders in the session are prepared with `signer.role: 'agent'`.
  *
  * Reads need trade:read, writes trade:write, and every route but `status` the trade jurisdiction (as the grid's
  * routes do). An unverified person's desk reads the `denied.kyc_required` refusal and shows its form with Verify
@@ -33,6 +39,7 @@ import {
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { UserVenueDoor, UserVenueDoorError } from './user-venue-door.js';
+import { SessionKeys } from './session-key.js';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
@@ -229,6 +236,40 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
         stepUpApprovalId: b.stepUpApprovalId ?? null,
       });
     });
+  });
+
+  // `answer` refuses `trade.user_venue_off` before `run` when the door is off, so `sessions` is set whenever it runs.
+  const sessions = door ? new SessionKeys({ door, ...door.sessionDeps }) : null;
+  const session = (run: (s: SessionKeys) => Promise<unknown>) => () => run(sessions!);
+
+  app.get<{ Querystring: Query }>('/api/v1/venue/session', privateRead, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(
+      reply,
+      session((s) => s.status(principal, req.query.owner ?? '')),
+    );
+  });
+
+  app.post('/api/v1/venue/session/start', privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(
+      reply,
+      session((s) => {
+        const b = body<{ owner?: string; agentAddress?: string }>(req);
+        return s.start(principal, b.owner ?? '', b.agentAddress ?? '');
+      }),
+    );
+  });
+
+  app.post('/api/v1/venue/session/end', privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(
+      reply,
+      session((s) => s.end(principal, body<{ owner?: string }>(req).owner ?? '')),
+    );
   });
 
   app.post('/api/v1/venue/submit', privateWrite, async (req, reply) => {

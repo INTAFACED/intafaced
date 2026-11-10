@@ -96,6 +96,36 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     expect(row?.amount).toBe('0.123456789012345678');
   });
 
+  it('lists one person’s actions under a key prefix, oldest first, reading `_` and `%` in the prefix literally (J-wallet-22 #8)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const base = `session-key:${USER}:test_venue:`;
+    await store.insertOnce(USER, `${base}fam.1`, prepared('300', '60000'), new Date('2026-11-09T10:00:00.000Z'));
+    await store.insertOnce(USER, `${base}fam.2`, prepared('301', '60000'), new Date('2026-11-09T10:00:01.000Z'));
+    // `_` would match any one character under LIKE: this key differs from the prefix only there, and is not listed.
+    await store.insertOnce(USER, `session-key:${USER}:testXvenue:fam.1`, prepared('302', '60000'), new Date('2026-11-09T10:00:02.000Z'));
+    await store.insertOnce('22222222-2222-4222-8222-2222222222b2', `${base}fam.1`, prepared('303', '60000'), new Date());
+    const listed = await store.listByPrefix(USER, base);
+    expect(listed.map((r) => r.businessKey)).toEqual([`${base}fam.1`, `${base}fam.2`]);
+    expect(await store.listByPrefix(USER, `session-key:${USER}:%`)).toEqual([]);
+  });
+
+  it('finds every agent approval of one address, under any key, case-insensitively, and nothing else (J-wallet-22 #8)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const agent = '0x00000000000000000000000000000000000000AB';
+    const approval = (nonce: string): PreparedVenueAction => ({
+      ...prepared(nonce, '60000'),
+      intent: { kind: 'approve_agent', agentAddress: agent, agentName: '', validUntil: new Date('2026-11-09T18:00:00.000Z') },
+      venueClientOrderId: null,
+      builderFee: null,
+    });
+    await store.insertOnce(USER, `session-key:${USER}:test-venue-sim:fam.1`, approval('400'), new Date());
+    await store.insertOnce(USER, `agent-approve:${USER}:tool`, approval('401'), new Date());
+    await store.insertOnce('22222222-2222-4222-8222-2222222222b2', `agent-approve:other:tool`, approval('402'), new Date());
+    const found = await store.agentApprovals(USER, agent.toLowerCase());
+    expect(found.map((r) => r.businessKey).sort()).toEqual([`agent-approve:${USER}:tool`, `session-key:${USER}:test-venue-sim:fam.1`]);
+    expect(await store.agentApprovals(USER, '0x00000000000000000000000000000000000000cd')).toEqual([]);
+  });
+
   it('lists the venue accounts whose owner signed an action this person stored, and no other (J-cex-spot-01 #11)', async () => {
     const store = new SqlPreparedActionStore(db!.sql);
     const PERSON = '11111111-1111-4111-8111-1111111111b9';
