@@ -45,11 +45,26 @@ export function testVenueChainId(raw) {
  * shared by the stack (which starts the TEST venue) and trade's env (which points the door at it), so the two never disagree.
  */
 export function userVenueSwitchOn(raw) {
-  const text = (raw ?? '').trim();
-  if (text === '' || text === 'off') return false;
-  if (text !== 'on') throw new Error(`LOCAL_STACK_USER_VENUE must be unset, off or on (got ${JSON.stringify(raw)})`);
-  return true;
+  return userVenueCount(raw) > 0;
 }
+
+/**
+ * How many TEST venues the switch asks for: 0 (unset, blank, `off`), 1 (`on`), or 2 (`two`: the first venue and a second
+ * TEST venue beside it, for the routing journey J-derivatives-28). Anything else throws.
+ */
+export function userVenueCount(raw) {
+  const text = (raw ?? '').trim();
+  if (text === '' || text === 'off') return 0;
+  if (text === 'on') return 1;
+  if (text === 'two') return 2;
+  throw new Error(`LOCAL_STACK_USER_VENUE must be unset, off, on or two (got ${JSON.stringify(raw)})`);
+}
+
+/**
+ * The second TEST venue (J-derivatives-28): its own id and name, and a deeper TEST ladder (5 BTC a level against the first
+ * venue's 1), so one order the first venue's shown depth can't fill at its shown price has a venue that can.
+ */
+export const SECOND_TEST_VENUE = { id: 'test-venue-sim-b', displayName: 'TEST venue simulator B', levelSize: '5' };
 
 /**
  * The TEST venue's deposit address on the stack's TEST chain. It has no key: the venue pays withdrawals from it by
@@ -79,14 +94,15 @@ export function testVenueDepositRoute({ rpcUrl, token }) {
 }
 
 /** Start the TEST venue and seed it, and, with a TEST chain, its deposit watcher. Resolves with the server and its URL. */
-export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '', depositToken = '' }) {
+export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '', depositToken = '', second = false }) {
   if (!fs.existsSync(VENUE_SIM_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
   const sim = await import(pathToFileURL(VENUE_SIM_DIST).href);
-  const deposit = testVenueDepositRoute({ rpcUrl, token: depositToken });
-  const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit });
-  const seeded = await sim.seedTestVenue(started.sim);
+  const deposit = second ? null : testVenueDepositRoute({ rpcUrl, token: depositToken });
+  const which = second ? { id: SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName } : {};
+  const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
+  const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
   if (deposit) await sim.startChainDeposits({ sim: started.sim, route: deposit, rpcUrl, log });
   log({ msg: 'test-venue.listening', label: 'TEST', url: started.url, chainId: started.sim.chainId, seeded: seeded.orders, deposit });

@@ -500,123 +500,155 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
 test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the new tier and its leverage`, async ({ page }) => {
   const who = account();
   const me = await api(who);
-  // On the stack's TEST book a tier-1 position is worth at most 5% of the depth it closes into (about 150 USDT today),
-  // so 0.001 BTC opens in tier 1 and 0.004 more carries it into a higher tier.
+  // A tier-1 position is worth at most 5% of the depth it closes into: the BTC/USDT book's best bid level, the book
+  // the perpetual's mark comes from (about 3,000 USDT of maker quote, so about 150 USDT). One lot, 0.001 BTC, opens in
+  // tier 1, and the add is sized from the published tier table to about twice tier 1's bound.
   const FIRST = '0.001';
-  const ADD = '0.004';
-  await desk(page);
-  const ticket = page.getByRole('region', { name: 'Order ticket' });
-  const confirm = page.getByRole('alertdialog');
-  const tierStep = confirm.getByRole('region', { name: 'New margin tier' });
+  const unit = 10n ** 18n;
+  const lot = 10n ** 15n; // 0.001 BTC, the TEST perp's lot
+  // Held, both TEST ladders rest as their last whole cycle left them and nothing crosses them, so the depth and the mark
+  // every rating below reads stay one. Unheld, the maker puts its new ladder up before it takes the old one down, and
+  // when the walk steps down by the 9 bps between levels its new best bid rests at the old second level's price beside
+  // it, about 9,000 USDT at the best bid for a moment: tier 1 then took 0.005 BTC and the add asked no confirm (#7215:
+  // run 42637781139, shard 33, "confirmRequired": false). The hold is asked for once each book has both sides, and is
+  // timed from before the ask, as the hold's own lapse is.
+  await bestPrices('BTC/USDT', 50, 60_000);
+  await bestPrices(SYMBOL, 50, 60_000);
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+  tool('local-test-market.mjs', 'hold', SYMBOL);
+  try {
+    await bestPrices('BTC/USDT', 50, 60_000);
+    await bestPrices(SYMBOL, 50, 60_000);
+    await desk(page);
+    const ticket = page.getByRole('region', { name: 'Order ticket' });
+    const confirm = page.getByRole('alertdialog');
+    const tierStep = confirm.getByRole('region', { name: 'New margin tier' });
 
-  async function review(size) {
-    await ticket.getByRole('textbox', { name: 'Size' }).fill(size);
-    await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
-    await ticket.getByRole('button', { name: 'Review', exact: true }).click();
-    await expect(ticket.getByText('Margin tier', { exact: true })).toBeVisible();
-  }
-  async function positionSize() {
-    const { body } = await me.get('/api/v1/positions');
-    return body.find((p) => p.symbol === SYMBOL && p.side === 'long')?.contracts ?? '0';
-  }
-  async function until(read, ok, what) {
-    const end = Date.now() + 20_000;
-    let last;
-    while (Date.now() < end) {
-      last = await read();
-      if (ok(last)) return last;
-      await new Promise((r) => setTimeout(r, 500));
+    async function review(size) {
+      await ticket.getByRole('textbox', { name: 'Size' }).fill(size);
+      await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
+      await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+      await expect(ticket.getByText('Margin tier', { exact: true })).toBeVisible();
     }
-    throw new Error(`${what}: still ${JSON.stringify(last)}`);
-  }
+    async function positionSize() {
+      const { body } = await me.get('/api/v1/positions');
+      return body.find((p) => p.symbol === SYMBOL && p.side === 'long')?.contracts ?? '0';
+    }
+    async function until(read, ok, what) {
+      const end = Date.now() + 20_000;
+      let last;
+      while (Date.now() < end) {
+        last = await read();
+        if (ok(last)) return last;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      throw new Error(`${what}: still ${JSON.stringify(last)}`);
+    }
 
-  // A first position inside tier 1: the review names the tier and the confirm asks nothing more.
-  const small = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: FIRST, leverage: LEVERAGE });
-  expect(small.status, JSON.stringify(small.body)).toBe(200);
-  expect(small.body.riskTier).toMatchObject({ current: null, projected: 1, maintenanceBps: 50, confirmRequired: false });
-  await review(FIRST);
-  await expect(ticket.getByText('Tier 1, maintenance 0.50%')).toBeVisible();
-  await ticket.getByRole('button', { name: 'Open long' }).click();
-  await expect(confirm).toBeVisible();
-  await expect(tierStep).toHaveCount(0);
-  await confirm.getByRole('button', { name: 'Confirm open long' }).click();
-  // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures and asks once more.
-  const firstFilled = page.getByText('Order filled');
-  await expect(firstFilled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
-  if (!(await firstFilled.isVisible())) await confirm.getByRole('button', { name: 'Confirm open long' }).click();
-  await expect(firstFilled).toBeVisible({ timeout: 20_000 });
-  await until(positionSize, (s) => s === FIRST, 'the tier-1 position');
+    // A first position inside tier 1: the review names the tier and the confirm asks nothing more.
+    const small = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: FIRST, leverage: LEVERAGE });
+    expect(small.status, JSON.stringify(small.body)).toBe(200);
+    expect(small.body.riskTier).toMatchObject({ current: null, projected: 1, maintenanceBps: 50, confirmRequired: false });
+    // The add: enough lots that the position is worth about twice the most tier 1 takes at this depth (tier 2 takes four
+    // times), read from the tier table under the same hold.
+    const table = await me.get(TIERS);
+    expect(table.status, JSON.stringify(table.body)).toBe(200);
+    const tierOne = toUnits(table.body.tiers[0].notionalUpto.long);
+    const mark = toUnits(small.body.markPrice);
+    expect((toUnits(FIRST) * mark) / unit <= tierOne, JSON.stringify(table.body)).toBe(true);
+    const total = ((2n * tierOne * unit) / mark / lot + 1n) * lot;
+    const ADD = fromUnits(total - toUnits(FIRST));
+    const TOTAL = fromUnits(total);
+    await review(FIRST);
+    await expect(ticket.getByText('Tier 1, maintenance 0.50%')).toBeVisible();
+    await ticket.getByRole('button', { name: 'Open long' }).click();
+    await expect(confirm).toBeVisible();
+    await expect(tierStep).toHaveCount(0);
+    await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+    // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures and asks once more.
+    const firstFilled = page.getByText('Order filled');
+    await expect(firstFilled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
+    if (!(await firstFilled.isVisible())) await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+    await expect(firstFilled).toBeVisible({ timeout: 20_000 });
+    await until(positionSize, (s) => s === FIRST, 'the tier-1 position');
 
-  // Adding 0.004 crosses out of tier 1. The service refuses the add until the tier is named, and holds nothing.
-  const add = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: ADD, leverage: LEVERAGE });
-  expect(add.status, JSON.stringify(add.body)).toBe(200);
-  const tier = add.body.riskTier;
-  expect(tier).toMatchObject({ current: 1, confirmRequired: true });
-  expect(tier.projected).toBeGreaterThan(1);
-  const rate = { 2: '1.00%', 3: '2.50%', 4: '5.00%' }[tier.projected];
-  const before = await me.balances();
-  const unconfirmed = await me.post('/api/v1/futures/orders', {
-    symbol: SYMBOL,
-    side: 'buy',
-    type: 'market',
-    amount: ADD,
-    leverage: LEVERAGE,
-    marginMode: 'isolated',
-    clientOrderId: `${J}-add-unconfirmed`,
-  });
-  expect(unconfirmed.status, JSON.stringify(unconfirmed.body)).toBe(409);
-  expect(unconfirmed.body.error).toBe('trade.risk_limit_confirm_required');
-  expect(unconfirmed.body.message).toContain(`moves the position from tier 1 into tier ${tier.projected} (maintenance ${rate})`);
-  expect(unconfirmed.body.message).toContain(`at ${LEVERAGE}x leverage; every tier answers to the listing cap of 10x`);
-  expect(await me.balances()).toEqual(before);
-  expect((await me.get('/api/v1/futures/orders?scope=open&limit=10')).body).toEqual([]);
+    // The add crosses out of tier 1. The service refuses it until the tier is named, and holds nothing.
+    const add = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: ADD, leverage: LEVERAGE });
+    expect(add.status, JSON.stringify(add.body)).toBe(200);
+    const tier = add.body.riskTier;
+    expect(tier).toMatchObject({ current: 1, confirmRequired: true });
+    expect(tier.projected).toBeGreaterThan(1);
+    const rate = { 2: '1.00%', 3: '2.50%', 4: '5.00%' }[tier.projected];
+    const before = await me.balances();
+    const unconfirmed = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'market',
+      amount: ADD,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-add-unconfirmed`,
+    });
+    expect(unconfirmed.status, JSON.stringify(unconfirmed.body)).toBe(409);
+    expect(unconfirmed.body.error).toBe('trade.risk_limit_confirm_required');
+    expect(unconfirmed.body.message).toContain(`moves the position from tier 1 into tier ${tier.projected} (maintenance ${rate})`);
+    expect(unconfirmed.body.message).toContain(`at ${LEVERAGE}x leverage; every tier answers to the listing cap of 10x`);
+    expect(await me.balances()).toEqual(before);
+    expect((await me.get('/api/v1/futures/orders?scope=open&limit=10')).body).toEqual([]);
 
-  // On the desk: the review names the higher tier, and the confirm step names it with its leverage and waits for a tick.
-  await page.getByRole('button', { name: 'Open another' }).click();
-  await review(ADD);
-  await expect(ticket.getByText(`Tier ${tier.projected}, maintenance ${rate}`)).toBeVisible();
-  await expect(ticket.getByText('Higher than the tier your position sits in now.', { exact: false })).toBeVisible();
-  await ticket.getByRole('button', { name: 'Open long' }).click();
-  await expect(tierStep).toBeVisible();
-  await expect(tierStep.getByRole('heading')).toHaveText(`New margin tier: tier ${tier.projected}`);
-  await expect(tierStep).toContainText(`This order moves your position from tier 1 into tier ${tier.projected}.`);
-  await expect(tierStep).toContainText(`Tier ${tier.projected} keeps ${rate} of the position’s value as maintenance margin`);
-  await expect(tierStep).toContainText(`Leverage ${LEVERAGE}x. Every tier allows up to the listing cap of 10x.`);
-  const go = confirm.getByRole('button', { name: 'Confirm open long' });
-  await expect(go).toBeDisabled();
-  const accept = tierStep.getByRole('checkbox', { name: `I accept tier ${tier.projected}` });
-  await accept.click();
-  await expect(go).toBeEnabled();
-  const sent = [];
-  page.on('request', (r) => {
-    if (r.method() === 'POST' && r.url().includes('/api/v1/futures/orders')) sent.push(r.postDataJSON());
-  });
-  await go.click();
-  // The confirm re-checks the numbers first; a mark that moved shows the new figures, and the tier is ticked again.
-  const filled = page.getByText('Order filled');
-  await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
-  if (!(await filled.isVisible())) {
+    // On the desk: the review names the higher tier, and the confirm step names it with its leverage and waits for a tick.
+    await page.getByRole('button', { name: 'Open another' }).click();
+    await review(ADD);
+    await expect(ticket.getByText(`Tier ${tier.projected}, maintenance ${rate}`)).toBeVisible();
+    await expect(ticket.getByText('Higher than the tier your position sits in now.', { exact: false })).toBeVisible();
+    await ticket.getByRole('button', { name: 'Open long' }).click();
+    await expect(tierStep).toBeVisible();
+    await expect(tierStep.getByRole('heading')).toHaveText(`New margin tier: tier ${tier.projected}`);
+    await expect(tierStep).toContainText(`This order moves your position from tier 1 into tier ${tier.projected}.`);
+    await expect(tierStep).toContainText(`Tier ${tier.projected} keeps ${rate} of the position’s value as maintenance margin`);
+    await expect(tierStep).toContainText(`Leverage ${LEVERAGE}x. Every tier allows up to the listing cap of 10x.`);
+    const go = confirm.getByRole('button', { name: 'Confirm open long' });
     await expect(go).toBeDisabled();
+    const accept = tierStep.getByRole('checkbox', { name: `I accept tier ${tier.projected}` });
     await accept.click();
+    await expect(go).toBeEnabled();
+    const sent = [];
+    page.on('request', (r) => {
+      if (r.method() === 'POST' && r.url().includes('/api/v1/futures/orders')) sent.push(r.postDataJSON());
+    });
     await go.click();
-  }
-  await expect(filled).toBeVisible({ timeout: 20_000 });
-  expect(sent).toHaveLength(1);
-  expect(sent[0]).toMatchObject({ amount: ADD, confirmTier: tier.projected });
-  await until(positionSize, (s) => s === '0.005', 'the position after the confirmed add');
+    // The confirm re-checks the numbers first; a mark that moved shows the new figures, and the tier is ticked again.
+    const filled = page.getByText('Order filled');
+    await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
+    if (!(await filled.isVisible())) {
+      await expect(go).toBeDisabled();
+      await accept.click();
+      await go.click();
+    }
+    await expect(filled).toBeVisible({ timeout: 20_000 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ amount: ADD, confirmTier: tier.projected });
+    await until(positionSize, (s) => s === TOTAL, 'the position after the confirmed add');
+    // Every rating above read the held books: the hold lapses HOLD_MAX_MS after it was asked for.
+    expect(Date.now() - heldAt, 'the hold lapsed before the add was placed').toBeLessThan(HOLD_MAX_MS);
 
-  // Back to nothing open for the next step: a reduce-only close is never asked to confirm a tier.
-  const close = await me.post('/api/v1/futures/orders', {
-    symbol: SYMBOL,
-    side: 'sell',
-    type: 'market',
-    amount: '0.005',
-    reduceOnly: true,
-    marginMode: 'isolated',
-    clientOrderId: `${J}-close-6`,
-  });
-  expect(close.status, JSON.stringify(close.body)).toBe(200);
-  await until(positionSize, (s) => s === '0', 'no open position after the close');
+    // Back to nothing open for the next step: a reduce-only close is never asked to confirm a tier.
+    const close = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'sell',
+      type: 'market',
+      amount: TOTAL,
+      reduceOnly: true,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-close-6`,
+    });
+    expect(close.status, JSON.stringify(close.body)).toBe(200);
+    await until(positionSize, (s) => s === '0', 'no open position after the close');
+  } finally {
+    tool('local-test-market.mjs', 'release', SYMBOL);
+    tool('local-test-market.mjs', 'release', 'BTC/USDT');
+  }
 });
 
 test(`${J} #7 opens beyond the open-interest share and with no limit published: refused with the room left, then refused by name`, async ({
