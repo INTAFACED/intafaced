@@ -808,6 +808,33 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
     accepted: true,
     order: { status: 'canceled' },
   });
+  // Cancels it again on the desk, as the person does: the cancelled order stays listed as Cancelled, with Cancel again.
+  // The repeat is the same action under the same business key: the desk shows the venue's first answer, the wallet is
+  // not asked, nothing new is sent to the venue, and the venue's own state after it is unchanged.
+  const listedRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${order.venueClientOrderId}"]`);
+  await expect(listedRow.locator('[data-cell="status"]')).toHaveText('Cancelled', { timeout: 15_000 });
+  const preparedBefore = prepared.length;
+  const submitsBefore = submits.length;
+  await listedRow.getByRole('button', { name: 'Cancel again' }).click();
+  const deskOutcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');
+  await expect(deskOutcome).toContainText('Cancelled on the venue; its lock is released.', { timeout: 20_000 });
+  await expect(deskOutcome).toContainText('This is the same action as before');
+  await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
+  await expect.poll(() => prepared.length, { timeout: 20_000 }).toBeGreaterThan(preparedBefore);
+  const deskRepeat = prepared.at(-1);
+  expect(deskRepeat.sent?.intent, JSON.stringify(deskRepeat.sent).slice(0, 300)).toMatchObject({ kind: 'cancel_order' });
+  expect(deskRepeat.answer, JSON.stringify(deskRepeat.answer).slice(0, 300)).toMatchObject({
+    actionKey: key,
+    reused: true,
+    signed: true,
+    lastOutcome: { definite: true, accepted: true, order: { status: 'canceled' } },
+  });
+  expect(digestOf(deskRepeat.answer)).toBe(digestOf(first.answer));
+  expect(submits.length, 'the repeat sends nothing new to the venue').toBe(submitsBefore);
+  expect(wallet.requests.length, 'the repeat on the desk asks the wallet nothing').toBe(asked + 1);
+  expect((await venueOrder(who, owner, order.venueClientOrderId))?.status).toBe('canceled');
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  expect(wireUnits((await panelEqualsVenue(page, who, owner)).locked)).toBe(wireUnits(before.locked));
   // The second cancel is submitted: the same action, answered with the same outcome, and nothing moves.
   const again = await (await api(who)).post('/api/v1/venue/submit', cancel.sent);
   expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
@@ -947,9 +974,22 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   const price = fromUnits(((bid * 99n) / 100n / tick) * tick);
   await venueReviewLimit(page, 'sell', price, fromUnits(amount));
   const asked = wallet.requests.length;
+  // A sell carries our builder fee: the review asks the wallet to approve it first, and Confirm sell waits for that.
+  const sheet = reviewSheet(page);
+  const builderLine = sheet.locator('[data-line="builder-fee"]');
+  await expect(builderLine).toContainText('Not signed');
+  await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeDisabled();
+  await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' }).click();
+  await continueInWallet(page);
+  // The wallet is asked once, for the approval, and the review then reads it as signed.
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
+  await expect(builderLine).not.toContainText('Not signed', { timeout: 20_000 });
+  await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeEnabled({ timeout: 20_000 });
+  expect(wallet.requests.length, 'the approval asked the wallet once').toBe(asked + 1);
+  const approved = wallet.requests.length;
   await confirm(page, 'sell');
   await continueInWallet(page);
-  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(approved + 1);
   expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
   const sold = async () =>
     (await venueFills(who, owner, since))
@@ -995,10 +1035,45 @@ async function confirmItsMe(page) {
 
 test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet signs, pending then done with its fees or "not known"; a session not stepped up is refused before the wallet is asked`, async ({
   page,
+  browser,
 }) => {
   test.setTimeout(420_000);
   const person = account();
   const { owner } = run.read();
+  // A session that has not stepped up asks the desk to withdraw, as a person can before they have any second factor:
+  // the desk's confirmation has nothing to confirm with, so the person sends the request without one. The door refuses
+  // it with the step-up refusal, and the desk names that reason; the wallet is not asked and nothing is withdrawn.
+  const unsteppedContext = await browser.newContext();
+  try {
+    const desk = await unsteppedContext.newPage();
+    const { wallet: deskWallet, panel: deskPanel } = await venueDesk(desk);
+    const free = wireUnits((await venueBalance(person, owner, 'USDC')).free);
+    const deskAsked = deskWallet.requests.length;
+    await deskPanel.getByRole('button', { name: /^Withdraw/ }).click();
+    const deskForm = desk.getByRole('dialog', { name: /withdraw/i });
+    await deskForm.getByRole('textbox', { name: /^Amount/ }).fill('10');
+    const refusal = desk.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/prepare');
+    await deskForm
+      .getByRole('button', { name: /withdraw|sign|confirm/i })
+      .last()
+      .click();
+    const confirmIt = desk.getByRole('dialog', { name: 'Confirm it’s you' });
+    await expect(confirmIt).toContainText('You have no passkey or authenticator app, so this withdrawal cannot be confirmed.');
+    await confirmIt.getByRole('button', { name: 'Ask the venue without a confirmation' }).click();
+    const refused = await refusal;
+    const refusedBody = await refused.json();
+    expect(refused.status(), JSON.stringify(refusedBody).slice(0, 300)).toBe(403);
+    expect(refusedBody.intafacedCode, JSON.stringify(refusedBody).slice(0, 300)).toBe('identity.step_up_required');
+    expect(refused.request().postDataJSON().stepUpApprovalId ?? null, 'the desk sent no confirmation').toBeNull();
+    await expect(deskForm.getByTestId('venue-outcome')).toContainText(
+      'Refused before your wallet was asked: Confirm this with your passkey or authenticator code first',
+      { timeout: 15_000 },
+    );
+    expect(deskWallet.requests.length, 'the wallet is not asked when the door refuses').toBe(deskAsked);
+    expect(wireUnits((await venueBalance(person, owner, 'USDC')).free)).toBe(free);
+  } finally {
+    await unsteppedContext.close();
+  }
   // A second factor to step up with, from Security. From here the account signs in only with a code, so the step's
   // reads use one session signed in with a fresh code, and the browser stays signed in.
   await signIn(page, person);
@@ -1029,6 +1104,7 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
     intent: { kind: 'withdraw', asset: 'USDC', amount: '10', destination: owner, withdrawalKey: `withdraw:${owner}:${J}-12-unstepped` },
   });
   expect(unstepped.status, JSON.stringify(unstepped.body).slice(0, 300)).toBe(403);
+  expect(unstepped.body.intafacedCode, JSON.stringify(unstepped.body).slice(0, 300)).toBe('identity.step_up_required');
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).free)).toBe(wireUnits(before.free));
   // Steps up, and the wallet signs the withdrawal.
   await form
