@@ -4,7 +4,7 @@ For INTAFACED/project-state#1574 (OWNER 250, OWNER 251 (2)). Counted on 2026-11-
 
 **Result: no check is a drop candidate.** Every check below caught at least one head, except two. Gitleaks's only reds were a broken download (infra), and the Affected tests self-tests had no reds. Both fall under the keep rule. There are two small fold candidates, named in the table.
 
-**The one fold made** (the PR that adds this file): `ci.yml`'s Affected tests job no longer runs `node --test tooling/ci/journey-verdict.test.mjs`. The Doctrine gates' `tooling-tests` gate already runs every `*.test.mjs` under `tooling/` (`tooling/scripts/tooling-tests.mjs`), that file included, so it ran twice on every head. Format stays: it caught a head alone.
+**No fold made.** `ci.yml`'s Affected tests job also runs `node --test tooling/ci/journey-verdict.test.mjs`, which the Doctrine gates' `tooling-tests` gate already runs. It stays: removing it saves about a second a run, and the CI review asked for more proof than that saving is worth (INTAFACED/intafaced#7766). Format stays too: it caught a head alone.
 
 **How to read the columns.**
 

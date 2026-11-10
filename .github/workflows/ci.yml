@@ -270,10 +270,7 @@ jobs:
       - run: node tooling/ci/main-first.mjs --self-test
       - run: node tooling/ci/main-trust.mjs --self-test
       - run: node tooling/ci/post-merge-trust.mjs --self-test
-      # journey-verdict.test.mjs is not run here: the `gates` job (Doctrine gates) runs it on every event this job runs
-      # on (neither job has an `if`, and the seal job needs both). `pnpm gates` runs tooling/ci/gates.mjs, whose
-      # `tooling-tests` gate runs tooling/scripts/tooling-tests.mjs, which runs every *.test.mjs under tooling/
-      # (testFiles), this one included (docs/ci/checks-counted-2026-11-09.md, OWNER 250).
+      - run: node --test tooling/ci/journey-verdict.test.mjs
       - run: node tooling/ci/bisect-main.mjs --self-test
       - run: node tooling/ci/journeys-revert.mjs --self-test
       - run: node tooling/ci/journeys-revert-probe.mjs --self-test
