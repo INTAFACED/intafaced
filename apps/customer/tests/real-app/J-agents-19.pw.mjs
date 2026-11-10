@@ -207,9 +207,12 @@ test(`${J} #1 prepares a grant with the spend cap blank: a refusal naming the ca
   await openOnChain(page);
   await expect(grant(page).getByRole('textbox', { name: /^Spend cap/ })).toHaveValue('');
   await grant(page).getByRole('button', { name: 'Prepare grant' }).click();
-  await expect(grant(page).getByRole('alert')).toContainText('Spend cap');
+  await expect(grant(page).getByRole('alert')).toHaveText(
+    'Spend cap is required: set the most the key may ever spend. Nothing was built. (agents.session_key_cap_unset)',
+  );
   await expect(onChain(page).getByTestId('unsigned-call')).toHaveCount(0);
   await expect(status(page)).toHaveCount(0);
+  expect((await chainSession()).grant).toBeNull();
 });
 
 test(`${J} #2 adds a target list that includes an approve selector: the grant is refused and nothing is built`, async ({ page }) => {
