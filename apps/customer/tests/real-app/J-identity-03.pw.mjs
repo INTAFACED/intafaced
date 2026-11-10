@@ -107,10 +107,15 @@ test(`${J} #1 the find-password page answers with the same message and the same 
 
   // The same timing: identity's answer to a known address and to unknown ones, taken in turn, the same reply each time,
   // and their medians within 100 ms of each other (a few requests each, well inside the address's request budget).
+  // A known address's answer starts its mail send just after the reply (off the response path), so each unknown
+  // request is timed only once that mail is out: otherwise the unknown answer is measured while the server sends the
+  // known address's mail (issue #7854).
   const known = [];
   const strangers = [];
   for (let i = 0; i < 4; i++) {
+    const mailed = resetCodes(who.email).length;
     const a = await timedReset(who.email);
+    await nextResetCode(who.email, mailed);
     const b = await timedReset(`nobody-${i}-${who.handle}@local-test.invalid`);
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);

@@ -122,6 +122,11 @@ export type UserVenueDoorCode =
   | 'trade.venue_session_none'
   | 'trade.venue_session_unavailable'
   | 'trade.venue_session_superseded'
+  // Convert's venue sell quotes (venue-sell-quotes.ts, J-cex-spot-17 #8).
+  | 'trade.venue_sell_quote_unwired'
+  | 'trade.venue_sell_quote_market_unknown'
+  | 'trade.venue_sell_quote_not_spot'
+  | 'trade.venue_sell_quote_key_reused'
   | VenueRouteRefusalCode;
 
 /**

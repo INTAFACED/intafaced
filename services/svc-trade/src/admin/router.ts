@@ -244,6 +244,10 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       quotes: operator
         .input(z.object({ side: z.enum(['buy', 'sell']), limit: z.number().int().min(1).max(100) }).strict())
         .query(({ ctx, input }) => ready().feesConvert.convertQuotes(ctx.principal, input).catch(fail)),
+      /** The venue's sell prices on customers' own venue accounts, exactly as the venue gave them (J-cex-spot-17 #8). */
+      venueSellQuotes: operator
+        .input(z.object({ limit: z.number().int().min(1).max(100) }).strict())
+        .query(({ ctx, input }) => ready().feesConvert.venueSellQuotes(ctx.principal, input.limit).catch(fail)),
     }),
     positions: router({
       list: operator

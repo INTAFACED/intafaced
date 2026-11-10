@@ -99,6 +99,7 @@ import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
 import type { AgentAccounts } from './venue/agent-account.js';
 import type { UserVenueDoor } from './venue/user-venue-door.js';
 import type { UserVenueRouter } from './venue/venue-router.js';
+import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -207,6 +208,8 @@ export interface PrivateRestDeps {
   userVenue?: UserVenueRouter | null;
   /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
   agentAccounts?: AgentAccounts | null;
+  /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
+  venueSellQuotes?: VenueSellQuotes | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -1351,7 +1354,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
-  attachUserVenueRoutes(app, deps.userVenue ?? null, { requirePrincipal, requireTradeJurisdiction });
+  attachUserVenueRoutes(app, deps.userVenue ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    sellQuotes: deps.venueSellQuotes ?? null,
+  });
   attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.

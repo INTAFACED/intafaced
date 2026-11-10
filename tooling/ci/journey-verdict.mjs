@@ -107,16 +107,34 @@ export const passedAfterFailing = (t) => {
 /** Whether one Playwright test passed by this rule: it ended expected (a `test.fail()` that failed is expected), or
  *  Playwright called it flaky and an attempt passed after a failing one. journey-reach-map.mjs reads tests by it too. */
 export const testPassed = (t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t));
+/** A journey test file, as the real-app folder names them. */
+const PARTIAL_JOURNEY_FILE = /^J-[a-z0-9-]+\.pw\.mjs$/;
 export function readReport(report) {
   const states = {};
   const files = {};
   const retried = new Set();
   const ran = new Set();
+  const partial = new Set();
+  const partialFailed = new Set();
   const walk = (suite, file) => {
     const here = suite.file ?? file;
     for (const spec of suite.specs ?? []) {
       const key = stepOf(spec.title);
-      if (!key) continue;
+      if (!key) {
+        // A test that proves part of a step says so in its title ("J-identity-15, part of #1: …") and is no step's
+        // state. Its file still ran: listed only when every such test in it passed, so a failing one is never "ran"
+        // and the seal's touched-journeys check fails closed on it. Without this a file with no whole-step test was
+        // never listed, and every pull request the map sends to it was held for good (#7750's seal, run 42743957395).
+        // Journey files only: another spec in the report (the look sweep) stays off the list, as before.
+        const tests = spec.tests ?? [];
+        const f = String(spec.file ?? here ?? '')
+          .split('/')
+          .pop();
+        if (!PARTIAL_JOURNEY_FILE.test(f)) continue;
+        if (tests.length && tests.every(testPassed)) partial.add(f);
+        else partialFailed.add(f);
+        continue;
+      }
       const tests = spec.tests ?? [];
       if (tests.some((t) => t.status === 'flaky')) retried.add(key);
       const state =
@@ -136,6 +154,7 @@ export function readReport(report) {
     for (const child of suite.suites ?? []) walk(child, here);
   };
   for (const suite of report?.suites ?? []) walk(suite, suite.file);
+  for (const f of partial) if (!partialFailed.has(f) && !ran.has(f)) ran.add(f);
   return { states, files, ran: [...ran].sort(), retried };
 }
 
