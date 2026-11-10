@@ -269,6 +269,17 @@ async function closesAround(symbol, before, after) {
   return [...new Set([lastAt(before), lastAt(after)].filter(Boolean))];
 }
 
+/**
+ * Waits until the minute `t` falls in has ended and that minute's fills are in. An open candle's close moves with every
+ * trade, so the screen's read of it and the hand count's read a moment later need not agree; once it has ended, both
+ * read the same final close.
+ */
+async function minuteEnded(page, t) {
+  const final = (Math.floor(t / 60_000) + 1) * 60_000 + 2_000;
+  const left = final - Date.now();
+  if (left > 0) await page.waitForTimeout(left);
+}
+
 /** The screen's dollar text for `qty` coins at each candle close: what the arrival is worth at that price. */
 const valuesAt = (qty, closes) => closes.map((close) => usd((toUnits(qty) * toUnits(close) + ONE / 2n) / ONE));
 
@@ -355,12 +366,14 @@ function seed(...args) {
 test(`${J} #3 reads a deposit: valued at the time it arrived, with the price source named, and no cost until one is entered`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  // Up to two minutes of this are the waits for the deposit's and the reward's minutes to end.
+  test.setTimeout(360_000);
   const who = account();
   // TEST 0.004 BTC arrives by deposit through the real ledger, at a moment the BTC/USDT book has traded.
   const before = Date.now();
   expect(fund(who.email, 'BTC', '0.004').tx).toBeTruthy();
   const after = Date.now();
+  await minuteEnded(page, after);
   await signIn(page, who);
   const lots = await lotsPage(page);
   const row = lots.locator('tbody tr[data-source="deposit"]');
@@ -421,6 +434,7 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
     expect(history.days.map((d) => d.amount)).toEqual([REWARD]);
     // The saving goes back whole; the interest stays with the person.
     await bank.mutate('earn.withdraw', { positionId });
+    await minuteEnded(page, paidBy);
 
     // The reward's lot: its own row, sourced "Reward", the amount paid, valued at the ETH/USDT candle of when it arrived.
     const ethLots = await lotsPage(page, 'ETH');
