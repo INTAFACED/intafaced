@@ -43,6 +43,8 @@ export function wireTradeOpsAdmin(deps: {
   venueDesk?: TradeOpsDeps['venueDesk'];
   /** The user-venue door's venue markets (builder-fee caps); absent or null when the door is off. */
   venueMarkets?: () => Promise<VenueMarketsRead | null>;
+  /** The routing view's read (J-derivatives-28 #6); null when the door is off. */
+  venueRouting?: TradeOpsDeps['venueRouting'];
 }): TradeOpsAdmin {
   return new TradeOpsAdmin({
     sql: deps.sql,
@@ -56,6 +58,7 @@ export function wireTradeOpsAdmin(deps: {
     ...(deps.feeSchedule ? { feeSchedule: deps.feeSchedule } : {}),
     ...(deps.venueMarkets ? { venueMarkets: deps.venueMarkets } : {}),
     ...(deps.venueDesk ? { venueDesk: deps.venueDesk } : {}),
+    ...(deps.venueRouting ? { venueRouting: deps.venueRouting } : {}),
     vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,
     approvals: deps.approvals,
