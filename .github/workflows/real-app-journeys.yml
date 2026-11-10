@@ -201,6 +201,18 @@ jobs:
             { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # The revert main-bisect opens (journey-seal.mjs autoRevertScope: the App's revert/auto- branch, one commit that
+          # reverts that commit, no other file, no shared setup) runs only the journeys that failed on main and the reverted
+          # change's own, as the seal judges it; main's full run after the merge guards main. An unreadable scope, or
+          # any other pull request, goes on to the ordinary scope below.
+          auto=$(REPO="$GITHUB_REPOSITORY" node "$seal" --auto-revert-scope "$PR") || auto='{}'
+          narrow=$(jq -r '(.files // []) | join(" ")' <<<"$auto") || narrow=''
+          if [ -n "$narrow" ] && [[ "$narrow" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
+            jq -r '.why' <<<"$auto"
+            { echo "mode=run"; echo "target=$narrow"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          jq -r 'select(.why != null and .why != "") | .why' <<<"$auto" 2>/dev/null || true
           # --reach: product code runs only the journeys main's touched-journeys map recorded reaching it (the base's map,
           # beside its journey-touch.mjs), else the full suite.
           touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --reach --files-from "$list") || full "journey-touch couldn't judge this pull request"
