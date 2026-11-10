@@ -993,6 +993,31 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     access: 'private',
     summary: 'One order by its Idempotency-Key or action key: accepted with the venue’s record, or unknown until the venue answers',
   },
+  {
+    name: 'venueSession',
+    method: 'GET',
+    path: '/api/v1/venue/session',
+    product: 'accounts',
+    access: 'private',
+    summary: 'This sign-in’s trading session: its key’s address and expiry, read against the venue’s own agent list',
+  },
+  {
+    name: 'venueSessionStart',
+    method: 'POST',
+    path: '/api/v1/venue/session/start',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Your wallet’s one approval for a fresh session key that can trade and never withdraw. Takes the key’s address only; signed-in session only',
+  },
+  {
+    name: 'venueSessionEnd',
+    method: 'POST',
+    path: '/api/v1/venue/session/end',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your wallet’s revoke of this sign-in’s session key. A key once used is never approved again',
+  },
   // Accounts
   {
     name: 'fetchBalance',

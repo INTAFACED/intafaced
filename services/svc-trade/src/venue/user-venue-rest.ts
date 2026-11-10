@@ -13,6 +13,12 @@
  *   POST /api/v1/venue/submit    { actionKey, signature }
  *   GET  /api/v1/venue/orders?owner=&cursor=&limit=      this person's orders on the account, oldest first, a page at a time
  *   GET  /api/v1/venue/orders/by-key?idempotencyKey=|actionKey=   one order by its key: accepted, unknown, refused, not_sent
+ *   GET  /api/v1/venue/session?owner=0x…               this sign-in's trading session, read against the venue's agents
+ *   POST /api/v1/venue/session/start { owner, agentAddress }   the owner's one approval for a fresh session key (prepared)
+ *   POST /api/v1/venue/session/end   { owner }                 the owner's revoke of this sign-in's session key (prepared)
+ *
+ * The session approval and its revoke are signed by the owner wallet and sent with `/submit`, as any action
+ * (src/venue/session-key.ts, J-wallet-22 #8). Orders in the session are prepared with `signer.role: 'agent'`.
  *
  * IDEMPOTENCY-KEY (J-developer-05; DV-auth-03): an order's prepare and submit may carry an `Idempotency-Key` header instead
  * of a `clientOrderKey` / `actionKey`. The order is stored and placed under that key, sent to the venue as its client
@@ -40,6 +46,7 @@ import {
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
+import { SessionKeys } from './session-key.js';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
@@ -240,6 +247,40 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
         });
       },
       (v) => (v as { reused?: boolean }).reused === true,
+    );
+  });
+
+  // `answer` refuses `trade.user_venue_off` before `run` when the door is off, so `sessions` is set whenever it runs.
+  const sessions = door ? new SessionKeys({ door, ...door.sessionDeps }) : null;
+  const session = (run: (s: SessionKeys) => Promise<unknown>) => () => run(sessions!);
+
+  app.get<{ Querystring: Query }>('/api/v1/venue/session', privateRead, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(
+      reply,
+      session((s) => s.status(principal, req.query.owner ?? '')),
+    );
+  });
+
+  app.post('/api/v1/venue/session/start', privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(
+      reply,
+      session((s) => {
+        const b = body<{ owner?: string; agentAddress?: string }>(req);
+        return s.start(principal, b.owner ?? '', b.agentAddress ?? '');
+      }),
+    );
+  });
+
+  app.post('/api/v1/venue/session/end', privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(
+      reply,
+      session((s) => s.end(principal, body<{ owner?: string }>(req).owner ?? '')),
     );
   });
 

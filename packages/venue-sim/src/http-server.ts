@@ -46,6 +46,8 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *                                                         `definite: false` (timeout); `submitDelayMs` holds each submit
  *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
+ *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
+ *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC and BTC-PERP
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
  *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
@@ -379,6 +381,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       sim.setMark(str(body, 'symbol'), price as Amount);
       return { ok: true, label: 'TEST' };
     }
+    case '/test/lose-answers': {
+      const count = body.count;
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0)
+        throw new VenueWireError('count is required (a whole number)');
+      sim.loseAnswersOn(account(body), count);
+      return { ok: true, label: 'TEST' };
+    }
+    case '/test/expire-agent':
+      return { expired: sim.expireAgent(account(body), str(body, 'agentAddress')), label: 'TEST' };
     case '/test/seed':
       return { ...(await seedTestVenue(sim)), label: 'TEST' };
     case '/test/market-status': {
