@@ -1553,11 +1553,117 @@ test('the Review step streams the call only when input.jsonl exists, and runs as
   const pinned = (part) => /--model \S+ --effort \S+/.exec(part)?.[0];
   assert.ok(pinned(streamed) && pinned(streamed) === pinned(plain));
   for (const part of [streamed, plain]) {
-    assert.match(part, /--tools "" --setting-sources "" --strict-mcp-config --mcp-config '\{"mcpServers":\{\}\}'/);
+    assert.match(part, /--setting-sources "" --strict-mcp-config --mcp-config '\{"mcpServers":\{\}\}'/);
     assert.match(part, /--no-session-persistence/);
     assert.match(part, /--json-schema "\$schema"/);
   }
   assert.match(step, /\n {10}fi\n {10}node "\$GITHUB_WORKSPACE\/tooling\/ci\/ci-review\.mjs" read "\$dir"\n/);
+});
+
+/**
+ * Every reviewer call in ci-review.yml (each run of the pinned CLI from `node_modules/.bin/`, or through npx, with the
+ * lines its trailing backslashes continue), with what is
+ * wrong with its tools: the only tools are Read, Grep and Glob, confined to the default branch's checkout
+ * (`--restricted`, `dontAsk`, no prompts, the one `--add-dir`), with the denies, the caps and no settings or MCP servers,
+ * and nothing that adds a tool, a setting, a directory or a way past the permission check. (Failure it prevents: the
+ * review runs on pull_request_target with the review key in its environment and its answer in a public log, so a call
+ * that gained Bash, Write or a read outside the checkout could be steered by a diff into printing a secret; Nino's
+ * guide, 10 Nov 2026, honesty gap 4.)
+ */
+function reviewerCallFaults(wf) {
+  const lines = wf.split('\n');
+  const calls = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/node_modules\/\.bin\/|\bnpx\b|\bnpm exec\b|\bpnpm (exec|dlx)\b/.test(lines[i])) continue;
+    let call = lines[i];
+    while (/\\\s*$/.test(lines[i]) && i + 1 < lines.length) call += '\n' + lines[++i];
+    calls.push(call);
+  }
+  const READ_ONLY = '--tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \\';
+  const ADD_DIR = '--add-dir "$GITHUB_WORKSPACE" \\';
+  const DENIES =
+    '--disallowedTools "Read(/$GITHUB_WORKSPACE/.git/**)" "Read(/$GITHUB_WORKSPACE/**/.env*)" "Read(//proc/**)" "Read(/$RUNNER_TEMP/**)" \\';
+  const NO_SETTINGS = `--setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \\`;
+  const faults = [];
+  if (calls.length !== 3) faults.push(`${calls.length} reviewer calls, not the review's two and the reader's one`);
+  calls.forEach((call, n) => {
+    const at = `call ${n + 1}`;
+    const own = call.split('\n').map((l) => l.trim());
+    for (const line of [READ_ONLY, ADD_DIR, DENIES, NO_SETTINGS]) if (!own.includes(line)) faults.push(`${at} lacks the line ${line}`);
+    const count = (flag) => call.split(flag).length - 1;
+    for (const flag of [
+      '--tools',
+      '--add-dir',
+      '--disallowedTools',
+      '--permission-mode',
+      '--setting-sources',
+      '--mcp-config',
+      '--max-turns',
+      '--max-budget-usd',
+    ])
+      if (count(flag) !== 1) faults.push(`${at} has ${flag} ${count(flag)} times, not once`);
+    const banned =
+      /--allowedTools|--allowed-tools|--settings\b|--dangerously|--allow-dangerously|bypassPermissions|--permission-prompt-tool|--plugin|--agents?\b|--bare|--resume|--continue|--fork|--worktree|\b(Bash|Write|Edit|MultiEdit|NotebookEdit|WebFetch|WebSearch|Agent|Task|PowerShell)\b/;
+    const hit = banned.exec(call);
+    if (hit) faults.push(`${at} names ${hit[0]}`);
+    const caps = /--max-turns (\d+) --max-budget-usd (\d+)\b/.exec(call);
+    if (!caps) faults.push(`${at} has no --max-turns N --max-budget-usd N`);
+    else if (Number(caps[1]) > 40 || Number(caps[2]) > 15) faults.push(`${at} caps at ${caps[1]} turns and $${caps[2]}, above 40 and $15`);
+  });
+  return faults;
+}
+
+test('every reviewer call reads only the default branch checkout, with Read, Grep and Glob alone', async () => {
+  const { readFileSync } = await import('node:fs');
+  const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
+  assert.deepEqual(reviewerCallFaults(wf), []);
+  // The tree the tools read is the default branch's: every job checks out only that, without credentials (the review,
+  // the proof read, and since #7731 the seal start).
+  const checkouts = wf.match(/- uses: actions\/checkout@/g).length;
+  assert.ok(checkouts >= 2, `${checkouts} checkouts`);
+  assert.equal(
+    wf.match(
+      /- uses: actions\/checkout@[^\n]*\n {8}with:\n {10}ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n {10}persist-credentials: false\n/g,
+    )?.length,
+    checkouts,
+  );
+});
+
+test('the reviewer-call check fails on each planted fault', async () => {
+  const { readFileSync } = await import('node:fs');
+  const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
+  const once = (from, to) => {
+    assert.ok(wf.includes(from), from);
+    return wf.replace(from, to);
+  };
+  const planted = {
+    'the old no-tools call': once('--tools "Read,Grep,Glob" --restricted', '--tools "" --restricted'),
+    'Bash added': once('--tools "Read,Grep,Glob"', '--tools "Read,Grep,Glob,Bash"'),
+    'Write added': once('--tools "Read,Grep,Glob"', '--tools "Read,Write,Grep,Glob"'),
+    'restricted dropped': once('--tools "Read,Grep,Glob" --restricted ', '--tools "Read,Grep,Glob" '),
+    'dontAsk swapped': once('--permission-mode dontAsk', '--permission-mode bypassPermissions'),
+    'the .git deny dropped': once('"Read(/$GITHUB_WORKSPACE/.git/**)" ', ''),
+    'the /proc deny dropped': once('"Read(//proc/**)" ', ''),
+    'the RUNNER_TEMP deny dropped': once(' "Read(/$RUNNER_TEMP/**)"', ''),
+    'a second directory': once('--add-dir "$GITHUB_WORKSPACE" \\', '--add-dir "$GITHUB_WORKSPACE" "$HOME" \\'),
+    'an allow rule': once('--append-system-prompt "$reads"', '--allowedTools "Bash(*)" --append-system-prompt "$reads"'),
+    'inline settings': once('--append-system-prompt "$reads"', `--settings '{}' --append-system-prompt "$reads"`),
+    'settings sources back': once(`--setting-sources "" --strict`, `--setting-sources "user,project" --strict`),
+    'no turn cap': once('--max-turns 40 --max-budget-usd 15', '--max-budget-usd 15'),
+    'a raised cap': once('--max-turns 40', '--max-turns 400'),
+    'a call through npx': once(
+      'node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"\n',
+      'node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"\n          npx --yes some-cli -p "hi"\n',
+    ),
+    'a fourth call': once(
+      'node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"\n',
+      'node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"\n          "$RUNNER_TEMP/reviewer/node_modules/.bin/reviewer" -p "hi"\n',
+    ),
+  };
+  for (const [name, text] of Object.entries(planted)) {
+    assert.notEqual(text, wf, name);
+    assert.ok(reviewerCallFaults(text).length > 0, `${name} is caught`);
+  }
 });
 
 test('a map rebuilt from new runs groups the paths that gain and lose the same journeys, and leaves nothing out (#7724)', () => {
