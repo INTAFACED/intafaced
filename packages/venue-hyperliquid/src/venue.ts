@@ -501,6 +501,13 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       status: null,
       maxOrderQty: null,
       maxOrderNotional: null,
+      // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours and feed state are not read from the
+      // info API by this adapter yet: each is not known, never guessed.
+      listedBy: { known: false },
+      oracleRule: { known: false },
+      markRule: { known: false },
+      tradingHours: { known: false },
+      feed: { known: false },
     }));
     return this.asOf(list);
   }

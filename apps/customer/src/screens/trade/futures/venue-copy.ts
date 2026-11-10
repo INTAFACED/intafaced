@@ -1,8 +1,30 @@
 import { defineCopy } from '../../../shared/i18n';
 
+/**
+ * The words around a market's own published rules and feed state (J-derivatives-21). The rules themselves are the
+ * venue's text, shown as it publishes it; these words only label them and claim no protection of ours.
+ */
+export const MARKET_RULE_WORDS = {
+  'Market rules': 'Rules the venue publishes for {symbol}',
+  'Listed by': 'Listed by',
+  listing_venue: 'The venue itself ({name})',
+  listing_hip3: 'A HIP-3 deployer: {name}',
+  listing_ostium: 'An Ostium market: {name}',
+  'Oracle rule': 'Oracle rule',
+  'Mark rule': 'Mark price rule',
+  'Trading hours': 'Trading hours',
+  'Price feed': 'Price feed',
+  feed_live: 'Live, as the venue reports it; last oracle update',
+  feed_stale: 'Stale, as the venue reports it; last oracle update',
+  'Stale rule': 'The venue’s rule while its feed is stale',
+  'Feed stale notice': '{venue} reports the {symbol} price feed stale. The venue’s own rule: {rule}',
+  'Not published': 'not published by this venue',
+} as const;
+
 // The futures desk's words in venue mode (B1). English source only; the shared venue words are in
 // features/trade/venue/venue-copy.ts.
 export const futuresVenueCopy = defineCopy('trade.futures.venue', {
+  ...MARKET_RULE_WORDS,
   'Futures on venue': 'Futures',
   Contracts: 'Contracts',
   'Contract on venue': '{symbol} · {venue}',
@@ -26,7 +48,7 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   'Leverage set': 'Set on the venue: {times}x, {mode}',
   'Leverage not set': 'None set on the venue: sign a setting before your first order.',
   'Sign leverage': 'Sign this leverage setting',
-  'Leverage whole': 'Leverage is a whole number from 1 to {max}.',
+  'Leverage whole': 'Leverage is a whole number of times, 1 or more.',
   Ticket: 'Order ticket',
   Long: 'Long',
   Short: 'Short',

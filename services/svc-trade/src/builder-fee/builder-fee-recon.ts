@@ -1,4 +1,10 @@
-import { earnedBuilderFeeKey, venueBuilderFeeReceivable, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import {
+  earnedBuilderFeeKey,
+  venueBuilderAccount,
+  venueBuilderFeeReceivable,
+  type LedgerClient,
+  type LedgerTx,
+} from '@intafaced/ledger-client';
 import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { isTestVenue, VenueRefusalError, type UserVenue, type UserVenueFill } from '@intafaced/venue-contracts';
 import { builderFeeVenueAccount, type BuilderFeeStop, type BuilderFeeStore, type LoggedBuilderFee } from './builder-fee-store.js';
@@ -25,6 +31,13 @@ import { builderFeeVenueAccount, type BuilderFeeStop, type BuilderFeeStore, type
  *
  * A fill the poster recorded as `not_our_order` (its order is none our door sent) is listed as such and is not a break:
  * its builder fee is not ours, so it counts in neither total (OWNER 288 change 1b).
+ *
+ * The venue's own totals decide (OWNER 288 change 1e): a dropped side, a foreign fee and a fill older than the venue's
+ * history each leave the fill-by-fill match green, so the recon also compares, per fee asset, the ledger's earned total
+ * at the venue (what it owes us plus what it has paid out to our builder account, the whole book) against the venue's own
+ * earned total for our builder address, and what the ledger says the venue owes us against the venue's own unclaimed
+ * figure. The verdict is `matched` only when every fill matches, both totals match, and at least one fill was compared; a
+ * period with none reads `nothing_to_compare`, never matched; totals the venue can't give read `totals_unknown`.
  */
 export type BuilderFeeLineStatus =
   'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused' | 'ledger_missing' | 'not_our_order';
@@ -47,18 +60,6 @@ export interface BuilderFeeReconLine {
   readonly refusalCode: string | null;
 }
 
-export type BuilderFeeReconResult = 'matched' | 'break' | 'nothing_to_compare';
-
-/**
- * What a read venue's lines say together (OWNER 288). A `not_our_order` line is listed but compared nothing of ours, so
- * lines that are all not ours, like no lines, are nothing to compare and never matched.
- */
-export function builderFeeReconResult(lines: readonly Pick<BuilderFeeReconLine, 'status'>[]): BuilderFeeReconResult {
-  const ours = lines.filter((l) => l.status !== 'not_our_order');
-  if (ours.length === 0) return 'nothing_to_compare';
-  return ours.every((l) => l.status === 'matched') ? 'matched' : 'break';
-}
-
 export interface BuilderFeeReconTotal {
   readonly assetId: string;
   readonly venueTotal: string;
@@ -70,6 +71,30 @@ export interface BuilderFeeReconTotal {
  * What a venue owes us in builder fees now, per asset: the receivable's balance, negated. `owed` while fees are earned
  * and not received; `overpaid` when the ledger records more received than earned, a break for a person (never netted).
  */
+/** The venue's own totals for our builder address against the ledger's, per fee asset (OWNER 288 change 1e). */
+export interface BuilderFeeVenueTotalRow {
+  readonly assetId: string;
+  /** What the ledger records as earned at the venue: owed now plus paid out to our builder account. The whole book. */
+  readonly ledgerEarned: string;
+  /** The venue's own earned total for our builder address; "0" when the venue lists none in this asset. */
+  readonly venueEarned: string;
+  /** What the ledger says the venue owes us now. */
+  readonly ledgerOwed: string;
+  /** The venue's own unclaimed figure for our builder address. */
+  readonly venueUnclaimed: string;
+  readonly earnedMatched: boolean;
+  readonly owedMatched: boolean;
+}
+
+export type BuilderFeeVenueTotalsUnknown = 'no_builder_address' | 'venue_reads_none' | 'venue_not_known' | 'venue_refused';
+
+export type BuilderFeeVenueTotals =
+  | { readonly state: 'known'; readonly builder: string; readonly asOf: string; readonly rows: readonly BuilderFeeVenueTotalRow[] }
+  | { readonly state: 'unknown'; readonly reason: BuilderFeeVenueTotalsUnknown; readonly message: string };
+
+/** `matched` only with every fill and both venue totals matching and at least one fill compared. */
+export type BuilderFeeReconVerdict = 'matched' | 'break' | 'nothing_to_compare' | 'totals_unknown';
+
 export interface BuilderFeeOwed {
   readonly assetId: string;
   readonly amount: string;
@@ -137,17 +162,15 @@ export type BuilderFeeReconVenue =
       readonly displayName: string;
       readonly test: boolean;
       readonly state: 'read';
-      /** The time the venue was read through. */
+      /** The time read through: the oldest of the venue's reads behind this result. */
       readonly asOf: string;
-      /**
-       * `matched` only when at least one fill was compared and none differs; no fill on either side is
-       * `nothing_to_compare`, never green (OWNER 288). `matched` below is true only for `matched`.
-       */
-      readonly result: BuilderFeeReconResult;
-      /** Fills compared, one per line. */
-      readonly compared: number;
+      readonly verdict: BuilderFeeReconVerdict;
+      /** True only when the verdict is `matched`. */
       readonly matched: boolean;
+      /** The fills compared fill by fill: every line but a fill that is not ours. */
+      readonly compared: number;
       readonly totals: readonly BuilderFeeReconTotal[];
+      readonly venueTotals: BuilderFeeVenueTotals;
       readonly lines: readonly BuilderFeeReconLine[];
       readonly owed: readonly BuilderFeeOwed[];
       readonly volume: readonly BuilderFeeVolumeRow[];
@@ -179,6 +202,8 @@ export interface BuilderFeeReconDeps {
   readonly store: BuilderFeeStore;
   /** The orders we sent with our builder fee, among these venue client order ids, each with its rate (prepared-action-store.ts). */
   readonly routedOrders: (venueId: string, venueClientOrderIds: readonly string[]) => Promise<ReadonlyMap<string, Amount>>;
+  /** Our builder address on the venue (the owner value), or null when it is blank: the venue's totals are then unknown. */
+  readonly builder: string | null;
   readonly now: () => Date;
 }
 
@@ -262,6 +287,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   const inPeriod: UserVenueFill[] = [];
   let asOf = now;
   let markets: ReadonlyMap<string, FeeMarket>;
+  let venueSide: VenueSide;
   try {
     venue = await deps.venue();
     markets = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m]));
@@ -274,6 +300,8 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
         if (fill.builderFee > 0n) reported.push({ ...fill, userId, venueAccount: builderFeeVenueAccount(account) });
       }
     }
+    venueSide = await readVenueTotals(venue, deps.builder);
+    if (venueSide.state === 'known' && venueSide.asOf < asOf) asOf = venueSide.asOf;
   } catch (error) {
     if (!(error instanceof VenueRefusalError)) throw error;
     return {
@@ -370,8 +398,9 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   // What the venue owes us now (the receivable's own balance, negative while fees are earned and not yet paid out), and
   // the orders we routed among the period's fills: two reads that share nothing, run together.
   const ids = [...new Set(inPeriod.map((f) => f.venueClientOrderId).filter((id): id is string => id !== null))];
-  const [balances, rates, runs] = await Promise.all([
+  const [balances, paidOut, rates, runs] = await Promise.all([
     deps.ledger.balances('treasury', venueBuilderFeeReceivable(venueId, '').ownerId),
+    deps.ledger.balances('treasury', venueBuilderAccount(venueId, '').ownerId),
     deps.routedOrders(venueId, ids),
     deps.store.runState(venueId),
   ]);
@@ -454,6 +483,19 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       matched: v.gaps === 0,
     }));
 
+  const venueTotals = compareVenueTotals(venueSide, balances, paidOut);
+  const compared = lines.filter((l) => l.status !== 'not_our_order').length;
+  const linesBreak = lines.some((l) => l.status !== 'matched' && l.status !== 'not_our_order');
+  const totalsBreak = venueTotals.state === 'known' && venueTotals.rows.some((r) => !r.earnedMatched || !r.owedMatched);
+  const verdict: BuilderFeeReconVerdict =
+    linesBreak || totalsBreak
+      ? 'break'
+      : compared === 0
+        ? 'nothing_to_compare'
+        : venueTotals.state === 'unknown'
+          ? 'totals_unknown'
+          : 'matched';
+
   const totalRows = [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([assetId, t]) => ({
@@ -462,7 +504,6 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       ledgerTotal: formatAmount(t.ledger),
       matched: t.venue === t.ledger,
     }));
-  const result = builderFeeReconResult(lines);
   return {
     ...head,
     venues: [
@@ -472,10 +513,11 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
         test: isTestVenue(venue.venue),
         state: 'read',
         asOf: asOf.toISOString(),
-        result,
-        compared: lines.filter((l) => l.status !== 'not_our_order').length,
-        matched: result === 'matched',
+        verdict,
+        matched: verdict === 'matched',
+        compared,
         totals: totalRows,
+        venueTotals,
         lines,
         owed,
         volume,
@@ -489,4 +531,75 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       },
     ],
   };
+}
+
+type VenueSide =
+  | {
+      readonly state: 'known';
+      readonly builder: string;
+      readonly asOf: Date;
+      readonly byAsset: ReadonlyMap<string, { earned: Amount; unclaimed: Amount }>;
+    }
+  | { readonly state: 'unknown'; readonly reason: BuilderFeeVenueTotalsUnknown; readonly message: string };
+
+/** The venue's own builder totals for our address. A venue that can't give them is unknown with its reason, never zero. */
+async function readVenueTotals(venue: UserVenue, builder: string | null): Promise<VenueSide> {
+  if (!builder) {
+    return {
+      state: 'unknown',
+      reason: 'no_builder_address',
+      message: 'Our builder address on the venue is blank, so its totals are not read',
+    };
+  }
+  if (!venue.builderTotals) {
+    return { state: 'unknown', reason: 'venue_reads_none', message: "This venue adapter does not read the venue's builder totals yet" };
+  }
+  let read;
+  try {
+    read = await venue.builderTotals(builder);
+  } catch (error) {
+    // A venue that is down fails the whole read (above); a refusal of this one read leaves the fills compared.
+    if (!(error instanceof VenueRefusalError) || error.refusal.code === 'venue_down') throw error;
+    return { state: 'unknown', reason: 'venue_refused', message: `venue.${error.refusal.code}: ${error.message}` };
+  }
+  if (!read.value.known) {
+    return { state: 'unknown', reason: 'venue_not_known', message: 'The venue does not report builder totals for our address' };
+  }
+  const byAsset = new Map<string, { earned: Amount; unclaimed: Amount }>();
+  for (const a of read.value.value.assets) byAsset.set(a.asset, { earned: a.earned, unclaimed: a.unclaimed });
+  return { state: 'known', builder: read.value.value.builder, asOf: read.asOf, byAsset };
+}
+
+type Balance = Awaited<ReturnType<LedgerClient['balances']>>[number];
+
+/**
+ * Per fee asset, the ledger's earned total (what the venue owes us, the receivable negated, plus what it paid out to our
+ * builder account, that account negated) and what it owes us, against the venue's own earned and unclaimed figures. Every
+ * asset either side holds is a row, so a fee asset only one side knows is a break, never left out.
+ */
+function compareVenueTotals(side: VenueSide, receivable: readonly Balance[], paidOut: readonly Balance[]): BuilderFeeVenueTotals {
+  if (side.state === 'unknown') return side;
+  const available = (bs: readonly Balance[]) =>
+    new Map(bs.filter((b) => b.account.kind === 'available').map((b) => [b.account.assetId, -b.amount] as const));
+  const owed = available(receivable);
+  const paid = available(paidOut);
+  const assets = [...new Set([...owed.keys(), ...paid.keys(), ...side.byAsset.keys()])].sort();
+  const rows: BuilderFeeVenueTotalRow[] = [];
+  for (const assetId of assets) {
+    const ledgerOwed = owed.get(assetId) ?? 0n;
+    const ledgerEarned = ledgerOwed + (paid.get(assetId) ?? 0n);
+    const venue = side.byAsset.get(assetId) ?? { earned: 0n, unclaimed: 0n };
+    // An asset with nothing on either side is no row.
+    if (ledgerOwed === 0n && ledgerEarned === 0n && venue.earned === 0n && venue.unclaimed === 0n) continue;
+    rows.push({
+      assetId,
+      ledgerEarned: formatAmount(ledgerEarned),
+      venueEarned: formatAmount(venue.earned),
+      ledgerOwed: formatAmount(ledgerOwed),
+      venueUnclaimed: formatAmount(venue.unclaimed),
+      earnedMatched: ledgerEarned === venue.earned,
+      owedMatched: ledgerOwed === venue.unclaimed,
+    });
+  }
+  return { state: 'known', builder: side.builder, asOf: side.asOf.toISOString(), rows };
 }

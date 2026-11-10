@@ -19,10 +19,26 @@ const venue = {
   displayName: 'TEST venue',
   test: true,
   asOf: '2026-11-09T10:00:01.000Z',
-  result: 'break',
-  compared: 1,
+  verdict: 'break',
   matched: false,
+  compared: 1,
   totals: [{ assetId: 'USDC', venueTotal: '0.25', ledgerTotal: '0', matched: false }],
+  venueTotals: {
+    state: 'known',
+    builder: '0xb1',
+    asOf: '2026-11-09T10:00:00.000Z',
+    rows: [
+      {
+        assetId: 'USDC',
+        ledgerEarned: '0',
+        venueEarned: '0.25',
+        ledgerOwed: '0',
+        venueUnclaimed: '0.25',
+        earnedMatched: false,
+        owedMatched: false,
+      },
+    ],
+  },
   lines: [line],
   owed: [{ assetId: 'USDC', amount: '0.25', state: 'owed' }],
   volume: [
@@ -74,28 +90,6 @@ describe('parseBuilderFeeRecon', () => {
       lines: [{ status: 'not_in_ledger', venueAmount: '0.25' }],
     });
   });
-  it('reads a venue that compared nothing as nothing to compare, and refuses a green that compared nothing (OWNER 288)', () => {
-    const empty = {
-      ...venue,
-      result: 'nothing_to_compare',
-      compared: 0,
-      matched: false,
-      totals: [],
-      lines: [],
-      volume: [],
-      volumeGaps: [],
-      ledgerRecords: [],
-    };
-    expect(parseBuilderFeeRecon({ ...recon, venues: [empty] })?.venues[0]).toMatchObject({
-      result: 'nothing_to_compare',
-      compared: 0,
-      matched: false,
-    });
-    // The old answer: matched over zero lines. It is not shown as green.
-    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...empty, result: 'matched', matched: true }] })).toBeNull();
-    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...empty, matched: true }] })).toBeNull();
-    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, result: undefined }] })).toBeNull();
-  });
   it('reads a not-our-order line, the venue account, and the poster state; a bad poster state refuses the answer', () => {
     const notOurs = { ...line, fillId: 'f9', status: 'not_our_order' };
     const stop = { venueId: 'test-venue-sim', venueAccount: '0xa1', fillId: 'f1', code: 'ledger.idempotency_conflict', message: 'x' };
@@ -143,6 +137,31 @@ describe('parseBuilderFeeRecon', () => {
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, lines: [{ ...line, venueAmount: 0.25 }] }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, lines: [{ ...line, status: 'fine' }] }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, totals: [{ assetId: 'USDC' }] }] })).toBeNull();
+  });
+});
+
+describe("the verdict, the fills compared and the venue's own totals (OWNER 288 change 1e)", () => {
+  it('reads them; a verdict that disagrees with matched, a bad count or bad totals refuse the whole answer', () => {
+    expect(parseBuilderFeeRecon(recon)?.venues[0]).toMatchObject({
+      verdict: 'break',
+      compared: 1,
+      venueTotals: { state: 'known', builder: '0xb1', rows: [{ venueEarned: '0.25', earnedMatched: false }] },
+    });
+    const none = { ...venue, verdict: 'nothing_to_compare', compared: 0, lines: [] };
+    expect(parseBuilderFeeRecon({ ...recon, venues: [none] })?.venues[0]).toMatchObject({ verdict: 'nothing_to_compare', matched: false });
+    const unknown = { ...venue, verdict: 'totals_unknown', venueTotals: { state: 'unknown', reason: 'venue_reads_none', message: 'x' } };
+    expect(parseBuilderFeeRecon({ ...recon, venues: [unknown] })?.venues[0]).toMatchObject({
+      venueTotals: { state: 'unknown', reason: 'venue_reads_none' },
+    });
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, verdict: 'matched' }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, verdict: 'fine' }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, compared: -1 }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, venueTotals: undefined }] })).toBeNull();
+    expect(
+      parseBuilderFeeRecon({ ...recon, venues: [{ ...unknown, venueTotals: { state: 'unknown', reason: 'odd', message: 'x' } }] }),
+    ).toBeNull();
+    const badRow = { ...venue.venueTotals, rows: [{ ...venue.venueTotals.rows[0], venueEarned: 0.25 }] };
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, venueTotals: badRow }] })).toBeNull();
   });
 });
 

@@ -103,7 +103,7 @@ jobs:
             tooling/ci
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
       - name: The prompt key
         id: key
         env:
@@ -154,7 +154,7 @@ jobs:
             .github/workflows/builder
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
 
       - name: Check the journey
         id: check
@@ -273,7 +273,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SHA"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
       # The job's steps call this node by its path: the agent user can't write the tool cache (/usr/local/bin/node,
       # which any user can write, is never used).
       - name: Pin the job's node
@@ -486,7 +486,7 @@ jobs:
             tooling/ci
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
 
       - name: The agent's output
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

@@ -8,7 +8,14 @@
 export class ApiKeyAccountError extends Error {
   constructor(
     message: string,
-    readonly code: 'auth.account_required' | 'auth.account_mismatch' | 'auth.account_denied' | 'auth.account_revoked' | 'auth.not_found',
+    readonly code:
+      | 'auth.account_required'
+      | 'auth.account_mismatch'
+      | 'auth.account_denied'
+      | 'auth.account_revoked'
+      | 'auth.not_found'
+      | 'identity.portfolio_key_cap_unset'
+      | 'identity.portfolio_key_cap_reached',
   ) {
     super(message);
     this.name = 'ApiKeyAccountError';

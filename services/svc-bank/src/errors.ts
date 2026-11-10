@@ -1093,6 +1093,10 @@ export type BankErrorCode =
   | 'bank.partner_reply_lost'
   /** A partner move or TEST funding needs an amount above zero. */
   | 'bank.partner_amount_invalid'
+  /** Operations stopped this kind of partner instruction (`partner/partner-stops.ts`); nothing was sent. */
+  | 'bank.partner_stopped'
+  /** Whether this kind of partner instruction is stopped could not be read, so nothing was sent. */
+  | 'bank.partner_stop_unreadable'
   /** This payment's partner path is not built yet; nothing was sent. */
   | 'bank.partner_path_not_built'
   /** The partner's history cannot answer this filter here; nothing is silently ignored. */

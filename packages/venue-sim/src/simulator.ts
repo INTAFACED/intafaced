@@ -7,6 +7,7 @@ import {
   venueClientOrderId,
   type AsOf,
   type MaybeKnown,
+  type VenueBuilderTotals,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -14,8 +15,10 @@ import {
   type UserVenueAgent,
   type UserVenueBalance,
   type UserVenueDescriptor,
+  type UserVenueFeed,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueListing,
   type UserVenueMarket,
   type UserVenueMarketStatus,
   type UserVenueOrder,
@@ -70,6 +73,13 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     not admit refuses `market_halted` / `market_cancel_only` /
  *     `market_delisted`, one above its largest `order_above_venue_max`; cancels
  *     always pass.
+ *   · `setFeed(symbol, 'stale')` — a market priced by an oracle (`oracle`)
+ *     reports its feed stale and follows its own published stale rule: the
+ *     mark holds at the last oracle price and only reduce-only orders are
+ *     taken (an opening order refuses `feed_stale` with the rule's words).
+ *
+ * A leverage above a market's cap refuses `leverage_above_cap`, its detail
+ * naming the cap (`XAU-PERP allows at most 10x`), at prepare and at submit.
  *
  * Sub-accounts and agents, as a real venue keeps them (Hyperliquid's rules,
  * read 2026-11-09): the owner opens a sub-account and moves free balance in
@@ -111,17 +121,31 @@ export interface SimMarketConfig {
   readonly builderFeeCapBps?: MaybeKnown<Amount>;
   /** Perpetuals: maintenance margin as a fraction of notional (scaled decimal, `parseAmount('0.005')`). */
   readonly maintenanceMarginRate?: Amount;
-  /** Perpetuals: the starting mark price. */
+  /** Perpetuals: the starting mark price (on a market with an `oracle`, its starting oracle price). */
   readonly markPrice?: Amount;
   /** The market's own state at start; absent is `trading`. */
   readonly status?: UserVenueMarketStatus | null;
   /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
   readonly maxOrderQty?: Amount | null;
   readonly maxOrderNotional?: Amount | null;
+  /** Who lists the market, as the venue publishes it. Unset: not published. */
+  readonly listedBy?: UserVenueListing;
+  /** The venue's published oracle and mark-price rules and trading hours, in its words. Unset: not published. */
+  readonly oracleRule?: string;
+  readonly markRule?: string;
+  readonly tradingHours?: string;
+  /**
+   * Set on a perpetual priced by an oracle: its mark is the oracle price (a fill does not move it), its feed state is
+   * published, and while the feed is stale the mark holds and only reduce-only orders are taken. `staleRule` is the
+   * venue's published words for that rule (unset: not published, though the venue still follows it).
+   */
+  readonly oracle?: { readonly staleRule?: string };
 }
 
 export interface SimSwitches {
   venueDown: boolean;
+  /** The venue's builder totals read as not known (OWNER 288 1e), as on a venue that publishes none. */
+  builderTotalsUnknown: boolean;
   /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
   unlistPerpetuals: boolean;
   withdrawalFee: MaybeKnown<Amount>;
@@ -208,6 +232,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly clock: () => Date;
   private readonly marketsBySymbol = new Map<string, SimMarketConfig>();
   private readonly marks = new Map<string, Amount>();
+  /** Oracle markets: the time the feed went stale, or absent while it is live (a live oracle updates as the clock runs). */
+  private readonly staleSince = new Map<string, Date>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
   /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
@@ -219,6 +245,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly withdrawalSubmittedAt = new Map<string, Date>();
   private seqCounter = 0;
   private fillCounter = 0;
+  /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
+  private readonly builderEarned = new Map<string, Map<string, Amount>>();
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
@@ -239,6 +267,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
+      builderTotalsUnknown: false,
       unlistPerpetuals: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
@@ -331,8 +360,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return true;
   }
 
-  /** Move a perpetual's mark price. */
+  /**
+   * Move a perpetual's mark price. On a market priced by an oracle this is an oracle update, which a stale feed does not
+   * make: it refuses `feed_stale` and the mark holds.
+   */
   setMark(symbol: string, price: Amount): void {
+    if (this.staleSince.has(symbol))
+      refuse(this.venue.id, 'feed_stale', `${symbol}'s oracle is stale: its price is not updating, so the mark holds`);
     this.marks.set(symbol, price);
   }
 
@@ -352,6 +386,17 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (!agent) return false;
     state.agents.set(agent.address, { ...agent, validUntil: this.clock() });
     return true;
+  }
+
+  /**
+   * Make an oracle market's feed stale (the oracle stops updating at this moment) or live again. A market with no
+   * oracle has no feed to switch: refuses `not_offered`.
+   */
+  setFeed(symbol: string, state: 'live' | 'stale'): void {
+    const market = this.market(symbol);
+    if (!market.oracle) refuse(this.venue.id, 'not_offered', `${symbol} is not priced by an oracle on ${this.venue.displayName}`);
+    if (state === 'live') this.staleSince.delete(symbol);
+    else if (!this.staleSince.has(symbol)) this.staleSince.set(symbol, this.clock());
   }
 
   /**
@@ -434,6 +479,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
+      listedBy: published(m.listedBy),
+      oracleRule: published(m.oracleRule),
+      markRule: published(m.markRule),
+      tradingHours: published(m.tradingHours),
+      feed: m.oracle ? { known: true, value: this.feedOf(m) } : { known: false },
     }));
     return this.asOf(list);
   }
@@ -836,6 +886,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).builderApprovals.get(builder.toLowerCase()) ?? ZERO);
   }
 
+  /**
+   * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
+   * carried that builder, per fee asset. No builder claims here, so all of it is unclaimed. The `builderTotalsUnknown`
+   * switch answers not known.
+   */
+  async builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
+    this.up();
+    if (this.switches.builderTotalsUnknown) return this.asOf({ known: false });
+    const b = builder.toLowerCase();
+    const assets = [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()]
+      .sort(([x], [y]) => x.localeCompare(y))
+      .map(([asset, earned]) => ({ asset, earned, unclaimed: earned }));
+    return this.asOf({ known: true, value: { builder: b, assets } });
+  }
+
   async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     this.up();
     this.market(symbol);
@@ -889,6 +954,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private agentLive(state: AccountState, address: string): boolean {
     const agent = state.agents.get(address.toLowerCase());
     return agent !== undefined && (agent.validUntil === null || agent.validUntil.getTime() > this.clock().getTime());
+  }
+
+  private feedOf(market: SimMarketConfig): UserVenueFeed {
+    const since = this.staleSince.get(market.symbol);
+    return {
+      state: since ? 'stale' : 'live',
+      lastOracleUpdateAt: since ?? this.clock(),
+      staleRule: published(market.oracle?.staleRule),
+    };
+  }
+
+  /** The cap's refusal, in the venue's words: the market and the most it allows. */
+  private aboveCap(market: SimMarketConfig, leverageBps: number): never {
+    refuse(
+      this.venue.id,
+      'leverage_above_cap',
+      `${market.symbol} allows at most ${(market.maxLeverageBps ?? 0) / 10_000}x; ${leverageBps / 10_000}x is above its cap`,
+    );
   }
 
   private up(): void {
@@ -967,8 +1050,19 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
         refuse(this.venue.id, 'not_offered', 'a resting reduce-only order is not offered on the TEST simulator: close with IOC or market');
       }
-      if (!state.leverage.has(market.symbol)) {
+      const setting = state.leverage.get(market.symbol);
+      if (!setting) {
         refuse(this.venue.id, 'leverage_not_set', `no leverage is set on ${market.symbol} for this account: set it first`);
+      }
+      if (!intent.reduceOnly && market.maxLeverageBps !== null && setting.leverageBps > market.maxLeverageBps)
+        this.aboveCap(market, setting.leverageBps);
+      // The venue's own stale-feed rule: while the oracle is stale, only reduce-only orders are taken.
+      if (!intent.reduceOnly && market.oracle && this.staleSince.has(market.symbol)) {
+        refuse(
+          this.venue.id,
+          'feed_stale',
+          market.oracle.staleRule ?? `${market.symbol}'s oracle is stale: only reduce-only orders are taken until it updates`,
+        );
       }
     } else if (intent.reduceOnly) {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is cash spot: no reduce-only`);
@@ -980,14 +1074,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage or margin mode`);
     if (!market.marginModes.includes(marginMode))
       refuse(this.venue.id, 'not_offered', `margin mode ${marginMode} is not offered on ${symbol}`);
-    if (
-      !Number.isInteger(leverageBps) ||
-      leverageBps % 10_000 !== 0 ||
-      leverageBps < 10_000 ||
-      (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps)
-    ) {
+    if (!Number.isInteger(leverageBps) || leverageBps % 10_000 !== 0 || leverageBps < 10_000) {
       refuse(this.venue.id, 'not_offered', `leverage ${leverageBps} bps is outside what ${symbol} offers`);
     }
+    if (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps) this.aboveCap(market, leverageBps);
     return market;
   }
 
@@ -1341,6 +1431,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       side.order = { ...o, filled, remaining, averagePrice, status: remaining === ZERO ? 'filled' : 'partially_filled' };
       if (remaining === ZERO) this.release(side, 'filled');
 
+      if (builderFee > ZERO) {
+        const b = side.builderFee!.builder.toLowerCase();
+        const asset = feeInBase ? market.baseAsset : market.quoteAsset;
+        const byAsset = this.builderEarned.get(b) ?? new Map<string, Amount>();
+        byAsset.set(asset, add(byAsset.get(asset) ?? ZERO, builderFee));
+        this.builderEarned.set(b, byAsset);
+      }
       this.fillCounter += 1;
       side.account.fills.push({
         fillId: `sim-fill-${this.fillCounter}`,
@@ -1357,7 +1454,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         filledAt: now,
       });
     }
-    if (market.kind === 'perpetual') this.marks.set(market.symbol, price);
+    // An oracle market's mark is the oracle price: a fill does not move it.
+    if (market.kind === 'perpetual' && !market.oracle) this.marks.set(market.symbol, price);
   }
 
   /**
@@ -1474,6 +1572,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const at = book.indexOf(order);
     if (at >= 0) book.splice(at, 1);
   }
+}
+
+/** A published word of the venue's, or `known: false` when it publishes none. */
+function published<T>(value: T | undefined): MaybeKnown<T> {
+  return value === undefined ? { known: false } : { known: true, value };
 }
 
 function isLive(o: OrderState): boolean {
