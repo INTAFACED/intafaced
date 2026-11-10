@@ -4,7 +4,17 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseStepWords } from './test-judge.mjs';
-import { READ_SCHEMA, buildReads, cmdRead, readStatus, secondReason, writeReads } from './step-read.mjs';
+import {
+  READ_SCHEMA,
+  buildReads,
+  cmdRead,
+  countMoney,
+  countSample,
+  moneyLineHash,
+  readStatus,
+  secondReason,
+  writeReads,
+} from './step-read.mjs';
 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
@@ -25,7 +35,11 @@ const WORDS_MD = [
   '| # | The person does | They see | Slices | Proof |',
   '| 1 | Sends the coins | The ledger shows them gone | S | none |',
 ].join('\n');
-const words = async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) });
+// project-state's money.json: J-x-01 decided not money on its Money line; J-wallet-01 has none, so it is money.
+const MONEY = { 'J-x-01': { money: false, line: moneyLineHash('none') } };
+const words = async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40), money: MONEY });
+// A run id whose sample holds none of J-x-01's steps (asserted below).
+const RUN = '1006';
 
 const JFILE = [
   "import { test, expect } from './journey.mjs';",
@@ -71,7 +85,7 @@ const env = { GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '1', GITHUB_REPOSITORY: '
 
 test('a step whose own test changed is read, with its words and its journey file whole; the schema is reads only', async () => {
   const dir = tmp();
-  const said = await writeReads(dir, { src: fakeSrc(), base: BASE, head: HEAD, pr: 7, loadWords: words });
+  const said = await writeReads(dir, { src: fakeSrc(), base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
   assert.match(said, /1 step\(s\)/);
   const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
   assert.match(prompt, /^# The proof reader's brief/);
@@ -84,7 +98,15 @@ test('a step whose own test changed is read, with its words and its journey file
 });
 
 test('a claimed step is read from its file at the head though the PR changes no test; a Left-or-replaced step is not', async () => {
-  const got = await buildReads({ src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-x-01 #1 #2', loadWords: words });
+  const got = await buildReads({
+    src: fakeSrc(DOCS),
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    title: 'svc: J-x-01 #1 #2',
+    loadWords: words,
+    runId: RUN,
+  });
   assert.deepEqual(got.required, ['J-x-01 #1', 'J-x-01 #2']);
   assert.ok(got.read.steps.every((s) => s.own === false));
   const left = await buildReads({
@@ -95,6 +117,7 @@ test('a claimed step is read from its file at the head though the PR changes no 
     title: 'svc: J-x-01 #1 #2',
     body: 'Left-or-replaced: J-x-01 #2',
     loadWords: words,
+    runId: RUN,
   });
   assert.deepEqual(left.required, ['J-x-01 #1']);
 });
@@ -118,6 +141,7 @@ test('a step with no test at the head, or no words, is named as not read; the re
     pr: 7,
     title: 'svc: J-x-01 #1 #3, J-y-01 #1',
     loadWords: words,
+    runId: RUN,
   });
   assert.deepEqual(got.required, ['J-x-01 #1']);
   assert.deepEqual(
@@ -128,16 +152,40 @@ test('a step with no test at the head, or no words, is named as not read; the re
 
 test('a money step gets a second, blind call of its own; others only when the count samples them', async () => {
   const dir = tmp();
-  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-wallet-01 #1', loadWords: words });
-  assert.equal(secondReason('J-wallet-01 #1', 7), 'money step');
+  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-wallet-01 #1', loadWords: words, runId: RUN });
+  const count = { words: parseStepWords(WORDS_MD), money: MONEY, seed: `run:${RUN}` };
+  assert.equal(secondReason('J-wallet-01 #1', count), 'money step');
+  assert.equal(secondReason('J-x-01 #1', count), null);
   const second = readFileSync(join(dir, 'second', 'prompt.txt'), 'utf8');
   assert.match(second, /ANSWER FOR\nJ-wallet-01 #1\n/);
   assert.doesNotMatch(second, /FAITHFUL"|WEAK"/, 'the second prompt carries no first answer');
 });
 
+test("money and the sample follow project-state's rule: money.json on the Money line it was decided on, and the run id", () => {
+  const w = parseStepWords(WORDS_MD);
+  assert.equal(countMoney('J-x-01 #1', w, MONEY), false);
+  assert.equal(countMoney('J-x-01 #1', w, null), true, 'no money.json: money');
+  assert.equal(
+    countMoney('J-x-01 #1', w, { 'J-x-01': { money: false, line: moneyLineHash('none; a cancel releases a hold') } }),
+    true,
+    'planted: the Money line changed since it was decided',
+  );
+  assert.equal(
+    countMoney('J-wallet-01 #1', w, { 'J-wallet-01': { money: false, line: moneyLineHash(null) } }),
+    true,
+    'no Money line: money',
+  );
+  for (const n of [1, 2, 3]) assert.equal(countSample(`J-x-01 #${n}`, `run:${RUN}`), false);
+  assert.equal(countSample('J-x-01 #1', 'run:20'), true, 'another run draws again');
+  assert.equal(countSample('J-x-01 #1', null), true, 'no run id: sampled');
+  let k = 0;
+  for (let i = 0; i < 4000; i++) k += countSample(`J-x-01 #${i}`, 'run:19283746') ? 1 : 0;
+  assert.ok(k > 4000 * 0.13 && k < 4000 * 0.17, `sample ${k}`);
+});
+
 test('planted WEAK: the read records WEAK, the status fails, and the step words never reach read.json', async () => {
   const dir = tmp();
-  await writeReads(dir, { src: fakeSrc(), base: BASE, head: HEAD, pr: 7, loadWords: words });
+  await writeReads(dir, { src: fakeSrc(), base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
   const leak = 'it never checks that the balance equals the deposit exactly';
   writeFileSync(join(dir, 'answer.json'), answer([{ step: 'J-x-01 #2', verdict: 'WEAK', refusal: false, note: leak }]));
   const v = cmdRead(dir, env);
@@ -161,7 +209,15 @@ test('planted WEAK: the read records WEAK, the status fails, and the step words 
 
 test('fails closed: an unanswered step, a bad verdict, an errored call or a missing second answer is no read', async () => {
   const dir = tmp();
-  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-x-01 #1, J-wallet-01 #1', loadWords: words });
+  await writeReads(dir, {
+    src: fakeSrc(DOCS),
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    title: 'svc: J-x-01 #1, J-wallet-01 #1',
+    loadWords: words,
+    runId: RUN,
+  });
   const ok = [
     { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n' },
     { step: 'J-wallet-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n' },
@@ -195,6 +251,7 @@ test("planted: a journey file can't close its fence or pose as the step words", 
     pr: 7,
     title: 'svc: J-x-01 #1',
     loadWords: words,
+    runId: RUN,
   });
   assert.equal(got.prompt.match(/^END UNTRUSTED FILE$/gm).length, 1);
   assert.equal(got.prompt.match(/^BEGIN STEP WORDS \(trusted/gm).length, 1);
@@ -209,13 +266,15 @@ test("the workflow: the read is a job of its own after the review, never fails a
   assert.match(job, /\n {4}name: Proof read\n {4}needs: review\n/);
   assert.match(job, /\n {6}READER_MODEL: (\S+)\n {6}READER_EFFORT: medium\n/);
   assert.equal(job.match(/--model "\$READER_MODEL" --effort "\$READER_EFFORT"/g).length, 1);
-  assert.match(job, /--tools "" --setting-sources "" --strict-mcp-config --mcp-config '\{"mcpServers":\{\}\}'/);
+  assert.match(job, /--setting-sources "" --strict-mcp-config --mcp-config '\{"mcpServers":\{\}\}'/);
   // Every failure is a warning and an exit 0, so the job never reads as a red check.
   const reads = job.slice(job.indexOf('- name: Read the steps (proof v2)'), job.indexOf('- name: Post the proof read status'));
   for (const cmd of reads.match(/^ {10}(node|had=|for pid) .*$/gm)) assert.match(cmd, /\|\| no "/, cmd);
   assert.match(job, /\|\| echo "::warning::the proof read status wasn't posted"/);
-  // The review's two calls keep their pinned model at main's effort (medium since OWNER 259, #7676), and the reader's model is another.
+  // The review's two calls keep their pinned model at main's effort (medium since OWNER 259, #7676), and the reader runs on
+  // the review's model too (project-state OWNER 282), so the count can't overstate through a more lenient reader.
   const models = [...review.matchAll(/--model (\S+) --effort medium/g)].map((m) => m[1]);
   assert.equal(models.length, 2);
-  assert.notEqual(models[0], /\n {6}READER_MODEL: (\S+)\n/.exec(job)[1]);
+  assert.equal(models[1], models[0]);
+  assert.equal(/\n {6}READER_MODEL: (\S+)\n/.exec(job)[1], models[0]);
 });

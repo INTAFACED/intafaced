@@ -1,8 +1,8 @@
-// World: none
+// World: restart
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { expectServiceOff } from './service-off.mjs';
-import { ORIGIN } from './stack.mjs';
+import { ORIGIN, tool } from './stack.mjs';
 
 // J-home-ia-08, in the running app (docs/roadmap/journeys.json): I move between the Exchange and the Web3 shell. Tests titled
 // "J-home-ia-08 #<n>" prove a whole step.
@@ -95,6 +95,32 @@ test(`${J} #2 a room with no indexer or no wallet keeps its layout and names the
   await expect(page.getByText('Blocked by')).toBeVisible();
   await expect(page.getByText('This page has no wallet to sign with yet.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Back to DEX' })).toBeVisible();
+
+  // With no indexer: the indexer service is stopped, and the pool list (an indexer room) keeps its full layout (the table
+  // with every column, New pool and Positions) and names the indexer as the blocker. It is started again after.
+  try {
+    tool('local-test-stack.mjs', 'stop', 'indexer');
+    await page.goto('/dex/pools');
+    await expectWeb3(page);
+    const table = page.locator('[role="region"][aria-label="Pools"] table');
+    await expect(table).toBeVisible();
+    await expect(table.getByRole('columnheader')).toHaveText([
+      'Pool',
+      'Token contracts',
+      'Fee tier',
+      'Reserves',
+      'Volume (24 h)',
+      'Created at block',
+      'Add liquidity',
+    ]);
+    await expect(page.getByRole('link', { name: 'New pool', exact: true })).toHaveAttribute('href', '/dex/pools/new');
+    await expect(page.getByRole('link', { name: 'Your positions', exact: true })).toHaveAttribute('href', '/dex/positions');
+    await expect(table).toContainText(/The pool list was not read: the indexer service (didn’t answer|is not running here)/, {
+      timeout: 30_000,
+    });
+  } finally {
+    tool('local-test-stack.mjs', 'start', '--only', 'indexer');
+  }
 
   // A malformed pool id is not found, with no lookup and no blocker: the page says so in words.
   await page.goto('/dex/pools/TEST-pool');

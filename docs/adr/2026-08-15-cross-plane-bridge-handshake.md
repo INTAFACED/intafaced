@@ -1,6 +1,6 @@
 # D26-P4-02 — Cross-plane bridge handshake (ledger ↔ chain · who signs)
 
-> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The bridge accounting on our ledger applies when the custodial layer is switched on. The self-custody rules hold at launch, among them that the platform is never a guardian able to move a user's funds. It stays as written.
 
 **Status:** Handshake recorded — 2026-08-15. **Does not** implement `svc-bridge`, protocol, or chain.
 **Board:** D26-P4-02 (`docs/DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) §8).

@@ -1,4 +1,12 @@
-import { movesCustomerBalance, parseCustodyLayer, type Amount, type CustodyLayerState, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  formatAmount,
+  movesCustomerBalance,
+  parseCustodyLayer,
+  type Amount,
+  type CustodyLayerState,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
+import { heldFigure, type HeldFigure } from '@intafaced/venue-contracts';
 import { BankError } from '../errors.js';
 
 /**
@@ -8,8 +16,9 @@ import { BankError } from '../errors.js';
  * under its licence. This is the port svc-bank reads and moves that money through. No partner is named, so the only
  * implementation is the TEST partner bank (`test-partner.ts`), labelled TEST.
  *
- *   - A balance is what the partner reports, with its label and the time it reported it. One it does not report is
- *     null, read as "not known", never 0.
+ *   - A balance is what the partner reports, with its label and the partner's own time for it. One it does not report
+ *     is null, read as "not known", never 0; one it sends with no time is "not known" too (b2 change 6). The partner
+ *     declares how old its figure may be (`staleAfterMs`), and `partnerFigure` is the one displayed figure of it.
  *   - A move is ONE partner instruction under a business key (`bank.transfer.<keySpace>:<id>:<occurrence>`, the same key
  *     the custodial path posts the ledger under). The partner deduplicates on the key: a retry after a lost reply is
  *     the same move, answered with the first one, never a second; a different move under the same key is refused.
@@ -52,8 +61,10 @@ export interface PartnerBalance {
   readonly account: PartnerAccountRef;
   /** As the partner reports it; null when it has not said ("not known", never 0). */
   readonly amount: Amount | null;
-  /** When the partner reported it. */
-  readonly asOf: Date;
+  /** The partner's own time for the figure; null when it sent none ("not known": we cannot say how old it is). */
+  readonly asOf: Date | null;
+  /** True when the partner is not answering and this is the last figure it gave, or none. */
+  readonly unavailable?: boolean;
   /** Whose figure this is, e.g. "TEST partner bank". */
   readonly label: string;
 }
@@ -86,6 +97,8 @@ export interface PartnerMovesQuery {
 
 export interface PartnerBank {
   readonly label: string;
+  /** How old the partner's figure may be before it is stale, as the partner declares it, in milliseconds. */
+  readonly staleAfterMs: number;
   /** One account's balance as the partner reports it. */
   balance(account: PartnerAccountRef): Promise<PartnerBalance>;
   /** Every account the partner holds for the person, in every currency. */
@@ -115,29 +128,95 @@ export interface PartnerCustody {
 export interface PostingFreeze {
   /** True when posting is enabled. Throws when the freeze cannot be read. */
   postingEnabled(): Promise<boolean>;
+  /** Whether posting is enabled, and when it is not, why (svc-ledger's `frozenCause`). Throws when it cannot be read. */
+  read?(): Promise<FreezeReading>;
 }
+
+/**
+ * Why a partner instruction met the freeze (project-state #1790; the money model's change 4 item 4): svc-ledger's own
+ * cause (`person`, `mismatch`, `unfinished_proofs`, `startup_setting`), `not_reported` when svc-ledger answered frozen
+ * without one, `unreadable` when the freeze did not answer within 2 seconds or answered badly, `not_wired` when no
+ * freeze is wired at all.
+ */
+export const FREEZE_CAUSES = [
+  'person',
+  'mismatch',
+  'unfinished_proofs',
+  'startup_setting',
+  'not_reported',
+  'unreadable',
+  'not_wired',
+] as const;
+export type FreezeCause = (typeof FREEZE_CAUSES)[number];
+const LEDGER_CAUSES: ReadonlySet<string> = new Set(['person', 'mismatch', 'unfinished_proofs', 'startup_setting']);
+
+export interface FreezeReading {
+  readonly postingEnabled: boolean;
+  /** Null while posting is enabled. */
+  readonly cause: FreezeCause | null;
+}
+
+/** One refusal made before the partner was asked, as the operations desk counts it (`partner/partner-refusals.ts`). */
+export interface PartnerRefusal {
+  readonly refusedBy: 'posting_freeze' | 'partner_stop';
+  /** The freeze's cause, or for the stop `stopped` / `unreadable`. */
+  readonly cause: string;
+  /** The kind of instruction refused (`partner-stops.ts`, PARTNER_STOP_KINDS). */
+  readonly kind: string;
+}
+
+/** Counts a refusal. Never throws and never changes the refusal: a count that cannot be written is dropped. */
+export type NoteRefusal = (refusal: PartnerRefusal) => Promise<void>;
 
 /** The freeze read from svc-ledger's `/health`. Anything but an exact `postingEnabled: true` reads as frozen. */
 export function ledgerPostingFreeze(ledgerUrl: string, fetcher: typeof fetch = fetch): PostingFreeze {
-  return {
-    async postingEnabled() {
-      const res = await fetcher(new URL('/health', ledgerUrl), { signal: AbortSignal.timeout(2_000) });
-      if (!res.ok) throw new Error(`svc-ledger /health answered ${res.status}`);
-      const body = (await res.json()) as { postingEnabled?: unknown };
-      return body.postingEnabled === true;
-    },
+  const read = async (): Promise<FreezeReading> => {
+    const res = await fetcher(new URL('/health', ledgerUrl), { signal: AbortSignal.timeout(2_000) });
+    if (!res.ok) throw new Error(`svc-ledger /health answered ${res.status}`);
+    const body = (await res.json()) as { postingEnabled?: unknown; frozenCause?: unknown };
+    if (body.postingEnabled === true) return { postingEnabled: true, cause: null };
+    const cause =
+      typeof body.frozenCause === 'string' && LEDGER_CAUSES.has(body.frozenCause) ? (body.frozenCause as FreezeCause) : 'not_reported';
+    return { postingEnabled: false, cause };
   };
+  return { read, postingEnabled: async () => (await read()).postingEnabled };
 }
 
-function postingFrozen(): BankError {
-  return new BankError('Money moves are paused across the platform right now. Nothing was sent or changed.', 'bank.posting_frozen');
+/** The freeze's reading, from `read` when it has one; one that cannot be read is frozen, `unreadable`. */
+export async function readFreeze(freeze: PostingFreeze): Promise<FreezeReading> {
+  try {
+    if (freeze.read) return await freeze.read();
+    return (await freeze.postingEnabled()) ? { postingEnabled: true, cause: null } : { postingEnabled: false, cause: 'not_reported' };
+  } catch {
+    return { postingEnabled: false, cause: 'unreadable' };
+  }
+}
+
+/** svc-ledger's posting freeze refused a partner move before the partner was asked: nothing was sent. It names why. */
+export class PostingFrozenError extends BankError {
+  constructor(readonly freezeCause: FreezeCause) {
+    super('Money moves are paused across the platform right now. Nothing was sent or changed.', 'bank.posting_frozen');
+  }
+}
+
+export function postingFrozen(cause: FreezeCause = 'not_reported'): BankError {
+  return new PostingFrozenError(cause);
+}
+
+/** Frozen, or a freeze that cannot be read, refuses `bank.posting_frozen` naming why, and counts the refusal. */
+export async function assertPostingEnabled(freeze: PostingFreeze, kind = 'bank_move', note?: NoteRefusal): Promise<void> {
+  const reading = await readFreeze(freeze);
+  if (reading.postingEnabled) return;
+  const cause = reading.cause ?? 'not_reported';
+  await note?.({ refusedBy: 'posting_freeze', cause, kind });
+  throw postingFrozen(cause);
 }
 
 /**
  * Every partner move asks the posting freeze first: frozen, or a freeze that cannot be read, refuses
  * `bank.posting_frozen` before the partner is asked. Reads stay open, as they do on the ledger while it is frozen.
  */
-export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFreeze): PartnerCustody {
+export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFreeze, note?: NoteRefusal): PartnerCustody {
   const guarded = new WeakMap<PartnerBank, PartnerBank>();
   const guard = (bank: PartnerBank): PartnerBank => {
     let wrapped = guarded.get(bank);
@@ -145,13 +224,13 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
       // One wrapper per partner, so two sides of one move still compare as the same partner.
       wrapped = Object.freeze({
         label: bank.label,
+        staleAfterMs: bank.staleAfterMs,
         balance: (account: PartnerAccountRef) => bank.balance(account),
         balances: (userId: string) => bank.balances(userId),
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         move: async (request: PartnerMoveRequest) => {
-          const enabled = await freeze.postingEnabled().catch(() => false);
-          if (!enabled) throw postingFrozen();
+          await assertPostingEnabled(freeze, 'bank_move', note);
           return bank.move(request);
         },
       });
@@ -170,12 +249,30 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
 /** No partner holds anyone's money here: every person is on the custodial layer, exactly as before. */
 export const custodialOnly: PartnerCustody = Object.freeze({ bankFor: () => null });
 
-/** The amount, or a typed refusal when the partner has not reported it: never read a missing figure as 0. */
+/**
+ * The amount, or a typed refusal when the figure is not known: the partner has not reported it, or sent it with no time.
+ * Never read a missing figure as 0. A stale figure is returned: it is the partner's, and the display says how old it is.
+ */
 export function reportedAmount(balance: PartnerBalance): Amount {
-  if (balance.amount === null) {
-    throw new BankError(`${balance.label} has not reported this balance, so it is not known.`, 'bank.partner_balance_not_known');
-  }
+  if (balance.amount === null || balance.asOf === null) throw partnerBalanceNotKnown(balance.label);
   return balance.amount;
+}
+
+/** The refusal for a partner figure that is not known: never shown as a figure, and never as 0. */
+export function partnerBalanceNotKnown(label: string): BankError {
+  return new BankError(`${label} has not reported this balance, so it is not known.`, 'bank.partner_balance_not_known');
+}
+
+/** The displayed figure of a partner balance (b2 change 6): known, stale, or unknown with a reason, never 0. */
+export function partnerFigure(balance: PartnerBalance, staleAfterMs: number, now: Date): HeldFigure {
+  return heldFigure({
+    source: balance.label,
+    amount: balance.amount === null ? null : formatAmount(balance.amount),
+    asOf: balance.asOf,
+    staleAfterMs,
+    now,
+    unavailable: balance.unavailable === true,
+  });
 }
 
 /** The two sides of a move are held in different places, so no single partner instruction can make it. */

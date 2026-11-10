@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
@@ -6,6 +7,7 @@ import {
   venueClientOrderId,
   type AsOf,
   type MaybeKnown,
+  type VenueBuilderTotals,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -13,15 +15,22 @@ import {
   type UserVenueAgent,
   type UserVenueBalance,
   type UserVenueDescriptor,
+  type UserVenueFeed,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueListing,
   type UserVenueMarket,
   type UserVenueMarketStatus,
   type UserVenueOrder,
   type UserVenuePosition,
+  type UserVenueSubAccount,
+  type UserVenueSubAccountReads,
+  type UserVenueTransfer,
   type UserVenueWithdrawal,
   type VenueAssetAmount,
   type VenueIntent,
+  type VenueBook,
+  type VenueBookLevel,
   type VenueOrderPreview,
   type VenueMarginMode,
   type VenueRefusalCode,
@@ -64,7 +73,30 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     not admit refuses `market_halted` / `market_cancel_only` /
  *     `market_delisted`, one above its largest `order_above_venue_max`; cancels
  *     always pass.
+ *   · `setFeed(symbol, 'stale')` — a market priced by an oracle (`oracle`)
+ *     reports its feed stale and follows its own published stale rule: the
+ *     mark holds at the last oracle price and only reduce-only orders are
+ *     taken (an opening order refuses `feed_stale` with the rule's words).
+ *
+ * A leverage above a market's cap refuses `leverage_above_cap`, its detail
+ * naming the cap (`XAU-PERP allows at most 10x`), at prepare and at submit.
+ *
+ * Sub-accounts and agents, as a real venue keeps them (Hyperliquid's rules,
+ * read 2026-11-09): the owner opens a sub-account and moves free balance in
+ * and out of it, both signed on the main account; a sub-account has no key,
+ * so it is never withdrawn from. An agent is approved per account (main or
+ * sub) and trades that account only. At most `MAX_NAMED_AGENTS_MAIN` named
+ * agents on a main account and `MAX_NAMED_AGENTS_SUB` on a sub-account (one
+ * unnamed agent besides); approving a new key under a name already in use
+ * replaces the old key. An expiry is at most `MAX_AGENT_VALIDITY_MS` ahead.
+ * An agent address once revoked or replaced on an account is never approved
+ * there again (a venue that prunes old nonces could accept a replay of its
+ * old signed actions).
  */
+
+export const MAX_NAMED_AGENTS_MAIN = 3;
+export const MAX_NAMED_AGENTS_SUB = 2;
+export const MAX_AGENT_VALIDITY_MS = 180 * 24 * 60 * 60 * 1000;
 
 const BPS = parseAmount('10000');
 const QUOTE_ROUND = 'ceil' as const;
@@ -89,17 +121,31 @@ export interface SimMarketConfig {
   readonly builderFeeCapBps?: MaybeKnown<Amount>;
   /** Perpetuals: maintenance margin as a fraction of notional (scaled decimal, `parseAmount('0.005')`). */
   readonly maintenanceMarginRate?: Amount;
-  /** Perpetuals: the starting mark price. */
+  /** Perpetuals: the starting mark price (on a market with an `oracle`, its starting oracle price). */
   readonly markPrice?: Amount;
   /** The market's own state at start; absent is `trading`. */
   readonly status?: UserVenueMarketStatus | null;
   /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
   readonly maxOrderQty?: Amount | null;
   readonly maxOrderNotional?: Amount | null;
+  /** Who lists the market, as the venue publishes it. Unset: not published. */
+  readonly listedBy?: UserVenueListing;
+  /** The venue's published oracle and mark-price rules and trading hours, in its words. Unset: not published. */
+  readonly oracleRule?: string;
+  readonly markRule?: string;
+  readonly tradingHours?: string;
+  /**
+   * Set on a perpetual priced by an oracle: its mark is the oracle price (a fill does not move it), its feed state is
+   * published, and while the feed is stale the mark holds and only reduce-only orders are taken. `staleRule` is the
+   * venue's published words for that rule (unset: not published, though the venue still follows it).
+   */
+  readonly oracle?: { readonly staleRule?: string };
 }
 
 export interface SimSwitches {
   venueDown: boolean;
+  /** The venue's builder totals read as not known (OWNER 288 1e), as on a venue that publishes none. */
+  builderTotalsUnknown: boolean;
   /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
   unlistPerpetuals: boolean;
   withdrawalFee: MaybeKnown<Amount>;
@@ -137,6 +183,12 @@ interface AccountState {
   readonly agents: Map<string, UserVenueAgent>;
   readonly deposits: Set<string>;
   readonly leverage: Map<string, { leverageBps: number; marginMode: VenueMarginMode }>;
+  /** Main account only: its sub-accounts, by venue id. */
+  readonly subAccounts: Map<string, UserVenueSubAccount>;
+  /** Main account only: moves to and from its sub-accounts, by signed nonce. */
+  readonly transfers: Map<string, UserVenueTransfer>;
+  /** Agent addresses revoked or replaced on this account: never approved here again. */
+  readonly retiredAgents: Set<string>;
 }
 
 interface OrderState {
@@ -172,7 +224,7 @@ function accountKey(account: UserVenueAccount): string {
   return `${account.owner.toLowerCase()}/${account.subAccount ?? ''}`;
 }
 
-export class TestVenueSimulator implements UserVenue {
+export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   readonly venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
   /** The chain id every action's EIP-712 domain names. */
@@ -180,15 +232,21 @@ export class TestVenueSimulator implements UserVenue {
   private readonly clock: () => Date;
   private readonly marketsBySymbol = new Map<string, SimMarketConfig>();
   private readonly marks = new Map<string, Amount>();
+  /** Oracle markets: the time the feed went stale, or absent while it is live (a live oracle updates as the clock runs). */
+  private readonly staleSince = new Map<string, Date>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
-  private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
+  /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
+  private readonly lostAnswers = new Map<string, number>();
+  private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
   private readonly networkFeeCharged = new Map<string, Amount>();
   private readonly withdrawalSubmittedAt = new Map<string, Date>();
   private seqCounter = 0;
   private fillCounter = 0;
+  /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
+  private readonly builderEarned = new Map<string, Map<string, Amount>>();
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
@@ -209,6 +267,7 @@ export class TestVenueSimulator implements UserVenue {
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
+      builderTotalsUnknown: false,
       unlistPerpetuals: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
@@ -221,7 +280,7 @@ export class TestVenueSimulator implements UserVenue {
     };
     for (const market of options.markets) {
       this.marketsBySymbol.set(market.symbol, market);
-      this.book.set(market.symbol, []);
+      this.resting.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
       this.marketState.set(market.symbol, {
         status: market.status === undefined ? 'trading' : market.status,
@@ -240,7 +299,7 @@ export class TestVenueSimulator implements UserVenue {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is already listed on ${this.venue.displayName}`);
     }
     this.marketsBySymbol.set(market.symbol, market);
-    this.book.set(market.symbol, []);
+    this.resting.set(market.symbol, []);
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
     this.marketState.set(market.symbol, {
       status: market.status === undefined ? 'trading' : market.status,
@@ -255,6 +314,12 @@ export class TestVenueSimulator implements UserVenue {
     this.marketState.get(symbol)!.status = status;
   }
 
+  /** TEST control: the trading fees this market publishes; `known: false` publishes none (the venue still charges its unpublished rate). */
+  setMarketFees(symbol: string, fees: { makerFeeBps: MaybeKnown<Amount>; takerFeeBps: MaybeKnown<Amount> }): void {
+    const market = this.market(symbol);
+    this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+  }
+
   /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
   setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
     this.market(symbol);
@@ -264,6 +329,21 @@ export class TestVenueSimulator implements UserVenue {
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
+
+  /**
+   * TEST control: every account's fills since a time, each with the account it belongs to, so a TEST journey can
+   * account for every fill on the venue in a period (never part of UserVenue; a real venue reports only your own).
+   */
+  testAllFills(since: Date): AsOf<readonly { owner: string; subAccount: string | null; fill: UserVenueFill }[]> {
+    const out: { owner: string; subAccount: string | null; fill: UserVenueFill }[] = [];
+    for (const a of this.accounts.values()) {
+      const sub = a.key.slice(a.key.indexOf('/') + 1);
+      for (const fill of a.fills)
+        if (fill.filledAt.getTime() >= since.getTime()) out.push({ owner: a.owner, subAccount: sub === '' ? null : sub, fill });
+    }
+    out.sort((x, y) => x.fill.filledAt.getTime() - y.fill.filledAt.getTime());
+    return this.asOf(out);
+  }
 
   /**
    * Credit a deposit the customer signed on their own chain. Idempotent by
@@ -280,9 +360,43 @@ export class TestVenueSimulator implements UserVenue {
     return true;
   }
 
-  /** Move a perpetual's mark price. */
+  /**
+   * Move a perpetual's mark price. On a market priced by an oracle this is an oracle update, which a stale feed does not
+   * make: it refuses `feed_stale` and the mark holds.
+   */
   setMark(symbol: string, price: Amount): void {
+    if (this.staleSince.has(symbol))
+      refuse(this.venue.id, 'feed_stale', `${symbol}'s oracle is stale: its price is not updating, so the mark holds`);
     this.marks.set(symbol, price);
+  }
+
+  /** TEST: the next `count` submits on this account are applied and then answered `definite: false` (a lost answer). */
+  loseAnswersOn(account: UserVenueAccount, count: number): void {
+    if (!Number.isSafeInteger(count) || count < 0) throw new Error('count must be a whole number, zero or more');
+    this.lostAnswers.set(accountKey(account), count);
+  }
+
+  /**
+   * TEST: the expiry of this account's agent passes now, as it would when its time came: the venue's record keeps the
+   * agent with its expiry set to now, so it signs nothing more. Returns false when the account has no such agent.
+   */
+  expireAgent(account: UserVenueAccount, agentAddress: string): boolean {
+    const state = this.account(account);
+    const agent = state.agents.get(agentAddress.toLowerCase());
+    if (!agent) return false;
+    state.agents.set(agent.address, { ...agent, validUntil: this.clock() });
+    return true;
+  }
+
+  /**
+   * Make an oracle market's feed stale (the oracle stops updating at this moment) or live again. A market with no
+   * oracle has no feed to switch: refuses `not_offered`.
+   */
+  setFeed(symbol: string, state: 'live' | 'stale'): void {
+    const market = this.market(symbol);
+    if (!market.oracle) refuse(this.venue.id, 'not_offered', `${symbol} is not priced by an oracle on ${this.venue.displayName}`);
+    if (state === 'live') this.staleSince.delete(symbol);
+    else if (!this.staleSince.has(symbol)) this.staleSince.set(symbol, this.clock());
   }
 
   /**
@@ -365,8 +479,33 @@ export class TestVenueSimulator implements UserVenue {
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
+      listedBy: published(m.listedBy),
+      oracleRule: published(m.oracleRule),
+      markRule: published(m.markRule),
+      tradingHours: published(m.tradingHours),
+      feed: m.oracle ? { known: true, value: this.feedOf(m) } : { known: false },
     }));
     return this.asOf(list);
+  }
+
+  async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    this.up();
+    this.market(symbol);
+    const levels = (side: 'buy' | 'sell'): VenueBookLevel[] => {
+      const out: VenueBookLevel[] = [];
+      const resting = this.bookOf(symbol)
+        .filter((o) => o.order.side === side && o.order.remaining > ZERO)
+        .sort((a, b) => (side === 'buy' ? compare(b.order.price, a.order.price) : compare(a.order.price, b.order.price)));
+      for (const o of resting) {
+        const last = out[out.length - 1];
+        if (last && compare(last.price, o.order.price) === 0)
+          out[out.length - 1] = { price: last.price, amount: add(last.amount, o.order.remaining) };
+        else if (out.length < depth) out.push({ price: o.order.price, amount: o.order.remaining });
+        else break;
+      }
+      return out;
+    };
+    return this.asOf({ symbol, bids: levels('buy'), asks: levels('sell') });
   }
 
   async preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
@@ -523,6 +662,9 @@ export class TestVenueSimulator implements UserVenue {
     if (signer.role === 'agent' && !this.agentLive(state, signer.address)) {
       refuse(this.venue.id, 'signer_not_authorised', `${signer.address.toLowerCase()} is not an approved, unexpired agent on this account`);
     }
+    // An action on a sub-account needs the sub-account to exist under this owner. A withdrawal from one is refused
+    // `not_offered` below whatever its state, so it keeps that one answer.
+    if (account.subAccount !== null && intent.kind !== 'withdraw') this.subAccountOf(account.owner, account.subAccount);
     switch (intent.kind) {
       case 'place_order': {
         this.checkOrderOnItsFace(state, intent);
@@ -569,8 +711,70 @@ export class TestVenueSimulator implements UserVenue {
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
         return;
       case 'approve_agent':
-      case 'revoke_agent':
+        this.checkAgentApproval(account, state, intent.agentAddress, intent.agentName, intent.validUntil);
         return;
+      case 'revoke_agent':
+        // Revoking an address that is not approved here would retire it for good without the owner meaning to.
+        if (!state.agents.has(intent.agentAddress.toLowerCase())) {
+          refuse(this.venue.id, 'venue_rejected', `${intent.agentAddress.toLowerCase()} is not an agent on this account`);
+        }
+        return;
+      case 'create_sub_account': {
+        const name = intent.name.trim();
+        if (name === '') refuse(this.venue.id, 'venue_rejected', 'a sub-account needs a name');
+        for (const existing of state.subAccounts.values()) {
+          if (existing.name === name) refuse(this.venue.id, 'venue_rejected', `this owner already has a sub-account named "${name}"`);
+        }
+        return;
+      }
+      case 'sub_account_transfer':
+        this.subAccountOf(account.owner, intent.subAccount);
+        return;
+    }
+  }
+
+  /** The owner's sub-account `id`, or `unknown_sub_account`. */
+  private subAccountOf(owner: string, id: string): UserVenueSubAccount {
+    const main = this.account({ venueId: this.venue.id, owner, subAccount: null });
+    // Exact match: the venue's id as it named it, the same string the account's state and the signed bytes carry.
+    const sub = main.subAccounts.get(id);
+    if (!sub) refuse(this.venue.id, 'unknown_sub_account', `no sub-account ${id} under ${owner.toLowerCase()}`);
+    return sub;
+  }
+
+  private checkAgentApproval(
+    account: UserVenueAccount,
+    state: AccountState,
+    agentAddress: string,
+    agentName: string,
+    validUntil: Date | null,
+  ): void {
+    const address = agentAddress.toLowerCase();
+    if (state.retiredAgents.has(address)) {
+      refuse(
+        this.venue.id,
+        'venue_rejected',
+        `agent ${address} was revoked or replaced on this account and is never approved again: use a new key`,
+      );
+    }
+    if (address === state.owner) refuse(this.venue.id, 'venue_rejected', 'the owner wallet cannot be its own agent');
+    if (validUntil !== null) {
+      const now = this.clock().getTime();
+      if (validUntil.getTime() <= now) refuse(this.venue.id, 'venue_rejected', 'an agent expiry must be in the future');
+      if (validUntil.getTime() > now + MAX_AGENT_VALIDITY_MS) {
+        refuse(this.venue.id, 'venue_rejected', 'an agent expiry is at most 180 days ahead');
+      }
+    }
+    const name = agentName.trim();
+    if (name === '') return; // the one unnamed agent: a new one replaces it
+    // An expired agent signs nothing, so it holds no slot.
+    const named = [...state.agents.values()].filter(
+      (a) => a.name.trim() !== '' && a.address !== address && this.agentLive(state, a.address),
+    );
+    if (named.some((a) => a.name.trim() === name)) return; // replaces the key under that name
+    const limit = account.subAccount === null ? MAX_NAMED_AGENTS_MAIN : MAX_NAMED_AGENTS_SUB;
+    if (named.length >= limit) {
+      refuse(this.venue.id, 'venue_rejected', `at most ${limit} named agents on this account: revoke one first`);
     }
   }
 
@@ -607,6 +811,11 @@ export class TestVenueSimulator implements UserVenue {
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
+      return { definite: false, reason: 'timeout' };
+    }
+    const lost = this.lostAnswers.get(key) ?? 0;
+    if (lost > 0) {
+      this.lostAnswers.set(key, lost - 1);
       return { definite: false, reason: 'timeout' };
     }
     return outcome;
@@ -677,6 +886,21 @@ export class TestVenueSimulator implements UserVenue {
     return this.asOf(this.account(account).builderApprovals.get(builder.toLowerCase()) ?? ZERO);
   }
 
+  /**
+   * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
+   * carried that builder, per fee asset. No builder claims here, so all of it is unclaimed. The `builderTotalsUnknown`
+   * switch answers not known.
+   */
+  async builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
+    this.up();
+    if (this.switches.builderTotalsUnknown) return this.asOf({ known: false });
+    const b = builder.toLowerCase();
+    const assets = [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()]
+      .sort(([x], [y]) => x.localeCompare(y))
+      .map(([asset, earned]) => ({ asset, earned, unclaimed: earned }));
+    return this.asOf({ known: true, value: { builder: b, assets } });
+  }
+
   async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     this.up();
     this.market(symbol);
@@ -687,6 +911,24 @@ export class TestVenueSimulator implements UserVenue {
   async agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
     this.up();
     return this.asOf([...this.account(account).agents.values()]);
+  }
+
+  // ── UserVenueSubAccountReads ───────────────────────────────────────────
+
+  async subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>> {
+    this.up();
+    this.mainOnly(account);
+    return this.asOf([...this.account(account).subAccounts.values()]);
+  }
+
+  async transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>> {
+    this.up();
+    this.mainOnly(account);
+    return this.asOf(this.account(account).transfers.get(nonce) ?? null);
+  }
+
+  private mainOnly(account: UserVenueAccount): void {
+    if (account.subAccount !== null) refuse(this.venue.id, 'not_offered', 'sub-accounts and transfers are read on the main account');
   }
 
   // ── internals ──────────────────────────────────────────────────────────
@@ -714,6 +956,24 @@ export class TestVenueSimulator implements UserVenue {
     return agent !== undefined && (agent.validUntil === null || agent.validUntil.getTime() > this.clock().getTime());
   }
 
+  private feedOf(market: SimMarketConfig): UserVenueFeed {
+    const since = this.staleSince.get(market.symbol);
+    return {
+      state: since ? 'stale' : 'live',
+      lastOracleUpdateAt: since ?? this.clock(),
+      staleRule: published(market.oracle?.staleRule),
+    };
+  }
+
+  /** The cap's refusal, in the venue's words: the market and the most it allows. */
+  private aboveCap(market: SimMarketConfig, leverageBps: number): never {
+    refuse(
+      this.venue.id,
+      'leverage_above_cap',
+      `${market.symbol} allows at most ${(market.maxLeverageBps ?? 0) / 10_000}x; ${leverageBps / 10_000}x is above its cap`,
+    );
+  }
+
   private up(): void {
     if (this.switches.venueDown) refuse(this.venue.id, 'venue_down', `${this.venue.displayName} is down (TEST switch)`);
   }
@@ -738,6 +998,9 @@ export class TestVenueSimulator implements UserVenue {
         agents: new Map(),
         deposits: new Set(),
         leverage: new Map(),
+        subAccounts: new Map(),
+        transfers: new Map(),
+        retiredAgents: new Set(),
       };
       this.accounts.set(key, state);
     }
@@ -787,8 +1050,19 @@ export class TestVenueSimulator implements UserVenue {
       if (intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
         refuse(this.venue.id, 'not_offered', 'a resting reduce-only order is not offered on the TEST simulator: close with IOC or market');
       }
-      if (!state.leverage.has(market.symbol)) {
+      const setting = state.leverage.get(market.symbol);
+      if (!setting) {
         refuse(this.venue.id, 'leverage_not_set', `no leverage is set on ${market.symbol} for this account: set it first`);
+      }
+      if (!intent.reduceOnly && market.maxLeverageBps !== null && setting.leverageBps > market.maxLeverageBps)
+        this.aboveCap(market, setting.leverageBps);
+      // The venue's own stale-feed rule: while the oracle is stale, only reduce-only orders are taken.
+      if (!intent.reduceOnly && market.oracle && this.staleSince.has(market.symbol)) {
+        refuse(
+          this.venue.id,
+          'feed_stale',
+          market.oracle.staleRule ?? `${market.symbol}'s oracle is stale: only reduce-only orders are taken until it updates`,
+        );
       }
     } else if (intent.reduceOnly) {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is cash spot: no reduce-only`);
@@ -800,14 +1074,10 @@ export class TestVenueSimulator implements UserVenue {
     if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage or margin mode`);
     if (!market.marginModes.includes(marginMode))
       refuse(this.venue.id, 'not_offered', `margin mode ${marginMode} is not offered on ${symbol}`);
-    if (
-      !Number.isInteger(leverageBps) ||
-      leverageBps % 10_000 !== 0 ||
-      leverageBps < 10_000 ||
-      (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps)
-    ) {
+    if (!Number.isInteger(leverageBps) || leverageBps % 10_000 !== 0 || leverageBps < 10_000) {
       refuse(this.venue.id, 'not_offered', `leverage ${leverageBps} bps is outside what ${symbol} offers`);
     }
+    if (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps) this.aboveCap(market, leverageBps);
     return market;
   }
 
@@ -920,16 +1190,57 @@ export class TestVenueSimulator implements UserVenue {
       case 'approve_builder_fee':
         state.builderApprovals.set(intent.builder.toLowerCase(), intent.maxFeeBps);
         return accepted(null, null);
-      case 'approve_agent':
-        state.agents.set(intent.agentAddress.toLowerCase(), {
-          address: intent.agentAddress.toLowerCase(),
-          name: intent.agentName,
-          validUntil: intent.validUntil,
+      case 'approve_agent': {
+        const address = intent.agentAddress.toLowerCase();
+        const name = intent.agentName.trim();
+        // A new key under a name in use (or a second unnamed key) replaces the old one, which is retired for good.
+        for (const existing of [...state.agents.values()]) {
+          if (existing.address !== address && existing.name.trim() === name) {
+            state.agents.delete(existing.address);
+            state.retiredAgents.add(existing.address);
+          }
+        }
+        state.agents.set(address, { address, name: intent.agentName, validUntil: intent.validUntil });
+        return accepted(null, null);
+      }
+      case 'revoke_agent': {
+        const address = intent.agentAddress.toLowerCase();
+        state.agents.delete(address);
+        state.retiredAgents.add(address);
+        return accepted(null, null);
+      }
+      case 'create_sub_account': {
+        // The venue names it: deterministic from the owner and the signed nonce, so a replayed run names the same one.
+        const id = `0x${createHash('sha256').update(`${this.venue.id}\u0000${state.owner}\u0000${prepared.nonce}`).digest('hex').slice(0, 40)}`;
+        state.subAccounts.set(id, { subAccount: id, name: intent.name.trim() });
+        this.account({ venueId: this.venue.id, owner: state.owner, subAccount: id });
+        return accepted(id, null);
+      }
+      case 'sub_account_transfer': {
+        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount });
+        const into = intent.direction === 'into_sub_account';
+        const fromState = into ? state : subState;
+        // Read before creating: a refused move leaves no new balance row behind.
+        if (compare(fromState.balances.get(intent.asset)?.free ?? ZERO, intent.amount) < 0) {
+          return refused(
+            'insufficient_balance',
+            `free ${intent.asset} on the ${into ? 'main account' : 'sub-account'} does not cover the move (what is locked or held as margin stays)`,
+          );
+        }
+        const from = this.balance(fromState, intent.asset);
+        const to = this.balance(into ? subState : state, intent.asset);
+        from.free = sub(from.free, intent.amount);
+        to.free = add(to.free, intent.amount);
+        state.transfers.set(prepared.nonce, {
+          nonce: prepared.nonce,
+          subAccount: intent.subAccount,
+          direction: intent.direction,
+          asset: intent.asset,
+          amount: intent.amount,
+          status: 'done',
         });
-        return accepted(null, null);
-      case 'revoke_agent':
-        state.agents.delete(intent.agentAddress.toLowerCase());
-        return accepted(null, null);
+        return accepted(prepared.nonce, null);
+      }
     }
   }
 
@@ -1086,7 +1397,7 @@ export class TestVenueSimulator implements UserVenue {
   }
 
   private bookOf(symbol: string): OrderState[] {
-    return this.book.get(symbol) as OrderState[];
+    return this.resting.get(symbol) as OrderState[];
   }
 
   /** One fill between a resting maker and an incoming taker at the maker's price. */
@@ -1120,6 +1431,13 @@ export class TestVenueSimulator implements UserVenue {
       side.order = { ...o, filled, remaining, averagePrice, status: remaining === ZERO ? 'filled' : 'partially_filled' };
       if (remaining === ZERO) this.release(side, 'filled');
 
+      if (builderFee > ZERO) {
+        const b = side.builderFee!.builder.toLowerCase();
+        const asset = feeInBase ? market.baseAsset : market.quoteAsset;
+        const byAsset = this.builderEarned.get(b) ?? new Map<string, Amount>();
+        byAsset.set(asset, add(byAsset.get(asset) ?? ZERO, builderFee));
+        this.builderEarned.set(b, byAsset);
+      }
       this.fillCounter += 1;
       side.account.fills.push({
         fillId: `sim-fill-${this.fillCounter}`,
@@ -1136,7 +1454,8 @@ export class TestVenueSimulator implements UserVenue {
         filledAt: now,
       });
     }
-    if (market.kind === 'perpetual') this.marks.set(market.symbol, price);
+    // An oracle market's mark is the oracle price: a fill does not move it.
+    if (market.kind === 'perpetual' && !market.oracle) this.marks.set(market.symbol, price);
   }
 
   /**
@@ -1253,6 +1572,11 @@ export class TestVenueSimulator implements UserVenue {
     const at = book.indexOf(order);
     if (at >= 0) book.splice(at, 1);
   }
+}
+
+/** A published word of the venue's, or `known: false` when it publishes none. */
+function published<T>(value: T | undefined): MaybeKnown<T> {
+  return value === undefined ? { known: false } : { known: true, value };
 }
 
 function isLive(o: OrderState): boolean {
