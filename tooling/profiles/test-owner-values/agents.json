@@ -95,6 +95,11 @@
       "service": "agents",
       "value": "15",
       "note": "LOCAL TEST short wait, so a journey can watch a held call expire (J-agents-05 #6) on a restart with LOCAL_STACK_AGENTS_APPROVAL_TTL=short. Never an owner value."
+    },
+    "AGENTS_NAVIGATOR_ONCHAIN_SIGNER": {
+      "service": "agents",
+      "value": "0x00000000000000000000000000000000005e0019",
+      "note": "LOCAL TEST public address the Navigator's session key is granted to on the stack's TEST chain (RC-agents-01; J-agents-19). An address only: no key exists for it and it never signs. Not an owner decision; production stays blank and every navigator.onchain route refuses rail.crypto. LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER=off leaves it blank."
     }
   }
 }
