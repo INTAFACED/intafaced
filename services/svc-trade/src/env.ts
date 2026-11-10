@@ -57,6 +57,11 @@ const schema = serviceEnvSchema
        */
       TRADE_BUILDER_FEE_POSTER: z.enum(['on', 'off']).default('on'),
       TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(10_000),
+      /**
+       * OWNER 288 change 1e: how often the builder-fee recon runs on its own over the last day, with the door on, and logs
+       * `trade.builder_fee_recon_break` when the venue's fills or its own totals and the ledger disagree.
+       */
+      TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
 
       /**
        * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST
@@ -823,6 +828,19 @@ const schema = serviceEnvSchema
        * Owner value. Never invent a wait; blank never means no wait.
        */
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
+
+      /**
+       * The oldest chart alert a webhook accepts, in whole seconds (1 to 3600): server time minus the alert's time
+       * (CB-bots-api-signal-01, J-copy-bots-otc-20 #2). Empty (default) = unset → every alert refuses
+       * `trade.signal_latency_not_set`. Owner value; never invented.
+       */
+      TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: z.string().default(''),
+
+      /**
+       * How long a chart alert webhook may place orders for its creator, in whole days (1 to 366). Empty (default) =
+       * unset → every webhook create refuses `trade.signal_webhook_life_not_set`. Owner value; never invented.
+       */
+      TRADE_SIGNAL_WEBHOOK_DAYS: z.string().default(''),
 
       /**
        * How often the limit-convert sweep prices each waiting limit convert (J-cex-spot-11 #8). Blank (default): no

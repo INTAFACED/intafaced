@@ -49,6 +49,9 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  // VenueBuilderTotal (OWNER 288 1e)
+  'earned',
+  'unclaimed',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -85,7 +88,15 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'maxOrderNotional',
 ]);
 
-const DATE_FIELDS: ReadonlySet<string> = new Set(['asOf', 'preparedAt', 'filledAt', 'validUntil', 'since', 'lastOracleUpdateAt']);
+const DATE_FIELDS: ReadonlySet<string> = new Set([
+  'asOf',
+  'reportedAt',
+  'preparedAt',
+  'filledAt',
+  'validUntil',
+  'since',
+  'lastOracleUpdateAt',
+]);
 
 /**
  * Passed through untouched: the wallet's payload, and the venue's published words (a market's listing and rules, each a

@@ -47,6 +47,8 @@ import {
   VenueWireError,
   decodeVenueWire,
   encodeVenueWire,
+  venueBalanceFigures,
+  venuePositionFigures,
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
@@ -219,9 +221,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   // The venue's account reads, by path. Registered in one literal loop so the published route list can see every one
   // (apps/customer developers-reference.test.ts reads `for (const path of [...])`).
   const accountReads: Record<string, (d: UserVenueDoor, q: Query, a: Account) => Promise<unknown>> = {
-    '/api/v1/venue/balances': async (d, _q, a) => (await d.venue()).balances(a),
+    // b2 change 6: every figure the person sees of their venue money is the venue's, with its own time and a state.
+    '/api/v1/venue/balances': async (d, _q, a) => {
+      const venue = await d.venue();
+      const read = await venue.balances(a);
+      return { ...read, figures: venueBalanceFigures(venue.venue, read, new Date()) };
+    },
     '/api/v1/venue/orders/open': async (d, _q, a) => (await d.venue()).openOrders(a),
-    '/api/v1/venue/positions': async (d, _q, a) => (await d.venue()).positions(a),
+    '/api/v1/venue/positions': async (d, _q, a) => {
+      const venue = await d.venue();
+      const read = await venue.positions(a);
+      return { ...read, figures: venuePositionFigures(venue.venue, read, new Date()) };
+    },
     '/api/v1/venue/agents': async (d, _q, a) => (await d.venue()).agents(a),
     '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
       if (!q.clientOrderId) throw new VenueWireError('clientOrderId is required');

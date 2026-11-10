@@ -115,7 +115,7 @@ const venue = () => door.venue();
 const routedOrders = (venueId: string, ids: readonly string[]) => actions.builderFeeOrders(venueId, ids);
 const ourOrders = (venueId: string, acct: { owner: string; subAccount: string | null }, ids: readonly string[]) =>
   actions.sentBuilderFeeOrders(venueId, acct, ids);
-const deps = () => ({ venue, ledger, store, routedOrders, ourOrders, now: () => new Date() });
+const deps = () => ({ venue, ledger, store, routedOrders, ourOrders, builder: BUILDER.address, now: () => new Date() });
 const period = () => [start, new Date(Date.now() + 60_000)] as const;
 const market = async (symbol: string) => (await (await venue()).markets(null)).value.find((m) => m.symbol === symbol)!;
 const venueFees = async () => (await (await venue()).fills(account().account, start)).value.filter((f) => f.builderFee > 0n);
@@ -207,6 +207,32 @@ describe('the builder-fee recon (J-derivatives-17 #1 #2)', () => {
       });
     }
     expect(v.totals.every((t) => t.matched && t.venueTotal === t.ledgerTotal)).toBe(true);
+  });
+
+  it("#1 #3 over HTTP: the TEST venue's own totals for our builder address match the ledger's earned and owed; its switch reads them not known", async () => {
+    await postBuilderFees(deps());
+    const v = (await builderFeeRecon(deps(), ...period())).venues[0]!;
+    if (v.state !== 'read') throw new Error('venue not read');
+    const fills = await venueFees();
+    const earned = fills.reduce((sum, f) => sum + f.builderFee, 0n);
+    expect(v).toMatchObject({ verdict: 'matched', compared: fills.length });
+    expect(v.venueTotals).toMatchObject({
+      state: 'known',
+      builder: BUILDER.address,
+      rows: [{ assetId: fills[0]!.feeAsset, venueEarned: formatAmount(earned), ledgerEarned: formatAmount(earned), earnedMatched: true }],
+    });
+    expect(v.venueTotals.state === 'known' && v.venueTotals.rows[0]!.venueUnclaimed).toBe(v.owed[0]!.amount);
+    sim.switches.builderTotalsUnknown = true;
+    try {
+      const off = (await builderFeeRecon(deps(), ...period())).venues[0]!;
+      expect(off).toMatchObject({
+        verdict: 'totals_unknown',
+        matched: false,
+        venueTotals: { state: 'unknown', reason: 'venue_not_known' },
+      });
+    } finally {
+      sim.switches.builderTotalsUnknown = false;
+    }
   });
 
   it('#2: a fee the venue reports and the ledger does not is a break with its fill id and amount; posting it turns it green', async () => {

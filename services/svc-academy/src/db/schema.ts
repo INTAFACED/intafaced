@@ -588,6 +588,8 @@ export const courses = academy.table(
     pricing: text('pricing').notNull(),
     price: amount('price'),
     priceAsset: text('price_asset'),
+    /** When staff withdrew a published paid course's price; the course then shows with no price. */
+    priceWithdrawnAt: tstz('price_withdrawn_at'),
     state: text('state').notNull().default('draft'),
     revision: integer('revision').notNull().default(1),
     createdBy: uuid('created_by').notNull(),
