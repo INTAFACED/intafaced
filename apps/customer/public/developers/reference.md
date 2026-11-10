@@ -163,6 +163,8 @@ No deposit or custodial withdrawal route is on the trading API: withdrawals are 
 | `POST /api/v1/venue/preview`                   | `venuePreview`                | trade:write             |
 | `POST /api/v1/venue/prepare`                   | `venuePrepare`                | trade:write             |
 | `POST /api/v1/venue/submit`                    | `venueSubmit`                 | trade:write             |
+| `GET /api/v1/venue/orders`                     | `venueOrders`                 | trade:read              |
+| `GET /api/v1/venue/orders/by-key`              | `venueOrderByKey`             | trade:read              |
 | `GET /api/v1/account/balance`                  | `fetchBalance`                | trade:read              |
 | `GET /api/v1/account/fees`                     | `fetchTradingFees`            | trade:read              |
 | `GET /api/v1/account/trades`                   | `fetchMyTrades`               | trade:read              |

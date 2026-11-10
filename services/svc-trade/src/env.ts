@@ -25,6 +25,11 @@ const schema = serviceEnvSchema
       TRADE_USER_VENUE_BUILDER_ADDRESS: z.string().default(''),
       /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
       TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
+      /**
+       * Owner value: the largest page of GET /api/v1/venue/orders (J-developer-05 #6), a whole number 1 to 1000. Blank
+       * refuses every list `trade.venue_orders_page_max_unset`, never a guessed page size.
+       */
+      TRADE_USER_VENUE_ORDERS_PAGE_MAX: z.string().default(''),
 
       /**
        * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST

@@ -11,6 +11,15 @@
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
  *   POST /api/v1/venue/submit    { actionKey, signature }
+ *   GET  /api/v1/venue/orders?owner=&cursor=&limit=      this person's orders on the account, oldest first, a page at a time
+ *   GET  /api/v1/venue/orders/by-key?idempotencyKey=|actionKey=   one order by its key: accepted, unknown, refused, not_sent
+ *
+ * IDEMPOTENCY-KEY (J-developer-05; DV-auth-03): an order's prepare and submit may carry an `Idempotency-Key` header instead
+ * of a `clientOrderKey` / `actionKey`. The order is stored and placed under that key, sent to the venue as its client
+ * order id: a retry of the same key and body gets the stored answer (`idempotent-replayed: true`) and never a second
+ * venue order; the same key with a changed order is `idempotency.conflict` (409); a second request while the first is
+ * still sending is `idempotency.in_progress` (409, `retry-after`). A send with no definite answer stays `unknown` until
+ * the venue answers a read by key.
  *
  * Reads need trade:read, writes trade:write, and every route but `status` the trade jurisdiction (as the grid's
  * routes do). Every Amount travels as a decimal string (`encodeVenueWire`). A venue refusal answers 422 with
@@ -30,14 +39,30 @@ import {
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite } from '../route-inventory.js';
-import { UserVenueDoor, UserVenueDoorError } from './user-venue-door.js';
+import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
 }
 
-type Query = { owner?: string; subAccount?: string; clientOrderId?: string; since?: string; symbol?: string };
+type Query = {
+  owner?: string;
+  subAccount?: string;
+  clientOrderId?: string;
+  since?: string;
+  symbol?: string;
+  cursor?: string;
+  limit?: string;
+  idempotencyKey?: string;
+  actionKey?: string;
+};
+
+/** The request's Idempotency-Key header, or undefined when it has none. */
+function idempotencyHeader(req: FastifyRequest): string | undefined {
+  const v = req.headers['idempotency-key'];
+  return Array.isArray(v) ? v.join(',') : v;
+}
 
 export function venueRefusalReply(reply: FastifyReply, err: unknown) {
   if (err instanceof VenueRefusalError) {
@@ -50,8 +75,10 @@ export function venueRefusalReply(reply: FastifyReply, err: unknown) {
     });
   }
   if (err instanceof UserVenueDoorError) {
+    if (err.code === 'idempotency.in_progress') reply.header('retry-after', '1');
     return reply.code(err.status).send({
-      code: err.status === 404 ? 'NotFound' : err.status === 422 ? 'InvalidOrder' : 'BadRequest',
+      code:
+        err.status === 404 ? 'NotFound' : err.status === 422 ? 'InvalidOrder' : err.status === 503 ? 'ExchangeNotAvailable' : 'BadRequest',
       message: err.message,
       intafacedCode: err.code,
     });
@@ -82,7 +109,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
     return deps.requireTradeJurisdiction(req, reply, principal) ? principal : null;
   }
 
-  async function answer(reply: FastifyReply, run: (d: UserVenueDoor) => Promise<unknown>) {
+  async function answer(reply: FastifyReply, run: (d: UserVenueDoor) => Promise<unknown>, replayed?: (value: unknown) => boolean) {
     try {
       if (!door)
         throw new UserVenueDoorError(
@@ -90,7 +117,9 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
           'trade.user_venue_off',
           404,
         );
-      return reply.code(200).send(encodeVenueWire(await run(door)));
+      const value = await run(door);
+      if (replayed?.(value)) reply.header('idempotent-replayed', 'true');
+      return reply.code(200).send(encodeVenueWire(value));
     } catch (error) {
       return venueRefusalReply(reply, error);
     }
@@ -189,32 +218,66 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
   app.post('/api/v1/venue/prepare', privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
-    return answer(reply, async (d) => {
-      const b = body<{
-        owner?: string;
-        subAccount?: string | null;
-        signer?: VenueSigner;
-        intent?: VenueIntent;
-        actionKey?: string | null;
-        stepUpApprovalId?: string | null;
-      }>(req);
-      return d.prepare(principal, {
-        owner: b.owner ?? '',
-        subAccount: b.subAccount ?? null,
-        signer: b.signer as VenueSigner,
-        intent: b.intent as VenueIntent,
-        actionKey: b.actionKey ?? null,
-        stepUpApprovalId: b.stepUpApprovalId ?? null,
-      });
-    });
+    return answer(
+      reply,
+      async (d) => {
+        const b = body<{
+          owner?: string;
+          subAccount?: string | null;
+          signer?: VenueSigner;
+          intent?: VenueIntent;
+          actionKey?: string | null;
+          stepUpApprovalId?: string | null;
+        }>(req);
+        return d.prepare(principal, {
+          owner: b.owner ?? '',
+          subAccount: b.subAccount ?? null,
+          signer: b.signer as VenueSigner,
+          intent: b.intent as VenueIntent,
+          actionKey: b.actionKey ?? null,
+          stepUpApprovalId: b.stepUpApprovalId ?? null,
+          idempotencyKey: idempotencyHeader(req) ?? null,
+        });
+      },
+      (v) => (v as { reused?: boolean }).reused === true,
+    );
   });
 
   app.post('/api/v1/venue/submit', privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
+    return answer(
+      reply,
+      async (d) => {
+        const b = body<{ actionKey?: string; signature?: VenueSignature }>(req);
+        const header = idempotencyHeader(req);
+        let key = b.actionKey ?? '';
+        if (header !== undefined) {
+          const fromHeader = orderKeyOfIdempotencyKey(header);
+          if (key !== '' && key !== fromHeader) throw new VenueWireError('with an Idempotency-Key, leave actionKey out');
+          key = fromHeader;
+        }
+        return d.submit(principal, key, b.signature as VenueSignature);
+      },
+      (v) => (v as { replayed?: boolean }).replayed === true,
+    );
+  });
+
+  app.get<{ Querystring: Query }>('/api/v1/venue/orders', privateRead, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(reply, async (d) => d.orders(principal, req.query.owner ?? '', req.query.cursor, req.query.limit));
+  });
+
+  app.get<{ Querystring: Query }>('/api/v1/venue/orders/by-key', privateRead, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:read');
+    if (!principal) return;
     return answer(reply, async (d) => {
-      const b = body<{ actionKey?: string; signature?: VenueSignature }>(req);
-      return d.submit(principal, b.actionKey ?? '', b.signature as VenueSignature);
+      const { idempotencyKey, actionKey } = req.query;
+      if ((idempotencyKey === undefined) === (actionKey === undefined)) {
+        throw new VenueWireError('give exactly one of idempotencyKey (the header you sent) or actionKey');
+      }
+      return d.orderByKey(principal, idempotencyKey !== undefined ? orderKeyOfIdempotencyKey(idempotencyKey) : actionKey!);
     });
   });
 }

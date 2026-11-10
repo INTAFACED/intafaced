@@ -15,6 +15,8 @@ import {
 export interface StoredVenueAction {
   readonly userId: string;
   readonly businessKey: string;
+  /** When the row was stored: the order a list of orders pages in (with the key as the tie-break). */
+  readonly createdAt: Date;
   readonly prepared: PreparedVenueAction;
   readonly signature: VenueSignature | null;
   readonly lastOutcome: VenueSubmitOutcome | null;
@@ -31,7 +33,30 @@ export interface PreparedActionStore {
    * outcome now stored (the earlier definite one when it was kept).
    */
   recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
+  /**
+   * Claim the right to send this key's action now, until `until`. False while another request holds an unexpired claim:
+   * that request is the one sending (DV-auth-03 `idempotency.in_progress`). A claim that ran out (a crashed request) is
+   * taken over.
+   */
+  claimSend(userId: string, businessKey: string, at: Date, until: Date): Promise<boolean>;
+  /** Give the claim back once the venue answered (or the send failed), so the next retry runs at once. */
+  releaseSend(userId: string, businessKey: string): Promise<void>;
+  /**
+   * The signed order actions of one venue account, oldest first, strictly after `after` (created time, then key), at
+   * most `limit` of them.
+   */
+  listSignedOrders(
+    userId: string,
+    account: { venueId: string; owner: string },
+    after: { createdAt: Date; businessKey: string } | null,
+    limit: number,
+  ): Promise<StoredVenueAction[]>;
 }
+
+const afterCursor = (row: StoredVenueAction, after: { createdAt: Date; businessKey: string } | null) =>
+  !after ||
+  row.createdAt.getTime() > after.createdAt.getTime() ||
+  (row.createdAt.getTime() === after.createdAt.getTime() && row.businessKey > after.businessKey);
 
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
 function wire<T>(value: T): T {
@@ -40,6 +65,7 @@ function wire<T>(value: T): T {
 
 export class InMemoryPreparedActionStore implements PreparedActionStore {
   private readonly rows = new Map<string, StoredVenueAction>();
+  private readonly claims = new Map<string, number>();
 
   private id(userId: string, key: string) {
     return `${userId}\u0000${key}`;
@@ -49,11 +75,18 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     return this.rows.get(this.id(userId, businessKey)) ?? null;
   }
 
-  async insertOnce(userId: string, businessKey: string, prepared: PreparedVenueAction) {
+  async insertOnce(userId: string, businessKey: string, prepared: PreparedVenueAction, at: Date) {
     const id = this.id(userId, businessKey);
     const existing = this.rows.get(id);
     if (existing) return existing;
-    const row: StoredVenueAction = { userId, businessKey, prepared: wire(prepared), signature: null, lastOutcome: null };
+    const row: StoredVenueAction = {
+      userId,
+      businessKey,
+      createdAt: new Date(at.getTime()),
+      prepared: wire(prepared),
+      signature: null,
+      lastOutcome: null,
+    };
     this.rows.set(id, row);
     return row;
   }
@@ -77,11 +110,47 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     this.rows.set(id, next);
     return next.lastOutcome;
   }
+
+  async claimSend(userId: string, businessKey: string, at: Date, until: Date) {
+    const id = this.id(userId, businessKey);
+    const held = this.claims.get(id);
+    if (held !== undefined && held > at.getTime()) return false;
+    this.claims.set(id, until.getTime());
+    return true;
+  }
+
+  async releaseSend(userId: string, businessKey: string) {
+    this.claims.delete(this.id(userId, businessKey));
+  }
+
+  async listSignedOrders(
+    userId: string,
+    account: { venueId: string; owner: string },
+    after: { createdAt: Date; businessKey: string } | null,
+    limit: number,
+  ) {
+    return [...this.rows.values()]
+      .filter(
+        (r) =>
+          r.userId === userId &&
+          r.signature !== null &&
+          r.prepared.intent.kind === 'place_order' &&
+          r.prepared.venueId === account.venueId &&
+          r.prepared.account.owner === account.owner &&
+          afterCursor(r, after),
+      )
+      .sort(
+        (a, b) =>
+          a.createdAt.getTime() - b.createdAt.getTime() || (a.businessKey < b.businessKey ? -1 : a.businessKey > b.businessKey ? 1 : 0),
+      )
+      .slice(0, limit);
+  }
 }
 
 interface Row {
   user_id: string;
   business_key: string;
+  created_at: Date;
   prepared: unknown;
   signature: unknown;
   last_outcome: unknown;
@@ -91,6 +160,7 @@ function fromRow(row: Row): StoredVenueAction {
   return {
     userId: row.user_id,
     businessKey: row.business_key,
+    createdAt: new Date(row.created_at),
     prepared: decodeVenueWire<PreparedVenueAction>(row.prepared),
     signature: row.signature ? decodeVenueWire<VenueSignature>(row.signature) : null,
     lastOutcome: row.last_outcome ? decodeVenueWire<VenueSubmitOutcome>(row.last_outcome) : null,
@@ -102,7 +172,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
 
   async find(userId: string, businessKey: string) {
     const rows = await this.sql<Row[]>`
-      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND business_key = ${businessKey}`;
     return rows[0] ? fromRow(rows[0]) : null;
   }
@@ -137,5 +207,34 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     const stored = await this.find(userId, businessKey);
     if (!stored?.lastOutcome) throw new Error(`no prepared venue action under ${businessKey}`);
     return stored.lastOutcome;
+  }
+
+  async claimSend(userId: string, businessKey: string, at: Date, until: Date) {
+    const rows = await this.sql`
+      UPDATE trade.user_venue_actions SET sending_until = ${until}
+      WHERE user_id = ${userId} AND business_key = ${businessKey} AND (sending_until IS NULL OR sending_until <= ${at})
+      RETURNING 1`;
+    return rows.length === 1;
+  }
+
+  async releaseSend(userId: string, businessKey: string) {
+    await this.sql`
+      UPDATE trade.user_venue_actions SET sending_until = NULL WHERE user_id = ${userId} AND business_key = ${businessKey}`;
+  }
+
+  async listSignedOrders(
+    userId: string,
+    account: { venueId: string; owner: string },
+    after: { createdAt: Date; businessKey: string } | null,
+    limit: number,
+  ) {
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE user_id = ${userId} AND kind = 'place_order' AND signature IS NOT NULL AND venue_id = ${account.venueId}
+        AND prepared->'account'->>'owner' = ${account.owner}
+        AND (${after === null} OR (created_at, business_key) > (${after?.createdAt ?? new Date(0)}, ${after?.businessKey ?? ''}))
+      ORDER BY created_at, business_key
+      LIMIT ${limit}`;
+    return rows.map(fromRow);
   }
 }
