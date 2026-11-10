@@ -77,6 +77,18 @@ describe('reconciliation alert decisions', () => {
     expect(sameFrozenFigures(asset('7', '0'), asset('7.01', '0'))).toBe(false);
     expect(sameFrozenFigures(asset('7', '0'), { ...asset('7', '0'), assetId: 'EUR' })).toBe(false);
     expect(sameFrozenFigures({ ...asset('7', '0'), difference: 'unset' }, asset('7', '0'))).toBe(false);
+    // A missing side has no difference: the same row is the same figures; a raised bound is a new discrepancy (OWNER 288).
+    const missing = {
+      assetId: 'USDC',
+      observed: 'unset',
+      expected: '100',
+      difference: 'unset',
+      tolerance: '0',
+      missing: 'ledger' as const,
+    };
+    expect(sameFrozenFigures(missing, { ...missing })).toBe(true);
+    expect(sameFrozenFigures(missing, { ...missing, expected: '101' })).toBe(false);
+    expect(sameFrozenFigures(missing, { ...asset('7', '0'), assetId: 'USDC' })).toBe(false);
     expect(sameFrozenFigures(null, null)).toBe(true);
     expect(sameFrozenFigures(null, asset('7', '0'))).toBe(false);
   });

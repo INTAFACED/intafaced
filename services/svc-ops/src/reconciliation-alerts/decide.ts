@@ -73,6 +73,15 @@ export function alertTargets(evaluation: ReconciliationEvaluation): AlertTarget[
 export function sameFrozenFigures(frozen: AssetEvidence | null, now: AssetEvidence | null): boolean {
   if (!frozen || !now) return frozen === now;
   if (frozen.assetId !== now.assetId) return false;
-  if (frozen.difference === 'unset' || now.difference === 'unset') return frozen.difference === now.difference;
+  // With no difference to compare (a missing side, OWNER 288), the figures are the row itself: a changed bound or a side
+  // that reappears is a new discrepancy.
+  if (frozen.difference === 'unset' || now.difference === 'unset') {
+    return (
+      frozen.difference === now.difference &&
+      frozen.observed === now.observed &&
+      frozen.expected === now.expected &&
+      frozen.missing === now.missing
+    );
+  }
   return parseAmount(frozen.difference) === parseAmount(now.difference);
 }

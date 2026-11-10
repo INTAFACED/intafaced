@@ -959,7 +959,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const { a } = await founders(browser);
     const section = await openLedger(a);
     await requireTreasury(section);
-    // Two floors no TEST book reaches, over the USDT account set: USDT fails on its total, USDC on a total of 0.
+    // Two floors no TEST book reaches, over the USDT account set: USDT fails on its total; the set holds no USDC account, so
+    // USDC fails as a missing ledger side, never as a total of 0 (OWNER 288).
     state.pairId = await define(section, {
       template: 'threshold',
       explanation: `LOCAL TEST two-asset floor ${tag}`,
@@ -978,7 +979,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       if (leftToday < 300_000) await a.waitForTimeout(leftToday + 5_000);
       const first = await twoFounderRun(state.pairId);
       expect(first).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-      expect(scaled(evidence(first, 'USDC').difference) < 0n).toBe(true);
+      expect(evidence(first, 'USDC')).toEqual({ observed: 'unset', expected: HIGH_FLOOR, difference: 'unset', tolerance: '0' });
+      expect(first).toContain('USDC is missing on the ledger side: a break, never read as a zero.');
       expect(scaled(evidence(first, 'USDT').difference) < 0n).toBe(true);
 
       // Two alerts, one per asset, in the same period, each counted once.
@@ -1177,7 +1179,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       // A resolved alert offers no second resolution and no acceptance.
       await expect(resolved.getByTestId('alert-resolve-why')).toBeVisible();
 
-      // Accept: a USDC floor over the USDT account set fails on a total of 0 at every run, the same figures each time.
+      // Accept: a USDC floor over the USDT account set fails at every run on a missing USDC side (no account holds it), the
+      // same figures each time.
       const desk = await openLedger(a);
       state.acceptId = await define(desk, {
         template: 'threshold',
