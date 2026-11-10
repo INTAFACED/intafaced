@@ -39,6 +39,13 @@ describe('user-venue wire', () => {
     expect(() => decodeVenueWire({ price: { value: '1' } })).toThrow(VenueWireError);
     expect(() => decodeVenueWire({ balances: [{ free: false }] })).toThrow(/free must be a decimal string/);
     expect(decodeVenueWire({ averagePrice: null, realisedPnl: null })).toEqual({ averagePrice: null, realisedPnl: null });
+    // A venue market's own largest order: a decimal string, or null when the venue reports none; never a JSON number.
+    expect(decodeVenueWire({ maxOrderQty: '5', maxOrderNotional: null })).toEqual({
+      maxOrderQty: parseAmount('5'),
+      maxOrderNotional: null,
+    });
+    expect(() => decodeVenueWire({ maxOrderQty: 5 })).toThrow(/decimal string/);
+    expect(() => decodeVenueWire({ maxOrderNotional: { value: '1' } })).toThrow(VenueWireError);
     // A name some type also uses for an object still decodes field by field.
     expect(decodeVenueWire({ builderFee: { builder: '0xb', feeBps: '1' }, fee: { known: true, value: '0.5' } })).toEqual({
       builderFee: { builder: '0xb', feeBps: parseAmount('1') },

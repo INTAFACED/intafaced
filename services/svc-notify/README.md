@@ -497,6 +497,7 @@ _None._
 | `intafaced.agents.action.rejected`            | `notify-agent-action-rejected`     | Inbox row when a guardrail refuses an agent action                                                                                                                                   |
 | `intafaced.agents.action.completed`           | `notify-agent-action-completed`    | Inbox row on completion / session_close only                                                                                                                                         |
 | `intafaced.ledger.freeze.updated`             | `notify-ledger-freeze-updated`     | One audience-all inbox notice when the posting freeze is set or cleared                                                                                                              |
+| `intafaced.trade.venue_delisting.created`     | `notify-venue-delisting`           | One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key                                                                                  |
 
 ### Posting-freeze notice (audience `all`)
 
@@ -508,6 +509,14 @@ inbox only (no out-of-app send). Copy keys `notify.ledger.freeze.set` and `.clea
 if a key is missing from the catalog the consumer throws `notify.freeze_copy_unset`, writes
 nothing and the event is redelivered. The event's reason and actor are never read. It
 reports the svc-ledger posting freeze only, not the single-account freeze of svc-identity.
+
+### Venue delisting notice (audience `all`, J-cex-spot-16 #8)
+
+`trade.venue_delisting.created` (svc-trade, after two operators schedule the date a venue market leaves the routed list)
+writes one row to `notify.system_notices`, keyed by the event's `noticeKey`
+(`venue-delisting:<venueId>:<symbol>:<delistsAt>`), so a republish or redelivery writes nothing new. Copy keys
+`notify.trade.venue_delisting.title` and `.body` name the market and the date, never the venue; a missing key throws
+`notify.venue_delisting_copy_unset`, writes nothing, and the event is redelivered. Inbox only (`venue-delisting-notice.ts`).
 
 ### Recipient health and quarantine
 

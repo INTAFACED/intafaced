@@ -242,6 +242,9 @@ export const en = {
   'notify.trade.copy_stopped.body.lead_stopped': 'The leader was suspended, so this follow stopped copying. You can choose another leader.',
   'notify.trade.copy_stopped.body.risk_control': 'One of your risk limits stopped this follow. You can check your limits and follow again.',
   'notify.trade.copy_stopped.body.permission_ended': 'The copy permission for this follow ended. You can grant it again on the follow.',
+  'notify.trade.venue_delisting.title': '{symbol} is being delisted',
+  'notify.trade.venue_delisting.body':
+    '{symbol} leaves the markets on {delistsAt} (UTC). After that, new orders on it are refused. You can still close what you hold and cancel open orders.',
   'notify.bank.scheduled_reminder.title': 'Standing order coming up',
   'notify.bank.scheduled_reminder.body': 'Your standing order of {amount} {assetId} runs on {dueDate} (UTC). Make sure the money is there.',
   'notify.bank.scheduled_failed.title': 'Standing order did not go through',
