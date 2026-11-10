@@ -98,6 +98,27 @@ test('title parsing: lists, ranges, several journeys, case, and what is not a st
   assert.deepEqual(titleSteps('x (J-bank-13#1 #2)'), ['J-bank-13#1', 'J-bank-13#2'], "the report's own spelling names steps");
 });
 
+test("title parsing: steps written after the journey's words (R0-5, 10 Nov; #7599, 9 Nov)", () => {
+  // One journey: the numbers after its words are its steps; a pull request number in brackets is not.
+  assert.deepEqual(titleSteps('svc-trade: J-cex-spot-14 a trader sees the venue (#1 #5 #9 #11)'), [
+    'J-cex-spot-14#1',
+    'J-cex-spot-14#5',
+    'J-cex-spot-14#9',
+    'J-cex-spot-14#11',
+  ]);
+  assert.deepEqual(titleSteps('svc-bank: J-bank-03 partner files, steps #2–#4 (#7593)'), ['J-bank-03#2', 'J-bank-03#3', 'J-bank-03#4']);
+  assert.deepEqual(titleSteps('svc-bank: J-bank-14 #5 #7 a cardholder answers 3D Secure (#7738)'), ['J-bank-14#5', 'J-bank-14#7']);
+  assert.deepEqual(titleProblems('svc-trade: J-cex-spot-14 a trader sees the venue (#1 #5)'), []);
+  // Two journeys: stray numbers can't be placed, so the seal fails closed and says how to write them.
+  const two = 'svc-trade: J-cex-spot-14 and J-cex-spot-15 venue steps (#1 #5)';
+  assert.deepEqual(titleSteps(two), []);
+  assert.equal(titleProblems(two).length, 1);
+  assert.match(titleProblems(two)[0], /more than one journey/);
+  // A title of runs alone is unchanged, and a pull request number never counts.
+  assert.deepEqual(titleProblems('ci: index (J-ops-console-01 #1 #2, J-ops-console-22 #1–#5) (#7700)'), []);
+  assert.deepEqual(titleSteps('tests: J-academy-05 #5 (#7772)'), ['J-academy-05#5']);
+});
+
 test('exemption line: column 0, outside code and comments, step ids only; Markdown sections exempt nothing', () => {
   const ok = (b) => [...exemptions(b).steps].sort();
   const bad = (b) => exemptions(b).problems;
