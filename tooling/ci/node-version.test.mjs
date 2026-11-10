@@ -74,6 +74,25 @@ export function workflowTriggers(text) {
 const PRIVILEGED = ['pull_request_target', 'workflow_run'];
 /** Jobs that check a pull request's head out at the root yet run main's rules (real-app-journeys `touch`: the seal's mode and target). */
 const MAIN_RULES_JOBS = { 'real-app-journeys.yml': ['touch'] };
+/** The one ref that checks main's rules out: the default branch, and nothing that may fall back to it. */
+const MAIN_REF = /^['"]?\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}['"]?$/;
+/** git commands that move or rewrite a checkout. */
+const GIT_CHANGES = /\bgit\b[^\n;|&]*?\s(checkout|switch|reset|restore|fetch|pull|merge|rebase|cherry-pick|am|apply)\b/;
+/** Commands and redirections that write files where the step runs (the root); a redirection to /dev/null or a runner file is not one. */
+const ROOT_WRITES =
+  /\b(cp|mv|ln|rsync|tar|unzip|curl|wget|patch|tee)\b|\bsed\s+-i|(?<!>)>>?(?!\s*(>|&|\/dev\/null|"?\$\{?(GITHUB_|RUNNER_TEMP)))/;
+/** The touch job's fallback, allowed as written: it writes .base/.node-version only when main has none (the pull request that adds it). */
+const MAIN_FALLBACK = '[ -f .base/.node-version ] || { mkdir -p .base && cp .node-version .base/.node-version; }';
+const escape = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Why a run step changes the checkout in folder dir, or null: a git command that moves it, or a write into it. */
+function runChanges(run, dir) {
+  if (run.trim().replace(/^'(.*)'$/s, '$1') === MAIN_FALLBACK) return null;
+  const git = GIT_CHANGES.exec(run);
+  if (git) return `git ${git[1]}`;
+  if (dir === '.') return ROOT_WRITES.test(run) || /\.node-version\b/.test(run) ? 'writes into the root' : null;
+  return new RegExp(`(^|[\\s'"=:(])${escape(dir)}(/|[\\s'";)]|$)`).test(run) ? `writes into ${dir}` : null;
+}
 
 /**
  * The faults in one workflow's text: a `node-version:` key anywhere (a hard-coded version, in a step or a matrix); an
@@ -81,8 +100,12 @@ const MAIN_RULES_JOBS = { 'real-app-journeys.yml': ['touch'] };
  * checked out yet in its job: `.node-version` needs an earlier checkout of the repo's root (actions/checkout without a
  * `path:`, or a plain `git checkout` in a run step), and `<dir>/.node-version` an earlier actions/checkout with
  * `path: <dir>`. In a workflow started by pull_request_target or workflow_run, and in a job of MAIN_RULES_JOBS, the
- * file must come from a checkout of main's rules: an actions/checkout whose `ref:` names `default_branch` (or, in those
+ * file must come from a checkout of main's rules: an actions/checkout whose `ref:` is the default branch (or, in those
  * two events only, names no ref, which checks out the base or default branch). A plain `git checkout` never counts there.
+ * The ref must be exactly `${{ github.event.repository.default_branch }}`: one that merely mentions it (`head.sha ||
+ * default_branch`) is the pull request's code. And no run step between that checkout and the setup-node step may change
+ * it: a git command that moves or rewrites a checkout, or a write into its folder (the root, or e.g. `.base/`), except
+ * the touch job's guarded fallback (MAIN_FALLBACK) as written.
  */
 export function nodeVersionFaults(text, file = '<text>') {
   const faults = [];
@@ -95,7 +118,9 @@ export function nodeVersionFaults(text, file = '<text>') {
   const privileged = PRIVILEGED.some((t) => workflowTriggers(text).has(t));
   const mainRulesJobs = MAIN_RULES_JOBS[file.split('/').pop()] ?? [];
   let job = null;
-  let checkedOut = new Map(); // the folders checked out so far in this job ('.' is the root) -> holds main's rules
+  // the folders checked out so far in this job ('.' is the root) -> true (main's rules), false (not), or the
+  // {line, why} of a later run step that changed main's checkout
+  let checkedOut = new Map();
   lines.forEach((line, i) => {
     const jm = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
     if (jm) {
@@ -103,13 +128,21 @@ export function nodeVersionFaults(text, file = '<text>') {
       checkedOut = new Map();
     }
     if (/\bgit checkout\b/.test(line.replace(/#.*$/, ''))) checkedOut.set('.', false);
+    const rm = /^(\s*)(-\s+)?run:(.*)$/.exec(line);
+    if (rm && (privileged || mainRulesJobs.includes(job))) {
+      const run = [rm[3], ...stepLines(lines, i, rm[1].length)].join('\n');
+      for (const [dir, main] of checkedOut) {
+        const why = main === true && runChanges(run, dir);
+        if (why) checkedOut.set(dir, { line: i + 1, why });
+      }
+    }
     const m = /^(\s*)(-\s+)?uses:\s*['"]?actions\/(checkout|setup-node)@/.exec(line);
     if (!m) return;
     const step = stepLines(lines, i, m[1].length);
     if (m[3] === 'checkout') {
       const path = step.map((l) => /^\s*path:\s*['"]?([^'"\s#]+)/.exec(l)?.[1]).find(Boolean);
       const ref = step.map((l) => /^\s*ref:\s*(.+?)\s*(#.*)?$/.exec(l)?.[1]).find(Boolean);
-      const mainRules = ref === undefined ? privileged : /\bdefault_branch\b/.test(ref);
+      const mainRules = ref === undefined ? privileged : MAIN_REF.test(ref);
       checkedOut.set(path === undefined ? '.' : path.replace(/\/$/, ''), mainRules);
       return;
     }
@@ -118,7 +151,12 @@ export function nodeVersionFaults(text, file = '<text>') {
     if (dir === null) faults.push(`${file}:${i + 1} runs actions/setup-node without node-version-file: .node-version`);
     else if (!checkedOut.has(dir))
       faults.push(`${file}:${i + 1} reads ${want} before its job checks out ${dir === '.' ? 'the repo root' : dir}`);
-    else if ((privileged || mainRulesJobs.includes(job)) && !checkedOut.get(dir))
+    else if (!(privileged || mainRulesJobs.includes(job))) return;
+    else if (typeof checkedOut.get(dir) === 'object')
+      faults.push(
+        `${file}:${i + 1} reads ${want} after the run step at line ${checkedOut.get(dir).line} changes main's checkout of ${dir === '.' ? 'the repo root' : dir} (${checkedOut.get(dir).why}); read main's .node-version before any step changes it`,
+      );
+    else if (!checkedOut.get(dir))
       faults.push(
         `${file}:${i + 1} reads ${want} from a checkout that is not main's rules (${privileged ? 'a pull_request_target or workflow_run workflow' : `job ${job}`}); check main out (ref: default_branch) and read its .node-version`,
       );
@@ -296,5 +334,41 @@ test("planted: real-app-journeys' touch job reading the pull request's root .nod
   assert.match(
     nodeVersionFaults(bad, '.github/workflows/real-app-journeys.yml').join('\n'),
     /reads \.node-version from a checkout that is not main's rules \(job touch\)/,
+  );
+});
+
+test("planted: a ref that only mentions default_branch is not main's rules", () => {
+  const real = readFileSync(join(ROOT, '.github', 'workflows', 'ci-review.yml'), 'utf8');
+  const main = 'ref: ${{ github.event.repository.default_branch }}';
+  assert.ok(real.includes(main), 'ci-review.yml no longer checks main out by ref: this planted fault plants nothing');
+  const fallback = real.replaceAll(main, 'ref: ${{ github.event.pull_request.head.sha || github.event.repository.default_branch }}');
+  assert.match(nodeVersionFaults(fallback, 'ci-review.yml').join('\n'), /from a checkout that is not main's rules \(a pull_request_target/);
+  const spaced = real.replaceAll(main, "ref: '${{github.event.repository.default_branch}}'");
+  assert.deepEqual(nodeVersionFaults(spaced, 'ci-review.yml'), [], 'spacing and quotes inside the expression still name main');
+});
+
+test("planted: a run step that moves main's checkout before setup-node fails", () => {
+  const real = readFileSync(join(ROOT, '.github', 'workflows', 'ci-review.yml'), 'utf8');
+  const setup = '      - uses: actions/setup-node@';
+  assert.ok(real.includes(setup), 'ci-review.yml has no setup-node step: this planted fault plants nothing');
+  const moved = real.replace(setup, `      - run: git fetch origin x; git reset --hard FETCH_HEAD\n${setup}`);
+  assert.match(
+    nodeVersionFaults(moved, 'ci-review.yml').join('\n'),
+    /reads \.node-version after the run step at line \d+ changes main's checkout of the repo root \(git fetch\)/,
+  );
+  const written = real.replace(setup, `      - run: echo 20 > .node-version\n${setup}`);
+  assert.match(nodeVersionFaults(written, 'ci-review.yml').join('\n'), /changes main's checkout of the repo root \(writes into the root\)/);
+  const output = real.replace(setup, `      - run: echo ok=1 >> "$GITHUB_OUTPUT"\n${setup}`);
+  assert.deepEqual(nodeVersionFaults(output, 'ci-review.yml'), [], 'a write to a runner file is not a write into the checkout');
+});
+
+test("planted: the touch job copying the pull request's .node-version into .base without the guard fails", () => {
+  const real = readFileSync(join(ROOT, '.github', 'workflows', 'real-app-journeys.yml'), 'utf8');
+  const guarded = "'[ -f .base/.node-version ] || { mkdir -p .base && cp .node-version .base/.node-version; }'";
+  assert.ok(real.includes(guarded), "the touch job's guarded fallback changed: this planted fault plants nothing");
+  const bad = real.replace(guarded, 'cp .node-version .base/.node-version');
+  assert.match(
+    nodeVersionFaults(bad, '.github/workflows/real-app-journeys.yml').join('\n'),
+    /reads \.base\/\.node-version after the run step at line \d+ changes main's checkout of \.base \(writes into \.base\)/,
   );
 });
