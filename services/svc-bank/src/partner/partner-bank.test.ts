@@ -11,12 +11,15 @@ import {
   custodyGuardedLedger,
   ledgerPostingFreeze,
   PostingFrozenError,
+  freezeGuardedCustody,
   readFreeze,
   partnerAccountFor,
+  partnerFigure,
   reportedAmount,
   type PartnerAccountRef,
 } from './partner-bank.js';
-import { TEST_PARTNER_LABEL, testPartner, testPartnerCustody } from './test-partner.js';
+import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, testPartnerCustody } from './test-partner.js';
+import { stopGuardedCustody } from './partner-stops.js';
 
 const ADA = 'ada-0001';
 const BOB = 'bob-0002';
@@ -39,7 +42,7 @@ describe('the TEST partner bank book', () => {
     const report = await partner.bank.balance(main(ADA));
     expect(report).toMatchObject({ account: main(ADA), amount: amt('100'), label: TEST_PARTNER_LABEL });
     expect(report.label).toMatch(/TEST/);
-    expect(report.asOf.getTime()).toBeGreaterThanOrEqual(before);
+    expect(report.asOf!.getTime()).toBeGreaterThanOrEqual(before);
     expect((await partner.bank.balance(space(ADA, 'trip'))).amount).toBe(0n);
   });
 
@@ -117,6 +120,9 @@ describe('the TEST partner bank book', () => {
     expect(await codeOf(() => partner.bank.move({ key: 'k-down-0001', from: main(ADA), to, amount: amt('1') }))).toBe(
       'bank.partner_unavailable',
     );
+    // Down, with no figure given before, the balance is not known (b2 change 6); answering again, it still holds 10.
+    expect((await partner.bank.balance(main(ADA))).amount).toBeNull();
+    partner.set(ADA, { down: false });
     expect((await partner.bank.balance(main(ADA))).amount).toBe(amt('10'));
     expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
     expect(await partner.bank.moveByKey('k-over-0001')).toBeNull();
@@ -153,6 +159,12 @@ describe('the TEST partner bank book', () => {
     );
   });
 
+  it('a balance the partner sent with no time is refused by name too: we cannot say how old it is', () => {
+    expect(() => reportedAmount({ account: main(ADA), amount: amt('5'), asOf: null, label: TEST_PARTNER_LABEL })).toThrow(
+      expect.objectContaining({ code: 'bank.partner_balance_not_known' }),
+    );
+  });
+
   it('the custody switch is per person: only a person with custody off is held at the partner', () => {
     const partner = testPartner();
     const custody = testPartnerCustody(partner);
@@ -162,6 +174,81 @@ describe('the TEST partner bank book', () => {
     expect(custody.bankFor(ADA)).toBe(partner.bank);
     expect(custody.bankFor(BOB)).toBeNull();
     expect(testPartnerCustody(null).bankFor(ADA)).toBeNull();
+  });
+});
+
+describe("the partner's displayed figure (b2 change 6)", () => {
+  it('the TEST partner declares its staleness limit, labelled TEST, and the freeze wrapper keeps it', () => {
+    const partner = testPartner();
+    expect(partner.bank.staleAfterMs).toBe(TEST_PARTNER_STALE_AFTER_MS);
+    partner.set(ADA, { custody: 'off' });
+    const wrapped = freezeGuardedCustody(testPartnerCustody(partner), { postingEnabled: async () => true }).bankFor(ADA)!;
+    expect(wrapped.staleAfterMs).toBe(TEST_PARTNER_STALE_AFTER_MS);
+    // The operator's partner stop wraps it again, and keeps the partner's declared limit too.
+    const stopped = stopGuardedCustody(freezeGuardedCustody(testPartnerCustody(partner), { postingEnabled: async () => true }), 'test', {
+      assertOpen: async () => undefined,
+    }).bankFor(ADA)!;
+    expect(stopped.staleAfterMs).toBe(TEST_PARTNER_STALE_AFTER_MS);
+  });
+
+  it("live: known, with the partner's own time and its figure as a decimal string", async () => {
+    const partner = testPartner();
+    partner.fund(ADA, { fundId: 'fund-ada-1', assetId: 'USDT', amount: amt('12.5') });
+    const report = await partner.bank.balance(main(ADA));
+    const figure = partnerFigure(report, partner.bank.staleAfterMs, new Date());
+    expect(figure).toMatchObject({ state: 'known', source: TEST_PARTNER_LABEL, amount: '12.5', asOf: report.asOf });
+  });
+
+  it("stale: the partner's figure, with a time older than its limit, reads stale and still shows the amount", async () => {
+    const partner = testPartner();
+    partner.fund(ADA, { fundId: 'fund-ada-1', assetId: 'USDT', amount: amt('7') });
+    partner.set(ADA, { figures: 'stale' });
+    const report = await partner.bank.balance(main(ADA));
+    expect(Date.now() - report.asOf!.getTime()).toBeGreaterThan(TEST_PARTNER_STALE_AFTER_MS);
+    expect(partnerFigure(report, partner.bank.staleAfterMs, new Date())).toMatchObject({ state: 'stale', amount: '7' });
+    // A stale figure is still the partner's: a move may use it, and the display says how old it is.
+    expect(reportedAmount(report)).toBe(amt('7'));
+  });
+
+  it('unknown: every balance reads not known with no time, never 0, and every read of it refuses by name', async () => {
+    const partner = testPartner();
+    partner.fund(ADA, { fundId: 'fund-ada-1', assetId: 'USDT', amount: amt('7') });
+    partner.set(ADA, { figures: 'unknown' });
+    const report = await partner.bank.balance(main(ADA));
+    expect(report).toMatchObject({ amount: null, asOf: null, label: TEST_PARTNER_LABEL });
+    expect(partnerFigure(report, partner.bank.staleAfterMs, new Date())).toMatchObject({ state: 'unknown', reason: 'not_reported' });
+    expect(await codeOf(() => reportedAmount(report))).toBe('bank.partner_balance_not_known');
+    for (const b of await partner.bank.balances(ADA)) expect(b.amount).toBeNull();
+    // Funding is the partner's answer to a write it made, so it still reports what it now holds.
+    expect(partner.fund(ADA, { fundId: 'fund-ada-2', assetId: 'USDT', amount: amt('1') }).amount).toBe(amt('8'));
+    partner.set(ADA, { figures: 'live' });
+    expect((await partner.bank.balance(main(ADA))).amount).toBe(amt('8'));
+  });
+
+  it("down: a read gives the last figure the partner gave, with the partner's time for it, never a fresh time", async () => {
+    const partner = testPartner();
+    partner.fund(ADA, { fundId: 'fund-ada-1', assetId: 'USDT', amount: amt('9') });
+    const given = await partner.bank.balance(main(ADA));
+    await new Promise((r) => setTimeout(r, 5));
+    partner.set(ADA, { down: true });
+    const read = await partner.bank.balance(main(ADA));
+    expect(read).toMatchObject({ amount: amt('9'), asOf: given.asOf, unavailable: true });
+    expect(partnerFigure(read, partner.bank.staleAfterMs, new Date(given.asOf!.getTime() + TEST_PARTNER_STALE_AFTER_MS + 1))).toMatchObject(
+      {
+        state: 'stale',
+        amount: '9',
+      },
+    );
+  });
+
+  it('down with nothing given before: not known (source_unavailable), never 0', async () => {
+    const partner = testPartner();
+    partner.fund(BOB, { fundId: 'fund-bob-1', assetId: 'USDT', amount: amt('3') });
+    partner.set(BOB, { down: true });
+    const read = await partner.bank.balance(space(BOB, 'trip'));
+    expect(read).toMatchObject({ amount: null, asOf: null, unavailable: true });
+    expect(partnerFigure(read, partner.bank.staleAfterMs, new Date())).toMatchObject({ state: 'unknown', reason: 'source_unavailable' });
+    expect(await codeOf(() => reportedAmount(read))).toBe('bank.partner_balance_not_known');
   });
 });
 

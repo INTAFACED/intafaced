@@ -1,4 +1,12 @@
-import { movesCustomerBalance, parseCustodyLayer, type Amount, type CustodyLayerState, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  formatAmount,
+  movesCustomerBalance,
+  parseCustodyLayer,
+  type Amount,
+  type CustodyLayerState,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
+import { heldFigure, type HeldFigure } from '@intafaced/venue-contracts';
 import { BankError } from '../errors.js';
 
 /**
@@ -8,8 +16,9 @@ import { BankError } from '../errors.js';
  * under its licence. This is the port svc-bank reads and moves that money through. No partner is named, so the only
  * implementation is the TEST partner bank (`test-partner.ts`), labelled TEST.
  *
- *   - A balance is what the partner reports, with its label and the time it reported it. One it does not report is
- *     null, read as "not known", never 0.
+ *   - A balance is what the partner reports, with its label and the partner's own time for it. One it does not report
+ *     is null, read as "not known", never 0; one it sends with no time is "not known" too (b2 change 6). The partner
+ *     declares how old its figure may be (`staleAfterMs`), and `partnerFigure` is the one displayed figure of it.
  *   - A move is ONE partner instruction under a business key (`bank.transfer.<keySpace>:<id>:<occurrence>`, the same key
  *     the custodial path posts the ledger under). The partner deduplicates on the key: a retry after a lost reply is
  *     the same move, answered with the first one, never a second; a different move under the same key is refused.
@@ -52,8 +61,10 @@ export interface PartnerBalance {
   readonly account: PartnerAccountRef;
   /** As the partner reports it; null when it has not said ("not known", never 0). */
   readonly amount: Amount | null;
-  /** When the partner reported it. */
-  readonly asOf: Date;
+  /** The partner's own time for the figure; null when it sent none ("not known": we cannot say how old it is). */
+  readonly asOf: Date | null;
+  /** True when the partner is not answering and this is the last figure it gave, or none. */
+  readonly unavailable?: boolean;
   /** Whose figure this is, e.g. "TEST partner bank". */
   readonly label: string;
 }
@@ -86,6 +97,8 @@ export interface PartnerMovesQuery {
 
 export interface PartnerBank {
   readonly label: string;
+  /** How old the partner's figure may be before it is stale, as the partner declares it, in milliseconds. */
+  readonly staleAfterMs: number;
   /** One account's balance as the partner reports it. */
   balance(account: PartnerAccountRef): Promise<PartnerBalance>;
   /** Every account the partner holds for the person, in every currency. */
@@ -211,6 +224,7 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
       // One wrapper per partner, so two sides of one move still compare as the same partner.
       wrapped = Object.freeze({
         label: bank.label,
+        staleAfterMs: bank.staleAfterMs,
         balance: (account: PartnerAccountRef) => bank.balance(account),
         balances: (userId: string) => bank.balances(userId),
         moveByKey: (key: string) => bank.moveByKey(key),
@@ -235,12 +249,30 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
 /** No partner holds anyone's money here: every person is on the custodial layer, exactly as before. */
 export const custodialOnly: PartnerCustody = Object.freeze({ bankFor: () => null });
 
-/** The amount, or a typed refusal when the partner has not reported it: never read a missing figure as 0. */
+/**
+ * The amount, or a typed refusal when the figure is not known: the partner has not reported it, or sent it with no time.
+ * Never read a missing figure as 0. A stale figure is returned: it is the partner's, and the display says how old it is.
+ */
 export function reportedAmount(balance: PartnerBalance): Amount {
-  if (balance.amount === null) {
-    throw new BankError(`${balance.label} has not reported this balance, so it is not known.`, 'bank.partner_balance_not_known');
-  }
+  if (balance.amount === null || balance.asOf === null) throw partnerBalanceNotKnown(balance.label);
   return balance.amount;
+}
+
+/** The refusal for a partner figure that is not known: never shown as a figure, and never as 0. */
+export function partnerBalanceNotKnown(label: string): BankError {
+  return new BankError(`${label} has not reported this balance, so it is not known.`, 'bank.partner_balance_not_known');
+}
+
+/** The displayed figure of a partner balance (b2 change 6): known, stale, or unknown with a reason, never 0. */
+export function partnerFigure(balance: PartnerBalance, staleAfterMs: number, now: Date): HeldFigure {
+  return heldFigure({
+    source: balance.label,
+    amount: balance.amount === null ? null : formatAmount(balance.amount),
+    asOf: balance.asOf,
+    staleAfterMs,
+    now,
+    unavailable: balance.unavailable === true,
+  });
 }
 
 /** The two sides of a move are held in different places, so no single partner instruction can make it. */
