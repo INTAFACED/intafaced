@@ -930,7 +930,14 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
          */
         list: publicJurisdictionProcedure('indexer', 'protocol')
           .input(z.object({ chainId: z.number().int(), cursor: poolCursorSchema.optional() }))
-          .output(z.object({ rows: z.array(poolSchema), nextCursor: poolCursorSchema.nullable(), asOf: z.string() }))
+          .output(
+            z.object({
+              rows: z.array(poolSchema.extend({ volume1: z.string(), swaps: z.number().int() })),
+              window: z.object({ since: z.string(), seconds: z.number().int() }),
+              nextCursor: poolCursorSchema.nullable(),
+              asOf: z.string(),
+            }),
+          )
           .query(async ({ input }) => {
             try {
               const { explorer, reads, factory } = poolsOrRefuse(deps);
@@ -941,10 +948,19 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
                   : [];
               const rows = fetched.slice(0, limit);
               const last = rows[rows.length - 1];
+              // Each row's last day of swaps (J-dex-protocol-12 #1: the list shows volume), the window `get` uses.
+              const now = new Date();
+              const since = new Date(now.getTime() - POOL_WINDOW_SECONDS * 1000);
+              const volumes = await Promise.all(rows.map((pool) => reads.volume({ pool: pool.pool, since })));
               return {
-                rows: rows.map((pool) => poolRow(deps.chainId, pool)),
+                rows: rows.map((pool, i) => ({
+                  ...poolRow(deps.chainId, pool),
+                  volume1: volumes[i]!.volume1.toString(),
+                  swaps: volumes[i]!.swaps,
+                })),
+                window: { since: since.toISOString(), seconds: POOL_WINDOW_SECONDS },
                 nextCursor: fetched.length > limit && last ? last.cursor : null,
-                asOf: new Date().toISOString(),
+                asOf: now.toISOString(),
               };
             } catch (err) {
               throw toTrpcError(err);

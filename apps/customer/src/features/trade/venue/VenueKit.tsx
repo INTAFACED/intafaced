@@ -252,7 +252,11 @@ export type ActionResult =
   | { kind: 'waiting' }
   | { kind: 'wallet_failed'; message: string };
 
-export type RunAction = (intent: VenueIntent, opts?: { actionKey?: string; stepUpApprovalId?: string | null }) => Promise<ActionResult>;
+export type RunAction = (
+  intent: VenueIntent,
+  /** `venueId`: the venue to prepare on (J-derivatives-28 routing); none is the primary venue. Submit follows the stored action. */
+  opts?: { actionKey?: string; stepUpApprovalId?: string | null; venueId?: string },
+) => Promise<ActionResult>;
 
 /** The business key the door stores an intent under (user-venue-door.ts `businessKey`). */
 function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
@@ -304,7 +308,13 @@ export function useVenueActions(owner: string | null) {
       if (running) return running;
       const job = (async (): Promise<ActionResult> => {
         if (!owner) return { kind: 'wallet_failed', message: '' };
-        const prepared = await venue.prepare({ owner, intent, actionKey: opts.actionKey, stepUpApprovalId: opts.stepUpApprovalId });
+        const prepared = await venue.prepare({
+          owner,
+          intent,
+          actionKey: opts.actionKey,
+          stepUpApprovalId: opts.stepUpApprovalId,
+          ...(opts.venueId ? { venueId: opts.venueId } : {}),
+        });
         if (!prepared.ok) return { kind: 'refused', code: prepared.code, message: prepared.message, beforeWallet: true };
         const answer = prepared.data;
         const p = answer.prepared;
@@ -340,7 +350,29 @@ export function useVenueActions(owner: string | null) {
     },
     [owner, venue, wallet, submitSigned],
   );
-  return { run };
+
+  /**
+   * After an answer that was not definite, send the same signed bytes again under the same key (J-derivatives-28 #5): the
+   * door re-sends the stored action, so the venue gets the same client order id and holds one order. Never a new
+   * signature: with no signature kept on this page, it is `run` again, which reads the stored answer.
+   */
+  const resend = useCallback(
+    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string } = {}): Promise<ActionResult> => {
+      const key = keyOf(intent, opts.actionKey);
+      const kept = signatures.current.get(key);
+      if (!kept) return run(intent, opts);
+      const prepared = await venue.prepare({
+        owner: owner ?? '',
+        intent,
+        actionKey: opts.actionKey,
+        ...(opts.venueId ? { venueId: opts.venueId } : {}),
+      });
+      if (!prepared.ok) return { kind: 'refused', code: prepared.code, message: prepared.message, beforeWallet: true };
+      return submitSigned(key, prepared.data.prepared, kept);
+    },
+    [owner, venue, run, submitSigned],
+  );
+  return { run, resend };
 }
 
 /** The words for one action's result. An order's outcome names its status on the venue. */
@@ -396,14 +428,22 @@ export function ReadBack({
   owner,
   clientOrderId,
   onSettled,
+  venueId,
 }: {
   owner: string;
   clientOrderId: string;
   onSettled?: (order: VenueOrder) => void;
+  /** The venue the order was sent to (J-derivatives-28 routing); none is the primary venue. */
+  venueId?: string;
 }) {
   const { t } = venueCopy.useCopy();
   const venue = useVenueApi();
-  const read = usePolled((signal) => venue.orderByClientId(owner, clientOrderId, signal), `rb:${owner}:${clientOrderId}`, VENUE_POLL_MS);
+  const read = usePolled(
+    (signal) =>
+      venueId ? venue.ordersByClientIdOn(venueId, owner, clientOrderId, signal) : venue.orderByClientId(owner, clientOrderId, signal),
+    `rb:${venueId ?? ''}:${owner}:${clientOrderId}`,
+    VENUE_POLL_MS,
+  );
   const order = read.data?.value ?? null;
   const settled = order && SETTLED_STATUSES.includes(order.status) ? order : null;
   useEffect(() => {
@@ -415,13 +455,15 @@ export function ReadBack({
   );
 }
 
-export function OutcomeLine({ result, owner }: { result: ActionResult | null; owner: string | null }) {
+export function OutcomeLine({ result, owner, venueId }: { result: ActionResult | null; owner: string | null; venueId?: string }) {
   const { t } = venueCopy.useCopy();
   if (!result) return null;
   return (
     <div role="status" data-testid="venue-outcome">
       <p>{outcomeText(t, result)}</p>
-      {result.kind === 'unknown' && result.clientOrderId && owner ? <ReadBack owner={owner} clientOrderId={result.clientOrderId} /> : null}
+      {result.kind === 'unknown' && result.clientOrderId && owner ? (
+        <ReadBack owner={owner} clientOrderId={result.clientOrderId} {...(venueId ? { venueId } : {})} />
+      ) : null}
     </div>
   );
 }

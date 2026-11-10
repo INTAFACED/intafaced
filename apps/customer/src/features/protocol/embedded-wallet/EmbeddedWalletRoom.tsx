@@ -17,6 +17,7 @@ import { venueRefusal } from '../venue-wallet/VenueWalletRoom';
 import { createEmbeddedWalletApi } from './embedded-wallet-api';
 import { embeddedWalletCopy, type EmbeddedWalletCopyKey } from './embedded-wallet-copy';
 import { embeddedWalletClient, type ClientFailure } from './provider-client';
+import { TradingSession } from './TradingSession';
 
 /**
  * /wallet/embedded (J-wallet-22, OWNER 237), on the flow template: the signed-in person gets their own self-custody
@@ -24,7 +25,8 @@ import { embeddedWalletClient, type ClientFailure } from './provider-client';
  * this device, and asks svc-protocol to have the provider make the person's one wallet; svc-protocol records only the
  * address and the provider's wallet id. Connecting to the venue reuses J-wallet-09's connection: the message is signed by
  * the wallet at the provider, after the person's passkey. Export and recovery are the provider's own, after the passkey;
- * the exported key is shown here and never sent to INTAFACED.
+ * the exported key is shown here and never sent to INTAFACED. The trading session (J-wallet-22 #8, TradingSession.tsx): one
+ * approval by this wallet, after the passkey, for a fresh session key on this device that trades and never withdraws.
  */
 
 type T = ReturnType<typeof embeddedWalletCopy.useCopy>['t'];
@@ -308,6 +310,16 @@ export function EmbeddedWalletRoom() {
                   </Button>
                 ) : null}
               </section>
+              {userId ? (
+                <TradingSession
+                  api={api}
+                  userId={userId}
+                  wallet={wallet}
+                  client={client}
+                  providerFailure={(failure) => clientRefusal(failure, provider, t).body}
+                  t={t}
+                />
+              ) : null}
               <section aria-label={t('ownTitle')}>
                 <h2>{t('ownTitle')}</h2>
                 <p>{t('ownNote', { provider: name })}</p>
