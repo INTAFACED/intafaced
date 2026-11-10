@@ -1050,12 +1050,32 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   await expect(stepUp).toBeVisible();
   await page.keyboard.press('Escape');
   expect(wallet.requests.length, 'the wallet is not asked before the step-up').toBe(asked);
+  // The desk names the refusal and its reason when the door gets no step-up: the confirmation given in the desk is held
+  // back from the prepare, as a session that has not stepped up sends it. Still no wallet asked and nothing withdrawn.
+  const withoutStepUp = async (route) => {
+    const body = route.request().postDataJSON();
+    await route.continue({ postData: JSON.stringify({ ...body, stepUpApprovalId: null }) });
+  };
+  await page.route('**/api/v1/venue/prepare', withoutStepUp);
+  await form
+    .getByRole('button', { name: /withdraw|sign|confirm/i })
+    .last()
+    .click();
+  await confirmItsMe(page);
+  await expect(form.getByTestId('venue-outcome')).toContainText(
+    'Refused before your wallet was asked: Confirm this with your passkey or authenticator code first',
+    { timeout: 15_000 },
+  );
+  await page.unroute('**/api/v1/venue/prepare', withoutStepUp);
+  expect(wallet.requests.length, 'the wallet is not asked when the door refuses the step-up').toBe(asked);
+  expect(wireUnits((await venueBalance(who, owner, 'USDC')).free)).toBe(wireUnits(before.free));
   const unstepped = await who.client.post('/api/v1/venue/prepare', {
     owner,
     signer: { role: 'owner', address: owner },
     intent: { kind: 'withdraw', asset: 'USDC', amount: '10', destination: owner, withdrawalKey: `withdraw:${owner}:${J}-12-unstepped` },
   });
   expect(unstepped.status, JSON.stringify(unstepped.body).slice(0, 300)).toBe(403);
+  expect(unstepped.body.intafacedCode, JSON.stringify(unstepped.body).slice(0, 300)).toBe('identity.step_up_required');
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).free)).toBe(wireUnits(before.free));
   // Steps up, and the wallet signs the withdrawal.
   await form
