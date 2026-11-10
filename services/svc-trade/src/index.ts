@@ -109,7 +109,10 @@ import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
-import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
+import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
+import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
+import { routingReport } from './venue/routing-report.js';
 import { postBuilderFees } from './builder-fee/builder-fee-poster.js';
 import { builderFeeRecon } from './builder-fee/builder-fee-recon.js';
 import { SqlBuilderFeeStore } from './builder-fee/builder-fee-store.js';
@@ -471,43 +474,60 @@ const testListings = parseTestListings(env.TRADE_USER_VENUE_TEST_LISTINGS);
 assertTestListingsAllowed(testListings, process.env.APP_ENV);
 // Seeded once per process after the door first connects, never inside connect: a seed failure is logged and retried by
 // the sweep below, and the door (cancels included) keeps working.
-const testListingSeed = new TestListingSeed({
-  store: venueListings,
-  symbols: testListings,
-  appEnv: process.env.APP_ENV,
-  now: () => new Date(),
-  log: (err) =>
-    process.stderr.write(
-      `${JSON.stringify({ level: 'warn', msg: 'trade.venue_listings.test_seed_failed', message: err instanceof Error ? err.message : String(err) })}\n`,
-    ),
-});
-const userVenue = userVenueUrl
-  ? new UserVenueDoor({
+// J-derivatives-28: the primary venue, then each venue of TRADE_USER_VENUE_URLS (comma-separated), one door each, all
+// behind one router. Every door shares the store, the builder fee and the listing gate; each seeds its own TEST listings.
+const userVenueUrls = userVenueUrl ? [userVenueUrl, ...parseUserVenueUrls(env.TRADE_USER_VENUE_URLS)] : [];
+const userVenueStore = new SqlPreparedActionStore(sql);
+const testListingSeeds = userVenueUrls.map(
+  () =>
+    new TestListingSeed({
+      store: venueListings,
+      symbols: testListings,
+      appEnv: process.env.APP_ENV,
+      now: () => new Date(),
+      log: (err) =>
+        process.stderr.write(
+          `${JSON.stringify({ level: 'warn', msg: 'trade.venue_listings.test_seed_failed', message: err instanceof Error ? err.message : String(err) })}\n`,
+        ),
+    }),
+);
+const userVenueDoors = userVenueUrls.map(
+  (url, i) =>
+    new UserVenueDoor({
       connect: async () => {
-        const venue = await HttpUserVenue.connect({ baseUrl: userVenueUrl, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS });
-        testListingSeed.connected(venue);
+        const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS });
+        testListingSeeds[i]!.connected(venue);
         return venue;
       },
       listings: new StoreVenueRoutingGate(venueListings),
       appEnv: process.env.APP_ENV,
-      store: new SqlPreparedActionStore(sql),
+      store: userVenueStore,
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
-    })
+    }),
+);
+const userVenue = userVenueDoors[0] ?? null;
+const userVenueRouter =
+  userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
+// Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
+// venue's door. Off with the door.
+const venueSellQuotes = userVenue
+  ? new VenueSellQuotes({ door: userVenue, store: new SqlVenueSellQuoteStore(sql), now: () => new Date() })
   : null;
 // A delisting notice the bus did not take when it was written is sent again (the consumer files it once).
 setInterval(() => {
-  void testListingSeed.retry();
+  for (const seed of testListingSeeds) void seed.retry();
   publishPendingDelistingNotices(venueListings, venueDelistingNotices, () => new Date()).catch((err: unknown) =>
     process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.venue_delisting.notice_sweep_failed', message: String(err) })}\n`),
   );
 }, 60_000).unref();
-if (userVenue) {
+for (const door of userVenueDoors) {
   try {
-    await userVenue.venue();
+    await door.venue();
   } catch (err) {
     if (err instanceof VenueRefusalError && err.refusal.code === 'test_venue_outside_test') throw err;
     process.stderr.write(
@@ -683,6 +703,8 @@ export const appRouter = createTradeRouter(
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
     },
     venueDesk: { venue: userVenue ? () => userVenue.venue() : null, store: venueListings, notices: venueDelistingNotices },
+    venueRouting:
+      userVenueDoors.length > 0 ? (from, to) => routingReport({ doors: userVenueDoors, store: userVenueStore }, from, to) : null,
     // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
     venueMarkets: async () => {
       if (!userVenue) return null;
@@ -863,16 +885,42 @@ const stopTriggers = sqlStopTrigger(sql);
 const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, stopTriggers);
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
-// Our builder fee on our users' venue fills, posted once per fill while the door is on (D-venue-07).
-if (userVenue && env.TRADE_BUILDER_FEE_POSTER === 'on') {
+// Our builder fee on our users' venue fills, posted once per fill while the door is on (D-venue-07), on every venue an
+// order can be routed to (J-derivatives-28): each venue's accounts, fills and keys are its own, so one venue that can't
+// be read or stops its run leaves the others' fills posted, and the job still fails for the next tick to retry it.
+if (userVenueDoors.length > 0 && env.TRADE_BUILDER_FEE_POSTER === 'on') {
   futuresJobs.host.every('venue.builder_fees', env.TRADE_BUILDER_FEE_POSTER_INTERVAL_MS, async () => {
-    const run = await postBuilderFees({ venue: () => userVenue.venue(), ledger, store: builderFeeStore, now: () => new Date() });
-    if (run.refused > 0 || run.unread.length > 0) {
-      app.log.error(
-        { job: 'venue.builder_fees', ...run },
-        'builder fees the ledger refused, or accounts the venue would not read, stay unposted',
-      );
+    const stopped: unknown[] = [];
+    for (const door of userVenueDoors) {
+      try {
+        const run = await postBuilderFees({
+          venue: () => door.venue(),
+          ledger,
+          store: builderFeeStore,
+          ourOrders: (venueId, account, ids) => venueActions.sentBuilderFeeOrders(venueId, account, ids),
+          // OWNER 288 change 1c: a stopped run is an alert naming the venue, the account and the fill; the run stays
+          // stopped (the job host logs the throw) and the operations desk shows the time since the last complete run.
+          onStop: (stop) =>
+            app.log.error({ alert: 'trade.builder_fee_poster_stopped', job: 'venue.builder_fees', ...stop }, 'builder-fee poster stopped'),
+          now: () => new Date(),
+        });
+        if (run.refused > 0 || run.unread.length > 0) {
+          app.log.error(
+            { job: 'venue.builder_fees', ...run },
+            'builder fees the ledger refused, or accounts the venue would not read, stay unposted',
+          );
+        }
+        if (run.notOurOrder > 0) {
+          app.log.warn(
+            { job: 'venue.builder_fees', venueId: run.venueId, notOurOrder: run.notOurOrder },
+            'builder fees on orders not ours, not posted',
+          );
+        }
+      } catch (error) {
+        stopped.push(error);
+      }
     }
+    if (stopped.length > 0) throw stopped[0];
   });
 }
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
@@ -1678,7 +1726,8 @@ registerPrivateRest(app, {
   convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   grid,
-  userVenue,
+  userVenue: userVenueRouter,
+  venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

@@ -1,0 +1,8 @@
+{
+  "steps": [
+    { "step": "J-fx-01#2", "state": "unbuilt" },
+    { "step": "J-fx-01#3", "state": "unbuilt" },
+    { "step": "J-fx-01#4", "state": "unbuilt" },
+    { "step": "J-fx-02#1", "state": "unbuilt" }
+  ]
+}

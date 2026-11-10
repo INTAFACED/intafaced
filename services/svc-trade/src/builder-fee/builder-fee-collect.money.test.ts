@@ -38,7 +38,9 @@ const claim = (claimId: string, amount: string, over: Partial<BuilderFeeClaim> =
 });
 const reader = (claims: readonly BuilderFeeClaim[]): BuilderFeeClaimReader => ({ venueId: VENUE, claims: async () => claims });
 async function earn(fillId: string, amount: string) {
-  await ledger.post(recipes.builderFeeEarn({ venueId: VENUE, fillId, assetId: 'USDC', amount: a(amount), userId: USER }));
+  await ledger.post(
+    recipes.builderFeeEarn({ venueId: VENUE, venueAccount: '0xowner', fillId, assetId: 'USDC', amount: a(amount), userId: USER }),
+  );
 }
 
 describe('collectBuilderFees', () => {

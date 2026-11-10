@@ -36,7 +36,16 @@ const move = (from: OwnFundsPlace, to: OwnFundsPlace, amount: string, reference:
   recipes.ownFundsMove({ from, to, assetId: 'USDC', amount: amt(amount), reference });
 
 async function collect(amount: string, claimId: string) {
-  await ledger.post(recipes.builderFeeEarn({ venueId: VENUE, fillId: `f-${claimId}`, assetId: 'USDC', amount: amt(amount), userId: USER }));
+  await ledger.post(
+    recipes.builderFeeEarn({
+      venueId: VENUE,
+      venueAccount: '0xowner',
+      fillId: `f-${claimId}`,
+      assetId: 'USDC',
+      amount: amt(amount),
+      userId: USER,
+    }),
+  );
   await ledger.post(recipes.builderFeeReceive({ venueId: VENUE, claimId, assetId: 'USDC', amount: amt(amount) }));
 }
 

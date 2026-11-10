@@ -19,7 +19,7 @@ Public market data needs no key. Your own orders, balances and positions need a 
 - Errors: /developers/errors
 - Order types: /developers/order-types
 - Bot policy: /developers/bot-policy
-- Idempotency: Waits for DV-auth-03
+- Idempotency: /developers/idempotency
 - Versioning: Waits for DV-versioning-01
 - Changelog: /developers/changelog
 - Market data terms: /developers/data-terms

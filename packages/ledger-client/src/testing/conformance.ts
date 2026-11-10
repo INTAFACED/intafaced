@@ -197,7 +197,16 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
 
       it('never lets an own-funds place show less than nothing of ours', async () => {
         // Collect 5 into our builder account at the venue: the place holds 5 (balance -5).
-        await ledger.post(recipes.builderFeeEarn({ venueId: 'conf', fillId: 'f1', assetId: 'USDT', amount: amt('5'), userId: USER_A }));
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            assetId: 'USDT',
+            amount: amt('5'),
+            userId: USER_A,
+          }),
+        );
         await ledger.post(recipes.builderFeeReceive({ venueId: 'conf', claimId: 'c1', assetId: 'USDT', amount: amt('5') }));
         const move = (reference: string, amount: string) =>
           recipes.ownFundsMove({

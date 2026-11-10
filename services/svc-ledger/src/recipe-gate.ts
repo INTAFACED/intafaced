@@ -976,7 +976,14 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     {
       name: 'builderFeeEarn',
-      post: recipes.builderFeeEarn({ venueId: 'test-venue-sim', fillId: 'f-builder', assetId: 'USDC', amount: AMT, userId: U }),
+      post: recipes.builderFeeEarn({
+        venueId: 'test-venue-sim',
+        venueAccount: '0x00000000000000000000000000000000000000a1',
+        fillId: 'f-builder',
+        assetId: 'USDC',
+        amount: AMT,
+        userId: U,
+      }),
     },
     {
       name: 'builderFeeReceive',
