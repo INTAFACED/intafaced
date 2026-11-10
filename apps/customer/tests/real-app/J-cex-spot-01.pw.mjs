@@ -974,9 +974,22 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   const price = fromUnits(((bid * 99n) / 100n / tick) * tick);
   await venueReviewLimit(page, 'sell', price, fromUnits(amount));
   const asked = wallet.requests.length;
+  // A sell carries our builder fee: the review asks the wallet to approve it first, and Confirm sell waits for that.
+  const sheet = reviewSheet(page);
+  const builderLine = sheet.locator('[data-line="builder-fee"]');
+  await expect(builderLine).toContainText('Not signed');
+  await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeDisabled();
+  await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' }).click();
+  await continueInWallet(page);
+  // The wallet is asked once, for the approval, and the review then reads it as signed.
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
+  await expect(builderLine).not.toContainText('Not signed', { timeout: 20_000 });
+  await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeEnabled({ timeout: 20_000 });
+  expect(wallet.requests.length, 'the approval asked the wallet once').toBe(asked + 1);
+  const approved = wallet.requests.length;
   await confirm(page, 'sell');
   await continueInWallet(page);
-  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(approved + 1);
   expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
   const sold = async () =>
     (await venueFills(who, owner, since))
