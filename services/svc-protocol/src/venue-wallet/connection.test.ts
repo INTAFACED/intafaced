@@ -285,10 +285,12 @@ describe('venueWallet.* mounted', () => {
     expect(status.connections).toHaveLength(1);
     // Bob sees none of Alice's wallets.
     expect((await caller(d, signedIn(BOB)).venueWallet.status()).connections).toEqual([]);
-    // A live connection reaches the venue check, which refuses by name until a venue is wired.
-    await expect(alice.venueWallet.authorize({ address: WALLET.address, action: 'deposit' })).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message: expect.stringMatching(/^protocol\.venue_unwired:/),
+    // A live connection passes the check with its expiry: the page may now ask the wallet to sign the venue's action.
+    expect(await alice.venueWallet.authorize({ address: WALLET.address, action: 'deposit' })).toEqual({
+      address: WALLET.address,
+      action: 'deposit',
+      live: true,
+      expiresAt: issued.expiresAt,
     });
     await alice.venueWallet.disconnect({ address: WALLET.address });
     expect((await alice.venueWallet.status()).connections).toEqual([]);

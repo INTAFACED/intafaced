@@ -203,8 +203,12 @@ describe('D-explorer-05 indexer.explorer.pools', () => {
         createdHeight: 4,
         createdTx: `0x${'b1'.repeat(32)}`,
         reserves: { reserve0: (10n ** 30n).toString(), reserve1: '21000000', height: 7 },
+        // the last day's token1 volume and swap count, as a decimal string (J-dex-protocol-12 #1)
+        volume1: '3000000',
+        swaps: 3,
       },
     ]);
+    expect(out.window.seconds).toBe(86_400);
     expect(out.nextCursor).toBeNull();
     expect((await (await caller()).explorer.pools.list({ chainId: CHAIN_ID + 1 })).rows).toEqual([]);
   });

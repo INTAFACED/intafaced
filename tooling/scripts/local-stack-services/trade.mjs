@@ -236,6 +236,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
           TRADE_USER_VENUE_BUILDER_FEE_BPS:
             process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),
+          // The builder-fee poster (J-derivatives-17): every 2 seconds on the stack; `LOCAL_STACK_BUILDER_FEE_POSTER=off`
+          // stops it, so a fill waits unposted and the recon lists it as a break.
+          TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
+          TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: '2000',
         }
       : {}),
   }),
