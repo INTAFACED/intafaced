@@ -13,13 +13,13 @@ import {
   type Context,
   StepUpCheckError,
 } from '@intafaced/contracts';
-import { AuthError, type Principal } from '@intafaced/auth';
+import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
+import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
-import { assertPlaceEligible } from './spot/place-eligibility.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
 import { fxNamedDegrade } from './spot/fx-product.js';
 import {
@@ -792,6 +792,16 @@ interface CustodialPlaceInput {
   readonly subAccountId?: string;
 }
 
+function refuseCustodialTradeJurisdiction(ctx: Context & { principal: Principal }): void {
+  const decision = checkAccess({
+    module: 'trade',
+    plane: 'fiat',
+    region: ctx.region,
+    kycTier: ctx.principal.tier,
+  });
+  if (!decision.allowed) throw new JurisdictionError(decision);
+}
+
 /**
  * Record the place, then hold. Tier below `basic` is `tier.insufficient` and
  * never calls `placeOrder`. A jurisdiction refusal is recorded and thrown the
@@ -813,9 +823,18 @@ async function placeAttributedOrder(
     orderId: null as string | null,
   };
 
-  // The tier and the jurisdiction, in that order: the one check every door that places for a person shares.
+  if (TIER_ORDER[principal.tier] < TIER_ORDER.basic) {
+    book.record({
+      ...base,
+      outcome: 'refused',
+      reason: 'tier.insufficient',
+    });
+    requireTier(principal, 'basic');
+    throw new AuthError('Verification tier "basic" is required', 'tier.insufficient');
+  }
+
   try {
-    assertPlaceEligible({ tier: principal.tier, region: ctx.region });
+    refuseCustodialTradeJurisdiction(ctx);
   } catch (err) {
     book.record({
       ...base,
@@ -933,10 +952,10 @@ export function createTradeRouter(
     support: supportTradeSummaryRouter(supportSummary),
     /** `venue.ownActivity`: a person's own venue spot trading, svc-tax only (J-cex-spot-01 #11). Read-only. */
     venue: ownVenueActivityRouter(venueActivity),
-    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
-    bots: router({ grid: gridRouter(grid) }),
     /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
     signals: signalsRouter(signals),
+    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
+    bots: router({ grid: gridRouter(grid) }),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

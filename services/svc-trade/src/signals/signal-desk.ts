@@ -19,7 +19,7 @@
  *
  * Nothing here holds or moves money: the venue is the record of the person's balances and fills.
  */
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { PlaceUserOrderIntent } from '@intafaced/venue-contracts';
@@ -249,7 +249,8 @@ export class SignalDesk {
     const now = this.ports.now();
     const expires = new Date(now.getTime() + days * 86_400_000);
     // The webhook is admitted as a strategy, as a grid bot is: each alert's order is then a delegated child of it.
-    const webhookId = randomUUID();
+    // The webhook's id comes from the person and their request key, so a retried create admits the same strategy.
+    const webhookId = idFor(`signal-webhook:${principal.userId}:${requestId}`);
     await this.ports.admitStart(principal, signalBusinessId(webhookId), {
       webhookId,
       symbol,
@@ -331,21 +332,27 @@ export class SignalDesk {
     const side = body.side;
     if (side !== 'buy' && side !== 'sell')
       throw new SignalError('side is required: buy or sell', 'trade.signal_format_invalid', 400, 'side');
-    const amountText = typeof body.amount === 'string' ? body.amount.trim() : typeof body.amount === 'number' ? String(body.amount) : '';
+    // Money arrives as decimal strings only: a JSON number may already have lost digits before it reaches us.
+    const amountText = typeof body.amount === 'string' ? body.amount.trim() : '';
     let qty: Amount;
     try {
       qty = parseAmount(amountText);
     } catch {
-      throw new SignalError('amount is required: a decimal quantity', 'trade.signal_format_invalid', 400, 'amount');
+      throw new SignalError('amount is required: a decimal quantity, as a string', 'trade.signal_format_invalid', 400, 'amount');
     }
     if (qty <= 0n) throw new SignalError('amount must be above zero', 'trade.signal_format_invalid', 400, 'amount');
     // A market order on the venue carries the worst price it accepts: the alert names it, as TradingView's {{close}} can.
-    const priceText = typeof body.price === 'string' ? body.price.trim() : typeof body.price === 'number' ? String(body.price) : '';
+    const priceText = typeof body.price === 'string' ? body.price.trim() : '';
     let price: Amount;
     try {
       price = parseAmount(priceText);
     } catch {
-      throw new SignalError('price is required: the worst price the order accepts', 'trade.signal_format_invalid', 400, 'price');
+      throw new SignalError(
+        'price is required: the worst price the order accepts, as a decimal string',
+        'trade.signal_format_invalid',
+        400,
+        'price',
+      );
     }
     if (price <= 0n) throw new SignalError('price must be above zero', 'trade.signal_format_invalid', 400, 'price');
 

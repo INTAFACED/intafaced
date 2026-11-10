@@ -167,6 +167,15 @@ describe('a webhook prepares an order only for a person who may place a trade or
     const made = await w.desk.create(principal('basic'), { symbol: 'BTCUSDC', venueOwner: OWNER, clientRequestId: 'req-00000001' }, 'DE');
     expect(made.token).not.toBeNull();
     expect(w.admissions).toHaveLength(1);
+    // The same person and request key always name the same webhook, so a retried create admits the same strategy.
+    const again = world({ liveTier: 'basic' });
+    const twice = await again.desk.create(
+      principal('basic'),
+      { symbol: 'BTCUSDC', venueOwner: OWNER, clientRequestId: 'req-00000001' },
+      'DE',
+    );
+    expect(twice.webhookId).toBe(made.webhookId);
+    expect(again.admissions).toEqual(w.admissions);
   });
 
   it('refuses a create while venue trading is off, and a market the door does not list: no webhook, no admission', async () => {
@@ -216,6 +225,20 @@ describe('a webhook prepares an order only for a person who may place a trade or
         },
       },
     ]);
+  });
+
+  it('refuses an amount or a price sent as a JSON number, naming the field: money arrives as decimal strings only', async () => {
+    for (const [field, extra] of [
+      ['amount', { amount: 0.01 }],
+      ['price', { price: 70000.123456789 }],
+    ] as const) {
+      const w = world({ liveTier: 'basic' });
+      const out = await w.alert(`a-number-${field}`, extra);
+      expect(out).toMatchObject({ status: 400, body: { code: 'trade.signal_format_invalid', field } });
+      expect(w.children).toEqual([]);
+      expect(w.orders).toEqual([]);
+      expect(w.writes).toEqual([]);
+    }
   });
 
   it('refuses an alert with no price, naming the field: nothing admitted or prepared', async () => {

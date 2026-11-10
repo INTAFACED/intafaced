@@ -49,6 +49,8 @@ export function WebhooksRoom() {
   const [open, setOpen] = useState(false);
   const [symbol, setSymbol] = useState('');
   const [owner, setOwner] = useState('');
+  // One request key per opened form: a retried Create after a lost answer names the same webhook, never a second.
+  const [requestKey, setRequestKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [made, setMade] = useState<SignalWebhook | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
@@ -60,7 +62,7 @@ export function WebhooksRoom() {
   async function create() {
     setBusy(true);
     setRefused(null);
-    const out = await api.createWebhook({ symbol, venueOwner: account, clientRequestId: `wh-${symbol}-${crypto.randomUUID()}` });
+    const out = await api.createWebhook({ symbol, venueOwner: account, clientRequestId: requestKey });
     setBusy(false);
     if (!out.ok) {
       setRefused(roomRefusal(out).title);
@@ -100,7 +102,14 @@ export function WebhooksRoom() {
         ) : (
           <>
             <div className="cb-action-row">
-              <Button onClick={() => setOpen(true)}>{t('New webhook')}</Button>
+              <Button
+                onClick={() => {
+                  setRequestKey(`wh-${crypto.randomUUID()}`);
+                  setOpen(true);
+                }}
+              >
+                {t('New webhook')}
+              </Button>
             </div>
             {made?.token ? (
               <InfoNote>

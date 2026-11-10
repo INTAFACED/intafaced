@@ -1,13 +1,13 @@
 /**
- * Who may place a custodial trade order: the one check, shared by every door that places one for a person.
+ * Who may trade through a chart alert webhook: the same two checks the signed-in custodial order door makes
+ * (`placeAttributedOrder` in router.ts), in the same order.
  *
  * - A verification tier below `basic` refuses `tier.insufficient` (AuthError).
  * - The jurisdiction matrix (`checkAccess`, module trade, fiat plane) refuses by its own code (JurisdictionError).
  *
- * The signed-in order door (`placeAttributedOrder` in router.ts) calls it with the request's principal and region. A
- * chart alert webhook (signals/signal-desk.ts) calls it on every alert, with the person's live tier read from identity
+ * A chart alert webhook (signals/signal-desk.ts) calls it on every alert, with the person's live tier read from identity
  * and the region recorded at create, never the tier its stored grant carries; its create is gated by its procedure's
- * own module check. One function, so the doors cannot drift apart (OWNER 88).
+ * own module check (OWNER 88).
  */
 import { AuthError, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
