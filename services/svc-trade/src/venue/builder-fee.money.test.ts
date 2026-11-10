@@ -13,6 +13,8 @@ import { UserVenueDoor, type BuilderFeeValue } from './user-venue-door.js';
 import { postBuilderFees } from './builder-fee-poster.js';
 import { builderFeeRecon, BuilderFeeReconError, expectedBuilderFee } from './builder-fee-recon.js';
 import { InMemoryBuilderFeeStore, type BuilderFeeAccount } from './builder-fee-store.js';
+import { listedTestStore } from './venue-listing-store.js';
+import { StoreVenueRoutingGate } from './venue-listing.js';
 
 /**
  * D-venue-07 and J-derivatives-17 #1 #2: the poster posts our builder fee once per venue fill, and the recon reads the
@@ -58,6 +60,7 @@ beforeAll(async () => {
   const { seedTestVenue } = await import('@intafaced/venue-sim');
   await seedTestVenue(sim);
   sim.deposit({ venueId: sim.venue.id, owner, subAccount: null }, 'USDC', a('200000'), 'deposit:test:builder-fee');
+  sim.deposit({ venueId: sim.venue.id, owner, subAccount: null }, 'BTC', a('10'), 'deposit:test:builder-fee:btc');
   door = new UserVenueDoor({
     connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
     appEnv: 'test',
@@ -65,6 +68,7 @@ beforeAll(async () => {
     stepUp: approveStepUp,
     builder: BUILDER,
     now: () => new Date(),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
   });
   const approve = await door.prepare(principal, {
     owner,
@@ -73,15 +77,15 @@ beforeAll(async () => {
     actionKey: `approve-builder:${USER}:1`,
   });
   await door.submit(principal, approve.actionKey, await sign(approve.prepared));
-  // Two taker fills, each carrying our builder fee.
+  // Two taker sells into the TEST bids, each carrying our builder fee (the venue charges none on a spot buy).
   for (const n of [1, 2]) {
     const intent: PlaceUserOrderIntent = {
       kind: 'place_order',
       symbol: 'BTC-USDC',
-      side: 'buy',
+      side: 'sell',
       type: 'limit',
       amount: a('0.1'),
-      price: a('60010'),
+      price: a('59990'),
       timeInForce: 'GTC',
       reduceOnly: false,
       clientOrderKey: `order:${USER}:builder-fee:${n}`,

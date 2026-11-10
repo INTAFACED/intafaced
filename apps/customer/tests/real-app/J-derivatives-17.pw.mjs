@@ -100,14 +100,14 @@ async function door(intent, actionKey) {
 let orders = 0;
 /** The builder-fee rates our door signed into the orders it routed: the version in force for BTC-USDC, else the boot value. */
 const signedRates = new Set();
-const buy = async () => {
+const sell = async () => {
   const sent = await door({
     kind: 'place_order',
     symbol: 'BTC-USDC',
-    side: 'buy',
+    side: 'sell',
     type: 'limit',
     amount: '0.01',
-    price: '60010',
+    price: '59990',
     timeInForce: 'GTC',
     reduceOnly: false,
     clientOrderKey: `order:${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}:${(orders += 1)}`,
@@ -195,6 +195,14 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     depositRef: `84532:${keccak256(toHex(`${J} ${owner}`))}:0`,
   });
   expect(funded.status, JSON.stringify(funded.body)).toBe(200);
+  // BTC to sell: the venue charges our builder fee on a spot sell, never on a spot buy.
+  const btc = await testVenue('/test/deposit', {
+    account: await account(),
+    asset: 'BTC',
+    amount: '1',
+    depositRef: `84532:${keccak256(toHex(`${J} ${owner} BTC`))}:0`,
+  });
+  expect(btc.status, JSON.stringify(btc.body)).toBe(200);
   const builder = (await (await api(trader)).get('/api/v1/venue/status')).body;
   expect(builder, JSON.stringify(builder).slice(0, 300)).toMatchObject({ enabled: true, test: true });
   // The trader approves our builder fee up to the venue's own cap: the rate an order carries is the builder-fee version in
@@ -203,8 +211,8 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     { kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: await venueCap('BTC-USDC') },
     `approve-builder:${owner}:${J}`,
   );
-  await buy();
-  await buy();
+  await sell();
+  await sell();
   const fills = await venueFills(start);
   expect(fills.length, 'two fills carry our builder fee').toBeGreaterThanOrEqual(2);
   const to = new Date(Date.now() + 10 * 60_000);
@@ -240,7 +248,7 @@ test(`${J} #2 a builder fee is in one record but not the other: the break with i
   // The poster is stopped, so the next fee the venue charges is not in the ledger yet.
   tradeWith({ venue: true, poster: false });
   const from = new Date(Date.now() - 1000);
-  await buy();
+  await sell();
   const fills = await venueFills(from);
   expect(fills.length).toBe(1);
   const fill = fills[0];
@@ -295,7 +303,7 @@ test(`${J} #3 a venue payout of builder fees is not yet received: shown as owed 
 
   // One more fill: its fee is earned and not received, so what the venue owes grows by exactly that fee.
   const from = new Date(Date.now() - 1000);
-  await buy();
+  await sell();
   const [fill] = await venueFills(from);
   expect(fill, 'the new fill carries our builder fee').toBeTruthy();
   const want = (before.get(fill.feeAsset) ?? 0n) + toUnits(fill.builderFee);
@@ -350,10 +358,10 @@ test(`${J} #4 opens the routed-volume recon: volume by venue against the builder
   const intent = {
     kind: 'place_order',
     symbol: 'BTC-USDC',
-    side: 'buy',
+    side: 'sell',
     type: 'limit',
     amount: '0.01',
-    price: '60010',
+    price: '59990',
     timeInForce: 'GTC',
     reduceOnly: false,
     clientOrderKey: `direct:${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}`,
