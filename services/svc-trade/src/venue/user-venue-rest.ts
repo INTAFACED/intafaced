@@ -9,6 +9,7 @@
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
+ *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
  *   POST /api/v1/venue/submit    { actionKey, signature }
  *
@@ -31,10 +32,13 @@ import {
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { UserVenueDoor, UserVenueDoorError } from './user-venue-door.js';
+import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
+  /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
+  sellQuotes?: VenueSellQuotes | null;
 }
 
 type Query = { owner?: string; subAccount?: string; clientOrderId?: string; since?: string; symbol?: string };
@@ -183,6 +187,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
     return answer(reply, async (d) => {
       const b = body<{ owner?: string; intent?: VenueIntent }>(req);
       return d.preview(principal, b.owner ?? '', b.intent as VenueIntent);
+    });
+  });
+
+  // A Convert sell priced by the venue's own preview on the customer's account, stored under its business key. Sends
+  // nothing to the venue and moves no money; a trade:write scope, as the preview it is made from.
+  app.post('/api/v1/venue/convert/sell-quote', privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async () => {
+      if (!deps.sellQuotes)
+        throw new UserVenueDoorError('venue sell quotes are not wired on this deployment', 'trade.venue_sell_quote_unwired', 503);
+      const b = body<{ owner?: string; symbol?: string; amount?: bigint; quoteKey?: string }>(req);
+      const quote = await deps.sellQuotes.quote(principal, {
+        owner: b.owner ?? '',
+        symbol: b.symbol ?? '',
+        amount: b.amount as bigint,
+        quoteKey: b.quoteKey ?? '',
+      });
+      return presentVenueSellQuote(quote);
     });
   });
 

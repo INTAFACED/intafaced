@@ -78,6 +78,11 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
+  // Convert's venue sell quotes (venue-sell-quotes.ts, J-cex-spot-17 #8).
+  | 'trade.venue_sell_quote_unwired'
+  | 'trade.venue_sell_quote_market_unknown'
+  | 'trade.venue_sell_quote_not_spot'
+  | 'trade.venue_sell_quote_key_reused'
   | VenueRouteRefusalCode;
 
 export class UserVenueDoorError extends Error {
