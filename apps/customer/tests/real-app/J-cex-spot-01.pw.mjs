@@ -1022,10 +1022,45 @@ async function confirmItsMe(page) {
 
 test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet signs, pending then done with its fees or "not known"; a session not stepped up is refused before the wallet is asked`, async ({
   page,
+  browser,
 }) => {
   test.setTimeout(420_000);
   const person = account();
   const { owner } = run.read();
+  // A session that has not stepped up asks the desk to withdraw, as a person can before they have any second factor:
+  // the desk's confirmation has nothing to confirm with, so the person sends the request without one. The door refuses
+  // it with the step-up refusal, and the desk names that reason; the wallet is not asked and nothing is withdrawn.
+  const unsteppedContext = await browser.newContext();
+  try {
+    const desk = await unsteppedContext.newPage();
+    const { wallet: deskWallet, panel: deskPanel } = await venueDesk(desk);
+    const free = wireUnits((await venueBalance(person, owner, 'USDC')).free);
+    const deskAsked = deskWallet.requests.length;
+    await deskPanel.getByRole('button', { name: /^Withdraw/ }).click();
+    const deskForm = desk.getByRole('dialog', { name: /withdraw/i });
+    await deskForm.getByRole('textbox', { name: /^Amount/ }).fill('10');
+    const refusal = desk.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/prepare');
+    await deskForm
+      .getByRole('button', { name: /withdraw|sign|confirm/i })
+      .last()
+      .click();
+    const confirmIt = desk.getByRole('dialog', { name: 'Confirm it’s you' });
+    await expect(confirmIt).toContainText('You have no passkey or authenticator app, so this withdrawal cannot be confirmed.');
+    await confirmIt.getByRole('button', { name: 'Ask the venue without a confirmation' }).click();
+    const refused = await refusal;
+    const refusedBody = await refused.json();
+    expect(refused.status(), JSON.stringify(refusedBody).slice(0, 300)).toBe(403);
+    expect(refusedBody.intafacedCode, JSON.stringify(refusedBody).slice(0, 300)).toBe('identity.step_up_required');
+    expect(refused.request().postDataJSON().stepUpApprovalId ?? null, 'the desk sent no confirmation').toBeNull();
+    await expect(deskForm.getByTestId('venue-outcome')).toContainText(
+      'Refused before your wallet was asked: Confirm this with your passkey or authenticator code first',
+      { timeout: 15_000 },
+    );
+    expect(deskWallet.requests.length, 'the wallet is not asked when the door refuses').toBe(deskAsked);
+    expect(wireUnits((await venueBalance(person, owner, 'USDC')).free)).toBe(free);
+  } finally {
+    await unsteppedContext.close();
+  }
   // A second factor to step up with, from Security. From here the account signs in only with a code, so the step's
   // reads use one session signed in with a fresh code, and the browser stays signed in.
   await signIn(page, person);
@@ -1050,25 +1085,6 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   await expect(stepUp).toBeVisible();
   await page.keyboard.press('Escape');
   expect(wallet.requests.length, 'the wallet is not asked before the step-up').toBe(asked);
-  // The desk names the refusal and its reason when the door gets no step-up: the confirmation given in the desk is held
-  // back from the prepare, as a session that has not stepped up sends it. Still no wallet asked and nothing withdrawn.
-  const withoutStepUp = async (route) => {
-    const body = route.request().postDataJSON();
-    await route.continue({ postData: JSON.stringify({ ...body, stepUpApprovalId: null }) });
-  };
-  await page.route('**/api/v1/venue/prepare', withoutStepUp);
-  await form
-    .getByRole('button', { name: /withdraw|sign|confirm/i })
-    .last()
-    .click();
-  await confirmItsMe(page);
-  await expect(form.getByTestId('venue-outcome')).toContainText(
-    'Refused before your wallet was asked: Confirm this with your passkey or authenticator code first',
-    { timeout: 15_000 },
-  );
-  await page.unroute('**/api/v1/venue/prepare', withoutStepUp);
-  expect(wallet.requests.length, 'the wallet is not asked when the door refuses the step-up').toBe(asked);
-  expect(wireUnits((await venueBalance(who, owner, 'USDC')).free)).toBe(wireUnits(before.free));
   const unstepped = await who.client.post('/api/v1/venue/prepare', {
     owner,
     signer: { role: 'owner', address: owner },
