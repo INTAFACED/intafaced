@@ -985,6 +985,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'What an order would lock and its fee lines, from the venue’s own figures. Sends nothing',
   },
   {
+    name: 'venueConvertSellQuote',
+    method: 'POST',
+    path: '/api/v1/venue/convert/sell-quote',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The venue’s own price for selling an amount on your venue account now: what fills, its average price and fees, or "not known". Sends nothing',
+  },
+  {
     name: 'venuePrepare',
     method: 'POST',
     path: '/api/v1/venue/prepare',
