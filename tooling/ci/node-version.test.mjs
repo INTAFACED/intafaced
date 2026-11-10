@@ -43,12 +43,46 @@ function stepLines(lines, i, stepIndent) {
 
 const NODE_VERSION_FILE = '/.node-version';
 
+/** The events that start a workflow, from its `on:` key (a name, a list, or a block of keys). */
+export function workflowTriggers(text) {
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => /^['"]?on['"]?\s*:/.test(l));
+  if (at < 0) return new Set();
+  const inline = lines[at]
+    .replace(/#.*$/, '')
+    .replace(/^['"]?on['"]?\s*:/, '')
+    .trim();
+  if (inline)
+    return new Set(
+      inline
+        .replace(/[[\]]/g, '')
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean),
+    );
+  const out = new Set();
+  for (const l of lines.slice(at + 1)) {
+    if (l.trim() === '' || /^\s*#/.test(l)) continue;
+    if (!/^\s/.test(l)) break;
+    const m = /^ {2}([A-Za-z_]+)\s*:/.exec(l) ?? /^ {2}-\s+([A-Za-z_]+)/.exec(l);
+    if (m) out.add(m[1]);
+  }
+  return out;
+}
+
+/** Events whose run holds a write token or secrets while it may read a pull request's code. */
+const PRIVILEGED = ['pull_request_target', 'workflow_run'];
+/** Jobs that check a pull request's head out at the root yet run main's rules (real-app-journeys `touch`: the seal's mode and target). */
+const MAIN_RULES_JOBS = { 'real-app-journeys.yml': ['touch'] };
+
 /**
  * The faults in one workflow's text: a `node-version:` key anywhere (a hard-coded version, in a step or a matrix); an
  * `actions/setup-node` step without `node-version-file: .node-version` in its `with:` block; and one whose file is not
  * checked out yet in its job: `.node-version` needs an earlier checkout of the repo's root (actions/checkout without a
  * `path:`, or a plain `git checkout` in a run step), and `<dir>/.node-version` an earlier actions/checkout with
- * `path: <dir>`.
+ * `path: <dir>`. In a workflow started by pull_request_target or workflow_run, and in a job of MAIN_RULES_JOBS, the
+ * file must come from a checkout of main's rules: an actions/checkout whose `ref:` names `default_branch` (or, in those
+ * two events only, names no ref, which checks out the base or default branch). A plain `git checkout` never counts there.
  */
 export function nodeVersionFaults(text, file = '<text>') {
   const faults = [];
@@ -58,16 +92,25 @@ export function nodeVersionFaults(text, file = '<text>') {
       faults.push(`${file}:${i + 1} hard-codes a Node version (${line.trim()}); use node-version-file: .node-version`);
     }
   });
-  let checkedOut = new Set(); // the folders checked out so far in this job; '.' is the root
+  const privileged = PRIVILEGED.some((t) => workflowTriggers(text).has(t));
+  const mainRulesJobs = MAIN_RULES_JOBS[file.split('/').pop()] ?? [];
+  let job = null;
+  let checkedOut = new Map(); // the folders checked out so far in this job ('.' is the root) -> holds main's rules
   lines.forEach((line, i) => {
-    if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(line)) checkedOut = new Set(); // a new job
-    if (/\bgit checkout\b/.test(line.replace(/#.*$/, ''))) checkedOut.add('.');
+    const jm = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
+    if (jm) {
+      job = jm[1]; // a new job
+      checkedOut = new Map();
+    }
+    if (/\bgit checkout\b/.test(line.replace(/#.*$/, ''))) checkedOut.set('.', false);
     const m = /^(\s*)(-\s+)?uses:\s*['"]?actions\/(checkout|setup-node)@/.exec(line);
     if (!m) return;
     const step = stepLines(lines, i, m[1].length);
     if (m[3] === 'checkout') {
       const path = step.map((l) => /^\s*path:\s*['"]?([^'"\s#]+)/.exec(l)?.[1]).find(Boolean);
-      checkedOut.add(path === undefined ? '.' : path.replace(/\/$/, ''));
+      const ref = step.map((l) => /^\s*ref:\s*(.+?)\s*(#.*)?$/.exec(l)?.[1]).find(Boolean);
+      const mainRules = ref === undefined ? privileged : /\bdefault_branch\b/.test(ref);
+      checkedOut.set(path === undefined ? '.' : path.replace(/\/$/, ''), mainRules);
       return;
     }
     const want = step.map((l) => /^\s*node-version-file:\s*['"]?([^'"\s#]+)['"]?\s*(#.*)?$/.exec(l)?.[1]).find(Boolean);
@@ -75,6 +118,10 @@ export function nodeVersionFaults(text, file = '<text>') {
     if (dir === null) faults.push(`${file}:${i + 1} runs actions/setup-node without node-version-file: .node-version`);
     else if (!checkedOut.has(dir))
       faults.push(`${file}:${i + 1} reads ${want} before its job checks out ${dir === '.' ? 'the repo root' : dir}`);
+    else if ((privileged || mainRulesJobs.includes(job)) && !checkedOut.get(dir))
+      faults.push(
+        `${file}:${i + 1} reads ${want} from a checkout that is not main's rules (${privileged ? 'a pull_request_target or workflow_run workflow' : `job ${job}`}); check main out (ref: default_branch) and read its .node-version`,
+      );
   });
   return faults;
 }
@@ -223,4 +270,31 @@ test('planted: a checkout into a folder needs that folder named, and a plain git
           node-version-file: .node-version
 `;
   assert.deepEqual(nodeVersionFaults(plain), []);
+});
+
+test("planted: a privileged workflow reads .node-version only from main's rules", () => {
+  const real = readFileSync(join(ROOT, '.github', 'workflows', 'ci-review.yml'), 'utf8');
+  assert.deepEqual(nodeVersionFaults(real, 'ci-review.yml'), []);
+  const head = real.replaceAll('ref: ${{ github.event.repository.default_branch }}', 'ref: ${{ github.event.pull_request.head.sha }}');
+  assert.notEqual(head, real, 'ci-review.yml no longer checks main out by ref: this planted fault plants nothing');
+  assert.match(nodeVersionFaults(head, 'ci-review.yml').join('\n'), /from a checkout that is not main's rules \(a pull_request_target/);
+  const target = `on:\n  pull_request_target:\n${GOOD}`;
+  assert.deepEqual(nodeVersionFaults(target), [], 'no ref: in pull_request_target checks out the base branch');
+  const plainGit = `on: [workflow_run]\njobs:\n  a:\n    steps:\n      - run: git checkout -q FETCH_HEAD\n      - uses: actions/setup-node@x\n        with:\n          node-version-file: .node-version\n`;
+  assert.match(nodeVersionFaults(plainGit).join('\n'), /not main's rules/);
+  assert.deepEqual([...workflowTriggers('on:\n  push:\n    branches: [main]\n  workflow_run:\njobs:\n')], ['push', 'workflow_run']);
+  assert.deepEqual([...workflowTriggers('on: pull_request_target\n')], ['pull_request_target']);
+});
+
+test("planted: real-app-journeys' touch job reading the pull request's root .node-version fails", () => {
+  const real = readFileSync(join(ROOT, '.github', 'workflows', 'real-app-journeys.yml'), 'utf8');
+  assert.deepEqual(nodeVersionFaults(real, '.github/workflows/real-app-journeys.yml'), []);
+  const touch = real.indexOf('\n  touch:\n');
+  const at = real.indexOf('node-version-file: .base/.node-version', touch);
+  assert.ok(touch > 0 && at > touch, 'the touch job no longer reads .base/.node-version: this planted fault plants nothing');
+  const bad = real.slice(0, at) + 'node-version-file: .node-version' + real.slice(at + 'node-version-file: .base/.node-version'.length);
+  assert.match(
+    nodeVersionFaults(bad, '.github/workflows/real-app-journeys.yml').join('\n'),
+    /reads \.node-version from a checkout that is not main's rules \(job touch\)/,
+  );
 });

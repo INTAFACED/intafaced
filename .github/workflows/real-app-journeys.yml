@@ -152,9 +152,14 @@ jobs:
           path: .base
           sparse-checkout: tooling
           persist-credentials: false
+      # Main's Node runs main's rules: the version comes from .base (a cone-mode sparse checkout keeps root files), never
+      # the pull request's own .node-version. Until main has the file (only on the run of the pull request that adds it),
+      # the branch's copy stands in.
+      - name: Main's Node version
+        run: '[ -f .base/.node-version ] || { mkdir -p .base && cp .node-version .base/.node-version; }'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version-file: .node-version
+          node-version-file: .base/.node-version
       - name: What this run runs
         id: touch
         env:
