@@ -112,9 +112,9 @@ import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
-import { postBuilderFees } from './venue/builder-fee-poster.js';
-import { builderFeeRecon } from './venue/builder-fee-recon.js';
-import { SqlBuilderFeeStore } from './venue/builder-fee-store.js';
+import { postBuilderFees } from './builder-fee/builder-fee-poster.js';
+import { builderFeeRecon } from './builder-fee/builder-fee-recon.js';
+import { SqlBuilderFeeStore } from './builder-fee/builder-fee-store.js';
 import { SqlVenueListingStore } from './venue/venue-listing-store.js';
 import {
   StoreVenueRoutingGate,
