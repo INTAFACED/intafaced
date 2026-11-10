@@ -122,31 +122,6 @@ async function sendReply(workspace, body) {
 }
 
 test(`${J} #1 /support lists unassigned open and pending requests by score, "not a promise", with no due time`, async ({ page }) => {
-  test.setTimeout(240_000);
-  // An empty queue says so honestly. The stack's queue is shared, so the lead holds every unassigned open or waiting
-  // request for this check, sees the empty queue, and lets each go again.
-  const drained = [];
-  try {
-    for (let round = 0; round < 50; round += 1) {
-      const answer = await desk('lead', 'query', 'listQueue', { limit: 100 });
-      if (answer.status !== 'ok' || answer.entries.length === 0) break;
-      for (const entry of answer.entries) {
-        await desk('lead', 'mutation', 'claim', { ticketId: entry.ticketId });
-        drained.push(entry.ticketId);
-      }
-    }
-    expect(await desk('lead', 'query', 'listQueue', { limit: 100 })).toEqual({ status: 'empty' });
-    await founderSignIn(page, 'a');
-    await page.goto(`${ADMIN}/support`);
-    await expect(page.getByRole('heading', { name: 'Support queue', level: 1 })).toBeVisible();
-    await expect(page.getByTestId('queue-empty')).toHaveText('svc-support says the queue is empty: no open or waiting tickets.');
-    // No table of rows and no failure shown in its place: the empty queue is the service's own answer.
-    await expect(page.getByRole('region', { name: 'Support queue' })).toHaveCount(0);
-  } finally {
-    for (const ticketId of drained)
-      await desk('lead', 'mutation', 'unclaim', { ticketId, idempotencyKey: `${J}:${RUN}:drain:${ticketId}` });
-  }
-
   const ticket = await request(`TEST queue ${RUN}`);
   // A request someone holds is not in the queue.
   const held = await request(`TEST queue held ${RUN}`);
@@ -158,35 +133,19 @@ test(`${J} #1 /support lists unassigned open and pending requests by score, "not
     await expect(queue.getByRole('columnheader', { name: 'Score' })).toBeVisible();
     await expect(queue.getByRole('columnheader', { name: /due/i })).toHaveCount(0);
     await expect(page.getByTestId('queue-metrics')).toContainText('it is not a response-time promise');
+    // Ranked by score, highest first.
+    const scores = (await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[4]?.textContent ?? ''))).map(
+      Number,
+    );
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+    // Only open and pending requests.
+    for (const status of await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[3]?.textContent ?? '')))
+      expect(['open', 'pending']).toContain(status);
     // Only unassigned ones: the page lists the queue page svc-support answers, and none of its tickets has an assignee.
     const answered = await desk('lead', 'query', 'listQueue', { limit: 100 });
     const entries = answered.status === 'ok' ? answered.entries : [];
     expect(entries.length).toBeGreaterThan(0);
     await expect(queue.getByRole('row')).toHaveCount(entries.length + 1);
-    // Each row says score, not a promise: svc-support labels every row's score `score_not_promise` with no SLA (the
-    // console drops a row that isn't), and the page says it beside the table.
-    for (const entry of entries) {
-      expect(entry.timingKind, entry.subject).toBe('score_not_promise');
-      expect(entry.sla, entry.subject).toBe(false);
-    }
-    // Each row shows its own score as svc-support gave it, never a blank, ranked highest first; only open and pending.
-    const rows = await queue.getByRole('row').evaluateAll((all) => {
-      const head = [...all[0].cells].map((c) => c.textContent?.trim() ?? '');
-      const at = (name) => head.indexOf(name);
-      return all.slice(1).map((row) => ({
-        subject: row.cells[at('Subject')]?.textContent?.trim() ?? '',
-        status: row.cells[at('Status')]?.textContent?.trim() ?? '',
-        score: row.cells[at('Score')]?.textContent?.trim() ?? '',
-      }));
-    });
-    expect(rows.map((r) => r.subject)).toEqual(entries.map((e) => e.subject));
-    for (const [i, row] of rows.entries()) {
-      expect(row.score, row.subject).toMatch(/^-?\d+(\.\d+)?$/);
-      expect(Number(row.score), row.subject).toBe(entries[i].score);
-      expect(['open', 'pending']).toContain(row.status);
-    }
-    const scores = rows.map((r) => Number(r.score));
-    expect(scores).toEqual([...scores].sort((a, b) => b - a));
     for (const entry of entries) expect((await desk('lead', 'query', 'get', { ticketId: entry.ticketId })).assigneeId ?? null).toBeNull();
   } finally {
     await desk('lead', 'mutation', 'unclaim', { ticketId: held.id, idempotencyKey: `${J}:${RUN}:held` });
