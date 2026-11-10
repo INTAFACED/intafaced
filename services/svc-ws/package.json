@@ -24,8 +24,8 @@
     "@intafaced/sbe-codec": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.10.0",
-    "fastify": "^5.12.7",
-    "ws": "^8.22.0",
+    "fastify": "^5.12.8",
+    "ws": "^8.22.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {

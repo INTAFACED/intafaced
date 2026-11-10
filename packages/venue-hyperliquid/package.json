@@ -25,7 +25,7 @@
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/venue-contracts": "workspace:*",
     "@nktkas/hyperliquid": "0.33.3",
-    "viem": "^2.57.10"
+    "viem": "^2.57.16"
   },
   "devDependencies": {
     "@intafaced/venue-sim": "workspace:*",
