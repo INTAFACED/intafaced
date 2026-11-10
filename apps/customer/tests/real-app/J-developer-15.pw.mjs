@@ -356,10 +356,8 @@ test(`${J} #6 the agent key attempts a payout: an approval row appears and no pa
   const settlementBefore = await pay.query('settlement.get', { settlementId: posted.id });
   expect(settlementBefore).toMatchObject({ id: posted.id, merchantId, status: 'posted' });
   expect(settlementBefore.payoutRef ?? null, 'not paid out yet').toBeNull();
-  const available = async () =>
-    (await pay.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })).balances.find(
-      (b) => b.assetCode === 'USDT',
-    )?.available;
+  // Read straight from the ledger through svc-pay (not the metrics projection, which fills a moment later).
+  const available = async () => (await pay.query('merchant.balances', { merchantId, assetId: 'USDT' })).available;
   const availableBefore = await available();
   expect(availableBefore, 'the posted net is available to pay out').toMatch(/^\d+(\.\d+)?$/);
   expect(availableBefore).not.toMatch(/^0(\.0+)?$/);
