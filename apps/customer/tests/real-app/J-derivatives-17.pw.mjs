@@ -407,16 +407,16 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
   // The ledger records our builder fee only on fills of orders we routed (OWNER 288 change 1b). The only fills that are
   // not ours are the ones this test made itself in #4, by placing an order on the venue directly: exactly those read as
   // not ours, and every other fill, each sent through our door, is matched, posted and in the file.
-  const lines = (await recon(start, to)).venues[0].lines;
+  const reconLines = (await recon(start, to)).venues[0].lines;
   expect(
-    lines
+    reconLines
       .filter((l) => l.status === 'not_our_order')
       .map((l) => l.fillId)
       .sort(),
   ).toEqual([...directFillIds].sort());
   const fills = (await venueFills(start)).filter((f) => !directFillIds.includes(f.fillId));
   expect(fills.length, 'fills sent through our door').toBeGreaterThan(0);
-  for (const f of fills) expect(lines.find((l) => l.fillId === f.fillId)?.status, `fill ${f.fillId}`).toBe('matched');
+  for (const f of fills) expect(reconLines.find((l) => l.fillId === f.fillId)?.status, `fill ${f.fillId}`).toBe('matched');
 
   await staffSignIn(page, browser, 'finance');
   const venue = await openRecon(page, start, to);
