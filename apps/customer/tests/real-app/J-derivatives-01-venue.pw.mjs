@@ -74,9 +74,12 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
 
   const { displayName } = await venueInfo();
   const markets = (await testVenue('/markets', {})).body.value.filter((m) => m.kind === 'perpetual');
-  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL]);
+  // The TEST venue lists BTC-PERP and the TEST gold perpetual XAU-PERP (J-derivatives-21); the desk lists every one, each
+  // with its venue named.
+  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'XAU-PERP']);
   const list = page.getByTestId('venue-contract-list');
-  await expect(list.getByRole('button', { name: `${SYMBOL} · ${displayName}` })).toBeVisible();
+  await expect(list.getByRole('button')).toHaveCount(markets.length);
+  for (const m of markets) await expect(list.getByRole('button', { name: `${m.symbol} · ${displayName}` })).toBeVisible();
   await expect(list.getByTestId('venue-test').first()).toHaveText('TEST');
   for (const part of ['venue-contract-strip', 'venue-wallet', 'venue-balances', 'venue-margin', 'venue-ticket', 'venue-blotter'])
     await expect(page.getByTestId(part)).toBeVisible();

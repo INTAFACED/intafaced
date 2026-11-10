@@ -250,7 +250,7 @@ export interface UserVenueDoorDeps {
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
   /**
-   * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank. Every
+   * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank. Every spot
    * market order is checked against it here, on preview and on prepare: blank refuses `trade.slippage_cap_unset`, and a
    * worst price past the bound refuses `trade.venue.price_outside_protection`. Never a default.
    */
@@ -488,13 +488,16 @@ export class UserVenueDoor {
    * A market order is bounded by the owner's price protection, here and not only in the browser: blank refuses
    * `trade.slippage_cap_unset`; no best price on the side it meets refuses `trade.no_reference_price` (never an
    * unbounded order); a worst price past the bound refuses `trade.venue.price_outside_protection`. A limit order is
-   * not touched.
+   * not touched. It bounds spot market orders, whose worst price the spot desk and Convert take from this protection; a
+   * perpetual's market order carries the worst price the person typed on the futures ticket (its slippage limit), which
+   * the venue holds it to.
    */
   private async assertMarketProtection(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
     if (intent.type !== 'market') return;
+    const market = await this.market(venue, intent.symbol);
+    if (market.kind !== 'spot') return;
     const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
     if (typeof intent.price !== 'bigint') invalid('a market order carries its worst price as a decimal string');
-    const market = await this.market(venue, intent.symbol);
     const best = venue.bestPrices ? (await venue.bestPrices(intent.symbol)).value : null;
     const bound = best ? marketProtectionBound(intent.side, best, cap, market.tickSize) : null;
     if (bound === null) {

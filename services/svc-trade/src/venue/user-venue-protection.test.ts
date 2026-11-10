@@ -45,7 +45,14 @@ const MARKET: UserVenueMarket = {
   maxOrderQty: null,
   maxOrderNotional: null,
   builderFeeCapBps: { known: false },
+  listedBy: { known: false },
+  oracleRule: { known: false },
+  markRule: { known: false },
+  tradingHours: { known: false },
+  feed: { known: false },
 };
+
+const PERP: UserVenueMarket = { ...MARKET, symbol: 'BTC-PERP', kind: 'perpetual', marginModes: ['cross'], maxLeverageBps: 100_000 };
 
 /** A TEST venue that records what it was asked to preview and prepare, with a book the test sets. */
 function stubVenue(best: { bid: Amount | null; ask: Amount | null }) {
@@ -54,7 +61,7 @@ function stubVenue(best: { bid: Amount | null; ask: Amount | null }) {
   const at = () => new Date();
   const venue = {
     venue: { id: venueId, displayName: 'stub TEST venue', kind: 'external-dex', sequencedDepth: true, proofLevel: 'simulator' },
-    markets: async () => ({ venueId, value: [MARKET], asOf: at() }),
+    markets: async () => ({ venueId, value: [MARKET, PERP], asOf: at() }),
     bestPrices: async (symbol: string) => ({ venueId, value: { symbol, ...best }, asOf: at() }),
     preview: async () => {
       asked.previews += 1;
@@ -90,7 +97,7 @@ function door(slippageCapBps: number | null, best = { bid: a('59990') as Amount 
     slippageCapBps,
     now: () => new Date(),
     // Our listing shows the one market these orders use (J-cex-spot-16).
-    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'], 'stub')),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'], 'stub')),
   });
   return { d, asked };
 }
@@ -131,6 +138,14 @@ describe('marketProtectionBound: the same rounding as the desk', () => {
 });
 
 describe('the door bounds every venue market order by the owner protection', () => {
+  it("a perpetual's market order is not bounded by it: the futures ticket's own worst price goes to the venue as typed", async () => {
+    // Past the spot bound (60311) and with the protection blank: the venue is asked, on preview and prepare.
+    const { d, asked } = door(null);
+    const perp = order({ symbol: 'BTC-PERP', price: a('62000') });
+    expect(await refusal(() => d.preview(principal, owner, perp))).toBe('passed');
+    expect(asked.previews).toBe(1);
+  });
+
   it('blank cap: a market order refuses trade.slippage_cap_unset on preview and prepare, and the venue is never asked', async () => {
     const { d, asked } = door(null);
     expect(await refusal(() => d.preview(principal, owner, order()))).toBe('trade.slippage_cap_unset');
