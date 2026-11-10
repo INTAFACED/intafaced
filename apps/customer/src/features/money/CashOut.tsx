@@ -52,7 +52,9 @@ export function QuoteView({ quote }: { quote: CashOutQuote }) {
     <div className="bd-stack" data-testid="cash-out-quote">
       <dl className="bd-facts">
         <Fact label={t('amount')}>{funds(quote.amount, quote.assetId)}</Fact>
-        <Fact label={t('available')}>{funds(quote.available, quote.assetId)}</Fact>
+        <Fact label={quote.heldAt ? t('availableAt', { label: quote.heldAt }) : t('available')}>
+          {funds(quote.available, quote.assetId)}
+        </Fact>
         <Fact label={t('account')}>
           <span lang="und">
             {quote.account.label} ({quote.account.ibanMasked})
@@ -92,6 +94,11 @@ function QuoteFailure({ failure, retry }: { failure: Refusal; retry: () => void 
 
 type FailKey = Extract<Key, `fail_${string}`>;
 type ReturnKey = Extract<Key, `return_${string}`>;
+type CancelKey = Extract<Key, `cancel_${string}`>;
+const CANCEL_KEYS: Record<string, CancelKey> = {
+  'bank.payout_cancelled_by_bank': 'cancel_bank_payout_cancelled_by_bank',
+  'bank.payout_cancelled_compliance': 'cancel_bank_payout_cancelled_compliance',
+};
 const FAIL_KEYS: Record<string, FailKey> = {
   'bank.payout_account_closed': 'fail_bank_payout_account_closed',
   'bank.payout_name_mismatch': 'fail_bank_payout_name_mismatch',
@@ -106,6 +113,7 @@ const STATUS_KEYS = {
   processing: 'status_processing',
   completed: 'status_completed',
   failed: 'status_failed',
+  cancelled: 'status_cancelled',
   returned: 'status_returned',
 } as const satisfies Record<CashOutRequest['status'], Key>;
 
@@ -139,7 +147,11 @@ function ReceiptPanel({ requestId, load }: { requestId: string; load?: LoadRecei
       </Button>
       {receipt && receipt !== 'loading' && receipt.ok ? (
         <p className="money-caption">
-          <span data-testid="cash-out-receipt-ledger">{t('receiptLedger', { id: receipt.data.ledgerTxId })}</span>
+          {receipt.data.ledgerTxId !== null ? (
+            <span data-testid="cash-out-receipt-ledger">{t('receiptLedger', { id: receipt.data.ledgerTxId })}</span>
+          ) : (
+            <span data-testid="cash-out-receipt-partner">{t('receiptPartner', { id: receipt.data.partnerMoveId ?? '' })}</span>
+          )}
           <br />
           <span data-testid="cash-out-receipt-hash">{t('receiptHash', { hash: receipt.data.sha256 })}</span>
           <br />
@@ -153,6 +165,15 @@ function ReceiptPanel({ requestId, load }: { requestId: string; load?: LoadRecei
       ) : null}
     </div>
   );
+}
+
+/**
+ * What came back of a cash-out the bank did not pay: once, to the balance it left, or, when the partner bank never took
+ * it (no move under its key), that nothing left the balance.
+ */
+function backWords(row: CashOutRequest, amount: string, t: ReturnType<typeof cashOutCopy.useCopy>['t']): string {
+  if (!row.heldAt) return t('failedBack', { amount });
+  return row.partnerMoveId ? t('failedBackAt', { amount, label: row.heldAt }) : t('nothingTaken');
 }
 
 /** Where one cash-out stands: the tracker while the bank has it, then its receipt, or why it failed or came back. */
@@ -172,16 +193,23 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
     );
   }
   const failed = row.status === 'failed';
+  const cancelled = row.status === 'cancelled';
+  // Where the money comes back to: the partner bank's balance when it holds it, else the available balance.
+  const at = row.heldAt;
   const steps = [t('status_processing'), t('status_completed')];
-  const at = row.status === 'processing' ? 1 : 2;
+  const step = row.status === 'processing' ? 1 : 2;
   return (
     <>
-      {!failed && (
-        <ol className="bd-steps" data-testid="cash-out-steps" aria-label={t('step', { status: t(STATUS_KEYS[row.status]), n: at, of: 2 })}>
-          {steps.map((step, i) => (
-            <li key={step} aria-current={i === at - 1 ? 'step' : undefined} data-off={i >= at ? 'true' : undefined}>
+      {!failed && !cancelled && (
+        <ol
+          className="bd-steps"
+          data-testid="cash-out-steps"
+          aria-label={t('step', { status: t(STATUS_KEYS[row.status]), n: step, of: 2 })}
+        >
+          {steps.map((name, i) => (
+            <li key={name} aria-current={i === step - 1 ? 'step' : undefined} data-off={i >= step ? 'true' : undefined}>
               <span className="bd-steps__n">{i + 1}</span>
-              {step}
+              {name}
             </li>
           ))}
         </ol>
@@ -201,7 +229,7 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
       {failed && (
         <>
           <span data-testid="cash-out-why">
-            {t(FAIL_KEYS[row.failureCode ?? ''] ?? 'fail_other')} {t('failedBack', { amount })}{' '}
+            {t(FAIL_KEYS[row.failureCode ?? ''] ?? 'fail_other')} {backWords(row, amount, t)}{' '}
             <small className="muted">{t('reference', { code: row.failureCode ?? '' })}</small>
           </span>
           <small className="muted" data-testid="cash-out-no-receipt">
@@ -209,15 +237,29 @@ function Progress({ row, load }: { row: CashOutRequest; load?: LoadReceipt }) {
           </small>
         </>
       )}
+      {cancelled && (
+        <>
+          <span data-testid="cash-out-why">
+            {t(CANCEL_KEYS[row.failureCode ?? ''] ?? 'cancel_other')} {backWords(row, amount, t)}{' '}
+            <small className="muted">{t('reference', { code: row.failureCode ?? '' })}</small>
+          </span>
+          <small className="muted" data-testid="cash-out-no-receipt">
+            {t('noReceipt_cancelled')}
+          </small>
+        </>
+      )}
       {row.status === 'returned' && row.returnedAmount && (
         <span data-testid="cash-out-why">
           {t(RETURN_KEYS[row.failureCode ?? ''] ?? 'return_other')}{' '}
           {row.returnedAmount === row.amount
-            ? t('returnedAll', { amount })
-            : t('returnedPart', {
+            ? at
+              ? t('returnedAllAt', { amount, label: at })
+              : t('returnedAll', { amount })
+            : t(at ? 'returnedPartAt' : 'returnedPart', {
                 back: funds(row.returnedAmount, row.assetId),
                 amount,
                 kept: funds(row.remainsPaidOut ?? '', row.assetId),
+                label: at ?? '',
               })}{' '}
           <small className="muted">{t('reference', { code: row.failureCode ?? '' })}</small>
         </span>
@@ -395,7 +437,7 @@ export function CashOut() {
                 ) : (
                   <div role="status" data-testid="cash-out-sent">
                     <h3>{t('sentTitle')}</h3>
-                    <p>{t('sentBody')}</p>
+                    <p>{outcome.heldAt ? t('sentBodyAt', { label: outcome.heldAt }) : t('sentBody')}</p>
                   </div>
                 ))}
             </div>
