@@ -14,8 +14,8 @@
  *            (journey-touch.mjs with the touched-journeys map: a full-suite path or a failing journey's file) stay. One
  *            left: the culprit; none: no commit is blamed; several: the probe job runs the failing journey files on
  *            them by binary search (journeys-revert-probe.mjs).
- *   open     With an App token (FACTORY_APP_KEY, set from INTAFACED_APP_KEY in the `ci-review` environment: main
- *            only), so the revert's own CI and merge seal run: a branch `revert/auto-<sha10>` from the base holding `git revert <culprit>`, a pull request
+ *   open     With an App token (FACTORY_APP_KEY, the `factory` environment: main only), so the revert's own CI and
+ *            merge seal run: a branch `revert/auto-<sha10>` from the base holding `git revert <culprit>`, a pull request
  *            naming the red run, the failing steps and the culprit's pull request, squash auto-merge armed, and a
  *            comment on the culprit's pull request. The token is never printed and is revoked when it ends.
  *
