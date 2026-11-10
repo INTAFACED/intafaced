@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, isApiKeyPrincipal, type Principal } from '@intafaced/auth';
@@ -13,8 +14,10 @@ import {
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
+  type UserVenueOrder,
   type UserVenueDepositRoute,
   type VenueIntent,
+  type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
@@ -76,7 +79,12 @@ export type UserVenueDoorCode =
   | 'trade.user_venue_off'
   | 'trade.venue_request_invalid'
   | 'trade.venue_action_key_invalid'
-  | 'trade.venue_action_key_reused'
+  | 'idempotency.conflict'
+  | 'idempotency.in_progress'
+  | 'idempotency.key_invalid'
+  | 'trade.venue_orders_page_max_unset'
+  | 'trade.venue_orders_limit_invalid'
+  | 'trade.invalid_cursor'
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
   | 'trade.venue_action_other_venue'
@@ -113,6 +121,79 @@ export class UserVenueDoorError extends Error {
     super(message);
     this.name = 'UserVenueDoorError';
   }
+}
+
+/** The longest Idempotency-Key header accepted (DV-auth-03). */
+export const IDEMPOTENCY_KEY_MAX = 255;
+/** How long one request may hold a key's send before another request can take it over (a crashed request). */
+const SEND_CLAIM_MS = 30_000;
+
+/**
+ * The business key an order sent with an `Idempotency-Key` header is stored and placed under (J-developer-05): the same
+ * header always gives the same key, so the venue always sees the same client order id for it and places at most one
+ * order. The header is the developer's own API-level key: it is hashed into ours, never used as a ledger key, and the
+ * store keeps keys per person, so two people's headers never meet.
+ */
+export function orderKeyOfIdempotencyKey(header: string | null | undefined): string {
+  const k = header ?? '';
+  if (k.length < 1 || k.length > IDEMPOTENCY_KEY_MAX || !/^[\x21-\x7e]+$/.test(k)) {
+    throw new UserVenueDoorError(
+      `the Idempotency-Key must be 1 to ${IDEMPOTENCY_KEY_MAX} visible ASCII characters with no spaces`,
+      'idempotency.key_invalid',
+      400,
+    );
+  }
+  return `order:api:${createHash('sha256').update(k).digest('hex')}`;
+}
+
+/**
+ * What we know of one order sent through this door, by its key (J-developer-05 #5). `accepted` carries the venue's
+ * record of the order. `unknown` is a send with no definite answer yet: it is never shown as failed or filled, and a
+ * retry on the same key re-sends the same signed bytes, so the venue places it at most once. `refused` is the venue's
+ * definite refusal; `not_sent` an order prepared and signed nowhere yet.
+ */
+export interface VenueOrderByKey {
+  readonly actionKey: string;
+  readonly venueClientOrderId: string | null;
+  readonly state: 'accepted' | 'unknown' | 'refused' | 'not_sent';
+  /** Why the state is unknown: the venue did not answer this read, or it has no record of the order yet. */
+  readonly reason?: 'venue_down' | 'not_on_venue_yet';
+  readonly order: UserVenueOrder | null;
+  readonly refusal?: VenueRefusal;
+  /** The venue's as-of time of what is shown, or null when the venue was not reached. */
+  readonly asOf: Date | null;
+}
+
+export interface VenueOrderPage {
+  readonly orders: readonly VenueOrderByKey[];
+  /** Pass it as `cursor` for the next page; null on the last page. */
+  readonly nextCursor: string | null;
+}
+
+/** Parse the owner value for the largest page of orders: blank is null (every list refuses); anything else 1 to 1000. */
+export function parseOrdersPageMax(raw: string | undefined): number | null {
+  const v = (raw ?? '').trim();
+  if (v === '') return null;
+  if (!/^\d+$/.test(v) || Number(v) < 1 || Number(v) > 1000) {
+    throw new Error(`TRADE_USER_VENUE_ORDERS_PAGE_MAX must be a whole number 1 to 1000, got ${JSON.stringify(raw)}`);
+  }
+  return Number(v);
+}
+
+function encodeCursor(row: { createdAt: Date; businessKey: string }): string {
+  return Buffer.from(JSON.stringify({ t: row.createdAt.toISOString(), k: row.businessKey })).toString('base64url');
+}
+
+function decodeCursor(cursor: string | undefined): { createdAt: Date; businessKey: string } | null {
+  if (cursor === undefined || cursor === '') return null;
+  try {
+    const v = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { t?: unknown; k?: unknown };
+    const at = new Date(typeof v.t === 'string' ? v.t : '');
+    if (typeof v.k === 'string' && v.k !== '' && !Number.isNaN(at.getTime())) return { createdAt: at, businessKey: v.k };
+  } catch {
+    /* refused below */
+  }
+  throw new UserVenueDoorError('cursor must be the nextCursor of the previous page', 'trade.invalid_cursor', 400);
 }
 
 /** The owner values for our builder fee. `null` when either is blank: orders then refuse. */
@@ -154,6 +235,8 @@ export interface UserVenueDoorDeps {
   readonly now: () => Date;
   /** Our listings, routing states and largest routed orders (J-cex-spot-16). */
   readonly listings: VenueRoutingGate;
+  /** Owner value: the largest page of `GET /api/v1/venue/orders`. Null (blank) refuses every list. */
+  readonly ordersPageMax?: number | null;
 }
 
 export interface PrepareRequest {
@@ -165,6 +248,11 @@ export interface PrepareRequest {
   readonly actionKey?: string | null;
   /** Withdrawals: the identity step-up approval id the customer confirmed. */
   readonly stepUpApprovalId?: string | null;
+  /**
+   * The request's `Idempotency-Key` header (J-developer-05). An order sent with one is stored and placed under
+   * `orderKeyOfIdempotencyKey(header)`, which becomes its `clientOrderKey`.
+   */
+  readonly idempotencyKey?: string | null;
 }
 
 export interface PreparedAnswer {
@@ -181,6 +269,8 @@ export interface SubmitAnswer {
   readonly outcome: VenueSubmitOutcome;
   /** Where to read the action back when `outcome.definite` is false. */
   readonly readBack: { readonly venueClientOrderId: string } | { readonly nonce: string } | null;
+  /** True when this is the stored answer of an earlier send: nothing was sent again. */
+  readonly replayed: boolean;
 }
 
 function invalid(message: string): never {
@@ -442,8 +532,17 @@ export class UserVenueDoor {
   }
 
   async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
-    const intent = req.intent;
+    let intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
+    if (req.idempotencyKey !== undefined && req.idempotencyKey !== null) {
+      if (intent.kind !== 'place_order') invalid('an Idempotency-Key is taken on an order (kind place_order)');
+      const key = orderKeyOfIdempotencyKey(req.idempotencyKey);
+      const given = (intent as { clientOrderKey?: unknown }).clientOrderKey;
+      if (given !== undefined && given !== null && given !== '' && given !== key) {
+        invalid('with an Idempotency-Key, leave clientOrderKey out: the order is placed under the key the header names');
+      }
+      intent = { ...intent, clientOrderKey: key };
+    }
     if (
       !req.signer ||
       (req.signer.role !== 'owner' && req.signer.role !== 'agent') ||
@@ -556,8 +655,8 @@ export class UserVenueDoor {
     }
     if (!sameJson(p.account, account) || !sameJson(p.signer, signer) || !sameJson(p.intent, intent)) {
       throw new UserVenueDoorError(
-        `the action key ${row.businessKey} was already used for a different action; a new action needs a new key`,
-        'trade.venue_action_key_reused',
+        `the key ${row.businessKey} was already used for a different action; a new action needs a new key`,
+        'idempotency.conflict',
         409,
       );
     }
@@ -618,6 +717,31 @@ export class UserVenueDoor {
     ) {
       invalid('signature must be { digest, signature, signedBy }');
     }
+    // A definite answer is already recorded: the same stored bytes are sent again (the venue answers its first answer, and
+    // a lost or "already used" answer never replaces the recorded one), and the answer is marked as the stored response.
+    const replayed = row.signature !== null && row.lastOutcome?.definite === true;
+    // One request sends a key at a time: a second one at the same moment is told to retry, never raced to the venue.
+    const at = this.deps.now();
+    if (!(await this.deps.store.claimSend(principal.userId, key, at, new Date(at.getTime() + SEND_CLAIM_MS)))) {
+      throw new UserVenueDoorError(
+        `another request with the key ${key} is being sent to the venue now; retry once it has answered`,
+        'idempotency.in_progress',
+        409,
+      );
+    }
+    try {
+      return { ...(await this.send(principal, key, row, signature)), replayed };
+    } finally {
+      await this.deps.store.releaseSend(principal.userId, key);
+    }
+  }
+
+  private async send(
+    principal: Principal,
+    key: string,
+    row: StoredVenueAction,
+    signature: VenueSignature,
+  ): Promise<Omit<SubmitAnswer, 'replayed'>> {
     let signed = row;
     // An order never sent yet is checked again: a stop or limit approved since it was prepared applies to it.
     if (!row.signature && row.prepared.intent.kind === 'place_order') await this.admitPlace(row.prepared.venueId, row.prepared.intent);
@@ -646,5 +770,82 @@ export class UserVenueDoor {
     // A definite outcome already recorded is never replaced by a not-definite one: that is the answer.
     const outcome = await this.deps.store.recordOutcome(principal.userId, key, answered, this.deps.now());
     return { actionKey: key, outcome, readBack: readBackOf(outcome) };
+  }
+
+  /** One order sent through this door, read by its key: the venue's record, or `unknown` until the venue answers. */
+  async orderByKey(principal: Principal, actionKey: string): Promise<VenueOrderByKey> {
+    const key = (actionKey ?? '').trim();
+    const row = key ? await this.deps.store.find(principal.userId, key) : null;
+    if (!row || row.prepared.intent.kind !== 'place_order') {
+      throw new UserVenueDoorError(`no order under ${JSON.stringify(key)}`, 'trade.venue_action_unknown', 404);
+    }
+    return this.orderState(principal.userId, row);
+  }
+
+  /**
+   * One person's orders on one venue account, oldest first, a page at a time (J-developer-05 #6). Each order once,
+   * by its key; the next cursor is null on the last page. The largest page is the owner's value: blank refuses.
+   */
+  async orders(principal: Principal, owner: string, cursor: string | undefined, limit: string | undefined): Promise<VenueOrderPage> {
+    const max = this.deps.ordersPageMax ?? null;
+    if (max === null) {
+      throw new UserVenueDoorError(
+        'the largest page of orders is not set (owner value blank), so no list of orders is served',
+        'trade.venue_orders_page_max_unset',
+        503,
+      );
+    }
+    let size = max;
+    if (limit !== undefined && limit !== '') {
+      if (!/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > max) {
+        throw new UserVenueDoorError(`limit must be a whole number 1 to ${max}`, 'trade.venue_orders_limit_invalid', 400);
+      }
+      size = Number(limit);
+    }
+    const after = decodeCursor(cursor);
+    const account = await this.account(owner);
+    const rows = await this.deps.store.listSignedOrders(principal.userId, account, after, size + 1);
+    const page = rows.slice(0, size);
+    const orders: VenueOrderByKey[] = [];
+    for (const row of page) orders.push(await this.orderState(principal.userId, row));
+    return { orders, nextCursor: rows.length > size ? encodeCursor(page[page.length - 1]!) : null };
+  }
+
+  private async orderState(userId: string, row: StoredVenueAction): Promise<VenueOrderByKey> {
+    const p = row.prepared;
+    const base = { actionKey: row.businessKey, venueClientOrderId: p.venueClientOrderId };
+    const recorded = row.lastOutcome;
+    if (!row.signature) return { ...base, state: 'not_sent', order: null, asOf: null };
+    if (recorded?.definite && !recorded.accepted)
+      return { ...base, state: 'refused', refusal: recorded.refusal, order: null, asOf: recorded.asOf };
+    const accepted = recorded?.definite && recorded.accepted ? recorded : null;
+    if (!p.venueClientOrderId) {
+      return accepted
+        ? { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf }
+        : { ...base, state: 'unknown', reason: 'not_on_venue_yet', order: null, asOf: null };
+    }
+    let read: Awaited<ReturnType<UserVenue['orderByClientId']>>;
+    try {
+      read = await (await this.venue()).orderByClientId(p.account, p.venueClientOrderId);
+    } catch (err) {
+      if (!(err instanceof VenueRefusalError && err.refusal.code === 'venue_down')) throw err;
+      return accepted
+        ? { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf }
+        : { ...base, state: 'unknown', reason: 'venue_down', order: null, asOf: null };
+    }
+    if (read.value) {
+      // The venue has the order: that settles an answer that was not definite, and it is recorded as the venue's.
+      if (!accepted) {
+        await this.deps.store.recordOutcome(
+          userId,
+          row.businessKey,
+          { definite: true, accepted: true, venueRef: read.value.venueOrderId, order: read.value, asOf: read.asOf },
+          this.deps.now(),
+        );
+      }
+      return { ...base, state: 'accepted', order: read.value, asOf: read.asOf };
+    }
+    if (accepted) return { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf };
+    return { ...base, state: 'unknown', reason: 'not_on_venue_yet', order: null, asOf: read.asOf };
   }
 }

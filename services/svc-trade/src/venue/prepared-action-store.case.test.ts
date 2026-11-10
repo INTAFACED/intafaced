@@ -4,6 +4,7 @@ import type { PreparedVenueAction } from '@intafaced/venue-contracts';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 
 /** OWNER 288 change 1b: the door's own orders are found for a venue account whatever the letter case of its address. */
+const AT = new Date('2026-11-10T00:00:01.000Z');
 const USER = '11111111-1111-4111-8111-1111111111c1';
 const OWNER = '0x00000000000000000000000000000000000000aB';
 const prepared = (venueClientOrderId: string, builderFee: boolean): PreparedVenueAction => ({
@@ -38,8 +39,8 @@ describe('InMemoryPreparedActionStore.sentBuilderFeeOrders', () => {
       ['0x02', true, false],
       ['0x03', false, true],
     ] as const) {
-      await store.insertOnce(USER, `order:${USER}:${id}`, prepared(id, fee));
-      if (sign) await store.signOnce(USER, `order:${USER}:${id}`, { digest: `0xdigest${id}`, signature: '0xsig', signedBy: OWNER });
+      await store.insertOnce(USER, `order:${USER}:${id}`, prepared(id, fee), AT);
+      if (sign) await store.signOnce(USER, `order:${USER}:${id}`, { digest: `0xdigest${id}`, signature: '0xsig', signedBy: OWNER }, AT);
     }
     const ids = ['0x01', '0x02', '0x03', '0x04'];
     for (const owner of [OWNER, OWNER.toLowerCase(), OWNER.toUpperCase().replace('0X', '0x')]) {

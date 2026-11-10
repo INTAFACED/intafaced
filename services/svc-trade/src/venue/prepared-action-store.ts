@@ -16,6 +16,8 @@ import {
 export interface StoredVenueAction {
   readonly userId: string;
   readonly businessKey: string;
+  /** When the row was stored: the order a list of orders pages in (with the key as the tie-break). */
+  readonly createdAt: Date;
   readonly prepared: PreparedVenueAction;
   readonly signature: VenueSignature | null;
   readonly lastOutcome: VenueSubmitOutcome | null;
@@ -36,6 +38,24 @@ export interface PreparedActionStore {
   listByPrefix(userId: string, prefix: string): Promise<readonly StoredVenueAction[]>;
   /** Every `approve_agent` this person ever prepared for `agentAddress`, under any key, on any venue account. */
   agentApprovals(userId: string, agentAddress: string): Promise<readonly StoredVenueAction[]>;
+  /**
+   * Claim the right to send this key's action now, until `until`. False while another request holds an unexpired claim:
+   * that request is the one sending (DV-auth-03 `idempotency.in_progress`). A claim that ran out (a crashed request) is
+   * taken over.
+   */
+  claimSend(userId: string, businessKey: string, at: Date, until: Date): Promise<boolean>;
+  /** Give the claim back once the venue answered (or the send failed), so the next retry runs at once. */
+  releaseSend(userId: string, businessKey: string): Promise<void>;
+  /**
+   * The signed order actions of one venue account, oldest first, strictly after `after` (created time, then key), at
+   * most `limit` of them.
+   */
+  listSignedOrders(
+    userId: string,
+    account: { venueId: string; owner: string },
+    after: { createdAt: Date; businessKey: string } | null,
+    limit: number,
+  ): Promise<StoredVenueAction[]>;
   /**
    * The orders our door sent (signed place_order actions), signed at or before `until`, newest first, at most `limit`:
    * what the operator's routing view reads the venues' fills by (J-derivatives-28 #6). Our record of what we routed, never a fill.
@@ -119,6 +139,11 @@ function sentWithOurFee(row: StoredVenueAction, venueId: string, account: { owne
   );
 }
 
+const afterCursor = (row: StoredVenueAction, after: { createdAt: Date; businessKey: string } | null) =>
+  !after ||
+  row.createdAt.getTime() > after.createdAt.getTime() ||
+  (row.createdAt.getTime() === after.createdAt.getTime() && row.businessKey > after.businessKey);
+
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
 function wire<T>(value: T): T {
   return decodeVenueWire<T>(JSON.parse(JSON.stringify(encodeVenueWire(value))));
@@ -126,6 +151,8 @@ function wire<T>(value: T): T {
 
 export class InMemoryPreparedActionStore implements PreparedActionStore {
   private readonly rows = new Map<string, StoredVenueAction>();
+  private readonly claims = new Map<string, number>();
+
   private readonly signedAt = new Map<string, Date>();
 
   async routedOrders(until: Date, limit: number): Promise<readonly RoutedOrder[]> {
@@ -153,11 +180,18 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     return this.rows.get(this.id(userId, businessKey)) ?? null;
   }
 
-  async insertOnce(userId: string, businessKey: string, prepared: PreparedVenueAction) {
+  async insertOnce(userId: string, businessKey: string, prepared: PreparedVenueAction, at: Date) {
     const id = this.id(userId, businessKey);
     const existing = this.rows.get(id);
     if (existing) return existing;
-    const row: StoredVenueAction = { userId, businessKey, prepared: wire(prepared), signature: null, lastOutcome: null };
+    const row: StoredVenueAction = {
+      userId,
+      businessKey,
+      createdAt: new Date(at.getTime()),
+      prepared: wire(prepared),
+      signature: null,
+      lastOutcome: null,
+    };
     this.rows.set(id, row);
     return row;
   }
@@ -181,6 +215,41 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     const next = { ...row, lastOutcome: wire(outcome) };
     this.rows.set(id, next);
     return next.lastOutcome;
+  }
+
+  async claimSend(userId: string, businessKey: string, at: Date, until: Date) {
+    const id = this.id(userId, businessKey);
+    const held = this.claims.get(id);
+    if (held !== undefined && held > at.getTime()) return false;
+    this.claims.set(id, until.getTime());
+    return true;
+  }
+
+  async releaseSend(userId: string, businessKey: string) {
+    this.claims.delete(this.id(userId, businessKey));
+  }
+
+  async listSignedOrders(
+    userId: string,
+    account: { venueId: string; owner: string },
+    after: { createdAt: Date; businessKey: string } | null,
+    limit: number,
+  ) {
+    return [...this.rows.values()]
+      .filter(
+        (r) =>
+          r.userId === userId &&
+          r.signature !== null &&
+          r.prepared.intent.kind === 'place_order' &&
+          r.prepared.venueId === account.venueId &&
+          r.prepared.account.owner === account.owner &&
+          afterCursor(r, after),
+      )
+      .sort(
+        (a, b) =>
+          a.createdAt.getTime() - b.createdAt.getTime() || (a.businessKey < b.businessKey ? -1 : a.businessKey > b.businessKey ? 1 : 0),
+      )
+      .slice(0, limit);
   }
 
   async listByPrefix(userId: string, prefix: string) {
@@ -226,6 +295,7 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
 interface Row {
   user_id: string;
   business_key: string;
+  created_at: Date;
   prepared: unknown;
   signature: unknown;
   last_outcome: unknown;
@@ -235,6 +305,7 @@ function fromRow(row: Row): StoredVenueAction {
   return {
     userId: row.user_id,
     businessKey: row.business_key,
+    createdAt: new Date(row.created_at),
     prepared: decodeVenueWire<PreparedVenueAction>(row.prepared),
     signature: row.signature ? decodeVenueWire<VenueSignature>(row.signature) : null,
     lastOutcome: row.last_outcome ? decodeVenueWire<VenueSubmitOutcome>(row.last_outcome) : null,
@@ -265,7 +336,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
 
   async find(userId: string, businessKey: string) {
     const rows = await this.sql<Row[]>`
-      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND business_key = ${businessKey}`;
     return rows[0] ? fromRow(rows[0]) : null;
   }
@@ -302,10 +373,39 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     return stored.lastOutcome;
   }
 
+  async claimSend(userId: string, businessKey: string, at: Date, until: Date) {
+    const rows = await this.sql`
+      UPDATE trade.user_venue_actions SET sending_until = ${until}
+      WHERE user_id = ${userId} AND business_key = ${businessKey} AND (sending_until IS NULL OR sending_until <= ${at})
+      RETURNING 1`;
+    return rows.length === 1;
+  }
+
+  async releaseSend(userId: string, businessKey: string) {
+    await this.sql`
+      UPDATE trade.user_venue_actions SET sending_until = NULL WHERE user_id = ${userId} AND business_key = ${businessKey}`;
+  }
+
+  async listSignedOrders(
+    userId: string,
+    account: { venueId: string; owner: string },
+    after: { createdAt: Date; businessKey: string } | null,
+    limit: number,
+  ) {
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE user_id = ${userId} AND kind = 'place_order' AND signature IS NOT NULL AND venue_id = ${account.venueId}
+        AND prepared->'account'->>'owner' = ${account.owner}
+        AND (${after === null} OR (created_at, business_key) > (${after?.createdAt ?? new Date(0)}, ${after?.businessKey ?? ''}))
+      ORDER BY created_at, business_key
+      LIMIT ${limit}`;
+    return rows.map(fromRow);
+  }
+
   async listByPrefix(userId: string, prefix: string) {
     // starts_with, not LIKE: a key may hold `_` or `%`, which LIKE would read as wildcards.
     const rows = await this.sql<Row[]>`
-      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND starts_with(business_key, ${prefix})
       ORDER BY created_at, business_key`;
     return rows.map(fromRow);
@@ -313,7 +413,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
 
   async agentApprovals(userId: string, agentAddress: string) {
     const rows = await this.sql<Row[]>`
-      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND kind = 'approve_agent'
         AND lower(prepared #>> '{intent,agentAddress}') = ${agentAddress.toLowerCase()}
       ORDER BY created_at, business_key`;
@@ -323,7 +423,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
   async ownerSignedAccounts(userId: string, venueId: string) {
     // Every signed row of this person on this venue; the owner checks are the same code as the in-memory store's.
     const rows = await this.sql<Row[]>`
-      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND venue_id = ${venueId} AND signature IS NOT NULL`;
     return signedAccountsOf(rows.map(fromRow), userId, venueId);
   }
@@ -332,7 +432,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     const out = new Map<string, Amount>();
     if (venueClientOrderIds.length === 0) return out;
     const rows = await this.sql<Row[]>`
-      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE venue_id = ${venueId} AND kind = 'place_order'
         AND prepared->>'venueClientOrderId' = ANY(${this.sql.array([...venueClientOrderIds])})
         AND signature IS NOT NULL
