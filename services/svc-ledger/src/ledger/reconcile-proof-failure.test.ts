@@ -383,6 +383,9 @@ describe('reconciliation failed proofs — real book', () => {
   });
 });
 
+/** The report of a run that was not skipped. */
+const reportOf = (run: Awaited<ReturnType<typeof runScheduledReconciliation>>) => (run.outcome === 'skipped' ? null : run.report);
+
 describe('the hourly proof with the custodial layer off (OWNER 288)', () => {
   it('reads an empty book as nothing to compare, never matched, and freezes nothing', async () => {
     const sql = connect();
@@ -390,8 +393,8 @@ describe('the hourly proof with the custodial layer off (OWNER 288)', () => {
       const { svc } = service(sql);
       const result = await runScheduledReconciliation(sql, svc, { custodyLayer: 'off' });
       expect(result.outcome).toBe('ok');
-      expect(result.report?.result).toBe('nothing_to_compare');
-      expect(result.report?.customerBalances).toEqual({ custodyLayer: 'off', ok: true, accountsChecked: 0, open: [] });
+      expect(reportOf(result)?.result).toBe('nothing_to_compare');
+      expect(reportOf(result)?.customerBalances).toEqual({ custodyLayer: 'off', ok: true, accountsChecked: 0, open: [] });
       expect((await svc.status()).postingEnabled).toBe(true);
     } finally {
       await sql.end();
@@ -413,15 +416,15 @@ describe('the hourly proof with the custodial layer off (OWNER 288)', () => {
       // With custody on the check reads nothing and the book is matched: the planted balance is legitimate there.
       const on = await runScheduledReconciliation(sql, svc, { custodyLayer: 'on' });
       expect(on.outcome).toBe('ok');
-      expect(on.report?.result).toBe('matched');
-      expect(on.report?.customerBalances).toEqual({ custodyLayer: 'on' });
+      expect(reportOf(on)?.result).toBe('matched');
+      expect(reportOf(on)?.customerBalances).toEqual({ custodyLayer: 'on' });
 
       const off = await runScheduledReconciliation(sql, svc, { custodyLayer: 'off' });
       expect(off.outcome).toBe('mismatch');
-      expect(off.report?.ok).toBe(false);
-      expect(off.report?.result).toBe('mismatch');
+      expect(reportOf(off)?.ok).toBe(false);
+      expect(reportOf(off)?.result).toBe('mismatch');
       // Only the customer account is named: the rail's module counter-leg is ours, not a customer's.
-      expect(off.report?.customerBalances).toEqual({
+      expect(reportOf(off)?.customerBalances).toEqual({
         custodyLayer: 'off',
         ok: false,
         accountsChecked: 1,
