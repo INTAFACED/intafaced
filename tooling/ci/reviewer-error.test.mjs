@@ -25,12 +25,11 @@ test('no answer and non-JSON output are both named', () => {
   assert.equal(explain('error: unknown option --x\n', 2), 'the reviewer CLI exited 2; its output, not JSON: error: unknown option --x');
 });
 
-test('a key-shaped string is masked and the text is cut to 600 characters', () => {
-  const a = JSON.stringify({ is_error: true, result: `bad sk-ant-oat01-AbC_123-x ${'y'.repeat(900)}` });
+test('a key-shaped string is masked in an error text', () => {
+  const a = JSON.stringify({ is_error: true, api_error_status: 401, result: 'Invalid bearer sk-ant-oat01-AbC_123-x' });
   const line = explain(a, 1);
   assert.ok(!line.includes('AbC_123'));
-  assert.ok(line.includes('sk-ant-***'));
-  assert.ok(line.length < 700);
+  assert.match(line, /result: Invalid bearer sk-ant-\*\*\*$/);
 });
 
 test('the command prints one ::error:: line from the file, and a missing file is no answer', () => {
@@ -46,4 +45,18 @@ test('the command prints one ::error:: line from the file, and a missing file is
     execFileSync('node', [script, join(d, 'none.json'), '1'], { encoding: 'utf8' }),
     '::error::the reviewer CLI exited 1 and wrote no answer\n',
   );
+});
+
+test("text that doesn't read as an error is not printed, because it could repeat the prompt's private step words", () => {
+  const a = JSON.stringify({
+    type: 'result',
+    subtype: 'error_max_structured_output_retries',
+    is_error: true,
+    result: 'Step 3 says the learner sees their own lines',
+  });
+  const line = explain(a, 1);
+  assert.ok(!line.includes('learner'));
+  assert.match(line, /result: 44 characters, not printed$/);
+  const long = JSON.stringify({ is_error: true, result: `rate ${'z'.repeat(400)}` });
+  assert.match(explain(long, 1), /not printed$/);
 });
