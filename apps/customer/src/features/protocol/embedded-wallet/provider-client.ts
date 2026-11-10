@@ -27,6 +27,12 @@ export interface EmbeddedWalletClient {
   createPasskey(): Promise<ClientResult<EmbeddedWalletPasskey>>;
   /** EIP-191 message signature from the wallet, after the person's passkey. */
   signMessage(walletId: string, message: string): Promise<ClientResult<{ signature: string; address: string }>>;
+  /**
+   * EIP-712 typed-data signature from the wallet, after the person's passkey: a venue action the venue prepared (the
+   * trading session's one approval, its revoke, the builder-fee approval; J-wallet-22 #8). The passkey's challenge
+   * commits to this exact payload, so an assertion for one action never signs another.
+   */
+  signTypedData(walletId: string, typedData: unknown): Promise<ClientResult<{ signature: string; address: string }>>;
   /** The provider's own export, after the person's passkey: the key goes to the person on this screen, never to INTAFACED. */
   exportKey(walletId: string): Promise<ClientResult<{ privateKey: string }>>;
   /** Adds a second passkey as a recovery method, approved with a passkey already bound to the wallet. */
@@ -138,7 +144,11 @@ export function testProviderClient(
   const call = deps.post ?? post;
   const assert = deps.assert ?? assertWalletPasskey;
   const create = deps.create ?? createWalletPasskey;
-  async function act<T>(walletId: string, action: 'sign' | 'export' | 'recovery', payload: unknown): Promise<ClientResult<T>> {
+  async function act<T>(
+    walletId: string,
+    action: 'sign' | 'signtyped' | 'export' | 'recovery',
+    payload: unknown,
+  ): Promise<ClientResult<T>> {
     const issued = await call('challenge', { walletId, action, payload });
     if (!issued || issued.status >= 500) return { ok: false, failure: 'down' };
     const ch = issued.body as { challenge?: unknown; allowCredentials?: unknown };
@@ -154,6 +164,7 @@ export function testProviderClient(
   return {
     createPasskey: create,
     signMessage: (walletId, message) => act(walletId, 'sign', { message }),
+    signTypedData: (walletId, typedData) => act(walletId, 'signtyped', { typedData }),
     exportKey: (walletId) => act(walletId, 'export', undefined),
     async addRecoveryPasskey(walletId) {
       const passkey = await create();
