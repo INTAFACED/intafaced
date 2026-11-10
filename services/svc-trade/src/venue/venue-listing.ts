@@ -1,4 +1,5 @@
 import { compare, formatAmount, mul, type Amount } from '@intafaced/ledger-client/money';
+import type { EventBus } from '@intafaced/events';
 import { isTestVenue, type PlaceUserOrderIntent, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
 import type { VenueLimitVersion, VenueListingStore, VenueListingVersion, VenueRoutingState } from './venue-listing-store.js';
 
@@ -246,6 +247,24 @@ export class TestListingSeed {
 export interface VenueDelistingNotices {
   /** Hand one notice to the bus; throws when the bus did not take it (the row stays pending). */
   publish(notice: { noticeKey: string; venueId: string; symbol: string; delistsAt: Date; scheduledAt: Date }): Promise<void>;
+}
+
+export function busVenueDelistingNotices(bus: Pick<EventBus, 'publish'>): VenueDelistingNotices {
+  return {
+    async publish(n) {
+      await bus.publish(
+        'venueDelistingScheduled',
+        {
+          venueId: n.venueId,
+          symbol: n.symbol,
+          delistsAt: n.delistsAt.toISOString(),
+          scheduledAt: n.scheduledAt.toISOString(),
+          noticeKey: n.noticeKey,
+        },
+        { idempotencyKey: n.noticeKey },
+      );
+    },
+  };
 }
 
 /** No bus wired: every notice stays pending, and the desk read says so. */

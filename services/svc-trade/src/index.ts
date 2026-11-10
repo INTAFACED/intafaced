@@ -111,10 +111,10 @@ import { HttpUserVenue } from './venue/http-user-venue.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
 import { SqlVenueListingStore } from './venue/venue-listing-store.js';
-import { busVenueDelistingNotices } from './venue-delisting-notices.js';
 import {
   StoreVenueRoutingGate,
   assertTestListingsAllowed,
+  busVenueDelistingNotices,
   parseTestListings,
   publishPendingDelistingNotices,
   TestListingSeed,

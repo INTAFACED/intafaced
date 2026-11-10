@@ -21,9 +21,17 @@ const sources = roots.flatMap((root) =>
     .map((f) => ({ file: path.join(root, f), text: readFileSync(path.join(root, f), 'utf8') })),
 );
 
-/** Every module a source imports. */
+/**
+ * Every module a source imports at run time. A whole-statement `import type` / `export type` is erased when it compiles,
+ * so it reaches nothing and posts nothing (venue-listing.ts names the `EventBus` type for its own operator events); a
+ * value import of the same module still counts.
+ */
 const imports = (text: string) =>
-  [...text.matchAll(/\bfrom\s+['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1] ?? m[2]!);
+  [
+    ...text
+      .replace(/\b(?:import|export)\s+type\s+(?:\{[^}]*\}|[\w*\s,]+)\s+from\s+['"][^'"]+['"]/g, '')
+      .matchAll(/\bfrom\s+['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/g),
+  ].map((m) => m[1] ?? m[2]!);
 
 /** What a venue path may take from the ledger package: the money type and its pure helpers, nothing that posts. */
 const LEDGER_ALLOWED = new Set(['@intafaced/ledger-client/money']);
@@ -51,5 +59,11 @@ describe('the venue door and the TEST venue post nothing to the ledger (J-wallet
       '@intafaced/ledger-client',
       '../events.js',
     ]);
+  });
+
+  it('a type-only import of the event bus reaches nothing; a value import of it is caught', () => {
+    expect(imports(`import type { EventBus } from '@intafaced/events';`)).toEqual([]);
+    expect(imports(`import { type EventBus, publish } from '@intafaced/events';`)).toEqual(['@intafaced/events']);
+    expect(imports(`import { createBus } from '@intafaced/events';`)).toEqual(['@intafaced/events']);
   });
 });

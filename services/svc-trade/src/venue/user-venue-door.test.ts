@@ -619,8 +619,8 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       stepUp: stepUp('approve').check,
       builder: BUILDER,
       slippageCapBps: null,
-      now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      now: () => new Date(),
     });
 
   it('status names the venue’s deposit route: where the customer’s own wallet sends the token', async () => {
