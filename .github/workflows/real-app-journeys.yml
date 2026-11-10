@@ -153,9 +153,14 @@ jobs:
           path: .base
           sparse-checkout: tooling
           persist-credentials: false
+      # Main's Node runs main's rules: the version comes from .base (a cone-mode sparse checkout keeps root files), never
+      # the pull request's own .node-version. Until main has the file (only on the run of the pull request that adds it),
+      # the branch's copy stands in.
+      - name: Main's Node version
+        run: '[ -f .base/.node-version ] || { mkdir -p .base && cp .node-version .base/.node-version; }'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .base/.node-version
       - name: What this run runs
         id: touch
         env:
@@ -274,7 +279,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .base/.node-version
       - name: Let deferred runs go
         continue-on-error: true
         env:
@@ -301,7 +306,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .base/.node-version
       - name: Let deferred runs go
         continue-on-error: true
         env:
@@ -339,7 +344,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
       # Up to three, so a run that lost a shard or failed a journey early does not make those files look fast. Most runs
       # are queued runs a newer push replaced (cancelled), so the list reaches back 100 runs to find three that finished.
       - name: Last finished runs' reports
@@ -421,7 +426,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       # The stack runs its builds with a clean PATH that holds node's own folder, not the folder pnpm/action-setup uses.
       - name: Put pnpm next to node
@@ -529,7 +534,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
 
       # The stack refuses to start under 14 GB free; the runner image ships toolchains this job never uses. Removing them
@@ -776,7 +781,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       # A pull request that touches nothing a journeys run reads (or a draft): no shard ran, the report is empty, and
       # the run is green. The seal reads an empty report as saying nothing about any step or journey file.

@@ -314,6 +314,8 @@ export const NOT_GATES = {
     'not a gate: the node:test file of custody-layer-check.mjs, with planted faults (a customer-balance posting outside the inventory; the default turned on; the runtime refusal removed; a missing inventory). tooling-tests.mjs runs it with every other tooling test.',
   'main-first.mjs':
     "not a gate: real-app-journeys.yml's `Main's journeys first` job, which defers a Real-app journeys run off main while a main run's jobs wait for runners, without holding a runner: the deferred run selects no journeys and ends, and the `release` job re-runs it when main's planner finishes (a hand-dispatched full run is also deferred while 2 others hold runners; INTAFACED/project-state#1574 item 3). It reads GitHub's Actions API, so a laptop verify has no input; ci.yml runs its `--self-test`.",
+  'node-version.test.mjs':
+    'not a gate: the node:test file of the one Node version (U4): the root .node-version is read by every actions/setup-node step through node-version-file, no workflow hard-codes node-version, and it satisfies engines.node and matches the node images the Dockerfiles ship, with planted faults for each. tooling-tests.mjs runs it with every other tooling test.',
   'workflow-concurrency.test.mjs':
     "not a gate: the node:test file of the workflows' concurrency shape (one run per pull request; a main journeys run never cancelled and in one group, OWNER 206; a superseded branch journeys run cancelled), with planted faults for each. tooling-tests.mjs runs it with every other tooling test.",
   'journey-verdict.mjs':
