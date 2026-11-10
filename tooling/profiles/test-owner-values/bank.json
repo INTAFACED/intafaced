@@ -176,6 +176,11 @@
       "value": "{\"slashing\": \"TEST wording, not the owner's: if the network penalises the staked funds, what you get back can be less than you put in.\", \"ownership\": \"TEST wording, not the owner's: the saving stays yours in the custodial ledger while it is staked or unbonding.\"}",
       "note": "Made-up staking risk wording labelled TEST so the staking pool page has something to read (J-bank-08 #6); not the owner's disclosure."
     },
+    "BANK_BLOCKED_REGION_NOTICE": {
+      "service": "bank",
+      "value": "TEST wording, not the owner's: sending money is not offered from where you are now. You can still see your accounts and contact support.",
+      "note": "Made-up notice labelled TEST so a transfer opened from a blocked region has the owner's wording to show (J-bank-18 #1); not the owner's notice. LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE=off on a restart leaves it blank, so the notice's \"not published\" can be seen."
+    },
     "BANK_PERSONAL_SEND_REVIEW_JSON": {
       "service": "bank",
       "value": "{\"USDT\": \"50\"}",
@@ -215,6 +220,11 @@
       "service": "bank",
       "value": "3",
       "note": "TEST count of wrong PIN tries in a row that block a card's PIN (J-bank-14 #3). Made up for the local test stack; not an owner decision."
+    },
+    "BANK_CARD_3DS_TRY_LIMIT": {
+      "service": "bank",
+      "value": "3",
+      "note": "TEST count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5). Made up for the local test stack; not an owner decision."
     },
     "BANK_CARD_DISPUTE_CAP_JSON": {
       "service": "bank",

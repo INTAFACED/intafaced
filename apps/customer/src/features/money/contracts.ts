@@ -889,6 +889,17 @@ export const cashOutReceiptSchema = z.object({
 export type CashOutReceipt = z.infer<typeof cashOutReceiptSchema>;
 /** svc-bank `bank.railSends.*` (J-bank-04 #1): send to a bank account over a bank rail, each rail with its own form. */
 export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
+/** `bank.safety.regionNotice` (BK-safe-01, J-bank-18 #1): why a transfer refuses from a blocked region. */
+export const regionNoticeSchema = z.object({
+  region: z.string(),
+  blocked: z.boolean(),
+  code: z.string().nullable(),
+  restriction: z.string().nullable(),
+  blockedBy: z.string().nullable(),
+  wording: z.string().nullable(),
+});
+export type RegionNotice = z.infer<typeof regionNoticeSchema>;
+
 export const railRequirementsSchema = z.object({
   rails: z.array(
     z.object({
@@ -927,6 +938,8 @@ export const railPayeeSchema = z.object({
   verificationRail: z.string(),
   addedAt: z.string(),
   cooling: z.object({ state: z.enum(['unset', 'active', 'open']), endsAt: z.string().nullable() }),
+  /** The first-time payee scam warning (J-bank-18 #2): unread until the person reads it for this recipient. */
+  scamWarning: z.object({ state: z.enum(['unread', 'read']), readAt: z.string().nullable() }),
 });
 export type RailPayee = z.infer<typeof railPayeeSchema>;
 export const railPayeeRemovedSchema = z.object({ payeeId: z.string(), removed: z.literal(true) });
@@ -1063,6 +1076,34 @@ export const cardWalletTokensSchema = z.object({
   ),
 });
 export type CardWalletTokens = z.infer<typeof cardWalletTokensSchema>;
+/** A 3D Secure challenge as svc-bank answers it (J-bank-14 #5). `testCode` is the TEST partner's code, TEST stack only. */
+export const cardThreeDSChallengeSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  challengeRef: z.string(),
+  amount: z.string(),
+  merchant: z.string().nullable(),
+  merchantCountry: z.string().nullable(),
+  state: z.enum(['open', 'approved', 'locked']),
+  /** Null while the owner has not set the count. */
+  triesLeft: z.number().int().nullable(),
+  authorizationId: z.string().nullable(),
+  /** The completed authorisation's own decision: an approved code can still meet a declined purchase. */
+  decision: z.enum(['approved', 'declined']).nullable(),
+  declineCode: z.string().nullable(),
+  createdAt: z.string(),
+  testCode: z.string().nullable(),
+});
+export type CardThreeDSChallenge = z.infer<typeof cardThreeDSChallengeSchema>;
+/** One card fraud report (J-bank-14 #7). */
+export const cardFraudReportSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  authorizationId: z.string(),
+  state: z.literal('open'),
+  createdAt: z.string(),
+});
+export type CardFraudReport = z.infer<typeof cardFraudReportSchema>;
 
 export const bankReads = {
   'accounts.features': accountTermsSchema,
@@ -1087,6 +1128,7 @@ export const bankReads = {
   'transfers.quote': transferQuoteSchema,
   'cashOut.requests': z.array(cashOutRequestSchema),
   'railSends.requirements': railRequirementsSchema,
+  'safety.regionNotice': regionNoticeSchema,
   'railSends.list': z.array(railSendSchema),
   'railSends.payees': z.array(railPayeeSchema),
   'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
@@ -1167,6 +1209,8 @@ export const bankReads = {
   'cards.controls.get': cardControlsSchema,
   'cards.secretsOffered': cardSecretsOfferedSchema,
   'cards.walletTokens': cardWalletTokensSchema,
+  'cards.threeDS.list': z.object({ challenges: z.array(cardThreeDSChallengeSchema) }),
+  'cards.fraud.list': z.object({ reports: z.array(cardFraudReportSchema) }),
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
@@ -1278,6 +1322,8 @@ export const bankWrites = {
   'cards.pin.reveal': cardPinRevealSchema,
   'cards.pin.set': z.object({ ok: z.literal(true) }),
   'cards.walletProvision': z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }),
+  'cards.threeDS.answer': cardThreeDSChallengeSchema,
+  'cards.fraud.report': cardFraudReportSchema,
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,
