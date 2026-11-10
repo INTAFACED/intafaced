@@ -36,7 +36,29 @@ test.afterAll(async () => {
 });
 
 test(`${J} #1 opens the drawing toolbar and picks the trend line, then two clicks place it as bar times and decimal prices`, async () => {
-  await pick(page, 'Trend line');
+  // Tool groups: the drawing toolbar holds each group, by name, with its own tools, and the trend line is in Lines.
+  const toolbar = page.getByRole('toolbar', { name: 'Drawing tools' });
+  const groups = {
+    Cursors: ['Select', 'Dot cursor', 'Arrow cursor', 'Eraser'],
+    Lines: ['Horizontal line', 'Ray', 'Vertical line', 'Cross line', 'Trend line', 'Info line'],
+    'Channels and Fibonacci': ['Parallel channel', 'Pitchfork', 'Fib retracement', 'Fib extension'],
+    Gann: ['Gann fan', 'Gann box'],
+    Patterns: ['Pattern ABCD', 'Pattern XABCD'],
+    Positions: ['Long position', 'Short position'],
+    Measure: ['Measure'],
+    Shapes: ['Rectangle', 'Ellipse'],
+    Brush: ['Brush'],
+    Annotation: ['Text'],
+  };
+  for (const [name, tools] of Object.entries(groups)) {
+    const group = toolbar.getByRole('group', { name, exact: true });
+    await expect(group, `tool group ${name}`).toBeVisible();
+    await expect(group.getByRole('button')).toHaveText(tools);
+  }
+  const trendTool = toolbar.getByRole('group', { name: 'Lines', exact: true }).getByRole('button', { name: 'Trend line', exact: true });
+  await expect(trendTool).toHaveAttribute('aria-pressed', 'false');
+  await trendTool.click();
+  await expect(trendTool).toHaveAttribute('aria-pressed', 'true');
   // What the chart reads under each click: the bar's time and the price at that height.
   const trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
   // Each click, then what the chart reads at that same pixel (read after it, so both see the page as it was clicked).
@@ -71,10 +93,33 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
   await expect(rows(page).nth(1)).toHaveAttribute('data-kind', 'horizontal');
   await expect(rows(page).nth(2)).toHaveAttribute('data-kind', 'info');
   // On the price pane: the library draws the drawings on the main series' pane, pane 0, with the price.
-  await expect(page.getByTestId('cw').getByTestId('wc-host')).toHaveAttribute('data-drawings-pane', '0');
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  await expect(host).toHaveAttribute('data-drawings-pane', '0');
+  // Each drawing, one by one, is painted on that pane at its own stored price: its first painted line starts at the
+  // height the price pane draws its first stored price at. No indicator pane is open here, so the price pane is the one
+  // where each is allowed; the drawings attach to the main series only.
+  for (const kind of ['ray', 'horizontal', 'info']) {
+    const row = page.locator(`[data-drawing-id][data-kind="${kind}"]`);
+    await expect(row).toHaveCount(1);
+    const id = await row.getAttribute('data-drawing-id');
+    const [first] = pricesOf(await pointText(row).textContent());
+    const drawn = await expect
+      .poll(async () => host.evaluate((el, want) => el.readDrawnLines?.().find((d) => d.id === want)?.lines.length ?? 0, id))
+      .toBeGreaterThan(0)
+      .then(() =>
+        host.evaluate(
+          (el, { want, price }) => ({ line: el.readDrawnLines().find((d) => d.id === want).lines[0], y: el.readPriceY(price) }),
+          { want: id, price: Number(first) },
+        ),
+      );
+    expect(drawn.y, `${kind}: the price pane draws ${first}`).not.toBeNull();
+    expect(Math.abs(drawn.line[1] - drawn.y), `${kind}: painted at ${drawn.line[1]}, its price ${first} at ${drawn.y}`).toBeLessThanOrEqual(
+      1,
+    );
+  }
 });
 
-test(`${J} #3 adds text at the chosen point, with its own label`, async () => {
+test(`${J} #3 adds text at the chosen point, with its font and colour`, async () => {
   await pick(page, 'Text');
   await page.getByLabel('Text to place or edit').first().fill('Support');
   const point = await centred(page, await plot(page, 0.25, 0.55));
@@ -89,7 +134,13 @@ test(`${J} #3 adds text at the chosen point, with its own label`, async () => {
   const stored = await pointText(page.locator('[data-drawing-id][data-kind="text"]')).textContent();
   expect(timesOf(stored)).toEqual([barTimeText(at.time)]);
   expect(atTick(pricesOf(stored)[0], at.price), `stored ${pricesOf(stored)[0]}, pointer ${at.price}`).toBe(true);
-  // Font size and colour are not offered in this build: the text takes the default size and the neutral tone.
+  // With font and colour: the placed text's font size and colour are chosen, and the drawing keeps both.
+  const textRow = page.locator('[data-drawing-id][data-kind="text"]');
+  await textRow.getByRole('button', { name: /^Text \d+$/ }).click();
+  await page.getByLabel('Font size', { exact: true }).fill('20');
+  await page.getByLabel('Colour', { exact: true }).selectOption({ label: 'Up' });
+  await expect(textRow).toHaveAttribute('data-size', '20');
+  await expect(textRow).toHaveAttribute('data-tone', 'up');
 });
 
 test(`${J} #4 drags a line's middle handle, and both points move by the same bar and price delta`, async () => {
@@ -137,9 +188,15 @@ test(`${J} #4 drags a line's middle handle, and both points move by the same bar
   expect(ta[0] - tb[0]).toBe(ta[1] - tb[1]);
   expect(ta[0] - tb[0]).not.toBe(0);
   expect((ta[0] - tb[0]) % (15 * 60_000)).toBe(0);
-  const deltaA = Number(after[0]) - Number(before[0]);
-  const deltaB = Number(after[1]) - Number(before[1]);
-  expect(deltaA).toBeCloseTo(deltaB, 2);
+  // Staying on the tick size: every moved price is written at the tick's places (two for BTC-USDT's 0.01 tick), so each
+  // is a whole number of ticks, and both points moved by the same whole number of ticks.
+  expect(after).toHaveLength(2);
+  before.forEach((price, i) => expect(price, `point ${i + 1} before the drag`).toMatch(/^\d+\.\d{2}$/));
+  after.forEach((price, i) => expect(price, `moved point ${i + 1}`).toMatch(/^\d+\.\d{2}$/));
+  const cents = (price) => BigInt(price.replace('.', ''));
+  const deltaA = cents(after[0]) - cents(before[0]);
+  const deltaB = cents(after[1]) - cents(before[1]);
+  expect(deltaA).toBe(deltaB);
 });
 
 test(`${J} #5 locks a drawing so it cannot move, and turns magnet on`, async () => {
