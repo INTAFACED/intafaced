@@ -118,23 +118,64 @@ test(`${J} #1 creates an alert crossing up through a TEST price with a 30-day ex
   await expect(page.getByRole('heading', { name: 'Review your alert' })).toHaveCount(0);
   // Well above the market, so it stays active through this journey.
   const target = testPrice(150, await lastText());
+  const expires = await daysAhead(30);
+  // The instant that field names: the browser's own local time, which is what the page sends.
+  const expiresAt = await page.evaluate((local) => new Date(local).getTime(), expires);
   await createAlert({
     condition: 'Crossing up through',
     price: target,
     name: 'TEST breakout',
     message: 'TEST: BTC/USDT broke out',
-    expires: await daysAhead(30),
+    expires,
   });
-  // Stored: it is in the list after a reload, active, with its condition, exact price, message and expiry.
+  // Stored: the service's own list, read after a reload, holds it active with its condition, exact price, message and
+  // an expiry 30 days after it was made.
+  const listed = page.waitForResponse((res) => /notify\.alerts\b/.test(res.url()) && res.request().method() === 'GET' && res.ok());
   await page.reload();
+  const stored = alertNamed(await (await listed).json(), 'TEST breakout');
+  expect(stored, 'the service lists the alert').toBeTruthy();
+  expect(stored).toMatchObject({ status: 'active', condition: 'crossing_up', message: 'TEST: BTC/USDT broke out' });
+  expect(cents(stored.targetPrice), `stored price ${stored.targetPrice}`).toBe(cents(target));
+  expect(Date.parse(stored.expiresAt), `stored expiry ${stored.expiresAt}`).toBe(expiresAt);
+  // 30 days from when the service made it, to the minute the field holds.
+  const span = Date.parse(stored.expiresAt) - Date.parse(stored.createdAt);
+  expect(Math.abs(span - 30 * 86_400_000), `expiry ${stored.expiresAt} is 30 days after ${stored.createdAt}`).toBeLessThan(2 * 60_000);
+  // Shown: the row reads it active, with its condition, exact price, message and that expiry in the person's zone.
   const row = rowWith('TEST breakout');
   await expect(row).toHaveCount(1);
   await expect(row).toHaveAttribute('data-status', 'active');
   await expect(row).toContainText(`Crossing up through ${target} USDT`);
   await expect(row).toContainText('TEST: BTC/USDT broke out');
   await expect(row).toContainText('Active');
-  await expect(row).toContainText(/Expires /);
+  await expect(row).toContainText(`Expires ${inUtc8(expiresAt)}`);
 });
+
+/** The alert with this name in a `notify.alerts` reply, wherever the reply's wrapping puts the list. */
+function alertNamed(body, name) {
+  if (Array.isArray(body)) {
+    for (const item of body) {
+      const found = alertNamed(item, name);
+      if (found) return found;
+    }
+  } else if (body && typeof body === 'object') {
+    if (body.name === name && typeof body.targetPrice === 'string') return body;
+    for (const value of Object.values(body)) {
+      const found = alertNamed(value, name);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** An instant as the person in UTC+8 reads it: "11 Dec, 03:07 UTC+8", with the year when it is not this year's. */
+function inUtc8(ms) {
+  const at = new Date(ms + 8 * 3_600_000);
+  const thisYear = new Date(Date.now() + 8 * 3_600_000).getUTCFullYear();
+  const month = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' }).format(at);
+  const pad = (n) => String(n).padStart(2, '0');
+  const year = at.getUTCFullYear() === thisYear ? '' : ` ${at.getUTCFullYear()}`;
+  return `${at.getUTCDate()} ${month}${year}, ${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())} UTC+8`;
+}
 
 test(`${J} #3 manages alerts: each shows its market, side, exact price and status; sort, edit, stop, resume, cancel and delete`, async () => {
   const at = await lastText();
