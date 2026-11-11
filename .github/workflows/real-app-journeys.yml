@@ -639,10 +639,18 @@ jobs:
       # docs/LOCAL-TEST-STACK.md, "Chart history"), and it only writes on a market with no trades yet. It exits non-zero
       # when any market comes up short, and that fails this step on purpose: chart journeys on a partial history would
       # fail later for a reason the log no longer shows.
+      # With the stack's custody switch off (the launch build's, OWNER 288), our own order book is off, so its TEST market
+      # maker and its chart history are not started (local-test-market.mjs, CUSTODY_ON_ONLY): the gates still open and
+      # verify, and launch journeys trade at the TEST venue.
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching
           node tooling/scripts/local-test-gates.mjs apply
+          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
+            node tooling/scripts/local-test-market.mjs
+            node tooling/scripts/local-test-gates.mjs verify
+            exit 0
+          fi
           node tooling/scripts/local-test-market.mjs
           # The market maker registers its accounts in the background; verify only once both exist.
           for _ in $(seq 1 30); do
@@ -661,6 +669,10 @@ jobs:
 
       - name: Wait for the first BTC/USDT trade
         run: |
+          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
+            echo "custody off: no TEST market maker on our own order book, so no trade to wait for"
+            exit 0
+          fi
           for _ in $(seq 1 60); do
             grep -q 'BTC/USDT crossing trade by test_taker: .* -> HTTP 201' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && exit 0
             sleep 5

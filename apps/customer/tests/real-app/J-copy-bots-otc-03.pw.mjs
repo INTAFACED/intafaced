@@ -299,7 +299,7 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
 
   const detail = await openFollow(page, leaderRef);
   await act(page, detail, 'Pause');
-  await expect(detail).toContainText('Paused');
+  await expect(detail.getByText('Paused', { exact: true })).toBeVisible();
   expect((await myFollow(follower, followId)).relationshipState).toBe('PAUSED');
   // A lead buy while paused: svc-trade writes one skip row for each of its fills, as paused, and copies none of it.
   const paused = await leadFill(leader, 'buy', '0.001', `${J}-1-paused-${tag}`);
@@ -330,7 +330,7 @@ test(`${J} #2 stops with close-only: a new lead fill isn't mirrored, and a lead 
   const atStop = await snapshot(follower, followId);
   await act(page, detail, 'Stop');
   // Stop is close-only: the follow reads Stopping while the leader's closes still close the copied positions.
-  await expect(detail).toContainText('Stopping');
+  await expect(detail.getByText('Stopping', { exact: true })).toBeVisible();
   await expect(detail.getByText('Close-only: the leader’s closes still close your copied positions.')).toBeVisible();
   // svc-trade holds the follow as close-only, read back by its owner, and the stop itself closed and moved nothing.
   expect((await myFollow(follower, followId)).relationshipState).toBe('CLOSE_ONLY');
@@ -637,7 +637,8 @@ test(`${J} #7 leaves the leader: the follow is left and the positions stay the p
   ).toBeGreaterThan(0n);
   const detail = await openFollow(page, state('leaderRef'));
   await act(page, detail, 'Leave leader');
-  await expect(detail).toContainText('Left');
+  // The state badge itself: the dialog's "Left to use" limit already contains "Left" before the leave lands (#7739).
+  await expect(detail.getByText('Left', { exact: true })).toBeVisible();
   // svc-trade holds the follow as left, and nothing was closed or moved.
   const followAfter = await myFollow(follower, followId);
   expect(followAfter.relationshipState).toBe('DETACHED');
