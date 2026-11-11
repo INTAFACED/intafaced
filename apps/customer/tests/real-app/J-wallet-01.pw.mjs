@@ -2,7 +2,8 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fund, journeyState, toUnits } from './stack.mjs';
+import { api, fund, journeyState, restartWithSetting, toUnits } from './stack.mjs';
+import { TEST_MEMBERSHIP_TIERS } from '../../../../tooling/scripts/local-stack-services/identity.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
@@ -27,7 +28,8 @@ import {
 // venue's deposit control, and one TEST limit buy resting on the venue that locks part of it, signed by the wallet's key.
 // Every figure is checked against its own source: the chain's node at the block the page names, and the venue's record.
 // The ledger is read before and after: it holds no balance for this person and posts nothing in #1 to #4.
-// #5 and #6 read the asset registry and the membership panel, as before.
+// #5 reads the asset registry, as before. #6 reads the membership panel with the tiers blank, then with identity restarted
+// with one TEST tier (`LOCAL_STACK_IDENTITY_MEMBERSHIP=test`), then blank again.
 const J = 'J-wallet-01';
 const DESK = '/trade/spot/BTC-USDC';
 const SYMBOL = 'BTC-USDC';
@@ -457,15 +459,47 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await expect(page.getByRole('link', { name: 'Supported assets and networks' })).toHaveAttribute('href', '/uc/assets');
 });
 
-test(`${J} #6 opens membership on Account: with no tier published, it says membership is not offered`, async ({ page }) => {
+test(`${J} #6 opens membership tier on Account: with config blank, a refused state; with config set, the tier`, async ({ page }) => {
   const who = account();
   await signIn(page, who);
-  await page.goto('/uc/account');
   const panel = page.getByTestId('membership');
+  const tiers = page.locator('#membership [data-tier]');
+  // Config blank (the stack's default, as production is until the owner publishes tiers): a refused state, with no
+  // tier, price or join control in its place.
+  await page.goto('/uc/account');
   await expect(panel).toHaveAttribute('data-state', 'not-offered');
   await expect(panel).toContainText('Membership is not offered');
   await expect(panel).toContainText('No membership tier is published, so there is nothing to join and nothing is charged.');
-  // No tier, price or join control in its place.
   await expect(page.locator('#membership').getByRole('button')).toHaveCount(0);
-  await expect(page.locator('#membership [data-tier]')).toHaveCount(0);
+  await expect(tiers).toHaveCount(0);
+
+  // Config set: identity restarted with the one TEST tier (tooling/scripts/local-stack-services/identity.mjs), and the
+  // panel shows that tier as identity publishes it: its name, its price and period, and its perks.
+  const [tier] = TEST_MEMBERSHIP_TIERS;
+  restartWithSetting('identity', 'LOCAL_STACK_IDENTITY_MEMBERSHIP', 'test');
+  try {
+    // Identity may still be coming back up: open the page again until it has asked identity and shows the answer.
+    await expect(async () => {
+      await page.goto('/uc/account');
+      await expect(panel).toHaveAttribute('data-state', 'offered', { timeout: 5_000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(tiers).toHaveCount(TEST_MEMBERSHIP_TIERS.length);
+    const row = page.locator(`#membership [data-tier="${tier.id}"]`);
+    await expect(row.locator('strong')).toHaveText(tier.name);
+    await expect(row).toContainText(`${tier.price} ${tier.assetId} every ${tier.periodDays} days`);
+    await expect(row.getByRole('list', { name: 'Perks' }).getByRole('listitem')).toHaveText([...tier.perks]);
+    // Nobody holds a tier yet, and nothing is charged: the panel says so, with no join control.
+    await expect(panel).toContainText('Your tier');
+    await expect(panel).toContainText('You have no membership tier.');
+    await expect(panel).toContainText('There is no way to buy a membership here. Nothing is charged.');
+    await expect(page.locator('#membership').getByRole('button')).toHaveCount(0);
+  } finally {
+    restartWithSetting('identity', 'LOCAL_STACK_IDENTITY_MEMBERSHIP', null);
+  }
+  // Back to blank: the refused state again, so no later journey sees the TEST tier.
+  await expect(async () => {
+    await page.goto('/uc/account');
+    await expect(panel).toHaveAttribute('data-state', 'not-offered', { timeout: 5_000 });
+  }).toPass({ timeout: 60_000 });
+  await expect(tiers).toHaveCount(0);
 });

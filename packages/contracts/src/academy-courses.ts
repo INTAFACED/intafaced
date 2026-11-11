@@ -276,6 +276,23 @@ export const academyDuplicateItemInputSchema = z
   .strict();
 export type AcademyDuplicateItemInput = z.infer<typeof academyDuplicateItemInputSchema>;
 
+/**
+ * `admin.duplicateCourse`: a new draft course at an address of its own, copied from any course, draft or published, with
+ * the reason staff give. It copies the details, topics, sections and items, each item's newest lesson as its revision 1
+ * and an assignment's brief, and never a learner record: no enrolment, grant, start, completion, attempt, hand-in or
+ * progress row is read or written. Keyed by the new address: the same founder's repeat from the same course answers with
+ * the stored copy.
+ */
+export const academyDuplicateCourseInputSchema = z
+  .object({
+    courseId: z.string().guid(),
+    slug: academyCourseSlugSchema,
+    title: details.title,
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyDuplicateCourseInput = z.infer<typeof academyDuplicateCourseInputSchema>;
+
 export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated', 'imported', 'assisted'] as const;
 export const academyLessonRevisionSchema = z.object({
   revision: z.number().int().positive(),

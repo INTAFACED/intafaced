@@ -578,10 +578,11 @@ describe('payout maker-checker', () => {
     await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.payout_destination_unverified',
     });
-    // Held is stored fail closed: verified = false with its hold end set.
+    // Held is stored fail closed: verified = false with its hold end set. Hold ends are set from the service's
+    // clock, which is frozen at setup, not the database's now(), which keeps running (issue 7822).
     await sql`
       UPDATE pay.merchant_payout_destinations
-         SET verified = false, verified_at = now(), activates_at = now() + interval '1 hour'
+         SET verified = false, verified_at = now(), activates_at = ${new Date(clock.getTime() + 3_600_000)}
        WHERE merchant_id = ${merchantId}
     `;
     await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
@@ -589,7 +590,7 @@ describe('payout maker-checker', () => {
     });
     expect(await sql`SELECT id FROM pay.control_payout_approvals WHERE settlement_id = ${s.id}`).toHaveLength(0);
     // Past its end it is active and the request goes through.
-    await sql`UPDATE pay.merchant_payout_destinations SET activates_at = now() - interval '1 second' WHERE merchant_id = ${merchantId}`;
+    await sql`UPDATE pay.merchant_payout_destinations SET activates_at = ${new Date(clock.getTime() - 1_000)} WHERE merchant_id = ${merchantId}`;
     expect((await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).status).toBe('pending');
   });
   it('a payout request for a window the rail still holds is refused pay.payout_clearing_pending, and records no approval', async () => {

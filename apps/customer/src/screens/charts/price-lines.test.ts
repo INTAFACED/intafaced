@@ -55,4 +55,9 @@ describe('readChartSettings: an unknown key or wrong type takes the default', ()
     });
     expect(readChartSettings(null)).toEqual(DEFAULT_CHART_SETTINGS);
   });
+
+  it('keeps the trading and alert options, and a setting saved before they existed shows both', () => {
+    expect(readChartSettings({ orderButton: false, alertLevels: false })).toMatchObject({ orderButton: false, alertLevels: false });
+    expect(readChartSettings({ gridLines: false })).toMatchObject({ gridLines: false, orderButton: true, alertLevels: true });
+  });
 });

@@ -106,6 +106,18 @@ export const RECIPE_MATRIX = {
     reason:
       "§13 — a fee share we owe paid from one of our own-funds places to the recipient's own wallet, keyed on the chain transaction. No production writer and no grant until fee shares can be owed (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
   },
+  chargeEarn: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — a charge a customer owes us (agent usage, a course, a subscription), our revenue up and their receivable up, keyed on the sale or usage window. Refused with ledger.charge_price_unset while the owner's price is unset, so no production writer and no grant (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
+  chargeCollect: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — a charge collected: the customer's payment arrives at one of our own-funds places, keyed on the chain's or partner's payment id, refused above what they owe. No production writer and no grant until charges can be earned (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
   orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/order-place.ts' },
   orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/holds.ts' },
   orderHoldAmend: {
