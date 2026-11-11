@@ -6,6 +6,7 @@ import { test, expect } from './journey.mjs';
 import { ROOT, journeyState, mailedCodes, mailedLines, nextMailedCode } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { responseAfterNavigation } from './navigation.mjs';
 
 // J-wallet-04, in the running app (docs/roadmap/journeys.json): I save a withdrawal address. One test per step, titled
 // "J-wallet-04 #<n>", run in order on one verified TEST account with an authenticator app, because saving and removing
@@ -309,25 +310,13 @@ test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing 
 async function bankRowOnReload(page, label) {
   // Only the read the reloaded page makes counts. A rename makes the old page read the book again just before the
   // reload, and when that read was the one matched the reload dropped its body ("No resource with given identifier
-  // found", #7457). So the match starts once the reload has committed, the body is read as soon as it arrives, and the
-  // read must have started after the reload's own document request did (both times from the browser's clock).
-  let reloaded = false;
-  const committed = (frame) => {
-    if (frame === page.mainFrame()) reloaded = true;
-  };
-  page.on('framenavigated', committed);
-  let res;
-  let doc;
-  try {
-    const read = page
-      .waitForResponse(
-        (res) => reloaded && res.request().method() === 'GET' && /\/api\/bank\/trpc\/ramps\.destinations\.list/.test(res.url()),
-      )
-      .then(async (res) => ({ status: res.status(), startedAt: res.request().timing().startTime, body: await res.json() }));
-    [res, doc] = await Promise.all([read, page.reload()]);
-  } finally {
-    page.off('framenavigated', committed);
-  }
+  // found", #7457). So the match starts once the reload has committed and the body is read as soon as it arrives
+  // (navigation.mjs), and the read must have started after the reload's own document request did (both times from the
+  // browser's clock).
+  const { res, doc } = await responseAfterNavigation(
+    page,
+    (res) => res.request().method() === 'GET' && /\/api\/bank\/trpc\/ramps\.destinations\.list/.test(res.url()),
+  );
   expect(doc, 'the reload loaded a new document').toBeTruthy();
   expect(res.startedAt, "the address-book read is the reloaded page's own").toBeGreaterThanOrEqual(doc.request().timing().startTime);
   expect(res.status).toBe(200);
