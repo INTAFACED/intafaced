@@ -1,8 +1,11 @@
 // World: book, restart, stack
 import { test, expect } from './journey.mjs';
-import { asDesk } from './help-centre.mjs';
+import { createRequire } from 'node:module';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { asDesk, deskPeople } from './help-centre.mjs';
 import { awayBid, fundedTrader } from './desk.mjs';
-import { api, ORIGIN, tool } from './stack.mjs';
+import { api, ORIGIN, ROOT, stackFile, tool } from './stack.mjs';
 
 // J-support-public-20, in the running app (docs/roadmap/journeys.json): a support agent handles a customer's "my deposit
 // or withdrawal is missing" request without moving money, lifting a restriction or reading what they are not entitled to.
@@ -244,6 +247,71 @@ async function openRequest(who, tag) {
   return res.body.result.data;
 }
 
+/** A new "my withdrawal is missing" request from `who`, claimed by the lead: the claim is checked, never assumed. */
+async function claimed(who, tag) {
+  const made = await openRequest(who, tag);
+  await lead('mutation', 'claim', { ticketId: made.id }).catch(() => null);
+  expect((await lead('query', 'get', { ticketId: made.id })).assigneeId).toBe((await deskPeople()).lead);
+  return made;
+}
+
+/** svc-support's own database, as its own role (the role the service writes with), on the journey stack. */
+async function supportDb() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const postgres = createRequire(path.join(ROOT, 'services', 'svc-support', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  return postgres(`postgres://svc_support:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+}
+
+/** The guest verification mails svc-notify wrote to the stack's LOCAL TEST outbox for this address, oldest first. */
+function guestMail(email) {
+  const file = stackFile('status-mail-outbox.log');
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith('LOCAL-TEST '))
+    .map((line) => JSON.parse(line.slice('LOCAL-TEST '.length)))
+    .filter((mail) => mail.purpose === 'guest-verify' && mail.to === email);
+}
+
+/**
+ * A request from someone with no account, made as a guest makes one: the signed-out form, then the emailed link. The
+ * ticket's owner is the guest request's own id, which no account has. Its ticket id.
+ */
+async function guestRequest(browser) {
+  const email = `j20-guest-${RUN}-${test.info().retry}@example.test`;
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  const page = await context.newPage();
+  try {
+    await page.goto('/support/new');
+    const form = page.getByTestId('support-guest-new');
+    await form.getByLabel('Your email address').fill(email);
+    await form.getByRole('combobox', { name: 'Topic' }).selectOption({ label: 'Something else' });
+    await form.getByLabel('Subject', { exact: true }).fill(`TEST ${J} ${RUN} guest withdrawal missing`);
+    await form.getByLabel('What happened').fill(`TEST ${J} ${RUN}: my withdrawal never arrived.`);
+    await form.getByRole('button', { name: 'Send request' }).click();
+    await expect(page.getByTestId('support-guest-check-email')).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => guestMail(email).length, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+    const text = guestMail(email).at(-1).text;
+    const link = /(http\S+\/support\/guest\/verify#token=\S+)/.exec(text)?.[1];
+    expect(link, text).toBeTruthy();
+    await page.goto(link);
+    await page.getByTestId('support-guest-verify').getByRole('button', { name: 'Open my request' }).click();
+    await expect(page).toHaveURL(/\/support\/guest\/request$/);
+    const ticket = page.getByTestId('support-guest-ticket');
+    await expect(ticket).toBeVisible({ timeout: 15_000 });
+    const id = await ticket.getAttribute('data-ticket-id');
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    return id;
+  } finally {
+    await context.close();
+  }
+}
+
 /** Where the two requests sit in the desk's queue, and their scores. */
 async function queueOrder(plainId, flaggedId) {
   const res = await asDesk('lead', 'query', 'listQueue', { limit: 500 });
@@ -266,36 +334,110 @@ test(`${J} #2 reading the customer's balance or withdrawal destination is refuse
   expect(res.text).toContain('support.verification_checks_required');
 });
 
-test(`${J} #3 the account state is read for the ticket's owner only, one row records who looked, and no balance is in it`, async ({
+test(`${J} #3 the account state is read for the ticket's owner only, one append-only row records who looked, and no balance is in it`, async ({
   browser,
 }) => {
-  const { ticket, userId } = await request(browser);
-  const before = (await lead('query', 'events', { ticketId: ticket.id, limit: 500 })).filter((e) => e.kind === 'grounding_read');
-  const state = await lead('query', 'accountState', { ticketId: ticket.id });
-  expect(JSON.stringify(state)).toContain(userId);
-  expect(JSON.stringify(state)).not.toMatch(/balance|available|amount/i);
-  // The read takes a ticket, never a user: naming another account is refused as a shape error, not answered.
-  expect(await refused('query', 'accountState', { ticketId: ticket.id, userId: '00000000-0000-4000-8000-000000000000' })).toMatch(
-    /unrecognized|BAD_REQUEST|invalid/i,
-  );
-  const after = (await lead('query', 'events', { ticketId: ticket.id, limit: 500 })).filter((e) => e.kind === 'grounding_read');
-  expect(after).toHaveLength(before.length + 1);
-  expect(after.at(-1).actorId).toBe((await import('./help-centre.mjs').then((m) => m.deskPeople())).lead);
+  const { ticket, userId, who } = await request(browser);
+  const { lead: leadId } = await deskPeople();
+  // The lead works this request: the claim in request() landed.
+  expect((await lead('query', 'get', { ticketId: ticket.id })).assigneeId).toBe(leadId);
+  const sql = await supportDb();
+  try {
+    const rows = () =>
+      sql`SELECT id, sequence, kind, actor_id, actor_role, from_status, to_status, note, occurred_at
+          FROM support.ticket_events WHERE ticket_id = ${ticket.id} AND kind = 'grounding_read' ORDER BY sequence`;
+    const before = await rows();
+
+    // The read answers the ticket owner's account state, and nothing about money.
+    const state = await lead('query', 'accountState', { ticketId: ticket.id });
+    expect(state).toMatchObject({ status: 'read', state: { userId } });
+    expect(Object.keys(state.state).sort()).toEqual(expect.arrayContaining(['kycTier', 'status', 'userId']));
+    expect(JSON.stringify(state)).not.toMatch(/balance|available|amount|"(asset|total|locked)"/i);
+
+    // Anyone else's account is not readable: the read takes a ticket, never a user, so naming another account is refused as
+    // a shape error, and the customer themselves (who is not on the desk) is refused the desk's read.
+    expect(await refused('query', 'accountState', { ticketId: ticket.id, userId: '00000000-0000-4000-8000-000000000000' })).toMatch(
+      /unrecognized|BAD_REQUEST|invalid/i,
+    );
+    const self = await (await api(who)).get(query('accountState', { ticketId: ticket.id }));
+    expect(self.status, JSON.stringify(self.body).slice(0, 300)).not.toBe(200);
+    expect(JSON.stringify(self.body)).not.toContain('"kycTier"');
+
+    // Exactly one row, from the one answered read: it names the lead as the operator who looked, and holds no balance.
+    const after = await rows();
+    expect(after).toHaveLength(before.length + 1);
+    const row = after.at(-1);
+    expect(row).toMatchObject({ kind: 'grounding_read', actor_id: leadId, actor_role: 'operator', from_status: null, to_status: null });
+    expect(row.note).toBe(`account_state:${state.state.status}`);
+    expect(Object.keys(row).filter((k) => /amount|balance|value|asset/i.test(k))).toEqual([]);
+    const columns =
+      await sql`SELECT column_name FROM information_schema.columns WHERE table_schema = 'support' AND table_name = 'ticket_events'`;
+    expect(columns.map((c) => c.column_name).filter((c) => /amount|balance|value|asset/i.test(c))).toEqual([]);
+    // The desk's own trail shows the same row.
+    const trail = (await lead('query', 'events', { ticketId: ticket.id, limit: 500 })).filter((e) => e.kind === 'grounding_read');
+    expect(trail.at(-1)).toMatchObject({ id: row.id, actorId: leadId, note: row.note });
+
+    // Append-only: the row can be neither changed nor removed, even by svc-support's own database role, and stays as it was.
+    await expect(sql`UPDATE support.ticket_events SET note = ${'TEST rewritten'} WHERE id = ${row.id}`).rejects.toThrow(
+      /ticket_events is append-only: UPDATE refused|permission denied/,
+    );
+    await expect(sql`DELETE FROM support.ticket_events WHERE id = ${row.id}`).rejects.toThrow(
+      /ticket_events is append-only: DELETE refused|permission denied/,
+    );
+    expect(await rows()).toEqual(after);
+  } finally {
+    await sql.end();
+  }
 });
 
-test(`${J} #4 resolving a deposit or withdrawal request with a note that says the money moved is refused, and so is any money act`, async ({
+test(`${J} #4 a note that says the money moved is refused, and a closed or resolved deposit or withdrawal request never claims a payout`, async ({
   browser,
 }) => {
-  const { ticket } = await request(browser);
-  const text = await refused('mutation', 'setStatus', {
-    ticketId: ticket.id,
-    status: 'resolved',
-    note: 'TEST The withdrawal has been paid out to the customer.',
-  });
-  expect(text).toContain('support.settle.refused');
+  test.setTimeout(180_000);
+  const { who } = await request(browser);
+  // Its own requests: closing one is final, so the shared request stays open for the other steps.
+  const plain = await claimed(who, 'settle');
+  const paid = 'TEST The withdrawal has been paid out to the customer.';
+  const trail = async (id) => (await lead('query', 'events', { ticketId: id, limit: 500 })).filter((e) => e.kind === 'status_changed');
+  const was = (await lead('query', 'get', { ticketId: plain.id })).status;
+  const moves = await trail(plain.id);
+
+  // Resolving a deposit or withdrawal request would claim a payout: refused with a note that says the money moved and
+  // without one. Closing it with a note that says the money moved is refused too. Nothing changes.
+  for (const [status, note] of [
+    ['resolved', paid],
+    ['resolved', undefined],
+    ['closed', paid],
+    ['closed', 'TEST Refunded to the customer, credited back.'],
+  ]) {
+    const text = await refused('mutation', 'setStatus', { ticketId: plain.id, status, ...(note ? { note } : {}) });
+    expect(text, `${status} ${note ?? '(no note)'}`).toContain('support.settle.refused');
+    expect((await lead('query', 'get', { ticketId: plain.id })).status).toBe(was);
+    expect(await trail(plain.id)).toEqual(moves);
+  }
+  // And the desk has no money act to call instead.
   for (const act of ['complete_withdrawal', 'unfreeze_account', 'move_money'])
-    expect(await refused('mutation', 'settle', { act, ticketId: ticket.id })).toContain('support.settle.refused');
-  expect((await lead('query', 'get', { ticketId: ticket.id })).status).not.toBe('resolved');
+    expect(await refused('mutation', 'settle', { act, ticketId: plain.id })).toContain('support.settle.refused');
+  expect((await lead('query', 'get', { ticketId: plain.id })).status).toBe(was);
+
+  // Closed with a note that claims nothing, it closes, and the record and the customer's read say nothing of a payout.
+  const note = `TEST ${J} #4 the customer's question is answered; the owning module has the request`;
+  const closed = await lead('mutation', 'setStatus', { ticketId: plain.id, status: 'closed', note });
+  expect(closed.status).toBe('closed');
+  expect((await trail(plain.id)).at(-1)).toMatchObject({ toStatus: 'closed', note });
+  const mine = await (await api(who)).get(query('get', { ticketId: plain.id }));
+  expect(mine.status).toBe(200);
+  expect(JSON.stringify(mine.body)).not.toMatch(/paid|payout|refund|credited|money (moved|sent)/i);
+
+  // Once escalated as a money request, even a plain close is refused: the request's close would read as its settlement.
+  const money = await claimed(who, 'money');
+  await lead('mutation', 'escalate', { ticketId: money.id, reason: 'money_request', summary: `TEST ${J} ${RUN} #4 missing withdrawal` });
+  const moneyWas = (await lead('query', 'get', { ticketId: money.id })).status;
+  const moneyMoves = await trail(money.id);
+  for (const status of ['closed', 'resolved'])
+    expect(await refused('mutation', 'setStatus', { ticketId: money.id, status, note })).toContain('support.settle.refused');
+  expect((await lead('query', 'get', { ticketId: money.id })).status).toBe(moneyWas);
+  expect(await trail(money.id)).toEqual(moneyMoves);
 });
 
 test(`${J} #5 a comment holding a card number or a seed phrase is refused and nothing is stored`, async ({ browser }) => {
@@ -325,25 +467,64 @@ test(`${J} #5 a comment holding a card number or a seed phrase is refused and no
   expect(await count()).toBe(before);
 });
 
-test(`${J} #6 escalated as a money request, the case file carries its citations, no amount field and no ledger entry`, async ({
+test(`${J} #6 escalated as a money request with citations; with no citations it is refused; the case file has no amount field and no ledger entry is posted`, async ({
   browser,
 }) => {
-  const { ticket } = await request(browser);
+  test.setTimeout(180_000);
+  const { ticket, who } = await request(browser);
+  const client = await api(who);
+  const ledger = async () => {
+    const res = await client.get('/api/v1/ledger?limit=200');
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return { entries: res.body.entries, balances: await client.balances() };
+  };
+  const before = await ledger();
+  const escalatedBefore = (await lead('query', 'events', { ticketId: ticket.id, limit: 500 })).filter((e) => e.kind === 'escalated');
+
   const file = await lead('mutation', 'escalate', {
     ticketId: ticket.id,
     reason: 'money_request',
     summary: `TEST ${J} ${RUN} customer reports a missing withdrawal`,
   });
-  // Grounded in what support read (the account state at least); an escalation with nothing to cite is refused
-  // (support.case_file.ungrounded, case-file.test.ts), which the running app cannot reach while identity answers.
+  // Escalated, grounded in what support read: the customer's account state, read from svc-identity.
+  expect(file).toMatchObject({ ticketId: ticket.id, reason: 'money_request', grounding: { status: 'read' } });
   expect(file.citations.length).toBeGreaterThan(0);
-  expect(JSON.stringify(file.citations)).toContain('account_state');
-  expect(JSON.stringify(file)).not.toMatch(/"(amount|value|quantity|asset)"\s*:/);
+  expect(file.citations.map((c) => c.kind)).toContain('account_state');
   const read = await lead('query', 'caseFile', { ticketId: ticket.id });
-  expect(read.reason).toBe('money_request');
-  expect(Object.keys(read)).not.toContain('amount');
-  const events = await lead('query', 'events', { ticketId: ticket.id, limit: 500 });
-  expect(events.filter((e) => e.kind === 'escalated')).toHaveLength(1);
+  expect(read).toMatchObject({ ticketId: ticket.id, reason: 'money_request', citations: file.citations });
+  const escalated = (await lead('query', 'events', { ticketId: ticket.id, limit: 500 })).filter((e) => e.kind === 'escalated');
+  expect(escalated).toHaveLength(escalatedBefore.length + 1);
+
+  // The case file has no amount field: not in what the desk is answered, and not in the table that keeps it.
+  const fields = (o) => (o && typeof o === 'object' ? Object.entries(o).flatMap(([k, v]) => [k, ...fields(v)]) : []);
+  expect(fields(file).filter((k) => /^(amount|value|quantity|asset|currency)$/i.test(k))).toEqual([]);
+  expect(fields(read).filter((k) => /^(amount|value|quantity|asset|currency)$/i.test(k))).toEqual([]);
+  const sql = await supportDb();
+  try {
+    const columns =
+      await sql`SELECT column_name FROM information_schema.columns WHERE table_schema = 'support' AND table_name = 'case_files'`;
+    expect(columns.length).toBeGreaterThan(0);
+    expect(columns.map((c) => c.column_name).filter((c) => /amount|value|quantity|asset|currency/i.test(c))).toEqual([]);
+  } finally {
+    await sql.end();
+  }
+
+  // No ledger entry is posted: the customer's ledger lines and balances are exactly as they were.
+  expect(await ledger()).toEqual(before);
+
+  // With nothing to cite, the escalation is refused. A request from someone with no account (a guest's emailed request)
+  // has no account state to read and, before anyone writes on it, no comment: escalating it cites nothing.
+  const guestTicket = await guestRequest(browser);
+  const guestEvents = async () => lead('query', 'events', { ticketId: guestTicket, limit: 500 });
+  const eventsBefore = await guestEvents();
+  expect(
+    await refused('mutation', 'escalate', { ticketId: guestTicket, reason: 'money_request', summary: `TEST ${J} ${RUN} nothing read` }),
+  ).toContain('support.case_file.ungrounded');
+  expect(await guestEvents()).toEqual(eventsBefore);
+  // No case file was stored for it.
+  const noFile = await asDesk('lead', 'query', 'caseFile', { ticketId: guestTicket });
+  expect(noFile.status, noFile.text.slice(0, 300)).toBe(200);
+  expect(noFile.json.result.data).toBeNull();
 });
 
 test(`${J} #7 a withdrawal freeze asked from the request is recorded by the identity service; no credit is posted and a status change never lifts it`, async ({
