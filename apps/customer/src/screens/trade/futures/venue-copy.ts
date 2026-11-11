@@ -19,6 +19,18 @@ export const MARKET_RULE_WORDS = {
   'Stale rule': 'The venue’s rule while its feed is stale',
   'Feed stale notice': '{venue} reports the {symbol} price feed stale. The venue’s own rule: {rule}',
   'Not published': 'not published by this venue',
+  // A stock perpetual's home market and the venue's off-hours mode (J-derivatives-27): the venue's words, labelled.
+  'Home market': 'Home market',
+  session_open: '{home}: open, as the venue reports it',
+  session_off_hours: '{home}: closed, as the venue reports it',
+  'Off-hours mode': 'The venue’s off-hours mode',
+  'Off-hours band': 'Off-hours price band',
+  'Off-hours leverage': 'Most leverage off hours',
+  'Off-hours leverage times': 'At most {times}x',
+  Reopens: 'Home market reopens',
+  'Reopens while open': 'Open now',
+  'Off-hours rule': 'What the venue refuses off hours',
+  'Off-hours notice': '{venue} reports {home} closed: {symbol} is in the venue’s off-hours mode. The venue’s own rule: {rule}',
 } as const;
 
 // The futures desk's words in venue mode (B1). English source only; the shared venue words are in

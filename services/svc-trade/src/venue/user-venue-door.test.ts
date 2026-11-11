@@ -98,11 +98,23 @@ const somePrepared = (venueId: string): PreparedVenueAction => ({
 });
 const someSignature = { digest: '0xabc', signature: '0x00', signedBy: owner };
 
+/**
+ * Connect's own `GET /venue` shares the client's per-call timeout. A test that sets a short timeout to make one later call
+ * time out gives the descriptor read a generous budget instead, so a slow answer on a loaded runner can't refuse the
+ * connect before the call under test is reached (#7702). Every other call keeps the short timeout it was given.
+ */
+function patientConnect(inner: typeof fetch = fetch): typeof fetch {
+  return (input, init) =>
+    new URL(String(input instanceof Request ? input.url : input)).pathname === '/venue'
+      ? inner(input, { ...init, signal: AbortSignal.timeout(10_000) })
+      : inner(input, init);
+}
+
 describe('HttpUserVenue: a lost answer after send is never definite', () => {
   it('a submit that times out after the request was sent is definite:false timeout', async () => {
     const { server, url } = await fakeVenue(() => undefined); // receives the body, never answers
     try {
-      const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 });
+      const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: patientConnect() });
       expect(venue.chainId).toBe(84532);
       expect(await venue.submit(somePrepared(venue.venue.id), someSignature)).toEqual({ definite: false, reason: 'timeout' });
     } finally {
@@ -151,7 +163,7 @@ describe('HttpUserVenue: a lost answer after send is never definite', () => {
         throw new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) });
       return fetch(input, init);
     };
-    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: refusing });
+    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: patientConnect(refusing) });
     await closeServer(server);
     refuse = true;
     await expect(venue.balances({ venueId: venue.venue.id, owner, subAccount: null })).rejects.toMatchObject({
