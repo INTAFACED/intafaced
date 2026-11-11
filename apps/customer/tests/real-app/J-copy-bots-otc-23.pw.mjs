@@ -621,10 +621,11 @@ test(`${J} #6 places an iceberg with the display quantity equal to the total: re
   const me = await api(trader);
   const tag = `${state('tag')}-6-${Date.now().toString(36)}`;
   const { bid, ask } = await bestPrices();
-  // A whole-USDT price a quarter of the way into the maker's spread, far from its ask.
   const one = toUnits('1');
   const whole = (units) => (units / one) * one;
-  const quoted = whole(toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n);
+  // A price a quarter of the way into the maker's spread, far from its ask. It is only compared, never sent, so it isn't
+  // rounded: a spread under about 1 USDT has no whole USDT inside it, and rounding down lands below the bid (issue 7912).
+  const quoted = toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n;
   expect(quoted).toBeGreaterThan(toUnits(bid));
   expect(quoted).toBeLessThan(toUnits(ask));
   // From here to the refill nothing but this step trades on BTC/USDT: the maker's quotes come down (stopMarketMaker).

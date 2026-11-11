@@ -1,9 +1,11 @@
-// World: restart
+// World: book, restart, stack
+import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { awayBid, fundedTrader, signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
-import { api, tool } from './stack.mjs';
+import { api, restartWith, ROOT, tool } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
@@ -12,7 +14,7 @@ import { api, tool } from './stack.mjs';
 // A step whose part is missing fails at it quickly (UNBUILT).
 // #7's "public reply only" is proved against an internal note (SP-tickets-05), the status reason and the escalation summary.
 // A refusal is matched by its one typed code, and the record is read again after it to show nothing changed.
-// #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
+// #2's blank view cap clause restarts svc-support with LOCAL_STACK_SUPPORT_VIEW_CAP=off and restores it in the same step.
 const J = 'J-support-public-10';
 const RUN = Date.now().toString(36);
 const UNBUILT = { timeout: 5_000 };
@@ -31,9 +33,9 @@ test.beforeAll(async ({ browser }) => {
 });
 
 /** The customer sends one request through its own support API; returns the stored ticket. */
-async function request(subject, category = 'account') {
+async function request(subject, category = 'account', who = customer) {
   const res = await (
-    await api(customer)
+    await api(who)
   ).post('/api/support/trpc/create', {
     category,
     subject,
@@ -121,6 +123,47 @@ async function sendReply(workspace, body) {
   return actions.getByTestId('reply-outcome');
 }
 
+/** Stops svc-identity without holding up this test's event loop; settles when it has exited. */
+const stopIdentity = () =>
+  new Promise((resolve, reject) =>
+    execFile(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-stack.mjs'), 'stop', 'identity'], { cwd: ROOT }, (error) =>
+      error ? reject(error) : resolve(),
+    ),
+  );
+
+/**
+ * What svc-support answers for this request's customer once it can't reach identity. Edge also asks identity about the
+ * caller and keeps a yes for at most 1 s (AUTHORITY_POSITIVE_CACHE_MAX_MS), so the desk can only be asked inside that second:
+ * after it, Edge itself refuses with edge.authority_unavailable and the call never reaches svc-support. The stop takes
+ * about that long, so this asks throughout the stop rather than after it, and if a stop lands where the second has already
+ * run out, identity comes back and the stop is tried again. Any other refusal fails at once.
+ */
+async function accountStateAsIdentityStops(ticketId) {
+  let refusal = '';
+  for (let stop = 1; stop <= 4; stop += 1) {
+    if (stop > 1) tool('local-test-stack.mjs', 'start', '--only', 'identity');
+    const stopped = stopIdentity();
+    stopped.catch(() => {}); // Read by the `await stopped` below; a failed stop must not surface as an unhandled rejection first.
+    for (;;) {
+      const res = await asDesk('lead', 'query', 'accountState', { ticketId });
+      const answer = res.json?.result?.data;
+      if (answer !== undefined && answer.status !== 'read') {
+        await stopped;
+        return answer;
+      }
+      if (answer === undefined) {
+        if (res.status !== 503 || res.json?.code !== 'edge.authority_unavailable')
+          throw new Error(`accountState refused (${res.status}): ${res.text.slice(0, 300)}`);
+        refusal = res.text.slice(0, 300);
+        await stopped;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error(`Edge refused every accountState read as identity stopped: ${refusal}`);
+}
+
 test(`${J} #1 /support lists unassigned open and pending requests by score, "not a promise", with no due time`, async ({ page }) => {
   const ticket = await request(`TEST queue ${RUN}`);
   // A request someone holds is not in the queue.
@@ -182,15 +225,58 @@ test(`${J} #2 a filter by field saves as a view and is shared: list and count ag
   await expect(agent.getByRole('row').filter({ hasText: `TEST filter trading ${RUN}` })).toHaveCount(1);
   await expect(agent.getByRole('button', { name: 'Save view' })).toHaveCount(0);
   await agent.context().close();
+  // Not editable by the other agent: a change or a delete of the lead's shared view is refused by name, and it stays.
+  const view = (await desk('agent', 'query', 'viewsList')).views.find((v) => v.name === `TEST trading ${RUN}`);
+  expect(view, 'the agent reads the shared view').toBeTruthy();
+  expect(view.shared).toBe(true);
+  expect(
+    await refusedWith('agent', 'mutation', 'viewsSave', {
+      viewId: view.id,
+      name: `TEST trading ${RUN} changed`,
+      expectedRevision: view.revision,
+      shared: true,
+      filter: view.filter,
+      reason: `TEST ${J} edit by another agent`,
+    }),
+  ).toBe('support.view_not_owner');
+  expect(await refusedWith('agent', 'mutation', 'viewsDelete', { viewId: view.id, reason: `TEST ${J} delete by another agent` })).toBe(
+    'support.view_not_owner',
+  );
+  const still = (await desk('lead', 'query', 'viewsList')).views.find((v) => v.id === view.id);
+  expect(still).toMatchObject({ name: `TEST trading ${RUN}`, revision: view.revision });
 
   // A field the queue does not have is refused by name, and the list stays as it was.
   await page.goto(`${ADMIN}/support`);
   await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' }).first()).toBeVisible();
-  const before = await queue.getByRole('row').filter({ hasNotText: 'Subject' }).count();
+  // The subject is the row's second cell, after the tick box.
+  const subjects = () =>
+    queue
+      .getByRole('row')
+      .filter({ hasNotText: 'Subject' })
+      .evaluateAll((all) => all.map((row) => row.cells[1]?.textContent ?? ''));
+  const before = await subjects();
   await page.goto(`${ADMIN}/support?filter=${encodeURIComponent('nosuchfield:x')}`);
-  // Scoped to the page body: Next's route announcer is a second, empty alert outside it.
-  await expect(page.getByRole('main').getByRole('alert')).toContainText('nosuchfield');
-  await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' })).toHaveCount(before);
+  // svc-support's own typed refusal, naming the field, and the very same requests listed below it.
+  await expect(page.getByTestId('queue-filter-refused')).toContainText('"nosuchfield" (support.filter_invalid)');
+  await expect.poll(subjects).toEqual(before);
+
+  // With the owner's view cap blank, saving a view refuses and names the setting; nothing is saved.
+  restartWith('support', 'LOCAL_STACK_SUPPORT_VIEW_CAP', false);
+  try {
+    const name = `TEST capless ${RUN}`;
+    const refused = await asDesk('lead', 'mutation', 'viewsSave', {
+      name,
+      expectedRevision: 0,
+      shared: false,
+      filter: { field: 'category', op: 'eq', value: 'trading' },
+      reason: `TEST ${J} blank cap`,
+    });
+    expect(refused.json?.result?.data).toBeUndefined();
+    expect(refused.json?.error?.message).toBe('support.view_cap_unset support.view_personal_cap');
+    expect((await desk('lead', 'query', 'viewsList')).views.some((v) => v.name === name)).toBe(false);
+  } finally {
+    restartWith('support', 'LOCAL_STACK_SUPPORT_VIEW_CAP', true);
+  }
 });
 
 test(`${J} #3 searching a word in a subject lists only requests this agent may see`, async ({ page }) => {
@@ -243,7 +329,36 @@ test(`${J} #4 claiming the next request opens its workspace at its own address; 
 
 test(`${J} #5 the customer card shows the account state, never "active" when identity can't be read, and the related order or "none"`, async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(240_000);
+  // A request the desk has linked to the customer's own order shows that order, read from the link svc-trade vouched for.
+  const shopperPage = await browser.newPage();
+  const shopper = await fundedTrader(shopperPage, 'sq10o', '20');
+  await shopperPage.close();
+  const trader = await api(shopper);
+  const placed = await trader.post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'limit',
+    side: 'buy',
+    price: await awayBid(90),
+    amount: '0.0002',
+    clientOrderId: `${J}-${RUN}-card`,
+  });
+  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
+  const orderId = placed.body.id;
+  try {
+    const linkedTicket = await request(`TEST card order ${RUN}`, 'account', shopper);
+    await desk('lead', 'mutation', 'linkRecord', { ticketId: linkedTicket.id, kind: 'order', recordId: orderId });
+    const linkedWorkspace = await openRequest(page, await openQueue(page), linkedTicket);
+    await expect(linkedWorkspace.getByRole('region', { name: 'Customer', exact: true }).getByTestId('customer-related-order')).toHaveText(
+      orderId,
+    );
+  } finally {
+    const cancelled = await trader.delete(`/api/v1/orders/${orderId}?symbol=${encodeURIComponent('BTC/USDT')}`);
+    expect(cancelled.status, JSON.stringify(cancelled.body).slice(0, 300)).toBeLessThan(300);
+  }
+
   const ticket = await request(`TEST card ${RUN}`);
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
@@ -258,10 +373,8 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
   await expect(card.getByTestId('customer-related-order')).toHaveText('none');
 
   // With identity unreachable the card says "unread", never "active".
-  test.setTimeout(240_000);
   try {
-    tool('local-test-stack.mjs', 'stop', 'identity');
-    const dark = await desk('lead', 'query', 'accountState', { ticketId: ticket.id });
+    const dark = await accountStateAsIdentityStops(ticket.id);
     expect(dark).toEqual({ status: 'unread', reason: 'plane_dark' });
     // The console checks its founder with svc-identity before it reads anything, so with identity down the console
     // itself refuses the read; the card shows that refusal's code, and "unread".

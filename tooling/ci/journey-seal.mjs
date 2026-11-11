@@ -671,6 +671,9 @@ export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
+    // An automatic revert's commits (it must hold one) and the commit it reverts (autoRevertScope).
+    pullCommits: (n) => api(`/repos/${repo}/pulls/${n}/commits?per_page=2`, token),
+    commit: (sha) => api(`/repos/${repo}/commits/${sha}?per_page=300`, token),
     // A run whose last job (START_JOB) is what started this seal is read as finished (settledRun).
     runs: async (sha) =>
       settleRuns(
@@ -858,6 +861,71 @@ export function revertOf({ title, body, repo }) {
   const esc = String(repo).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const m = new RegExp(`^Reverts ${esc}#(\\d+)[ \\t]*$`, 'm').exec(String(body ?? '').replace(/\r/g, ''));
   return m ? Number(m[1]) : null;
+}
+
+// ---- The revert main-bisect opens runs narrow (project-state #1786 item 5, the programme lead's ruling D2) ----
+
+/** The branch and author of the revert main-bisect opens (journeys-revert.mjs revertBranch; the factory App). */
+export const AUTO_REVERT_BRANCH = /^revert\/auto-([0-9a-f]{10})$/;
+export const AUTO_REVERT_AUTHOR = 'intafaced-mac-agents[bot]';
+const REVERTS_COMMIT = /^This reverts commit ([0-9a-f]{40})\.$/m;
+const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(run \d+\)$/;
+
+/**
+ * The journey files the revert main-bisect opens runs: the journeys whose steps failed on main (its body's `- Failing:`
+ * line) and the reverted pull request's own (the journey tests the revert changes and the steps the culprit's title
+ * names), instead of everything the reverted code can reach. A revert restores code main's last green full run proved,
+ * and main's full journeys run after the merge is what guards main afterwards (it bisects and reverts again if red).
+ * Null when the pull request is not on a `revert/auto-<sha10>` branch; `{ ok: false, why }` when it is but any check
+ * fails, so it gets the ordinary scope: opened by the factory App from this repository, exactly one commit whose message
+ * says it reverts the commit the branch names, no file outside that commit's, no shared journey setup, and at least one
+ * journey file named. `commits`: GET /pulls/n/commits; `culprit`: GET /commits/<sha> (or null); `culpritTitle`: the
+ * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
+ */
+export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle = '', journeyFiles }) {
+  const branch = AUTO_REVERT_BRANCH.exec(String(pull?.head?.ref ?? ''));
+  if (!branch) return null;
+  const no = (why) => ({ ok: false, why: `an automatic revert's branch, but ${why}, so it runs the ordinary scope` });
+  if (pull?.head?.repo?.full_name !== repo) return no('its head is not in this repository');
+  if (pull?.user?.login !== AUTO_REVERT_AUTHOR || pull?.user?.type !== 'Bot') return no(`it was not opened by ${AUTO_REVERT_AUTHOR}`);
+  if (!Array.isArray(commits) || commits.length !== 1) return no('it does not hold exactly one commit');
+  const sha = REVERTS_COMMIT.exec(String(commits[0]?.commit?.message ?? ''))?.[1];
+  if (!sha || !sha.startsWith(branch[1])) return no(`its commit does not say it reverts ${branch[1]}`);
+  if (!Array.isArray(culprit?.files) || culprit.sha !== sha) return no(`the reverted commit ${branch[1]} could not be read`);
+  const own = new Set(pullFilePaths(culprit.files));
+  const outside = paths.filter((f) => !own.has(f));
+  if (outside.length) return no(`it changes ${outside.length} file(s) the reverted commit didn't`);
+  if (paths.some(isSharedSetup)) return no('it changes shared journey setup');
+  const failing = /^- Failing: (.+)$/m.exec(String(pull?.body ?? '').replace(/\r/g, ''))?.[1] ?? '';
+  const journeys = new Set([
+    ...[...failing.matchAll(/`(J-[a-z][a-z0-9-]*-\d+) #\d+`/g)].map((m) => m[1]),
+    ...paths.map((f) => JOURNEY_TEST.exec(f)?.[1]).filter(Boolean),
+    ...stepsIn(culpritTitle).map(journeyOf),
+  ]);
+  const dir = 'apps/customer/tests/real-app';
+  const files = [...journeyFiles].filter((f) => journeys.has(JOURNEY_TEST.exec(`${dir}/${f}`)?.[1])).sort();
+  if (!files.length) return no('it names no journey file');
+  return {
+    ok: true,
+    sha,
+    files,
+    why: `the automatic revert of ${sha.slice(0, 10)} runs the journeys that failed on main and the reverted change's own (${files.length}); main's full journeys run after the merge guards main`,
+  };
+}
+
+/** The culprit pull request number an automatic revert's title names, or null. */
+export const autoRevertCulprit = (title) => Number(CULPRIT_PULL.exec(String(title ?? ''))?.[1]) || null;
+
+/** Reads what autoRevertScope needs through `io` (pullCommits, commit, pull, journeyFiles), only for a revert/auto- branch. */
+export async function readAutoRevertScope({ io, repo, pull, number, paths }) {
+  if (!AUTO_REVERT_BRANCH.test(String(pull?.head?.ref ?? ''))) return null;
+  const commits = await io.pullCommits(number);
+  const sha = REVERTS_COMMIT.exec(String(commits?.[0]?.commit?.message ?? ''))?.[1];
+  const culprit = sha ? await io.commit(sha) : null;
+  const n = autoRevertCulprit(pull.title);
+  const culpritTitle = n ? String((await io.pull(n))?.title ?? '') : '';
+  const journeyFiles = await io.journeyFiles(pull.head.sha);
+  return autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle, journeyFiles });
 }
 
 /** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
@@ -1191,7 +1259,12 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     return texts.get(k);
   };
   const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text });
-  const touched = judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
+  // The revert main-bisect opens (autoRevertScope): it undoes the culprit's journey tests with it, so it names no steps,
+  // and it runs the journeys that failed on main and the culprit's own. Anything else on its branch is ordinary.
+  const auto = await readAutoRevertScope({ io, repo, pull, number, paths });
+  const touched = auto?.ok
+    ? { ok: true, lines: [`${auto.why}: its journey tests need no steps named`] }
+    : judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
   // The journeys this pull request can reach (journey-touch.mjs): a journey test file the head removed runs nothing.
   const atHead = new Map();
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
@@ -1200,7 +1273,9 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   const reverting = revertOf({ title: pull.title, body: pull.body, repo });
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
-    : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }));
+    : auto?.ok
+      ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
+      : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }));
   const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
@@ -1908,6 +1983,15 @@ async function main() {
   if (process.argv.includes('--seal-now')) return sealNowStep({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--clear-older')) return clearOlderStep({ repo: REPO, token: GH_TOKEN });
   const io = makeIo(REPO, GH_TOKEN);
+  // The journeys run's planner (real-app-journeys.yml) reads an automatic revert's narrow scope from the same rule.
+  const scopeAt = process.argv.indexOf('--auto-revert-scope');
+  if (scopeAt > 0) {
+    const n = Number(process.argv[scopeAt + 1]);
+    if (!Number.isSafeInteger(n) || n < 1) throw new Error('--auto-revert-scope needs a pull request number');
+    const pull = await io.pull(n);
+    const scope = await readAutoRevertScope({ io, repo: REPO, pull, number: n, paths: await io.files(n) });
+    return console.log(JSON.stringify(scope?.ok ? { files: scope.files, why: scope.why } : { files: null, why: scope?.why ?? '' }));
+  }
   const dry = process.argv.indexOf('--dry-run');
   if (dry > 0) {
     const [n, sha] = process.argv.slice(dry + 1);

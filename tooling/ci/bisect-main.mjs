@@ -28,6 +28,12 @@ const TEST_PATH = /^(apps|services|packages|tooling)\/[\w.-]+\/[\w./@-]+\.(test|
 export const MAX_COMMITS = 200;
 /** CI jobs on main whose failure names no test file, with the command that decides them: each probe runs it twice. */
 export const JOB_PROBES = { 'Doctrine gates': ['pnpm', 'gates'] };
+/**
+ * The pick 1 labels of the "Main is red" issue (project-state BUILDER.md; RULING 7, project-state #2065): it opens as
+ * `main-unknown-red` (main-trust.mjs) and switches to `regression` once this bisect names the merge that broke it.
+ * Defined here, not in main-trust.mjs, because this file runs alone from RUNNER_TEMP and may import nothing of ours.
+ */
+export const RED_LABELS = { untraced: 'main-unknown-red', traced: 'regression' };
 
 /** The probed job names in a comma- or line-separated list; anything else is refused. */
 export function parseJobs(text) {
@@ -155,11 +161,25 @@ async function report(repo, culprit, tests, probed, runUrl, jobs = []) {
   ];
   const body = lines.join('\n');
   if (pr) await gh('POST', `/repos/${repo}/issues/${pr}/comments`, { body });
+  const issue = await noteTracedRed(repo, body);
+  console.log(`culprit ${culprit} (${subject}); commented on ${pr ? `#${pr}` : 'no PR'}${issue ? ` and issue #${issue}` : ''}`);
+}
+
+/**
+ * The bisect named a merge: comment on the open "Main is red" issue and switch its pick 1 label from
+ * `main-unknown-red` to `regression`. Returns the issue number, or null when none is open.
+ */
+export async function noteTracedRed(repo, body) {
   const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "Main is red"`);
   const found = await gh('GET', `/search/issues?q=${q}&per_page=5`);
   const issue = (found.json?.items ?? []).find((i) => i.title === 'Main is red');
-  if (issue) await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body });
-  console.log(`culprit ${culprit} (${subject}); commented on ${pr ? `#${pr}` : 'no PR'}${issue ? ` and issue #${issue.number}` : ''}`);
+  if (!issue) return null;
+  await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body });
+  // Add the new label before removing the old, so the issue is never without a pick 1 label.
+  await gh('POST', `/repos/${repo}/issues/${issue.number}/labels`, { labels: [RED_LABELS.traced] });
+  const off = await gh('DELETE', `/repos/${repo}/issues/${issue.number}/labels/${RED_LABELS.untraced}`);
+  if (off.status !== 200 && off.status !== 404) throw new Error(`could not remove ${RED_LABELS.untraced}: HTTP ${off.status}`);
+  return issue.number;
 }
 
 function selfTest() {
@@ -215,6 +235,36 @@ function selfTest() {
     threw = true;
   }
   assert(threw, 'a job with no probe is refused, so no input becomes a command');
+}
+
+/** The traced-red path against a stub GitHub: what the bisect writes on the "Main is red" issue. */
+async function selfTestTraced() {
+  const assert = (cond, msg) => {
+    if (!cond) throw new Error(msg);
+  };
+  const calls = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const path = String(url).replace('https://api.github.com', '');
+    calls.push({ method: init.method, path, body: init.body ? JSON.parse(init.body) : null });
+    const json = path.startsWith('/search/issues') ? { items: [{ number: 7881, title: 'Main is red' }] } : {};
+    return new Response(JSON.stringify(json), { status: init.method === 'DELETE' ? 200 : 201 });
+  };
+  try {
+    assert((await noteTracedRed('o/r', 'culprit body')) === 7881, 'the open "Main is red" issue is found');
+  } finally {
+    globalThis.fetch = real;
+  }
+  const writes = calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`);
+  assert(
+    JSON.stringify(writes) ===
+      JSON.stringify([
+        'POST /repos/o/r/issues/7881/comments {"body":"culprit body"}',
+        'POST /repos/o/r/issues/7881/labels {"labels":["regression"]}',
+        'DELETE /repos/o/r/issues/7881/labels/main-unknown-red null',
+      ]),
+    `a traced red comments, adds regression, then removes main-unknown-red; got ${JSON.stringify(writes)}`,
+  );
   console.log('✓ bisect-main --self-test OK');
 }
 
@@ -241,9 +291,14 @@ async function main() {
   if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `culprit=${culprit}\n`);
 }
 
-if (process.argv.includes('--self-test')) {
+const runAsScript = import.meta.url === `file://${process.argv[1]}`;
+if (runAsScript && process.argv.includes('--self-test')) {
   selfTest();
-} else if (import.meta.url === `file://${process.argv[1]}`) {
+  selfTestTraced().catch((e) => {
+    console.error(`✖ bisect-main --self-test: ${e.message}`);
+    process.exit(1);
+  });
+} else if (runAsScript) {
   main().catch((e) => {
     console.error(`✖ bisect-main: ${e.message}`);
     process.exit(1);

@@ -128,6 +128,9 @@ import {
   readProcessIdentity,
   postgresProcessMatches,
   localPgOsUser,
+  stackCustodyLayer,
+  stackCustodyOff,
+  custodyOffRefusal,
 } from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
@@ -566,6 +569,8 @@ function startProc(name, argv, env, cwd, extra = {}) {
     startedAt: new Date().toISOString(),
     kernelStart,
     ...(off.length ? { offOverrides: off } : {}),
+    // The custody switch it runs (svc-ledger, svc-bank), so the TEST tools follow the running ledger (stackCustodyLayer).
+    ...(env?.LEDGER_CUSTODY_LAYER ? { custodyLayer: env.LEDGER_CUSTODY_LAYER } : {}),
     ...extra,
   };
   writeProcs(procs);
@@ -3383,6 +3388,10 @@ async function cmdFund(rawArgs) {
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
   if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  // Custody off (OWNER 226, OWNER 288): a deposit to a person's account would be customer money in our ledger, which
+  // svc-ledger refuses (ledger.custody_layer_off). Refused here, typed, before anything is read or posted; exit 3 says so
+  // to a caller. `house` (INTAFACED's own Convert inventory) is our own money and still posts.
+  if (who !== 'house' && stackCustodyOff(STATE)) fail(custodyOffRefusal(`local:fund ${asset} to ${who}`), 3);
   const secrets = readJson(P.secrets);
   const dbUrlParsed = new URL(dbUrl('svc_identity', secrets));
   if (
@@ -3459,6 +3468,8 @@ async function cmdFund(rawArgs) {
     };
     const res = await fetch(`${ledgerUrl}/trpc/${route}`, { redirect: 'error', method: 'POST', headers, body: raw });
     const text = await res.text();
+    // A ledger whose switch this stack did not record (started before it was) still refuses typed, not as a raw 412.
+    if (!res.ok && text.includes('ledger.custody_layer_off')) fail(custodyOffRefusal(`local:fund ${asset} to ${who}`), 3);
     if (!res.ok) fail(`ledger ${route} refused (${res.status}): ${text.slice(0, 400)}`);
     return JSON.parse(text);
   };
@@ -4204,6 +4215,8 @@ async function runCli() {
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'second-worker') await cmdSecondWorker(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  // `custody`: on or off, the switch the running svc-ledger was started with (the journeys workflow's setup reads it).
+  else if (cmd === 'custody') process.stdout.write(`${stackCustodyLayer(STATE)}\n`);
   else if (cmd === 'mining-share') await cmdMiningShare(rest);
   else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);

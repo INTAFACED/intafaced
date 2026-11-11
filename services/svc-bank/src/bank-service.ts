@@ -1,5 +1,11 @@
 import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
-import { bankCustodyLayer, custodyGuardedLedger, freezeGuardedCustody, type PostingFreeze } from './partner/partner-bank.js';
+import {
+  bankCustodyLayer,
+  custodyGuardedLedger,
+  freezeGuardedCustody,
+  type PartnerCustody,
+  type PostingFreeze,
+} from './partner/partner-bank.js';
 import { moneyHeldBy } from './partner/test-partner.js';
 import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
@@ -12,6 +18,9 @@ import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
+import { BudgetService } from './analytics/budgets.js';
+import { parseFeeTable, parsePlans, type FeeLine, type PlanTable } from './plans/plans.js';
+import { DormancyService, parseDormancyRules } from './dormancy/dormancy.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
@@ -89,6 +98,8 @@ export interface BankServices {
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
   readonly testPartner: TestPartner | null;
+  /** Who holds each person's bank money: the partner, or (null) the custodial layer. */
+  readonly partnerCustody: PartnerCustody;
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
@@ -103,6 +114,8 @@ export interface BankServices {
   readonly recovery: RecoveryClaimService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
+  /** BK-acct-08: budgets by category (policy rows), left to spend and month comparison, every figure a fold of the person's lines. */
+  readonly budgets: BudgetService;
   readonly portfolio: PortfolioService;
   readonly activity: ActivityService;
   readonly activityRecords: ActivityRecordService;
@@ -112,6 +125,10 @@ export interface BankServices {
   readonly accountDetails: AccountDetailsService;
   /** The owner's base-tier account terms (BK-acct-01). Blank refuses `bank.account_terms_unset`. */
   readonly accountTerms: () => AccountTerms;
+  /** BK-acct-04: the owner's plan table (null is blank) and account fee table (null is none published). */
+  readonly accountTables: { readonly plans: PlanTable | null; readonly fees: FeeLine[] | null };
+  /** RC-bank-01: the dormancy notice and fee. */
+  readonly dormancy: DormancyService;
   /** The currencies on an account: labels over ledger accounts (BK-acct-01). */
   readonly currencies: CurrencyService;
   /** Which profile a bank call is for, proved against the caller's own business memberships (J-bank-01 #7). */
@@ -251,6 +268,11 @@ export interface BankServiceOptions {
   accountDetails?: AccountDetailsOptions;
   /** Owner-published base-tier account terms as JSON (`BANK_ACCOUNT_TERMS_JSON`). No default: blank refuses. */
   accountTerms?: string | undefined;
+  /** BK-acct-04: the owner's plan table and account fee table (raw JSON; blank refuses or says not set). */
+  plans?: string | undefined;
+  feeTable?: string | undefined;
+  /** RC-bank-01: the owner's dormancy fee rules (raw JSON; blank refuses). */
+  dormancyRules?: string | undefined;
   /** Owner-published staking risk wording as JSON (`BANK_EARN_RISK_WORDING_JSON`, BK-earn-04). No default: blank refuses. */
   earnRiskWording?: string | undefined;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -401,7 +423,8 @@ export function createBankServices(
     accounts: options.recipients,
     riskWording: options.earnRiskWording,
   });
-  const analytics = new SpendAnalytics(spaces, history);
+  const analytics = new SpendAnalytics(spaces, history, custody);
+  const budgets = new BudgetService(sql, analytics);
   const portfolio = new PortfolioService(ledger, spaces, {
     ...(options.portfolio ?? {}),
     transferFees: { feesFor: (userId, txIds) => personalPay.feesFor(userId, txIds) },
@@ -552,6 +575,8 @@ export function createBankServices(
     receivedHolds,
     earn,
     analytics,
+    budgets,
+    partnerCustody: custody,
     portfolio,
     activity,
     activityRecords,
@@ -559,6 +584,8 @@ export function createBankServices(
     statementJobs,
     accountDetails,
     accountTerms,
+    accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
+    dormancy: new DormancyService(sql, custody, parseDormancyRules(options.dormancyRules)),
     currencies,
     profiles,
     assetPauses,

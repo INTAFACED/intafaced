@@ -3,17 +3,19 @@
  * JOURNEYS REVERT: when main's Real-app journeys turn red, find the one merged pull request that did it and open its
  * revert (workflow: main-bisect.yml, the `Journeys revert` jobs). OWNER 249 (3): "a red main is reverted".
  *
- *   trigger  Main trust's post-merge job, after a Real-app journeys run on main: a step that passed two runs ago and
- *            failed outright (not only on its retry) in the run before and in this one is a confirmed break (the next
- *            run is the journeys' re-run, as in post-merge-trust.mjs). It dispatches the revert jobs once, with the
- *            last passing commit, the first failing commit, that run and the broken steps. A flaky step (passed on its
- *            retry) never counts: the verdict sets it aside instead.
+ *   trigger  Main trust's post-merge job, after a Real-app journeys run on main: a step that passed in the run before
+ *            and failed outright (every try on this commit, so never a pass on its retry) in this one. It dispatches the
+ *            revert jobs at once, with the commit that passed, this one, this run and the broken steps. Waiting for the
+ *            next full run as well cost a run of 40 to 55 minutes out of OWNER 180's 2 hours (bisect run 14: the revert
+ *            opened 72 minutes after the first red finished). A flaky step never counts: the verdict sets it aside.
  *   find     The commits between the good and the bad commit (first parent, oldest first). The red run must show the
  *            named steps failing outright on the bad commit, or nothing is reverted (a known-good state opens nothing).
- *            One commit: that is the culprit. More: only the commits whose changed files can reach a failing journey
- *            (journey-touch.mjs with the touched-journeys map: a full-suite path or a failing journey's file) stay. One
- *            left: the culprit; none: no commit is blamed; several: the probe job runs the failing journey files on
- *            them by binary search (journeys-revert-probe.mjs).
+ *            Only the commits whose changed files can reach a failing journey (journey-touch.mjs with the
+ *            touched-journeys map: a full-suite path or a failing journey's file) stay, one commit in the range included.
+ *            None left: no commit is blamed. Any left, even one: the probe job runs the failing journey files on them on a
+ *            fresh stack (journeys-revert-probe.mjs) and blames only a commit where they fail there. A first red can be
+ *            the stack's: of 23 main runs read on 11 Nov 2026 it fired on 4, and 2 cleared in the next run (3465, 3810).
+ *            Run 3810's only reaching commit was an innocent one (#7275), so a lone candidate is probed too.
  *   open     With an App token (FACTORY_APP_KEY, the `factory` environment: main only), so the revert's own CI and
  *            merge seal run: a branch `revert/auto-<sha10>` from the base holding `git revert <culprit>`, a pull request
  *            naming the red run, the failing steps and the culprit's pull request, squash auto-merge armed, and a
@@ -35,7 +37,7 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { JOURNEYS_ARTIFACT, JOURNEYS_WORKFLOW, confirmedBreaks, stepStates } from './post-merge-trust.mjs';
+import { JOURNEYS_ARTIFACT, JOURNEYS_WORKFLOW, stepStates } from './post-merge-trust.mjs';
 import { journeyTouch } from './journey-touch.mjs';
 import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
 import { evaluateGateFileRule } from '../scripts/gate-file-guard.mjs';
@@ -85,10 +87,14 @@ export function outrightStates(report) {
   return states;
 }
 
-/** The steps to revert for, from the three newest runs' reports (oldest first): passed in `older`, failed outright in
- *  `previous` and `now`. Sorted, flat. */
-export function revertSteps(older, previous, now) {
-  return [...confirmedBreaks(stepStates(older), outrightStates(previous), outrightStates(now)).values()].flat();
+/** The steps to revert for, from the two newest runs' reports (oldest first): passed in `previous`, failed outright in
+ *  `now`. Sorted. A step red in `previous` as well started its revert a run ago, so it never starts another. */
+export function revertSteps(previous, now) {
+  const before = stepStates(previous);
+  return [...outrightStates(now)]
+    .filter(([key, state]) => state === 'failed' && before.get(key) === 'passed')
+    .map(([key]) => key)
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
 export function parseSteps(text) {
@@ -115,12 +121,11 @@ export function commitReaches(paths, failingFiles, reach, atHead) {
 }
 
 /**
- * The culprit from the commits (oldest first): { culprit } | { none: why } | { probe: [sha] }. `reachOf(sha)` says
+ * What the commits (oldest first) leave: { none: why } | { probe: [sha] }, never a culprit unproven. `reachOf(sha)` says
  * whether that commit can reach a failing journey.
  */
 export function narrow(commits, reachOf) {
   if (!commits.length) return { none: 'no commit lies between the good and the bad commit, so no commit broke it' };
-  if (commits.length === 1) return { culprit: commits[0], lines: [`\`${commits[0].slice(0, 10)}\`: the one commit in the range`] };
   const lines = [];
   const kept = [];
   for (const sha of commits) {
@@ -129,7 +134,6 @@ export function narrow(commits, reachOf) {
     if (r.reaches) kept.push(sha);
   }
   if (!kept.length) return { none: 'no commit in the range can reach the failing journeys', lines };
-  if (kept.length === 1) return { culprit: kept[0], lines };
   return { probe: kept, lines };
 }
 
@@ -260,29 +264,25 @@ async function trigger(env) {
         ['success', 'failure', 'timed_out'].includes(r.conclusion),
     )
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-  const [prevRun, olderRun] = earlier;
-  if (!prevRun || !olderRun) return summary(['Journeys revert: fewer than two earlier finished runs on main; nothing to compare.']);
-  const [now, prev, older] = [
-    await runReport(gh, repo, run.id, env.GH_TOKEN),
-    await runReport(gh, repo, prevRun.id, env.GH_TOKEN),
-    await runReport(gh, repo, olderRun.id, env.GH_TOKEN),
-  ];
-  if (!now || !prev || !older) return summary(['Journeys revert: one of the three runs kept no journey report; nothing is reverted.']);
-  const steps = revertSteps(older, prev, now);
+  const [prevRun] = earlier;
+  if (!prevRun) return summary(['Journeys revert: no earlier finished run on main; nothing to compare.']);
+  const [now, prev] = [await runReport(gh, repo, run.id, env.GH_TOKEN), await runReport(gh, repo, prevRun.id, env.GH_TOKEN)];
+  if (!now || !prev) return summary(['Journeys revert: one of the two runs kept no journey report; nothing is reverted.']);
+  const steps = revertSteps(prev, now);
   if (!steps.length)
     return summary([
-      `Journeys revert: no step passed on \`${olderRun.head_sha.slice(0, 10)}\` and then failed outright twice; nothing to revert.`,
+      `Journeys revert: no step passed on \`${prevRun.head_sha.slice(0, 10)}\` and then failed outright; nothing to revert.`,
     ]);
-  if (olderRun.head_sha === prevRun.head_sha)
+  if (prevRun.head_sha === run.head_sha)
     return summary([
       `Journeys revert: ${steps.join(', ')} broke with no commit between the runs (flaky or outside the code); nothing to revert.`,
     ]);
-  const inputs = { good: olderRun.head_sha, bad: prevRun.head_sha, journeys: steps.join(','), red_run: String(prevRun.id), base: 'main' };
+  const inputs = { good: prevRun.head_sha, bad: run.head_sha, journeys: steps.join(','), red_run: String(run.id), base: 'main' };
   const r = await gh('POST', `/repos/${repo}/actions/workflows/main-bisect.yml/dispatches`, { ref: 'main', inputs });
   summary([
     `### Journeys revert`,
     '',
-    `${steps.join(', ')} passed on \`${olderRun.head_sha.slice(0, 10)}\` (run ${olderRun.id}) and failed outright on \`${prevRun.head_sha.slice(0, 10)}\` (run ${prevRun.id}) and \`${run.head_sha.slice(0, 10)}\` (run ${run.id}).`,
+    `${steps.join(', ')} passed on \`${prevRun.head_sha.slice(0, 10)}\` (run ${prevRun.id}) and failed outright on \`${run.head_sha.slice(0, 10)}\` (run ${run.id}).`,
     r.status === 204 || r.status === 0
       ? 'Dispatched main-bisect.yml to find the culprit and open its revert.'
       : `Dispatch failed: HTTP ${r.status}`,
@@ -376,12 +376,8 @@ async function find(env) {
     '',
   ];
   if (result.none) return none(result.none, result.lines, true);
-  if (result.probe) {
-    summary([...head, `${result.probe.length} commits can reach them: the probe runs ${files.join(', ')} on them by binary search.`]);
-    return output({ culprit: '', probe: 'true', candidates: result.probe.join(' '), files: files.join(' '), steps: steps.join(',') });
-  }
-  summary([...head, `Culprit: \`${result.culprit.slice(0, 10)}\` ${git('log', '-1', '--format=%s', result.culprit)}`]);
-  output({ culprit: result.culprit, probe: 'false', steps: steps.join(',') });
+  summary([...head, `${result.probe.length} commit(s) can reach them: the probe runs ${files.join(', ')} on them.`]);
+  output({ culprit: '', probe: 'true', candidates: result.probe.join(' '), files: files.join(' '), steps: steps.join(',') });
 }
 
 // ── open ───────────────────────────────────────────────────────────────────
@@ -394,7 +390,11 @@ export function failingText({ kind, steps = [], tests = [], jobs = [] }) {
 
 // ── the break issue (OWNER 289 item 6) ────────────────────────────────────────
 
-/** Main trust's one issue per broken journey (post-merge-trust.mjs journeyIssueTitle): this job never opens another. */
+/**
+ * Main trust's one issue per broken journey (post-merge-trust.mjs journeyIssueTitle). A revert starts on the first red
+ * and main trust opens the issue on the second, so the revert opens that same issue when it is not there yet, labelled
+ * from the moment it exists; main trust then comments on it, and there is never a second one.
+ */
 export const BREAK_ISSUE_PREFIX = 'Journey broken on main: ';
 export const UNKNOWN_LABEL = 'main-unknown-red';
 
@@ -411,13 +411,15 @@ export function breakIssueNotes({ steps, revertUrl, reason, redRunUrl }) {
   return journeysOf(steps).map((journey) => ({
     title: `${BREAK_ISSUE_PREFIX}${journey}`,
     labels: revertUrl ? ['regression'] : [UNKNOWN_LABEL],
+    // Only a traced red opens its issue: an untraced one may be the stack's own, and main-unknown-red stops every builder.
+    opens: Boolean(revertUrl),
     body: revertUrl
-      ? `The revert on main opened ${revertUrl} for this break ([red run](${redRunUrl})). When it merges and the steps pass again on main, this issue closes itself.\n\n_Posted by tooling/ci/journeys-revert.mjs._`
+      ? `The revert on main opened ${revertUrl} for this break ([red run](${redRunUrl})). When it merges and the steps pass again on main, this issue closes itself.\n\n<!-- steps: ${steps.filter((s) => s.split('#')[0] === journey).join(', ')} -->\n_Posted by tooling/ci/journeys-revert.mjs._`
       : `The revert on main traced this red ([red run](${redRunUrl})) to no single merge: ${reason}. Nothing was reverted, so a person or a builder finds the cause.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
   }));
 }
 
-/** Comments and labels each note's open break issue, with the workflow's own token. Never opens an issue. */
+/** Comments on and labels each note's open break issue with the workflow's own token, or opens it where the note says. */
 async function noteBreakIssues(token, repo, notes) {
   if (!token) return ['- No issues token, so no break issue was noted.'];
   const gh = client(token);
@@ -427,7 +429,12 @@ async function noteBreakIssues(token, repo, notes) {
     const { json } = await gh('GET', `/search/issues?q=${q}&per_page=5`);
     const issue = (json?.items ?? []).find((i) => i.title === note.title);
     if (!issue) {
-      lines.push(`- ${note.title}: no open issue, so none is noted (main trust opens it)`);
+      if (!note.opens) {
+        lines.push(`- ${note.title}: no open issue, so none is noted (main trust opens it)`);
+        continue;
+      }
+      const made = await gh('POST', `/repos/${repo}/issues`, { title: note.title, body: note.body, labels: note.labels });
+      lines.push(`- ${note.title}: opened #${made.json?.number} (${note.labels.join(', ')})`);
       continue;
     }
     await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body: note.body });
@@ -576,14 +583,37 @@ async function open(env) {
     }
   } finally {
     if (token && !dry) {
-      // Revoke, then prove it: GitHub must refuse the token afterwards (401).
+      // Revoke, then prove it: GitHub must refuse the token afterwards (401). A revoke takes a moment to reach every
+      // GitHub front end (run 42748252246: revoke 204, then 200 at once), so the refusal is asked for a few times.
       const end = await fetch(`${API}/installation/token`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
-      const after = await fetch(`${API}/repos/${repo}`, { headers: { authorization: `Bearer ${token}` } });
-      if (end.status !== 204 || after.status !== 401)
-        throw new Error(`the revert token may still be live (revoke ${end.status}, then ${after.status})`);
-      console.log('the revert token is revoked: GitHub now refuses it (401)');
+      const after =
+        end.status === 204
+          ? await refusedAfterRevoke(
+              async () => (await fetch(`${API}/repos/${repo}`, { headers: { authorization: `Bearer ${token}` } })).status,
+            )
+          : { refused: false, status: 'not asked', tries: 0 };
+      if (end.status !== 204 || !after.refused)
+        throw new Error(`the revert token may still be live (revoke ${end.status}, then ${after.status} after ${after.tries} tries)`);
+      console.log(`the revert token is revoked: GitHub now refuses it (401, after ${after.tries} tries)`);
     }
   }
+}
+
+/** How many times, and how long apart, a revoked token's refusal is asked for: about 20 s in all. */
+export const REVOKE_PROBES = [0, 1000, 2000, 3000, 5000, 8000];
+/**
+ * Whether GitHub refuses a revoked token: `probe()` answers the HTTP status of a read made with it. Only a 401 counts as
+ * refused; any other answer (200, a 5xx) is asked again after the next wait, and still not 401 after the last one is not
+ * refused. `sleep` stands in for setTimeout in the self-test.
+ */
+export async function refusedAfterRevoke(probe, { waits = REVOKE_PROBES, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let status;
+  for (let i = 0; i < waits.length; i++) {
+    if (waits[i]) await sleep(waits[i]);
+    status = await probe();
+    if (status === 401) return { refused: true, status, tries: i + 1 };
+  }
+  return { refused: false, status, tries: waits.length };
 }
 
 // ── self-test ──────────────────────────────────────────────────────────────
@@ -599,12 +629,10 @@ function selfTest() {
   const flaky = report(spec('J-a-01 #1 x', 'expected'), spec('J-a-01 #2 y', 'flaky'));
   eq([...outrightFailures(red)], [['J-a-01#2', 'J-a-01.pw.mjs']], 'an unexpected test fails its step outright, with its file');
   eq([...outrightFailures(flaky)], [], 'a pass on the retry is not an outright failure');
-  eq(revertSteps(pass, red, red), ['J-a-01#2'], 'passed, then failed outright twice: revert');
-  eq(revertSteps(pass, red, flaky), [], 'planted fault: flaky in the newest run reverts nothing');
-  eq(revertSteps(pass, flaky, flaky), [], 'flaky twice reverts nothing (the verdict sets it aside)');
-  eq(revertSteps(pass, pass, pass), [], 'known-good: green runs revert nothing');
-  eq(revertSteps(red, red, red), [], 'a step that never passed reverts nothing');
-  eq(revertSteps(pass, pass, red), [], 'one red run is not confirmed yet');
+  eq(revertSteps(pass, red), ['J-a-01#2'], 'passed, then failed outright: revert at once');
+  eq(revertSteps(pass, flaky), [], 'planted fault: a pass on the retry reverts nothing (the verdict sets it aside)');
+  eq(revertSteps(pass, pass), [], 'known-good: green runs revert nothing');
+  eq(revertSteps(red, red), [], 'a step already red started its revert a run ago, so it never starts another');
   eq(parseSteps('J-a-01#2, J-a-01#10 J-a-01#2'), ['J-a-01#2', 'J-a-01#10'], 'steps parse, dedupe, numeric order');
   let threw = false;
   try {
@@ -617,9 +645,14 @@ function selfTest() {
   const B = 'b'.repeat(40);
   const C = 'c'.repeat(40);
   eq(narrow([], () => ({})).none.startsWith('no commit'), true, 'no commit: nothing blamed');
-  eq(narrow([A], () => ({ reaches: false })).culprit, A, 'one commit is the culprit');
+  eq(narrow([A], () => ({ reaches: true, why: 'x' })).probe, [A], 'one commit that can reach the journey is probed, never blamed unproven');
+  eq(
+    narrow([A], () => ({ reaches: false, why: 'x' })).none?.startsWith('no commit in the range'),
+    true,
+    'one commit that cannot is blamed for nothing',
+  );
   const reach = { [A]: { reaches: false, why: 'none' }, [B]: { reaches: true, why: 'x' }, [C]: { reaches: false, why: 'none' } };
-  eq(narrow([A, B, C], (s) => reach[s]).culprit, B, 'the one commit that can reach the journey');
+  eq(narrow([A, B, C], (s) => reach[s]).probe, [B], 'the one commit of several that can reach the journey is probed');
   eq(narrow([A, B, C], () => ({ reaches: false, why: '' })).none?.startsWith('no commit in the range'), true, 'none can reach');
   eq(narrow([A, B, C], () => ({ reaches: true, why: '' })).probe, [A, B, C], 'several can reach: probe');
   const atHead = () => true;
@@ -677,6 +710,8 @@ function selfTest() {
     "a revert notes the journey's one issue as a regression",
   );
   eq(linked[0].body.includes('https://github.com/o/r/pull/9'), true, 'the note links the revert');
+  eq(linked[0].opens, true, 'a traced red opens its journey issue when main trust has not yet');
+  eq(linked[0].body.includes('<!-- steps: J-a-01#2, J-a-01#3 -->'), true, 'the opened issue names its steps, so main trust can close it');
   const untraced = breakIssueNotes({ steps: ['J-b-02#1'], reason: 'no commit between them can reach J-b-02', redRunUrl: 'u' });
   eq(
     untraced.map((n) => n.labels),
@@ -684,12 +719,47 @@ function selfTest() {
     'a red traced to no single merge is main-unknown-red',
   );
   eq(untraced[0].body.includes('no commit between them can reach J-b-02'), true, 'the note says why');
-  console.log('✓ journeys-revert --self-test OK (40 fixtures)');
+  eq(untraced[0].opens, false, 'an untraced red opens no issue: main-unknown-red stops every builder');
+  console.log('✓ journeys-revert --self-test OK (42 fixtures)');
+}
+
+async function selfTestRevoke() {
+  const eq = (got, want, m) => {
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+  };
+  const answers = (...list) => {
+    const left = [...list];
+    return async () => left.shift() ?? 200;
+  };
+  const sleep = async () => {};
+  eq(await refusedAfterRevoke(answers(401), { sleep }), { refused: true, status: 401, tries: 1 }, 'refused at once');
+  eq(
+    await refusedAfterRevoke(answers(200, 200, 401), { sleep }),
+    { refused: true, status: 401, tries: 3 },
+    'refused once the revoke lands',
+  );
+  eq(await refusedAfterRevoke(answers(502, 401), { sleep }), { refused: true, status: 401, tries: 2 }, 'a 5xx is asked again');
+  eq(
+    await refusedAfterRevoke(answers(), { sleep }),
+    { refused: false, status: 200, tries: REVOKE_PROBES.length },
+    'still live: not refused',
+  );
+  eq(
+    await refusedAfterRevoke(answers(403, 403, 403, 403, 403, 403), { sleep }),
+    { refused: false, status: 403, tries: 6 },
+    'only a 401 counts',
+  );
+  const slept = [];
+  await refusedAfterRevoke(answers(), { sleep: async (ms) => slept.push(ms) });
+  eq(slept, REVOKE_PROBES.filter(Boolean), 'waits between tries');
+  console.log('✓ journeys-revert revoke self-test OK (6 fixtures)');
 }
 
 const COMMANDS = { trigger, find, open, unknown };
-if (process.argv.includes('--self-test')) selfTest();
-else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv.includes('--self-test')) {
+  selfTest();
+  await selfTestRevoke();
+} else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {
     console.error('usage: journeys-revert.mjs trigger|find|open|unknown|--self-test');

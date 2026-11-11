@@ -18,10 +18,18 @@ export const spaceSchema = z
     /** Set when this pot pays the person's bills (BK-pots-03). Absent from a bank that predates it. */
     billsPot: z.object({ fallback: z.boolean() }).nullable().optional(),
     balance: decimalSchema,
-    ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }),
+    /** Null when the partner bank holds this money: no ledger account does, and `heldAt` says whose figure it is. */
+    ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }).nullable(),
+    heldAt: z
+      .object({ label: z.string(), asOf: z.string().datetime({ offset: true }) })
+      .nullable()
+      .optional(),
   })
   .refine(
-    (space) => space.assetId === space.ledgerAccount.assetId && space.ledgerAccount.kind === 'available',
+    (space) =>
+      space.ledgerAccount
+        ? space.assetId === space.ledgerAccount.assetId && space.ledgerAccount.kind === 'available'
+        : Boolean(space.heldAt),
     copyText('client.space.account.must.match.its.asset.and'),
   );
 export type Space = z.infer<typeof spaceSchema>;
@@ -102,7 +110,8 @@ export function createMoneyClient(api: ApiClient) {
       const conflicts = new Set<string>();
       for (const space of spaces.ok ? spaces.data : []) {
         if (space.kind !== 'primary') continue;
-        if (space.ledgerAccount.ownerType !== 'user' || space.ledgerAccount.ownerId !== ownerId) {
+        // Partner-held money has no ledger account to check; the schema has already required the partner's label.
+        if (space.ledgerAccount && (space.ledgerAccount.ownerType !== 'user' || space.ledgerAccount.ownerId !== ownerId)) {
           conflicts.add(space.assetId);
           continue;
         }
