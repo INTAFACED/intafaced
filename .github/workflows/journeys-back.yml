@@ -22,7 +22,9 @@ concurrency:
 jobs:
   back:
     name: Start the journeys alone on main
-    if: startsWith(github.event.head_commit.message, 'Revert #') || startsWith(github.event.head_commit.message, 'ci: revert #')
+    # Quoted: in a plain YAML scalar a ` #` starts a comment, which cut this line at 'Revert and broke the whole file
+    # (every push on 11 Nov 2026 failed with a workflow file issue, e.g. run 43026984577).
+    if: "startsWith(github.event.head_commit.message, 'Revert #') || startsWith(github.event.head_commit.message, 'ci: revert #')"
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     permissions:

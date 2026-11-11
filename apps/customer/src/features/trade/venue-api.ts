@@ -446,6 +446,9 @@ export function venueApi(api: ApiClient) {
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal) => read('/fills', asOf(z.array(venueFillSchema)), { owner, since }, signal),
     positions: (owner: string, signal?: AbortSignal) => read('/positions', asOf(z.array(venuePositionSchema)), { owner }, signal),
+    /** The owner's own sub-accounts, as the venue lists them on the main account (J-agents-08 #2). */
+    subAccounts: (owner: string, signal?: AbortSignal) =>
+      read('/sub-accounts', asOf(z.array(z.object({ subAccount: z.string(), name: z.string() }))), { owner }, signal),
     leverage: (owner: string, symbol: string, signal?: AbortSignal, venueId?: string) =>
       read('/leverage', asOf(venueLeverageSchema.nullable()), { owner, symbol, venueId }, signal),
     builderFeeApproval: (owner: string, signal?: AbortSignal, venueId?: string) =>
