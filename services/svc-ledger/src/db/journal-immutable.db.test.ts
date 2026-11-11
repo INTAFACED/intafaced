@@ -129,7 +129,7 @@ describe('0023 — posted history is append-only and every transaction balances'
 
     it('normal posting, reconcile and verifyChain still pass', async () => {
       await engine.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('50'), rail: 'test', railRef: 'imm-2' }));
-      const report = await runReconciliation(db.sql);
+      const report = await runReconciliation(db.sql, 'on');
       expect(report.ok).toBe(true);
       expect(await reconcileBalances(db.sql)).toMatchObject({ ok: true });
       expect(await verifyChain(db.sql)).toMatchObject({ ok: true });

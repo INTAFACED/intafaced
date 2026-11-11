@@ -87,6 +87,7 @@ import {
   academyCreateCourseInputSchema,
   academyUpdateCourseInputSchema,
   academySetCourseStateInputSchema,
+  academyWithdrawCoursePriceInputSchema,
   academySaveOutlineInputSchema,
   academyLessonSchema,
   academySaveLessonInputSchema,
@@ -3327,6 +3328,12 @@ export function createAcademyRouter(
         .input(academySetCourseStateInputSchema)
         .output(academyCourseSchema)
         .mutation(({ input, ctx }) => guard(() => academy.setCourseState({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** J-academy-01 #5: withdraw a published paid course's price with a reason; it stays published and shows with no price. */
+      withdrawCoursePrice: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyWithdrawCoursePriceInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.withdrawCoursePrice({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-course-structure-02: replace a draft's outline (sections of typed items) over the revision read, inside the owner's limits. */
       saveOutline: scopedProcedure('admin:write', { module: 'academy' })

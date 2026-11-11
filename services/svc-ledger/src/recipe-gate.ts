@@ -976,11 +976,57 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     {
       name: 'builderFeeEarn',
-      post: recipes.builderFeeEarn({ venueId: 'test-venue-sim', fillId: 'f-builder', assetId: 'USDC', amount: AMT, userId: U }),
+      post: recipes.builderFeeEarn({
+        venueId: 'test-venue-sim',
+        venueAccount: '0x00000000000000000000000000000000000000a1',
+        fillId: 'f-builder',
+        assetId: 'USDC',
+        amount: AMT,
+        userId: U,
+      }),
     },
     {
       name: 'builderFeeReceive',
-      post: recipes.builderFeeReceive({ venueId: 'test-venue-sim', payoutId: 'p-builder', assetId: 'USDC', amount: AMT }),
+      post: recipes.builderFeeReceive({ venueId: 'test-venue-sim', claimId: 'p-builder', assetId: 'USDC', amount: AMT }),
+    },
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest',
+      }),
+    },
+    {
+      name: 'campaignBudgetFund',
+      post: recipes.campaignBudgetFund({ campaignId: 'test-campaign', decisionId: 'approval-test', assetId: 'USDC', amount: AMT }),
+    },
+    {
+      name: 'rewardOwe',
+      // Shape sample only, never posted: a TEST ceiling, because the owner's ceiling is unset and Owe refuses without one.
+      post: recipes.rewardOwe({
+        campaignId: 'test-campaign',
+        rewardId: `campaign:test-campaign:${U}:test`,
+        userId: U,
+        kind: 'reward',
+        assetId: 'USDC',
+        amount: AMT,
+        ceiling: { perCampaign: AMT, total: AMT },
+        owedSoFar: { campaign: 0n, total: 0n },
+      }),
+    },
+    {
+      name: 'rewardPayOut',
+      post: recipes.rewardPayOut({
+        rewardId: `campaign:test-campaign:${U}:test`,
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
     },
     {
       name: 'tradeFillMakerRebate',

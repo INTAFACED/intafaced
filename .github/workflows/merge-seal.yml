@@ -9,22 +9,25 @@ name: CI merge seal
 # job named `CI merge seal` on a head must pass (probe #7547: a red one blocked the merge though a green one finished
 # after it).
 #
-# One verdict per head, once its inputs have finished (INTAFACED/project-state#1574, 9 Nov 2026). A push, open, reopen
-# or edit starts a run whose first attempt asks whether to seal now (the `now` job). Usually it waits: the seal job is
-# skipped, the head holds no `CI merge seal` check, and a missing required check blocks the merge. When the last input
-# finishes (CI, the CI review, the journeys run the change needs), journey-seal-recheck.yml re-runs this run, and that
-# attempt is the verdict. A change that touches .github/, or whose head's ci.yml predates `CI jobs`, seals at once as
-# before, since it could pass a seal job of its own while this one waits. Before this the seal was red from every push
-# until a re-run: 375 of 510 runs ended red in the 24 h to 10:00 UTC on 9 Nov, and one run reached 7 attempts.
-# An older red verdict left on the head (a reopen) is re-run in place: journey-seal-recheck.yml (otherSeals), the CI
-# review job when its verdict lands (seal-rerun.mjs sealsByRun), the factory switch on a flip.
+# One verdict per head, once its inputs have finished (INTAFACED/project-state#1574, 9 Nov 2026). A push, open, reopen,
+# edit or arming starts a run whose first attempt asks whether to seal now (the `now` job). Usually it waits: the seal
+# job is skipped, the head holds no `CI merge seal` check, and a missing required check blocks the merge. Each input
+# (CI, the CI review, the journeys run the change needs) ends with a `Start the seal` job (journey-seal.mjs --recheck,
+# START_JOB); the one that finds every input finished re-runs this run, and that attempt is the verdict. A change that
+# could pass a seal job of its own while this one waits (one that touches .github/, sealNow) seals at once, as before.
+# Before this the seal was red from every push until a re-run: 375 of 510 runs ended red in the 24 h to 10:00 UTC on
+# 9 Nov, and one run reached 7 attempts.
+# An older red verdict left on the head (an edit, a reopen) is re-run in place by the green verdict after it (the seal
+# job's last step, journey-seal.mjs --clear-older), and by the factory switch on a flip.
 on:
   pull_request_target:
     branches: [main]
     # `edited`: a pull request retargeted to main gets this seal too (review 7552-R1). An edit, like a push, asks whether
     # to seal now; when a verdict is already on the head it seals at once, so an earlier green never stands for the new
     # title or body (CI review on e1ba6699). Fails closed: a missing seal blocks, and a running one does too.
-    types: [opened, synchronize, reopened, edited]
+    # `auto_merge_enabled`: an input's `Start the seal` job touches only armed pull requests (journey-seal.mjs armed), so
+    # one armed after its inputs finished is sealed here, at once when they have.
+    types: [opened, synchronize, reopened, edited, auto_merge_enabled]
 
 permissions: {}
 
@@ -37,23 +40,23 @@ permissions: {}
 #     probe #7547; pr-checks.yml dropped `edited` for this). GitHub keeps one waiting run per group, so a newer event
 #     replaces a waiting one; a replaced run never started a job, so it leaves no check run, red or green, on the head,
 #     and the run that replaced it seals the same head with the newer title and body.
-#   - a re-run (run_attempt above 1: journey-seal-recheck.yml, the CI review's seal re-run, the factory switch) keeps a
-#     group of its own: it is never cancelled or replaced, and re-running an old head's seal never cancels the new
-#     head's. A re-run is posted only while the pull request is still on that head (journey-seal.mjs rerunBlocker,
-#     seal-rerun.mjs moved), and re-running the newest seal and then an older red one on one head cancels neither.
+#   - a re-run (run_attempt above 1: an input's `Start the seal` job, a green verdict re-running an older red one, the
+#     factory switch) keeps a group of its own: it is never cancelled or replaced, and re-running an old head's seal
+#     never cancels the new head's. A re-run is posted only while the pull request is still on that head (journey-seal.mjs
+#     rerunBlocker), and re-running the newest seal and then an older red one on one head cancels neither.
+#   - an arming (`auto_merge_enabled`) keeps a group of its own too, like an edit: it never replaces a waiting push.
 # Main is never touched: this runs on pull requests only. workflow-concurrency.test.mjs holds this.
 concurrency:
-  # An edit that is not a retarget (its job is skipped) keeps a group of its own: in the pull request's group it could
-  # replace a waiting push's seal and leave the new head with none.
-  group: ${{ github.run_attempt == '1' && (github.event.action != 'edited' || github.event.changes.base) && format('merge-seal-pr-{0}', github.event.pull_request.number) || format('merge-seal-{0}', github.run_id) }}
+  # An edit that is not a retarget, or an arming, keeps a group of its own: in the pull request's group it could replace
+  # a waiting push's seal and leave the new head with none.
+  group: ${{ github.run_attempt == '1' && ((github.event.action != 'edited' && github.event.action != 'auto_merge_enabled') || github.event.changes.base) && format('merge-seal-pr-{0}', github.event.pull_request.number) || format('merge-seal-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.run_attempt == '1' && (github.event.action == 'synchronize' || github.event.action == 'opened') }}
 
 jobs:
   # One verdict once the seal's inputs have finished (journey-seal.mjs sealNow; INTAFACED/project-state#1574). A first
-  # attempt asks whether to seal now; when it waits, the seal job below is skipped and journey-seal-recheck.yml re-runs
-  # this run when the last input (CI, the CI review, the journeys the change needs) finishes. It seals now when the change
-  # touches .github/ or its head's ci.yml still names its job `CI merge seal`: either could pass a seal of its own while
-  # this one waits. Any error here fails this job, and the seal then runs at once.
+  # attempt asks whether to seal now; when it waits, the seal job below is skipped and the `Start the seal` job of the
+  # last input to finish (CI, the CI review, the journeys the change needs) re-runs this run. It seals now when something
+  # could pass a seal of its own while this one waits (sealNow). Any error here fails this job, and the seal then runs at once.
   now:
     name: Does the seal wait for its inputs
     if: github.run_attempt == '1'
@@ -91,7 +94,7 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: read # the default branch's scripts
-      actions: read # CI's, the CI review's and the journeys' runs and jobs on the head
+      actions: write # CI's, the CI review's and the journeys' runs and jobs on the head; re-run an older red seal here
       pull-requests: read # the changed files, title and body
       issues: read # the regression issues the journeys baseline names
     steps:
@@ -138,3 +141,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: node tooling/ci/factory-switch.mjs
+      # A green verdict re-runs each older red `CI merge seal` on this head (an edit or reopen left one), since every
+      # one must pass (probe #7547); each re-run judges again what this one just judged (journey-seal.mjs clearOlderReds).
+      # It runs only when every step above passed.
+      - name: Re-run older red seals on this head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: node tooling/ci/journey-seal.mjs --clear-older

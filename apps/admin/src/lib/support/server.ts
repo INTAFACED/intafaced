@@ -214,14 +214,30 @@ export async function loadTicketProperties(
   return { asOf: now.toISOString(), properties: partFrom(result, (p) => p, LABELS) };
 }
 
+/** The order ids among a request's links, or null for an answer that is not a list of links. */
+export function readLinkedOrders(raw: unknown): readonly string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const orders: string[] = [];
+  for (const link of raw as unknown[]) {
+    if (typeof link !== 'object' || link === null) return null;
+    const { kind, recordId } = link as { kind?: unknown; recordId?: unknown };
+    if (typeof kind !== 'string' || typeof recordId !== 'string') return null;
+    if (kind === 'order') orders.push(recordId);
+  }
+  return orders;
+}
+
 /**
  * The customer card's account state, read through svc-support (which takes the account from the request, never from
  * the caller, and writes the read to the request's history). A refusal or an unreachable service is the part's
  * failure, shown as unread: never a guessed state.
  */
 export async function loadCustomerCard(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportCustomerView> {
-  const result = await founderCall(ctx, 'support', 'accountState', 'GET', { ticketId }, parseWith(supportAccountGroundingSchema));
-  return { asOf: now.toISOString(), account: partFrom(result, (a) => a, LABELS) };
+  const [account, orders] = await Promise.all([
+    founderCall(ctx, 'support', 'accountState', 'GET', { ticketId }, parseWith(supportAccountGroundingSchema)),
+    founderCall(ctx, 'support', 'ticketLinks', 'GET', { ticketId }, readLinkedOrders),
+  ]);
+  return { asOf: now.toISOString(), account: partFrom(account, (a) => a, LABELS), orders: partFrom(orders, (o) => o, LABELS) };
 }
 
 /** Who a ticket waits on and the request it follows. Its own read, so a refusal here never hides the ticket. */

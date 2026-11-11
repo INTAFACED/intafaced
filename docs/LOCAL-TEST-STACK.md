@@ -47,6 +47,15 @@ Real: the code. Identity, Ledger, Trade, Matching, Pay, Bank and Edge are the re
 
 Test: the money. `local:fund` posts a `deposit` recipe on rail `local-test` with reference `LOCAL-TEST-<timestamp>-<id>`, so every entry is labelled. It refuses unless the marker file exists and the database is `127.0.0.1` on the stack's port. No bank, card, chain or exchange feed is connected. Prices, bank cards, on-chain Pay and loans' price marks are unavailable. WebSocket `/ws` reaches the stack's own svc-ws (`GET /ws/streams` lists its streams); its owner limits are blank, so each stream door refuses by its own `ws.*_unset` code, and `LOCAL_STACK_WS_UPSTREAM=off` on a start or restart of `customer` leaves `/ws` blank (503 `ws.upstream_unset`). Background money jobs in Bank (scheduled transfers, auto-invest, interest, loan accrual) are switched off.
 
+### Custody off
+
+With svc-ledger started with `LEDGER_CUSTODY_LAYER` off, as the launch build runs it (OWNER 226, OWNER 288; `docs/adr/2026-11-10-launch-money-model.md`), INTAFACED's ledger holds no customer money, so the TEST tools never post to a person's account. The stack records the switch on each process it starts with one (`run/processes.json`); `node tooling/scripts/local-test-stack.mjs custody` prints `on` or `off`, and the tools follow that record, not their own environment:
+
+- `local:fund <person>` refuses, exit 3, `local_test.custody_layer_off`, before anything is read or posted. A TEST person's money is where launch keeps it: at the TEST partner (`testPartner.fund`) or on their own TEST venue account. `local:fund house` (INTAFACED's own Convert inventory) still posts.
+- The living test market (`start`, `ensure`, `check`, `history`) does not start and exits 0: it quotes, trades and charts only on our own order book, which is off with custody off (project-state `research/fable-money-2026-11-10/changes/b2-reconcile-and-freeze.md`, change 5), and it is funded by deposits to its two accounts.
+- `local-test-seed.mjs apply` leaves the TEST earn pools and loan products out (their reserves are funded through the TEST funder's account) and loads the house inventory and the TEST P2P method; `fund-earn-pool` and `fund-loan-reserve` refuse typed.
+- `pnpm local:world` and `local:world:seed` refuse typed: every move they make is a person's balance in our ledger.
+
 Placeholders the services refuse to boot without (no owner-published value exists): reconcile cadence, rate limits, Pay checkout limits (from `.env.example`), Bank `LOAN_QUOTE_ASSET_ID=USDT` and batch sizes `1` (jobs off), Matching snapshot cadence `0` (off). They are local-test values, not product decisions. Edge's kill-state file is written once as an explicit all-on list; without it Edge halts every module.
 
 ## Every Customer door is reachable

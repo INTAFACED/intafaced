@@ -6,7 +6,9 @@ import {
   assertBalanced,
   assertIdempotencyKey,
   assertValidPost,
+  balanceAllowed,
   formatAmount,
+  heldForRefusal,
   hashTx,
   postFingerprint,
   replayMetaDiffers,
@@ -194,8 +196,13 @@ export class PostgresLedger implements LedgerClient {
           const account = balances.get(key)!;
           const next = account.balance + signedDelta(entry);
 
-          if (next < 0n && entry.account.ownerType !== 'treasury') {
-            throw new InsufficientFundsError(account.id, entry.account.assetId, formatAmount(entry.amount), formatAmount(account.balance));
+          if (!balanceAllowed(entry.account, next)) {
+            throw new InsufficientFundsError(
+              account.id,
+              entry.account.assetId,
+              formatAmount(entry.amount),
+              formatAmount(heldForRefusal(entry.account, account.balance)),
+            );
           }
 
           account.balance = next;

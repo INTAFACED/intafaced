@@ -71,3 +71,21 @@ export function assertApiKeyAccount(boundAccountId: string | null | undefined, p
     throw new KeyAccountError('API key is not bound to this account', 'auth.account_mismatch');
   }
 }
+
+/**
+ * The routes a sub-account-bound key reaches (DV-sub-accounts-01: "the key reaches only that account"). Its token
+ * carries the sub-account, but most services still answer for the signed-in person's own account, so a bound key
+ * is let through only where the service reads the token's sub-account; everywhere else it is refused here, before
+ * anything is forwarded. Widen this only together with the service that answers for the sub-account.
+ */
+const SUB_ACCOUNT_KEY_ROUTES: ReadonlyArray<{ readonly method: string; readonly path: string }> = [
+  { method: 'GET', path: '/api/v1/account/balance' },
+];
+
+/** Whether a sub-account-bound key may make this request. No request named: refused. */
+export function subAccountKeyRouteAllowed(request: { method: string; path: string } | undefined): boolean {
+  if (!request) return false;
+  const path = request.path.split('?')[0] ?? '';
+  const method = request.method.toUpperCase();
+  return SUB_ACCOUNT_KEY_ROUTES.some((route) => route.method === method && route.path === path);
+}

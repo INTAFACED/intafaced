@@ -63,6 +63,9 @@ const exchange = {
   'account/trades': () => fills(),
   'orders/open': () => openOrders(),
   'orders/closed': () => closedOrders(),
+  // svc-trade's user-venue door, off as on today's deployments (`user-venue-rest.ts`): `/money` asks it first (J-wallet-01)
+  // and, with it off, shows the portfolio these cases check.
+  'venue/status': () => ({ enabled: false }),
 };
 const bankDefaults = {
   'portfolio.summary': () => summary(),

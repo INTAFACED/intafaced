@@ -389,16 +389,87 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
     t.split('github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft').length - 1,
     3,
   );
-  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing.
-  for (const job of ['plan', 'build'])
+  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing. The plan
+  // runs in the touch job, so each of its steps checks the touch step's decision and PLANS (never a draft or a fork).
+  assert.match(
+    t,
+    /\n {6}PLANS: \$\{\{ github\.event_name != 'pull_request' \|\| \(github\.event\.pull_request\.head\.repo\.full_name == github\.repository && !github\.event\.pull_request\.draft\) \}\}\n/,
+  );
+  for (const name of ["Last finished runs' reports", 'Plan', 'Fail-fast plan'])
     assert.match(
       t,
       new RegExp(
-        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && needs\\.touch\\.outputs\\.mode != 'none' && \\(github\\.event_name != 'pull_request'`,
+        `\\n {6}- name: ${name}\\n(?: {8}[^\\n]*\\n)*? {8}if: \\$\\{\\{ !cancelled\\(\\) && env\\.PLANS == 'true' && steps\\.touch\\.outputs\\.mode != 'none' && steps\\.first\\.outputs\\.deferred != 'true' \\}\\}\\n`,
       ),
     );
-  assert.match(t, /\.draft\)\) && !\(needs\.plan\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
+  assert.doesNotMatch(t, /\n  plan:\n/);
+  assert.match(
+    t,
+    /\n  build:\n(?: {4}[^\n]*\n)*? {4}if: \$\{\{ !cancelled\(\) && needs\.touch\.result == 'success' && needs\.touch\.outputs\.mode != 'none' && \(github\.event_name != 'pull_request'/,
+  );
+  // The shards wait on a touch job that succeeded: a targeted run without its plan fails that job, so no shard runs.
+  assert.match(
+    t,
+    /\n  journeys:\n(?: {4}[^\n]*\n)*? {4}if: \$\{\{ !cancelled\(\) && needs\.touch\.result == 'success' && needs\.touch\.outputs\.mode != 'none' && /,
+  );
   assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.touch\.outputs\.target \}\}/);
+});
+
+test('real-app-journeys.yml on main: the touch step decides nothing, so a push, a scheduled run or a dispatch with a journeys input keeps an empty target and the full suite', () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  // The touch step's own script, run as GitHub runs it.
+  const at = t.indexOf('\n        id: touch\n');
+  assert.ok(at > 0, 'the touch step');
+  const from = t.indexOf('\n        run: |\n', at) + '\n        run: |\n'.length;
+  const lines = [];
+  for (const l of t.slice(from).split('\n')) {
+    if (l !== '' && !l.startsWith('          ')) break;
+    lines.push(l.slice(10));
+  }
+  const script = lines.join('\n');
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  try {
+    const touch = (env) => {
+      const out = join(dir, `out-${Math.random().toString(36).slice(2)}`);
+      execFileSync('bash', ['-c', script], {
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, GITHUB_OUTPUT: out, RUNNER_TEMP: dir, ...env },
+      });
+      return Object.fromEntries(
+        readFileSync(out, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+      );
+    };
+    // Planted: the journeys input reaches the step on main (as if the workflow-level guard were lost).
+    for (const EVENT of ['push', 'schedule', 'workflow_dispatch'])
+      assert.deepEqual(
+        touch({ GITHUB_REF: 'refs/heads/main', EVENT, JOURNEYS_TARGET: 'j-wallet-01.pw.mjs' }),
+        { mode: 'run', target: '' },
+        EVENT,
+      );
+    // Off main a dispatch's input still targets its journeys.
+    assert.deepEqual(touch({ GITHUB_REF: 'refs/heads/x', EVENT: 'workflow_dispatch', JOURNEYS_TARGET: 'j-wallet-01.pw.mjs' }), {
+      mode: 'run',
+      target: 'j-wallet-01.pw.mjs',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // And every way a target leaves the touch job is empty on main: the workflow's input, the job's output and the plan's.
+  assert.match(
+    t,
+    /\n  JOURNEYS_TARGET: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.ref != 'refs\/heads\/main' && inputs\.journeys \|\| '' \}\}\n/,
+  );
+  assert.match(
+    t,
+    /\n {6}target: \$\{\{ github\.ref != 'refs\/heads\/main' && steps\.first\.outputs\.deferred != 'true' && steps\.touch\.outputs\.target \|\| '' \}\}\n/,
+  );
+  assert.match(
+    t,
+    /\n {6}- name: Plan\n(?: {8}[^\n]*\n)*? {10}JOURNEYS_TARGET: \$\{\{ github\.ref != 'refs\/heads\/main' && steps\.touch\.outputs\.target \|\| '' \}\}\n/,
+  );
 });
 
 test('an empty report (nothing to run) seals nothing and blocks nothing', async () => {

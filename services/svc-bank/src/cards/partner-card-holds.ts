@@ -1,5 +1,6 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError, type BankErrorCode } from '../errors.js';
+import { assertPostingEnabled, type NoteRefusal, type PostingFreeze } from '../partner/partner-bank.js';
 import type { TestPartnerSwitches } from '../partner/test-partner.js';
 import type { CardCustodyMode, CardPartnerTerms } from './partner-terms.js';
 
@@ -101,6 +102,38 @@ export class PartnerCardRefusal extends BankError {
     super(message, code);
     this.name = 'PartnerCardRefusal';
   }
+}
+
+/**
+ * THE POSTING FREEZE ON PARTNER CARD MONEY (floor 4; project-state #1790). svc-ledger's platform-wide posting freeze
+ * stops partner card instructions too: every hold, capture, release and refund asks it first, and frozen, or a freeze
+ * that cannot be read, refuses `bank.posting_frozen` before the partner is asked. That error is not a
+ * `PartnerCardRefusal`: the partner never said no, so a capture, release or refund claim stays pending and is re-sent
+ * under the same key once posting is back, never retired as if the partner had refused. A hold the freeze refuses is
+ * a decline (`card-service.ts`, `commitPartnerHold`). Reads (figures, holdState) stay open, as they do on the ledger.
+ */
+export function freezeGuardedCardHolds(holds: PartnerCardHolds, freeze: PostingFreeze, note?: NoteRefusal): PartnerCardHolds {
+  return Object.freeze({
+    test: holds.test,
+    figures: (input: { userId: string; assetId: string }) => holds.figures(input),
+    holdState: (input: { holdKey: string }) => holds.holdState(input),
+    hold: async (input: Parameters<PartnerCardHolds['hold']>[0]) => {
+      await assertPostingEnabled(freeze, 'card_hold', note);
+      return holds.hold(input);
+    },
+    capture: async (input: Parameters<PartnerCardHolds['capture']>[0]) => {
+      await assertPostingEnabled(freeze, 'card_capture', note);
+      return holds.capture(input);
+    },
+    release: async (input: Parameters<PartnerCardHolds['release']>[0]) => {
+      await assertPostingEnabled(freeze, 'card_release', note);
+      return holds.release(input);
+    },
+    refund: async (input: Parameters<PartnerCardHolds['refund']>[0]) => {
+      await assertPostingEnabled(freeze, 'card_refund', note);
+      return holds.refund(input);
+    },
+  });
 }
 
 /** The TEST partner card's hold time, a TEST figure (no partner has given one). */

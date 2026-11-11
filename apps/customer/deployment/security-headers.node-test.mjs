@@ -177,6 +177,19 @@ test('deploy variables name the LiveKit and storage origins exactly, never a wil
   ]);
 });
 
+test('the sandbox API origin is added to connect-src exactly, https only (J-developer-15 #7)', () => {
+  const csp = cspOf(renderSecurityHeaders({ CUSTOMER_SANDBOX_API_ORIGIN: 'https://sandbox-api.example.com' }));
+  assert.deepEqual(csp['connect-src'], ["'self'", 'https://sandbox-api.example.com']);
+  for (const bad of [
+    'http://sandbox-api.example.com',
+    'https://*.example.com',
+    'https://a.example.com https://b.example.com',
+    'https://a.example.com;',
+  ]) {
+    assert.throws(() => renderSecurityHeaders({ CUSTOMER_SANDBOX_API_ORIGIN: bad }), /CUSTOMER_SANDBOX_API_ORIGIN/, bad);
+  }
+});
+
 test('an invalid origin stops rendering instead of widening the policy', () => {
   for (const env of [
     { CUSTOMER_STORAGE_ORIGIN: "https://x.example.com; script-src 'unsafe-inline'" },

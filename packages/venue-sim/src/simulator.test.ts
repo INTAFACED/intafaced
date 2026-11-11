@@ -337,7 +337,7 @@ describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
     expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, perpOrder('buy', '60000', '0.01', 'order:t:d6')))).toBe(
       'leverage_not_set',
     );
-    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 250_000 }))).toBe('not_offered');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 250_000 }))).toBe('leverage_above_cap');
     expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 105_000 }))).toBe('not_offered');
     expect((await w.sim.leverage(w.trader, 'BTC-PERP')).value).toBeNull();
     await w.run(w.wallet, w.trader, tenX);
@@ -407,6 +407,22 @@ describe('TEST venue simulator: switches and labels', () => {
     expect(w.sim.venue.proofLevel).toBe('simulator');
     expect(() => refuseTestVenueOutsideTest(w.sim.venue, 'test')).not.toThrow();
     expect(() => refuseTestVenueOutsideTest(w.sim.venue, 'prod')).toThrow(VenueRefusalError);
+  });
+
+  it('the TEST all-fills read lists the fills of every account since a time, each with its account, oldest first', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:af');
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:af');
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60000', '0.1', 'order:trader:all-fills'));
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.1', 'order:maker:all-fills'));
+    const all = w.sim.testAllFills(new Date(0)).value;
+    const mine = (await w.sim.fills(w.trader, new Date(0))).value;
+    const theirs = (await w.sim.fills(w.other, new Date(0))).value;
+    expect(all.map((x) => x.fill)).toEqual(expect.arrayContaining([...mine, ...theirs]));
+    expect(all).toHaveLength(mine.length + theirs.length);
+    expect(new Set(all.map((x) => x.owner))).toEqual(new Set([w.trader.owner.toLowerCase(), w.other.owner.toLowerCase()]));
+    expect(all.every((x) => x.subAccount === null)).toBe(true);
+    expect(w.sim.testAllFills(new Date(Date.now() + 60_000)).value).toEqual([]);
   });
 
   it('venue down refuses every call and changes nothing', async () => {
@@ -917,7 +933,7 @@ describe('TEST venue simulator: council round 2 regressions (every check runs ag
           marginMode: 'isolated',
         }),
       ),
-    ).toBe('not_offered');
+    ).toBe('leverage_above_cap');
     expect((await w.sim.leverage(w.trader, 'BTC-PERP')).value).toBeNull();
   });
 

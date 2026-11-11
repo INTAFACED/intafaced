@@ -1,5 +1,9 @@
 // World: book, gates, restart
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, otherTrader, times, toUnits } from './stack.mjs';
@@ -247,6 +251,25 @@ function testWallet(name) {
   const sign = async (typed) =>
     key.signTypedData({ domain: typed.domain, types: typed.types, primaryType: typed.primaryType, message: typed.message });
   return { address, signer: { role: 'owner', address }, sign };
+}
+
+/** svc-trade's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+function tradeDb(ctx) {
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-trade', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  return postgres(`postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+}
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** The TEST ramp partner's own catalogue, as the stack loads it (tooling/profiles/test-owner-values/bank.json). */
+function partnerRampCatalogue() {
+  const values = JSON.parse(readFileSync(path.join(REPO, 'tooling', 'profiles', 'test-owner-values', 'bank.json'), 'utf8'));
+  const entry = values.values?.BANK_ONRAMP_SIM_JSON ?? values.BANK_ONRAMP_SIM_JSON;
+  expect(entry?.value, 'the TEST ramp catalogue the stack loads').toBeTruthy();
+  return JSON.parse(entry.value).quotes;
 }
 
 /** The door's status for a signed-in customer: on, the TEST venue it reaches, and our builder address. */
@@ -648,11 +671,31 @@ test(`${J} #4 edits VIP thresholds and the snapshot time: the same proposal and 
       .toBe(1);
     await expect(row.locator('th')).toHaveText(shown(snapshotAt.toISOString()));
     const cells = row.locator('td');
-    await expect(cells.nth(0)).toHaveText(`v${written.version}`);
-    await expect(cells.nth(1)).toHaveText(/^\d+$/);
-    await expect(cells.nth(2)).toHaveText(/^\d+$/);
-    await expect(cells.nth(3)).toHaveText(/^\d+(\.\d+)?$/);
-    expect(Number(await cells.nth(2).innerText())).toBeLessThanOrEqual(Number(await cells.nth(1).innerText()));
+    // Every figure exactly as the snapshot's own rows hold them, read with svc-trade's own database role: the run's
+    // version and account count, the accounts above regular, and the sum of the counted 30-day volume. Each account's
+    // tier is the one its volume reached under the new threshold of 500.
+    const sql = tradeDb((await ops()).ctx);
+    try {
+      const [run] = await sql`SELECT schedule_version, accounts FROM trade.fee_tier_snapshot_runs WHERE instant = ${snapshotAt}`;
+      const accounts = await sql`
+        SELECT tier_id, volume_30d::text AS volume, schedule_version
+          FROM trade.fee_tier_snapshots WHERE instant = ${snapshotAt}`;
+      expect(run, `the run row at ${snapshotAt.toISOString()}`).toBeTruthy();
+      expect(run.accounts).toBe(accounts.length);
+      expect(run.schedule_version.replace(/^v/, '')).toBe(String(written.version));
+      for (const r of accounts) {
+        expect(r.schedule_version, JSON.stringify(r)).toBe(run.schedule_version);
+        expect(r.tier_id, JSON.stringify(r)).toBe(toUnits(r.volume) >= toUnits('500') ? 'test-vip-1' : 'regular');
+      }
+      const above = accounts.filter((r) => r.tier_id !== 'regular').length;
+      const volume = accounts.reduce((sum, r) => sum + toUnits(r.volume), 0n);
+      await expect(cells.nth(0)).toHaveText(`v${written.version}`);
+      await expect(cells.nth(1)).toHaveText(String(accounts.length));
+      await expect(cells.nth(2)).toHaveText(String(above));
+      expect(toUnits(await cells.nth(3).innerText()), 'counted 30-day volume, exactly').toBe(volume);
+    } finally {
+      await sql.end();
+    }
   } finally {
     await a.close();
     await b.close();
@@ -773,7 +816,8 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
   page,
   browser,
 }) => {
-  test.setTimeout(150_000);
+  // Two TEST fee versions (one to price under, one to put back), each a short wait for its effective time.
+  test.setTimeout(240_000);
   // A customer asks for a sell quote on Convert and a price to buy USDT with money, as the screens do.
   const who = await fundedTrader(page, 'js17q', '10');
   fund(who.email, 'BTC', '0.01');
@@ -818,52 +862,177 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
   });
   expect(unknown, JSON.stringify(unknown)).toMatchObject({ status: 'refused', refusalCode: 'bank.onramp_fee_not_known', onramp: null });
 
-  const a = await room(browser, 'a');
+  // A sell on Convert priced by the venue on the customer's own TEST venue account: the venue's own preview of a market
+  // sell of that size, under a TEST builder fee of 2 bps on BTC-USDC published for this step.
+  const { venueId, builder } = await venueDoor(client);
+  const priceUnder = await publish(withBuilderFees(venueId, '2'), 'TEST builder fee 2 bps, for venue sell quotes', {
+    after: await latestEffective(),
+  });
   try {
-    // Each sell quote as it was given: what the customer sells and gets, the book price, and the spread kept, exactly.
-    const sells = a.page.locator('[data-fees=quotes]');
-    const row = sells.locator(`tr[data-quote="${quote.quoteId}"] td`);
-    await expect(row.nth(0)).toHaveText(client.userId);
-    await expect(row.nth(1)).toHaveText(`${quote.inAmount} ${quote.inAsset}`);
-    await expect(row.nth(2)).toHaveText(`${quote.outAmount} ${quote.outAsset}`);
-    await expect(row.nth(3)).toHaveText(quote.avgPrice);
-    const spread = toUnits(quote.bookNotional) - toUnits(quote.userNotional);
-    const spreadText = await row.nth(4).innerText();
-    expect(spreadText).toMatch(new RegExp(` USDT \\(${quote.convertSpreadBps} bps\\)$`));
-    expect(toUnits(spreadText.split(' ')[0])).toBe(spread);
+    const wallet = testWallet(`seller ${who.handle}`);
+    await testVenue('/test/deposit', {
+      account: { venueId, owner: wallet.address, subAccount: null },
+      asset: 'BTC',
+      amount: '2',
+      depositRef: `84532:js17-sells-${who.handle}:0`,
+    });
+    const SELL = '0.75';
+    const quoteKey = `js17-sell-${randomUUID()}`; // made once per ask, as the screen makes one
+    const venueQuoted = await client.post('/api/v1/venue/convert/sell-quote', {
+      owner: wallet.address,
+      symbol: VENUE_SPOT,
+      amount: SELL,
+      quoteKey,
+    });
+    expect(venueQuoted.status, JSON.stringify(venueQuoted.body).slice(0, 400)).toBe(200);
+    const vq = venueQuoted.body;
+    // The TEST venue's own answer for the same sell on the same account, read from the venue directly, not through us.
+    const tick = (await testVenue('/markets', {})).value.find((m) => m.symbol === VENUE_SPOT).tickSize;
+    const venueOwn = (
+      await testVenue('/preview', {
+        account: { venueId, owner: wallet.address, subAccount: null },
+        intent: {
+          kind: 'place_order',
+          symbol: VENUE_SPOT,
+          side: 'sell',
+          type: 'market',
+          amount: SELL,
+          price: tick,
+          timeInForce: 'IOC',
+          reduceOnly: false,
+          clientOrderKey: `convert-quote:${client.userId}:${quoteKey}`,
+          builderFee: { builder, feeBps: '2' },
+        },
+      })
+    ).value;
+    expect(venueOwn.fill, JSON.stringify(venueOwn).slice(0, 400)).toMatchObject({ known: true });
+    expect(toUnits(venueOwn.fill.value.amount), 'the book takes some of the sell').toBeGreaterThan(0n);
+    expect(venueOwn.builderFee, 'our builder fee, as the venue figures it').toMatchObject({ known: true });
+    expect(venueOwn.venueFee, "the venue's own fee: the TEST venue publishes BTC-USDC's").toMatchObject({ known: true });
+    expect(vq).toMatchObject({
+      quoteId: `venue-sell:${client.userId}:${quoteKey}`,
+      userId: client.userId,
+      venueId,
+      test: true,
+      owner: wallet.address,
+      symbol: VENUE_SPOT,
+      baseAsset: 'BTC',
+      quoteAsset: 'USDC',
+      fill: { known: true },
+      venueFee: { known: true, asset: venueOwn.venueFee.value.asset },
+      builderFee: { known: true, asset: venueOwn.builderFee.value.asset },
+    });
+    expect(sameAmount(vq.amount, SELL)).toBe(true);
+    expect(sameAmount(vq.fill.amount, venueOwn.fill.value.amount), `fill ${vq.fill.amount} vs ${venueOwn.fill.value.amount}`).toBe(true);
+    expect(
+      sameAmount(vq.fill.averagePrice, venueOwn.fill.value.averagePrice),
+      `average ${vq.fill.averagePrice} vs ${venueOwn.fill.value.averagePrice}`,
+    ).toBe(true);
+    expect(
+      sameAmount(vq.venueFee.amount, venueOwn.venueFee.value.amount),
+      `venue fee ${vq.venueFee.amount} vs ${venueOwn.venueFee.value.amount}`,
+    ).toBe(true);
+    expect(sameAmount(vq.builderFee.amount, venueOwn.builderFee.value.amount)).toBe(true);
+    // A retry under the same key gives the quote first given; the same key for another sell refuses.
+    const retried = await client.post('/api/v1/venue/convert/sell-quote', {
+      owner: wallet.address,
+      symbol: VENUE_SPOT,
+      amount: SELL,
+      quoteKey,
+    });
+    expect(retried.status).toBe(200);
+    expect(retried.body).toEqual(vq);
+    const reused = await client.post('/api/v1/venue/convert/sell-quote', {
+      owner: wallet.address,
+      symbol: VENUE_SPOT,
+      amount: '0.5',
+      quoteKey,
+    });
+    expect(reused.status, JSON.stringify(reused.body).slice(0, 300)).toBe(409);
+    expect(JSON.stringify(reused.body)).toContain('trade.venue_sell_quote_key_reused');
+    // A quote sends nothing: no order of the customer's rests on the venue.
+    expect((await testVenue('/open-orders', { account: { venueId, owner: wallet.address, subAccount: null } })).value).toEqual([]);
 
-    // Each fiat buy price with its fee, exactly as the bank gave it to the customer.
-    const fiat = a.page.locator('[data-fees=fiat-buy]');
-    for (const { quote: q } of priced) {
-      await expect(fiat.locator(`tr[data-onramp-quote="${q.quoteId}"] td`)).toHaveText([
+    const a = await room(browser, 'a');
+    try {
+      // Each venue sell price as the venue gave it: the customer, the venue, what they sell, what fills now and at what
+      // average price, the venue's fee and our builder fee, and the venue's time, exactly; labelled TEST on a TEST venue.
+      const venueSells = a.page.locator('[data-fees=venue-sells]');
+      const vrow = venueSells.locator(`tr[data-venue-quote="${vq.quoteId}"]`);
+      await expect(vrow.locator('th')).toHaveText(shown(vq.createdAt));
+      await expect(vrow.locator('td')).toHaveText([
         client.userId,
-        `${q.amount} ${q.assetId}`,
-        q.method,
-        `${q.payAmount} ${q.payCurrency}`,
-        `${q.fee} ${q.payCurrency}`,
-        q.rate,
+        venueId,
+        `${vq.amount} BTC on ${VENUE_SPOT}`,
+        `${vq.fill.amount} BTC`,
+        `${vq.fill.averagePrice} USDC`,
+        `${vq.venueFee.amount} ${vq.venueFee.asset}`,
+        `${vq.builderFee.amount} ${vq.builderFee.asset}`,
+        shown(vq.asOf),
       ]);
+      await expect(venueSells).toContainText('TEST: these prices come from a TEST venue, not a live one.');
+      await expect(venueSells.locator('input, button, select')).toHaveCount(0);
+
+      // Each sell quote as it was given: what the customer sells and gets, the book price, and the spread kept, exactly.
+      const sells = a.page.locator('[data-fees=quotes]');
+      const row = sells.locator(`tr[data-quote="${quote.quoteId}"] td`);
+      await expect(row.nth(0)).toHaveText(client.userId);
+      await expect(row.nth(1)).toHaveText(`${quote.inAmount} ${quote.inAsset}`);
+      await expect(row.nth(2)).toHaveText(`${quote.outAmount} ${quote.outAsset}`);
+      await expect(row.nth(3)).toHaveText(quote.avgPrice);
+      const spread = toUnits(quote.bookNotional) - toUnits(quote.userNotional);
+      const spreadText = await row.nth(4).innerText();
+      expect(spreadText).toMatch(new RegExp(` USDT \\(${quote.convertSpreadBps} bps\\)$`));
+      expect(toUnits(spreadText.split(' ')[0])).toBe(spread);
+
+      // Each fiat buy price with its fee, exactly as the bank gave it to the customer.
+      const fiat = a.page.locator('[data-fees=fiat-buy]');
+      // The partner's own figures: the TEST ramp stand-in's catalogue the stack loads (BANK_ONRAMP_SIM_JSON), read here from
+      // its source, not from the bank. Each price's fee and rate are the partner's, and it pays amount × rate, rounded up,
+      // plus the fee.
+      const partnerQuotes = partnerRampCatalogue();
+      for (const { quote: q } of priced) {
+        const own = partnerQuotes.find((p) => p.country === 'NL' && p.method === q.method && p.asset === q.assetId);
+        expect(own, `the TEST partner's own price for ${q.method}`).toBeTruthy();
+        expect(own.payCurrency).toBe(q.payCurrency);
+        expect(sameAmount(q.fee, own.fee), `fee ${q.fee} vs the partner's ${own.fee}`).toBe(true);
+        expect(sameAmount(q.rate, own.rate), `rate ${q.rate} vs the partner's ${own.rate}`).toBe(true);
+        const scale = toUnits('1');
+        const product = toUnits(q.amount) * toUnits(own.rate);
+        const payUnits = (product + scale - 1n) / scale + toUnits(own.fee);
+        expect(toUnits(q.payAmount), `pay ${q.payAmount} = ${q.amount} × ${own.rate}, rounded up, + ${own.fee}`).toBe(payUnits);
+        await expect(fiat.locator(`tr[data-onramp-quote="${q.quoteId}"] td`)).toHaveText([
+          client.userId,
+          `${q.amount} ${q.assetId}`,
+          q.method,
+          `${q.payAmount} ${q.payCurrency}`,
+          `${q.fee} ${q.payCurrency}`,
+          q.rate,
+        ]);
+      }
+      // The buy the partner gave no fee for: the customer and what they asked to buy, and its pay amount, fee and rate
+      // "not known", never 0 and never a price; it is not among the priced fees.
+      const notKnown = a.page.locator('[data-fees=fiat-buy-not-known]');
+      await expect(notKnown.locator(`tr[data-onramp-request="${unknown.requestId}"] td`)).toHaveText([
+        client.userId,
+        `20 USDT`,
+        way,
+        'NL',
+        'not known',
+        'not known',
+        'not known',
+      ]);
+      // The stack's partner is the TEST partner bank, and the list says so.
+      await expect(notKnown).toContainText('TEST: the TEST partner bank stands in for a payment partner here.');
+      await expect(fiat.locator(`tr[data-onramp-request="${unknown.requestId}"]`)).toHaveCount(0);
+      // A read only: no control on any list.
+      await expect(sells.locator('input, button, select')).toHaveCount(0);
+      await expect(fiat.locator('input, button, select')).toHaveCount(0);
+      await expect(notKnown.locator('input, button, select')).toHaveCount(0);
+    } finally {
+      await a.close();
     }
-    // The buy the partner gave no fee for: the customer and what they asked to buy, and its pay amount, fee and rate
-    // "not known", never 0 and never a price; it is not among the priced fees.
-    const notKnown = a.page.locator('[data-fees=fiat-buy-not-known]');
-    await expect(notKnown.locator(`tr[data-onramp-request="${unknown.requestId}"] td`)).toHaveText([
-      client.userId,
-      `20 USDT`,
-      way,
-      'NL',
-      'not known',
-      'not known',
-      'not known',
-    ]);
-    // The stack's partner is the TEST partner bank, and the list says so.
-    await expect(notKnown).toContainText('TEST: the TEST partner bank stands in for a payment partner here.');
-    await expect(fiat.locator(`tr[data-onramp-request="${unknown.requestId}"]`)).toHaveCount(0);
-    // A read only: no control on any list.
-    await expect(sells.locator('input, button, select')).toHaveCount(0);
-    await expect(fiat.locator('input, button, select')).toHaveCount(0);
-    await expect(notKnown.locator('input, button, select')).toHaveCount(0);
   } finally {
-    await a.close();
+    await restore(`builder fee off after v${priceUnder.version}`);
   }
 });
