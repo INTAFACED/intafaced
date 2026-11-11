@@ -244,6 +244,8 @@ test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and s
 });
 
 test(`${J} #3 reads holdings change over a period: each coin then and now, what rose and fell, valued at both ends`, async ({ page }) => {
+  // Up to five minutes of it is the wait for the bank's next 5-minute edge, below.
+  test.setTimeout(600_000);
   const who = account();
   const me = await bank(who);
   // What is held now across the main account and the space, from the ledger: the end of any range that runs to now.
@@ -276,6 +278,80 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
     expect(diff >= -(10n ** 18n) && diff <= 10n ** 18n).toBe(true);
   }
   expect(answer.rows.find((r) => r.assetId === 'USDT')).toMatchObject({ endPriceUsd: '1', endValueUsd: fromUnits(now.USDT) });
+
+  // What fell. The ranges on offer run back from now (24 hours at the shortest), and this account is minutes old, so on
+  // the real clock every coin starts at nothing. The bank's history is cut at 5-minute edges: the range starts at the
+  // edge its start falls in, and holds everything booked before that edge. So the test waits for the next edge after the
+  // setup above, buys more BTC with USDT after it, and moves this browser's clock (only the browser's: the bank, the
+  // ledger and the prices keep the real time) to a day after that edge, so "24 hours ago" asks the bank for the range
+  // from that edge to now. USDT then fell and BTC rose, both from the ledger's own record.
+  const EDGE_MS = 5 * 60_000;
+  const edge = Math.ceil((Date.now() + 5_000) / EDGE_MS) * EDGE_MS;
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, edge + 5_000 - Date.now())));
+  const before = await (await api(who)).balances();
+  const then = { BTC: toUnits(before.BTC?.total ?? '0'), USDT: toUnits(before.USDT.total) + toUnits(MOVED) };
+  expect(then.BTC).toBe(now.BTC);
+  expect(then.USDT).toBe(now.USDT);
+  await page.goto(deskPath('BTC/USDT'));
+  const { ask } = await bestPrices('BTC/USDT');
+  const priceUp = fromUnits(((toUnits(ask) * 101n) / 100n / 10n ** 16n) * 10n ** 16n);
+  await reviewLimit(page, 'buy', priceUp, '0.001');
+  await confirm(page, 'buy');
+  // Filled at once: nothing of the USDT is held for the order, only the savings.
+  await expect.poll(async () => held(await (await api(who)).balances(), 'USDT'), { timeout: 20_000 }).toBe(toUnits(SAVED));
+  const after = await (await api(who)).balances();
+  const later = { BTC: toUnits(after.BTC.total), USDT: toUnits(after.USDT.total) + toUnits(MOVED) };
+  expect(later.BTC).toBeGreaterThan(then.BTC);
+  expect(later.USDT).toBeLessThan(then.USDT);
+
+  // The bank's answer for the range from the edge: each coin then and now, the change, each end valued at its price.
+  const range = await me.query('portfolio.holdingsChange', { from: new Date(edge + 10_000).toISOString() });
+  expect(range.from).toBe(new Date(edge).toISOString());
+  const rows = Object.fromEntries(range.rows.map((row) => [row.assetId, row]));
+  expect(Object.keys(rows).sort()).toEqual(['BTC', 'USDT']);
+  for (const asset of ['BTC', 'USDT']) {
+    const row = rows[asset];
+    expect(toUnits(row.startAmount)).toBe(then[asset]);
+    expect(toUnits(row.endAmount)).toBe(later[asset]);
+    expect(toUnits(row.change)).toBe(later[asset] - then[asset]);
+    for (const [amount, price, value] of [
+      [row.startAmount, row.startPriceUsd, row.startValueUsd],
+      [row.endAmount, row.endPriceUsd, row.endValueUsd],
+    ]) {
+      if (price === null) {
+        expect(value).toBeNull();
+        continue;
+      }
+      const exact = toUnits(amount) * toUnits(price);
+      const diff = toUnits(value) * 10n ** 18n - exact;
+      expect(diff >= -(10n ** 18n) && diff <= 10n ** 18n).toBe(true);
+    }
+  }
+  expect(rows.USDT).toMatchObject({
+    startPriceUsd: '1',
+    endPriceUsd: '1',
+    startValueUsd: fromUnits(then.USDT),
+    endValueUsd: fromUnits(later.USDT),
+  });
+
+  // The screen, on a browser whose clock reads a day after the edge: "24 hours ago" is the edge.
+  await page.clock.install({ time: new Date(edge + 24 * 3_600_000 + 10_000) });
+  await page.goto('/money');
+  const day = page.getByRole('region', { name: 'What you hold, then and now' });
+  await day.getByRole('group', { name: 'Compare with' }).getByRole('button', { name: '24 hours ago', exact: true }).click();
+  await expect(day.getByRole('button', { name: '24 hours ago', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  for (const asset of ['BTC', 'USDT']) {
+    const row = day.locator(`tr[data-change-asset="${asset}"]`);
+    await expect(row).toHaveAttribute('data-start', rows[asset].startAmount);
+    await expect(row).toHaveAttribute('data-end', rows[asset].endAmount);
+    await expect(row).toHaveAttribute('data-change', rows[asset].change);
+    // Then: an amount held, not "No holding yet"; the change signed: BTC rose (+), USDT fell (−).
+    await expect(row.locator('td').nth(0)).toHaveText(new RegExp(`^[\\d,.]+ ${asset}$`));
+    await expect(row.locator('td').nth(2)).toHaveText(new RegExp(`^${asset === 'BTC' ? '\\+' : '−'}[\\d,.]+ ${asset}$`));
+    // Valued at both ends, or "Not priced" where the bank has no price for that end.
+    await expect(row.locator('td').nth(3)).toHaveText(rows[asset].startValueUsd === null ? 'Not priced' : /\d/);
+    await expect(row.locator('td').nth(4)).toHaveText(rows[asset].endValueUsd === null ? 'Not priced' : /\d/);
+  }
 });
 
 /** Picks the display currency on the View settings page, as the person would. */
