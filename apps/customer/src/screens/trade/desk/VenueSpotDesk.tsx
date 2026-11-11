@@ -88,11 +88,9 @@ const KYC_REQUIRED = 'denied.kyc_required';
 export const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
 
 /**
- * Which spot page shows in venue mode: a neutral reading state while the venue's markets are still being read (never
- * today's custodial desk, which could take an order in that window); today's desk only when the venue does not list this
- * pair as spot; the desk's form with Verify, and no venue figure, when the trade jurisdiction refuses the market list
- * because the person is not verified yet; the venue's notice when the venue is down or its market list could not be read
- * for any other reason; otherwise the venue desk.
+ * The spot page in venue mode: reading while the markets load (never today's desk, which could take an order then);
+ * today's desk when the venue lists no such spot pair; the Verify desk when the person is not verified; the venue's
+ * notice when its markets can't be read; otherwise the venue desk.
  */
 export function spotGateChoice(
   available: boolean,
@@ -325,10 +323,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   );
 }
 
-/**
- * The person's own venue account, the venue's figures only: the wallet that owns it (Connect until connected, then its
- * short address), the quote and base balances free and used with the venue's as-of time, and Deposit and Withdraw.
- */
+/** The person's venue account, the venue's figures only: its wallet, free and used balances as of the venue's time, Deposit and Withdraw. */
 function VenueAccountPanel({
   status,
   market,
@@ -456,9 +451,8 @@ type Live =
 const PREVIEW_DEBOUNCE_MS = 250;
 
 /**
- * One side's ticket, today's desk's controls: Price and Amount, the venue's own preview asked for as the order is typed,
- * the Buy or Sell button with its reason under it, and the Review sheet with the venue's lines. The client order key is
- * held for the order while it is unchanged, so a closed and reopened review names the same venue order.
+ * One side's ticket: Price, Amount, the venue's preview as it is typed, Buy or Sell with its reason, and the Review
+ * sheet. The order key is held while the order is unchanged, so a reopened review names the same venue order.
  */
 function VenueSideForm({
   side,
@@ -730,11 +724,8 @@ function VerifyNote() {
 }
 
 /**
- * The venue spot desk for a person not verified for trading. The trade jurisdiction refuses them the venue's market list
- * and best prices, so the desk shows its layout and every control without a venue figure (fees read Not known): the
- * venue account panel with the wallet's Connect (so a closed Buy is the refusal, never a missing wallet) and Deposit and
- * Withdraw off, the order types, the buy and sell forms with Price and Amount, and each order button off with the way to
- * Verify. Nothing here reads or sends to the venue; the wallet only connects.
+ * The spot desk for a person not verified for trading: every control, no venue figure (fees Not known), the wallet's
+ * Connect, Deposit and Withdraw off, and each order button off with the way to Verify. Nothing reads or sends to the venue.
  */
 export function VenueVerifyDesk({ status, symbol }: { status: VenueUp; symbol: string }) {
   const { t } = spotVenueCopy.useCopy();
@@ -829,10 +820,9 @@ function VerifySideForm({ side, type, base, quote }: { side: VenueSide; type: Ve
 const VERIFY_PLACES = 8;
 
 /**
- * The review's lines, every one the venue's own preview: what it locks, the venue's fee, our builder fee as its own
- * line (none on a known zero, and then no approval is asked), the fee role, the time in force, a market order's worst
- * price, and the client id held for retry. An order that carries our builder fee and has no approval says so; it is
- * approved on the venue desk's own approval step, never here by default.
+ * The review's lines, all from the venue's preview: the lock, the venue's fee, our builder fee (none on a known zero, with
+ * no approval asked), the fee role, time in force, a market order's worst price and the client id. A builder fee with no
+ * approval says so.
  */
 export function VenueReviewRows({
   intent,
@@ -990,11 +980,7 @@ function DepositDialog({ route, test, onClose }: { route: DepositRoute | null; t
   );
 }
 
-/**
- * Withdraw from the venue account to the connected wallet: "Confirm it’s you" first (identity's
- * `trade.step_up.venue.withdraw`, bound to the key, account, asset, amount and destination), and only after it the
- * door prepares the withdrawal and the wallet signs. Closing the step-up asks nothing of the wallet.
- */
+/** Withdraw to the connected wallet: "Confirm it’s you" first (`trade.step_up.venue.withdraw`), then the door prepares and the wallet signs. */
 function WithdrawDialog({
   owner,
   asset,
