@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
+import { parseCustodyLayer, resolveOwnOrderBook } from '@intafaced/ledger-client';
 import { parseOwnerIntegerEnv } from './owner-int-env.js';
 
 // Both, and they are not alternatives. `edgeEnvSchema` authenticates the USER a
@@ -122,16 +123,37 @@ const schema = serviceEnvSchema
       TRADE_FIX_DROPCOPY_INGEST_URL: z.string().default(''),
 
       /**
-       * Kill-switch mirror of the `trade.spot` flag (§14 admin controls).
+       * Kill-switch mirror of the `trade.spot` flag (§14 admin controls): our own order book's spot plane.
        *
        * OFF stops NEW orders. It deliberately does not stop cancellations: an
        * operator halting the market must be able to let users out of their
        * positions, and a switch that traps funds is not a safety control.
+       *
+       * Unset follows the custody switch (`resolveOwnOrderBook`, ledger-client): on only when LEDGER_CUSTODY_LAYER is on,
+       * because our own book settles every fill as customer money in our ledger. Set on with custody off refuses boot.
        */
       TRADE_SPOT_ENABLED: z
         .union([z.boolean(), z.string()])
-        .default(true)
-        .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()))),
+        .optional()
+        .transform((v) =>
+          v === undefined ? undefined : typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()),
+        ),
+
+      /**
+       * The custody switch (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any
+       * value but `on` or `off` refuses to start. Read here only to decide our own order book (TRADE_SPOT_ENABLED).
+       */
+      LEDGER_CUSTODY_LAYER: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseCustodyLayer(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : String(err) });
+            return z.NEVER;
+          }
+        }),
 
       /**
        * Worst price a market BUY may be funded at, above the best ask.
@@ -923,7 +945,17 @@ const schema = serviceEnvSchema
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),
     }),
-  );
+  )
+  .transform((raw, ctx) => {
+    // The boot guard: our own order book never runs with the custodial layer off (OWNER 288).
+    const book = resolveOwnOrderBook('TRADE_SPOT_ENABLED', raw.TRADE_SPOT_ENABLED, raw.LEDGER_CUSTODY_LAYER);
+    if ('refusal' in book) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['TRADE_SPOT_ENABLED'], message: book.refusal });
+      return z.NEVER;
+    }
+    return { ...raw, TRADE_SPOT_ENABLED: book.enabled };
+  });
 
+export const tradeEnvSchema = schema;
 export const env = loadEnv(schema);
 export type Env = typeof env;

@@ -5,7 +5,8 @@ import '../desk.css';
 
 /**
  * The month's report as svc-ops answered it. A line nobody entered says "Not entered", never zero, and while any line is missing
- * the cost sums are labelled partial and there is no net. Fee revenue is the ledger's own figure for the month, per asset; net is
+ * the cost sums are labelled partial and there is no net. Fee revenue is the ledger's own figure for the month, per venue and asset,
+ * earned and collected apart (only a venue's payment to our builder account is collected); net is
  * shown only when svc-ops worked it out, and otherwise says what it is waiting on. The warehouse read below it is as it stands and
  * is not cut by month.
  */
@@ -33,24 +34,32 @@ function FeeRevenue({ fees }: { fees: OpsVenueEconomics['feeRevenue'] }) {
       <table className="adm-table" data-testid="fees-table">
         <thead>
           <tr>
+            <th scope="col">Venue</th>
             <th scope="col">Asset</th>
-            <th scope="col">Collected</th>
+            <th scope="col">Earned</th>
             <th scope="col">Returned</th>
             <th scope="col">Kept</th>
+            <th scope="col">Collected</th>
           </tr>
         </thead>
         <tbody>
           {fees.assets.map((a) => (
-            <tr key={a.assetId} data-asset={a.assetId}>
+            <tr key={`${a.venueId ?? ''}|${a.assetId}`} data-asset={a.assetId} data-venue={a.venueId ?? ''}>
+              <td>{a.venueId ?? 'Ours (no venue)'}</td>
               <td>{a.assetId}</td>
-              <td data-col="collected">{a.collected}</td>
+              <td data-col="earned">{a.earned}</td>
               <td data-col="returned">{a.returned}</td>
               <td data-col="kept">{a.net}</td>
+              <td data-col="collected">{a.collected ?? 'No venue pays it'}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="dk-muted">From the ledger’s fee accounts for this month. Returned is corrections and distributions.</p>
+      <p className="dk-muted">
+        From the ledger’s fee accounts for this month. Earned is what we charged; a builder fee stays owed by the venue until it pays.
+        Collected is only what the venue paid to our builder account there, by its own claim record. Returned is corrections and
+        distributions.
+      </p>
     </div>
   );
 }

@@ -74,6 +74,19 @@ async function console_(browser) {
   return page;
 }
 
+/**
+ * The course's Section 1 item 2 lesson, opened at the address its "Write" link names. #4 proves that link by clicking it;
+ * the later steps go to its address so a click the console's client router drops (issue #7639: the click landed and the
+ * page stayed on the course for 210 s) can't fail a step about the lesson itself.
+ */
+async function openLesson(page) {
+  await page.goto(courseUrl);
+  const href = await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).getAttribute('href');
+  if (!href || !/\/items\/[0-9a-f-]{36}$/.test(href)) throw new Error(`${J}: the Write link names no lesson address (${href})`);
+  await page.goto(href);
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+}
+
 const SECTIONS = [
   { href: '/academy-ops/catalogue', heading: 'Academy: catalogue', read: 'academy.courses' },
   { href: '/academy-ops/certificates', heading: 'Academy: certificates', read: 'academy.cert-defs' },
@@ -327,9 +340,7 @@ test(`${J} #5 a lesson file over the size limit is refused before it is read; an
 }) => {
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to import into`);
   const page = await console_(browser);
-  await page.goto(courseUrl);
-  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
-  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await openLesson(page);
   await expect(page.getByTestId('lesson-import-limit')).toContainText('Up to 8192 bytes');
   const revisions = page.getByTestId('lesson-revisions').locator('li');
   const before = await revisions.count();
@@ -381,9 +392,7 @@ test(`${J} #6 Draft with no model provider gives the template draft and an owner
 }) => {
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to draft`);
   const page = await console_(browser);
-  await page.goto(courseUrl);
-  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
-  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await openLesson(page);
   const outcome = page.getByTestId('course-desk-outcome');
   const revisions = page.getByTestId('lesson-revisions').locator('li');
   const before = await revisions.count();
@@ -434,9 +443,7 @@ test(`${J} #7 a video, an SRT file and a handout upload; blank limits refuse; to
   test.setTimeout(240_000);
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to upload to`);
   const page = await console_(browser);
-  await page.goto(courseUrl);
-  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
-  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await openLesson(page);
   const limits = page.getByTestId('media-limits');
   const outcome = page.getByTestId('media-outcome');
   const uploads = [];
@@ -518,9 +525,7 @@ test(`${J} #8 a lesson featured on the Learn hub fills the slot and leaves it wh
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to feature`);
   const page = await console_(browser);
   const outcome = page.getByTestId('course-desk-outcome');
-  await page.goto(courseUrl);
-  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
-  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await openLesson(page);
   const lessonUrl = page.url();
   const featuredNote = page.getByTestId('lesson-featured');
   await expect(featuredNote).toContainText('Learners can read it, so it can be featured');

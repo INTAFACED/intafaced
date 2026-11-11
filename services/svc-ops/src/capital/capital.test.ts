@@ -101,6 +101,7 @@ const OWN: LedgerOwnFunds = {
     { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available', purpose: '', balance: '0.5' },
     { ownerType: 'house', ownerId: 'market-maker', assetId: 'BTC', kind: 'available', purpose: '', balance: '2' },
   ],
+  places: [{ kind: 'partner_reserve', placeId: 'bank', assetId: 'USD', held: '25' }],
 };
 const RESERVES: BankPartnerReserves = {
   asOf: LEDGER_AT,
@@ -167,6 +168,24 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
     });
     expect(snap.reserves).toEqual({ status: 'read', asOf: LEDGER_AT, partners: RESERVES.partners });
     expect(snap.venues).toMatchObject({ status: 'not_connected', code: 'ops.capital.venue_not_connected' });
+    // Our reserve at the bank partner: the book's 25 beside the partner's word, which is "not known", never a zero.
+    expect(snap.places).toEqual({
+      status: 'read',
+      asOf: LEDGER_AT,
+      places: [
+        {
+          kind: 'partner_reserve',
+          placeId: 'bank',
+          assetId: 'USD',
+          held: '25',
+          outside: {
+            status: 'unknown',
+            code: 'ops.capital.source_unavailable',
+            message: 'TEST partner bank does not say how much it holds of ours.',
+          },
+        },
+      ],
+    });
     expect(snap.period).toBe('2026-10-24');
   });
 
@@ -254,6 +273,7 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
     b.state.ledger = false;
     const snap = await c.capital.snapshot();
     expect(snap.ownFunds).toEqual({ status: 'unknown', code: 'ops.capital.source_unavailable', message: 'svc-ledger: did not answer.' });
+    expect(snap.places).toEqual({ status: 'unknown', code: 'ops.capital.source_unavailable', message: 'svc-ledger: did not answer.' });
     expect(snap.buffers).toEqual([expect.objectContaining({ assetId: 'USDT', buffer: null, state: 'unknown' })]);
     expect(snap.alerts).toEqual([]);
     await expect(

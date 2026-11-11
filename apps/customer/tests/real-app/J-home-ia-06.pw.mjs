@@ -37,6 +37,10 @@ let kept;
  * announcements (`notify.notices` of kind announcement, made once the owner's strip count is read from home.config).
  */
 async function openHome() {
+  // The last page is gone before the waits start. Left open, its own notice read could answer during the `goto` and be
+  // matched here; the navigation then drops that response's body, so the read below finds no JSON (#7452: #1 failed
+  // with a null answer in 0.7 s, or hung to the 90 s test timeout, in runs 42690470061 and 42767033940).
+  await page.goto('about:blank');
   const status = page.waitForResponse((res) => res.url().includes('/notify.noticeStatus'));
   const current = page.waitForResponse((res) => res.url().includes('/notify.notices') && res.url().includes('announcement'));
   await page.goto('/home');

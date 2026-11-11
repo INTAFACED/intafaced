@@ -1,0 +1,50 @@
+import { useEffect, useState } from 'react';
+import { useSession } from '../../features/session/session';
+import { lineTotalsSchema, type LineTotal } from '../../features/money/contracts';
+import { LineTotals } from '../../features/money/StatementExtras';
+import { dayStart, rangeProblem, type ActivityFilters } from './activity-filter';
+import { usePreferences } from '../../shared/preferences';
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * J-bank-16 #1: with a start and an end day picked, the net per coin of every posted line in those days, folded by the
+ * bank the same way a statement's total is, so a statement over the same dates shows the same figure. Whatever the
+ * search or direction filters, it totals every line in the dates, and says so.
+ */
+export function PeriodTotals({ filters }: { filters: ActivityFilters }) {
+  const { api } = useSession();
+  const { timeZone } = usePreferences();
+  const start = filters.from ? dayStart(filters.from, timeZone) : null;
+  const endDay = filters.to ? dayStart(filters.to, timeZone) : null;
+  const ok = start !== null && endDay !== null && rangeProblem(filters, timeZone) === null;
+  const from = ok ? new Date(start).toISOString() : null;
+  const to = ok ? new Date(endDay + DAY - 1).toISOString() : null;
+  const [totals, setTotals] = useState<readonly LineTotal[] | null>(null);
+  const [refused, setRefused] = useState<{ code: string | null; message: string } | null>(null);
+
+  useEffect(() => {
+    setTotals(null);
+    setRefused(null);
+    if (!from || !to) return;
+    let live = true;
+    void api.query('bank', 'statements.totals', { from, to }, lineTotalsSchema).then((result) => {
+      if (!live) return;
+      if (result.ok) setTotals(result.data.totals);
+      else setRefused({ code: result.code ?? null, message: result.message });
+    });
+    return () => {
+      live = false;
+    };
+  }, [api, from, to]);
+
+  // A refusal (too many lines, the read unavailable) is shown with its code, never dropped.
+  if (refused)
+    return (
+      <p role="alert" className="error-text" data-testid="money-period-totals" data-code={refused.code ?? ''}>
+        {refused.message}
+      </p>
+    );
+  if (!totals) return null;
+  return <LineTotals totals={totals} testId="money-period-totals" />;
+}

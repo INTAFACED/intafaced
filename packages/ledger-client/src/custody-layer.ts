@@ -71,3 +71,28 @@ export function parseCustodyLayer(raw: string | undefined | null): CustodyLayerS
   if (v === 'on' || v === 'off') return v;
   throw new Error(`LEDGER_CUSTODY_LAYER must be "on" or "off", got "${raw}"`);
 }
+
+/**
+ * OUR OWN ORDER BOOK FOLLOWS THE CUSTODY SWITCH (project-state OWNER.md item 288; docs/adr/2026-11-10-launch-money-model.md).
+ *
+ * Our own matching settles every fill through `tradeFill`, which moves customer balances in our ledger, so svc-ledger
+ * refuses it while the custodial layer is off; at launch customers trade at the venue. The own-book switches (svc-trade
+ * `TRADE_SPOT_ENABLED`, svc-matching `MATCHING_ENGINE_ENABLED`) therefore follow the custody switch:
+ *   - unset: on only when custody is on;
+ *   - explicitly off: always allowed (it is the operator's kill switch);
+ *   - explicitly on while custody is off: refused at boot, so no process runs an engine whose every fill would be refused.
+ */
+export type OwnOrderBookAnswer = { readonly enabled: boolean } | { readonly refusal: string };
+
+export function resolveOwnOrderBook(flag: string, asked: boolean | undefined, custody: CustodyLayerState): OwnOrderBookAnswer {
+  if (asked === undefined) return { enabled: custody === 'on' };
+  if (asked && custody === 'off') {
+    return {
+      refusal:
+        `${flag} is on but LEDGER_CUSTODY_LAYER is off: our own order book settles every fill in our ledger as customer ` +
+        'money, which INTAFACED does not hold with the custodial layer off. Leave the switch unset or set it off, or turn ' +
+        'the custodial layer on (the TEST journeys marked Later: custody).',
+    };
+  }
+  return { enabled: asked };
+}
