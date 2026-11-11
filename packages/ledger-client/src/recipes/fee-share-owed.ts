@@ -18,9 +18,13 @@ import { ownFundsPlaceAccount, type OwnFundsPlace } from './own-funds.js';
  *   pay    `trade:fee-share-owed:…`         → our own-funds place                       (keyed by the chain transaction)
  *
  * What a fee share needs that a reward does not: it is a share of a fee, so
- * - it is funded only from a claim the venue has recorded for us (`builderFeeReceive`), never from a fee earned and not yet
- *   collected: Owe draws on the budget, not on revenue, so with nothing collected and set aside it is refused;
+ * - Fund names the venue's claim (`builderFeeReceive`) and Owe draws on the budget, not on revenue, so with nothing set aside
+ *   Owe is refused;
  * - it is bounded by the fill it comes from: at most the rate on that fill's fee, and all shares on one fill at most the fee.
+ *
+ * What these recipes cannot check, because a recipe does not read the book: that the named claim was posted and its amount
+ * is right (`houseFees('builder')` also holds fees earned and not collected, so Fund alone does not keep those out), and
+ * that `sharedSoFarOnFill` is true. The first production caller must check both against the ledger before it posts.
  *
  * Every leg is one of INTAFACED's own accounts (`house`, `module`, or an own-funds `treasury` place), so none of these
  * recipes moves a customer balance, none is in `customerBalanceRecipes`, and the custody guard needs no change.
