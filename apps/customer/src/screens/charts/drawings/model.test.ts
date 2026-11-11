@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDrawing,
+  allowedOnPane,
+  PANE_KINDS,
+  SIZE_DEFAULT,
   barIndexAt,
   EMPTY_DOC,
   groupDrawings,
@@ -193,5 +196,39 @@ describe('device storage', () => {
     };
     expect(writeDoc(blocked, 'k', EMPTY_DOC)).toBe(false);
     expect(writeDoc(null, 'k', EMPTY_DOC)).toBe(false);
+  });
+});
+
+describe('text size and colour, and drawings on an indicator pane', () => {
+  const at = [{ time: 60, price: '55.10' }];
+
+  it('a text takes the size and colour picked, and an unknown size falls back to the default', () => {
+    const picked = makeDrawing('t1', 'text', at, { text: 'Support', size: 24, tone: 'up' });
+    expect(picked).toMatchObject({ kind: 'text', text: 'Support', size: 24, tone: 'up' });
+    expect(makeDrawing('t2', 'text', at, { size: 13 }).size).toBe(SIZE_DEFAULT);
+    expect(makeDrawing('t3', 'text', at).tone).toBe('text');
+    // Only a text takes a picked colour: a line keeps its tool's own tone.
+    expect(makeDrawing('l1', 'horizontal', at, { tone: 'down' }).tone).toBe('accent');
+  });
+
+  it('lines and text may go on an indicator pane; the price tools stay on the price pane', () => {
+    expect(PANE_KINDS).toEqual(['horizontal', 'ray', 'vertical', 'cross', 'trend', 'info', 'text']);
+    for (const kind of PANE_KINDS) expect(allowedOnPane(kind, 1)).toBe(true);
+    for (const kind of ['fib', 'long', 'short', 'measure', 'rectangle', 'brush', 'pattern'] as const) {
+      expect(allowedOnPane(kind, 1)).toBe(false);
+      expect(allowedOnPane(kind, 0)).toBe(true);
+    }
+    expect(makeDrawing('h1', 'horizontal', at, { pane: 2 }).pane).toBe(2);
+    expect('pane' in makeDrawing('h0', 'horizontal', at, { pane: 0 })).toBe(false);
+  });
+
+  it('a stored drawing keeps its pane and size, and one on a pane its kind may not use is dropped', () => {
+    const line = makeDrawing('h1', 'horizontal', at, { pane: 1 });
+    const text = makeDrawing('t1', 'text', at, { size: 18, tone: 'down', pane: 1 });
+    const fibOnPane = { ...makeDrawing('f1', 'fib', [at[0]!, { time: 120, price: '60.00' }]), pane: 1 };
+    const badSize = { ...makeDrawing('t2', 'text', at), size: 13 };
+    const parsed = parseDoc({ ...EMPTY_DOC, drawings: [line, text, fibOnPane, badSize] });
+    expect(parsed?.drawings.map((d) => d.id)).toEqual(['h1', 't1']);
+    expect(parsed?.drawings[1]).toMatchObject({ pane: 1, size: 18, tone: 'down' });
   });
 });
