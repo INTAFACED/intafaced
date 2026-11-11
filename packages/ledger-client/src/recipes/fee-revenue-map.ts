@@ -123,6 +123,11 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'builder',
     note: "Collected builder-fee revenue set aside for one venue's fee shares, keyed on the venue's claim; owed and paid from there, own accounts only (launch money model, OWNER 288).",
   },
+  'launch.charge_earned': {
+    kind: 'recipe',
+    recipe: 'chargeEarn',
+    note: 'A charge a customer owes us (agent usage, a course, a subscription) → houseFees(<module>), owed by them on a charge receivable until a Collect at one of our own-funds places; price unset refuses (launch money model, OWNER 288).',
+  },
   'trade.copy.fee_share_pay': {
     kind: 'recipe',
     recipe: 'rewardPay',
@@ -277,6 +282,7 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFillMakerRebate',
   'builderFeeEarn',
   'feeShareBudgetFund',
+  'chargeEarn',
   'marketMakerMakerFill',
   'futuresInsuranceTopup',
   'futuresMarginRelease',
