@@ -156,6 +156,12 @@ const RESERVED_KEY_PREFIXES = [SESSION_KEY_PREFIX, SESSION_KEY_END_PREFIX] as co
 export interface PrepareOptions extends DoorCaller {
   /** Set only by the session routes (session-key.ts): lets the action be stored under a reserved session key. */
   readonly sessionKey?: boolean;
+  /**
+   * Set only by the signal desk (signals/signal-desk.ts): the order carries the worst price the person's own alert
+   * names, as the futures ticket's typed slippage limit does, so the owner's price protection (which bounds the worst
+   * price the spot desk and Convert take from it) is not applied. The venue holds the order to the alert's price.
+   */
+  readonly ownWorstPrice?: boolean;
 }
 
 export class UserVenueDoorError extends Error {
@@ -775,7 +781,7 @@ export class UserVenueDoor {
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
     // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
-    if (finalIntent.kind === 'place_order') await this.assertMarketProtection(venue, finalIntent);
+    if (finalIntent.kind === 'place_order' && !opts.ownWorstPrice) await this.assertMarketProtection(venue, finalIntent);
 
     const prepared = await venue.prepare(account, signer, finalIntent);
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());

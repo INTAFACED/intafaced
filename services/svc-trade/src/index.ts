@@ -712,11 +712,12 @@ const signalDesk = new SignalDesk({
   prepareOrder: async (principal, input) => {
     if (!userVenue) return { ok: false, code: 'trade.user_venue_off' };
     try {
-      const answer = await userVenue.prepare(principal, {
-        owner: input.owner,
-        signer: { role: 'owner', address: input.owner },
-        intent: input.intent,
-      });
+      // The alert names its own worst price: the venue holds the order to it, not the owner's spot protection.
+      const answer = await userVenue.prepare(
+        principal,
+        { owner: input.owner, signer: { role: 'owner', address: input.owner }, intent: input.intent },
+        { ownWorstPrice: true },
+      );
       return { ok: true, actionKey: answer.actionKey, venueClientOrderId: answer.prepared.venueClientOrderId ?? null };
     } catch (err) {
       if (err instanceof UserVenueDoorError) return { ok: false, code: err.code };

@@ -177,6 +177,16 @@ describe('the door bounds every venue market order by the owner protection', () 
     expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59690') })))).toBe('passed');
   });
 
+  it("an alert's order carries its own worst price: the signal desk's prepare skips the protection, and only it", async () => {
+    // No ask and a blank protection: the plain prepare refuses, the alert's (ownWorstPrice) goes to the venue.
+    const { d, asked } = door(null, { bid: null, ask: null });
+    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: order() }))).toBe('trade.slippage_cap_unset');
+    expect(asked.prepares).toBe(0);
+    const prepared = await d.prepare(principal, { owner, signer, intent: order() }, { ownWorstPrice: true });
+    expect(prepared.prepared.intent).toMatchObject({ type: 'market', price: a('60311') });
+    expect(asked.prepares).toBe(1);
+  });
+
   it('no price on the side the order meets refuses trade.no_reference_price: never an unbounded order', async () => {
     const { d, asked } = door(50, { bid: a('59990'), ask: null });
     expect(await refusal(() => d.prepare(principal, { owner, signer, intent: order() }))).toBe('trade.no_reference_price');
