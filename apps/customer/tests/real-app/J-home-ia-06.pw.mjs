@@ -12,6 +12,7 @@ import {
 } from './notices.mjs';
 import { expectServiceOff } from './service-off.mjs';
 import { api, ORIGIN, tool } from './stack.mjs';
+import { answerAfterNavigation, answersAfterNavigation } from './navigation.mjs';
 
 // J-home-ia-06, in the running app (docs/roadmap/journeys.json): I see announcements and maintenance on Home. Tests titled
 // "J-home-ia-06 #<n>" prove a whole step. The stack's two TEST founders draft and publish through the notice board's own
@@ -41,10 +42,14 @@ async function openHome() {
   // matched here; the navigation then drops that response's body, so the read below finds no JSON (#7452: #1 failed
   // with a null answer in 0.7 s, or hung to the 90 s test timeout, in runs 42690470061 and 42767033940).
   await page.goto('about:blank');
-  const status = page.waitForResponse((res) => res.url().includes('/notify.noticeStatus'));
-  const current = page.waitForResponse((res) => res.url().includes('/notify.notices') && res.url().includes('announcement'));
-  await page.goto('/home');
-  const [statusRes, currentRes] = await Promise.all([status, current]);
+  const [statusRes, currentRes] = await answersAfterNavigation(
+    page,
+    [
+      (res) => res.url().includes('/notify.noticeStatus'),
+      (res) => res.url().includes('/notify.notices') && res.url().includes('announcement'),
+    ],
+    () => page.goto('/home'),
+  );
   await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeAttached();
   return { status: await answer(statusRes), current: await answer(currentRes) };
 }
@@ -194,8 +199,11 @@ async function expectDraftsHidden(drafts) {
   }
   expectAnswered(await openHome());
   for (const row of drafts) await expect(page.getByText(row.title)).toHaveCount(0);
-  const feed = page.waitForResponse((res) => res.url().includes('/notify.notices'));
-  await page.goto('/notice');
+  const feed = await answerAfterNavigation(
+    page,
+    (res) => res.url().includes('/notify.notices'),
+    () => page.goto('/notice'),
+  );
   expect((await feed).ok()).toBe(true);
   for (const row of drafts) {
     await expect(page.getByTestId(`notice-${row.id}`)).toHaveCount(0);
