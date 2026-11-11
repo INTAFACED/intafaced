@@ -1,6 +1,18 @@
 // World: none
 import { test, expect } from './journey.mjs';
-import { clickPlot, figureLines, openWorkbench, pick, plot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
+import {
+  clickPlot,
+  figureLines,
+  openWorkbench,
+  paneBoxes,
+  pick,
+  plot,
+  pointText,
+  pricesOf,
+  rowNamed,
+  rows,
+  timesOf,
+} from './charts-desk.mjs';
 import { openOrders, signUp } from './desk.mjs';
 
 // J-charts-desk-06 "I mark up a trade idea with Fibonacci, channels, patterns and position boxes", in the running app. One
@@ -112,13 +124,18 @@ async function loadedBars(page, box) {
   return byIndex;
 }
 
-/** Clicks loaded bar `index` (0 is the first loaded bar) at height `fy`, and answers that bar's own time in seconds. */
+/**
+ * Clicks loaded bar `index` (0 is the first loaded bar) at `fy` of the price pane's height, and answers that bar's own time
+ * in seconds. The indicator panes under the price pane take their own clicks.
+ */
 async function clickBar(page, index, fy) {
   const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
   if (!box) throw new Error('the chart has no box on the page');
   const bar = (await loadedBars(page, box)).get(index);
   if (!bar) throw new Error(`loaded bar ${index} is not in view`);
-  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + box.height * fy);
+  const price = (await paneBoxes(page)).find((b) => b.index === 0);
+  if (!price) throw new Error('the chart has no price pane');
+  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + price.top + price.height * fy);
   return bar.time;
 }
 

@@ -6,7 +6,11 @@ import {
   barTimeText,
   centred,
   clickPlot,
+  drawn,
+  inPane,
   openWorkbench,
+  paneBoxes,
+  paneValueAt,
   pick,
   plot,
   pointerAt,
@@ -78,40 +82,149 @@ test(`${J} #1 opens the drawing toolbar and picks the trend line, then two click
   });
 });
 
-test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price pane`, async () => {
+test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price pane, and on an indicator pane where allowed`, async () => {
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  const hostBox = await host.boundingBox();
+  // The chart opens with its default Volume study in its own indicator pane, pane 1 under the price pane.
+  const panes = await paneBoxes(page);
+  const price = panes.find((b) => b.index === 0);
+  const volume = panes.find((b) => b.index === 1);
+  expect(price, 'the price pane').toBeTruthy();
+  expect(volume, 'the Volume indicator pane').toBeTruthy();
+  const inside = (y, box) => y >= box.top - 1 && y <= box.top + box.height + 1;
+
+  // On the price pane: each point is placed inside the price pane itself.
+  const clickIn = async (pane, fx, fy) => {
+    const point = await inPane(page, pane, fx, fy);
+    await page.mouse.click(point.x, point.y);
+    return point;
+  };
   await pick(page, 'Info line');
-  await clickPlot(page, 0.2, 0.7);
-  await clickPlot(page, 0.4, 0.6);
+  await clickIn(0, 0.2, 0.7);
+  await clickIn(0, 0.4, 0.6);
   await pick(page, 'Horizontal line');
-  await clickPlot(page, 0.5, 0.3);
+  await clickIn(0, 0.5, 0.3);
   await pick(page, 'Ray');
-  await clickPlot(page, 0.7, 0.8);
-  await clickPlot(page, 0.8, 0.75);
+  await clickIn(0, 0.7, 0.8);
+  await clickIn(0, 0.8, 0.75);
   // The object tree lists the newest first: ray, horizontal, info, trend.
   await expect(rows(page)).toHaveCount(4);
   await expect(rows(page).nth(0)).toHaveAttribute('data-kind', 'ray');
   await expect(rows(page).nth(1)).toHaveAttribute('data-kind', 'horizontal');
   await expect(rows(page).nth(2)).toHaveAttribute('data-kind', 'info');
-  // On the price pane: the library draws the drawings on the main series' pane, pane 0, with the price.
-  await expect(page.getByTestId('cw').getByTestId('wc-host')).toHaveAttribute('data-drawings-pane', '0');
+  // Each is on the price pane: the tree says so, and the chart paints every line of it inside the price pane.
+  const priceIds = [];
+  for (let i = 0; i < 3; i += 1) {
+    await expect(rows(page).nth(i)).toHaveAttribute('data-pane', '0');
+    await expect(rows(page).nth(i).getByTestId('drawing-pane')).toHaveText('Price pane');
+    priceIds.push(await rows(page).nth(i).getAttribute('data-drawing-id'));
+  }
+  await expect(host).toHaveAttribute('data-drawings-pane', '0');
+  await expect.poll(async () => (await drawn(page)).filter((d) => priceIds.includes(d.id)).length).toBe(3);
+  for (const d of (await drawn(page)).filter((x) => priceIds.includes(x.id))) {
+    expect(d.pane, `${d.id} pane`).toBe(0);
+    expect(d.lines.length, `${d.id} lines`).toBeGreaterThan(0);
+    for (const [, y1, , y2] of d.lines) {
+      expect(inside(y1, price) && inside(y2, price), `${d.id} line ${y1}..${y2} inside the price pane`).toBe(true);
+    }
+  }
+
+  // On the Volume pane, where lines are allowed: a horizontal line, stored at the value the pane reads at the click.
+  await pick(page, 'Horizontal line');
+  const level = await inPane(page, 1, 0.5, 0.4);
+  const read = await paneValueAt(page, level);
+  expect(read.pane).toBe(1);
+  await page.mouse.click(level.x, level.y);
+  await expect(rows(page)).toHaveCount(5);
+  const onVolume = rows(page).nth(0);
+  await expect(onVolume).toHaveAttribute('data-kind', 'horizontal');
+  await expect(onVolume).toHaveAttribute('data-pane', '1');
+  await expect(onVolume.getByTestId('drawing-pane')).toHaveText('Indicator pane 1');
+  const storedLevel = pricesOf(await pointText(onVolume).textContent());
+  expect(storedLevel).toHaveLength(1);
+  expect(atTick(storedLevel[0], read.value), `stored ${storedLevel[0]}, pane value ${read.value}`).toBe(true);
+  // Painted on the Volume pane, at the height that was clicked.
+  const levelId = await onVolume.getAttribute('data-drawing-id');
+  await expect.poll(async () => (await drawn(page)).find((d) => d.id === levelId)?.pane ?? null).toBe(1);
+  const levelDrawn = (await drawn(page)).find((d) => d.id === levelId);
+  expect(levelDrawn.lines.length).toBeGreaterThan(0);
+  for (const [, y1, , y2] of levelDrawn.lines) {
+    expect(inside(y1, volume) && inside(y2, volume), `line ${y1}..${y2} inside the Volume pane`).toBe(true);
+    expect(Math.abs(y1 - (level.y - hostBox.y)), `line at ${y1}, clicked at ${level.y - hostBox.y}`).toBeLessThanOrEqual(1.5);
+  }
+
+  // A ray on the Volume pane: both points stored at the values the pane reads under them.
+  await pick(page, 'Ray');
+  const r1 = await inPane(page, 1, 0.6, 0.3);
+  const v1 = await paneValueAt(page, r1);
+  await page.mouse.click(r1.x, r1.y);
+  const r2 = await inPane(page, 1, 0.8, 0.6);
+  const v2 = await paneValueAt(page, r2);
+  await page.mouse.click(r2.x, r2.y);
+  await expect(rows(page)).toHaveCount(6);
+  const rayOnVolume = rows(page).nth(0);
+  await expect(rayOnVolume).toHaveAttribute('data-kind', 'ray');
+  await expect(rayOnVolume).toHaveAttribute('data-pane', '1');
+  const rayValues = pricesOf(await pointText(rayOnVolume).textContent());
+  expect(rayValues).toHaveLength(2);
+  expect(atTick(rayValues[0], v1.value), `point 1: stored ${rayValues[0]}, pane value ${v1.value}`).toBe(true);
+  expect(atTick(rayValues[1], v2.value), `point 2: stored ${rayValues[1]}, pane value ${v2.value}`).toBe(true);
+
+  // Where it is not allowed: a position reads a price, so on the Volume pane it is refused by name and nothing is placed.
+  await pick(page, 'Long position');
+  await clickIn(1, 0.5, 0.5);
+  await expect(page.getByRole('alert').filter({ hasText: 'This tool draws on the price pane only.' })).toBeVisible();
+  await expect(rows(page)).toHaveCount(6);
+  await pick(page, 'Select');
+
+  // The two Volume pane drawings are removed again, so the later steps list this journey's price pane drawings.
+  for (const id of [await rayOnVolume.getAttribute('data-drawing-id'), levelId]) {
+    await page.locator(`[data-drawing-id="${id}"]`).getByRole('button', { name: 'Delete', exact: true }).click();
+  }
+  await expect(rows(page)).toHaveCount(4);
 });
 
-test(`${J} #3 adds text at the chosen point, with its own label`, async () => {
+test(`${J} #3 adds text at the chosen point, with the font size and colour chosen`, async () => {
+  const toolbar = page.getByRole('toolbar', { name: 'Drawing tools' });
+  const token = (name) => page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
   await pick(page, 'Text');
   await page.getByLabel('Text to place or edit').first().fill('Support');
-  const point = await centred(page, await plot(page, 0.25, 0.55));
+  // The font size and colour are chosen before the text is placed.
+  await toolbar.getByLabel('Text size').selectOption({ label: '24 px' });
+  await toolbar.getByLabel('Text colour').selectOption({ label: 'Up' });
+  const point = await centred(page, await inPane(page, 0, 0.25, 0.55));
   await page.mouse.click(point.x, point.y);
   const at = await pointerAt(page, point);
-  // The text is stored with the drawing and shown in the object tree.
-  await expect(page.locator('[data-drawing-id][data-kind="text"]')).toHaveCount(1);
-  await expect(page.locator('[data-drawing-id][data-kind="text"]').getByRole('textbox', { name: 'Text to place or edit' })).toHaveValue(
-    'Support',
-  );
+  const row = page.locator('[data-drawing-id][data-kind="text"]');
+  await expect(row).toHaveCount(1);
+  await expect(row.getByRole('textbox', { name: 'Text to place or edit' })).toHaveValue('Support');
   // At the chosen point: stored as the bar under the click and the price at its height.
-  const stored = await pointText(page.locator('[data-drawing-id][data-kind="text"]')).textContent();
+  const stored = await pointText(row).textContent();
   expect(timesOf(stored)).toEqual([barTimeText(at.time)]);
   expect(atTick(pricesOf(stored)[0], at.price), `stored ${pricesOf(stored)[0]}, pointer ${at.price}`).toBe(true);
-  // Font size and colour are not offered in this build: the text takes the default size and the neutral tone.
+  // With the font size and colour chosen: stored with the text, and painted in that size and the Up colour.
+  await expect(row).toHaveAttribute('data-size', '24');
+  await expect(row).toHaveAttribute('data-tone', 'up');
+  const id = await row.getAttribute('data-drawing-id');
+  const up = await token('--if-up');
+  const neutral = await token('--if-fg-2');
+  expect(up, 'the Up colour token').not.toBe('');
+  expect(up, 'Up is not the neutral text colour').not.toBe(neutral);
+  const paintedText = async () => (await drawn(page)).find((d) => d.id === id)?.texts.find((t) => t.text === 'Support') ?? null;
+  await expect.poll(async () => (await paintedText())?.font ?? '').toMatch(/(^|\s)24px\s/);
+  expect((await paintedText()).colour).toBe(up);
+  expect(
+    Math.abs((await paintedText()).y - (point.y - (await page.getByTestId('cw').getByTestId('wc-host').boundingBox()).y)),
+  ).toBeLessThanOrEqual(1.5);
+
+  // The placed text's size and colour change from the object tree; its point stays where it was.
+  await row.getByLabel('Text size').selectOption({ label: '18 px' });
+  await row.getByLabel('Text colour').selectOption({ label: 'Down' });
+  await expect(row).toHaveAttribute('data-size', '18');
+  await expect(row).toHaveAttribute('data-tone', 'down');
+  await expect.poll(async () => (await paintedText())?.font ?? '').toMatch(/(^|\s)18px\s/);
+  expect((await paintedText()).colour).toBe(await token('--if-down'));
+  await expect(pointText(row)).toHaveText(stored);
 });
 
 test(`${J} #4 drags a line's middle handle, and both points move by the same bar and price delta`, async () => {

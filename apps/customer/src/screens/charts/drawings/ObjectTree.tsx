@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { drawingsCopy, drawingsMessages } from './copy';
-import { isVisible, type Drawing } from './model';
+import { isVisible, SIZE_DEFAULT, TEXT_SIZES, TONES, type Drawing, type Tone } from './model';
 import type { DrawingsApi } from './useDrawings';
 
 type Translate = (key: keyof typeof drawingsMessages, vars?: Record<string, string>) => string;
@@ -88,6 +88,8 @@ function DrawingRow({
       data-kind={drawing.kind}
       data-selected={selected || undefined}
       data-visible={visible}
+      data-pane={drawing.pane ?? 0}
+      {...(hasText ? { 'data-size': drawing.size ?? SIZE_DEFAULT, 'data-tone': drawing.tone } : {})}
     >
       <label className="dw-check">
         <input
@@ -102,6 +104,9 @@ function DrawingRow({
         {drawing.locked ? <span className="dw-badge"> {t('Locked')}</span> : null}
         {!visible ? <span className="dw-badge"> {t('Hidden')}</span> : null}
       </button>
+      <span className="dw-note" data-testid="drawing-pane">
+        {drawing.pane ? t('On pane', { n: String(drawing.pane) }) : t('On price pane')}
+      </span>
       <span className="dw-points" data-testid="drawing-points">
         {points}
       </span>
@@ -136,6 +141,38 @@ function DrawingRow({
             }}
           />
         </label>
+      ) : null}
+      {hasText ? (
+        <div className="dw-inline">
+          <label>
+            <span>{t('Text size label')}</span>
+            <select
+              value={String(drawing.size ?? SIZE_DEFAULT)}
+              disabled={drawing.locked}
+              onChange={(event) => api.setSize(drawing.id, Number(event.target.value))}
+            >
+              {TEXT_SIZES.map((size) => (
+                <option key={size} value={String(size)}>
+                  {t('Text size option', { size: String(size) })}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t('Text colour label')}</span>
+            <select
+              value={drawing.tone}
+              disabled={drawing.locked}
+              onChange={(event) => api.setTone(drawing.id, event.target.value as Tone)}
+            >
+              {TONES.map((tone) => (
+                <option key={tone} value={tone}>
+                  {t(`Colour ${tone}` as keyof typeof drawingsMessages)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       ) : null}
       {hasLevels ? (
         <div className="dw-inline">

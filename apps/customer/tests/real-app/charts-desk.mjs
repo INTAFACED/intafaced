@@ -41,15 +41,12 @@ async function barCentres(page, box) {
 }
 
 /**
- * A point on the chart: `fx` picks one of the loaded bars (0 is the first, 1 the last, rounded to the nearest bar), so the
- * point is always on a bar and two points with different fractions are on different bars. `fy` is a fraction of the height.
+ * A point on the chart's price pane: `fx` picks one of the loaded bars (0 is the first, 1 the last, rounded to the nearest
+ * bar), so the point is always on a bar and two points with different fractions are on different bars. `fy` is a fraction
+ * of the price pane's height: the indicator panes under it (the default Volume pane) take their own clicks (`inPane`).
  */
 export async function plot(page, fx, fy) {
-  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
-  if (!box) throw new Error('the chart has no box on the page');
-  const bars = await barCentres(page, box);
-  const index = Math.round(fx * (bars.length - 1));
-  return { x: box.x + box.width * bars[index], y: box.y + box.height * fy };
+  return inPane(page, 0, fx, fy);
 }
 
 export async function clickPlot(page, fx, fy) {
@@ -113,4 +110,54 @@ export async function centred(page, point) {
     if ((await pointerAt(page, { x: point.x + dx, y: point.y })).time === time) same.push(point.x + dx);
   }
   return { x: (Math.min(...same) + Math.max(...same)) / 2, y: point.y };
+}
+
+/** The chart's panes as the drawings read them: each pane's index, top and height in pixels from the chart's top. */
+export async function paneBoxes(page) {
+  return page
+    .getByTestId('cw')
+    .getByTestId('wc-host')
+    .evaluate((el) => el.readPaneBoxes());
+}
+
+/**
+ * A point on one pane of the chart: `fx` picks a loaded bar as `plot` does, `fy` is a fraction of that pane's own height.
+ */
+export async function inPane(page, pane, fx, fy) {
+  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
+  if (!box) throw new Error('the chart has no box on the page');
+  const bars = await barCentres(page, box);
+  const at = (await paneBoxes(page)).find((b) => b.index === pane);
+  if (!at) throw new Error(`the chart has no pane ${pane}`);
+  const index = Math.round(fx * (bars.length - 1));
+  return { x: box.x + box.width * bars[index], y: box.y + at.top + at.height * fy };
+}
+
+/**
+ * What the chart reads under a pixel on an indicator pane: the pane's index and the value at that height on the pane's own
+ * scale, as the library reports them on the grid cell (`data-crosshair-pane`, `data-crosshair-pane-value`).
+ */
+export async function paneValueAt(page, point) {
+  const cell = page.locator('[data-crosshair]').first();
+  await page.mouse.move(point.x - 1, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane')) ?? '').not.toBe('');
+  await cell.evaluate((el) => {
+    el.setAttribute('data-crosshair-pane', '');
+    el.setAttribute('data-crosshair-pane-value', '');
+  });
+  await page.mouse.move(point.x, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane')) ?? '').not.toBe('');
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane-value')) ?? '').not.toBe('');
+  return {
+    pane: Number(await cell.getAttribute('data-crosshair-pane')),
+    value: Number(await cell.getAttribute('data-crosshair-pane-value')),
+  };
+}
+
+/** What the chart has painted for each drawing: its pane, lines, handles and texts (font and colour), in chart pixels. */
+export async function drawn(page) {
+  return page
+    .getByTestId('cw')
+    .getByTestId('wc-host')
+    .evaluate((el) => el.readDrawnLines());
 }
