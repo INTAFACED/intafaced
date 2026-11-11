@@ -10,6 +10,9 @@
  *   node tooling/ci/judge-down.mjs down "<source>" issue    one project-state issue, none while one is open
  *   node tooling/ci/judge-down.mjs back "<source>" status   the `judge` status this source set, cleared
  *   node tooling/ci/judge-down.mjs back "CI review" issue   the issue closed; `closed=true` to GITHUB_OUTPUT when one was
+ *   node tooling/ci/judge-down.mjs second|first "CI review" key
+ *                                                          the "CI review on its second key" issue opened (once) when the
+ *                                                          second key answered, closed when the first answers again
  *   node tooling/ci/judge-down.mjs back "CI review" catchup the heads left without a verdict re-run (the Start the seal
  *                                                            job, which alone holds actions: write; the review job can't
  *                                                            re-run a run, ci-review.test.mjs)
@@ -29,6 +32,9 @@ export const CONTEXT = 'judge';
 export const ISSUE_REPO = 'INTAFACED/project-state';
 export const ISSUE_TITLE = 'Judge down: CI review';
 export const LABEL = 'judge-down';
+/** The one record that the reviewer runs on its second key (project-state#2180): an open issue with this title and label. */
+export const KEY_ISSUE_TITLE = 'CI review on its second key';
+export const KEY_LABEL = 'reviewer-key';
 /** The most CI review runs one success re-runs: each re-run spends the App's and Actions' quota (and one review call). */
 export const CATCH_UP_CAP = 10;
 /** The most heads' jobs read to find them: one GET each. */
@@ -125,11 +131,49 @@ async function call(token, method, path, body) {
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-const openIssues = async (token) => {
-  const r = await call(token, 'GET', `/repos/${ISSUE_REPO}/issues?state=open&labels=${LABEL}&per_page=100`);
-  if (r.status !== 200) throw new Error(`could not list ${ISSUE_REPO}'s ${LABEL} issues: HTTP ${r.status}`);
-  return (r.json ?? []).filter((i) => !i.pull_request && i.title === ISSUE_TITLE).sort((a, b) => a.number - b.number);
+const openIssues = async (token, label = LABEL, title = ISSUE_TITLE) => {
+  const r = await call(token, 'GET', `/repos/${ISSUE_REPO}/issues?state=open&labels=${label}&per_page=100`);
+  if (r.status !== 200) throw new Error(`could not list ${ISSUE_REPO}'s ${label} issues: HTTP ${r.status}`);
+  return (r.json ?? []).filter((i) => !i.pull_request && i.title === title).sort((a, b) => a.number - b.number);
 };
+
+/** The second-key issue's body: the first key's error line and the one action, before the second key runs out too. */
+export function keyIssueBody({ line, runUrl, now = new Date() }) {
+  return [
+    'The CI review runs on its second key, `CLAUDE_CODE_OAUTH_TOKEN_2`: its first key, `CLAUDE_CODE_OAUTH_TOKEN`, was refused or used up, so each reviewer call is asked again on the second. PRs still get their verdicts.',
+    '',
+    `- **First key's error:** \`${String(line || '(not given)').replace(/`/g, "'")}\``,
+    `- **Since:** ${times(now)}, ${runUrl}`,
+    '- **One action:** renew the first key before the second runs out too: an agent makes a new key with the reviewer CLI\'s `setup-token` and sets it as the `CLAUDE_CODE_OAUTH_TOKEN` secret of the `ci-review` environment (https://github.com/INTAFACED/intafaced/settings/environments), or waits for the reset the error names.',
+    '',
+    'The first CI review that answers on the first key again closes this (tooling/ci/judge-down.mjs).',
+  ].join('\n');
+}
+
+/** Which key answered: `second` opens the one second-key issue (none while one is open), `first` closes it. */
+async function keyIssue(which) {
+  const { RUN_URL = '', LINE = '', ISSUE_TOKEN } = process.env;
+  console.log(`reviewer key: ${which}${which === 'second' ? ' (CLAUDE_CODE_OAUTH_TOKEN_2); renew CLAUDE_CODE_OAUTH_TOKEN' : ''}`);
+  if (!ISSUE_TOKEN) return console.log(`::warning::no project-state issues token, so no "${KEY_ISSUE_TITLE}" issue is read or written`);
+  const open = await openIssues(ISSUE_TOKEN, KEY_LABEL, KEY_ISSUE_TITLE);
+  if (which === 'first') {
+    for (const i of open) {
+      await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues/${i.number}/comments`, {
+        body: `The first key answered again at ${times()} (${RUN_URL}).`,
+      });
+      const c = await call(ISSUE_TOKEN, 'PATCH', `/repos/${ISSUE_REPO}/issues/${i.number}`, { state: 'closed', state_reason: 'completed' });
+      console.log(c.status === 200 ? `closed ${ISSUE_REPO}#${i.number}` : `::warning::${ISSUE_REPO}#${i.number} wasn't closed: HTTP ${c.status}`);
+    }
+    return;
+  }
+  if (open.length) return console.log(`${ISSUE_REPO}#${open[0].number} is already open; nothing added`);
+  const made = await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues`, {
+    title: KEY_ISSUE_TITLE,
+    labels: [KEY_LABEL],
+    body: keyIssueBody({ line: LINE, runUrl: RUN_URL }),
+  });
+  console.log(made.status === 201 ? `opened ${ISSUE_REPO}#${made.json.number}` : `::warning::the "${KEY_ISSUE_TITLE}" issue wasn't opened: HTTP ${made.status}`);
+}
 
 async function downStatus(source) {
   const { GH_TOKEN, REPO, HEAD_SHA, RUN_URL = '', ACTION = '' } = process.env;
@@ -241,9 +285,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     'back status': backStatus,
     'back issue': backIssue,
     'back catchup': backCatchUp,
+    'second key': () => keyIssue('second'),
+    'first key': () => keyIssue('first'),
   }[`${cmd} ${part}`];
   if (!run || !source) {
-    console.error('usage: judge-down.mjs down|back "<source>" status|issue|catchup');
+    console.error('usage: judge-down.mjs down|back "<source>" status|issue|catchup, or second|first "<source>" key');
     process.exit(1);
   }
   // Exits 0 even when it fails: the Judge down step is the seal's marker (review-marker.mjs isJudgeDown reads that it

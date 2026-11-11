@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { explain, answerOf, classify, resetOf, RETRY_ACTION, SIGN_IN_ACTION } from './reviewer-error.mjs';
+import { explain, answerOf, classify, otherKey, resetOf, RETRY_ACTION, SIGN_IN_ACTION } from './reviewer-error.mjs';
 
 test('a json answer that is an error names its fields and text', () => {
   const a = JSON.stringify({ type: 'result', subtype: 'success', is_error: true, api_error_status: 429, result: 'limit reached' });
@@ -217,4 +217,151 @@ test("a well-formed answer that isn't an error stays the review's own: stderr na
   assert.equal(kindOf(fail, 1, 'Error: 429 rate_limit_error: retrying\n').kind, 'error');
   // The same stderr beside an error answer is still read.
   assert.equal(kindOf({ ...fail, is_error: true, result: 'x' }, 1, 'Error: 429 rate_limit_error\n').kind, 'down');
+});
+
+/**
+ * The second key (project-state#2180), run as the workflow runs it: each reviewer step's own script from ci-review.yml,
+ * under bash -e with pipefail, with a planted CLI that answers by the key in its environment. Proves the first key's
+ * usage refusal is asked again on CLAUDE_CODE_OAUTH_TOKEN_2, a refusal about the change is not, the call never holds
+ * both keys, and with no second key set the step behaves as before.
+ */
+const WF_TEXT = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
+const stepRun = (name) => {
+  const at = WF_TEXT.indexOf(`      - name: ${name}\n`);
+  const from = WF_TEXT.indexOf('        run: |\n', at) + '        run: |\n'.length;
+  const end = WF_TEXT.indexOf('\n\n', from);
+  return WF_TEXT.slice(from, end)
+    .split('\n')
+    .map((l) => l.replace(/^ {10}/, ''))
+    .join('\n');
+};
+const LIMIT = {
+  type: 'result',
+  subtype: 'success',
+  is_error: true,
+  api_error_status: 429,
+  result: "API Error: 429 You've hit your weekly limit · resets Nov 13, 10am (UTC)",
+};
+const ANSWER = { type: 'result', subtype: 'success', is_error: false, structured_output: { verdict: 'PASS', findings: [] } };
+// A failure that is not the key's: the call ran out of structured-output retries on the change's own input.
+const CHANGE = { type: 'result', subtype: 'error_max_structured_output_retries', is_error: true, result: 'x' };
+
+/** Runs a step's script with a planted CLI; `plan` maps a key to the answer that key gets. */
+function runStep(name, { keys, plan, edit = (s) => s }) {
+  const root = mkdtempSync(join(tmpdir(), 'rev-key-'));
+  const temp = join(root, 'temp');
+  const bin = join(temp, 'reviewer', 'node_modules', '.bin');
+  execFileSync('mkdir', ['-p', bin, join(temp, 'review')]);
+  const log = join(root, 'calls.log');
+  // The planted CLI: logs which key it holds and whether any second key reached it, then answers by the key.
+  writeFileSync(
+    join(bin, 'claude'),
+    `#!/usr/bin/env bash\ncat > /dev/null\necho "$CLAUDE_CODE_OAUTH_TOKEN second-in-env:\${CLAUDE_CODE_OAUTH_TOKEN_2:+yes}" >> ${JSON.stringify(log)}\n` +
+      `case "$CLAUDE_CODE_OAUTH_TOKEN" in\n${Object.entries(plan)
+        .map(([k, a]) => `  ${k}) echo '${JSON.stringify(a).replace(/'/g, "'\\''")}'; exit ${a.is_error ? 1 : 0};;`)
+        .join('\n')}\nesac\nexit 9\n`,
+    { mode: 0o755 },
+  );
+  writeFileSync(join(temp, 'review', 'schema.json'), '{}');
+  writeFileSync(join(temp, 'review', 'prompt.txt'), 'p');
+  const out = join(root, 'out');
+  writeFileSync(out, '');
+  const script = edit(stepRun(name));
+  let code = 0;
+  let stdout = '';
+  try {
+    stdout = execFileSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        RUNNER_TEMP: temp,
+        GITHUB_WORKSPACE: new URL('../..', import.meta.url).pathname.replace(/\/$/, ''),
+        GITHUB_OUTPUT: out,
+        GH_TOKEN: 'x',
+        HEAD_SHA: 'abc',
+        READER_MODEL: 'm',
+        READER_EFFORT: 'e',
+        ...keys,
+      },
+    });
+  } catch (e) {
+    code = e.status;
+    stdout = String(e.stdout);
+  }
+  const read = (f) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
+  return { code, stdout, calls: read(log).trim().split('\n').filter(Boolean), outputs: read(out) };
+}
+// The read of the answer is ci-review.mjs's, tested elsewhere: here it only shows the step reached it.
+const reviewEdit = (s) => s.replaceAll('node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"', 'echo READ-ANSWER');
+
+test('the Review step: a usage refusal on the first key is asked again on the second, and the record says so', () => {
+  const r = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: LIMIT, k2: ANSWER }, edit: reviewEdit });
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(r.calls, ['k1 second-in-env:', 'k2 second-in-env:'], 'key 1, then key 2; no call ever holds the second key beside it');
+  assert.match(r.stdout, /READ-ANSWER/);
+  assert.match(r.stdout, /reviewer key: second/);
+  assert.match(r.outputs, /^key=second$/m);
+  assert.match(r.outputs, /^first_line=.*weekly limit/m);
+  assert.doesNotMatch(r.outputs, /^kind=down/m, 'the first key\'s refusal leaves no judge-down output once the second answered');
+  assert.ok(!/k1|k2/.test(r.stdout.replace(/second-in-env/g, '')), 'no key in the log');
+});
+
+test('the Review step: a refusal about the change is never retried on the second key', () => {
+  const r = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: CHANGE, k2: ANSWER }, edit: reviewEdit });
+  assert.equal(r.code, 1, 'red, as before');
+  assert.deepEqual(r.calls, ['k1 second-in-env:']);
+  assert.doesNotMatch(r.stdout, /READ-ANSWER/);
+});
+
+test('the Review step: with no second key, a usage refusal is the judge down as before, after one call', () => {
+  const r = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1' }, plan: { k1: LIMIT }, edit: reviewEdit });
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.calls, ['k1 second-in-env:']);
+  assert.match(r.outputs, /^kind=down$/m);
+  assert.doesNotMatch(r.outputs, /^key=/m);
+  // And with both keys used up: two calls, then the judge down.
+  const both = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: LIMIT, k2: LIMIT }, edit: reviewEdit });
+  assert.equal(both.code, 0);
+  assert.deepEqual(both.calls, ['k1 second-in-env:', 'k2 second-in-env:']);
+  assert.match(both.outputs, /^kind=down$/m);
+  // A first key that answers: one call, on the first key.
+  const ok = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: ANSWER }, edit: reviewEdit });
+  assert.equal(ok.code, 0);
+  assert.deepEqual(ok.calls, ['k1 second-in-env:']);
+  assert.match(ok.outputs, /^key=first$/m);
+});
+
+// The proof read's input and answer reads are step-read.mjs's, tested elsewhere: here two prompts and a stub read.
+const readEdit = (s) =>
+  s
+    .replace(
+      'node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" prepare "$dir"',
+      'mkdir -p "$dir/second" && for x in "$dir" "$dir/second"; do echo p > "$x/prompt.txt"; echo "{}" > "$x/schema.json"; done',
+    )
+    .replace('gh api ', 'echo 0 || gh api ')
+    .replace('node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" read "$dir"', 'echo READ-ANSWER');
+
+test('the proof read: both calls go to the second key on a usage refusal; a refusal about the change is not retried', () => {
+  const r = runStep('Read the steps (proof v2)', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: LIMIT, k2: ANSWER }, edit: readEdit });
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(r.calls.sort(), ['k1 second-in-env:', 'k1 second-in-env:', 'k2 second-in-env:', 'k2 second-in-env:']);
+  assert.match(r.stdout, /READ-ANSWER/);
+  assert.match(r.stdout, /reviewer key: second/);
+  const change = runStep('Read the steps (proof v2)', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: CHANGE, k2: ANSWER }, edit: readEdit });
+  assert.deepEqual(change.calls, ['k1 second-in-env:', 'k1 second-in-env:']);
+  assert.match(change.stdout, /no proof read of this head: a reader call failed/);
+  const none = runStep('Read the steps (proof v2)', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1' }, plan: { k1: LIMIT }, edit: readEdit });
+  assert.deepEqual(none.calls, ['k1 second-in-env:', 'k1 second-in-env:']);
+  assert.match(none.stdout, /no proof read of this head: a reader call failed/);
+});
+
+test('--key says `other` only for the key\'s own refusals', () => {
+  const now = new Date('2026-11-11T16:00:00Z');
+  assert.equal(otherKey(classify(JSON.stringify(LIMIT), 1, now)), true);
+  assert.equal(otherKey(classify(JSON.stringify({ is_error: true, api_error_status: 401, result: 'Invalid bearer token' }), 1, now)), true);
+  assert.equal(otherKey(classify(JSON.stringify({ is_error: true, api_error_status: 529, result: 'Overloaded' }), 1, now)), false);
+  assert.equal(otherKey(classify(JSON.stringify(CHANGE), 1, now)), false);
+  // The model's own text naming a limit is never the key's refusal.
+  assert.equal(otherKey(classify(JSON.stringify({ is_error: true, result: "You've hit your weekly limit" }), 1, now)), false);
+  assert.equal(otherKey(classify('', 1, now)), false);
 });

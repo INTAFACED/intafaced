@@ -23,7 +23,7 @@ import {
   reviewJob,
 } from './review-marker.mjs';
 import { inputsGoing, readGoing, sealNow, CI_JOBS_NAME } from './journey-seal.mjs';
-import { CATCH_UP_CAP, catchUpTargets, describe, issueBody } from './judge-down.mjs';
+import { CATCH_UP_CAP, KEY_ISSUE_TITLE, KEY_LABEL, LABEL, catchUpTargets, describe, issueBody, keyIssueBody } from './judge-down.mjs';
 
 const WF = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
 const REVIEW = WF.slice(WF.indexOf('\n  review:\n'), WF.indexOf('\n  # The proof read, a check'));
@@ -436,4 +436,18 @@ test('the catch-up re-runs are the Start the seal job’s, after the review job 
     /if: \$\{\{ !cancelled\(\) && needs\.review\.outputs\.judge-closed == 'true' \}\}[\s\S]*judge-down\.mjs back "CI review" catchup/,
   );
   assert.match(start, /actions: write/);
+});
+
+test('the second-key issue names the first key\'s error, the time and the one action, and never a key', () => {
+  const body = keyIssueBody({
+    line: "the reviewer CLI exited 1; api_error_status=429; result: You've hit your weekly limit `x`",
+    runUrl: 'https://github.com/r/actions/runs/1',
+    now: new Date('2026-11-11T15:28:00Z'),
+  });
+  assert.match(body, /runs on its second key, `CLAUDE_CODE_OAUTH_TOKEN_2`/);
+  assert.match(body, /weekly limit 'x'`/, 'backticks in the line cannot break its code span');
+  assert.match(body, /2026-11-11 23:28 Bali time \(2026-11-11 15:28 UTC\), https:\/\/github\.com\/r\/actions\/runs\/1/);
+  assert.match(body, /renew the first key before the second runs out too/);
+  assert.equal(KEY_ISSUE_TITLE, 'CI review on its second key');
+  assert.notEqual(KEY_LABEL, LABEL, 'a second key in use is not the judge down');
 });
