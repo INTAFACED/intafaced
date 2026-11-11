@@ -97,6 +97,17 @@ runs:
         read -ra pkgs <<<"$LIST"
         if [ "$HIT" = true ] && sudo dpkg -i "$dir"/*.deb; then exit 0; fi
         [ "$HIT" = true ] && echo "::warning::the cached packages did not install; fetching them from Ubuntu's mirror"
+        # One look-up of the mirror's names first: when none resolves, apt would wait 20 s on each package and list
+        # (5 minutes on 11 Nov, run 43046948299) and still fail.
+        hosts=$(sed -n 's|^[a-z]*://\([^/[:space:]]*\).*|\1|p' /etc/apt/apt-mirrors.txt 2>/dev/null | sort -u)
+        reachable=""
+        for h in ${hosts:-archive.ubuntu.com}; do
+          if timeout 5 getent hosts "$h" > /dev/null; then reachable=yes; break; fi
+        done
+        if [ -z "$reachable" ]; then
+          echo "::warning::Ubuntu's mirror does not resolve ($(tr '\n' ' ' <<<"${hosts:-archive.ubuntu.com}")), so $LIST cannot be installed"
+          exit 0
+        fi
         rm -rf "$dir" && mkdir -p "$dir/partial"
         apt=(sudo timeout --kill-after=30 150 apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
         fetch() { "${apt[@]}" install -y --no-install-recommends --download-only -o Dir::Cache::Archives="$dir" "${pkgs[@]}"; }
