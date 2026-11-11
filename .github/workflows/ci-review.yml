@@ -201,7 +201,7 @@ jobs:
             }
             ask || { rc=$?; other_key "$dir/answer.jsonl" "$rc" || failed "$dir/answer.jsonl" "$rc"; ask || failed "$dir/answer.jsonl" "$?"; }
             echo "called=true" >> "$GITHUB_OUTPUT"
-            echo "key=$key" >> "$GITHUB_OUTPUT" && echo "reviewer key: $key"
+            [ -z "$second" ] || { echo "key=$key" >> "$GITHUB_OUTPUT" && echo "reviewer key: $key"; }
           else
             ask() {
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
@@ -217,7 +217,7 @@ jobs:
             }
             ask || { rc=$?; other_key "$dir/answer.json" "$rc" || failed "$dir/answer.json" "$rc"; ask || failed "$dir/answer.json" "$?"; }
             echo "called=true" >> "$GITHUB_OUTPUT"
-            echo "key=$key" >> "$GITHUB_OUTPUT" && echo "reviewer key: $key"
+            [ -z "$second" ] || { echo "key=$key" >> "$GITHUB_OUTPUT" && echo "reviewer key: $key"; }
           fi
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
 
@@ -283,9 +283,10 @@ jobs:
 
       # Which key answered, in one place: the "CI review on its second key" project-state issue (judge-down.mjs `key`),
       # opened when the second key answered and closed when the first answers again, so the first is renewed before the
-      # second runs out too. Its failure can't fail the job.
+      # second runs out too. Its failure can't fail the job. With no second key set, no `key` output is written and this
+      # step never runs.
       - name: Reviewer key
-        if: ${{ !cancelled() && steps.review.outputs.called == 'true' && steps.review.outputs.kind != 'down' }}
+        if: ${{ !cancelled() && steps.review.outputs.key != '' && steps.review.outputs.kind != 'down' }}
         continue-on-error: true
         env:
           ISSUE_TOKEN: ${{ steps.issues-token.outputs.token }}
