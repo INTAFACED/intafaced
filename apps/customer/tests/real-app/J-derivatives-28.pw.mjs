@@ -177,7 +177,10 @@ test(`${J} #1 opens the ticket for a market two venues list: each venue with its
   test.setTimeout(300_000);
   const account = await signUp(page, 'vroute');
   await verify(page, account);
-  run.reset({ account, walletKey: testWalletKey(), startedAt: new Date(Date.now() - 60_000).toISOString() });
+  // The period starts one second back: the TEST venues share the stack's clock, and the shard runs one file at a time, so
+  // it holds this file's fills only. A minute back took in the fills J-derivatives-01-venue had just made on the same
+  // venue, and #6 read them as strangers (#7878; run 43017609738).
+  run.reset({ account, walletKey: testWalletKey(), startedAt: new Date(Date.now() - 1000).toISOString() });
   const v = await both();
   expect(v.a.id).not.toBe(v.b.id);
   const owner = privateKeyToAccount(state().walletKey).address.toLowerCase();
