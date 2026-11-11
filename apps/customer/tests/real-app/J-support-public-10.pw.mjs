@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
-import { api, ROOT, tool } from './stack.mjs';
+import { api, restartWith, ROOT, tool } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
@@ -14,7 +14,7 @@ import { api, ROOT, tool } from './stack.mjs';
 // A step whose part is missing fails at it quickly (UNBUILT).
 // #7's "public reply only" is proved against an internal note (SP-tickets-05), the status reason and the escalation summary.
 // A refusal is matched by its one typed code, and the record is read again after it to show nothing changed.
-// #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
+// #2's blank view cap clause restarts svc-support with LOCAL_STACK_SUPPORT_VIEW_CAP=off and restores it in the same step.
 const J = 'J-support-public-10';
 const RUN = Date.now().toString(36);
 const UNBUILT = { timeout: 5_000 };
@@ -225,15 +225,58 @@ test(`${J} #2 a filter by field saves as a view and is shared: list and count ag
   await expect(agent.getByRole('row').filter({ hasText: `TEST filter trading ${RUN}` })).toHaveCount(1);
   await expect(agent.getByRole('button', { name: 'Save view' })).toHaveCount(0);
   await agent.context().close();
+  // Not editable by the other agent: a change or a delete of the lead's shared view is refused by name, and it stays.
+  const view = (await desk('agent', 'query', 'viewsList')).views.find((v) => v.name === `TEST trading ${RUN}`);
+  expect(view, 'the agent reads the shared view').toBeTruthy();
+  expect(view.shared).toBe(true);
+  expect(
+    await refusedWith('agent', 'mutation', 'viewsSave', {
+      viewId: view.id,
+      name: `TEST trading ${RUN} changed`,
+      expectedRevision: view.revision,
+      shared: true,
+      filter: view.filter,
+      reason: `TEST ${J} edit by another agent`,
+    }),
+  ).toBe('support.view_not_owner');
+  expect(await refusedWith('agent', 'mutation', 'viewsDelete', { viewId: view.id, reason: `TEST ${J} delete by another agent` })).toBe(
+    'support.view_not_owner',
+  );
+  const still = (await desk('lead', 'query', 'viewsList')).views.find((v) => v.id === view.id);
+  expect(still).toMatchObject({ name: `TEST trading ${RUN}`, revision: view.revision });
 
   // A field the queue does not have is refused by name, and the list stays as it was.
   await page.goto(`${ADMIN}/support`);
   await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' }).first()).toBeVisible();
-  const before = await queue.getByRole('row').filter({ hasNotText: 'Subject' }).count();
+  // The subject is the row's second cell, after the tick box.
+  const subjects = () =>
+    queue
+      .getByRole('row')
+      .filter({ hasNotText: 'Subject' })
+      .evaluateAll((all) => all.map((row) => row.cells[1]?.textContent ?? ''));
+  const before = await subjects();
   await page.goto(`${ADMIN}/support?filter=${encodeURIComponent('nosuchfield:x')}`);
-  // Scoped to the page body: Next's route announcer is a second, empty alert outside it.
-  await expect(page.getByRole('main').getByRole('alert')).toContainText('nosuchfield');
-  await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' })).toHaveCount(before);
+  // svc-support's own typed refusal, naming the field, and the very same requests listed below it.
+  await expect(page.getByTestId('queue-filter-refused')).toContainText('"nosuchfield" (support.filter_invalid)');
+  await expect.poll(subjects).toEqual(before);
+
+  // With the owner's view cap blank, saving a view refuses and names the setting; nothing is saved.
+  restartWith('support', 'LOCAL_STACK_SUPPORT_VIEW_CAP', false);
+  try {
+    const name = `TEST capless ${RUN}`;
+    const refused = await asDesk('lead', 'mutation', 'viewsSave', {
+      name,
+      expectedRevision: 0,
+      shared: false,
+      filter: { field: 'category', op: 'eq', value: 'trading' },
+      reason: `TEST ${J} blank cap`,
+    });
+    expect(refused.json?.result?.data).toBeUndefined();
+    expect(refused.json?.error?.message).toBe('support.view_cap_unset support.view_personal_cap');
+    expect((await desk('lead', 'query', 'viewsList')).views.some((v) => v.name === name)).toBe(false);
+  } finally {
+    restartWith('support', 'LOCAL_STACK_SUPPORT_VIEW_CAP', true);
+  }
 });
 
 test(`${J} #3 searching a word in a subject lists only requests this agent may see`, async ({ page }) => {
