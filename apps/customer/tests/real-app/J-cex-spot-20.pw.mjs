@@ -476,8 +476,10 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
   // One customer buy through a resting ask pays a fee; the ledger's fee accounts for this month grow by exactly that fee.
   // The total is the whole venue's, and the stack's own taker buys and sells BTC/USDT on a timer, so its fee can land in
   // BTC inside the same minute (#7868). The buy is made on the unquoted market, where nothing else takes IFC as a fee.
-  const collected = async (asset) => {
-    const cell = page.locator(`[data-testid=fees-table] tr[data-asset="${asset}"] [data-col=collected]`);
+  // The ledger answers per venue and asset, earned and collected apart (OWNER 288): a fee on our own book is earned, on
+  // our own row (no venue), so the fee is read from the earned column of that row.
+  const earned = async (asset) => {
+    const cell = page.locator(`[data-testid=fees-table] tr[data-asset="${asset}"][data-venue=""] [data-col=earned]`);
     return (await cell.count()) === 0 ? 0n : toUnits((await cell.textContent()).trim());
   };
   const seller = otherTrader();
@@ -501,7 +503,7 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
     // A bid as well as the ask, so the market has a two-sided mark for the buy's price band.
     await rest('buy', '0.99', '1');
     await rest('sell', '1.01', '2');
-    const before = { IFC: await collected('IFC'), USDC: await collected('USDC') };
+    const before = { IFC: await earned('IFC'), USDC: await earned('USDC') };
     const order = await place(customer, {
       symbol: FEE_MARKET,
       type: 'limit',
@@ -526,7 +528,7 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
         .poll(
           async () => {
             await page.reload();
-            return (await collected(asset)) - (before[asset] ?? 0n);
+            return (await earned(asset)) - (before[asset] ?? 0n);
           },
           { timeout: 60_000 },
         )
@@ -539,14 +541,14 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
       expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
     }
   }
-  // Each fee line is the ledger's own: what it kept is what it collected less what it returned, as decimal strings.
+  // Each fee line is the ledger's own: what it kept is what it earned less what it returned, as decimal strings.
   const feeRows = page.locator('[data-testid=fees-table] tbody tr');
   expect(await feeRows.count()).toBeGreaterThan(0);
   for (const row of await feeRows.all()) {
     const cell = async (col) => (await row.locator(`[data-col=${col}]`).textContent()).trim();
-    const [c, r, k] = [await cell('collected'), await cell('returned'), await cell('kept')];
-    for (const v of [c, r, k]) expect(v).toMatch(/^-?\d+(\.\d+)?$/);
-    expect(toUnits(k), `${await row.getAttribute('data-asset')}: kept = collected - returned`).toBe(toUnits(c) - toUnits(r));
+    const [e, r, k] = [await cell('earned'), await cell('returned'), await cell('kept')];
+    for (const v of [e, r, k]) expect(v).toMatch(/^-?\d+(\.\d+)?$/);
+    expect(toUnits(k), `${await row.getAttribute('data-asset')}: kept = earned - returned`).toBe(toUnits(e) - toUnits(r));
   }
 
   // The warehouse read: the stack wires no analytics replica, so this is the named blocker, and no figure stands in for it.
@@ -589,8 +591,11 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
   // Net, per asset: the ledger's kept fee less the costs entered in that asset. Fee table and net table are one read.
   const entered = COST_LINES.reduce((sum, l) => sum + toUnits(l.amount), 0n);
   const kept = new Map();
-  for (const row of await page.locator('[data-testid=fees-table] tbody tr').all())
-    kept.set(await row.getAttribute('data-asset'), toUnits((await row.locator('[data-col=kept]').textContent()).trim()));
+  // One asset can have a row per venue and our own row; the month's revenue in it is what every row kept.
+  for (const row of await page.locator('[data-testid=fees-table] tbody tr').all()) {
+    const asset = await row.getAttribute('data-asset');
+    kept.set(asset, (kept.get(asset) ?? 0n) + toUnits((await row.locator('[data-col=kept]').textContent()).trim()));
+  }
   expect(kept.has(FEE_ASSET)).toBe(true);
   const netted = [];
   for (const row of await page.locator('[data-testid=net-table] tbody tr').all()) {

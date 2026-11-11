@@ -15,6 +15,7 @@ import {
   moduleAccount,
   parseAmount as amt,
   railBoundary,
+  recipes,
   userAvailable,
 } from '@intafaced/ledger-client';
 import { PostgresLedger } from './postgres-ledger.js';
@@ -96,6 +97,28 @@ describe('PostgresLedger.ownFunds (J-ops-console-24 #1)', () => {
     await engine.post(move('own-funds-insurance', rail, insuranceFund('USDT'), '77'));
     await engine.post(move('own-funds-mm', railBoundary('crypto-native', 'BTC'), marketMaker('BTC'), '0.25'));
     await engine.post(move('own-funds-reserve', rail, moduleAccount('bank', 'loan-reserve', 'USDT'), '300'));
+    // Our own money at named places (OWNER 288): the venue paid us a 4 USDC builder-fee claim to our builder account
+    // there, then 1.5 of it moved to our reserve at the bank partner.
+    await engine.post(
+      recipes.builderFeeEarn({
+        venueId: 'test-venue',
+        venueAccount: 'acct-1',
+        fillId: 'f1',
+        assetId: 'USDC',
+        amount: amt('4'),
+        userId: PAYER,
+      }),
+    );
+    await engine.post(recipes.builderFeeReceive({ venueId: 'test-venue', claimId: 'claim-1', assetId: 'USDC', amount: amt('4') }));
+    await engine.post(
+      recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue' },
+        to: { kind: 'partner-reserve', partnerId: 'bank' },
+        assetId: 'USDC',
+        amount: amt('1.5'),
+        reference: 'stmt-1',
+      }),
+    );
   }, 120_000);
 
   afterAll(async () => {
@@ -108,6 +131,8 @@ describe('PostgresLedger.ownFunds (J-ops-console-24 #1)', () => {
     expect(Number.isNaN(asOf.getTime())).toBe(false);
     expect(rows.map((r) => [r.assetId, r.ownerType, r.ownerId, r.kind, formatAmount(r.balance)])).toEqual([
       ['BTC', 'house', 'market-maker', 'available', '0.25'],
+      // The builder fee the venue charged for us (earned, set up below with the places): house revenue, as before.
+      ['USDC', 'house', 'fees:builder', 'available', '4'],
       ['USDT', 'house', 'fees:trade', 'available', '12.500000000000000001'],
       ['USDT', 'house', 'insurance-fund', 'available', '77'],
       ['USDT', 'module', 'bank:loan-reserve', 'available', '300'],
@@ -123,5 +148,17 @@ describe('PostgresLedger.ownFunds (J-ops-console-24 #1)', () => {
     expect(owners).not.toContain('futures-loss');
     expect(owners.some((o) => o.startsWith('ops:hold-confirm:') || o.startsWith('campaigns:lock:'))).toBe(false);
     expect(rows.every((r) => r.ownerType === 'house' || r.ownerType === 'module')).toBe(true);
+  });
+
+  it('answers each own-funds place in the same read, with what the book shows of ours there (OWNER 288)', async () => {
+    const { places, rows } = await engine.ownFunds();
+    expect(places.map((p) => [p.ownerId, p.assetId, formatAmount(-p.balance)])).toEqual([
+      ['partner-reserve:bank', 'USDC', '1.5'],
+      ['venue-builder-account:test-venue', 'USDC', '2.5'],
+    ]);
+    // The receivable the venue still owes (`venue-builder-fee:`) and the rail boundaries are not places of ours.
+    expect(places.some((p) => p.ownerId.startsWith('venue-builder-fee:') || p.ownerId.startsWith('rail:'))).toBe(false);
+    // The earned fee is house revenue, still counted among the house accounts as before.
+    expect(rows.find((r) => r.ownerId === 'fees:builder')?.assetId).toBe('USDC');
   });
 });
