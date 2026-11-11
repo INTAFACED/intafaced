@@ -49,10 +49,7 @@ export class TradingCheckError extends Error {
 /** Who reviewed a level the trading checks cleared. Never a person's id, so it can never be read as an operator's. */
 export const TRADING_CHECKS_REVIEWER = 'trading-checks';
 
-/**
- * What the trading checks' clear holds: trading, and nothing that custody, transfer or withdrawal reads (OWNER 258 (4):
- * "trading-only users get country and sanctions checks. The full ID vendor comes with the bank").
- */
+/** What a clear holds: trading, and nothing that custody, transfer or withdrawal reads (OWNER 258 (4)). */
 export const TRADING_CAPABILITIES: readonly KycCapability[] = ['trade_crypto'];
 
 /** The owner's map cut to the trading capabilities at `basic`: what a clear grants, and what a hold marks requested. */
@@ -89,10 +86,8 @@ export function screeningName(value: string): string {
 }
 
 /**
- * `IDENTITY_SANCTIONS_PERSONS_LIST`: `{"label": "...", "entries": [{"legalName", "dateOfBirth", "country"}]}`. Unset or
- * blank is no list (null), and every check refuses. A list with no entries, a malformed entry, or malformed JSON stops
- * the service: "no names listed" and "not published" must not look the same. A list labelled TEST is refused outside
- * APP_ENV dev or test, so a test list can never screen real people.
+ * `IDENTITY_SANCTIONS_PERSONS_LIST`: `{"label", "entries": [{"legalName", "dateOfBirth", "country"}]}`. Blank is no list
+ * (null): every check refuses. No entries or malformed JSON stops the service. A TEST list is refused outside dev or test.
  */
 export function parseSanctionsPersonsList(raw: string | undefined, appEnv: string | undefined): SanctionsPersonList | null {
   const setting = 'IDENTITY_SANCTIONS_PERSONS_LIST';
@@ -126,10 +121,7 @@ export function screenPerson(list: SanctionsPersonList, person: SanctionsPerson)
   return list.entries.some((e) => e.legalName === name && e.dateOfBirth === person.dateOfBirth && e.country === country) ? 'hit' : 'clear';
 }
 
-/**
- * True when every approved, unlapsed level the person holds was cleared by the trading checks alone: the level reads
- * "for trading", since no ID was checked. A level a person in compliance approved is never trading only.
- */
+/** True when every approved, unlapsed level was cleared by the trading checks alone, so it reads "for trading". */
 export async function tradingOnly(sql: Sql, userId: string): Promise<boolean> {
   const rows = await sql<Array<{ reviewed_by: string | null }>>`
     SELECT reviewed_by FROM kyc_records
@@ -138,9 +130,8 @@ export async function tradingOnly(sql: Sql, userId: string): Promise<boolean> {
 }
 
 /**
- * The country the check screens and checks access on: the one recorded at sign-up (the profile's region), never the one
- * typed into the check. The person confirms it; a different country is refused (`kyc.country_mismatch`) and clears
- * nothing, so a listed person cannot clear by naming another country. No recorded country refuses `kyc.country_unknown`.
+ * The country screened is the one recorded at sign-up, never one typed: a different one refuses `kyc.country_mismatch`,
+ * none recorded refuses `kyc.country_unknown`.
  */
 export function screeningCountry(recorded: string | null, submitted: string): string {
   const onRecord = countryCode(recorded ?? '');
