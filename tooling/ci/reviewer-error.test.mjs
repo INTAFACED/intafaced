@@ -295,19 +295,27 @@ function runStep(name, { keys, plan, edit = (s) => s }) {
 const reviewEdit = (s) => s.replaceAll('node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"', 'echo READ-ANSWER');
 
 test('the Review step: a usage refusal on the first key is asked again on the second, and the record says so', () => {
-  const r = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: LIMIT, k2: ANSWER }, edit: reviewEdit });
+  const r = runStep('Review', {
+    keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' },
+    plan: { k1: LIMIT, k2: ANSWER },
+    edit: reviewEdit,
+  });
   assert.equal(r.code, 0, r.stdout);
   assert.deepEqual(r.calls, ['k1 second-in-env:', 'k2 second-in-env:'], 'key 1, then key 2; no call ever holds the second key beside it');
   assert.match(r.stdout, /READ-ANSWER/);
   assert.match(r.stdout, /reviewer key: second/);
   assert.match(r.outputs, /^key=second$/m);
   assert.match(r.outputs, /^first_line=.*weekly limit/m);
-  assert.doesNotMatch(r.outputs, /^kind=down/m, 'the first key\'s refusal leaves no judge-down output once the second answered');
+  assert.doesNotMatch(r.outputs, /^kind=down/m, "the first key's refusal leaves no judge-down output once the second answered");
   assert.ok(!/k1|k2/.test(r.stdout.replace(/second-in-env/g, '')), 'no key in the log');
 });
 
 test('the Review step: a refusal about the change is never retried on the second key', () => {
-  const r = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: CHANGE, k2: ANSWER }, edit: reviewEdit });
+  const r = runStep('Review', {
+    keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' },
+    plan: { k1: CHANGE, k2: ANSWER },
+    edit: reviewEdit,
+  });
   assert.equal(r.code, 1, 'red, as before');
   assert.deepEqual(r.calls, ['k1 second-in-env:']);
   assert.doesNotMatch(r.stdout, /READ-ANSWER/);
@@ -320,12 +328,20 @@ test('the Review step: with no second key, a usage refusal is the judge down as 
   assert.match(r.outputs, /^kind=down$/m);
   assert.doesNotMatch(r.outputs, /^key=/m);
   // And with both keys used up: two calls, then the judge down.
-  const both = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: LIMIT, k2: LIMIT }, edit: reviewEdit });
+  const both = runStep('Review', {
+    keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' },
+    plan: { k1: LIMIT, k2: LIMIT },
+    edit: reviewEdit,
+  });
   assert.equal(both.code, 0);
   assert.deepEqual(both.calls, ['k1 second-in-env:', 'k2 second-in-env:']);
   assert.match(both.outputs, /^kind=down$/m);
   // A first key that answers: one call, on the first key.
-  const ok = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: ANSWER }, edit: reviewEdit });
+  const ok = runStep('Review', {
+    keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' },
+    plan: { k1: ANSWER },
+    edit: reviewEdit,
+  });
   assert.equal(ok.code, 0);
   assert.deepEqual(ok.calls, ['k1 second-in-env:']);
   assert.match(ok.outputs, /^key=first$/m);
@@ -342,12 +358,20 @@ const readEdit = (s) =>
     .replace('node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" read "$dir"', 'echo READ-ANSWER');
 
 test('the proof read: both calls go to the second key on a usage refusal; a refusal about the change is not retried', () => {
-  const r = runStep('Read the steps (proof v2)', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: LIMIT, k2: ANSWER }, edit: readEdit });
+  const r = runStep('Read the steps (proof v2)', {
+    keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' },
+    plan: { k1: LIMIT, k2: ANSWER },
+    edit: readEdit,
+  });
   assert.equal(r.code, 0, r.stdout);
   assert.deepEqual(r.calls.sort(), ['k1 second-in-env:', 'k1 second-in-env:', 'k2 second-in-env:', 'k2 second-in-env:']);
   assert.match(r.stdout, /READ-ANSWER/);
   assert.match(r.stdout, /reviewer key: second/);
-  const change = runStep('Read the steps (proof v2)', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' }, plan: { k1: CHANGE, k2: ANSWER }, edit: readEdit });
+  const change = runStep('Read the steps (proof v2)', {
+    keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_2: 'k2' },
+    plan: { k1: CHANGE, k2: ANSWER },
+    edit: readEdit,
+  });
   assert.deepEqual(change.calls, ['k1 second-in-env:', 'k1 second-in-env:']);
   assert.match(change.stdout, /no proof read of this head: a reader call failed/);
   const none = runStep('Read the steps (proof v2)', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1' }, plan: { k1: LIMIT }, edit: readEdit });
@@ -355,7 +379,7 @@ test('the proof read: both calls go to the second key on a usage refusal; a refu
   assert.match(none.stdout, /no proof read of this head: a reader call failed/);
 });
 
-test('--key says `other` only for the key\'s own refusals', () => {
+test("--key says `other` only for the key's own refusals", () => {
   const now = new Date('2026-11-11T16:00:00Z');
   assert.equal(otherKey(classify(JSON.stringify(LIMIT), 1, now)), true);
   assert.equal(otherKey(classify(JSON.stringify({ is_error: true, api_error_status: 401, result: 'Invalid bearer token' }), 1, now)), true);

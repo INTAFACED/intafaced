@@ -144,7 +144,7 @@ export function keyIssueBody({ line, runUrl, now = new Date() }) {
     '',
     `- **First key's error:** \`${String(line || '(not given)').replace(/`/g, "'")}\``,
     `- **Since:** ${times(now)}, ${runUrl}`,
-    '- **One action:** renew the first key before the second runs out too: an agent makes a new key with the reviewer CLI\'s `setup-token` and sets it as the `CLAUDE_CODE_OAUTH_TOKEN` secret of the `ci-review` environment (https://github.com/INTAFACED/intafaced/settings/environments), or waits for the reset the error names.',
+    "- **One action:** renew the first key before the second runs out too: an agent makes a new key with the reviewer CLI's `setup-token` and sets it as the `CLAUDE_CODE_OAUTH_TOKEN` secret of the `ci-review` environment (https://github.com/INTAFACED/intafaced/settings/environments), or waits for the reset the error names.",
     '',
     'The first CI review that answers on the first key again closes this (tooling/ci/judge-down.mjs).',
   ].join('\n');
@@ -162,7 +162,9 @@ async function keyIssue(which) {
         body: `The first key answered again at ${times()} (${RUN_URL}).`,
       });
       const c = await call(ISSUE_TOKEN, 'PATCH', `/repos/${ISSUE_REPO}/issues/${i.number}`, { state: 'closed', state_reason: 'completed' });
-      console.log(c.status === 200 ? `closed ${ISSUE_REPO}#${i.number}` : `::warning::${ISSUE_REPO}#${i.number} wasn't closed: HTTP ${c.status}`);
+      console.log(
+        c.status === 200 ? `closed ${ISSUE_REPO}#${i.number}` : `::warning::${ISSUE_REPO}#${i.number} wasn't closed: HTTP ${c.status}`,
+      );
     }
     return;
   }
@@ -172,7 +174,11 @@ async function keyIssue(which) {
     labels: [KEY_LABEL],
     body: keyIssueBody({ line: LINE, runUrl: RUN_URL }),
   });
-  console.log(made.status === 201 ? `opened ${ISSUE_REPO}#${made.json.number}` : `::warning::the "${KEY_ISSUE_TITLE}" issue wasn't opened: HTTP ${made.status}`);
+  console.log(
+    made.status === 201
+      ? `opened ${ISSUE_REPO}#${made.json.number}`
+      : `::warning::the "${KEY_ISSUE_TITLE}" issue wasn't opened: HTTP ${made.status}`,
+  );
 }
 
 async function downStatus(source) {

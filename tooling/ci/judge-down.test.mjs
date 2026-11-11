@@ -438,7 +438,7 @@ test('the catch-up re-runs are the Start the seal job’s, after the review job 
   assert.match(start, /actions: write/);
 });
 
-test('the second-key issue names the first key\'s error, the time and the one action, and never a key', () => {
+test("the second-key issue names the first key's error, the time and the one action, and never a key", () => {
   const body = keyIssueBody({
     line: "the reviewer CLI exited 1; api_error_status=429; result: You've hit your weekly limit `x`",
     runUrl: 'https://github.com/r/actions/runs/1',
