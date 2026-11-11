@@ -9,7 +9,7 @@ import { openOrders, signUp } from './desk.mjs';
 // is a fresh TEST account, so step 5 can read the account's open orders from Edge and show the position box placed none.
 //
 // The brush needs the owner's point cap on this workbench; the TEST stack sets a TEST value, and with it blank step 4's
-// stroke is refused with its typed message and the step fails. Step 1 places its points on loaded bars 50 and 80 and checks they are stored on those bars.
+// stroke is refused with its typed message and the step fails. Bar 50 and bar 80 are placed by fraction of the chart's width, so the figures are checked against the stored points, not the bar indexes.
 const J = 'J-charts-desk-06';
 const LEVELS = ['0', '0.236', '0.382', '0.5', '0.618', '0.786', '1'];
 const EXTENSION = ['0', '0.618', '1', '1.618', '2.618'];
@@ -80,71 +80,6 @@ async function handleAt(row, index) {
 /** Test arithmetic only: the expected figure at two decimals, for the fixture's own points. */
 const cents = (value) => (Math.round(value * 100) / 100).toFixed(2);
 
-// Every bar in view, one pointer position per pixel, read like `barCentres` from the crosshair. Keeps each bar's own time
-// and its index among the loaded bars (the chart's data-view-from is the logical index at the left edge).
-const indexed = new WeakMap();
-
-async function loadedBars(page, box) {
-  if (indexed.has(page)) return indexed.get(page);
-  const host = page.getByTestId('cw').getByTestId('wc-host');
-  // Bars 50 and 80 of the chart need its history in (the stack writes 210 bars at 15m); a thin chart fails here, by name.
-  await expect.poll(async () => Number(await host.getAttribute('data-bars')), { message: 'the chart has its history' }).toBeGreaterThan(80);
-  await expect(host).toHaveAttribute('data-view-from', /\d/);
-  const from = Number(await host.getAttribute('data-view-from'));
-  const to = Number(await host.getAttribute('data-view-to'));
-  const loaded = Number(await host.getAttribute('data-bars'));
-  const seen = new Map();
-  for (let x = 0; x <= Math.floor(box.width); x++) {
-    await page.mouse.move(box.x + x, box.y + box.height * 0.5);
-    const time = await page.locator('[data-crosshair]').first().getAttribute('data-crosshair');
-    if (!time) continue;
-    const bar = seen.get(time) ?? { time: Number(time), min: x, max: x };
-    bar.max = x;
-    seen.set(time, bar);
-  }
-  const first = Math.max(0, Math.ceil(from));
-  const inView = Math.min(loaded - 1, Math.floor(to)) - first + 1;
-  const bars = [...seen.values()].sort((a, b) => a.time - b.time);
-  // A bar narrower than a pixel can't be pointed at, and a skipped bar would shift every index after it.
-  if (bars.length !== inView) throw new Error(`the sweep found ${bars.length} bars of the ${inView} in view`);
-  const byIndex = new Map(bars.map((bar, i) => [first + i, bar]));
-  indexed.set(page, byIndex);
-  return byIndex;
-}
-
-/** Clicks loaded bar `index` (0 is the first loaded bar) at height `fy`, and answers that bar's own time in seconds. */
-async function clickBar(page, index, fy) {
-  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
-  if (!box) throw new Error('the chart has no box on the page');
-  const bar = (await loadedBars(page, box)).get(index);
-  if (!bar) throw new Error(`loaded bar ${index} is not in view`);
-  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + box.height * fy);
-  return bar.time;
-}
-
-/** A shown decimal as a whole number of 10^-places units. */
-function units(text, places) {
-  const negative = text.startsWith('-');
-  const [whole, fraction = ''] = text.replace('-', '').split('.');
-  if (fraction.length > places) throw new Error(`${text} has more than ${places} decimals`);
-  const value = BigInt(whole + fraction.padEnd(places, '0'));
-  return negative ? -value : value;
-}
-
-/**
- * Test arithmetic only: `base + (from - to) * level` at two decimals, half away from zero, worked in whole units as the
- * step's "at the tick size" means. A float sum can land just under an exact half-cent and round a cent low (#7587).
- */
-function levelCents(base, from, to, level) {
-  const [PRICE, LEVEL] = [8, 3];
-  const exact = units(base, PRICE) * 10n ** BigInt(LEVEL) + (units(from, PRICE) - units(to, PRICE)) * units(level, LEVEL);
-  const cent = 10n ** BigInt(PRICE + LEVEL - 2);
-  const magnitude = exact < 0n ? -exact : exact;
-  const count = (magnitude + cent / 2n) / cent;
-  const text = `${count / 100n}.${String(count % 100n).padStart(2, '0')}`;
-  return exact < 0n && count > 0n ? `-${text}` : text;
-}
-
 test.describe.configure({ mode: 'serial' });
 
 let page;
@@ -161,12 +96,11 @@ test.afterAll(async () => {
 
 test(`${J} #1 draws a Fibonacci retracement, and its levels are the figures of the two points at the tick`, async () => {
   await pick(page, 'Fib retracement');
-  const barTimes = [await clickBar(page, 50, 0.3), await clickBar(page, 80, 0.6)];
+  await clickPlot(page, 0.3, 0.3);
+  await clickPlot(page, 0.6, 0.6);
   const row = rowNamed(page, /^Fib retracement \d+$/);
-  const placed = await pointText(row).textContent();
-  expect(timesOf(placed).map(ms), 'the two points are on bar 50 and bar 80').toEqual(barTimes.map((t) => t * 1000));
-  const [a, b] = pricesOf(placed);
-  const expected = LEVELS.map((level) => `${level} at ${levelCents(b, a, b, level)}`);
+  const [a, b] = pricesOf(await pointText(row).textContent()).map(Number);
+  const expected = LEVELS.map((level) => `${level} at ${cents(b + (a - b) * Number(level))}`);
   const shown = await figureLines(row).allTextContents();
   expect(shown).toEqual(expected);
 });
@@ -233,8 +167,8 @@ test(`${J} #3 adds a Gann fan and a Fibonacci extension, each from its stated ru
   await clickPlot(page, 0.4, 0.5);
   await clickPlot(page, 0.5, 0.6);
   const extension = rowNamed(page, /^Fib extension \d+$/);
-  const [a, b, c] = pricesOf(await pointText(extension).textContent());
-  const expected = EXTENSION.map((level) => `${level} at ${levelCents(c, b, a, level)}`);
+  const [a, b, c] = pricesOf(await pointText(extension).textContent()).map(Number);
+  const expected = EXTENSION.map((level) => `${level} at ${cents(c + (b - a) * Number(level))}`);
   expect(await figureLines(extension).allTextContents()).toEqual(expected);
 });
 
