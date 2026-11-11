@@ -27,6 +27,10 @@
  *     still makes it full. Main runs every journey after every merge and is the backstop: a break of another journey is
  *     caught there and reverted (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main
  *     after a merge, a red main is reverted"). A product pull request that names no journey keeps the rules above;
+ *   - stack (theo-01 part 2, blueprint file 10 item 6): a named pull request's change to a service's own stack file
+ *     (STACK_FILE: `local-stack-services/<service>.mjs`, `test-owner-values/<service>.json`) also runs the journeys whose
+ *     tests import it (stackImporters), when nothing else makes it full. Without a name, or when the journey files can't
+ *     be read, it stays full, and stack-wide files (local-test-stack.mjs and the rest of SHARED_SETUP) always are;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -162,8 +166,9 @@ export function namedJourneyIds({ title = '', branch = '' } = {}) {
  * names no journey with a file at its head (then the other rules decide). `journeyFiles`: the journey file names at the
  * head (a Set), or null when they can't be read (then null: fail to the other rules, never fewer). `map`: the
  * touched-journeys map the run chose (journey-reach-map.mjs newerMap), whose `full` keys are the always-run list.
+ * `importers(paths)`: the journey files importing those stack files, or null when they can't be read (then full).
  */
-export function namedInputs({ ids, journeyFiles, map, money = null }) {
+export function namedInputs({ ids, journeyFiles, map, money = null, importers = null }) {
   if (!ids?.length || !journeyFiles) return null;
   const want = new Set(ids);
   const files = [...journeyFiles].filter((f) => want.has(JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1])).sort();
@@ -171,7 +176,7 @@ export function namedInputs({ ids, journeyFiles, map, money = null }) {
   const always = Object.keys(map?.full ?? {})
     .filter((f) => journeyFiles.has(f))
     .sort();
-  return { ids: [...ids], files, always, money };
+  return { ids: [...ids], files, always, money, ...(importers ? { importers } : {}) };
 }
 
 /**
@@ -194,9 +199,46 @@ export const SECURITY_DIRS = [
   'packages/db',
 ];
 
-/** One path's kind: { kind: 'full', why } | { kind: 'file', file } | { kind: 'none' }. */
+/** A service's own stack file: what `local:stack` starts that one service with. A test file beside them, or any other
+ *  name, isn't one. */
+export const STACK_FILE = /^tooling\/(?:scripts\/local-stack-services\/[a-z0-9-]+\.mjs|profiles\/test-owner-values\/[a-z0-9-]+\.json)$/;
+
+/** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
+const joinedPaths = (t) =>
+  String(t)
+    .replace(/['"`]\s*,\s*['"`]/g, '/')
+    .replace(/\/[ \t]*\r?\n[ \t]*(?:\/\/|\*)[ \t]*/g, '/');
+
+/**
+ * The journey files whose tests import a changed stack file (blueprint file 10 item 6), from `texts`: the head's .mjs
+ * files in the real-app folder, name to text. A file imports it when it names it by path anywhere, in code or in a
+ * comment (most journeys that lean on a stack value say so in a comment and restart the service, and never `import` it;
+ * running one too many is safe), or imports a helper in that folder that does.
+ */
+export function stackImporters(paths, texts) {
+  const names = [...new Set(paths)].map((p) => String(p).replace(/^tooling\/(?:scripts|profiles)\//, ''));
+  const sources = new Map([...texts].map(([f, t]) => [f, joinedPaths(t)]));
+  const reaches = new Set([...sources].filter(([, t]) => names.some((n) => t.includes(n))).map(([f]) => f));
+  const uses = new Map([...sources].map(([f, t]) => [f, [...t.matchAll(/(['"`])\.\/([A-Za-z0-9._-]+\.mjs)\1/g)].map((m) => m[2])]));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [f, deps] of uses)
+      if (!reaches.has(f) && deps.some((d) => reaches.has(d))) {
+        reaches.add(f);
+        grew = true;
+      }
+  }
+  return [...reaches].filter((f) => JOURNEY_TEST.test(`apps/customer/tests/real-app/${f}`)).sort();
+}
+
+/** One path's kind: { kind: 'full', why, stack? } | { kind: 'file', file } | { kind: 'none' }. `stack`: a service's own
+ *  stack file, which only a pull request that names a journey narrows (journeyTouch). */
 export function pathKind(path) {
-  const p = String(path);
+  const k = kindOf(String(path));
+  return STACK_FILE.test(String(path)) ? { ...k, stack: true } : k;
+}
+
+function kindOf(p) {
   if (isSharedSetup(p)) return { kind: 'full', why: 'the journey stack’s shared setup (SHARED_SETUP)' };
   const run = RUN_FILE.exec(p);
   if (run && JOURNEY_TEST.test(p)) return { kind: 'file', file: run[1] };
@@ -219,15 +261,19 @@ export function pathKind(path) {
  * paths run only the journeys whose recorded reach touches them, when every other path allows it and the map can speak
  * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
  * reach?: [lines] }. `named`: what namedInputs gives for a pull request that names a journey, or null; with it, product
- * paths run the named journeys and the always-run list instead of the full suite or the map, and `named` says why.
+ * paths run the named journeys and the always-run list instead of the full suite or the map, and `named` says why. With
+ * it, a service's own stack file adds the journeys that import it, when nothing else is full (`stack` lists those paths,
+ * `importers` those journeys); otherwise it is full like any other.
  */
 export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
   const full = [];
   const product = [];
+  const stack = [];
   const files = new Set();
   for (const p of [...new Set(paths ?? [])].sort()) {
     const k = pathKind(p);
     if (k.kind === 'full' && k.product) product.push(p);
+    else if (k.stack) stack.push({ path: printable(p), why: k.why });
     else if (k.kind === 'full') full.push({ path: printable(p), why: k.why });
     else if (k.kind === 'file' && atHead(p)) files.add(k.file);
   }
@@ -257,11 +303,22 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
       because = sel.because.map(printable);
     } else for (const p of money) full.push({ path: printable(p), why: printable(sel.why) });
   } else for (const p of money) full.push({ path: printable(p), why: PRODUCT });
+  // Decided last: money paths the map can't speak for make the run full, and then the stack files are full with it.
+  const importers = stack.length && !full.length ? (named?.importers?.(stack.map((x) => x.path)) ?? null) : null;
+  if (importers) {
+    for (const f of [...named.files, ...named.always, ...importers]) files.add(f);
+    byName = `${byName ? `${byName}; ` : ''}it names ${named.ids.join(', ')}, so its ${stack.length} stack file(s) run ${named.files.join(', ')}, the ${named.always.length} always-run journey file(s) and the ${importers.length} journey file(s) importing them`;
+  } else full.push(...stack);
   full.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const list = [...files].sort();
   const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
   if (full.length) return out;
-  return { ...out, ...(because ? { reach: because } : {}), ...(byName ? { named: printable(byName) } : {}) };
+  return {
+    ...out,
+    ...(because ? { reach: because } : {}),
+    ...(byName ? { named: printable(byName) } : {}),
+    ...(importers ? { stack: stack.map((x) => x.path), importers } : {}),
+  };
 }
 
 /** The journey files in a checkout's real-app folder, or null when it can't be listed. */
@@ -269,6 +326,20 @@ export function checkoutJourneyFiles(root = '.') {
   try {
     return new Set(
       readdirSync(`${root}/apps/customer/tests/real-app`).filter((f) => JOURNEY_TEST.test(`apps/customer/tests/real-app/${f}`)),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** The .mjs files directly in a checkout's real-app folder, name to text, or null when they can't be read. */
+export function checkoutJourneyTexts(root = '.') {
+  try {
+    const dir = `${root}/apps/customer/tests/real-app`;
+    return new Map(
+      readdirSync(dir)
+        .filter((f) => f.endsWith('.mjs'))
+        .map((f) => [f, readFileSync(`${dir}/${f}`, 'utf8')]),
     );
   } catch {
     return null;
@@ -364,7 +435,14 @@ async function main() {
   try {
     dirs = moneyCodeDirs(manifestsAt('.'));
   } catch {}
-  const named = namedInputs({ ids, journeyFiles: checkoutJourneyFiles(), map: map ?? loadMap(), money: moneyPathOf(dirs) });
+  const texts = paths.some((p) => STACK_FILE.test(p)) ? checkoutJourneyTexts() : null;
+  const named = namedInputs({
+    ids,
+    journeyFiles: checkoutJourneyFiles(),
+    map: map ?? loadMap(),
+    money: moneyPathOf(dirs),
+    importers: texts ? (stack) => stackImporters(stack, texts) : null,
+  });
   const t = journeyTouch(paths, atHead, reach, named);
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));

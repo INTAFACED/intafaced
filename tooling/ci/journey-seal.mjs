@@ -54,8 +54,9 @@
  * title or branch names a journey with a file at its head is held, for its product code outside money code, to that journey, its changed
  * journey files and the map's always-run list (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1,
  * project-state#2065, OWNER 295), the same list its journeys run was given; main's full run after the merge judges the
- * rest and a red main is reverted (OWNER 249 (3)). Its money paths keep the map or the full run. Every other full path
- * still needs the full run.
+ * rest and a red main is reverted (OWNER 249 (3)). Its money paths keep the map or the full run. A service's own stack
+ * file in such a pull request adds the journeys that import it, to the run and to this list (theo-01 part 2, blueprint
+ * file 10 item 6). Every other full path still needs the full run.
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
  * decision 180, "only the broken area stops"): inherited means main's newest finished full run that the head contains is
@@ -86,7 +87,16 @@ import {
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
-import { RUN_FILE, SECURITY_DIRS, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable } from './journey-touch.mjs';
+import {
+  RUN_FILE,
+  SECURITY_DIRS,
+  journeyTouch,
+  namedInputs,
+  namedJourneyIds,
+  pathKind,
+  printable,
+  stackImporters,
+} from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
 
@@ -743,6 +753,38 @@ export function makeIo(repo, token) {
       if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
       return res.text();
     },
+    // The head's .mjs files in the real-app folder, name to text, for a change to a stack file (journey-touch.mjs
+    // stackImporters): the folder's listing, then its files 100 to a GraphQL query (one REST read each would be 300 a seal).
+    journeyTexts: async (ref) => {
+      if (!SHA40.test(String(ref))) throw new Error('journeyTexts: a head sha is needed');
+      const list = await api(`/repos/${repo}/contents/apps/customer/tests/real-app?ref=${ref}`, token);
+      if (!Array.isArray(list) || list.length >= 1000) throw new Error('the real-app folder could not be listed whole');
+      const names = list.filter((e) => e?.type === 'file' && e.name.endsWith('.mjs')).map((e) => e.name);
+      const [owner, name] = repo.split('/');
+      const out = new Map();
+      for (let i = 0; i < names.length; i += 100) {
+        const part = names.slice(i, i + 100);
+        const fields = part.map(
+          (f, k) =>
+            `f${k}: object(expression: ${JSON.stringify(`${ref}:apps/customer/tests/real-app/${f}`)}) { ... on Blob { text isTruncated } }`,
+        );
+        const query = `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`;
+        const res = await getTried('https://api.github.com/graphql', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ query, variables: { owner, name } }),
+        });
+        if (!res.ok) throw new Error(`GraphQL: HTTP ${res.status}`);
+        const got = await res.json();
+        if (got.errors?.length || !got.data?.repository) throw new Error('GraphQL: the journey files could not be read');
+        part.forEach((f, k) => {
+          const blob = got.data.repository[`f${k}`];
+          if (typeof blob?.text !== 'string' || blob.isTruncated) throw new Error(`${f} could not be read whole`);
+          out.set(f, blob.text);
+        });
+      }
+      return out;
+    },
     verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
     // Whether a path is in money code, by the default branch's manifests (the base's copy this script runs from).
     moneyCode: async (paths) => {
@@ -1162,14 +1204,32 @@ export async function namedSealInputs({ io, pull, head }) {
     }
     money.set(p, m);
   }
-  return namedInputs({ ids, journeyFiles, map: await runMap(io, head), money: (p) => money.get(p) ?? true });
+  // The journeys importing a changed stack file, from the head's own text, as the run read them. Unreadable: no
+  // narrowing, so the stack file needs the full run.
+  let texts = null;
+  if (pull?.stack?.length && io.journeyTexts) {
+    try {
+      texts = await io.journeyTexts(head);
+    } catch {
+      texts = null;
+    }
+  }
+  return namedInputs({
+    ids,
+    journeyFiles,
+    map: await runMap(io, head),
+    money: (p) => money.get(p) ?? true,
+    importers: texts ? (stack) => stackImporters(stack, texts) : null,
+  });
 }
 
-export async function reachInputs({ io, paths, head, text }) {
+export async function reachInputs({ io, paths, head, text, named = null }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
-  // Any other full path makes the whole change full, so nothing below would be used: read nothing.
-  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
+  // A stack file a named pull request can narrow doesn't decide this; any other full path makes the whole change full,
+  // so nothing below would be used: read nothing.
+  const fullAnyway = ([, k]) => k.kind === 'full' && !k.product && !(k.stack && named?.importers);
+  if (!product.length || kinds.some(fullAnyway) || !io.mainRuns || !io.journeyFiles) return null;
   const map = await runMap(io, head);
   let behind = null;
   try {
@@ -1227,7 +1287,6 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
   const paths = await io.files(number);
-  const shared = paths.filter(isSharedSetup);
   const texts = new Map();
   const text = (f, ref) => {
     const k = `${ref}:${f}`;
@@ -1245,10 +1304,15 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // A pull request that names a journey is judged on it, its changed journey files and the always-run list, as its run
   // was given them (namedSealInputs); else product code goes to the map or the full run.
   const product = paths.filter((p) => pathKind(p).product);
-  const named = reverting || !product.length ? null : await namedSealInputs({ io, pull: { ...pull, paths: product }, head });
+  const stack = paths.filter((p) => pathKind(p).stack);
+  const named =
+    reverting || !(product.length || stack.length) ? null : await namedSealInputs({ io, pull: { ...pull, paths: product, stack }, head });
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
-    : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }), named);
+    : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text, named }), named);
+  // A stack file narrowed to the journeys importing it (theo-01 part 2) no longer needs the full run as shared setup.
+  const narrowed = new Set(reach.stack ?? []);
+  const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
   const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
@@ -1262,6 +1326,8 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     journeys: new Set([
       ...touchedFiles.map((t) => t.journey),
       ...[...titleSteps(pull.title), ...exemptions(pull.body).steps].map(journeyOf),
+      // The journeys a narrowed stack file can break: a red there is this pull request's area, inherited or not.
+      ...(reach.importers ?? []).map((f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1]).filter(Boolean),
     ]),
     paths: new Set(paths),
     shared: shared.length > 0,

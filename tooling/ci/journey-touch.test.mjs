@@ -5,7 +5,19 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DOCS_READ, JOURNEY_CI, RUN_FILE, journeyTouch, moneyPathOf, namedInputs, namedJourneyIds, pathKind } from './journey-touch.mjs';
+import {
+  DOCS_READ,
+  JOURNEY_CI,
+  RUN_FILE,
+  STACK_FILE,
+  checkoutJourneyTexts,
+  journeyTouch,
+  moneyPathOf,
+  namedInputs,
+  namedJourneyIds,
+  pathKind,
+  stackImporters,
+} from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -462,6 +474,133 @@ test('planted 3 (theo-01): a named-journey product pull request merges on its ow
     io: { ...namedIo, journeyFiles: async () => Promise.reject(new Error('HTTP 502')) },
   });
   assert.equal(blind.ok, false);
+});
+
+const STACK = 'tooling/scripts/local-stack-services/bank.mjs';
+const STACK_VALUES = 'tooling/profiles/test-owner-values/bank.json';
+const IMPORTS = new Map([
+  ['J-wallet-05.pw.mjs', "import { X } from '../../../../tooling/scripts/local-stack-services/bank.mjs';"],
+  ['J-cex-spot-17.pw.mjs', "readFileSync(path.join(REPO, 'tooling', 'profiles', 'test-owner-values', 'bank.json'))"],
+  ['J-pay-05.pw.mjs', '// the reminder rule (tooling/profiles/test-owner-values/bank.json)'],
+  ['staff.mjs', '// the roster (tooling/profiles/test-owner-values/\n// bank.json, read only on test)'],
+  ['J-ops-01.pw.mjs', "import { staff } from './staff.mjs';"],
+  ['J-ops-02.pw.mjs', "import { x } from './helper.mjs';"],
+  ['helper.mjs', "import { staff } from './staff.mjs';"],
+  ['J-other-01.pw.mjs', "// local-stack-services/trade.mjs, test-owner-values/bank2.json; import './unrelated.mjs'"],
+  ['unrelated.mjs', '// nothing'],
+]);
+
+test('STACK_FILE: a service’s own stack file and nothing wider', () => {
+  for (const p of [STACK, STACK_VALUES, 'tooling/scripts/local-stack-services/mining-pool.mjs']) assert.equal(STACK_FILE.test(p), true, p);
+  for (const p of [
+    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/local-stack-services/zz-planted.test.mjs',
+    'tooling/scripts/local-stack-services/sub/bank.mjs',
+    'tooling/scripts/local-stack-fixtures/bank.mjs',
+    'tooling/profiles/test-owner-values/identity-breached-passwords.sha1',
+    'tooling/profiles/test-owner-values.json',
+    'xtooling/scripts/local-stack-services/bank.mjs',
+  ]) {
+    assert.equal(STACK_FILE.test(p), false, p);
+    assert.equal(pathKind(p).stack, undefined, p);
+  }
+  assert.deepEqual({ kind: pathKind(STACK).kind, stack: pathKind(STACK).stack }, { kind: 'full', stack: true });
+});
+
+test('stackImporters: by import, split path, comment or a helper, and only that service', () => {
+  assert.deepEqual(stackImporters([STACK], IMPORTS), ['J-wallet-05.pw.mjs']);
+  assert.deepEqual(stackImporters([STACK_VALUES], IMPORTS), [
+    'J-cex-spot-17.pw.mjs',
+    'J-ops-01.pw.mjs',
+    'J-ops-02.pw.mjs',
+    'J-pay-05.pw.mjs',
+  ]);
+  assert.deepEqual(stackImporters([STACK, STACK_VALUES], new Map()), [], 'no importers is an answer, not an error');
+  // The real folder: the importers the code above should find.
+  const real = checkoutJourneyTexts(ROOT);
+  assert.ok(stackImporters([STACK], real).includes('J-wallet-05.pw.mjs'));
+  assert.ok(stackImporters([STACK_VALUES], real).includes('J-cex-spot-17.pw.mjs'));
+});
+
+test('journeyTouch, stack (theo-01 part 2): a named change to a stack file runs the journeys importing it; anything else stays full', () => {
+  const importers = (ps) => stackImporters(ps, IMPORTS);
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, money: () => false, importers });
+  const t = journeyTouch([STACK, ...product], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.deepEqual(t.stack, [STACK]);
+  assert.deepEqual(t.importers, ['J-wallet-05.pw.mjs']);
+  assert.match(t.named, /1 stack file\(s\) run J-bank-13\.pw\.mjs/);
+  // A stack file and no product code: the same list.
+  assert.deepEqual(journeyTouch([STACK], () => true, null, named).files, t.files);
+  for (const [paths, why] of [
+    [[STACK, 'tooling/scripts/local-test-stack.mjs'], 'a stack-wide file'],
+    [[STACK, 'apps/customer/tests/real-app/journey.mjs'], 'a shared helper'],
+    [[STACK, 'pnpm-lock.yaml'], 'a root build file'],
+    [[STACK, 'tooling/ci/journey-seal.mjs'], 'the judging code'],
+    [[STACK_VALUES, '.github/workflows/real-app-journeys.yml'], 'the journeys workflow'],
+  ]) {
+    const v = journeyTouch(paths, () => true, null, named);
+    assert.equal(v.mode, 'full', why);
+    assert.ok(
+      v.full.some((x) => x.path === paths[0]),
+      `${why}: the stack file is listed too`,
+    );
+  }
+  const money = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, money: () => true, importers });
+  assert.equal(journeyTouch([STACK, ...product], () => true, null, money).mode, 'full', 'money code the map cannot speak for');
+  assert.equal(journeyTouch([STACK], () => true, null, null).mode, 'full', 'no name');
+  const blind = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, money: () => false });
+  assert.equal(journeyTouch([STACK], () => true, null, blind).mode, 'full', 'journey files unreadable');
+});
+
+test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the list its run was given, and is held when an importer is missing or red', async () => {
+  const title = 'svc-bank: cards (J-bank-13 #1)';
+  const files = [...product, STACK];
+  const states = { 'J-bank-13#1': 'passed' };
+  const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs', 'J-wallet-05.pw.mjs'];
+  const io = { ...namedIo, journeyTexts: async () => IMPORTS };
+  const opts = { title, files, runs: [run(1)], io };
+  const good = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => clean });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  assert.match(good.lines.join('\n'), /journey file\(s\) importing them/);
+  const short = await seal({ ...opts, reports: { 1: { states, ran: ran.slice(0, 2) } }, verdict: async () => clean });
+  assert.equal(short.ok, false, 'a run without the importer is held');
+  assert.match(short.lines.join('\n'), /ran J-wallet-05\.pw\.mjs/);
+  const broke = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => red('J-wallet-05#1') });
+  assert.equal(broke.ok, false, 'the stack change breaking an importer holds it');
+  // Fail closed: the full run stays what is needed, and this run is not one.
+  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const blind = await seal({
+    ...opts,
+    reports: { 1: { states, ran } },
+    verdict: short4,
+    io: { ...io, journeyTexts: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(blind.ok, false);
+  assert.match(blind.lines.join('\n'), /local-stack-services\/bank\.mjs/);
+  const noIo = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: short4, io: namedIo });
+  assert.equal(noIo.ok, false, 'an io with no way to read texts narrows nothing');
+  const stackWide = await seal({
+    ...opts,
+    files: [...files, 'tooling/scripts/local-test-stack.mjs'],
+    reports: { 1: { states, ran } },
+    verdict: short4,
+  });
+  assert.equal(stackWide.ok, false, 'a stack-wide file still needs the full run');
+  // Naming no journey: as before.
+  const unnamed = await seal({ ...opts, title: 'svc-bank: cards', reports: { 1: { states: {}, ran } }, verdict: short4 });
+  assert.equal(unnamed.ok, false);
+  // A revert of a stack file still needs the full run as shared setup.
+  const asRevert = await seal({
+    ...opts,
+    title: 'Revert "svc-bank: cards (J-bank-13 #1)"',
+    body: 'Reverts INTAFACED/intafaced#1',
+    files: [STACK],
+    reports: { 1: { states: {}, ran } },
+    verdict: short4,
+  });
+  assert.equal(asRevert.ok, false, 'a revert is judged as it was before this part');
 });
 
 test('the seal still needs every titled step passing: a clean full run with a titled step red fails', async () => {
