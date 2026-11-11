@@ -15,8 +15,8 @@ import { AgentsCatalogue, refusalKeyWords, refusalWords } from './AgentsCatalogu
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
-import { navigatorAskResultSchema, type NavigatorApprovalRequest } from '@intafaced/contracts/agents-onchain';
-import { NavigatorApprovalRequestView, NavigatorApprovals } from './NavigatorApprovals';
+import { navigatorAskResultSchema, type NavigatorOrder } from '@intafaced/contracts/agents-onchain';
+import { NavigatorCapLine, NavigatorOrderView, NavigatorOrders, NavigatorTradeRefusalView, useNavigatorTrading } from './NavigatorOrders';
 const uuid = z.string().guid();
 const routeSchema = z.object({
   task: z.string(),
@@ -151,10 +151,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     [closing, setClosing] = useState(false),
     [closedNote, setClosedNote] = useState<string | null>(null),
     [closeFailure, setCloseFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
-    // A Navigator trade ask held for the person's approval (J-agents-19 #4), and a refused ask, which runs nothing.
-    [held, setHeld] = useState<{ request: NavigatorApprovalRequest; ceiling: boolean } | null>(null),
+    // The order the Navigator placed inside the cap the person signed (J-agents-19 #4), and a refused ask, which runs
+    // nothing and signs nothing.
+    [placed, setPlaced] = useState<NavigatorOrder | null>(null),
     [askFailure, setAskFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
-    [approvalsRevision, setApprovalsRevision] = useState(0);
+    [ordersRevision, setOrdersRevision] = useState(0);
+  const navigatorTrading = useNavigatorTrading(ordersRevision);
+  const trading = navigatorTrading.resource.status === 'ready' ? navigatorTrading.resource.data : null;
   const [selectNotKept, setSelectNotKept] = useState(false);
   const selectedSession = inspection?.owner === userId ? inspection : null;
   const activeOwner = useRef<string | null>(null);
@@ -335,7 +338,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     setRuns([]);
     setRunNote(null);
     setCloseFailure(null);
-    setHeld(null);
+    setPlaced(null);
     setAskFailure(null);
   }, [userId, agent]);
   // A refresh of the selected session keeps showing what was read until the new read lands.
@@ -602,7 +605,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   </p>
                   <p className="muted">{sessionCopy.t('readOnly')}</p>
                   {selectedSession.agentId === 'navigator' ? (
-                    <NavigatorApprovals sessionId={selectedSession.id} revision={approvalsRevision} />
+                    <NavigatorOrders sessionId={selectedSession.id} revision={ordersRevision} />
                   ) : null}
                   {selectNotKept ? <p role="status">{sessionCopy.t('selectionLocal')}</p> : null}
                   <Button
@@ -895,28 +898,32 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     onChange={setTask}
                     options={available.map((r) => r.task)}
                   />
+                  {agent === 'navigator' ? <NavigatorCapLine trading={trading} /> : null}
                   <TextArea label={agentsCatalogueCopy.t('askAgent')} value={ask} onChange={setAsk} maxLength={200000} />
                   <Button
                     disabled={action.disabled || active.status !== 'open' || !ask.trim() || !selectedRoute}
                     onClick={() => {
                       if (!selectedRoute || !defs) return;
                       const requestId = crypto.randomUUID();
-                      setHeld(null);
+                      setPlaced(null);
                       setAskFailure(null);
                       if (agent !== 'navigator') return stageRun(requestId, selectedRoute, defs, active);
-                      // The Navigator never trades unasked: the service first sees whether the ask names a trade. If it
-                      // does, it holds an approval request and nothing runs, no engine and no charge; a failed ask runs
-                      // nothing either. Any other ask goes on to the ordinary run under the same request id.
+                      // The service first sees whether the ask names a trade. Inside the cap the person signed it places
+                      // the order with no approval asked; above it, or to move money out, it refuses by name and signs
+                      // nothing. Neither calls the engine or charges. Any other ask goes on to the ordinary run.
                       const expectedAsk = { ...currentContext.current };
                       const session = active;
                       void api
                         .mutate('agents', 'navigator.ask', { sessionId: session.id, requestId, text: ask }, navigatorAskResultSchema)
                         .then((res) => {
                           if (!contextMatches(expectedAsk)) return;
-                          if (!res.ok) return setAskFailure(res);
-                          if (res.data.kind === 'approval') {
-                            setHeld({ request: res.data.request, ceiling: res.data.ceiling });
-                            setApprovalsRevision((n) => n + 1);
+                          if (!res.ok) {
+                            setOrdersRevision((n) => n + 1);
+                            return setAskFailure(res);
+                          }
+                          if (res.data.kind === 'order') {
+                            setPlaced(res.data.order);
+                            setOrdersRevision((n) => n + 1);
                             return;
                           }
                           stageRun(requestId, selectedRoute, defs, session);
@@ -925,9 +932,15 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   >
                     {agentsCatalogueCopy.t('run')}
                   </Button>
-                  {askFailure ? <Failure result={askFailure} /> : null}
-                  {held ? <NavigatorApprovalRequestView request={held.request} ceiling={held.ceiling} /> : null}
-                  {agent === 'navigator' ? <NavigatorApprovals sessionId={active.id} revision={approvalsRevision} /> : null}
+                  {askFailure ? (
+                    agent === 'navigator' ? (
+                      <NavigatorTradeRefusalView failure={askFailure} trading={trading} />
+                    ) : (
+                      <Failure result={askFailure} />
+                    )
+                  ) : null}
+                  {placed ? <NavigatorOrderView order={placed} /> : null}
+                  {agent === 'navigator' ? <NavigatorOrders sessionId={active.id} revision={ordersRevision} /> : null}
                   <Runs
                     rows={runs}
                     onSendAgain={async (row) => {

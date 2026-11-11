@@ -77,10 +77,12 @@ import type {
   AcademyCourseListInput,
   AcademyCreateCourseInput,
   AcademySetCourseStateInput,
+  AcademyWithdrawCoursePriceInput,
   AcademySaveOutlineInput,
   AcademySaveLessonInput,
   AcademyRevertLessonInput,
   AcademyPublishLessonInput,
+  AcademyDuplicateCourseInput,
   AcademyDuplicateItemInput,
   AcademySaveAssignmentInput,
   AcademySaveReviewStepsInput,
@@ -2382,6 +2384,10 @@ export class AcademyService {
     return this.courseRecords.setState({ ...input, now: input.now ?? new Date() });
   }
 
+  withdrawCoursePrice(input: AcademyWithdrawCoursePriceInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.withdrawPrice({ ...input, now: input.now ?? new Date() });
+  }
+
   saveOutline(input: AcademySaveOutlineInput & { operatorId: string; now?: Date }) {
     return this.courseRecords.saveOutline({ ...input, now: input.now ?? new Date() });
   }
@@ -2401,6 +2407,10 @@ export class AcademyService {
 
   publishLesson(input: AcademyPublishLessonInput & { operatorId: string; now?: Date }) {
     return this.lessonRecords.publish({ ...input, now: input.now ?? new Date() });
+  }
+
+  duplicateCourse(input: AcademyDuplicateCourseInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.duplicate({ ...input, now: input.now ?? new Date() });
   }
 
   duplicateItem(input: AcademyDuplicateItemInput & { operatorId: string; now?: Date }) {

@@ -5,11 +5,13 @@ import { moduleDisabledResponse } from '@/lib/modules';
 import { draftFrom } from '@/lib/academy/courses-model';
 import {
   checkCreate,
+  checkDuplicate,
   checkMove,
   checkOutline,
   checkTopics,
   checkUpdate,
   createCourse,
+  duplicateCourse,
   loadCourseDetail,
   loadCourseList,
   moveCourse,
@@ -28,6 +30,7 @@ import {
  *   POST { op: 'move', courseId, to: 'published', revision, reason }   one lifecycle move with its reason
  *   POST { op: 'outline', courseId, revision, sections: [{ title, items: [{ kind, title, indent, url }] }] }   the whole outline
  *   POST { op: 'topics', courseId, revision, topicIds }   the topics the course is filed under, as a whole
+ *   POST { op: 'duplicate', courseId, slug, title, reason }   a draft copy at its own address; keyed by that address
  *
  * Founder-only. svc-academy records the founder from their own token. No money moves: a price is a catalogue figure.
  */
@@ -105,6 +108,17 @@ export async function POST(request: Request) {
         const check = checkTopics({ courseId: body.courseId, revision: body.revision, topicIds: body.topicIds });
         if (!check.ok) return incomplete(check.why);
         return send(await saveTopics(session, check.input));
+      }
+      case 'duplicate': {
+        if (!UUID.test(str(body.courseId))) return incomplete('Which course?');
+        const check = checkDuplicate({
+          courseId: str(body.courseId),
+          slug: str(body.slug),
+          title: str(body.title),
+          reason: str(body.reason),
+        });
+        if (!check.ok) return incomplete(check.why);
+        return send(await duplicateCourse(session, check.input));
       }
       default:
         return incomplete('Unknown action.');

@@ -10,6 +10,7 @@ import {
   cmdRead,
   countMoney,
   countSample,
+  localImports,
   moneyLineHash,
   readStatus,
   secondReason,
@@ -95,6 +96,28 @@ test('a step whose own test changed is read, with its words and its journey file
   assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/J-x-01\.pw\.mjs\n[^]*toBeTruthy/);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'schema.json'), 'utf8')), READ_SCHEMA);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')).required, ['J-x-01 #2']);
+});
+
+test("a journey file's own helpers are read with it, and theirs in turn; another journey file and a path outside its folder are not", async () => {
+  const dir = tmp();
+  const imports =
+    "import { venueRead } from './own-reads.mjs';\nimport { other } from './J-other-01.pw.mjs';\nimport { x } from '../../far.mjs';\n";
+  const src = fakeSrc(DIFF, {
+    [`${RA}/J-x-01.pw.mjs`]: imports + JFILE.replace('toBe(1);', 'toBeTruthy();'),
+    [`${RA}/own-reads.mjs`]: "export { deeper } from './deeper-reads.mjs';\nexport const venueRead = () => 'OWN_HELPER_CHECK';\n",
+    [`${RA}/deeper-reads.mjs`]: "export const deeper = () => 'DEEPER_HELPER_CHECK';\n",
+    [`${RA}/J-other-01.pw.mjs`]: "export const other = 'OTHER_JOURNEY_FILE';\n",
+  });
+  await writeReads(dir, { src, base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/own-reads\.mjs\n[^]*OWN_HELPER_CHECK/);
+  assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/deeper-reads\.mjs\n[^]*DEEPER_HELPER_CHECK/);
+  assert.doesNotMatch(prompt, /OTHER_JOURNEY_FILE/);
+  assert.doesNotMatch(prompt, /far\.mjs\n/);
+  assert.deepEqual(localImports("import { a } from './a.mjs';\nexport * from \"./b.mjs\";\nimport c from '../c.mjs';"), [
+    `${RA}/a.mjs`,
+    `${RA}/b.mjs`,
+  ]);
 });
 
 test('a claimed step is read from its file at the head though the PR changes no test; a Left-or-replaced step is not', async () => {

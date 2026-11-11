@@ -2717,6 +2717,39 @@ if (!available) {
       });
     });
 
+    it('answers reads of one customer’s log in flight at once, each with its own audit row, and refuses none', async () => {
+      const { refused } = await history();
+      // An operator changing the outcome and then the tool filter sends reads that overlap; an export can overlap them too.
+      const filters = [{}, { outcome: 'refused' as const }, { outcome: 'refused' as const, tool: 'vectors' }, { tool: 'plan' }];
+      const settled = await Promise.allSettled(
+        Array.from({ length: 40 }, (_, i) => {
+          const read = { userId: USER_A, reason: REASONS[0], ...filters[i % filters.length], requestId: `ops-log:together:${i}` };
+          return i % 3 === 2 ? opsLog().export(read) : opsLog().actions(read);
+        }),
+      );
+      expect(settled.filter((s) => s.status === 'rejected')).toEqual([]);
+      const answers = settled.map((s) => (s as PromiseFulfilledResult<{ auditRows: number; subjectReads: number }>).value);
+      for (const answer of answers) {
+        expect(answer.auditRows).toBe(1);
+        // Every count includes the read's own row and no more reads than were made.
+        expect(answer.subjectReads).toBeGreaterThanOrEqual(1);
+        expect(answer.subjectReads).toBeLessThanOrEqual(40);
+      }
+      expect(await reads()).toBe(40);
+      // The refused-and-tool read answered its own filter, not another read's.
+      expect((answers[6] as unknown as { items: { id: string }[] }).items.map((i) => i.id)).toEqual([refused.id]);
+      // The next read, alone, counts all of them and its own.
+      expect(await opsLog().actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:together:after' })).toMatchObject({
+        auditRows: 1,
+        subjectReads: 41,
+      });
+      // One request sent twice at once still writes one audit row, and both answers carry it.
+      const twice = { userId: USER_A, reason: REASONS[0], requestId: 'ops-log:together:twice' };
+      const both = await Promise.all([opsLog().actions(twice), opsLog().actions(twice)]);
+      expect(both.map((b) => b.auditRows)).toEqual([1, 1]);
+      expect(await reads()).toBe(42);
+    });
+
     it('filters by outcome and tool, flags a page past the owner’s limit, and exports the same rows as CSV', async () => {
       const { refused } = await history();
       const read = { userId: USER_A, reason: REASONS[0], outcome: 'refused' as const, tool: 'vectors' };

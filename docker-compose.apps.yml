@@ -513,10 +513,14 @@ services:
       # Journal lives on matchingjournal:/data/matching. Host `.env` can pin;
       # default stays the volume path so replay still works after replace.
       MATCHING_JOURNAL_PATH: ${MATCHING_JOURNAL_PATH:-/data/matching/engine_journal.ndjson}
-      # Engine kill-switch (env.ts boolish default true). Host `.env` can halt
-      # submissions before the journal. `${VAR:-false}` here would refuse every
-      # order on a clean clone while env.ts still reads as on.
-      MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-true}
+      # Engine kill-switch. Host `.env` can halt submissions before the journal.
+      # Off unless the host says on: our own book settles fills as customer
+      # money in our ledger, which this file (staging's unit) does not hold with
+      # custody off; env.ts refuses boot on "engine on, custody off" (OWNER 288).
+      # A host that sets LEDGER_CUSTODY_LAYER=on sets this on too.
+      MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-false}
+      # The custody switch, the same variable and default as svc-ledger's (OWNER 226), for the boot guard above.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Owner-published snapshot cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 500 explicitly. Never invent 500. 0 disables.
       MATCHING_SNAPSHOT_EVERY: ${MATCHING_SNAPSHOT_EVERY:-}
@@ -628,10 +632,15 @@ services:
       JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
-      # Spot kill-switch (env.ts boolish default true). Host `.env` can halt
-      # new places; cancels still work. `${VAR:-false}` here would refuse every
-      # new spot order on a clean clone while env.ts still reads as on.
-      TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-true}
+      # Spot kill-switch for our own order book. Host `.env` can halt new
+      # places; cancels still work. Off unless the host says on: our own book
+      # settles fills as customer money in our ledger, which this file
+      # (staging's unit) does not hold with custody off; env.ts refuses boot on
+      # "spot on, custody off" (OWNER 288). A host that sets
+      # LEDGER_CUSTODY_LAYER=on sets this on too.
+      TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-false}
+      # The custody switch, the same variable and default as svc-ledger's (OWNER 226), for the boot guard above.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Worst price a market BUY may be funded at, above the best ask.
       # Empty = refuse market-buy hold (`trade.slippage_cap_unset`). Never invent 200.
       TRADE_MARKET_SLIPPAGE_CAP_BPS: ${TRADE_MARKET_SLIPPAGE_CAP_BPS:-}
@@ -745,6 +754,8 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
+      TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}

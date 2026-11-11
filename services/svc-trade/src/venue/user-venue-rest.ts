@@ -3,6 +3,7 @@
  *
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
  *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
+ *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
@@ -43,9 +44,12 @@ import { requireScope, type Principal, type Scope } from '@intafaced/auth';
 import { StepUpCheckError } from '@intafaced/contracts';
 import {
   VenueRefusalError,
+  hasSubAccountReads,
   VenueWireError,
   decodeVenueWire,
   encodeVenueWire,
+  venueBalanceFigures,
+  venuePositionFigures,
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
@@ -60,6 +64,12 @@ import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
+  /**
+   * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank, as
+   * `best-prices` answers it beside the venue's book, so a desk can bound a venue market order's worst price by it. Never
+   * a default: blank answers `{ known: false }`.
+   */
+  slippageCapBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
   sellQuotes?: VenueSellQuotes | null;
 }
@@ -195,14 +205,48 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     });
   });
 
+  app.get<{ Querystring: Query }>('/api/v1/venue/best-prices', privateRead, async (req, reply) => {
+    if (!admit(req, reply, 'trade:read')) return;
+    return answer(reply, async (d) => {
+      if (!req.query.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.bestPrices)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
+      const best = await venue.bestPrices(req.query.symbol);
+      const cap = deps.slippageCapBps ?? null;
+      return { ...best, slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) } };
+    });
+  });
+
   type Account = Awaited<ReturnType<UserVenueDoor['account']>>;
   // The venue's account reads, by path. Registered in one literal loop so the published route list can see every one
   // (apps/customer developers-reference.test.ts reads `for (const path of [...])`).
   const accountReads: Record<string, (d: UserVenueDoor, q: Query, a: Account) => Promise<unknown>> = {
-    '/api/v1/venue/balances': async (d, _q, a) => (await d.venue()).balances(a),
+    // b2 change 6: every figure the person sees of their venue money is the venue's, with its own time and a state.
+    '/api/v1/venue/balances': async (d, _q, a) => {
+      const venue = await d.venue();
+      const read = await venue.balances(a);
+      return { ...read, figures: venueBalanceFigures(venue.venue, read, new Date()) };
+    },
     '/api/v1/venue/orders/open': async (d, _q, a) => (await d.venue()).openOrders(a),
-    '/api/v1/venue/positions': async (d, _q, a) => (await d.venue()).positions(a),
+    '/api/v1/venue/positions': async (d, _q, a) => {
+      const venue = await d.venue();
+      const read = await venue.positions(a);
+      return { ...read, figures: venuePositionFigures(venue.venue, read, new Date()) };
+    },
     '/api/v1/venue/agents': async (d, _q, a) => (await d.venue()).agents(a),
+    // The owner's sub-accounts, read on the main account (J-agents-08 #2: the accounts a person may give their agent).
+    '/api/v1/venue/sub-accounts': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (a.subAccount !== null) throw new VenueWireError('sub-accounts are read on the main account: send no subAccount');
+      if (!hasSubAccountReads(venue))
+        throw new VenueRefusalError({
+          venueId: a.venueId,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} offers no sub-accounts`,
+        });
+      return venue.subAccounts(a);
+    },
     '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
       if (!q.clientOrderId) throw new VenueWireError('clientOrderId is required');
       return (await d.venue()).orderByClientId(a, q.clientOrderId);
@@ -233,6 +277,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/orders/open',
     '/api/v1/venue/positions',
     '/api/v1/venue/agents',
+    '/api/v1/venue/sub-accounts',
     '/api/v1/venue/orders/by-client-id',
     '/api/v1/venue/fills',
     '/api/v1/venue/leverage',

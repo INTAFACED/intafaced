@@ -47,6 +47,21 @@ export function partnerPayoutsAccount(assetId: string): PartnerAccountRef {
   return { userId: PARTNER_PAYOUTS_OWNER, assetId, spaceId: null };
 }
 
+/**
+ * Where money paid in from outside comes from on the partner's record. It holds nothing and is on no person's list of
+ * balances: a pay-in is a line the partner reports, not a move anyone instructed, so `moves` lists it only when asked.
+ */
+export const PARTNER_PAY_INS_OWNER = 'partner:incoming-payments';
+export function partnerPayInsAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_PAY_INS_OWNER, assetId, spaceId: null };
+}
+
+/** The partner's account a fee it takes for us goes to. It is the partner's, never a person's, like its payouts account. */
+export const PARTNER_FEES_OWNER = 'partner:fees';
+export function partnerFeesAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_FEES_OWNER, assetId, spaceId: null };
+}
+
 /** A space as svc-bank knows it, mapped to the partner's account: a primary space is the main balance. */
 export function partnerAccountFor(space: {
   readonly id: string;
@@ -93,6 +108,19 @@ export interface PartnerMovesQuery {
   /** Only moves older than this partner reference (newest first paging). */
   readonly before?: string;
   readonly assetId?: string;
+  /** Also list money paid in from outside (J-bank-16: the statement has every line the partner reports). */
+  readonly payIns?: boolean;
+}
+
+/** What the partner lets a person send today and what it charges, as it reports them. A figure it has not given is null. */
+export interface PartnerSendLimits {
+  readonly assetId: string;
+  readonly label: string;
+  readonly dailySend: Amount | null;
+  readonly usedToday: Amount | null;
+  readonly sendFee: Amount | null;
+  /** The partner's own time for these figures; null when it sent none. */
+  readonly asOf: Date | null;
 }
 
 export interface PartnerBank {
@@ -114,6 +142,8 @@ export interface PartnerBank {
   moveByKey(key: string): Promise<PartnerMove | null>;
   /** The person's moves (either side), newest first. */
   moves(userId: string, query: PartnerMovesQuery): Promise<PartnerMove[]>;
+  /** The partner's send limit and fee for the person in one currency (J-bank-16 #6). */
+  limits(userId: string, assetId: string): Promise<PartnerSendLimits>;
 }
 
 /** Which path holds a person's bank money: the partner, or (null) the custodial layer as before. */
@@ -229,6 +259,7 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
         balances: (userId: string) => bank.balances(userId),
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
+        limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
         move: async (request: PartnerMoveRequest) => {
           await assertPostingEnabled(freeze, 'bank_move', note);
           return bank.move(request);

@@ -49,6 +49,34 @@ it('shows one available projection without adding a primary alias or claiming he
   expect(result.coverage).toBe('partial');
 });
 
+it('reads a balance the partner bank holds, which no ledger account backs, and refuses one that says nothing about who holds it', async () => {
+  const partnerSpace = {
+    id: 'label',
+    assetId: 'USDT',
+    kind: 'primary',
+    name: 'Primary',
+    balance: '12.5',
+    goalTarget: null,
+    lockedUntil: null,
+    ledgerAccount: null,
+  };
+  const heldAt = { label: 'TEST partner', asOf: '2026-11-11T00:00:00.000Z', figure: 'known' };
+  const clientFor = (space: unknown) =>
+    createMoneyClient(
+      createApiClient({
+        fetch: async (input) => {
+          const url = new URL(String(input), 'http://localhost');
+          return url.pathname.endsWith('/spaces.list') ? wire([space]) : wire([]);
+        },
+      }),
+    );
+  const held = await clientFor({ ...partnerSpace, heldAt }).overview(owner, 50);
+  expect(held.spaces.ok).toBe(true);
+  expect(held.conflicts).toEqual([]);
+  expect(held.holdings).toEqual([{ assetId: 'USDT', available: '12.5', held: null, quantity: null }]);
+  await expect(clientFor(partnerSpace).spaces(50)).resolves.toMatchObject({ ok: false, reason: 'invalid_response' });
+});
+
 it('sends a reviewed transfer as an exact amount and preserves its request identity', async () => {
   let request: { path: string; body: unknown } | undefined;
   const api = createApiClient({

@@ -320,6 +320,9 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       kind: 'external-dex',
       sequencedDepth: false,
       proofLevel: 'partner-sandbox',
+      // b2 change 6: how old this venue's balance and position figures may be before they show as old. Hyperliquid
+      // publishes no such limit, so this adapter declares ours: a minute, the same as the TEST venue's.
+      figureStaleAfterMs: 60_000,
     };
     refuseTestVenueOutsideTest(this.venue, options.appEnv);
     this.fetchImpl = options.fetch ?? (globalThis.fetch as unknown as FetchLike);
@@ -353,7 +356,9 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
   }
 
   private asOf<T>(value: T, venueTimeMs?: number): AsOf<T> {
-    return { venueId: this.venue.id, value, asOf: venueTimeMs !== undefined ? new Date(venueTimeMs) : this.clock() };
+    // `reportedAt` is the venue's own time, or null when it sent none (b2 change 6): never our read time.
+    const venueTime = venueTimeMs !== undefined ? new Date(venueTimeMs) : null;
+    return { venueId: this.venue.id, value, asOf: venueTime ?? this.clock(), reportedAt: venueTime };
   }
 
   private user(account: UserVenueAccount): string {
@@ -501,13 +506,14 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       status: null,
       maxOrderQty: null,
       maxOrderNotional: null,
-      // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours and feed state are not read from the
-      // info API by this adapter yet: each is not known, never guessed.
+      // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours, feed state and home-market session
+      // are not read from the info API by this adapter yet: each is not known, never guessed.
       listedBy: { known: false },
       oracleRule: { known: false },
       markRule: { known: false },
       tradingHours: { known: false },
       feed: { known: false },
+      session: { known: false },
     }));
     return this.asOf(list);
   }

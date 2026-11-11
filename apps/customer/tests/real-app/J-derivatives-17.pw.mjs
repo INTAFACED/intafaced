@@ -6,6 +6,7 @@ import { ADMIN } from './admin.mjs';
 import { api, fromUnits, toUnits, tool } from './stack.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
+import { otherTraderRun, testDeposit, otherTraderKey } from './venue.mjs';
 
 // J-derivatives-17 "I reconcile the builder fees the venues report against the ledger", in the founder console
 // (docs/roadmap/journeys.json). One test per step, titled "J-derivatives-17 #<n>", run in order. The person is the
@@ -162,6 +163,25 @@ async function ledgerOwed(id) {
   );
 }
 
+/** What the ledger has received from the venue into our builder account there, per asset (that account negated). */
+async function ledgerPaidOut(id) {
+  const page = await ledgerRead(`/operator/accounts?prefix=${encodeURIComponent(`treasury:venue-builder-account:${id}`)}`);
+  expect(page.nextCursor).toBeNull();
+  return new Map(
+    page.accounts
+      .filter((a) => a.ownerId === `venue-builder-account:${id}` && a.kind === 'available')
+      .map((a) => [a.assetId, -toUnits(a.balance)]),
+  );
+}
+
+/** The TEST venue's own builder totals for our builder address, per asset: what it has credited us, and what of that is unclaimed. */
+async function venueBuilderTotals(builder) {
+  const { status, body } = await testVenue('/builder-totals', { builder });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  expect(body.value, 'the TEST venue reports its builder totals').toMatchObject({ known: true });
+  return new Map(body.value.value.assets.map((a) => [a.asset, { earned: toUnits(a.earned), unclaimed: toUnits(a.unclaimed) }]));
+}
+
 /** Our builder fee on a fill at `feeBps`, worked out here from the venue's own fill: base quantity when charged in the base asset, else notional; rounded up. */
 const ceilDiv = (a, b) => (a + b - 1n) / b;
 const ONE = toUnits('1');
@@ -216,6 +236,25 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     { kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: await venueCap('BTC-USDC') },
     `approve-builder:${owner}:${J}`,
   );
+  // A TEST buyer of this file's own rests a bid for every sell this file makes, at their price: five routed (#1 three, #2
+  // and #3 one each) and #4's direct one, 0.01 BTC each. The seeded ladder is shared by the whole shard, and
+  // J-cex-spot-01-venue #8 sells into every bid, so this file after it on one stack found no bid and its sells rested
+  // unfilled (run 42991377597, shard 28, twice).
+  const buyer = `${J}-buyer-${process.env.JOURNEY_RUN_ID ?? 'local'}`;
+  await testDeposit(otherTraderKey(buyer).address, 'USDC', '10000', `seed:${buyer}:USDC`);
+  const bid = await otherTraderRun(buyer, {
+    kind: 'place_order',
+    symbol: 'BTC-USDC',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.06',
+    price: '59990',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${buyer}:bid`,
+    builderFee: null,
+  });
+  expect(bid, JSON.stringify(bid).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   await sell();
   await sell();
   const fills = await venueFills(start);
@@ -246,6 +285,65 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   await expect(total).toHaveAttribute('data-state', 'green');
   const shown = await total.locator('td').allInnerTexts();
   expect(dec(shown[1])).toBe(dec(shown[2]));
+
+  // The row says how many fills it compared and through what time: every fill of this period, read no later than now.
+  const read = (await recon(start, to)).venues[0];
+  const compared = venue.getByTestId('builder-fee-compared');
+  const count = Number(await compared.getAttribute('data-compared'));
+  expect(count, 'every fill of the period with our fee is compared').toBe(read.lines.filter((l) => l.status !== 'not_our_order').length);
+  expect(count).toBeGreaterThanOrEqual(fills.length);
+  await expect(compared).toContainText(`${count} fills compared, read through `);
+  const through = Date.parse(await compared.getAttribute('data-read-through'));
+  expect(through, 'read through a time after the fills').toBeGreaterThanOrEqual(Math.max(...fills.map((f) => Date.parse(f.filledAt))));
+  expect(through).toBeLessThanOrEqual(Date.now());
+
+  // The ledger's earned total against the venue's own total for our builder address, both read here from their own
+  // records: the TEST venue's builder totals, and svc-ledger's receivable plus what it has received into our builder account.
+  const id = await venueId();
+  const own = await venueBuilderTotals(builder.builder.address);
+  const [owedNow, paidNow] = [await ledgerOwed(id), await ledgerPaidOut(id)];
+  const earnedByLedger = (owedNow.get(asset) ?? 0n) + (paidNow.get(asset) ?? 0n);
+  expect(own.get(asset)?.earned, "the venue's own earned total is the ledger's").toBe(earnedByLedger);
+  const totals = venue.getByTestId('builder-fee-venue-totals');
+  await expect(totals).toHaveAttribute('data-state', 'green');
+  await expect(totals).toHaveAttribute('data-builder', builder.builder.address);
+  const ownRow = totals.locator(`tr[data-asset="${asset}"]`);
+  await expect(ownRow).toHaveAttribute('data-state', 'green');
+  const ownCells = await ownRow.locator('td').allInnerTexts();
+  expect(dec(ownCells[1])).toBe(dec(fromUnits(earnedByLedger)));
+  expect(dec(ownCells[2])).toBe(dec(fromUnits(own.get(asset).earned)));
+  expect(ownCells[5]).toBe('Matched');
+
+  // Green only when at least one fill was compared: a period with no fills reads "nothing to compare", never matched.
+  const empty = await openRecon(page, new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-02T00:00:00.000Z'));
+  await expect(empty).toHaveAttribute('data-state', 'nothing-to-compare');
+  await expect(empty.getByTestId('builder-fee-verdict')).toContainText('Nothing to compare');
+  await expect(empty.getByTestId('builder-fee-compared')).toHaveAttribute('data-compared', '0');
+  const none = (await recon(new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-02T00:00:00.000Z'))).venues[0];
+  expect(none).toMatchObject({ verdict: 'nothing_to_compare', matched: false, compared: 0 });
+
+  // Green only when they match: with the poster stopped, one more fill's fee is in the venue's earned total and not yet
+  // in the ledger's, and the same row reads a break with the venue's figure above the ledger's. Last in this step: the
+  // venue's totals are all-time, so the break shows in every period until #2 (which starts with the poster stopped too)
+  // puts the poster back.
+  tradeWith({ venue: true, poster: false });
+  const unposted = new Date(Date.now() - 1000);
+  await sell();
+  const [extra] = await venueFills(unposted);
+  expect(extra, 'the extra fill carries our builder fee').toBeTruthy();
+  const ownAfter = await venueBuilderTotals(builder.builder.address);
+  const ledgerAfter = ((await ledgerOwed(id)).get(asset) ?? 0n) + ((await ledgerPaidOut(id)).get(asset) ?? 0n);
+  expect(ownAfter.get(asset)?.earned, "the venue's own earned total is above the ledger's by the unposted fee").toBe(
+    ledgerAfter + toUnits(extra.builderFee),
+  );
+  const brokenTotals = (await openRecon(page, start, to)).getByTestId('builder-fee-venue-totals');
+  await expect(brokenTotals).toHaveAttribute('data-state', 'break');
+  const brokenRow = brokenTotals.locator(`tr[data-asset="${asset}"]`);
+  await expect(brokenRow).toHaveAttribute('data-state', 'break');
+  const brokenCells = await brokenRow.locator('td').allInnerTexts();
+  expect(dec(brokenCells[1])).toBe(dec(fromUnits(ledgerAfter)));
+  expect(dec(brokenCells[2])).toBe(dec(fromUnits(ownAfter.get(asset).earned)));
+  expect(brokenCells[5]).toBe("Break: the ledger's earned total and the venue's differ");
 });
 
 test(`${J} #2 a builder fee is in one record but not the other: the break with its venue id and amount`, async ({ page, browser }) => {
@@ -301,9 +399,16 @@ test(`${J} #3 a venue payout of builder fees is not yet received: shown as owed 
   const venue = await openRecon(page, start, to);
   const owed = venue.getByTestId('builder-fee-owed');
   await expect(owed).toContainText('not yet received');
+  // What is owed equals the venue's own unclaimed figure for our builder address, read here from the TEST venue.
+  const builderAddress = (await (await api(trader)).get('/api/v1/venue/status')).body.builder.address;
+  const own = await venueBuilderTotals(builderAddress);
   for (const [asset, units] of before) {
     expect(units > 0n, `${asset} is owed, not paid ahead`).toBe(true);
+    expect(own.get(asset)?.unclaimed, `the venue's own unclaimed ${asset} is what the ledger says it owes`).toBe(units);
     expect(dec(await owed.locator(`tr[data-asset="${asset}"] td`).nth(1).innerText())).toBe(dec(fromUnits(units)));
+    const ownCells = await venue.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${asset}"] td`).allInnerTexts();
+    expect(dec(ownCells[3])).toBe(dec(fromUnits(units)));
+    expect(dec(ownCells[4])).toBe(dec(fromUnits(own.get(asset).unclaimed)));
   }
 
   // One more fill: its fee is earned and not received, so what the venue owes grows by exactly that fee.
@@ -323,6 +428,14 @@ test(`${J} #3 a venue payout of builder fees is not yet received: shown as owed 
       { timeout: 60_000 },
     )
     .toBe(dec(fromUnits(want)));
+  // The venue's own unclaimed figure grew by the same fee, and the console shows the two equal.
+  expect((await venueBuilderTotals(builderAddress)).get(fill.feeAsset)?.unclaimed).toBe(want);
+  const unclaimedCell = page.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${fill.feeAsset}"] td`).nth(4);
+  expect(dec(await unclaimedCell.innerText())).toBe(dec(fromUnits(want)));
+  await expect(page.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${fill.feeAsset}"]`)).toHaveAttribute(
+    'data-state',
+    'green',
+  );
 });
 
 test(`${J} #4 opens the routed-volume recon: volume by venue against the builder fees, with any gap named`, async ({ page, browser }) => {
@@ -406,7 +519,14 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
   test.setTimeout(300_000);
   const id = await venueId();
   const to = new Date(Date.now() + 10 * 60_000);
-  await expect.poll(async () => (await recon(start, to)).venues[0]?.matched ?? null, { timeout: 60_000 }).toBe(true);
+  // Every fill the poster can post is posted. #4's direct order carries our builder code, so the venue's own total now
+  // holds a fee the ledger does not (OWNER 288 1e): the venue reads a break, and the fills are what this step exports.
+  await expect
+    .poll(
+      async () => (await recon(start, to)).venues[0]?.lines.every((l) => l.status === 'matched' || l.status === 'not_our_order') ?? null,
+      { timeout: 60_000 },
+    )
+    .toBe(true);
   // The ledger records our builder fee only on fills of orders we routed (OWNER 288 change 1b). The only fills that are
   // not ours are the ones this test made itself in #4, by placing an order on the venue directly: exactly those read as
   // not ours, and every other fill, each sent through our door, is matched, posted and in the file.

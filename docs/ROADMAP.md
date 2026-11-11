@@ -50,35 +50,35 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-Done is defined by 450 journeys (2977 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 49 steps still need a capability no slice covers yet.
+Done is defined by 452 journeys (3007 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 73 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
 | merchant       | 35       | 0       | 24      | 11      | 200   | 5                   |
-| bank           | 30       | 4       | 17      | 9       | 180   | 0                   |
-| copy-bots-otc  | 30       | 0       | 18      | 12      | 205   | 1                   |
-| dex-protocol   | 30       | 0       | 19      | 11      | 250   | 0                   |
-| derivatives    | 28       | 15      | 5       | 8       | 203   | 0                   |
-| wallet         | 23       | 4       | 12      | 7       | 123   | 12                  |
+| bank           | 31       | 5       | 17      | 9       | 190   | 10                  |
+| copy-bots-otc  | 30       | 0       | 18      | 12      | 207   | 3                   |
+| dex-protocol   | 30       | 0       | 19      | 11      | 251   | 0                   |
+| derivatives    | 28       | 15      | 5       | 8       | 205   | 2                   |
+| wallet         | 23       | 4       | 12      | 7       | 125   | 13                  |
+| identity       | 22       | 8       | 9       | 5       | 138   | 5                   |
 | support-public | 22       | 1       | 15      | 6       | 171   | 14                  |
 | agents         | 21       | 4       | 9       | 8       | 138   | 3                   |
-| identity       | 21       | 7       | 9       | 5       | 134   | 2                   |
-| p2p            | 21       | 0       | 16      | 5       | 117   | 0                   |
-| pay            | 21       | 0       | 14      | 7       | 121   | 1                   |
-| campaigns      | 20       | 0       | 13      | 7       | 123   | 0                   |
+| p2p            | 21       | 1       | 16      | 4       | 117   | 1                   |
+| pay            | 21       | 0       | 14      | 7       | 123   | 1                   |
+| campaigns      | 20       | 0       | 13      | 7       | 122   | 0                   |
 | cex-spot       | 20       | 9       | 7       | 4       | 172   | 0                   |
-| ops-console    | 20       | 3       | 16      | 1       | 175   | 0                   |
-| charts-desk    | 19       | 3       | 8       | 8       | 120   | 0                   |
+| ops-console    | 20       | 3       | 16      | 1       | 178   | 0                   |
+| charts-desk    | 19       | 3       | 8       | 8       | 121   | 1                   |
 | developer      | 18       | 2       | 11      | 5       | 116   | 0                   |
-| portfolio      | 17       | 3       | 9       | 5       | 100   | 10                  |
+| portfolio      | 17       | 3       | 9       | 5       | 101   | 11                  |
 | academy        | 16       | 0       | 11      | 5       | 97    | 0                   |
 | algo-dev       | 16       | 0       | 9       | 7       | 105   | 0                   |
-| home-ia        | 11       | 3       | 7       | 1       | 58    | 0                   |
+| home-ia        | 11       | 3       | 7       | 1       | 61    | 3                   |
 | more-catalogue | 11       | 0       | 8       | 3       | 69    | 1                   |
 
 ### Parked
 
-Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built later, and not counted above. 22 whole journeys (138 steps) and 28 steps of live journeys. A slice a live step still names keeps its place in the lane queues.
+Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built later, and not counted above. 22 whole journeys (138 steps) and 32 steps of live journeys. A slice a live step still names keeps its place in the lane queues.
 
 | Journey                                                                                              | Parked                   | Until                                                                                                            |
 | ---------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
@@ -113,6 +113,10 @@ Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built
 | J-dex-protocol-28 Issue assets, raise funds and use the treasury yield vault                         | steps #1, #2, #3         | after launch (OWNER 183 (2): own-chain extras, asset issuance)                                                   |
 | J-dex-protocol-29 Run the protocol desk: metrics, labels, quoters, listings and pool control         | steps #8                 | the core (the 67 spine journeys) passes (OWNER 183 (3): the chain (INTACHAIN listing rooms))                     |
 | J-dex-protocol-32 Account for protocol revenue, rebates and builder fees                             | steps #8                 | after launch (OWNER 183 (2): own-chain extras, buyback)                                                          |
+| J-merchant-09 Control who can pay out, to where, and in bulk                                         | steps #7                 | after launch (OWNER 183: a second processor, J-merchant-34; Fable run 2, OWNER 291)                              |
+| J-merchant-11 Invite my team and give each person the right role                                     | steps #7                 | after launch (OWNER 183: point of sale, J-merchant-31, -32; Fable run 2, OWNER 291)                              |
+| J-merchant-16 Receive events: set up a webhook endpoint and trust its deliveries                     | steps #9                 | after launch (OWNER 183: platform accounts, J-merchant-35, -36; Fable run 2, OWNER 291)                          |
+| J-merchant-25 Get my reports: on demand, scheduled, delivered, and the API                           | steps #8                 | after launch (OWNER 183: retail stores, J-merchant-32; Fable run 2, OWNER 291)                                   |
 | J-more-catalogue-20 Understand and use IFC: stake, real yield, supply and burns                      | steps #3                 | after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)                        |
 | J-ops-console-24 Watch capital and counterparties, run a buyback, plan a wind-down and keep evidence | steps #4                 | after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)                        |
 

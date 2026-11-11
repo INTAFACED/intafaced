@@ -12,7 +12,8 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
  * `typedData` is passed through untouched on both sides: it is the exact payload
  * the wallet signs, and the venue rebuilds and checks it at submit. A market's
  * published words (`listedBy`, `oracleRule`, `markRule`, `tradingHours`,
- * `staleRule`) are passed through too: their `value` is text.
+ * `staleRule`, and a session's `offHoursMode`, `offHoursBand`, `offHoursRule`)
+ * are passed through too: their `value` is text.
  */
 
 const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
@@ -44,8 +45,14 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'fee',
   'withdrawalFee',
   'networkFee',
+  // VenueBestPrices: the side a market order meets, null when it is empty
+  'bid',
+  'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  // VenueBuilderTotal (OWNER 288 1e)
+  'earned',
+  'unclaimed',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -70,18 +77,44 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Amount fields that may be `null` (`UserVenueFill.realisedPnl`, `UserVenueOrder.averagePrice`, a venue market's
- * `maxOrderQty` / `maxOrderNotional` when the venue reports none).
+ * Amount fields that may be `null` (`UserVenueFill.realisedPnl`, `UserVenueOrder.averagePrice`, an empty book side, a venue
+ * market's `maxOrderQty` / `maxOrderNotional` when the venue reports none).
  */
-const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set(['realisedPnl', 'averagePrice', 'maxOrderQty', 'maxOrderNotional']);
+const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
+  'realisedPnl',
+  'averagePrice',
+  'bid',
+  'ask',
+  'maxOrderQty',
+  'maxOrderNotional',
+]);
 
-const DATE_FIELDS: ReadonlySet<string> = new Set(['asOf', 'preparedAt', 'filledAt', 'validUntil', 'since', 'lastOracleUpdateAt']);
+const DATE_FIELDS: ReadonlySet<string> = new Set([
+  'asOf',
+  'reportedAt',
+  'preparedAt',
+  'filledAt',
+  'validUntil',
+  'since',
+  'lastOracleUpdateAt',
+  'reopensAt',
+]);
 
 /**
  * Passed through untouched: the wallet's payload, and the venue's published words (a market's listing and rules, each a
  * `MaybeKnown` of text), whose `value` is text, never money, even when it happens to read like a number.
  */
-const OPAQUE_FIELDS: ReadonlySet<string> = new Set(['typedData', 'listedBy', 'oracleRule', 'markRule', 'tradingHours', 'staleRule']);
+const OPAQUE_FIELDS: ReadonlySet<string> = new Set([
+  'typedData',
+  'listedBy',
+  'oracleRule',
+  'markRule',
+  'tradingHours',
+  'staleRule',
+  'offHoursMode',
+  'offHoursBand',
+  'offHoursRule',
+]);
 
 export class VenueWireError extends Error {
   constructor(message: string) {

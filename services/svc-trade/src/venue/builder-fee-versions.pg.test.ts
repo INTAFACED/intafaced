@@ -81,7 +81,7 @@ const schedule = (spotBps: string, perpBps = '1') => ({
   builderFees: {
     'test-venue-sim': {
       defaultGroup: 'spot',
-      marketGroups: { 'BTC-PERP': 'perpetuals', 'XAU-PERP': 'perpetuals' },
+      marketGroups: { 'BTC-PERP': 'perpetuals', 'XAU-PERP': 'perpetuals', 'XSTK-PERP': 'perpetuals' },
       groups: { spot: spotBps, perpetuals: perpBps },
     },
   },
@@ -180,6 +180,7 @@ describe('builder-fee versions (PG-hard, TEST venue over loopback)', () => {
       { symbol: 'BTC-PERP', kind: 'perpetual', capBps: '10' },
       { symbol: 'ETH-USDC', kind: 'spot', capBps: '100' },
       { symbol: 'XAU-PERP', kind: 'perpetual', capBps: '10' },
+      { symbol: 'XSTK-PERP', kind: 'perpetual', capBps: '10' },
     ]);
     doorOn = false;
     await expect(admin.builderFeeCaps(writer())).rejects.toMatchObject({ code: 'trade.user_venue_off' });

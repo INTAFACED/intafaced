@@ -25,12 +25,12 @@
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/venue-contracts": "workspace:*",
     "@nktkas/hyperliquid": "0.33.3",
-    "viem": "^2.57.10"
+    "viem": "^2.57.16"
   },
   "devDependencies": {
     "@intafaced/venue-sim": "workspace:*",
     "@types/node": "^22.20.5",
-    "rimraf": "^6.0.1",
+    "rimraf": "^6.1.4",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^4.1.12"

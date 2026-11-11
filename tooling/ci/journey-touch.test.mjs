@@ -5,7 +5,18 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DOCS_READ, JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
+import {
+  DOCS_READ,
+  JOURNEY_CI,
+  RUN_FILE,
+  STACK_FILE,
+  checkoutJourneyTexts,
+  journeyTouch,
+  namedInputs,
+  namedJourneyIds,
+  pathKind,
+  stackImporters,
+} from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -239,13 +250,15 @@ const seal = ({
   runs,
   reports,
   verdict = async (r) => (r.ran.length < FULL.length ? { ...clean, missing: FULL.filter((f) => !r.ran.includes(f)) } : clean),
+  branch = 'b',
+  io = {},
 }) =>
   sealPull({
     repo: REPO,
     number: 9,
     sha: HEAD,
     io: {
-      pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: OLD }, title, body }),
+      pull: async () => ({ state: 'open', head: { sha: HEAD, ref: branch }, base: { sha: OLD }, title, body }),
       runs: async () => runs,
       reportOf: async (r) => reports[r.id],
       files: async () => files,
@@ -255,6 +268,7 @@ const seal = ({
             null)
           : null,
       verdictOf: verdict,
+      ...io,
     },
   });
 const fullRun = { states: {}, ran: FULL };
@@ -271,7 +285,8 @@ test('planted 1: a shared-setup pull request with only a partial run fails the s
 });
 
 test('planted 2: a product pull request whose run misses a journey it touches fails the seal; with every one run it passes', async () => {
-  // Product code: no map says which journeys reach it, so it touches every journey and needs the full run.
+  // Product code: no map says which journeys reach it, and the head's journey files can't be read (this io has no
+  // journeyFiles), so even a title that names a journey can't narrow it: it touches every journey and needs the full run.
   const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
   const bad = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
@@ -308,6 +323,236 @@ test('planted 2: a product pull request whose run misses a journey it touches fa
     reports: { 1: { states, ran: ['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs'] } },
   });
   assert.equal(both.ok, true, both.lines.join('\n'));
+});
+
+// theo-01 part 1 (OWNER 296): a product pull request that names a journey is judged on that journey, its changed journey
+// files and the map's always-run list, the same list its run is given (journey-touch.mjs --reach with TITLE and
+// GITHUB_HEAD_REF); main's full run after the merge judges the rest.
+const HEAD_FILES = new Set(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs', 'J-wallet-05.pw.mjs', 'J-agents-12.pw.mjs']);
+const ALWAYS_MAP = { mode: 'reach', full: { 'J-agents-12.pw.mjs': 'no run speaks for it', 'J-gone-01.pw.mjs': 'removed since' } };
+const namedIo = { journeyFiles: async () => HEAD_FILES, reachMap: async () => ALWAYS_MAP };
+const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
+
+test('journeyTouch, named: product code runs the named journey and the always-run list; another full path or no name stays full', () => {
+  const named = namedInputs({
+    ids: namedJourneyIds({ title: 'svc-bank: cards (J-bank-13 #1 #2)' }),
+    journeyFiles: HEAD_FILES,
+    map: ALWAYS_MAP,
+  });
+  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'], always: ['J-agents-12.pw.mjs'] });
+  const t = journeyTouch([...product, 'apps/customer/tests/real-app/J-bank-14.pw.mjs'], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
+  assert.match(t.named, /it names J-bank-13/);
+  assert.equal(journeyTouch([...product, 'pnpm-lock.yaml'], () => true, null, named).mode, 'full', 'a root build file stays full');
+  assert.equal(journeyTouch([...product, 'tooling/scripts/local-stack-services/bank.mjs'], () => true, null, named).mode, 'full');
+  assert.equal(journeyTouch(product, () => true, null, null).mode, 'full', 'no name: product code is full');
+  assert.equal(journeyTouch(['docs/x.md'], () => true, null, named).mode, 'none', 'a name adds nothing to a change that reaches none');
+  // Names read from the title or the branch, in the seal's case; a name with no file at the head, or unreadable files, is no name.
+  assert.deepEqual(namedJourneyIds({ title: 'x', branch: 'agents-j-agents-19-sign' }), ['J-agents-19']);
+  assert.deepEqual(namedJourneyIds({ title: 'test(customer): J-Portfolio-05 #1 (#7907)', branch: 'fix/7907' }), ['J-portfolio-05']);
+  assert.equal(namedInputs({ ids: ['J-bank-99'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP }), null);
+  assert.equal(namedInputs({ ids: ['J-bank-13'], journeyFiles: null, map: ALWAYS_MAP }), null);
+});
+
+test('planted 3 (theo-01): a named-journey product pull request merges on its own journey and the always-run list, and is held when it breaks its own journey', async () => {
+  const title = 'svc-bank: cards (J-bank-13 #1 #2)';
+  const states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' };
+  const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs'];
+  const good = await seal({
+    title,
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states, ran } },
+    verdict: async () => clean,
+    io: namedIo,
+  });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  assert.match(good.lines.join('\n'), /because it names J-bank-13/);
+  // A breaks A: its own journey red on its run holds it.
+  const broke = await seal({
+    title,
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states: { 'J-bank-13#1': 'failed', 'J-bank-13#2': 'passed' }, ran } },
+    verdict: async () => red('J-bank-13#1'),
+    io: namedIo,
+  });
+  assert.equal(broke.ok, false, 'a named journey it breaks holds it');
+  // The run must hold the always-run list too.
+  const short = await seal({
+    title,
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states, ran: ['J-bank-13.pw.mjs'] } },
+    verdict: async () => clean,
+    io: namedIo,
+  });
+  assert.equal(short.ok, false);
+  assert.match(short.lines.join('\n'), /ran J-agents-12\.pw\.mjs/);
+  // Named by its branch only (no steps in the title): the same.
+  const byBranch = await seal({
+    title: 'svc-bank: cards',
+    branch: 'j/j-bank-13',
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states: {}, ran } },
+    verdict: async () => clean,
+    io: namedIo,
+  });
+  assert.equal(byBranch.ok, true, byBranch.lines.join('\n'));
+  // Naming no journey, or adding a root build file, still needs the full run.
+  const unnamed = await seal({
+    title: 'svc-bank: cards',
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states: {}, ran } },
+    io: namedIo,
+  });
+  assert.equal(unnamed.ok, false);
+  assert.match(unnamed.lines.join('\n'), /it changes what can reach any journey/);
+  const lock = await seal({
+    title,
+    files: [...product, 'pnpm-lock.yaml'],
+    runs: [run(1)],
+    reports: { 1: { states, ran } },
+    io: namedIo,
+  });
+  assert.equal(lock.ok, false);
+  // The head's journey files can't be read: no narrowing.
+  const blind = await seal({
+    title,
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states, ran } },
+    io: { ...namedIo, journeyFiles: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(blind.ok, false);
+});
+
+const STACK = 'tooling/scripts/local-stack-services/bank.mjs';
+const STACK_VALUES = 'tooling/profiles/test-owner-values/bank.json';
+const IMPORTS = new Map([
+  ['J-wallet-05.pw.mjs', "import { X } from '../../../../tooling/scripts/local-stack-services/bank.mjs';"],
+  ['J-cex-spot-17.pw.mjs', "readFileSync(path.join(REPO, 'tooling', 'profiles', 'test-owner-values', 'bank.json'))"],
+  ['J-pay-05.pw.mjs', '// the reminder rule (tooling/profiles/test-owner-values/bank.json)'],
+  ['staff.mjs', '// the roster (tooling/profiles/test-owner-values/\n// bank.json, read only on test)'],
+  ['J-ops-01.pw.mjs', "import { staff } from './staff.mjs';"],
+  ['J-ops-02.pw.mjs', "import { x } from './helper.mjs';"],
+  ['helper.mjs', "import { staff } from './staff.mjs';"],
+  ['J-other-01.pw.mjs', "// local-stack-services/trade.mjs, test-owner-values/bank2.json; import './unrelated.mjs'"],
+  ['unrelated.mjs', '// nothing'],
+]);
+
+test('STACK_FILE: a service’s own stack file and nothing wider', () => {
+  for (const p of [STACK, STACK_VALUES, 'tooling/scripts/local-stack-services/mining-pool.mjs']) assert.equal(STACK_FILE.test(p), true, p);
+  for (const p of [
+    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/local-stack-services/zz-planted.test.mjs',
+    'tooling/scripts/local-stack-services/sub/bank.mjs',
+    'tooling/scripts/local-stack-fixtures/bank.mjs',
+    'tooling/profiles/test-owner-values/identity-breached-passwords.sha1',
+    'tooling/profiles/test-owner-values.json',
+    'xtooling/scripts/local-stack-services/bank.mjs',
+  ]) {
+    assert.equal(STACK_FILE.test(p), false, p);
+    assert.equal(pathKind(p).stack, undefined, p);
+  }
+  assert.deepEqual({ kind: pathKind(STACK).kind, stack: pathKind(STACK).stack }, { kind: 'full', stack: true });
+});
+
+test('stackImporters: by import, split path, comment or a helper, and only that service', () => {
+  assert.deepEqual(stackImporters([STACK], IMPORTS), ['J-wallet-05.pw.mjs']);
+  assert.deepEqual(stackImporters([STACK_VALUES], IMPORTS), [
+    'J-cex-spot-17.pw.mjs',
+    'J-ops-01.pw.mjs',
+    'J-ops-02.pw.mjs',
+    'J-pay-05.pw.mjs',
+  ]);
+  assert.deepEqual(stackImporters([STACK, STACK_VALUES], new Map()), [], 'no importers is an answer, not an error');
+  // The real folder: the importers the code above should find.
+  const real = checkoutJourneyTexts(ROOT);
+  assert.ok(stackImporters([STACK], real).includes('J-wallet-05.pw.mjs'));
+  assert.ok(stackImporters([STACK_VALUES], real).includes('J-cex-spot-17.pw.mjs'));
+});
+
+test('journeyTouch, stack (theo-01 part 2): a named change to a stack file runs the journeys importing it; anything else stays full', () => {
+  const importers = (ps) => stackImporters(ps, IMPORTS);
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, importers });
+  const t = journeyTouch([STACK, ...product], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.deepEqual(t.stack, [STACK]);
+  assert.deepEqual(t.importers, ['J-wallet-05.pw.mjs']);
+  assert.match(t.named, /1 stack file\(s\) run J-bank-13\.pw\.mjs/);
+  // A stack file and no product code: the same list.
+  assert.deepEqual(journeyTouch([STACK], () => true, null, named).files, t.files);
+  for (const [paths, why] of [
+    [[STACK, 'tooling/scripts/local-test-stack.mjs'], 'a stack-wide file'],
+    [[STACK, 'apps/customer/tests/real-app/journey.mjs'], 'a shared helper'],
+    [[STACK, 'pnpm-lock.yaml'], 'a root build file'],
+    [[STACK, 'tooling/ci/journey-seal.mjs'], 'the judging code'],
+    [[STACK_VALUES, '.github/workflows/real-app-journeys.yml'], 'the journeys workflow'],
+  ]) {
+    const v = journeyTouch(paths, () => true, null, named);
+    assert.equal(v.mode, 'full', why);
+    assert.ok(
+      v.full.some((x) => x.path === paths[0]),
+      `${why}: the stack file is listed too`,
+    );
+  }
+  assert.equal(journeyTouch([STACK], () => true, null, null).mode, 'full', 'no name');
+  const blind = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP });
+  assert.equal(journeyTouch([STACK], () => true, null, blind).mode, 'full', 'journey files unreadable');
+});
+
+test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the list its run was given, and is held when an importer is missing or red', async () => {
+  const title = 'svc-bank: cards (J-bank-13 #1)';
+  const files = [...product, STACK];
+  const states = { 'J-bank-13#1': 'passed' };
+  const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs', 'J-wallet-05.pw.mjs'];
+  const io = { ...namedIo, journeyTexts: async () => IMPORTS };
+  const opts = { title, files, runs: [run(1)], io };
+  const good = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => clean });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  assert.match(good.lines.join('\n'), /journey file\(s\) using them/);
+  const short = await seal({ ...opts, reports: { 1: { states, ran: ran.slice(0, 2) } }, verdict: async () => clean });
+  assert.equal(short.ok, false, 'a run without the importer is held');
+  assert.match(short.lines.join('\n'), /ran J-wallet-05\.pw\.mjs/);
+  const broke = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => red('J-wallet-05#1') });
+  assert.equal(broke.ok, false, 'the stack change breaking an importer holds it');
+  // Fail closed: the full run stays what is needed, and this run is not one.
+  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const blind = await seal({
+    ...opts,
+    reports: { 1: { states, ran } },
+    verdict: short4,
+    io: { ...io, journeyTexts: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(blind.ok, false);
+  assert.match(blind.lines.join('\n'), /local-stack-services\/bank\.mjs/);
+  const noIo = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: short4, io: namedIo });
+  assert.equal(noIo.ok, false, 'an io with no way to read texts narrows nothing');
+  const stackWide = await seal({
+    ...opts,
+    files: [...files, 'tooling/scripts/local-test-stack.mjs'],
+    reports: { 1: { states, ran } },
+    verdict: short4,
+  });
+  assert.equal(stackWide.ok, false, 'a stack-wide file still needs the full run');
+  // Naming no journey: as before.
+  const unnamed = await seal({ ...opts, title: 'svc-bank: cards', reports: { 1: { states: {}, ran } }, verdict: short4 });
+  assert.equal(unnamed.ok, false);
+  // A revert of a stack file still needs the full run as shared setup.
+  const asRevert = await seal({
+    ...opts,
+    title: 'Revert "svc-bank: cards (J-bank-13 #1)"',
+    body: 'Reverts INTAFACED/intafaced#1',
+    files: [STACK],
+    reports: { 1: { states: {}, ran } },
+    verdict: short4,
+  });
+  assert.equal(asRevert.ok, false, 'a revert is judged as it was before this part');
 });
 
 test('the seal still needs every titled step passing: a clean full run with a titled step red fails', async () => {
@@ -389,16 +634,87 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
     t.split('github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft').length - 1,
     3,
   );
-  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing.
-  for (const job of ['plan', 'build'])
+  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing. The plan
+  // runs in the touch job, so each of its steps checks the touch step's decision and PLANS (never a draft or a fork).
+  assert.match(
+    t,
+    /\n {6}PLANS: \$\{\{ github\.event_name != 'pull_request' \|\| \(github\.event\.pull_request\.head\.repo\.full_name == github\.repository && !github\.event\.pull_request\.draft\) \}\}\n/,
+  );
+  for (const name of ["Last finished runs' reports", 'Plan', 'Fail-fast plan'])
     assert.match(
       t,
       new RegExp(
-        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && \\(needs\\.touch\\.result == 'success' \\|\\| \\(needs\\.touch\\.result == 'skipped' && github\\.ref == 'refs/heads/main'\\)\\) && needs\\.touch\\.outputs\\.mode != 'none' && \\(github\\.event_name != 'pull_request'`,
+        `\\n {6}- name: ${name}\\n(?: {8}[^\\n]*\\n)*? {8}if: \\$\\{\\{ !cancelled\\(\\) && env\\.PLANS == 'true' && steps\\.touch\\.outputs\\.mode != 'none' && steps\\.first\\.outputs\\.deferred != 'true' \\}\\}\\n`,
       ),
     );
-  assert.match(t, /\.draft\)\) && !\(needs\.plan\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
+  assert.doesNotMatch(t, /\n  plan:\n/);
+  assert.match(
+    t,
+    /\n  build:\n(?: {4}[^\n]*\n)*? {4}if: \$\{\{ !cancelled\(\) && needs\.touch\.result == 'success' && needs\.touch\.outputs\.mode != 'none' && \(github\.event_name != 'pull_request'/,
+  );
+  // The shards wait on a touch job that succeeded: a targeted run without its plan fails that job, so no shard runs.
+  assert.match(
+    t,
+    /\n  journeys:\n(?: {4}[^\n]*\n)*? {4}if: \$\{\{ !cancelled\(\) && needs\.touch\.result == 'success' && needs\.touch\.outputs\.mode != 'none' && /,
+  );
   assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.touch\.outputs\.target \}\}/);
+});
+
+test('real-app-journeys.yml on main: the touch step decides nothing, so a push, a scheduled run or a dispatch with a journeys input keeps an empty target and the full suite', () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  // The touch step's own script, run as GitHub runs it.
+  const at = t.indexOf('\n        id: touch\n');
+  assert.ok(at > 0, 'the touch step');
+  const from = t.indexOf('\n        run: |\n', at) + '\n        run: |\n'.length;
+  const lines = [];
+  for (const l of t.slice(from).split('\n')) {
+    if (l !== '' && !l.startsWith('          ')) break;
+    lines.push(l.slice(10));
+  }
+  const script = lines.join('\n');
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  try {
+    const touch = (env) => {
+      const out = join(dir, `out-${Math.random().toString(36).slice(2)}`);
+      execFileSync('bash', ['-c', script], {
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, GITHUB_OUTPUT: out, RUNNER_TEMP: dir, ...env },
+      });
+      return Object.fromEntries(
+        readFileSync(out, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+      );
+    };
+    // Planted: the journeys input reaches the step on main (as if the workflow-level guard were lost).
+    for (const EVENT of ['push', 'schedule', 'workflow_dispatch'])
+      assert.deepEqual(
+        touch({ GITHUB_REF: 'refs/heads/main', EVENT, JOURNEYS_TARGET: 'j-wallet-01.pw.mjs' }),
+        { mode: 'run', target: '' },
+        EVENT,
+      );
+    // Off main a dispatch's input still targets its journeys.
+    assert.deepEqual(touch({ GITHUB_REF: 'refs/heads/x', EVENT: 'workflow_dispatch', JOURNEYS_TARGET: 'j-wallet-01.pw.mjs' }), {
+      mode: 'run',
+      target: 'j-wallet-01.pw.mjs',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // And every way a target leaves the touch job is empty on main: the workflow's input, the job's output and the plan's.
+  assert.match(
+    t,
+    /\n  JOURNEYS_TARGET: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.ref != 'refs\/heads\/main' && inputs\.journeys \|\| '' \}\}\n/,
+  );
+  assert.match(
+    t,
+    /\n {6}target: \$\{\{ github\.ref != 'refs\/heads\/main' && steps\.first\.outputs\.deferred != 'true' && steps\.touch\.outputs\.target \|\| '' \}\}\n/,
+  );
+  assert.match(
+    t,
+    /\n {6}- name: Plan\n(?: {8}[^\n]*\n)*? {10}JOURNEYS_TARGET: \$\{\{ github\.ref != 'refs\/heads\/main' && steps\.touch\.outputs\.target \|\| '' \}\}\n/,
+  );
 });
 
 test('an empty report (nothing to run) seals nothing and blocks nothing', async () => {

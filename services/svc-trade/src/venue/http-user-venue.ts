@@ -4,6 +4,8 @@ import {
   decodeVenueWire,
   encodeVenueWire,
   type AsOf,
+  type MaybeKnown,
+  type VenueBuilderTotals,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -17,10 +19,14 @@ import {
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenuePosition,
+  type UserVenueSubAccount,
+  type UserVenueSubAccountReads,
+  type UserVenueTransfer,
   type UserVenueWithdrawal,
   type VenueIntent,
   type VenueBook,
   type VenueOrderPreview,
+  type VenueBestPrices,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -104,7 +110,7 @@ export function classifyFetchFailure(err: unknown): Failure {
   return { kind: 'connection_lost', detail: `the connection was lost (${code ?? (err as Error)?.message ?? 'unknown'})` };
 }
 
-export class HttpUserVenue implements UserVenue {
+export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   private constructor(
     readonly venue: UserVenueDescriptor,
     readonly chainId: number,
@@ -208,6 +214,10 @@ export class HttpUserVenue implements UserVenue {
     return this.read('/preview', { account, intent });
   }
 
+  bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
+    return this.read('/best-prices', { symbol });
+  }
+
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
   prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
     return this.read('/prepare', { account, signer, intent });
@@ -262,11 +272,26 @@ export class HttpUserVenue implements UserVenue {
     return this.read('/builder-fee-approval', { account, builder });
   }
 
+  /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
+  builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
+    return this.read('/builder-totals', { builder });
+  }
+
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
     return this.read('/agents', { account });
   }
 
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     return this.read('/leverage', { account, symbol });
+  }
+
+  // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──
+
+  subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>> {
+    return this.read('/sub-accounts', { account });
+  }
+
+  transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>> {
+    return this.read('/transfer', { account, nonce });
   }
 }

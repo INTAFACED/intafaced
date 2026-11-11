@@ -5,6 +5,23 @@ import { confirmFounderEmails } from '../local-test-founders.mjs';
 import { founderTotp, makeContext } from '../local-test-gates.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from '../local-test-device.mjs';
 
+/**
+ * LOCAL TEST ONLY. The one TEST membership tier identity publishes when it starts or restarts with
+ * `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` (J-wallet-01 #6, "with config set, the tier"). It is not an owner decision:
+ * without the switch the tiers stay blank, as production is until the owner publishes them. It lives here, not in the
+ * profile file, because a rig loads that file whole and every other journey must see membership not offered.
+ */
+export const TEST_MEMBERSHIP_TIERS = Object.freeze([
+  Object.freeze({
+    id: 'test-plus',
+    name: 'TEST Plus',
+    price: '9.99',
+    assetId: 'USDT',
+    periodDays: 30,
+    perks: Object.freeze(['TEST perk: not an owner decision']),
+  }),
+]);
+
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
@@ -156,6 +173,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
     IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
+    // `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` on a start or restart publishes the one TEST membership tier above, so the
+    // published tier can be seen (J-wallet-01 #6); without it the tiers are blank and Account says membership is not offered.
+    ...(process.env.LOCAL_STACK_IDENTITY_MEMBERSHIP === 'test' ? { IDENTITY_MEMBERSHIP_TIERS: JSON.stringify(TEST_MEMBERSHIP_TIERS) } : {}),
     IDENTITY_KYC_HANDOFF_TTL_SECONDS: testValue('IDENTITY_KYC_HANDOFF_TTL_SECONDS'),
     // `LOCAL_STACK_IDENTITY_KYC_ATTEMPTS=off` on a start or restart leaves the attempt limit blank (all three), so the
     // page's "no limit is set" can be seen too (J-identity-08 #4).

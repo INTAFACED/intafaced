@@ -54,6 +54,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
     MATCHING_URL: urlOf('matching'),
+    // Our own order book's spot plane follows the custody switch (OWNER 288): unset, TRADE_SPOT_ENABLED is on only with
+    // LEDGER_CUSTODY_LAYER on. The same value as svc-ledger's (ledger.mjs), as matching.mjs carries.
+    LEDGER_CUSTODY_LAYER: 'on',
     NOTIFY_URL: urlOf('notify'), // market maintenance windows on the lifecycle read (J-cex-spot-14 #5)
     TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
     IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
@@ -160,6 +163,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
     TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: testValue('TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS'),
+    TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: testValue('TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS'),
+    TRADE_SIGNAL_WEBHOOK_DAYS: testValue('TRADE_SIGNAL_WEBHOOK_DAYS'),
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
     // (trade.bots_verification_level_not_set, algo/bots-verification.ts), which a unit test keeps proving.
     // `LOCAL_STACK_TRADE_BOTS_LEVEL=blank` on a restart leaves it blank, so J-copy-bots-otc-14 #2 sees every bot refused.
@@ -233,12 +238,22 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-derivatives-28: LOCAL_STACK_USER_VENUE=two adds the second TEST venue; the ticket then routes over both.
           ...(userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2 ? { TRADE_USER_VENUE_URLS: urlOf('test-venue-b') } : {}),
           // J-cex-spot-16: the TEST markets the other venue journeys trade, listed as a LOCAL TEST seed (svc-trade
-          // venue/venue-listing.ts): the two BTC markets, and J-derivatives-21's TEST gold perpetual XAU-PERP. ETH-USDC
-          // is left unlisted, for two operators to review.
-          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,XAU-PERP',
+          // venue/venue-listing.ts): the two BTC markets, J-derivatives-21's TEST gold perpetual XAU-PERP and
+          // J-derivatives-27's TEST stock perpetual XSTK-PERP. ETH-USDC is left unlisted, for two operators to review.
+          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,XAU-PERP,XSTK-PERP',
           TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
           TRADE_USER_VENUE_BUILDER_FEE_BPS:
             process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),
+          // J-agents-21's agent account on the TEST venue: the labelled LOCAL TEST ceiling, funding asset, agent key seed
+          // and drain bounds. `LOCAL_STACK_AGENT_ACCOUNT_CEILING=off` leaves the ceiling blank for one restart, so a create
+          // refuses agents.account_ceiling_unset (J-agents-21 #1).
+          TRADE_AGENT_ACCOUNT_CEILING:
+            process.env.LOCAL_STACK_AGENT_ACCOUNT_CEILING === 'off' ? '' : testValue('TRADE_AGENT_ACCOUNT_CEILING'),
+          TRADE_AGENT_ACCOUNT_ASSET: testValue('TRADE_AGENT_ACCOUNT_ASSET'),
+          TRADE_AGENT_KEY_SEED: testValue('TRADE_AGENT_KEY_SEED'),
+          TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
+          TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
+          TRADE_AGENT_MARKETS: testValue('TRADE_AGENT_MARKETS'),
           // J-developer-05 #6: `LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off` leaves the largest page blank, so a list refuses.
           TRADE_USER_VENUE_ORDERS_PAGE_MAX:
             process.env.LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX === 'off' ? '' : testValue('TRADE_USER_VENUE_ORDERS_PAGE_MAX'),

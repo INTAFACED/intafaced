@@ -122,6 +122,103 @@ describe('editing and publishing', () => {
   });
 });
 
+describe("withdrawing a published course's price (J-academy-01 #5)", () => {
+  const LIMITS = { maxSections: 5, maxItems: 20 };
+  const withLimits = () => new CourseRecords(db.sql, LIMITS);
+  const paid = { ...free, pricing: 'paid' as const, price: '25', priceAsset: 'USDT' };
+  const LESSON = [{ title: 'Week one', items: [{ kind: 'lesson' as const, title: 'First lesson', indent: 0, url: null }] }];
+
+  /** A course with a one-lesson outline, published: revision 3. */
+  async function published(details: Omit<Parameters<CourseRecords['create']>[0], 'operatorId' | 'now'>) {
+    const course = await withLimits().create({ ...details, operatorId: A, now: NOW });
+    const outlined = await withLimits().saveOutline({ courseId: course.id, revision: 1, sections: LESSON, operatorId: A, now: NOW });
+    return withLimits().setState({
+      courseId: course.id,
+      to: 'published',
+      revision: outlined.course.revision,
+      reason: 'ready',
+      operatorId: A,
+      now: NOW,
+    });
+  }
+
+  it('takes the price down, keeps the course published and paid, writes the event with who and why, and answers a repeat', async () => {
+    const course = await published(paid);
+    expect(course).toMatchObject({ state: 'published', revision: 3, price: '25', priceAsset: 'USDT' });
+    const later = new Date(NOW.getTime() + 60_000);
+    const ask = { courseId: course.id, revision: 3, reason: 'price under review', operatorId: B, now: later };
+    const done = await withLimits().withdrawPrice(ask);
+    expect(done).toMatchObject({ state: 'published', pricing: 'paid', price: null, priceAsset: null, revision: 4 });
+    const [stored] = await db.sql<Array<{ price_withdrawn_at: Date }>>`
+      SELECT price_withdrawn_at FROM academy.courses WHERE id = ${course.id}
+    `;
+    expect(stored!.price_withdrawn_at.toISOString()).toBe(later.toISOString());
+    const detail = await withLimits().get(course.id);
+    expect(detail.events[0]).toEqual({
+      kind: 'price_withdrawn',
+      revision: 4,
+      fromState: 'published',
+      toState: 'published',
+      actor: B,
+      reason: 'price under review',
+      at: later.toISOString(),
+    });
+    // A lost reply asked again answers with the stored course, and writes nothing more.
+    expect(await withLimits().withdrawPrice({ ...ask, now: new Date() })).toEqual(done);
+    expect((await withLimits().get(course.id)).events).toHaveLength(detail.events.length);
+    // Someone else's repeat at the old revision is stale, not theirs.
+    await expect(withLimits().withdrawPrice({ ...ask, operatorId: A })).rejects.toMatchObject({ code: 'academy.course_revision_stale' });
+  });
+
+  it('refuses a draft, a free course, a stale revision, one already without a price, and an unknown id; nothing changes', async () => {
+    const draft = await withLimits().create({ ...paid, slug: 'paid-draft', operatorId: A, now: NOW });
+    await expect(
+      withLimits().withdrawPrice({ courseId: draft.id, revision: 1, reason: 'r', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.course_not_editable' });
+    expect((await withLimits().get(draft.id)).course).toMatchObject({ state: 'draft', revision: 1, price: '25' });
+
+    const freeOne = await published(free);
+    await expect(
+      withLimits().withdrawPrice({ courseId: freeOne.id, revision: 3, reason: 'r', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.course_not_editable' });
+
+    const priced = await published({ ...paid, slug: 'paid-live' });
+    await expect(
+      withLimits().withdrawPrice({ courseId: priced.id, revision: 2, reason: 'r', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.course_revision_stale' });
+    expect((await withLimits().get(priced.id)).course).toMatchObject({ revision: 3, price: '25' });
+
+    await withLimits().withdrawPrice({ courseId: priced.id, revision: 3, reason: 'r', operatorId: A, now: NOW });
+    await expect(
+      withLimits().withdrawPrice({ courseId: priced.id, revision: 4, reason: 'again', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.course_not_editable' });
+    expect((await withLimits().get(priced.id)).course.revision).toBe(4);
+
+    await expect(
+      withLimits().withdrawPrice({ courseId: '55555555-5555-4555-8555-555555555555', revision: 1, reason: 'r', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.course_not_found' });
+  });
+
+  it('publishing a paid course with no price still refuses, and the database still refuses one without a withdrawal', async () => {
+    const course = await withLimits().create({ ...free, slug: 'paid-unpriced', pricing: 'paid', operatorId: A, now: NOW });
+    const outlined = await withLimits().saveOutline({ courseId: course.id, revision: 1, sections: LESSON, operatorId: A, now: NOW });
+    await expect(
+      withLimits().setState({
+        courseId: course.id,
+        to: 'published',
+        revision: outlined.course.revision,
+        reason: 'go',
+        operatorId: A,
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.price_unset' });
+    // A withdrawn price does not open the door to publishing another unpriced course straight past the service either.
+    await expect(db.sql`UPDATE academy.courses SET state = 'published' WHERE id = ${course.id}`).rejects.toThrow(
+      /courses_published_price_chk/,
+    );
+  });
+});
+
 describe('the list', () => {
   it('needs a page size, filters by state and counts every state', async () => {
     await expect(records().list({})).rejects.toMatchObject({ code: 'academy.courses_list_limit_unset' });

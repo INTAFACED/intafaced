@@ -112,14 +112,26 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
   const sort = page.getByRole('combobox', { name: 'Sort by' });
   expect(await sort.getByRole('option').allInnerTexts()).toEqual(['Newest', 'Price, low to high', 'Price, high to low', 'Title']);
   expect((await sort.getByRole('option').allInnerTexts()).join(' ')).not.toMatch(/return|profit|performance|rank/i);
+  const shownTitles = () => cards.getByRole('heading', { level: 3 }).allInnerTexts();
+  // By registration: the Market opens on Newest, each listing in the order svc-market registered it, latest first
+  // (its stored `createdAt`; listings registered in the same instant keep the service's own order).
+  await expect(sort).toHaveValue('newest');
+  expect(catalogue.every((row) => Number.isFinite(Date.parse(row.createdAt)))).toBe(true);
+  const byRegistration = [...catalogue].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  expect(await shownTitles()).toEqual(byRegistration.map((row) => row.title));
   await sort.selectOption({ label: 'Title' });
-  const titles = await cards.getByRole('heading', { level: 3 }).allInnerTexts();
-  expect(titles).toEqual([...catalogue.map((row) => row.title)].sort((a, b) => a.localeCompare(b)));
+  expect(await shownTitles()).toEqual([...catalogue.map((row) => row.title)].sort((a, b) => a.localeCompare(b)));
+  // By price, as exact decimals, both ways; listings at the same price stay in title order.
+  const priceOrder = (a, b) => (toUnits(a.price) < toUnits(b.price) ? -1 : toUnits(a.price) > toUnits(b.price) ? 1 : 0);
   await sort.selectOption({ label: 'Price, low to high' });
-  const byPrice = [...catalogue].sort((a, b) =>
-    toUnits(a.price) < toUnits(b.price) ? -1 : toUnits(a.price) > toUnits(b.price) ? 1 : a.title.localeCompare(b.title),
-  );
-  expect(await cards.getByRole('heading', { level: 3 }).allInnerTexts()).toEqual(byPrice.map((row) => row.title));
+  const byPrice = [...catalogue].sort((a, b) => priceOrder(a, b) || a.title.localeCompare(b.title));
+  expect(await shownTitles()).toEqual(byPrice.map((row) => row.title));
+  await sort.selectOption({ label: 'Price, high to low' });
+  const byPriceDown = [...catalogue].sort((a, b) => priceOrder(b, a) || a.title.localeCompare(b.title));
+  expect(await shownTitles()).toEqual(byPriceDown.map((row) => row.title));
+  // Back to registration order: Newest again shows the latest registered listing first.
+  await sort.selectOption({ label: 'Newest' });
+  expect(await shownTitles()).toEqual(byRegistration.map((row) => row.title));
 
   // An empty state when nothing matches.
   await page.getByRole('textbox', { name: 'Search listings' }).fill(`no listing is called this ${Date.now()}`);
@@ -384,15 +396,49 @@ test(`${J} #4 presses Buy on the strategy: the charge into the held account once
 });
 
 test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the screen re-reads the stored state`, async ({ page }) => {
-  const { who, price } = run.read();
-  expect(price, 'a purchase from #4').toBeTruthy();
+  const { who, seller, title, listingId, price, purchaseId } = run.read();
+  expect(purchaseId, 'a purchase from #4').toBeTruthy();
   const before = await usdt(who);
+  const sellerBefore = await usdt(seller);
+  const [stored] = await purchasesOf(who);
+  const { txId } = await heldOnce(purchaseId, price);
+
+  // The reply is lost: the buyer's app sends the same purchase again, under the same purchase id. svc-market finds the
+  // hold by that key and answers with the stored purchase; the ledger still holds one charge under `market:hold:<id>`.
+  const replay = await (await api(who)).post('/api/market/trpc/purchase', { listingId, purchaseId });
+  expect(replay.status, JSON.stringify(replay.body).slice(0, 300)).toBe(200);
+  expect(replay.body.result.data).toMatchObject({ id: purchaseId, listingId, status: 'held', flow: 'hold', outcome: null });
+  expect(toUnits(replay.body.result.data.price)).toBe(toUnits(price));
+  expect(replay.body.result.data.refundWindowEndsAt).toBe(stored.refundWindowEndsAt);
+  expect((await heldOnce(purchaseId, price)).txId).toBe(txId);
+
+  // Buy pressed again: a new purchase of the same strategy while the first is held is refused with its typed code,
+  // books nothing under the new id, and leaves one purchase.
+  const again = randomUUID();
+  const second = await (await api(who)).post('/api/market/trpc/purchase', { listingId, purchaseId: again });
+  expect([second.status, codeOf(second)]).toEqual([400, 'market.purchase_already_held']);
+  expect(await booked(`market:hold:${again}`)).toMatchObject({ found: false });
+  const after = await purchasesOf(who);
+  expect(after.map((row) => [row.id, row.status])).toEqual([[purchaseId, 'held']]);
+  expect(await usdt(who)).toEqual(before);
+  expect(await usdt(seller)).toEqual(sellerBefore);
+
+  // The screen re-reads the stored state: the listing shows it owned and held, with Buy off, and the purchases table
+  // shows the one stored purchase at its price, held.
   const listing = await openListing(page);
   await expect(listing.getByRole('button', { name: 'Buy' })).toBeDisabled();
   await expect(listing).toContainText('You own this. Held until the refund window ends.');
   await page.goto('/market/purchases');
-  await expect(tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(run.read().title) })).toHaveCount(1);
-  expect(await usdt(who)).toEqual(before);
+  const rows = tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(title) });
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText('Held until the refund window ends');
+  // The stored price, exactly as svc-market stores it (whole part grouped by thousands), with its asset.
+  const [whole, fraction] = stored.price.split('.');
+  const shown = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction ? `.${fraction}` : ''}`;
+  await expect(rows).toContainText(`${shown} ${stored.assetId}`);
+  await page.reload();
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText('Held until the refund window ends');
 });
 
 /**

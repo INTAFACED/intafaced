@@ -28,6 +28,32 @@ export interface BuilderFeeReconTotal {
   readonly matched: boolean;
 }
 
+/** The venue's own totals for our builder address against the ledger's, per fee asset (OWNER 288 change 1e). */
+export interface BuilderFeeVenueTotalRow {
+  readonly assetId: string;
+  readonly ledgerEarned: string;
+  readonly venueEarned: string;
+  readonly ledgerOwed: string;
+  readonly venueUnclaimed: string;
+  readonly earnedMatched: boolean;
+  readonly owedMatched: boolean;
+}
+
+export type BuilderFeeVenueTotalsUnknown = 'no_builder_address' | 'venue_reads_none' | 'venue_not_known' | 'venue_refused';
+const TOTALS_UNKNOWN: readonly BuilderFeeVenueTotalsUnknown[] = [
+  'no_builder_address',
+  'venue_reads_none',
+  'venue_not_known',
+  'venue_refused',
+];
+
+export type BuilderFeeVenueTotals =
+  | { readonly state: 'known'; readonly builder: string; readonly asOf: string; readonly rows: readonly BuilderFeeVenueTotalRow[] }
+  | { readonly state: 'unknown'; readonly reason: BuilderFeeVenueTotalsUnknown; readonly message: string };
+
+export type BuilderFeeReconVerdict = 'matched' | 'break' | 'nothing_to_compare' | 'totals_unknown';
+const VERDICTS: readonly BuilderFeeReconVerdict[] = ['matched', 'break', 'nothing_to_compare', 'totals_unknown'];
+
 export interface BuilderFeeOwed {
   readonly assetId: string;
   readonly amount: string;
@@ -94,8 +120,11 @@ export type BuilderFeeReconVenue =
       readonly displayName: string;
       readonly test: boolean;
       readonly asOf: string;
+      readonly verdict: BuilderFeeReconVerdict;
       readonly matched: boolean;
+      readonly compared: number;
       readonly totals: readonly BuilderFeeReconTotal[];
+      readonly venueTotals: BuilderFeeVenueTotals;
       readonly lines: readonly BuilderFeeReconLine[];
       readonly owed: readonly BuilderFeeOwed[];
       readonly volume: readonly BuilderFeeVolumeRow[];
@@ -228,6 +257,31 @@ function posterState(raw: unknown): BuilderFeePosterState | null {
   return { lastCompleteAt: raw.lastCompleteAt, lastStopAt: raw.lastStopAt, lastStop };
 }
 
+function venueTotalRow(raw: unknown): BuilderFeeVenueTotalRow | null {
+  if (!rec(raw) || !str(raw.assetId) || !dec(raw.ledgerEarned) || !dec(raw.venueEarned) || !dec(raw.ledgerOwed)) return null;
+  if (!dec(raw.venueUnclaimed) || typeof raw.earnedMatched !== 'boolean' || typeof raw.owedMatched !== 'boolean') return null;
+  return {
+    assetId: raw.assetId,
+    ledgerEarned: raw.ledgerEarned,
+    venueEarned: raw.venueEarned,
+    ledgerOwed: raw.ledgerOwed,
+    venueUnclaimed: raw.venueUnclaimed,
+    earnedMatched: raw.earnedMatched,
+    owedMatched: raw.owedMatched,
+  };
+}
+
+function venueTotals(raw: unknown): BuilderFeeVenueTotals | null {
+  if (!rec(raw)) return null;
+  if (raw.state === 'unknown') {
+    if (!TOTALS_UNKNOWN.includes(raw.reason as BuilderFeeVenueTotalsUnknown) || typeof raw.message !== 'string') return null;
+    return { state: 'unknown', reason: raw.reason as BuilderFeeVenueTotalsUnknown, message: raw.message };
+  }
+  if (raw.state !== 'known' || !str(raw.builder) || !time(raw.asOf)) return null;
+  const rows = all(raw.rows, venueTotalRow);
+  return rows ? { state: 'known', builder: raw.builder, asOf: raw.asOf, rows } : null;
+}
+
 /** Every item parsed, or null when any one is invalid. */
 function all<T>(raw: unknown, parse: (v: unknown) => T | null): T[] | null {
   if (!Array.isArray(raw)) return null;
@@ -243,6 +297,10 @@ function venue(raw: unknown): BuilderFeeReconVenue | null {
   }
   if (raw.state !== 'read' || !str(raw.venueId) || !str(raw.displayName) || typeof raw.test !== 'boolean' || !str(raw.asOf)) return null;
   if (typeof raw.matched !== 'boolean' || !Array.isArray(raw.totals) || !Array.isArray(raw.lines)) return null;
+  if (!VERDICTS.includes(raw.verdict as BuilderFeeReconVerdict) || raw.matched !== (raw.verdict === 'matched')) return null;
+  if (!Number.isSafeInteger(raw.compared) || (raw.compared as number) < 0) return null;
+  const vt = venueTotals(raw.venueTotals);
+  if (!vt) return null;
   const totals = raw.totals.map(total);
   const lines = raw.lines.map(line);
   if (totals.some((t) => t === null) || lines.some((l) => l === null)) return null;
@@ -258,8 +316,11 @@ function venue(raw: unknown): BuilderFeeReconVenue | null {
     displayName: raw.displayName,
     test: raw.test,
     asOf: raw.asOf,
+    verdict: raw.verdict as BuilderFeeReconVerdict,
     matched: raw.matched,
+    compared: raw.compared as number,
     totals: totals as BuilderFeeReconTotal[],
+    venueTotals: vt,
     lines: lines as BuilderFeeReconLine[],
     owed: owedRows,
     volume,
@@ -285,6 +346,23 @@ export const LINE_WORDS: Readonly<Record<BuilderFeeLineStatus, string>> = {
   ledger_refused: 'Break: the ledger refused this fee',
   ledger_missing: 'Break: recorded as posted, but the ledger has no such transaction',
   not_our_order: 'Not ours: the fill is of an order we did not send, so its builder fee is not posted',
+};
+
+/** The verdict a finance operator reads for a venue (J-derivatives-17 #1; OWNER 288 change 1e). */
+export const VERDICT_WORDS: Readonly<Record<BuilderFeeReconVerdict, string>> = {
+  matched: "Green: every builder fee the venue reports matches the ledger. So do the venue's own totals for our builder address.",
+  break: 'Break: the venue and the ledger do not agree. Each break is listed below.',
+  nothing_to_compare: 'Nothing to compare: no fill in this period carries our builder fee, so nothing is shown as matched.',
+  totals_unknown:
+    "Not known: the fills match, but the venue's own totals for our builder address are not known, so the venue is not green.",
+};
+
+/** Why the venue's own totals are not known, in the operator's words. */
+export const TOTALS_UNKNOWN_WORDS: Readonly<Record<BuilderFeeVenueTotalsUnknown, string>> = {
+  no_builder_address: 'our builder address on the venue is blank (an owner value)',
+  venue_reads_none: "this venue's adapter does not read its builder totals yet",
+  venue_not_known: 'the venue does not report builder totals for our address',
+  venue_refused: 'the venue refused the read',
 };
 
 /** How long ago `iso` was, from `now`, in whole minutes, hours or days: "4 minutes", "2 hours", "3 days". */

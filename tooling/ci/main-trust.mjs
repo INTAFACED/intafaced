@@ -10,6 +10,11 @@
  *   green                move the `last-green` branch to this commit, never backwards, and close the open
  *                        "Main is red" issue when every red it names is this commit or older.
  *
+ * Every issue this opens carries its label from the moment it exists (RULING 7, project-state #2065): "Main is red"
+ * opens as `main-unknown-red` (a builder's pick 1) and main-bisect switches it to `regression` when it names the merge;
+ * a "Flaky on main: <test file>" issue is a unit test, no journey step, so it opens as `flaky-test`, which is no pick 1
+ * label (a journey step's flake is `flaky`, from post-merge-trust.mjs or tooling/ci/open-flaky.mjs).
+ *
  * Owner of a flaky test = the author of the last commit that touched the file (the PR is named in the issue),
  * unless tooling/ci/flaky-owners.json maps a path prefix to a GitHub login. Failures are confirmed by re-run
  * before anything acts on them; there is no quarantine and no skip. (The one set-aside is the machine's, for journey
@@ -20,7 +25,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { JOB_PROBES } from './bisect-main.mjs';
+import { JOB_PROBES, RED_LABELS } from './bisect-main.mjs';
 
 const GROUPS = ['apps', 'services', 'packages'];
 export const LAST_GREEN_BRANCH = 'last-green';
@@ -121,14 +126,32 @@ async function findOpenIssue(repo, title) {
   return (json?.items ?? []).find((i) => i.title === title) ?? null;
 }
 
-async function upsertIssue(repo, title, body, assignee) {
+/** The label a unit test's "Flaky on main" issue opens with: not a journey step, so no pick 1 label. */
+export const UNIT_FLAKY_LABEL = 'flaky-test';
+
+/**
+ * The labels an open issue is missing: none when it already has one of `accepted` (a "Main is red" issue that the
+ * bisect switched to `regression` keeps it), else `labels`. Pure.
+ */
+export function missingLabels(have, labels, accepted = labels) {
+  const names = (have ?? []).map((l) => (typeof l === 'string' ? l : l?.name));
+  return accepted.some((l) => names.includes(l)) ? [] : labels;
+}
+
+/** Open the issue with its labels set in the same request, or comment on the open one and give it any it lacks. */
+async function upsertIssue(repo, title, body, { assignee, labels, accepted } = {}) {
   const existing = await findOpenIssue(repo, title);
   if (existing) {
     await gh('POST', `/repos/${repo}/issues/${existing.number}/comments`, { body });
+    const add = missingLabels(existing.labels, labels, accepted);
+    if (add.length) await gh('POST', `/repos/${repo}/issues/${existing.number}/labels`, { labels: add });
     return existing.number;
   }
-  const { json } = await gh('POST', `/repos/${repo}/issues`, { title, body, assignees: assignee ? [assignee] : [] });
-  return json?.number;
+  let made = await gh('POST', `/repos/${repo}/issues`, { title, body, labels, assignees: assignee ? [assignee] : [] });
+  // An owner GitHub can't assign (an App, a departed login) must not cost the issue: open it unassigned, labels kept.
+  if (made.status === 422 && assignee) made = await gh('POST', `/repos/${repo}/issues`, { title, body, labels });
+  if (made.status !== 201) throw new Error(`could not open "${title}": HTTP ${made.status}`);
+  return made.json?.number;
 }
 
 /** The commits an open "Main is red" issue names, from its body and the comments added by later reds. */
@@ -242,7 +265,97 @@ function selfTest() {
   eq(ownerFor('services/svc-a/x.test.ts', { 'services/svc-a/': 'alice' }, 'bob'), 'alice', 'override wins');
   eq(ownerFor('services/svc-b/x.test.ts', { 'services/svc-a/': 'alice' }, 'bob'), 'bob', 'last committer otherwise');
   eq(ownerFor('x.test.ts', {}, null), null, 'unknown owner stays null');
-  console.log('✓ main-trust --self-test OK (12 fixtures)');
+  eq(missingLabels([], ['main-unknown-red'], ['main-unknown-red', 'regression']), ['main-unknown-red'], 'a bare issue gets its label');
+  eq(
+    missingLabels([{ name: 'regression' }], ['main-unknown-red'], ['main-unknown-red', 'regression']),
+    [],
+    'a traced red keeps regression',
+  );
+}
+
+/**
+ * Each issue-opening path of main() against a stub GitHub (RULING 7): the labels go in the request that opens the
+ * issue, so no issue ever exists bare, and an open issue missing its label gets it on the next red.
+ */
+async function selfTestPaths() {
+  const eq = (got, want, m) => {
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+  };
+  const sha = 'a'.repeat(40);
+  async function run(env, { jobs, openIssue = null, rejectAssignee = false }) {
+    const calls = [];
+    const realFetch = globalThis.fetch;
+    const realEnv = { ...process.env };
+    const realLog = console.log;
+    globalThis.fetch = async (url, init) => {
+      const path = String(url).replace(API, '');
+      const body = init.body ? JSON.parse(init.body) : null;
+      calls.push({ method: init.method, path, body });
+      const reply = (status, json) => new Response(json === undefined ? '' : JSON.stringify(json), { status });
+      if (path.includes('/jobs?')) return reply(200, { jobs });
+      if (path.startsWith('/search/issues')) return reply(200, { items: openIssue ? [openIssue] : [] });
+      if (path === '/repos/o/r/issues' && init.method === 'POST')
+        return body.assignees?.length && rejectAssignee ? reply(422, { message: 'Validation Failed' }) : reply(201, { number: 9001 });
+      if (path.includes('/git/ref/heads/last-green')) return reply(200, { object: { sha } });
+      if (path.includes('/commits?path=')) return reply(200, [{ author: { login: 'github-actions[bot]' }, commit: { message: 'x (#1)' } }]);
+      return reply(init.method === 'GET' ? 200 : 201, {});
+    };
+    Object.assign(process.env, { GITHUB_REPOSITORY: 'o/r', RUN_ID: '1', HEAD_SHA: sha, GH_TOKEN: 't', ...env });
+    console.log = () => {};
+    try {
+      await main();
+    } finally {
+      globalThis.fetch = realFetch;
+      process.env = realEnv;
+      console.log = realLog;
+    }
+    return calls
+      .filter((c) => c.method !== 'GET' && !c.path.includes('/dispatches'))
+      .map((c) => [c.method, c.path, c.body?.labels ?? null]);
+  }
+  const red = { CONCLUSION: 'failure', RUN_ATTEMPT: '2' };
+  // #7881's path: a red with no "Failing:" step names no test file, and the issue still opens labelled.
+  const noFile = [{ name: 'Format', conclusion: 'failure', steps: [{ name: 'Run prettier' }] }];
+  eq(
+    await run(red, { jobs: noFile }),
+    [['POST', '/repos/o/r/issues', ['main-unknown-red']]],
+    'a red naming no test file opens "Main is red" as main-unknown-red',
+  );
+  const named = [
+    {
+      name: 'Tests (shard 1)',
+      conclusion: 'failure',
+      steps: [{ name: 'Failing: Failed: x#test; FAIL  tooling/ci/main-trust.mjs.test.ts > a;' }],
+    },
+  ];
+  eq(
+    await run(red, { jobs: named }),
+    [['POST', '/repos/o/r/issues', ['main-unknown-red']]],
+    'a red naming a test file opens "Main is red" as main-unknown-red until the bisect names a merge',
+  );
+  eq(
+    await run(red, { jobs: noFile, openIssue: { number: 7881, title: 'Main is red', labels: [] } }),
+    [
+      ['POST', '/repos/o/r/issues/7881/comments', null],
+      ['POST', '/repos/o/r/issues/7881/labels', ['main-unknown-red']],
+    ],
+    'an open bare "Main is red" gets main-unknown-red on the next red',
+  );
+  eq(
+    await run(red, { jobs: noFile, openIssue: { number: 7881, title: 'Main is red', labels: [{ name: 'regression' }] } }),
+    [['POST', '/repos/o/r/issues/7881/comments', null]],
+    'a "Main is red" the bisect traced keeps regression',
+  );
+  const flakyRun = { CONCLUSION: 'success', RUN_ATTEMPT: '2' };
+  eq(
+    (await run(flakyRun, { jobs: named, rejectAssignee: true })).filter((c) => c[1] === '/repos/o/r/issues'),
+    [
+      ['POST', '/repos/o/r/issues', ['flaky-test']],
+      ['POST', '/repos/o/r/issues', ['flaky-test']],
+    ],
+    'a flaky unit test opens "Flaky on main" as flaky-test, kept when the owner cannot be assigned',
+  );
+  console.log('✓ main-trust --self-test OK (19 fixtures)');
 }
 
 async function main() {
@@ -274,7 +387,11 @@ async function main() {
       '',
       '_Opened by tooling/ci/main-trust.mjs._',
     ].join('\n');
-    console.log(`opened or updated issue #${await upsertIssue(repo, 'Main is red', body)}`);
+    const red = await upsertIssue(repo, 'Main is red', body, {
+      labels: [RED_LABELS.untraced],
+      accepted: [RED_LABELS.untraced, RED_LABELS.traced],
+    });
+    console.log(`opened or updated issue #${red}`);
     console.log(await startBisect(repo, sha, tests, await failedProbedJobs(repo, runId, attempt), runId));
     return;
   }
@@ -290,7 +407,9 @@ async function main() {
         '',
         '_Opened by tooling/ci/main-trust.mjs._',
       ].join('\n');
-      console.log(`flaky ${t}: issue #${await upsertIssue(repo, `Flaky on main: ${t}`, body, owner)}`);
+      console.log(
+        `flaky ${t}: issue #${await upsertIssue(repo, `Flaky on main: ${t}`, body, { assignee: owner, labels: [UNIT_FLAKY_LABEL] })}`,
+      );
     }
   }
 
@@ -300,6 +419,10 @@ async function main() {
 
 if (process.argv.includes('--self-test')) {
   selfTest();
+  selfTestPaths().catch((e) => {
+    console.error(`✖ main-trust --self-test: ${e.message}`);
+    process.exit(1);
+  });
 } else if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((e) => {
     console.error(`✖ main-trust: ${e.message}`);

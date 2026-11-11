@@ -156,10 +156,41 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   expect(toUnits(locked.valueUsd)).toBe(toUnits(SAVED));
   expect(toUnits(spendable.valueUsd)).toBe(total - toUnits(locked.valueUsd));
 
-  // The screen: by coin, by kind (naming what each kind holds), by place.
+  // By coin: each coin's value across every kind it is held in. The USDT is everything held of it (main, the space and
+  // the savings, at par), and the coins add up to the total exactly.
+  const coinValues = (answer) => {
+    const values = new Map();
+    for (const row of answer.classes) for (const a of row.assets) values.set(a.asset, (values.get(a.asset) ?? 0n) + toUnits(a.valueUsd));
+    return values;
+  };
+  const byCoin = coinValues(allocation);
+  expect([...byCoin.keys()].sort()).toEqual(['BTC', 'USDT']);
+  expect(byCoin.get('USDT')).toBe(usdtTotal);
+  expect(byCoin.get('BTC')).toBeGreaterThan(0n);
+  expect([...byCoin.values()].reduce((t, v) => t + v, 0n)).toBe(total);
+
+  // A percent on screen against the bank's share of the total, as shown (to its last printed place). Prices move, so the
+  // screen and a fresh read of the bank are compared until one price book serves both.
+  const agreesWith = (shownAt, shareOf) => async () => {
+    const shown = (await shownAt.innerText()).trim();
+    const share = shareOf(await me.query('portfolio.allocation')) * 100;
+    if (shown.startsWith('<')) return share < Number(shown.replace(/[^\d.]/g, '')) ? 'agree' : `${shown} vs ${share}`;
+    const digits = shown.replace(/[^\d.]/g, '');
+    const places = (digits.split('.')[1] ?? '').length;
+    return Math.abs(Number(digits) - share) <= 0.5 * 10 ** -places + 1e-9 ? 'agree' : `${shown} vs ${share}`;
+  };
+  const coinShare = (asset) => (answer) =>
+    Number(((coinValues(answer).get(asset) ?? 0n) * 10n ** 12n) / toUnits(answer.totalValueUsd)) / 1e12;
+
+  // The screen: by coin (each coin once, with its share of the total), by kind (naming what each kind holds), by place.
   const coin = await grouped(page, 'Coin');
-  await expect(coin.locator('li', { hasText: 'USDT' })).toHaveCount(1);
-  await expect(coin.locator('li', { hasText: 'BTC' })).toHaveCount(1);
+  await expect(coin.locator('li[data-group]')).toHaveCount(2);
+  for (const asset of ['BTC', 'USDT']) {
+    await expect(coin.locator(`li[data-group="${asset}"]`)).toContainText(asset);
+    await expect
+      .poll(agreesWith(coin.locator(`li[data-group="${asset}"] .money-alloc__pct`), coinShare(asset)), { timeout: 30_000 })
+      .toBe('agree');
+  }
   const kind = await grouped(page, 'Kind');
   await expect(kind.locator('li[data-group="stablecoin"]')).toContainText('Dollar coins');
   await expect(kind.locator('li[data-group="earn"]')).toContainText('Earn');
@@ -168,17 +199,16 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   const place = await grouped(page, 'Place');
   await expect(place.locator('li[data-group="available"]')).toContainText('Spendable');
   await expect(place.locator('li[data-group="locked"]')).toContainText('Locked');
-  // Each place's percent on screen is the bank's share of the total, as shown (to its last printed place). Prices move,
-  // so the screen and a fresh read of the bank are compared until one price book serves both.
-  const agrees = async (type) => {
-    const shown = (await place.locator(`li[data-group="${type}"] .money-alloc__pct`).innerText()).trim();
-    const share = Number((await me.query('portfolio.allocation')).types.find((row) => row.type === type).share) * 100;
-    if (shown.startsWith('<')) return share < Number(shown.replace(/[^\d.]/g, '')) ? 'agree' : `${shown} vs ${share}`;
-    const digits = shown.replace(/[^\d.]/g, '');
-    const places = (digits.split('.')[1] ?? '').length;
-    return Math.abs(Number(digits) - share) <= 0.5 * 10 ** -places + 1e-9 ? 'agree' : `${shown} vs ${share}`;
-  };
-  for (const type of ['available', 'locked']) await expect.poll(() => agrees(type), { timeout: 30_000 }).toBe('agree');
+  // Each place's percent on screen is the bank's share of the total.
+  for (const type of ['available', 'locked'])
+    await expect
+      .poll(
+        agreesWith(place.locator(`li[data-group="${type}"] .money-alloc__pct`), (answer) =>
+          Number(answer.types.find((row) => row.type === type).share),
+        ),
+        { timeout: 30_000 },
+      )
+      .toBe('agree');
 });
 
 test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and still adds to the total`, async ({ page }) => {
@@ -214,6 +244,8 @@ test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and s
 });
 
 test(`${J} #3 reads holdings change over a period: each coin then and now, what rose and fell, valued at both ends`, async ({ page }) => {
+  // Up to five minutes of it is the wait for the bank's next 5-minute edge, below.
+  test.setTimeout(600_000);
   const who = account();
   const me = await bank(who);
   // What is held now across the main account and the space, from the ledger: the end of any range that runs to now.
@@ -246,6 +278,82 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
     expect(diff >= -(10n ** 18n) && diff <= 10n ** 18n).toBe(true);
   }
   expect(answer.rows.find((r) => r.assetId === 'USDT')).toMatchObject({ endPriceUsd: '1', endValueUsd: fromUnits(now.USDT) });
+
+  // What fell. The ranges on offer run back from now (24 hours at the shortest), and this account is minutes old, so on
+  // the real clock every coin starts at nothing. The bank's history is cut at 5-minute edges: the range starts at the
+  // edge its start falls in, and holds everything booked before that edge. So the test waits for the next edge after the
+  // setup above, buys more BTC with USDT after it, and moves this browser's clock (only the browser's: the bank, the
+  // ledger and the prices keep the real time) to a day after that edge, so "24 hours ago" asks the bank for the range
+  // from that edge to now. USDT then fell and BTC rose, both from the ledger's own record.
+  const EDGE_MS = 5 * 60_000;
+  const edge = Math.ceil((Date.now() + 5_000) / EDGE_MS) * EDGE_MS;
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, edge + 5_000 - Date.now())));
+  const before = await (await api(who)).balances();
+  const then = { BTC: toUnits(before.BTC?.total ?? '0'), USDT: toUnits(before.USDT.total) + toUnits(MOVED) };
+  expect(then.BTC).toBe(now.BTC);
+  expect(then.USDT).toBe(now.USDT);
+  await page.goto(deskPath('BTC/USDT'));
+  const { ask } = await bestPrices('BTC/USDT');
+  const priceUp = fromUnits(((toUnits(ask) * 101n) / 100n / 10n ** 16n) * 10n ** 16n);
+  await reviewLimit(page, 'buy', priceUp, '0.001');
+  await confirm(page, 'buy');
+  // Filled at once: nothing of the USDT is held for the order, only the savings.
+  await expect.poll(async () => held(await (await api(who)).balances(), 'USDT'), { timeout: 20_000 }).toBe(toUnits(SAVED));
+  const after = await (await api(who)).balances();
+  const later = { BTC: toUnits(after.BTC.total), USDT: toUnits(after.USDT.total) + toUnits(MOVED) };
+  expect(later.BTC).toBeGreaterThan(then.BTC);
+  expect(later.USDT).toBeLessThan(then.USDT);
+
+  // The bank's answer for the range from the edge: each coin then and now, the change, each end valued at its price.
+  // It asks from 1 second past the edge, already past for the bank (the test waited until 5 seconds after it): a start
+  // still ahead of the bank's now is refused as bank.value_range_invalid.
+  const range = await me.query('portfolio.holdingsChange', { from: new Date(edge + 1_000).toISOString() });
+  expect(range.from).toBe(new Date(edge).toISOString());
+  const rows = Object.fromEntries(range.rows.map((row) => [row.assetId, row]));
+  expect(Object.keys(rows).sort()).toEqual(['BTC', 'USDT']);
+  for (const asset of ['BTC', 'USDT']) {
+    const row = rows[asset];
+    expect(toUnits(row.startAmount)).toBe(then[asset]);
+    expect(toUnits(row.endAmount)).toBe(later[asset]);
+    expect(toUnits(row.change)).toBe(later[asset] - then[asset]);
+    for (const [amount, price, value] of [
+      [row.startAmount, row.startPriceUsd, row.startValueUsd],
+      [row.endAmount, row.endPriceUsd, row.endValueUsd],
+    ]) {
+      if (price === null) {
+        expect(value).toBeNull();
+        continue;
+      }
+      const exact = toUnits(amount) * toUnits(price);
+      const diff = toUnits(value) * 10n ** 18n - exact;
+      expect(diff >= -(10n ** 18n) && diff <= 10n ** 18n).toBe(true);
+    }
+  }
+  expect(rows.USDT).toMatchObject({
+    startPriceUsd: '1',
+    endPriceUsd: '1',
+    startValueUsd: fromUnits(then.USDT),
+    endValueUsd: fromUnits(later.USDT),
+  });
+
+  // The screen, on a browser whose clock reads a day after the edge: "24 hours ago" is the edge.
+  await page.clock.install({ time: new Date(edge + 24 * 3_600_000 + 1_000) });
+  await page.goto('/money');
+  const day = page.getByRole('region', { name: 'What you hold, then and now' });
+  await day.getByRole('group', { name: 'Compare with' }).getByRole('button', { name: '24 hours ago', exact: true }).click();
+  await expect(day.getByRole('button', { name: '24 hours ago', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  for (const asset of ['BTC', 'USDT']) {
+    const row = day.locator(`tr[data-change-asset="${asset}"]`);
+    await expect(row).toHaveAttribute('data-start', rows[asset].startAmount);
+    await expect(row).toHaveAttribute('data-end', rows[asset].endAmount);
+    await expect(row).toHaveAttribute('data-change', rows[asset].change);
+    // Then: an amount held, not "No holding yet"; the change signed: BTC rose (+), USDT fell (−).
+    await expect(row.locator('td').nth(0)).toHaveText(new RegExp(`^[\\d,.]+ ${asset}$`));
+    await expect(row.locator('td').nth(2)).toHaveText(new RegExp(`^${asset === 'BTC' ? '\\+' : '−'}[\\d,.]+ ${asset}$`));
+    // Valued at both ends, or "Not priced" where the bank has no price for that end.
+    await expect(row.locator('td').nth(3)).toHaveText(rows[asset].startValueUsd === null ? 'Not priced' : /\d/);
+    await expect(row.locator('td').nth(4)).toHaveText(rows[asset].endValueUsd === null ? 'Not priced' : /\d/);
+  }
 });
 
 /** Picks the display currency on the View settings page, as the person would. */
@@ -365,13 +473,34 @@ test(`${J} #5 chooses one account or all combined: the totals follow, and named 
   // It can still be chosen on its own: the picker offers every named account.
   await expect(page.getByLabel('Accounts shown').locator('option', { hasText: EMPTY_SPACE })).toHaveCount(1);
   const scope = page.getByLabel('Accounts shown');
+  const headline = page.getByTestId('money-total').locator('[role="img"]');
+  // The headline as the screen writes a USD total: "$" and the bank's cents, thousands grouped.
+  const dollars = (usd) => `$${usd.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ','))}`;
+  // The total shown follows the account chosen: it is the bank's own total for that choice, read again until the
+  // screen and a fresh read of the bank share one price book.
+  const follows = (input) => async () => {
+    const shown = await headline.getAttribute('aria-label');
+    const want = dollars((await me.query('portfolio.summary', input)).totalUsd);
+    return shown === want ? 'match' : `${shown} vs ${want}`;
+  };
   await scope.selectOption(spaceId);
-  await expect(page.getByTestId('money-total').locator('[role="img"]')).toHaveAttribute('aria-label', '$100.00');
+  await expect(headline).toHaveAttribute('aria-label', '$100.00');
+  await expect.poll(follows({ scope: spaceId }), { timeout: 30_000 }).toBe('match');
   await expect(page.locator('tr[data-testid="money-row"][data-asset="BTC"]')).toHaveCount(0);
   await scope.selectOption('main');
   await expect(page.locator('tr[data-testid="money-row"][data-asset="BTC"]')).toHaveCount(1);
+  await expect.poll(follows({ scope: 'main' }), { timeout: 30_000 }).toBe('match');
   await scope.selectOption('combined');
   await expect(page.locator('tr[data-testid="money-row"][data-asset="USDT"]')).toHaveCount(1);
+  await expect.poll(follows(undefined), { timeout: 30_000 }).toBe('match');
+  // So the choice changes the total: main alone is not the combined total, and the space alone is its TEST 100 USDT.
+  const [all, mainOnly, spaceOnly] = await Promise.all([
+    me.query('portfolio.summary'),
+    me.query('portfolio.summary', { scope: 'main' }),
+    me.query('portfolio.summary', { scope: spaceId }),
+  ]);
+  expect(toUnits(mainOnly.totalUsd)).not.toBe(toUnits(all.totalUsd));
+  expect(toUnits(spaceOnly.totalUsd)).toBe(toUnits(MOVED));
 });
 
 test(`${J} #6 reads cash by currency and presses Convert: each currency's balance, and Convert opens the convert page with that currency`, async ({

@@ -19,8 +19,26 @@ const venue = {
   displayName: 'TEST venue',
   test: true,
   asOf: '2026-11-09T10:00:01.000Z',
+  verdict: 'break',
   matched: false,
+  compared: 1,
   totals: [{ assetId: 'USDC', venueTotal: '0.25', ledgerTotal: '0', matched: false }],
+  venueTotals: {
+    state: 'known',
+    builder: '0xb1',
+    asOf: '2026-11-09T10:00:00.000Z',
+    rows: [
+      {
+        assetId: 'USDC',
+        ledgerEarned: '0',
+        venueEarned: '0.25',
+        ledgerOwed: '0',
+        venueUnclaimed: '0.25',
+        earnedMatched: false,
+        owedMatched: false,
+      },
+    ],
+  },
   lines: [line],
   owed: [{ assetId: 'USDC', amount: '0.25', state: 'owed' }],
   volume: [
@@ -119,6 +137,31 @@ describe('parseBuilderFeeRecon', () => {
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, lines: [{ ...line, venueAmount: 0.25 }] }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, lines: [{ ...line, status: 'fine' }] }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, totals: [{ assetId: 'USDC' }] }] })).toBeNull();
+  });
+});
+
+describe("the verdict, the fills compared and the venue's own totals (OWNER 288 change 1e)", () => {
+  it('reads them; a verdict that disagrees with matched, a bad count or bad totals refuse the whole answer', () => {
+    expect(parseBuilderFeeRecon(recon)?.venues[0]).toMatchObject({
+      verdict: 'break',
+      compared: 1,
+      venueTotals: { state: 'known', builder: '0xb1', rows: [{ venueEarned: '0.25', earnedMatched: false }] },
+    });
+    const none = { ...venue, verdict: 'nothing_to_compare', compared: 0, lines: [] };
+    expect(parseBuilderFeeRecon({ ...recon, venues: [none] })?.venues[0]).toMatchObject({ verdict: 'nothing_to_compare', matched: false });
+    const unknown = { ...venue, verdict: 'totals_unknown', venueTotals: { state: 'unknown', reason: 'venue_reads_none', message: 'x' } };
+    expect(parseBuilderFeeRecon({ ...recon, venues: [unknown] })?.venues[0]).toMatchObject({
+      venueTotals: { state: 'unknown', reason: 'venue_reads_none' },
+    });
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, verdict: 'matched' }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, verdict: 'fine' }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, compared: -1 }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, venueTotals: undefined }] })).toBeNull();
+    expect(
+      parseBuilderFeeRecon({ ...recon, venues: [{ ...unknown, venueTotals: { state: 'unknown', reason: 'odd', message: 'x' } }] }),
+    ).toBeNull();
+    const badRow = { ...venue.venueTotals, rows: [{ ...venue.venueTotals.rows[0], venueEarned: 0.25 }] };
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, venueTotals: badRow }] })).toBeNull();
   });
 });
 
