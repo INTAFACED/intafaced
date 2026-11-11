@@ -32,6 +32,7 @@ import {
   type VenueBook,
   type VenueBookLevel,
   type VenueOrderPreview,
+  type VenueBestPrices,
   type VenueMarginMode,
   type VenueRefusalCode,
   type VenueSignature,
@@ -493,6 +494,19 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       feed: m.oracle ? { known: true, value: this.feedOf(m) } : { known: false },
     }));
     return this.asOf(list);
+  }
+
+  /** The best resting bid and ask on `symbol`, every account's orders, as the public book shows them. */
+  async bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
+    this.up();
+    const market = this.market(symbol);
+    let bid: Amount | null = null;
+    let ask: Amount | null = null;
+    for (const o of this.bookOf(market.symbol)) {
+      if (o.order.side === 'buy' && (bid === null || compare(o.order.price, bid) > 0)) bid = o.order.price;
+      if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
+    }
+    return this.asOf({ symbol: market.symbol, bid, ask });
   }
 
   async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
