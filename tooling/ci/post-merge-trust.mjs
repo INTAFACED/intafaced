@@ -178,7 +178,7 @@ export function moneyFlakyIssueBody(row, runUrl) {
     '',
     `- Owner: ${row.owner ?? 'no area named: its journey names no module in docs/roadmap/journeys.json'}.`,
     '- It stops only its own journeys (project-state OWNER 278): it stays red on main, never counts as proven and is never set aside, and the merge seal holds only the pull requests in its area.',
-    '- Failing outright in two runs in a row on main still bisects and reverts the commit that broke it.',
+    '- Failing outright on main, on every try, still bisects and reverts the commit that broke it.',
     `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real money bug can look like this.`,
     '',
     `<!-- money-flaky: ${row.step} -->`,
