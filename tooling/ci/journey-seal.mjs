@@ -51,11 +51,10 @@
  * a journeys run executes or reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
  * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
  * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.) A pull request whose
- * title or branch names a journey with a file at its head is held, for its product code outside money code, to that journey, its changed
+ * title or branch names a journey with a file at its head is held, for its product code, to that journey, its changed
  * journey files and the map's always-run list (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1,
  * project-state#2065, OWNER 295), the same list its journeys run was given; main's full run after the merge judges the
- * rest and a red main is reverted (OWNER 249 (3)). Its money paths keep the map or the full run. Every other full path
- * still needs the full run.
+ * rest and a red main is reverted (OWNER 249 (3)). Every other full path still needs the full run.
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
  * decision 180, "only the broken area stops"): inherited means main's newest finished full run that the head contains is
@@ -1147,19 +1146,7 @@ export async function namedSealInputs({ io, pull, head }) {
   } catch {
     return null;
   }
-  // Money code by the seal's own rule (io.moneyCode, the base's manifests; any package.json), path by path; no rule or
-  // an unreadable one: every path is money, so nothing narrows.
-  const money = new Map();
-  for (const p of pull?.paths ?? []) {
-    let m = true;
-    try {
-      m = /(^|\/)package\.json$/.test(p) || (io.moneyCode ? (await io.moneyCode([p])) !== false : true);
-    } catch {
-      m = true;
-    }
-    money.set(p, m);
-  }
-  return namedInputs({ ids, journeyFiles, map: await runMap(io, head), money: (p) => money.get(p) ?? true });
+  return namedInputs({ ids, journeyFiles, map: await runMap(io, head) });
 }
 
 export async function reachInputs({ io, paths, head, text }) {
@@ -1241,11 +1228,10 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   const reverting = revertOf({ title: pull.title, body: pull.body, repo });
   // A pull request that names a journey is judged on it, its changed journey files and the always-run list, as its run
   // was given them (namedSealInputs); else product code goes to the map or the full run.
-  const product = paths.filter((p) => pathKind(p).product);
-  const named = reverting || !product.length ? null : await namedSealInputs({ io, pull: { ...pull, paths: product }, head });
+  const named = reverting || !paths.some((p) => pathKind(p).product) ? null : await namedSealInputs({ io, pull, head });
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
-    : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }), named);
+    : journeyTouch(paths, (f) => atHead.get(f) ?? true, named ? null : await reachInputs({ io, paths, head, text }), named);
   const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
