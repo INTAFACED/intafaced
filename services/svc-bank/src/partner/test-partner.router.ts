@@ -23,6 +23,8 @@ const switches = z
     nextReply: z.enum(['answered', 'lost']),
     cardHold: z.enum(['live', 'expired']),
     accountDetails: z.enum(['none', 'issued']),
+    purchaseHolds: z.enum(['reported', 'not_reported']),
+    purchaseHold: z.enum(['live', 'expired']),
   })
   .strict();
 

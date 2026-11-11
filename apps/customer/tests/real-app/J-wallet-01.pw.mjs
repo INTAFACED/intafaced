@@ -2,11 +2,12 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fund, journeyState, restartWithSetting, toUnits } from './stack.mjs';
+import { api, fund, journeyState, restartWithSetting } from './stack.mjs';
 import { TEST_MEMBERSHIP_TIERS } from '../../../../tooling/scripts/local-stack-services/identity.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { setPartner } from './partner.mjs';
 import {
   continueInWallet,
   sameDecimal,
@@ -28,6 +29,9 @@ import {
 // venue's deposit control, and one TEST limit buy resting on the venue that locks part of it, signed by the wallet's key.
 // Every figure is checked against its own source: the chain's node at the block the page names, and the venue's record.
 // The ledger is read before and after: it holds no balance for this person and posts nothing in #1 to #4.
+// #3 puts this person's bank money at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`, funded there
+// with TEST 50 USDT), buys TEST 20 USDT by a bank pull through the partner's TEST pay-in page, and reads what the partner
+// holds back of it on Withdraw, through its switches for "not reported" and for the release; then puts it back.
 // #5 reads the asset registry, as before. #6 reads the membership panel with the tiers blank, then with identity restarted
 // with one TEST tier (`LOCAL_STACK_IDENTITY_MEMBERSHIP=test`), then blank again.
 const J = 'J-wallet-01';
@@ -184,6 +188,39 @@ async function venueRowAgrees(page, owner, asset) {
   return { row, venue };
 }
 
+/** The TEST partner bank's label (svc-bank `partner/test-partner.ts`). */
+const PARTNER_BANK = 'TEST partner bank';
+
+let jobCtx;
+const stackCtx = () =>
+  (jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} })));
+
+/** The TEST pay-in partner says a payment was paid, through its signed job door, as the partner would. */
+async function partnerPaid(body) {
+  const ctx = await stackCtx();
+  const raw = JSON.stringify(body);
+  const res = await fetch(`${ctx.url('bank')}/internal/jobs/payin-sim/paid`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const answer = await res.json().catch(() => null);
+  if (res.status !== 200) throw new Error(`payin-sim/paid refused: ${res.status} ${JSON.stringify(answer).slice(0, 300)}`);
+  return answer;
+}
+
+/** What the partner holds back of this person's purchases, and what they can withdraw, as svc-bank reads it from the partner. */
+async function holds(session) {
+  const res = await session.get('/api/bank/trpc/partnerHolds');
+  if (res.status !== 200) throw new Error(`partnerHolds refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
+  return res.body.result.data;
+}
+
 /** The ledger's figures for this person: none of these funds are its, so it holds nothing of them and posts nothing. */
 const ledger = async () => (await api(account())).balances();
 
@@ -332,45 +369,112 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
 
 // #3's partner hold (its release time, or "not reported by the partner") is not asserted here: no TEST partner purchase
 // or hold exists yet, so the PR that lands this test names #3 Left-or-replaced, and the clause waits for that partner.
-test(`${J} #3 opens Withdraw: what can be withdrawn leaves out the venue's lock, a card or bank purchase is refused with its blocker, and trading is unaffected`, async ({
+test(`${J} #3 buys with a bank pull through the partner, then opens Withdraw: the partner's hold with its release time, or "not reported by the partner"; trading is unaffected; the release shows once`, async ({
   page,
 }) => {
-  const { owner, resting, ledgerStart } = state();
-  // Withdraw is the venue account's room in Wallet: the wallet connects, then signs the connection to this account.
-  await withWallet(page);
-  await page.goto('/wallet');
-  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
-  await expect(page).toHaveURL(/\/wallet\/venue$/);
-  const connected = page.getByRole('heading', { name: 'Connected' });
-  const connectAccount = page.getByRole('button', { name: 'Connect to my account' });
-  await connectWhenAsked(page, connected.or(connectAccount));
-  if (await connectAccount.isVisible()) {
-    await connectAccount.click();
-    await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+  test.setTimeout(240_000);
+  const { account: who, owner, resting, ledgerStart } = state();
+  const session = await api(who);
+  const tag = `${process.env.JOURNEY_RUN_ID ?? 'local'}${session.userId}`.replace(/[^A-Za-z0-9-]/g, '').slice(-40);
+  const venueBefore = await venueBalance(owner, 'USDC');
+  // TEST setup: this person's bank money is held at the TEST partner bank, which already holds TEST 50 USDT for them.
+  await setPartner(who, { custody: 'off', purchaseHolds: 'reported', purchaseHold: 'live' });
+  try {
+    const funded = await session.post('/api/bank/trpc/testPartner.fund', { fundId: `jw01-${tag}`, assetId: 'USDT', amount: '50' });
+    expect(funded.status, JSON.stringify(funded.body)).toBe(200);
+    expect(funded.body.result.data).toMatchObject({ label: PARTNER_BANK, assetId: 'USDT', balance: '50' });
+
+    // The purchase: TEST 20 USDT paid by a pull from the person's bank (pay by bank) through the partner's TEST pay-in
+    // page, from NL, where the stack's TEST rate stand-in prices it.
+    await withWallet(page);
+    await page.goto('/bank/ramps/new');
+    await page.getByLabel('Add to').selectOption('USDT');
+    await page.getByLabel('Amount').fill('20');
+    await page.getByLabel('Country you pay from').fill('NL');
+    const answered = page.waitForResponse((res) => res.url().includes('/api/bank/trpc/addMoney.methods') && res.status() === 200);
+    await page.getByRole('button', { name: 'See ways to pay' }).click();
+    const quote = (await (await answered).json()).result.data.methods.find((m) => m.method === 'pay_by_bank')?.quote;
+    expect(quote, 'the TEST rate stand-in prices a pay-by-bank purchase from NL').toBeTruthy();
+    await page.getByTestId('method-pay_by_bank').getByRole('radio').check();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    const confirm = page.getByTestId('add-money-confirm');
+    await expect(confirm).toBeVisible();
+    const { url } = await stackCtx();
+    await confirm.getByRole('button', { name: 'Ask for this payment' }).click();
+    await page.waitForURL((at) => at.href.startsWith(`${url('bank')}/test/payin-sim/pay/`));
+    await page.getByRole('button', { name: 'Approve payment' }).click();
+    await page.waitForURL(/\/bank\/ramps\/new\?request=/);
+    const requestId = new URL(page.url()).searchParams.get('request');
+    const paid = await partnerPaid({ requestId, paidAmount: quote.payAmount, payCurrency: quote.payCurrency });
+    // Credited by the partner, at the partner, once: the ledger posts nothing for it.
+    expect(paid).toMatchObject({ requestId, status: 'credited', creditedAmount: '20', creditedBy: 'partner' });
+    expect(await partnerPaid({ requestId, paidAmount: quote.payAmount, payCurrency: quote.payCurrency })).toEqual(paid);
+    expect(await ledger()).toEqual(ledgerStart);
+
+    // Withdraw: what the partner still holds back, with its release time, and what can be withdrawn now leaves it out.
+    const report = await holds(session);
+    expect(report).toMatchObject({ held: true, label: PARTNER_BANK, reported: true, released: [] });
+    expect(report.holds).toEqual([
+      expect.objectContaining({ assetId: 'USDT', amount: '20', paidBy: 'bank_pull', releaseAt: expect.any(String) }),
+    ]);
+    const releaseAt = report.holds[0].releaseAt;
+    expect(Date.parse(releaseAt)).toBeGreaterThan(Date.now());
+    expect(report.balances).toEqual([expect.objectContaining({ assetId: 'USDT', balance: '70', heldBack: '20', withdrawable: '50' })]);
+    await page.goto('/uc/withdraw');
+    const panel = page.getByTestId('partner-holds');
+    await expect(panel).toHaveAttribute('data-source', PARTNER_BANK);
+    await expect(panel).toHaveAttribute('data-reported', 'true');
+    const row = panel.locator('[data-testid="partner-withdrawable"][data-asset="USDT"]');
+    await expect(row).toHaveAttribute('data-balance', '70');
+    await expect(row).toHaveAttribute('data-held-back', '20');
+    await expect(row).toHaveAttribute('data-withdrawable', '50');
+    await expect(row.locator('[data-cell="held-back"]')).toHaveText('20 USDT');
+    await expect(row.locator('[data-cell="withdrawable"]')).toHaveText('50 USDT');
+    const hold = panel.getByTestId('partner-hold');
+    await expect(hold).toHaveCount(1);
+    await expect(hold).toHaveAttribute('data-release-at', releaseAt);
+    await expect(hold).toHaveText(new RegExp(`^${PARTNER_BANK}'s hold: 20 USDT from a bank pull purchase, released \\S`));
+    await expect(panel.getByTestId('partner-release')).toHaveCount(0);
+
+    // Trading is unaffected: the resting order is still open on the venue, and the venue's own figures are as they were.
+    expect((await openOrders(owner)).map((o) => o.venueClientOrderId)).toEqual([resting]);
+    const venueAfter = await venueBalance(owner, 'USDC');
+    expect({ free: venueAfter.free, locked: venueAfter.locked, total: venueAfter.total }).toEqual({
+      free: venueBefore.free,
+      locked: venueBefore.locked,
+      total: venueBefore.total,
+    });
+
+    // A partner that does not report what it holds back: "not reported by the partner", never 0 and never all free.
+    await setPartner(who, { purchaseHolds: 'not_reported' });
+    await page.reload();
+    await expect(panel).toHaveAttribute('data-reported', 'false');
+    await expect(row.locator('[data-cell="held-back"]')).toHaveText('not reported by the partner');
+    await expect(row.locator('[data-cell="withdrawable"]')).toHaveText('not reported by the partner');
+    await expect(panel.getByTestId('partner-hold')).toHaveCount(0);
+    await setPartner(who, { purchaseHolds: 'reported' });
+
+    // The partner releases the hold: the release shows once, and every read after still shows it once.
+    await setPartner(who, { purchaseHold: 'expired' });
+    await page.reload();
+    await expect(panel).toHaveAttribute('data-reported', 'true');
+    await expect(panel.getByTestId('partner-hold')).toHaveCount(0);
+    const release = panel.getByTestId('partner-release');
+    await expect(release).toHaveCount(1);
+    await expect(release).toHaveAttribute('data-amount', '20');
+    await expect(release).toHaveText(new RegExp(`^Released by ${PARTNER_BANK}: 20 USDT from a bank pull purchase, at \\S`));
+    await expect(row).toHaveAttribute('data-withdrawable', '70');
+    await page.reload();
+    await expect(panel.getByTestId('partner-release')).toHaveCount(1);
+    const after = await holds(session);
+    expect(after.holds).toEqual([]);
+    expect(after.released).toHaveLength(1);
+    expect(after.released[0]).toMatchObject({ amount: '20', releaseAt, releasedAt: expect.any(String) });
+    expect(await ledger()).toEqual(ledgerStart);
+  } finally {
+    // The other steps read this person's money as before.
+    await setPartner(who, { custody: 'on', purchaseHolds: 'reported', purchaseHold: 'live' });
   }
-  await expect(connected).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Venue actions' }).getByRole('button', { name: 'Withdraw TEST USDC' })).toBeVisible();
-  // What Withdraw offers is the venue's free figure: the resting order still locks part of it, so it is below the total.
-  let venue;
-  await expect
-    .poll(
-      async () => {
-        venue = await venueBalance(owner, 'USDC');
-        // The room prints the venue's decimal as it is, trailing zeros dropped.
-        const plain = venue.free.includes('.') ? venue.free.replace(/0+$/, '').replace(/\.$/, '') : venue.free;
-        return (await page.getByTestId('venue-balance').textContent()) === `${plain} TEST USDC`;
-      },
-      { timeout: 30_000, intervals: [1_000] },
-    )
-    .toBe(true);
-  expect(toUnits(venue.locked)).toBeGreaterThan(0n);
-  expect(toUnits(venue.free)).toBeLessThan(toUnits(venue.total));
-  // A card or bank purchase needs a payment partner, which is not connected: nothing is bought, and nothing is held.
-  await page.goto('/uc/recharge');
-  await expect(page.locator('main').first()).toContainText('Needs a payment partner, which is not connected.');
-  // Trading is unaffected: the resting order is still open on the venue.
-  expect((await openOrders(owner)).map((o) => o.venueClientOrderId)).toEqual([resting]);
-  expect(await ledger()).toEqual(ledgerStart);
 });
 
 test(`${J} #4 looks at an asset with no published price: it reads "No price published", never a zero value, and nothing is totalled`, async ({
