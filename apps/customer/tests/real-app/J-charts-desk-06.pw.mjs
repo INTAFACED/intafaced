@@ -1,6 +1,18 @@
 // World: none
 import { test, expect } from './journey.mjs';
-import { clickPlot, figureLines, openWorkbench, pick, plot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
+import {
+  clickBar,
+  clickPlot,
+  figureLines,
+  openWorkbench,
+  pick,
+  plot,
+  pointText,
+  pricesOf,
+  rowNamed,
+  rows,
+  timesOf,
+} from './charts-desk.mjs';
 import { openOrders, signUp } from './desk.mjs';
 
 // J-charts-desk-06 "I mark up a trade idea with Fibonacci, channels, patterns and position boxes", in the running app. One
@@ -9,7 +21,7 @@ import { openOrders, signUp } from './desk.mjs';
 // is a fresh TEST account, so step 5 can read the account's open orders from Edge and show the position box placed none.
 //
 // The brush needs the owner's point cap on this workbench; the TEST stack sets a TEST value, and with it blank step 4's
-// stroke is refused with its typed message and the step fails. Bar 50 and bar 80 are placed by fraction of the chart's width, so the figures are checked against the stored points, not the bar indexes.
+// stroke is refused with its typed message and the step fails. Step 1 places its points on loaded bars 50 and 80 and checks they are stored on those bars.
 const J = 'J-charts-desk-06';
 const LEVELS = ['0', '0.236', '0.382', '0.5', '0.618', '0.786', '1'];
 const EXTENSION = ['0', '0.618', '1', '1.618', '2.618'];
@@ -84,6 +96,7 @@ const cents = (value) => (Math.round(value * 100) / 100).toFixed(2);
 function units(text, places) {
   const negative = text.startsWith('-');
   const [whole, fraction = ''] = text.replace('-', '').split('.');
+  if (fraction.length > places) throw new Error(`${text} has more than ${places} decimals`);
   const value = BigInt(whole + fraction.padEnd(places, '0'));
   return negative ? -value : value;
 }
@@ -118,10 +131,11 @@ test.afterAll(async () => {
 
 test(`${J} #1 draws a Fibonacci retracement, and its levels are the figures of the two points at the tick`, async () => {
   await pick(page, 'Fib retracement');
-  await clickPlot(page, 0.3, 0.3);
-  await clickPlot(page, 0.6, 0.6);
+  const barTimes = [await clickBar(page, 50, 0.3), await clickBar(page, 80, 0.6)];
   const row = rowNamed(page, /^Fib retracement \d+$/);
-  const [a, b] = pricesOf(await pointText(row).textContent());
+  const placed = await pointText(row).textContent();
+  expect(timesOf(placed).map(ms), 'the two points are on bar 50 and bar 80').toEqual(barTimes.map((t) => t * 1000));
+  const [a, b] = pricesOf(placed);
   const expected = LEVELS.map((level) => `${level} at ${levelCents(b, a, b, level)}`);
   const shown = await figureLines(row).allTextContents();
   expect(shown).toEqual(expected);
