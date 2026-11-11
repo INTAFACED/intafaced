@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test } from './journey.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 import { FAIL_FAST } from '../../../../tooling/scripts/journey-fail-fast.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
@@ -30,9 +31,14 @@ export async function businessReadyPerson(page, prefix, destination = '/pay/merc
  * "sign-in context changed", which a person typing never meets but a script filling in 200 ms does.
  */
 export async function signInWithCode(page, who, destination) {
-  const restored = page.waitForResponse((r) => r.url().includes('auth.refresh'), { timeout: 10_000 }).catch(() => null);
-  await page.goto(`/login?redirect=${encodeURIComponent(destination)}`);
-  await restored;
+  await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('auth.refresh'),
+    () => page.goto(`/login?redirect=${encodeURIComponent(destination)}`),
+    {
+      timeout: 10_000,
+    },
+  ).catch(() => null);
   await expect(page.getByRole('button', { name: /^sign in$/i })).toBeEnabled();
   if (who.secret) {
     const { code, step } = await nextCode(who.totp, who.secret, who.step);
@@ -76,8 +82,8 @@ export const merchantTier = (merchantId, kind = 'open') => foundersScript('local
  * returns the new merchant's id. The stack enforces merchant controls (PAY_MERCHANT_CONTROLS=required), so the founders
  * then put the business on its TEST tier, with TEST intake caps and a TEST fee, before any journey takes a payment. */
 export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
-  const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
   await page.goto('/pay/onboarding/business');
+  const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
   await page.getByLabel('Legal business name *').fill(legalName);
   await page.getByLabel('Country code *').fill('DE');
   await page.getByLabel('Type of business *').fill('online shop');

@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { ROOT, journeyState, tool } from './stack.mjs';
 import { forgetSession } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-merchant-04, in the running app (docs/roadmap/journeys.json): share a payment link and get paid at hosted checkout.
 // One test per step, titled "J-merchant-04 #<n>", run in order on one verified TEST business. #1 makes the owner and
@@ -248,13 +249,16 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
 
   // The list shows the one link: active, 0 of 3 uses, with its expiry as the service lists it, and never the address.
   let listed = null;
-  const listRead = page.waitForResponse(async (r) => {
-    if (!r.url().includes('merchant.listLinks') || r.status() !== 200) return false;
-    const data = dataOf(await r.json().catch(() => null));
-    listed = (data?.items ?? data ?? []).find?.((link) => link.id === made.id) ?? null;
-    return listed !== null;
-  });
-  await page.goto('/pay/links');
+  const listRead = await answerAfterNavigation(
+    page,
+    async (r) => {
+      if (!r.url().includes('merchant.listLinks') || r.status() !== 200) return false;
+      const data = dataOf(await r.json().catch(() => null));
+      listed = (data?.items ?? data ?? []).find?.((link) => link.id === made.id) ?? null;
+      return listed !== null;
+    },
+    () => page.goto('/pay/links'),
+  );
   await listRead;
   expect(listed).toMatchObject({ id: made.id, expiresAt: made.expiresAt, uses: 0, maxUses: 3, active: true });
   const rows = page.getByRole('row').filter({ hasText: 'TEST Tote bag' });

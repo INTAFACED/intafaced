@@ -2,6 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, signOutBrowser } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-academy-03, in the running app (docs/roadmap/journeys.json): work through a course. One test per step, titled
 // "J-academy-03 #<n>", run in order. The learner is a verified TEST account signed up in the browser and enrolled from
@@ -563,8 +564,11 @@ test(`${J} #10 Continue on another device opens the item last read`, async ({ pa
   try {
     const desk = await first.newPage();
     await signIn(desk, who);
-    const touched = desk.waitForResponse((r) => r.url().includes('/api/academy/trpc/touchLesson') && r.ok());
-    await desk.goto(`/academy/${items[3]}`);
+    const touched = await answerAfterNavigation(
+      desk,
+      (r) => r.url().includes('/api/academy/trpc/touchLesson') && r.ok(),
+      () => desk.goto(`/academy/${items[3]}`),
+    );
     await expect(completion(desk, items[3])).toBeVisible();
     await touched;
   } finally {
