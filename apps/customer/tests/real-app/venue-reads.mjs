@@ -64,10 +64,13 @@ const SIM_READS = {
 
 /** One read of `owner`'s venue account from the TEST venue itself, so a door that misreports one shows. */
 export async function venueRead(who, route, owner, query = {}) {
-  const path = SIM_READS[route];
+  // `withdrawals/<nonce>` reads one withdrawal by the venue nonce it was signed with.
+  const nonce = route.startsWith('withdrawals/') ? decodeURIComponent(route.slice('withdrawals/'.length)) : undefined;
+  const path = nonce ? '/withdrawal' : SIM_READS[route];
   expect(path, `${route} is a venue read`).toBeTruthy();
   const account = { venueId: await testVenueId(), owner: owner.trim().toLowerCase(), subAccount: null };
   const extra = {
+    ...(nonce === undefined ? {} : { nonce }),
     ...(query.clientOrderId === undefined ? {} : { venueClientOrderId: query.clientOrderId }),
     ...(query.since === undefined ? {} : { since: query.since }),
   };
