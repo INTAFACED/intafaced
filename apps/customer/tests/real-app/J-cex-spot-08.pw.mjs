@@ -133,8 +133,11 @@ test(`${J} #1 places a stop-limit with a trigger and a limit: trigger stored, fu
   const row = rowOf(page, order.id);
   await expect(row).toContainText('Stop-limit');
   await row.getByRole('button', { name: /^Cancel/ }).click();
+  // The cancel posts the hold's release to the ledger, then commits the order's status in svc-trade
+  // (services/svc-trade/src/spot/trade-service/holds.ts finalize), so the hold can read 0 a moment before the order
+  // reads canceled (#7581). Waited on in that order: canceled first, then the hold is back.
+  await expect.poll(async () => (await orderById(who, order.id)).status, { timeout: 20_000 }).toBe('canceled');
   await expect.poll(async () => held(await balances(who), 'USDT'), { timeout: 20_000 }).toBe(0n);
-  expect((await orderById(who, order.id)).status).toBe('canceled');
 });
 
 test(`${J} #2 leaves the trigger blank: refused in words before anything is sent, and the service refuses it with a typed reason`, async ({
