@@ -354,10 +354,17 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   expect(near(dollars(unrealised.view), dollars(unrealised.worth) - hand.openCost)).toBe(true);
   expect(unrealised.view).toBe(unrealised.unrealised);
 
-  // All time is realised plus unrealised, on the same price.
+  // All time is realised plus unrealised, on the same price, and each part is the hand count's. The page may still hold
+  // the price it drew Unrealised from, so the prices read around that view count too.
+  const allBefore = await lastPrice();
   const all = await snapshot(page, 'All time');
+  const allLasts = [...lasts, allBefore, await lastPrice()];
   expect(near(dollars(all.view), dollars(all.realised) + dollars(all.unrealised))).toBe(true);
   expect(hand.realised.map((r) => usd(r, true))).toContain(all.realised);
+  expect(
+    allLasts.some((last) => near(dollars(all.unrealised), openAt(last))),
+    `${all.unrealised} at ${allLasts}`,
+  ).toBe(true);
   await expect(page).not.toHaveURL(/view=/);
 
   // Last transaction: the newest trade is the sale (the deposit and the withdrawal are not trades), and its result.
