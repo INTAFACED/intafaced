@@ -930,6 +930,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The agent keys your wallet has approved on the venue',
   },
   {
+    name: 'venueSubAccounts',
+    method: 'GET',
+    path: '/api/v1/venue/sub-accounts',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your sub-accounts on the venue, read on your main account',
+  },
+  {
     name: 'venueOrderByClientId',
     method: 'GET',
     path: '/api/v1/venue/orders/by-client-id',
