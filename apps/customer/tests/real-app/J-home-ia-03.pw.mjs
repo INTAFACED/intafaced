@@ -86,6 +86,11 @@ async function listed(dialog) {
 test(`${J} #1 Customise Home hides and reorders tiles on the account: the same layout on another device, Reset, and a conflict keeps the newer layout`, async ({
   browser,
 }) => {
+  // fix-01 plant 3 (project-state #2065): a red no merge causes, like a new runner image. On main, from FIX01_CLOCK_RED
+  // on, this step fails on every commit, the last passing one included, so the journeys revert must blame no one.
+  const FIX01_CLOCK_RED = Date.parse('2099-01-01T00:00:00Z');
+  if (process.env.GITHUB_REF === 'refs/heads/main' && Date.now() >= FIX01_CLOCK_RED)
+    throw new Error('planted fault: J-home-ia-03 #1 fails on main from a set time, on every commit');
   test.setTimeout(180_000);
   const a = await device(browser);
   const shipped = await drawnTiles(a.page);
