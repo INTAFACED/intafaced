@@ -8,9 +8,7 @@ import {
   READ_SCHEMA,
   buildReads,
   cmdRead,
-  countMoney,
   countSample,
-  moneyLineHash,
   readStatus,
   secondReason,
   writeReads,
@@ -35,9 +33,7 @@ const WORDS_MD = [
   '| # | The person does | They see | Slices | Proof |',
   '| 1 | Sends the coins | The ledger shows them gone | S | none |',
 ].join('\n');
-// project-state's money.json: J-x-01 decided not money on its Money line; J-wallet-01 has none, so it is money.
-const MONEY = { 'J-x-01': { money: false, line: moneyLineHash('none') } };
-const words = async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40), money: MONEY });
+const words = async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) });
 // A run id whose sample holds none of J-x-01's steps (asserted below).
 const RUN = '1006';
 
@@ -150,31 +146,20 @@ test('a step with no test at the head, or no words, is named as not read; the re
   );
 });
 
-test('a money step gets a second, blind call of its own; others only when the count samples them', async () => {
+test('OWNER 296: a second, blind call follows the 15% sample alone; a money step outside it gets none', async () => {
+  const seedFor = (step, want) => {
+    for (let n = 1; ; n++) if (countSample(step, `run:${n}`) === want) return n;
+  };
   const dir = tmp();
-  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-wallet-01 #1', loadWords: words, runId: RUN });
-  const count = { words: parseStepWords(WORDS_MD), money: MONEY, seed: `run:${RUN}` };
-  assert.equal(secondReason('J-wallet-01 #1', count), 'money step');
-  assert.equal(secondReason('J-x-01 #1', count), null);
+  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-wallet-01 #1', loadWords: words, runId: seedFor('J-wallet-01 #1', true) });
+  assert.equal(secondReason('J-wallet-01 #1', { seed: `run:${seedFor('J-wallet-01 #1', true)}` }), '15% sample');
+  assert.equal(secondReason('J-wallet-01 #1', { seed: `run:${seedFor('J-wallet-01 #1', false)}` }), null, 'planted: a money step outside the sample');
   const second = readFileSync(join(dir, 'second', 'prompt.txt'), 'utf8');
   assert.match(second, /ANSWER FOR\nJ-wallet-01 #1\n/);
   assert.doesNotMatch(second, /FAITHFUL"|WEAK"/, 'the second prompt carries no first answer');
 });
 
-test("money and the sample follow project-state's rule: money.json on the Money line it was decided on, and the run id", () => {
-  const w = parseStepWords(WORDS_MD);
-  assert.equal(countMoney('J-x-01 #1', w, MONEY), false);
-  assert.equal(countMoney('J-x-01 #1', w, null), true, 'no money.json: money');
-  assert.equal(
-    countMoney('J-x-01 #1', w, { 'J-x-01': { money: false, line: moneyLineHash('none; a cancel releases a hold') } }),
-    true,
-    'planted: the Money line changed since it was decided',
-  );
-  assert.equal(
-    countMoney('J-wallet-01 #1', w, { 'J-wallet-01': { money: false, line: moneyLineHash(null) } }),
-    true,
-    'no Money line: money',
-  );
+test('the sample draws on the run id', () => {
   for (const n of [1, 2, 3]) assert.equal(countSample(`J-x-01 #${n}`, `run:${RUN}`), false);
   assert.equal(countSample('J-x-01 #1', 'run:20'), true, 'another run draws again');
   assert.equal(countSample('J-x-01 #1', null), true, 'no run id: sampled');
@@ -216,7 +201,9 @@ test('fails closed: an unanswered step, a bad verdict, an errored call or a miss
     pr: 7,
     title: 'svc: J-x-01 #1, J-wallet-01 #1',
     loadWords: words,
-    runId: RUN,
+    runId: (() => {
+      for (let n = 1; ; n++) if (countSample('J-wallet-01 #1', `run:${n}`)) return n;
+    })(),
   });
   const ok = [
     { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n' },

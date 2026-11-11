@@ -1331,24 +1331,9 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
   const shared = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['tooling/scripts/local-test-world.mjs'] }) });
   assert.equal(shared.ok, false, 'review R1: shared setup reaches every journey, so nothing inherited is passed over');
   assert.match(shared.lines.join('\n'), /shared setup, which reaches every journey, so every red counts/);
-  const money = await sealPull({
-    repo: REPO,
-    number: 7,
-    sha: HEAD,
-    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), moneyCode: async (p) => p.includes('services/svc-support/src/chat.ts') },
-  });
-  assert.equal(money.ok, false, 'review R2: a pull request changing money code inherits nothing (AGENTS.md How work flows 8)');
-  const manifest = await sealPull({
-    repo: REPO,
-    number: 7,
-    sha: HEAD,
-    io: { ...io({ files: ['services/svc-support/src/chat.ts', 'services/svc-support/package.json'] }), moneyCode: async () => false },
-  });
-  assert.equal(
-    manifest.ok,
-    false,
-    "CI review: a changed package.json may add a ledger-client dependency the base can't see, so every red counts",
-  );
+  const money = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'] }) });
+  assert.equal(money.ok, true, 'OWNER 296: money code is in no special area until launch hardening');
+
   const notInHistory = await sealPull({
     repo: REPO,
     number: 7,
@@ -1488,12 +1473,6 @@ test("C1 review round 1: the break range also runs to main's reference run when 
     rangeOf: async (from, to) => (to === OLDER ? Promise.reject(new Error('behind')) : { files: [], commits: 1, short: false }),
   });
   assert.equal(err.blocking.length, 1, 'either end unreadable: unbounded');
-  assert.equal(
-    (await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: { ...area(), money: true }, rangeOf: range() })).blocking
-      .length,
-    1,
-    'money code: every red counts',
-  );
 });
 
 test("C1 council G2: the break range is every commit's own paths, so a package one commit broke and a later one restored counts", async () => {
@@ -1552,7 +1531,7 @@ test("C1 council G2: the break range is every commit's own paths, so a package o
   );
 });
 
-test('CI review: a money step red on main too is never passed over, outside every area and as a same-commit flake', async () => {
+test('OWNER 296: an inherited money step red stops only its area, like any other', async () => {
   const moneyRed = [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: true }];
   const outside = await splitInherited({
     upTo: MAIN_SHA,
@@ -1561,24 +1540,17 @@ test('CI review: a money step red on main too is never passed over, outside ever
     touches: area([], ['services/svc-support/src/chat.ts']),
     rangeOf: range(),
   });
-  assert.equal(outside.blocking.length, 1);
-  assert.match(outside.blocking[0].why, /money step, so it stops every pull request/);
-  const flake = await splitInherited({
-    upTo: MAIN_SHA,
-    red: moneyRed,
-    main: mainRef({ lastPass: { 'J-wallet-05#3': MAIN_SHA } }),
-    touches: area(),
-    rangeOf: range(),
-  });
-  assert.equal(flake.blocking.length, 1, 'the same-commit flake case does not clear a money step');
+  assert.deepEqual(outside.blocking, [], 'outside its journey and its break range: the pull request goes on');
   const unmarked = await splitInherited({
     upTo: MAIN_SHA,
     red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }],
     main: mainRef(),
-    touches: area(),
+    touches: area([], ['services/svc-support/src/chat.ts']),
     rangeOf: range(),
   });
-  assert.equal(unmarked.blocking.length, 1, 'a red not marked non-money counts as money');
+  assert.deepEqual(unmarked.blocking, [], 'a red not marked money or not is an ordinary inherited red');
+  const byJourney = await splitInherited({ upTo: MAIN_SHA, red: moneyRed, main: mainRef(), touches: area(['J-wallet-05']), rangeOf: range() });
+  assert.equal(byJourney.blocking.length, 1, 'planted: a pull request touching its journey is still stopped');
 });
 
 test('OWNER 278: a money step that passed only on its retry, here and on main, stops only the pull requests in its area', async () => {
@@ -1604,14 +1576,6 @@ test('OWNER 278: a money step that passed only on its retry, here and on main, s
     rangeOf: range(),
   });
   assert.equal(byCode.blocking.length, 1, 'a pull request in its break range is stopped');
-  const money = await splitInherited({
-    upTo: MAIN_SHA,
-    red: flakyRed,
-    main: main(),
-    touches: { ...area(), money: true },
-    rangeOf: range(),
-  });
-  assert.equal(money.blocking.length, 1, 'money code: every red counts');
   const shared = await splitInherited({
     upTo: MAIN_SHA,
     red: flakyRed,
@@ -1623,7 +1587,7 @@ test('OWNER 278: a money step that passed only on its retry, here and on main, s
   // Planted: main failed it outright (another verdict line), so it is not the same red: it stops every pull request.
   const outright = await splitInherited({ upTo: MAIN_SHA, red: flakyRed, main: mainRef(), touches: area(), rangeOf: range() });
   assert.equal(outright.blocking.length, 1, 'main failed it outright: not inherited as a retry pass');
-  // Planted: failed outright here, a retry pass on main: still a money red that stops every pull request.
+  // Planted: failed outright here, a retry pass on main: not the same red as main's, so it is this head's own.
   const here = await splitInherited({
     upTo: MAIN_SHA,
     red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: true }],

@@ -43,20 +43,10 @@ export const READ_VERDICTS = ['FAITHFUL', 'WEAK', 'MISMATCH'];
 /** The most steps one call reads; more, and none is read (the count requests them as before). */
 export const MAX_READS = 150;
 
-// The count of record's own rules (project-state tooling/truth/SCOREBOARD.md, "Money journeys" and "The second reader's
-// sample"; its code is tooling/proof-v2/money.mjs), so the second, blind reader is asked for exactly the steps the count
-// needs one for. A money step: project-state's tooling/proof-v2/money.json says its journey is money, decided on the Money
-// line it records the hash of; a journey missing there, or whose Money line has changed, is money. The sample: sha256 of
-// `<step>|run:<this run's id>` below 15%, a seed nobody knows before the run starts; with no run id, every step.
+// The count of record's sample (project-state tooling/truth/SCOREBOARD.md): the second, blind reader is asked for the steps
+// the count samples, sha256 of `<step>|run:<this run's id>` below 15%, a seed nobody knows before the run starts; with no
+// run id, every step. Money steps get no second reader of their own until launch hardening (project-state OWNER 296).
 export const countKey = (step) => String(step).replace(/\s+/g, '');
-export const moneyLineHash = (line) =>
-  line == null ? null : `ml1:${createHash('sha256').update(String(line).replace(/\s+/g, ' ').trim()).digest('hex')}`;
-export function countMoney(step, words, money) {
-  const c = money?.[countKey(step).split('#')[0]];
-  if (!c || typeof c.money !== 'boolean') return true;
-  const h = moneyLineHash(words?.get(step)?.fields?.Money ?? null);
-  return h !== null && h === c.line ? c.money : true;
-}
 export function countSample(step, seed) {
   if (!seed) return true;
   const h = createHash('sha256')
@@ -64,31 +54,7 @@ export function countSample(step, seed) {
     .digest();
   return h.readUInt32BE(0) / 2 ** 32 < 0.15;
 }
-export const secondReason = (step, { words, money, seed }) =>
-  countMoney(step, words, money) ? 'money step' : countSample(step, seed) ? '15% sample' : null;
-
-/** money.json's journeys at project-state `ref`, or null (then every step counts as money: more reads, never fewer). */
-export async function readMoneyApi(token, ref) {
-  const res = await fetch(`https://api.github.com/repos/INTAFACED/project-state/contents/tooling/proof-v2/money.json?ref=${ref}`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw', 'x-github-api-version': '2022-11-28' },
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (res.status === 403 || res.status === 429)
-    throw new Error(`GitHub ${res.status} on GET project-state money.json: stopping, not retrying`);
-  try {
-    return res.status === 200 ? (JSON.parse(await res.text()).journeys ?? null) : null;
-  } catch {
-    return null;
-  }
-}
-/** money.json's journeys in a local project-state checkout, or null. */
-export function readMoneyLocal(dir) {
-  try {
-    return JSON.parse(readFileSync(join(dir, 'tooling/proof-v2/money.json'), 'utf8')).journeys ?? null;
-  } catch {
-    return null;
-  }
-}
+export const secondReason = (step, { seed }) => (countSample(step, seed) ? '15% sample' : null);
 
 const READ_ITEMS = {
   type: 'array',
@@ -174,8 +140,8 @@ export async function buildReads({
   let reads = asked.filter((s) => headTests.has(s));
   if (reads.length === 0) return { applicable: false, why: 'no step has a test at the head', notRead };
   if (reads.length > MAX_READS) return { applicable: false, why: `${reads.length} steps, over ${MAX_READS} in one call`, notRead };
-  const { words, ref: wordsRef, money = null } = await loadWords();
-  const count = { words, money, seed: runId ? `run:${runId}` : null };
+  const { words, ref: wordsRef } = await loadWords();
+  const count = { seed: runId ? `run:${runId}` : null };
   for (const s of reads) if (!words.has(s)) notRead.push({ step: s, why: `no step words at project-state ${wordsRef}` });
   reads = reads.filter((s) => words.has(s));
   if (reads.length === 0) return { applicable: false, why: 'no step to read has words', notRead, wordsRef };
@@ -377,8 +343,7 @@ async function main() {
         body: pull.body ?? '',
         loadWords: async () => {
           if (!words) throw new Error('no PROJECT_STATE_READ_TOKEN, so the step words are unreadable');
-          const got = await readWordsApi(words);
-          return { ...got, money: await readMoneyApi(words, got.ref) };
+          return readWordsApi(words);
         },
         runId: process.env.GITHUB_RUN_ID ?? null,
       }),
@@ -392,7 +357,7 @@ async function main() {
         head: arg('--head'),
         pr: arg('--pr') ?? 'local',
         title: arg('--title') ?? '',
-        loadWords: async () => ({ ...readWordsLocal(arg('--words')), money: readMoneyLocal(arg('--words')) }),
+        loadWords: async () => readWordsLocal(arg('--words')),
         runId: arg('--run-id') ?? null,
       }),
     );
