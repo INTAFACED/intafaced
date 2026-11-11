@@ -113,16 +113,16 @@ describe('/api/v1/venue/*', () => {
 
   it("J-agents-08 #2: sub-accounts lists the owner's own sub-accounts as the venue records them, read on the main account only", async () => {
     await mount(door());
-    const post = async (path: string, body: unknown) => {
+    const post = async <T>(path: string, body: unknown): Promise<T> => {
       const res = await fetch(`${url}${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
       expect(res.status).toBe(200);
-      return res.json();
+      return (await res.json()) as T;
     };
-    const venueId = (await (await fetch(`${url}/venue`)).json()).venue.id as string;
+    const venueId = ((await (await fetch(`${url}/venue`)).json()) as { venue: { id: string } }).venue.id;
     const main = { venueId, owner, subAccount: null };
     const before = await app.inject({ method: 'GET', url: `/api/v1/venue/sub-accounts?owner=${owner}` });
     expect(before.statusCode).toBe(200);
@@ -130,13 +130,17 @@ describe('/api/v1/venue/*', () => {
     // The owner's own wallet opens one on the venue directly.
     const name = `TEST rest sub ${listedBefore.length + 1}`;
     const intent = { kind: 'create_sub_account', name, subAccountKey: `test:rest-sub:${listedBefore.length + 1}` };
-    const prepared = await post('/prepare', { account: main, signer: { role: 'owner', address: owner }, intent });
-    const t = prepared.typedData as TestVenueTypedData;
+    const prepared = await post<{ typedData: TestVenueTypedData; digest: string }>('/prepare', {
+      account: main,
+      signer: { role: 'owner', address: owner },
+      intent,
+    });
+    const t = prepared.typedData;
     const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
     await post('/submit', { prepared, signature: { digest: prepared.digest, signature, signedBy: owner } });
     const res = await app.inject({ method: 'GET', url: `/api/v1/venue/sub-accounts?owner=${owner}` });
     expect(res.statusCode).toBe(200);
-    const venueOwn = (await post('/sub-accounts', { account: main })).value;
+    const venueOwn = (await post<{ value: { subAccount: string; name: string }[] }>('/sub-accounts', { account: main })).value;
     expect(res.json().value).toEqual(venueOwn);
     expect(res.json().value.map((s: { name: string }) => s.name)).toContain(name);
     expect(res.json().value).toHaveLength(listedBefore.length + 1);
