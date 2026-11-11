@@ -78,6 +78,27 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
+/**
+ * An open spot market the public tape holds no trade for, read from the public routes (the markets list, then each one's
+ * newest trade). The step's other branch needs one; a stack whose every market trades fails here by name.
+ */
+async function untradedMarket() {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  expect(res.status).toBe(200);
+  const markets = await res.json();
+  const listed = [];
+  for (const m of markets) {
+    if (typeof m.symbol !== 'string' || m.symbol.includes(':')) continue;
+    // Only a market open for trading: a market that is not open has no chart studies to read.
+    const life = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(m.symbol)}`);
+    if (!life.ok || (await life.json()).state !== 'OPEN') continue;
+    listed.push(m.symbol);
+    const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=1`);
+    if (tape.ok && (await tape.json()).length === 0) return m.symbol;
+  }
+  throw new Error(`no open spot market is without trades on this stack (open: ${listed.join(', ')})`);
+}
+
 const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
@@ -197,6 +218,13 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
     return { Upper: b.upper, Middle: b.middle, Lower: b.lower };
   });
   await expectLines(page, 'vwap-1', 2, (bars) => ({ VWAP: F.vwap(bars, at(bars)) }));
+
+  // A market with no volume says so: on a listed market the public tape holds no trade for, Volume names it, and draws nothing.
+  const quiet = await untradedMarket();
+  await page.goto(`/charts/${quiet.replace('/', '-')}`);
+  await expect(page.getByTestId('studies')).toBeVisible();
+  await addStudy(page, 'volume', 'Volume');
+  await expect(row(page, 'volume-1')).toContainText('This market has no volume in the loaded bars.');
 });
 
 test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on the others and the setting is remembered', async ({
@@ -342,10 +370,20 @@ test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change
   await dialog.getByRole('tab', { name: 'Canvas', exact: true }).click();
   await dialog.getByRole('checkbox', { name: 'Show grid lines' }).uncheck();
   // Trading and Alerts link to the controls; the chart places no order and sets no alert itself.
-  await dialog.getByRole('tab', { name: 'Trading', exact: true }).click();
-  await expect(dialog.getByRole('link', { name: 'Open the trading desk for BTC/USDT' })).toHaveAttribute('href', '/trade/spot/BTC-USDT');
-  await dialog.getByRole('tab', { name: 'Alerts', exact: true }).click();
-  await expect(dialog.getByRole('link', { name: 'Open price alerts' })).toHaveAttribute('href', '/notifications?view=alerts');
+  // Trading and Alerts: each holds options of its own, saved for this device like the others. One option in each is
+  // changed here and read back after the reload below.
+  const flipped = {};
+  for (const tab of ['Trading', 'Alerts']) {
+    await dialog.getByRole('tab', { name: tab, exact: true }).click();
+    const panel = dialog.getByRole('tabpanel');
+    await expect(panel.getByText('Saved on this device')).toBeVisible();
+    const option = panel.getByRole('checkbox').first();
+    await expect(option, `the ${tab} section holds an option to set`).toBeVisible();
+    const name = (await option.getAttribute('aria-label')) ?? (await option.evaluate((el) => el.labels?.[0]?.textContent ?? ''));
+    const was = await option.isChecked();
+    await option.setChecked(!was);
+    flipped[tab] = { name, checked: !was };
+  }
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('chart-legend').first()).not.toContainText(/\d{1,2} [A-Za-z]{3} \d{4}/);
   // The legend's time element is gone, not just empty.
@@ -369,6 +407,12 @@ test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change
   await expect(dialog.getByRole('checkbox', { name: 'Logarithmic price scale' })).toBeChecked();
   await dialog.getByRole('tab', { name: 'Canvas', exact: true }).click();
   await expect(dialog.getByRole('checkbox', { name: 'Show grid lines' })).not.toBeChecked();
+  for (const tab of ['Trading', 'Alerts']) {
+    await dialog.getByRole('tab', { name: tab, exact: true }).click();
+    const option = dialog.getByRole('tabpanel').getByRole('checkbox', { name: flipped[tab].name, exact: true });
+    if (flipped[tab].checked) await expect(option).toBeChecked();
+    else await expect(option).not.toBeChecked();
+  }
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 });

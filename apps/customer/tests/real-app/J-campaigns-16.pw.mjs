@@ -78,10 +78,20 @@ test(`${J} #1 opens the campaigns desk with none: the overview with honest empty
   ];
   await expect(overview.getByRole('term')).toHaveText(expected.map(([label]) => label));
   await expect(overview.getByRole('definition')).toHaveText(expected.map(([, n]) => (n === 0 ? 'None yet' : String(n))));
-  if (states.length === 0) {
-    await expect(overview.getByTestId('campaigns-overview-empty')).toHaveText(/^No campaign exists yet\./);
-    await expect(page.getByTestId('campaigns-all')).toContainText('No campaign yet.');
+  // The step starts with no campaigns: the stack holds none and the desk lists none, so every figure reads none and the
+  // overview and the list each say so in words, with no number on the page standing in for one.
+  const sql = await campaignsDb();
+  try {
+    const [{ n }] = await sql`SELECT count(*)::int AS n FROM campaigns.campaigns`;
+    expect(n, 'the step starts from a stack with no campaigns').toBe(0);
+  } finally {
+    await sql.end();
   }
+  expect(states).toEqual([]);
+  await expect(overview.getByRole('definition')).toHaveText(expected.map(() => 'None yet'));
+  await expect(overview.getByTestId('campaigns-overview-empty')).toHaveText(/^No campaign exists yet\./);
+  await expect(page.getByTestId('campaigns-all')).toContainText('No campaign yet.');
+  await expect(overview).not.toContainText(/\d/);
 });
 
 test(`${J} #2 starts the builder, leaves and returns: the draft resumes at the same step, and a second draft leaves the first listed`, async ({
