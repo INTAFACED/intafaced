@@ -158,7 +158,7 @@ test(`${J} #2 the request shows the public thread only: a staff-only note is nev
   expect(JSON.stringify(await lead('query', 'listComments', { ticketId: ticket.id, limit: 500 }))).toContain(note);
 });
 
-test(`${J} #3 attaching a screenshot: the control states the service's limits, and the file shows being checked, then checked`, async ({
+test(`${J} #3 attaching a screenshot: the control states the service's limits, and the file shows being checked, then checked; a blank size or type list is a typed refusal naming it, with nothing stored`, async ({
   browser,
 }) => {
   const { ticket, page } = await answered(browser);
@@ -168,44 +168,81 @@ test(`${J} #3 attaching a screenshot: the control states the service's limits, a
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
     return res.body.result.data;
   };
-  // The owner's limits are blank until set. With the count blank, an attach is a typed refusal naming that setting, and
-  // nothing is stored. The lead blanks it here so the refusal is seen whatever an earlier run left.
-  const reason = `TEST ${J} #3`;
-  let set = await lead('mutation', 'setAttachmentSettings', { maxCount: null, expectedRevision: (await limits()).revision, reason });
-  expect(set.missing).not.toBeNull();
-  const refused = await client.post('/api/support/trpc/attach', {
-    ticketId: ticket.id,
-    clientRequestId: `j04:${RUN}:blank`,
-    contentType: 'image/png',
-    bodyBase64: PNG.toString('base64'),
-  });
-  expect(refused.status).not.toBe(200);
-  expect(JSON.stringify(refused.body)).toContain(
-    set.missing === 'support.attachment_max_count' ? 'support.attachment_count_unset' : 'support.',
-  );
-  expect((await client.get(query('ticketAttachments', { ticketId: ticket.id, limit: 50 }))).body.result.data).toHaveLength(0);
-  await page.goto(`/support/tickets/${ticket.id}`);
+  const stored = async () => (await client.get(query('ticketAttachments', { ticketId: ticket.id, limit: 50 }))).body.result.data;
   const main = page.locator('main');
-  await expect(main.getByTestId('attach-limits')).toContainText('Attaching files is switched off.');
-  // The lead sets TEST limits (LOCAL TEST values, not owner decisions); the control states what the service answers.
+  const reason = `TEST ${J} #3`;
+  // The owner's size and type list, each left blank in turn (the stack sets TEST values for the others; the store and the
+  // scanner are deployment pieces this stack gives). Each blank one is named by the service, an attach refuses with
+  // support.attachments_unconfigured naming that setting, nothing is stored, and the control says attaching is off.
+  let set = await testLimits((await limits()).revision, reason);
+  for (const [setting, key] of [
+    ['maxBytes', 'support.attachment_max_bytes'],
+    ['allowedTypes', 'support.attachment_allowed_types'],
+  ]) {
+    set = await lead('mutation', 'setAttachmentSettings', { ...TEST_LIMITS, [setting]: null, expectedRevision: set.revision, reason });
+    expect(set.missing, setting).toBe(key);
+    expect((await limits()).missing, setting).toBe(key);
+    const refused = await client.post('/api/support/trpc/attach', {
+      ticketId: ticket.id,
+      clientRequestId: `j04:${RUN}:blank:${setting}`,
+      contentType: 'image/png',
+      bodyBase64: PNG.toString('base64'),
+    });
+    expect(refused.status, setting).not.toBe(200);
+    expect(code(refused), setting).toContain('support.attachments_unconfigured');
+    expect(JSON.stringify(refused.body), setting).toContain(key);
+    expect(await stored(), setting).toHaveLength(0);
+    await page.goto(`/support/tickets/${ticket.id}`);
+    await expect(main.getByTestId('attach-limits')).toHaveText(
+      'Attaching files is switched off. Describe what you see in your message instead.',
+    );
+    await expect(main.getByLabel('File to attach')).toBeDisabled();
+  }
+  // The lead sets TEST limits (LOCAL TEST values, not owner decisions); the control states exactly what the service answers.
   set = await testLimits(set.revision, reason);
   expect(set.missing).toBeNull();
+  const now = await limits();
+  expect(now.missing).toBeNull();
+  const size =
+    now.maxBytes < 1024
+      ? `${now.maxBytes} bytes`
+      : now.maxBytes < 1048576
+        ? `${Math.round(now.maxBytes / 1024)} KB`
+        : `${(now.maxBytes / 1048576).toFixed(1)} MB`;
   await page.reload();
-  await expect(main.getByTestId('attach-limits')).toContainText(
-    /Up to \d+ files per request, each up to .+\. Accepted types: .*image\/png/,
+  await expect(main.getByTestId('attach-limits')).toHaveText(
+    `Up to ${now.maxCount} files per request, each up to ${size}. Accepted types: ${now.allowedTypes.join(', ')}.`,
   );
+  // The service answers the attach only once it has checked the file. The answer is held in the browser until the page
+  // has been seen showing the file as being checked; the service itself has already recorded it.
+  const attachCall = (url) => url.pathname === '/api/support/trpc/attach';
+  let release;
+  const held = new Promise((resolve) => (release = resolve));
+  await page.route(attachCall, async (route) => {
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
   await main.getByLabel('File to attach').setInputFiles({ name: 'screenshot.png', mimeType: 'image/png', buffer: PNG });
   await main.getByRole('button', { name: 'Review attachment' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Attach file' }).click();
   const files = main.getByTestId('attach-files');
-  await expect(files.getByRole('listitem')).toHaveCount(1, { timeout: 10_000 });
-  await expect(files.getByRole('listitem').first()).toContainText(/Being checked|Checked/);
-  await expect(async () => {
-    await main.getByRole('button', { name: 'Check for new replies' }).last().click();
-    await expect(files.getByRole('listitem').first()).toContainText('Checked', { timeout: 1_000 });
-    await expect(files.getByRole('listitem').first()).not.toContainText('Being checked');
-  }).toPass({ timeout: 20_000 });
-  await expect(files.getByRole('listitem').first().getByRole('button', { name: 'Download' })).toBeVisible();
+  const checking = files.getByTestId('attach-sending');
+  await expect(checking).toContainText('image/png');
+  await expect(checking).toContainText('Being checked');
+  await expect(checking.getByRole('button', { name: 'Download' })).toHaveCount(0);
+  release();
+  await expect(checking).toHaveCount(0, { timeout: 10_000 });
+  await page.unroute(attachCall);
+  const file = files.getByRole('listitem');
+  await expect(file).toHaveCount(1, { timeout: 10_000 });
+  await expect(file.first()).toContainText('image/png');
+  await expect(file.first().locator('[data-scan-state]')).toHaveText('Checked');
+  await expect(file.first().getByRole('button', { name: 'Download' })).toBeVisible();
+  // The service holds it as checked, once.
+  const rows = await stored();
+  expect(rows).toHaveLength(1);
+  expect(rows[0].scanState).toBe('clean');
 });
 
 test(`${J} #4 a file the scanner blocks shows as not accepted and is never offered for download; another customer's request id answers as not found`, async ({
@@ -283,6 +320,7 @@ test(`${J} #6 once the team marks it solved, the request asks for a rating in th
   await solved(ticket, '#6');
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
+  await expect(main.getByText('Thank you for your patience while we worked on this.')).toBeVisible();
   await expect(main.getByText('This request is solved. Tell us how it went by rating it below.')).toBeVisible();
   await expect(main.getByRole('combobox', { name: 'Your score' })).toBeVisible();
   await expect(main.getByLabel('Anything to add (optional)')).toBeVisible();

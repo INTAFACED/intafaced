@@ -66,7 +66,10 @@ export function SupportRequestActions({
     <div className="support-actions">
       <h3>{copy.t('actionsHeading')}</h3>
       {showRatePrompt(ticket.status, rating.resource.status === 'ready', rated) ? (
-        <p className="support-rate-ask">{copy.t('rateAsk')}</p>
+        <>
+          <p className="support-solved-thanks">{copy.t('solvedThanks')}</p>
+          <p className="support-rate-ask">{copy.t('rateAsk')}</p>
+        </>
       ) : null}
       <ul>
         <li>
@@ -244,6 +247,9 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
       'attachNoFile' | 'attachEmpty' | 'attachUnreadable' | 'refuseAttachLarge' | 'refuseAttachType' | 'attachDownloadFailed' | null
     >(null),
     [busyFile, setBusyFile] = useState<string | null>(null);
+  // The file the service is checking right now: it records the file as being checked before it scans it, so until the
+  // service answers, the list shows it that way.
+  const [sending, setSending] = useState<{ contentType: string; byteLength: number } | null>(null);
   const limits = useResource((signal) => readAttachLimits(api, signal), `support-attach-limits:${userId}`);
   const files = useResource((signal) => readTicketFiles(api, id, userId, FILES_PAGE, signal), `support-files:${userId}:${id}`);
   const view = limits.resource.status === 'ready' ? attachLimitsView(limits.resource.data) : null;
@@ -291,7 +297,14 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
                 ]}
               />
             ),
-            run: () => attachFile(api, { ticketId: id, userId, ...read, clientRequestId }),
+            run: async () => {
+              setSending({ contentType: read.contentType, byteLength: read.byteLength });
+              try {
+                return await attachFile(api, { ticketId: id, userId, ...read, clientRequestId });
+              } finally {
+                setSending(null);
+              }
+            },
             done: () => {
               if (input.current) input.current.value = '';
               files.reload();
@@ -320,7 +333,7 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
         <small>{copy.t('attachFilesHeading')}</small>
         <Read resource={files.resource} retry={files.reload}>
           {(rows) =>
-            rows.length === 0 ? (
+            rows.length === 0 && !sending ? (
               <p className="muted">{copy.t('attachNoFiles')}</p>
             ) : (
               <ul data-testid="attach-files">
@@ -354,6 +367,12 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
                     )}
                   </li>
                 ))}
+                {sending && (
+                  <li data-testid="attach-sending">
+                    <span lang="zxx">{copy.t('attachedRow', { type: sending.contentType, size: fileSizeLabel(sending.byteLength) })}</span>{' '}
+                    · <span data-scan-state="scanning">{copy.t(SCAN_STATE_KEY.scanning)}</span>
+                  </li>
+                )}
               </ul>
             )
           }
