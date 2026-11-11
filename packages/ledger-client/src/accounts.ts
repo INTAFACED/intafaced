@@ -422,15 +422,38 @@ export function isOwnFundsPlace(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>):
 }
 
 /**
- * The balance rule every ledger applies to each entry: an account may not go below zero, except a `treasury` boundary; and
- * an own-funds place, whose negative balance is our money there, may not go above zero.
+ * WHAT A CUSTOMER OWES US FOR A CHARGE (launch money model; project-state OWNER.md item 288: "earn a charge a customer owes
+ * us", then "collect it"). A boundary like `venueBuilderFeeReceivable`: the money is still the customer's, outside our book,
+ * so its negative balance is exactly what they owe us for that module's charges. It is never a balance of theirs.
+ *
+ * It may not go above zero (`balanceAllowed`): collecting more than is owed would record money of theirs in our book, which
+ * at launch we never hold, so it is refused like any overdraft, with `ledger.insufficient_funds`.
+ */
+export const CHARGE_RECEIVABLE_PREFIX = 'charge-receivable:';
+
+export function chargeReceivable(module: string, userId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `${CHARGE_RECEIVABLE_PREFIX}${module}.${userId}`, assetId, kind: 'available' };
+}
+
+/** True for an account that records what a customer owes us for a charge. */
+export function isChargeReceivable(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>): boolean {
+  return ref.ownerType === 'treasury' && ref.ownerId.startsWith(CHARGE_RECEIVABLE_PREFIX);
+}
+
+/**
+ * The balance rule every ledger applies to each entry: an account may not go below zero, except a `treasury` boundary; an
+ * own-funds place, whose negative balance is our money there, may not go above zero; and a charge receivable, whose negative
+ * balance is what a customer owes us, may not go above zero either.
  */
 export function balanceAllowed(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>, next: bigint): boolean {
-  if (isOwnFundsPlace(ref)) return next <= 0n;
+  if (isOwnFundsPlace(ref) || isChargeReceivable(ref)) return next <= 0n;
   return next >= 0n || ref.ownerType === 'treasury';
 }
 
-/** What an account holds, as an overdraft names it: an own-funds place holds the negative of its balance. */
+/**
+ * What an account holds, as an overdraft names it: an own-funds place holds the negative of its balance, and a charge
+ * receivable the negative of its balance (what is owed).
+ */
 export function heldForRefusal(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>, balance: bigint): bigint {
-  return isOwnFundsPlace(ref) ? -balance : balance;
+  return isOwnFundsPlace(ref) || isChargeReceivable(ref) ? -balance : balance;
 }

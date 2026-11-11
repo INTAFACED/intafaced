@@ -177,10 +177,10 @@ test(`${J} #1 opens the ticket for a market two venues list: each venue with its
   test.setTimeout(300_000);
   const account = await signUp(page, 'vroute');
   await verify(page, account);
-  // The period starts one second back: the TEST venues share the stack's clock, and the shard runs one file at a time, so
-  // it holds this file's fills only. A minute back took in the fills J-derivatives-01-venue had just made on the same
-  // venue, and #6 read them as strangers (#7878; run 43017609738).
-  run.reset({ account, walletKey: testWalletKey(), startedAt: new Date(Date.now() - 1000).toISOString() });
+  // The file's period starts now, before this person's first order: a file that ran just before this one on the same
+  // worker filled on these venues seconds earlier, and those fills are outside this file's period (#7878). The venue
+  // simulators read the same clock as this runner.
+  run.reset({ account, walletKey: testWalletKey(), startedAt: new Date().toISOString() });
   const v = await both();
   expect(v.a.id).not.toBe(v.b.id);
   const owner = privateKeyToAccount(state().walletKey).address.toLowerCase();
@@ -478,8 +478,9 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
     await route.abort('failed');
   });
   const order = await sizeFor(v.a);
-  // Every order and fill of this person's from here on, on either venue, is this step's.
-  const t0 = new Date(Date.now() - 1000).toISOString();
+  // Every order and fill of this person's from here on, on either venue, is this step's. From now, not earlier: #3's
+  // fill can land in the second before this step starts.
+  const t0 = new Date().toISOString();
   const sheet = await reviewLong(page, order);
   const chosen = await byId(await line(sheet, 'route-venue').getAttribute('data-venue'));
   const before = wallet.requests.length;

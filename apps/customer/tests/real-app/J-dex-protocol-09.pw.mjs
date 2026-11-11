@@ -780,6 +780,8 @@ test(`${J} #8 opens a contract's source status and the Read tab: exact, similar 
   );
   await page.goto('/wallet');
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  // leave the wallet page only once it shows the wallet connected, or the next page loads with none
+  await expect(page.locator('[data-wallet-address]')).toBeVisible();
   await page.goto(`/protocol/contracts/${proxy}`);
   await page.getByRole('tab', { name: 'Write' }).click();
   const mint = write.getByRole('form', { name: 'mint(address,uint256)' });
@@ -919,6 +921,8 @@ test(`${J} #11 requests a token info update with the token owner's signature: th
   const wallet = await installTestWallet(page, { chainId: chain.chainId, privateKey: ownerKey });
   await page.goto('/wallet');
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  // leave the wallet page only once it shows the owner connected, or the token page loads with no wallet to sign
+  await expect(page.locator('[data-wallet-address]')).toHaveText(owner, { ignoreCase: true });
   const dialog = page.getByRole('dialog', { name: 'Request an info update' });
   const challengeOf = async () => {
     const text = await dialog.getByTestId('token-update-challenge').innerText();

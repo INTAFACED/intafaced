@@ -187,10 +187,10 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
                 // An outside dependency (the allowlist): the shell's one service-off sentence and code.
                 <ServiceOffNotice code={refusal} action={t(`act_${action}`)} className="protocol-actions__reason" role="note" />
               ) : (
-                // Our own gap or a plain state: its reason, never an allowlist code.
-                <p className="protocol-actions__reason" role="note">
-                  {t('blockedBy', { reason })}
-                </p>
+                // Our own gap or a plain state: its reason in the shared empty-state component, never an allowlist code.
+                <div className="protocol-actions__reason protocol-actions__gap" role="note">
+                  <EmptyState title={t('blockedBy', { reason })} />
+                </div>
               )}
               {listed.length > 1 && (
                 <details>

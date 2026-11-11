@@ -232,4 +232,25 @@ describe('academy course desk BFF', () => {
     expect(sent(c, 'admin.setCourseTopics')).toEqual({ courseId: COURSE_ID, revision: 1, topicIds: [TOPIC_ID] });
     expect((await POST(post({ op: 'topics', courseId: COURSE_ID, revision: 1, topicIds: [TOPIC_ID, TOPIC_ID] }))).status).toBe(400);
   });
+  it('a duplicate is sent with its new address, title and reason; a form mistake or a taken address is named', async () => {
+    configure();
+    const c = upstream({ 'admin.duplicateCourse': () => ok({ ...COURSE, slug: 'risk-basics-copy' }) });
+    const body = await (
+      await POST(post({ op: 'duplicate', courseId: COURSE_ID, slug: 'risk-basics-copy', title: 'Risk basics', reason: ' next cohort ' }))
+    ).json();
+    expect(body).toMatchObject({ ok: true, what: 'duplicated as a new draft', course: { slug: 'risk-basics-copy' } });
+    expect(sent(c, 'admin.duplicateCourse')).toEqual({
+      courseId: COURSE_ID,
+      slug: 'risk-basics-copy',
+      title: 'Risk basics',
+      reason: 'next cohort',
+    });
+    expect((await POST(post({ op: 'duplicate', courseId: COURSE_ID, slug: 'Copy', title: 'C', reason: 'x' }))).status).toBe(400);
+    expect((await POST(post({ op: 'duplicate', courseId: COURSE_ID, slug: 'copy-one', title: 'C', reason: ' ' }))).status).toBe(400);
+    expect((await POST(post({ op: 'duplicate', courseId: 'nope', slug: 'copy-one', title: 'C', reason: 'x' }))).status).toBe(400);
+    expect(calls(c)).toHaveLength(1);
+    upstream({ 'admin.duplicateCourse': () => refusal('academy.course_slug_taken', 409) });
+    const taken = await (await POST(post({ op: 'duplicate', courseId: COURSE_ID, slug: 'risk-basics', title: 'C', reason: 'x' }))).json();
+    expect(taken).toMatchObject({ ok: false, code: 'academy.course_slug_taken', changed: 'no' });
+  });
 });

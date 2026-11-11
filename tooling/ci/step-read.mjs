@@ -42,6 +42,12 @@ export const READ_BRIEF = new URL('./test-judge/READ.md', import.meta.url);
 export const READ_VERDICTS = ['FAITHFUL', 'WEAK', 'MISMATCH'];
 /** The most steps one call reads; more, and none is read (the count requests them as before). */
 export const MAX_READS = 150;
+/** The most helper files (the shared harness included) one read is given. */
+export const MAX_HELPERS = 24;
+const HELPER_DIR = HARNESS[0].slice(0, HARNESS[0].lastIndexOf('/'));
+/** The helpers a journey file or helper imports from its own folder: `from './x.mjs'`, as paths in that folder. */
+export const localImports = (text) =>
+  [...String(text ?? '').matchAll(/\bfrom\s+['"]\.\/([\w.-]+\.mjs)['"]/g)].map((m) => `${HELPER_DIR}/${m[1]}`);
 
 // The count of record's own rules (project-state tooling/truth/SCOREBOARD.md, "Money journeys" and "The second reader's
 // sample"; its code is tooling/proof-v2/money.mjs), so the second, blind reader is asked for exactly the steps the count
@@ -186,10 +192,19 @@ export async function buildReads({
     const tag = own.has(s) ? 'its own test changed' : 'the title claims it';
     return [`${s} [${tag}]`, `  Journey: ${w.title}`, ...fields, `  The person does: ${w.does}`, `  They see: ${w.sees}`].join('\n');
   };
+  // The shared harness, then every helper a read journey file imports from its own folder (`./x.mjs`), and theirs in
+  // turn, so a check a test makes through its own helper is read with the test, never judged unseen.
   const harness = [];
-  for (const h of HARNESS) {
+  const seen = new Set();
+  const queue = [...HARNESS, ...[...headFiles.values()].flatMap(localImports)];
+  while (queue.length && harness.length < MAX_HELPERS) {
+    const h = queue.shift();
+    if (seen.has(h) || JOURNEY_FILE.test(h)) continue;
+    seen.add(h);
     const t = await src.read(head, h);
-    if (t != null) harness.push([h, t]);
+    if (t == null) continue;
+    harness.push([h, t]);
+    queue.push(...localImports(t));
   }
   const promptFor = (steps) => {
     const parts = [

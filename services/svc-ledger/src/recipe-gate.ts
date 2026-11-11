@@ -1059,6 +1059,22 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'chargeEarn',
+      // Shape sample only, never posted: a TEST price, because the owner's price is unset and Earn refuses without one.
+      post: recipes.chargeEarn({ module: 'agents', saleId: 'sale-test', userId: U, assetId: 'USDC', price: { perUnit: AMT }, units: 1n }),
+    },
+    {
+      name: 'chargeCollect',
+      post: recipes.chargeCollect({
+        module: 'agents',
+        userId: U,
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        paymentId: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'tradeFillMakerRebate',
       post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },

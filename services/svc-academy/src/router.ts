@@ -93,6 +93,7 @@ import {
   academySaveLessonInputSchema,
   academyRevertLessonInputSchema,
   academyPublishLessonInputSchema,
+  academyDuplicateCourseInputSchema,
   academyDuplicateItemInputSchema,
   academyImportLessonInputSchema,
   academyAssistantDraftInputSchema,
@@ -3364,6 +3365,12 @@ export function createAcademyRouter(
         .input(academyPublishLessonInputSchema)
         .output(academyLessonSchema)
         .mutation(({ input, ctx }) => guard(() => academy.publishLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: a draft copy of any course at its own address. No learner record is copied. */
+      duplicateCourse: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyDuplicateCourseInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.duplicateCourse({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-course-structure-03: copy a draft course's item and its newest lesson after it. No learner record is copied. */
       duplicateItem: scopedProcedure('admin:write', { module: 'academy' })

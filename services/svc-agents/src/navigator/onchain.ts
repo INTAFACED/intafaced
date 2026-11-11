@@ -4,11 +4,12 @@ import {
   NAVIGATOR_ONCHAIN_MAINNET_CHAIN_IDS,
   NAVIGATOR_ONCHAIN_TEST_CHAIN_ID,
   navigatorAskIsTrade,
-  type NavigatorApprovalRequest,
   type NavigatorOnchainBinding,
+  type NavigatorOrder,
   type NavigatorOnchainBindInput,
   type NavigatorOnchainRefusal,
   type NavigatorOnchainSigner,
+  type NavigatorTradeRefusal,
 } from '@intafaced/contracts/agents-onchain';
 
 /**
@@ -18,16 +19,15 @@ import {
  * - the public address of the Navigator's on-chain signer (`AGENTS_NAVIGATOR_ONCHAIN_SIGNER`), never a key;
  * - a binding per (person, chain, smart account, session key): what the person prepared and whether they asked to
  *   revoke it. It is never a claim about the chain: granted, live, spent and revoked are read from the chain;
- * - approval requests for every trade the person asks the Navigator for. The Navigator never trades unasked, and a live
- *   session key changes nothing about that: the key is a ceiling, not consent.
- * It moves no value, builds no transaction (svc-protocol builds the unsigned calls the person's wallet signs), imports no
- * ledger recipe and no svc-protocol code.
+ * - the orders the Navigator sent through the key, inside the cap the person signed (onchain-trade.ts). Inside the cap
+ *   it does not ask; above it the trade is refused before anything is signed; it never moves money out.
+ * It moves no value through INTAFACED, holds no key, imports no ledger recipe and no svc-protocol code.
  */
 
 /** A typed refusal: its code is the message of the error the route answers with. */
 export class NavigatorOnchainError extends Error {
   constructor(
-    readonly code: NavigatorOnchainRefusal | 'agents.approval.ttl_unset' | 'agents.request_id_replay',
+    readonly code: NavigatorOnchainRefusal | NavigatorTradeRefusal | 'agents.request_id_replay',
     readonly field?: string,
   ) {
     super(code);
@@ -40,7 +40,7 @@ export class NavigatorOnchainError extends Error {
  * `audit.external` (no external audit of the smart account exists); any other chain refuses as unsupported. With no
  * signer configured, every chain refuses `rail.crypto`: there is nothing to bind a key to.
  */
-export function navigatorSigner(chainId: number, configured: string | null | undefined): NavigatorOnchainSigner {
+export function navigatorSigner(chainId: number, configured: string | null | undefined): Omit<NavigatorOnchainSigner, 'pools' | 'router'> {
   if ((NAVIGATOR_ONCHAIN_MAINNET_CHAIN_IDS as readonly number[]).includes(chainId)) throw new NavigatorOnchainError('audit.external');
   if (chainId !== NAVIGATOR_ONCHAIN_TEST_CHAIN_ID) throw new NavigatorOnchainError('agents.onchain_chain_unsupported');
   if (!configured) throw new NavigatorOnchainError('rail.crypto');
@@ -111,31 +111,51 @@ function bindingView(row: BindingRow): NavigatorOnchainBinding {
   };
 }
 
-type RequestRow = {
+type OrderRow = {
   id: string;
   session_id: string;
-  request_key: string;
-  tool: 'trade';
+  order_key: string;
   ask_text: string;
-  status: 'waiting' | 'expired';
+  chain_id: number;
+  account: string;
+  pool: string;
+  token_in: string;
+  token_in_symbol: string;
+  token_out: string;
+  token_out_symbol: string;
+  amount_in_wei: string;
+  min_out_wei: string;
+  status: NavigatorOrder['status'];
+  tx_hash: string | null;
   created_at: Date;
-  expires_at: Date;
 };
 
-function requestView(row: RequestRow): NavigatorApprovalRequest {
+function orderView(row: OrderRow): NavigatorOrder {
   return {
     id: row.id,
     sessionId: row.session_id,
-    requestKey: row.request_key,
-    tool: row.tool,
+    orderKey: row.order_key,
+    placedBy: 'assistant',
     text: row.ask_text,
+    chainId: row.chain_id,
+    account: row.account,
+    pool: row.pool,
+    tokenIn: row.token_in,
+    tokenInSymbol: row.token_in_symbol,
+    tokenOut: row.token_out,
+    tokenOutSymbol: row.token_out_symbol,
+    amountInWei: row.amount_in_wei,
+    minOutWei: row.min_out_wei,
     status: row.status,
+    txHash: row.tx_hash,
     createdAt: row.created_at.toISOString(),
-    expiresAt: row.expires_at.toISOString(),
   };
 }
 
-/** The person's bindings and requests. Every read and write names the signed-in person; no row of another is reachable. */
+/** The statuses that hold part of the cap: everything but an order the chain reverted or the signer refused. */
+const HOLDING = ['sending', 'sent', 'filled'] as const;
+
+/** The person's bindings and the Navigator's orders. Every read and write names the signed-in person; no row of another is reachable. */
 export class NavigatorOnchainStore {
   constructor(private readonly sql: Sql) {}
 
@@ -209,52 +229,117 @@ export class NavigatorOnchainStore {
     return bindingView(rows[0]);
   }
 
-  /** Whether the person has a Navigator binding they have not asked to revoke (on any chain). */
-  async holdsUnrevoked(userId: string): Promise<boolean> {
-    const rows = await this.sql<Array<{ n: string }>>`
-      SELECT count(*)::text AS n FROM agents.navigator_onchain_bindings WHERE user_id = ${userId} AND revoke_requested_at IS NULL
+  /** The person's newest Navigator binding on the chain for this key that they have not asked to revoke. */
+  async liveBinding(userId: string, chainId: number, sessionKey: string): Promise<NavigatorOnchainBinding | null> {
+    const rows = await this.sql<BindingRow[]>`
+      SELECT ${this.bindingColumns()} FROM agents.navigator_onchain_bindings
+       WHERE user_id = ${userId} AND chain_id = ${chainId} AND session_key = ${sessionKey.toLowerCase()}
+         AND revoke_requested_at IS NULL
+       ORDER BY updated_at DESC, id
+       LIMIT 1
     `;
-    return rows[0]?.n !== '0';
+    return rows[0] ? bindingView(rows[0]) : null;
   }
 
-  private readonly requestColumns = () => this.sql`
-    id, session_id::text AS session_id, request_key, tool, ask_text,
-    CASE WHEN expires_at <= now() THEN 'expired' ELSE status END AS status, created_at, expires_at
+  private readonly orderColumns = () => this.sql`
+    id, session_id::text AS session_id, order_key, ask_text, chain_id, account, pool, token_in, token_in_symbol, token_out,
+    token_out_symbol, amount_in_wei::text AS amount_in_wei, min_out_wei::text AS min_out_wei, status, tx_hash, created_at
   `;
 
-  /** Holds one trade ask for the person. The same request id again is the first request; with other words it refuses. */
-  async hold(input: {
-    userId: string;
-    sessionId: string;
-    requestId: string;
-    text: string;
-    ttlSeconds: number;
-  }): Promise<NavigatorApprovalRequest> {
-    const key = `agents:approve:${input.sessionId}:${input.requestId}`;
-    const inserted = await this.sql<RequestRow[]>`
-      INSERT INTO agents.navigator_approval_requests (user_id, session_id, request_key, tool, ask_text, expires_at)
-      VALUES (${input.userId}, ${input.sessionId}, ${key}, 'trade', ${input.text},
-              now() + make_interval(secs => ${input.ttlSeconds}))
-      ON CONFLICT (user_id, request_key) DO NOTHING
-      RETURNING ${this.requestColumns()}
+  async order(userId: string, orderKey: string): Promise<NavigatorOrder | null> {
+    const rows = await this.sql<OrderRow[]>`
+      SELECT ${this.orderColumns()} FROM agents.navigator_orders WHERE user_id = ${userId} AND order_key = ${orderKey}
     `;
-    if (inserted[0]) return requestView(inserted[0]);
-    const rows = await this.sql<RequestRow[]>`
-      SELECT ${this.requestColumns()} FROM agents.navigator_approval_requests WHERE user_id = ${input.userId} AND request_key = ${key}
-    `;
-    // The same id with other words is not a retry of this ask.
-    if (!rows[0] || rows[0].ask_text !== input.text) throw new NavigatorOnchainError('agents.request_id_replay');
-    return requestView(rows[0]);
+    return rows[0] ? orderView(rows[0]) : null;
   }
 
-  async requests(userId: string, sessionId: string): Promise<NavigatorApprovalRequest[]> {
-    const rows = await this.sql<RequestRow[]>`
-      SELECT ${this.requestColumns()} FROM agents.navigator_approval_requests
+  /**
+   * What the Navigator's orders under one grant hold of its cap, in wei: every person's orders on that account and grant,
+   * since the cap is the account's, not one person's.
+   */
+  async heldWei(chainId: number, account: string, specHash: string, tx: Sql = this.sql): Promise<bigint> {
+    const rows = await tx<Array<{ n: string }>>`
+      SELECT coalesce(sum(amount_in_wei), 0)::text AS n FROM agents.navigator_orders
+       WHERE chain_id = ${chainId} AND account = ${account.toLowerCase()}
+         AND spec_hash = ${specHash.toLowerCase()} AND status IN ${tx(HOLDING)}
+    `;
+    return BigInt(rows[0]?.n ?? '0');
+  }
+
+  /**
+   * Writes an order as sending, under the grant's lock, only if it fits in what is left of the cap. The same key again
+   * is the first order. Nothing is written for an order above the cap.
+   */
+  async reserveOrder(input: {
+    userId: string;
+    sessionId: string;
+    orderKey: string;
+    text: string;
+    chainId: number;
+    account: string;
+    sessionKey: string;
+    specHash: string;
+    pool: string;
+    tokenIn: string;
+    tokenInSymbol: string;
+    tokenOut: string;
+    tokenOutSymbol: string;
+    amountInWei: bigint;
+    minOutWei: bigint;
+    capWei: bigint;
+    chainSpentWei: bigint;
+  }): Promise<{ kind: 'reserved'; order: NavigatorOrder } | { kind: 'existing'; order: NavigatorOrder } | { kind: 'over_cap' }> {
+    const account = input.account.toLowerCase();
+    const specHash = input.specHash.toLowerCase();
+    // One lock per account and grant, across every person: the cap is the account's.
+    const lock = `agents:navigator:cap:${input.chainId}:${account}:${specHash}`;
+    return this.sql.begin(async (raw) => {
+      const tx = raw as unknown as Sql;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${lock}, 0))`;
+      const found = await tx<OrderRow[]>`
+        SELECT ${this.orderColumns()} FROM agents.navigator_orders WHERE user_id = ${input.userId} AND order_key = ${input.orderKey}
+      `;
+      if (found[0]) return { kind: 'existing' as const, order: orderView(found[0]) };
+      const held = await this.heldWei(input.chainId, account, specHash, tx);
+      if (held + input.chainSpentWei + input.amountInWei > input.capWei) return { kind: 'over_cap' as const };
+      const rows = await tx<OrderRow[]>`
+        INSERT INTO agents.navigator_orders
+          (user_id, session_id, order_key, ask_text, chain_id, account, session_key, spec_hash, pool, token_in, token_in_symbol,
+           token_out, token_out_symbol, amount_in_wei, min_out_wei)
+        VALUES (${input.userId}, ${input.sessionId}, ${input.orderKey}, ${input.text}, ${input.chainId}, ${account},
+                ${input.sessionKey.toLowerCase()}, ${specHash}, ${input.pool.toLowerCase()}, ${input.tokenIn.toLowerCase()},
+                ${input.tokenInSymbol}, ${input.tokenOut.toLowerCase()}, ${input.tokenOutSymbol}, ${input.amountInWei.toString()},
+                ${input.minOutWei.toString()})
+        RETURNING ${this.orderColumns()}
+      `;
+      return { kind: 'reserved' as const, order: orderView(rows[0]!) };
+    });
+  }
+
+  /** Moves an order on: sent with its hash, then filled or reverted as the chain's receipt says, or failed. */
+  async settleOrder(
+    userId: string,
+    orderKey: string,
+    status: 'sent' | 'filled' | 'reverted' | 'failed',
+    txHash: string | null,
+  ): Promise<NavigatorOrder> {
+    const rows = await this.sql<OrderRow[]>`
+      UPDATE agents.navigator_orders SET status = ${status}, tx_hash = COALESCE(${txHash}, tx_hash), updated_at = now()
+       WHERE user_id = ${userId} AND order_key = ${orderKey}
+      RETURNING ${this.orderColumns()}
+    `;
+    if (!rows[0]) throw new Error('navigator order vanished between its write and its update');
+    return orderView(rows[0]);
+  }
+
+  async orders(userId: string, sessionId: string): Promise<NavigatorOrder[]> {
+    const rows = await this.sql<OrderRow[]>`
+      SELECT ${this.orderColumns()} FROM agents.navigator_orders
        WHERE user_id = ${userId} AND session_id = ${sessionId}
        ORDER BY created_at DESC, id
        LIMIT 100
     `;
-    return rows.map(requestView);
+    return rows.map(orderView);
   }
 }
 

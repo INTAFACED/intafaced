@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@fastify/helmet": "^13.1.2",
-    "@fastify/rate-limit": "^11.2.1",
+    "@fastify/rate-limit": "^11.2.2",
     "@intafaced/auth": "workspace:*",
     "@intafaced/config": "workspace:*",
     "@intafaced/connect-data-lake": "workspace:*",
@@ -22,7 +22,7 @@
     "@intafaced/quant-honesty": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.10.0",
-    "fastify": "^5.12.7",
+    "fastify": "^5.12.8",
     "postgres": "^3.4.5",
     "zod": "^4.6.7"
   },
