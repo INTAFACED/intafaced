@@ -1070,19 +1070,33 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(reread.locator('[data-testid="timeline-entry"][data-kind="acknowledged"]')).toContainText(winnerNote);
       await expect(reread).toHaveAttribute('data-version', String(Number(version) + 1));
 
-      // The period is still not green while an alert in it is acknowledged; a control whose every run passed is green.
+      // The period is still not green while an alert in it is acknowledged; a period with no open alert shows green.
       const room = await openAlerts(a);
       const pairPeriod = room.locator(
         `[data-testid="period-row"][data-control-id="${state.pairId}"][data-period-start="${usdt.periodStart}"]`,
       );
       await expect(pairPeriod).toHaveCount(1);
       await expect(pairPeriod).toHaveAttribute('data-green', 'false');
+      // The threshold control's newest period was last run by step #5's passing run. Step #4's run at an hour ago can land in
+      // the day before (in the first hour after midnight UTC) and read a stack that held no USDT account yet: an honest FAIL
+      // with its own open alert, so not every period of this control passed. Each period is judged on what it holds.
       const passing = room.locator(`[data-testid="period-row"][data-control-id="${state.thresholdId}"]`);
       expect(await passing.count(), 'the passing control has evaluated periods').toBeGreaterThan(0);
+      await expect(passing.first()).toHaveAttribute('data-status', 'PASS');
+      let quiet = 0;
       for (const p of await passing.all()) {
-        await expect(p).toHaveAttribute('data-status', 'PASS');
+        const cells = p.locator('td');
+        const [open, acknowledged] = [(await cells.nth(3).innerText()).trim(), (await cells.nth(4).innerText()).trim()];
+        if (open !== '0' || acknowledged !== '0') {
+          await expect(p).toHaveAttribute('data-green', 'false');
+          continue;
+        }
+        quiet += 1;
         await expect(p).toHaveAttribute('data-green', 'true');
+        await expect(cells.nth(5)).toHaveText('Green');
       }
+      expect(quiet, 'the newest period, with no open alert, is among them').toBeGreaterThan(0);
+      await expect(passing.first().locator('td').nth(5)).toHaveText('Green');
 
       // Snooze for an hour, then the same failure again: the alert counts it, its notice is "snoozed" and none is sent.
       const snoozing = await openAlert(a, usdt.id);
