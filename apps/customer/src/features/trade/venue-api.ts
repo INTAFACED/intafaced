@@ -71,8 +71,22 @@ export const venueMarketSchema = z.object({
   markRule: maybeKnown(z.string()),
   tradingHours: maybeKnown(z.string()),
   feed: maybeKnown(z.object({ state: z.enum(['live', 'stale']), lastOracleUpdateAt: isoTime, staleRule: maybeKnown(z.string()) })),
+  // A stock perpetual's home market and the venue's off-hours mode, each in the venue's words (J-derivatives-27).
+  session: maybeKnown(
+    z.object({
+      state: z.enum(['open', 'off_hours']),
+      homeMarket: z.string(),
+      offHoursMode: maybeKnown(z.string()),
+      offHoursBand: maybeKnown(z.string()),
+      offHoursMaxLeverageBps: z.number().int().positive().nullable(),
+      reopensAt: isoTime.nullable(),
+      offHoursRule: maybeKnown(z.string()),
+    }),
+  ),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
+/** A stock perpetual's home-market session as the venue publishes it (J-derivatives-27). */
+export type VenueSession = Extract<VenueMarket['session'], { known: true }>['value'];
 
 export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
@@ -446,6 +460,9 @@ export function venueApi(api: ApiClient) {
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal) => read('/fills', asOf(z.array(venueFillSchema)), { owner, since }, signal),
     positions: (owner: string, signal?: AbortSignal) => read('/positions', asOf(z.array(venuePositionSchema)), { owner }, signal),
+    /** The owner's own sub-accounts, as the venue lists them on the main account (J-agents-08 #2). */
+    subAccounts: (owner: string, signal?: AbortSignal) =>
+      read('/sub-accounts', asOf(z.array(z.object({ subAccount: z.string(), name: z.string() }))), { owner }, signal),
     leverage: (owner: string, symbol: string, signal?: AbortSignal, venueId?: string) =>
       read('/leverage', asOf(venueLeverageSchema.nullable()), { owner, symbol, venueId }, signal),
     builderFeeApproval: (owner: string, signal?: AbortSignal, venueId?: string) =>
