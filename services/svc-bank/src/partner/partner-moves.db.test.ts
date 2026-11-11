@@ -198,6 +198,8 @@ describe('partner-held bank moves (OWNER 226)', () => {
         spaceName: 'Trip TEST',
         heldAt: { label: TEST_PARTNER_LABEL },
       }),
+      // The TEST funding is on the partner's record as a pay-in, listed oldest.
+      expect.objectContaining({ kind: 'deposit', direction: 'in', amount: '100', heldAt: { label: TEST_PARTNER_LABEL } }),
     ]);
     expect(feed.nextCursor).toBeNull();
     const history = await api.transfers.list({ limit: 50 });
@@ -208,9 +210,27 @@ describe('partner-held bank moves (OWNER 226)', () => {
     const one = await api.activity.get({ id: feed.items[1]!.id });
     expect(one.item).toMatchObject({ spaceName: 'Trip TEST', direction: 'in' });
     expect(one.lines).toHaveLength(2);
+    // A search reads the partner's own lines (J-bank-16 #2).
+    expect((await api.activity.list({ limit: 50, q: 'trip' })).items.map((l) => l.spaceName)).toEqual(['Trip TEST']);
     // A filter the partner record cannot answer is refused, never silently ignored.
-    await expect(api.activity.list({ limit: 50, q: 'trip' })).rejects.toSatisfy(
+    await expect(api.activity.list({ limit: 50, minAmount: '1' })).rejects.toSatisfy(
       (err) => codeOf(err) === 'bank.partner_history_filter_unsupported',
+    );
+  });
+
+  it('testPartner.spend moves TEST money once per id: a payment leaves as a transfer, a payout as a withdrawal', async () => {
+    const { api } = await partnerHeld(ADA);
+    const one = await api.testPartner.spend({ spendId: 'spend-ada-1', assetId: 'USDT', amount: '30', kind: 'payment' });
+    expect(await api.testPartner.spend({ spendId: 'spend-ada-1', assetId: 'USDT', amount: '30', kind: 'payment' })).toEqual(one);
+    await api.testPartner.spend({ spendId: 'spend-ada-2', assetId: 'USDT', amount: '10', kind: 'payout' });
+    const feed = await api.activity.list({ limit: 50 });
+    expect(feed.items.map((l) => [l.kind, l.direction, l.amount])).toEqual([
+      ['withdrawal', 'out', '10'],
+      ['transfer_out', 'out', '30'],
+      ['deposit', 'in', '100'],
+    ]);
+    await expect(api.testPartner.spend({ spendId: 'spend-ada-3', assetId: 'USDT', amount: '500', kind: 'payout' })).rejects.toSatisfy(
+      (err) => codeOf(err) === 'bank.partner_insufficient_funds',
     );
   });
 
@@ -224,7 +244,7 @@ describe('partner-held bank moves (OWNER 226)', () => {
       note: 'rent TEST',
       reference: 'REF-TEST-1',
     });
-    const feed = await api.activity.list({ limit: 50 });
+    const feed = await api.activity.list({ limit: 50, kind: ['space_move'] });
     expect(feed.items).toHaveLength(2);
     for (const line of feed.items)
       expect(line).toMatchObject({ note: 'rent TEST', reference: 'REF-TEST-1', heldAt: { label: TEST_PARTNER_LABEL } });
@@ -248,9 +268,27 @@ describe('partner-held bank moves (OWNER 226)', () => {
     await after.testPartner.set({ custody: 'off' });
     await after.testPartner.fund({ fundId: `fund-${ADA}-again`, assetId: 'USDT', amount: '100' });
     await after.transfers.create({ transferId: 'move-ada-after', fromSpaceId: mainSpace.id, toSpaceId: trip.id, amount: '5' });
-    const feed = await after.activity.list({ limit: 50 });
+    const feed = await after.activity.list({ limit: 50, kind: ['space_move'] });
     expect(feed.items).toHaveLength(2);
     for (const line of feed.items) expect(line.note).toBeUndefined();
+  });
+
+  it('testPartner.spend obeys the posting freeze, and refuses a person with no money at the partner', async () => {
+    const { api } = await partnerHeld(ADA);
+    const spend = { spendId: 'spend-frozen-1', assetId: 'USDT', amount: '30', kind: 'payment' } as const;
+    for (const state of [false, 'unreadable'] as const) {
+      posting = state;
+      await expect(api.testPartner.spend(spend)).rejects.toSatisfy((err) => codeOf(err) === 'bank.posting_frozen');
+    }
+    posting = true;
+    expect(await partner.bank.moves(ADA, { limit: 10 })).toEqual([]);
+    expect((await mainOf(api)).balance).toBe('100');
+    await api.testPartner.spend(spend);
+    expect((await mainOf(api)).balance).toBe('70');
+    const { api: custodial } = as(randomUUID());
+    await expect(custodial.testPartner.spend({ ...spend, spendId: 'spend-none-1' })).rejects.toSatisfy(
+      (err) => codeOf(err) === 'bank.no_partner_bank',
+    );
   });
 
   it('with posting frozen on svc-ledger, or the freeze unreadable or not wired, a move refuses bank.posting_frozen and the partner moves nothing', async () => {

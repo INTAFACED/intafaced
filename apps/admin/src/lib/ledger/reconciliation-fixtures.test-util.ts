@@ -28,6 +28,7 @@ export function runView(extra: Partial<ReconciliationControlRunView> = {}): Reco
     id: '9a1b2c3d-1111-4222-8333-444455556666',
     controlId: CONTROL_ID,
     status: 'PASS',
+    compared: 1,
     phase: { status: 'unset' },
     errorCode: { status: 'unset' },
     asOf: '2026-10-24T06:00:00.000Z',

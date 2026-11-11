@@ -206,8 +206,10 @@ and at least one fill was compared; no fill reads `nothing_to_compare`, and tota
 address, an adapter that reads none, the venue not knowing) read `totals_unknown`, never matched. Each result carries the
 fills compared and the time read through. Job `venue.builder_fee_recon` runs it over the last day every
 `TRADE_BUILDER_FEE_RECON_INTERVAL_MS` and logs the alert `trade.builder_fee_recon_break`. Read only: it never posts to make
-the two agree. `builderFeeReceive` (a venue's payout of builder fees) waits for the owner's payout
-model.
+the two agree. Collect (`src/builder-fee/builder-fee-collect.ts`) posts one `builderFeeReceive` per claim the venue
+records for our builder address, keyed `builder-fee-payout:<venueId>:<claimId>`; a claim to any other address is never
+posted. It waits, posting nothing, until the venue adapter reads the builder's claim record (no `UserVenue` read does
+yet; docs/adr/2026-11-10-launch-money-model.md, rule 5).
 
 **Venue markets we list (J-cex-spot-16).** The venue lists what it lists; `GET /api/v1/venue/markets` shows only markets
 two operators listed, each with our `listing` (`opensAt`, `delistsAt`, `routing`, `open`, `delisted`, our `maxOrderQty` /
@@ -701,6 +703,8 @@ No money moves here; the funding tick still posts every leg. The computer only d
 ## Kill-switch
 
 `trade.spot` in the admin console, or `TRADE_SPOT_ENABLED=false`.
+
+**Follows the custody switch** (project-state OWNER.md item 288; `docs/adr/2026-11-10-launch-money-model.md`): our own order book settles every fill as customer money in our ledger, which INTAFACED does not hold with `LEDGER_CUSTODY_LAYER` off. So `TRADE_SPOT_ENABLED` unset is on only with `LEDGER_CUSTODY_LAYER=on`, and set on with custody off refuses boot (`resolveOwnOrderBook`, ledger-client). Set off always loads. `docker-compose.apps.yml` defaults it off; the local TEST stack and the CX-8 boot give svc-trade svc-ledger's custody value.
 
 **Effect when off:** new orders are refused with `trade.spot_disabled` before anything is read or held. Cancels,
 reads and listings keep working, and `/ready` returns 503 so the load balancer takes the instance out of the

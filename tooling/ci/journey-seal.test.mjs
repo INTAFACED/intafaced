@@ -19,6 +19,8 @@ import {
   judgeSteps,
   mainReference,
   splitInherited,
+  redKinds,
+  kindTitle,
   rangeFromCommits,
   areasOf,
   RANGE_MAX,
@@ -1910,6 +1912,9 @@ function startJobProblems(text, finished) {
   const needs = new Set((/\n    needs: \[([^\]]*)\]/.exec(`\n${job}`)?.[1] ?? '').split(',').map((x) => x.trim()));
   const missing = names.filter((n) => n !== 'seal-start' && !needs.has(n));
   if (missing.length) out.push(`does not need ${missing.join(', ')}, so the seal could read the run as going`);
+  // GitHub refuses a workflow whose job needs a job that does not exist, so the run never starts and nothing is proven.
+  const unknown = [...needs].filter((n) => n && !names.includes(n));
+  if (unknown.length) out.push(`needs ${unknown.join(', ')}, which is not a job here`);
   if (!/\n    if: \$\{\{ !cancelled\(\) && /.test(`\n${job}`)) out.push('runs for a cancelled run');
   if (!/ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n\s+persist-credentials: false/.test(job))
     out.push("does not check out the default branch's script");
@@ -1939,6 +1944,11 @@ test('#1574: each seal input ends with Start the seal, after every other job, fr
         startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs.split(', ').slice(1).join(', ')}]`), f).join(),
         /does not need/,
       );
+    // Planted: a job that is not in the workflow (a removed planner) fails.
+    assert.match(
+      startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs}, plan]`), f).join(),
+      /needs plan, which is not a job here/,
+    );
     assert.match(
       startJobProblems(
         text.replace(/(\n  seal-start:\n[\s\S]*?)ref: \$\{\{ github\.event\.repository\.default_branch \}\}/, '$1ref: ${{ github.sha }}'),
@@ -2323,4 +2333,117 @@ test('planted: the seal reads GitHub through getTried, not one bare fetch', () =
   assert.match(src, /async text\(path, ref\) \{\n.*\n {6}const res = await getTried\(/, 'text() makes its GET through getTried');
   const bare = src.replace(/(async function api\(path, token[^)]*\) \{\n {2}const res = await )getTried\(/, '$1fetch(');
   assert.notEqual(/async function api\(path, token[^)]*\) \{\n {2}const res = await (\w+)\(/.exec(bare)?.[1], 'getTried');
+});
+
+// ---- The revert main-bisect opens runs narrow (project-state #1786 item 5) ----
+test('an automatic revert runs the journeys that failed on main and the reverted change own; anything forged is ordinary', async () => {
+  const { autoRevertScope, readAutoRevertScope, AUTO_REVERT_AUTHOR } = await import('./journey-seal.mjs');
+  const SHA = 'c'.repeat(40);
+  const pull = {
+    state: 'open',
+    head: { sha: HEAD, ref: `revert/auto-${SHA.slice(0, 10)}`, repo: { full_name: REPO } },
+    user: { login: AUTO_REVERT_AUTHOR, type: 'Bot' },
+    title: 'Revert #7, which turned the Real-app journeys red (run 9)',
+    body: 'x\n\n- Red run: r\n- Failing: `J-bank-13 #2`, `J-wallet-05 #3`\n- Culprit: #7',
+  };
+  const paths = ['services/svc-bank/src/cards.ts', 'apps/customer/tests/real-app/J-p2p-01.pw.mjs'];
+  const ok = {
+    pull,
+    repo: REPO,
+    paths,
+    commits: [{ commit: { message: `Revert "x"\n\nThis reverts commit ${SHA}.` } }],
+    culprit: { sha: SHA, files: paths.map((filename) => ({ filename })) },
+    culpritTitle: 'svc-ledger: a thing (J-ledger-02 #1)',
+    journeyFiles: new Set(['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs', 'J-p2p-01.pw.mjs', 'J-ledger-02.pw.mjs', 'J-academy-01.pw.mjs']),
+  };
+  const v = autoRevertScope(ok);
+  assert.equal(v.ok, true);
+  assert.deepEqual(v.files, ['J-bank-13.pw.mjs', 'J-ledger-02.pw.mjs', 'J-p2p-01.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.match(v.why, /main's full journeys run after the merge guards main/);
+  assert.equal(autoRevertScope({ ...ok, pull: { ...pull, head: { ...pull.head, ref: 'revert/s1b-7602' } } }), null, 'not its branch');
+  const no = (over, why) => {
+    const r = autoRevertScope({ ...ok, ...over });
+    assert.equal(r.ok, false, why);
+    assert.match(r.why, /runs the ordinary scope/);
+  };
+  no({ pull: { ...pull, user: { login: 'ZenYoda3', type: 'User' } } }, 'a person opened it');
+  no({ pull: { ...pull, user: { login: AUTO_REVERT_AUTHOR, type: 'User' } } }, 'a user named like the App');
+  no({ pull: { ...pull, head: { ...pull.head, repo: { full_name: 'fork/intafaced' } } } }, 'a fork');
+  no({ commits: [...ok.commits, ...ok.commits] }, 'a second commit pushed onto it');
+  no({ commits: [{ commit: { message: `Revert "x"\n\nThis reverts commit ${'d'.repeat(40)}.` } }] }, 'reverts another commit');
+  no({ culprit: null }, 'the reverted commit unread');
+  no({ paths: [...paths, 'services/svc-ledger/src/post.ts'] }, 'a file the reverted commit did not change');
+  no(
+    {
+      paths: [...paths, 'tooling/scripts/local-test-market.mjs'],
+      culprit: { sha: SHA, files: [...paths, 'tooling/scripts/local-test-market.mjs'].map((filename) => ({ filename })) },
+    },
+    'shared journey setup',
+  );
+  no({ pull: { ...pull, body: '' }, paths: ['services/svc-bank/src/cards.ts'], culpritTitle: '' }, 'no journey named');
+  // sealPull judges the narrow files, and names them; a forged revert gets the ordinary scope.
+  const io = (p) => ({
+    pull: async (n) => (n === 7 ? { title: ok.culpritTitle } : p),
+    pullCommits: async () => ok.commits,
+    commit: async () => ok.culprit,
+    journeyFiles: async () => ok.journeyFiles,
+    runs: async () => [run(1)],
+    reportOf: reports({ 1: { states: {}, files: [] } }),
+    files: async () => paths,
+    text: async () => "test('J-p2p-01 #1 x', () => {});",
+    verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
+  });
+  const seal = await sealPull({ repo: REPO, number: 8, sha: HEAD, io: io(pull) });
+  assert.match(seal.lines.join('\n'), /J-bank-13\.pw\.mjs, J-ledger-02\.pw\.mjs, J-p2p-01\.pw\.mjs, J-wallet-05\.pw\.mjs/);
+  assert.doesNotMatch(seal.lines.join('\n'), /neither the title nor a Left-or-replaced line/);
+  assert.equal(
+    await readAutoRevertScope({ io: io(pull), repo: REPO, pull: { ...pull, head: { ...pull.head, ref: 'main' } }, number: 8, paths }),
+    null,
+  );
+  const forged = await sealPull({ repo: REPO, number: 8, sha: HEAD, io: io({ ...pull, user: { login: 'ZenYoda3', type: 'User' } }) });
+  assert.doesNotMatch(forged.lines.join('\n'), /automatic revert of/);
+});
+
+// ---- A red names its kind in its title (OWNER 289; 10-D-one-verdict.md item 8) ----
+
+test("a red's title names its kind: yours, main's or runner", async () => {
+  // yours: a step red on this head and not on main.
+  const bad = await full({ verdictOf: async () => dirty });
+  assert.deepEqual(bad.kinds, ['yours']);
+  // runner: no result to read.
+  assert.deepEqual((await full({ runs: [] })).kinds, ['runner']);
+  assert.deepEqual((await full({ runs: [run(1, { conclusion: 'cancelled' })] })).kinds, ['runner']);
+  assert.deepEqual((await full({ reportOf: reports({ 1: { error: 'no report' } }) })).kinds, ['runner']);
+  assert.deepEqual((await full({ verdictOf: async () => Promise.reject(new Error('gh: HTTP 500')) })).kinds, ['runner']);
+  // main's: a red main shares that still stops this pull request (it touches the journey).
+  const inherited = await full({
+    verdictOf: async () => dirty,
+    inherited: (red) => splitInherited({ upTo: MAIN_SHA, red, main: mainRef(), touches: area(['J-wallet-05']), rangeOf: range() }),
+  });
+  assert.equal(inherited.ok, false, "main's red still blocks a pull request in its area: only the title changes");
+  assert.deepEqual(inherited.kinds, ["main's"]);
+  const shared = await splitInherited({ red: redW, main: mainRef(), touches: { ...area(), shared: true } });
+  assert.deepEqual(redKinds(shared.blocking), ["main's"], 'shared setup: every red counts, and one main shares is still named so');
+  // One red of its own among main's makes it yours.
+  assert.deepEqual(redKinds([{ step: 'a', onMain: true }, { step: 'b' }]), ['yours']);
+  assert.equal(
+    kindTitle(['runner', 'yours', 'yours'], 'Named journey steps not green on this head'),
+    'yours + runner: Named journey steps not green on this head',
+  );
+  assert.equal(kindTitle([], 'T'), 'T');
+});
+
+test('judgeSteps: a named step that failed is yours; one with no finished run is the runner', async () => {
+  const failed = await judgeSteps({
+    sha: HEAD,
+    repo: REPO,
+    title: 'x: J-a-01 #1',
+    body: '',
+    runs: [run(1)],
+    reportOf: reports({ 1: { states: { 'J-a-01#1': 'failed' }, files: {} } }),
+  });
+  assert.equal(failed.ok, false);
+  assert.deepEqual(failed.kinds, ['yours']);
+  const none = await judgeSteps({ sha: HEAD, repo: REPO, title: 'x: J-a-01 #1', body: '', runs: [], reportOf: reports({}) });
+  assert.deepEqual(none.kinds, ['runner']);
 });

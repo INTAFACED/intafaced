@@ -45,7 +45,7 @@ import { restoreWatermarkReadInputSchema, type RestoreWatermarkRead } from '@int
 import type { LedgerTransactionsExist, ReconciliationEvaluationFeed } from '@intafaced/contracts/ledger-reconciliation';
 import { transactionsExist } from './ledger/transactions-exist.js';
 import type { FeeRevenueRow } from './ledger/fee-revenue.js';
-import type { OwnFundsRow } from './ledger/own-funds.js';
+import type { OwnFundsPlaceRow, OwnFundsRow } from './ledger/own-funds.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import type { HoldingsHistory, HoldingsHistoryInput } from './ledger/holdings-history.js';
 import {
@@ -251,7 +251,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   }
 
   /** INTAFACED's own funds now, customer money left out (J-ops-console-24 #1). A read; same no-span reasoning as `history`. */
-  ownFunds(): Promise<{ asOf: Date; rows: OwnFundsRow[] }> {
+  ownFunds(): Promise<{ asOf: Date; rows: OwnFundsRow[]; places: OwnFundsPlaceRow[] }> {
     return this.engine.ownFunds();
   }
 
@@ -572,7 +572,10 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
    */
   async reconcile(): Promise<ReconciliationReport> {
     return withSpan('ledger.reconcile', async () => {
-      const run = await runSnapshotReconciliation(this.sql, { statementTimeoutMs: this.reconcileStatementTimeoutMs });
+      const run = await runSnapshotReconciliation(this.sql, {
+        statementTimeoutMs: this.reconcileStatementTimeoutMs,
+        custodyLayer: this.custodyLayer,
+      });
 
       if (run.outcome === 'skipped') {
         throw new LedgerError('a reconciliation is already running — try again when it has finished', 'ledger.reconcile_in_progress');

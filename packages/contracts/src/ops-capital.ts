@@ -4,6 +4,8 @@ import { z } from 'zod';
  * THE CAPITAL MONITOR (RC-ops-console-06, J-ops-console-24 #1): INTAFACED's own funds beside its buffer thresholds.
  *
  * Four sources, each named on every figure, and none turned into a zero when it cannot be read:
+ *   · Our own funds at each named place (a venue builder account, a partner reserve, a treasury wallet; OWNER 288), the
+ *     ledger's figure beside the outside figure it is checked against and that figure's own time (`places`).
  *   · INTAFACED's own funds, from svc-ledger's `ownFunds` read: house and module accounts only. Every account that holds a
  *     customer's money (`isCustomerBalanceAccount` in `packages/ledger-client/src/custody-layer.ts`) is left out in the
  *     ledger's query, so customer money is never counted as ours (OWNER 226), and so are the pots holding someone else's
@@ -55,11 +57,31 @@ export const ledgerOwnFundsAccountSchema = z.object({
 });
 export type LedgerOwnFundsAccount = z.infer<typeof ledgerOwnFundsAccountSchema>;
 
+/**
+ * The named places our own money sits outside our own book (project-state OWNER.md item 288; b2 change 3): our builder
+ * account at a venue, a reserve a partner holds of ours, our treasury wallet on a chain. Each is one ledger account per
+ * place and asset (`venueBuilderAccount`, `partnerReserve`, `treasuryWallet` in ledger-client), never a customer's.
+ */
+export const OWN_FUNDS_PLACE_KINDS = ['venue_builder_account', 'partner_reserve', 'treasury_wallet'] as const;
+export type OwnFundsPlaceKind = (typeof OWN_FUNDS_PLACE_KINDS)[number];
+
+export const ledgerOwnFundsPlaceSchema = z.object({
+  kind: z.enum(OWN_FUNDS_PLACE_KINDS),
+  /** The venue, partner or wallet id the place is named for (`venue-builder-account:<placeId>` and so on). */
+  placeId: z.string().min(1),
+  assetId: z.string().min(1),
+  /** What the ledger's own book shows of ours at that place now. Decimal string, never negative. */
+  held: z.string().regex(decimal),
+});
+export type LedgerOwnFundsPlace = z.infer<typeof ledgerOwnFundsPlaceSchema>;
+
 export const ledgerOwnFundsSchema = z.object({
   /** When the ledger read its balances, in one snapshot. */
   asOf: z.string().datetime({ offset: true }),
   /** Every house and module account with a balance, customer money left out. An account at zero is absent. */
   accounts: z.array(ledgerOwnFundsAccountSchema),
+  /** Every own-funds place the ledger has an account for, at zero included, in the same snapshot. */
+  places: z.array(ledgerOwnFundsPlaceSchema),
 });
 export type LedgerOwnFunds = z.infer<typeof ledgerOwnFundsSchema>;
 
@@ -149,6 +171,36 @@ export const opsCapitalReservesSchema = z.discriminatedUnion('status', [
 ]);
 export type OpsCapitalReserves = z.infer<typeof opsCapitalReservesSchema>;
 
+/**
+ * The outside figure a place is checked against at this read, with that figure's own time: the venue's record of our
+ * builder account, or the partner's report of its reserve. `none` is the partner saying it holds none; `unknown` is a
+ * read that failed or a partner that would not say; `not_connected` is a place no reader reaches on this deployment
+ * (our treasury wallets, a venue or partner not connected). None of them is ever a zero.
+ */
+export const opsCapitalPlaceOutsideSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('read'),
+    source: z.string().min(1),
+    amount: z.string().regex(decimal),
+    /** The outside party's own time for the figure, with its offset. */
+    asOf: z.string().datetime({ offset: true }),
+  }),
+  z.object({ status: z.literal('none'), source: z.string().min(1) }),
+  unknownPart,
+  z.object({ status: z.literal('not_connected'), message: z.string().min(1) }),
+]);
+export type OpsCapitalPlaceOutside = z.infer<typeof opsCapitalPlaceOutsideSchema>;
+
+export const opsCapitalPlaceSchema = ledgerOwnFundsPlaceSchema.extend({ outside: opsCapitalPlaceOutsideSchema });
+export type OpsCapitalPlace = z.infer<typeof opsCapitalPlaceSchema>;
+
+/** Our own funds at each named place: the ledger's figure beside the outside figure it is checked against. */
+export const opsCapitalPlacesSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('read'), asOf: z.string(), places: z.array(opsCapitalPlaceSchema) }),
+  unknownPart,
+]);
+export type OpsCapitalPlaces = z.infer<typeof opsCapitalPlacesSchema>;
+
 export const opsCapitalThresholdSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('unset'), code: z.literal(OPS_CAPITAL_THRESHOLD_UNSET) }),
   z.object({
@@ -194,6 +246,7 @@ export const opsCapitalSnapshotSchema = z.object({
   /** The UTC day breach alerts are counted in. */
   period: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   ownFunds: opsCapitalOwnFundsSchema,
+  places: opsCapitalPlacesSchema,
   venues: opsCapitalVenuesSchema,
   reserves: opsCapitalReservesSchema,
   buffers: z.array(opsCapitalBufferSchema),

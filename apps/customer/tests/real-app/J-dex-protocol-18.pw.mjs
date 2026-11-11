@@ -1,10 +1,11 @@
-// World: book
+// World: book, market
 import { test, expect } from './journey.mjs';
 import { UNBUILT, dexRun } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { chooseContract, confirmOpen, fillTicket } from './futures-desk.mjs';
-import { api, fund, toUnits } from './stack.mjs';
+import { api, bestPrices, fund, toUnits, tool } from './stack.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-dex-protocol-18, in the running app (docs/roadmap/journeys.json): trade a perpetual from the Web3 side's futures
 // ticket. One test per step, titled "J-dex-protocol-18 #<n>", run in order on one verified TEST account with TEST USDT
@@ -43,6 +44,34 @@ async function positions(who) {
   const { status, body } = await (await api(who)).get('/api/v1/positions');
   expect(status).toBe(200);
   return body;
+}
+
+/**
+ * Opens an isolated long of 0.01 from the ticket, with both TEST books held from the review to the fill. The margin tier
+ * is rated on the perp book's depth, and the TEST maker puts its new ladder up before it takes the old one down, so a
+ * re-quote between the confirm and the order can rate the order above the tier the trader accepted: svc-trade then
+ * refuses trade.risk_limit_confirm_required and nothing opens (#7638: run 42542927599, shard 31; J-derivatives-01 #8 hit
+ * the same, #7885). Timed from before the hold is asked for.
+ */
+async function openIsolatedLong(page, who) {
+  await bestPrices('BTC/USDT', 50, 60_000);
+  await bestPrices(SYMBOL, 50, 60_000);
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+  tool('local-test-market.mjs', 'hold', SYMBOL);
+  try {
+    await bestPrices('BTC/USDT', 50, 60_000);
+    await bestPrices(SYMBOL, 50, 60_000);
+    await page.getByRole('group', { name: 'Margin mode' }).getByRole('button', { name: 'Isolated' }).click();
+    await fillTicket(page, '0.01');
+    await page.getByRole('button', { name: 'Open long' }).click();
+    await confirmOpen(page);
+    expect(Date.now() - heldAt, 'the hold lapsed before the open long filled').toBeLessThan(HOLD_MAX_MS);
+  } finally {
+    tool('local-test-market.mjs', 'release', SYMBOL);
+    tool('local-test-market.mjs', 'release', 'BTC/USDT');
+  }
+  await expect.poll(async () => (await positions(who)).filter((p) => p.symbol === SYMBOL).length, { timeout: 20_000 }).toBeGreaterThan(0);
 }
 
 test(`${J} starts: a verified TEST account with TEST margin, on the futures ticket`, async ({ page }) => {
@@ -137,11 +166,7 @@ test(`${J} #6 switches margin mode and adds 5 TEST margin to an isolated positio
   page,
 }) => {
   const who = await desk(page);
-  await page.getByRole('group', { name: 'Margin mode' }).getByRole('button', { name: 'Isolated' }).click();
-  await fillTicket(page, '0.01');
-  await page.getByRole('button', { name: 'Open long' }).click();
-  await confirmOpen(page);
-  await expect.poll(async () => (await positions(who)).filter((p) => p.symbol === SYMBOL).length, { timeout: 20_000 }).toBeGreaterThan(0);
+  await openIsolatedLong(page, who);
   const row = page
     .getByRole('row')
     .filter({ hasText: SYMBOL })
@@ -183,9 +208,11 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
 }) => {
   const who = await desk(page);
   const me = await api(who);
+  // #6 is not built to its end yet, so #8 opens the position itself when #6 got no further than a refused open (#7638).
+  if ((await positions(who)).every((p) => p.symbol !== SYMBOL)) await openIsolatedLong(page, who);
   // The one open position on this contract is the row the dialog closes (the desk draws one row per position).
   const open = (await positions(who)).filter((p) => p.symbol === SYMBOL);
-  expect(open, 'an earlier step left exactly one position on this contract').toHaveLength(1);
+  expect(open, 'exactly one position is open on this contract').toHaveLength(1);
   const [before] = open;
   const row = page
     .getByRole('row')
