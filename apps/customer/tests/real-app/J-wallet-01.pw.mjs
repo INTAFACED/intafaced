@@ -40,6 +40,8 @@ const SYMBOL = 'BTC-USDC';
 /** The TEST venue's start: 500 TEST USDC, and the resting TEST buy far under the market (the TEST asks start at 60010). */
 const START_USDC = '500';
 const RESTING = { amount: '0.001', price: '30000' };
+/** #3's TEST limit buy while the partner holds the purchase back, far under the market, cancelled straight after. */
+const THIRD = { amount: '0.001', price: '30500' };
 /** #2's TEST limit buy, also far under the market, so it rests until it is cancelled. */
 const SECOND = { amount: '0.002', price: '31000' };
 /** The stack's TEST chain's TEST USD (services/svc-protocol/scripts/seed-test-chain.ts TEST_TOKENS.USD), 6 decimals. */
@@ -367,8 +369,6 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
   expect(await ledger()).toEqual(ledgerStart);
 });
 
-// #3's partner hold (its release time, or "not reported by the partner") is not asserted here: no TEST partner purchase
-// or hold exists yet, so the PR that lands this test names #3 Left-or-replaced, and the clause waits for that partner.
 test(`${J} #3 buys with a bank pull through the partner, then opens Withdraw: the partner's hold with its release time, or "not reported by the partner"; trading is unaffected; the release shows once`, async ({
   page,
 }) => {
@@ -436,7 +436,8 @@ test(`${J} #3 buys with a bank pull through the partner, then opens Withdraw: th
     await expect(hold).toHaveText(new RegExp(`^${PARTNER_BANK}'s hold: 20 USDT from a bank pull purchase, released \\S`));
     await expect(panel.getByTestId('partner-release')).toHaveCount(0);
 
-    // Trading is unaffected: the resting order is still open on the venue, and the venue's own figures are as they were.
+    // Trading is unaffected: the resting order is still open on the venue, the venue's own figures are as they were, and
+    // while the partner holds the purchase back the person places a signed order on the desk and cancels it, as before.
     expect((await openOrders(owner)).map((o) => o.venueClientOrderId)).toEqual([resting]);
     const venueAfter = await venueBalance(owner, 'USDC');
     expect({ free: venueAfter.free, locked: venueAfter.locked, total: venueAfter.total }).toEqual({
@@ -444,6 +445,32 @@ test(`${J} #3 buys with a bank pull through the partner, then opens Withdraw: th
       locked: venueBefore.locked,
       total: venueBefore.total,
     });
+    await page.goto(DESK);
+    await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+    await connectWhenAsked(page, page.getByTestId('venue-wallet-address').filter({ hasText: new RegExp(owner, 'i') }));
+    const ticket = page.getByTestId('venue-ticket');
+    await ticket.getByRole('button', { name: 'Buy', exact: true }).click();
+    await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
+    await ticket.getByRole('textbox', { name: 'Price' }).fill(THIRD.price);
+    await ticket.getByRole('textbox', { name: 'Amount (BTC)' }).fill(THIRD.amount);
+    await ticket.getByRole('button', { name: 'Review buy' }).click();
+    const sheet = page.getByTestId('venue-review');
+    await sheet.getByRole('button', { name: 'Confirm and sign' }).click();
+    await continueInWallet(page);
+    await expect(sheet.getByTestId('venue-outcome').last()).toContainText('Open on the venue.');
+    const placed = (await openOrders(owner)).find((o) => o.venueClientOrderId !== resting);
+    expect(placed?.status).toBe('open');
+    const orderRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${placed.venueClientOrderId}"]`);
+    await orderRow.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await continueInWallet(page);
+    await expect(page.getByTestId('venue-ticket').getByTestId('venue-outcome')).toContainText(
+      'Cancelled on the venue; its lock is released.',
+    );
+    await expect.poll(async () => (await openOrders(owner)).map((o) => o.venueClientOrderId)).toEqual([resting]);
+    // The partner's hold is untouched by the trade.
+    expect((await holds(session)).holds).toEqual(report.holds);
+    await page.goto('/uc/withdraw');
+    await expect(panel.getByTestId('partner-hold')).toHaveAttribute('data-release-at', releaseAt);
 
     // A partner that does not report what it holds back: "not reported by the partner", never 0 and never all free.
     await setPartner(who, { purchaseHolds: 'not_reported' });
