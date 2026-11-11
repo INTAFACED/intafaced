@@ -24,6 +24,7 @@ import {
   type UserVenueOrder,
   type UserVenuePosition,
   type UserVenueSubAccount,
+  type UserVenueSession,
   type UserVenueSubAccountReads,
   type UserVenueTransfer,
   type UserVenueWithdrawal,
@@ -78,6 +79,13 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     reports its feed stale and follows its own published stale rule: the
  *     mark holds at the last oracle price and only reduce-only orders are
  *     taken (an opening order refuses `feed_stale` with the rule's words).
+ *
+ *   · `setSession(symbol, 'off_hours')` — a market with a home market
+ *     (`session`, a stock perpetual) reports it closed and follows its own
+ *     published off-hours rule: an opening market order, an opening order
+ *     above the off-hours leverage cap, and an opening limit outside the
+ *     off-hours band around the last open-hours mark each refuse
+ *     `market_off_hours` with the rule's words; reduce-only closes pass.
  *
  * A leverage above a market's cap refuses `leverage_above_cap`, its detail
  * naming the cap (`XAU-PERP allows at most 10x`), at prepare and at submit.
@@ -141,6 +149,22 @@ export interface SimMarketConfig {
    * venue's published words for that rule (unset: not published, though the venue still follows it).
    */
   readonly oracle?: { readonly staleRule?: string };
+  /**
+   * Set on a market that tracks something traded on a home market with its own hours (a stock perpetual): its session
+   * is published, `open` at start. While `off_hours` (`setSession`) the venue follows its own rule: no opening market
+   * order, no opening order above `offHoursMaxLeverageBps`, and no opening limit priced outside `offHoursBandBps` of the
+   * mark when the home market closed. The words are the venue's (unset: not published, though the venue still follows
+   * the rule); `reopensAfterMs` sets the reopen time it publishes when it closes (unset: none published).
+   */
+  readonly session?: {
+    readonly homeMarket: string;
+    readonly offHoursMode?: string;
+    readonly offHoursBand?: string;
+    readonly offHoursBandBps: number;
+    readonly offHoursMaxLeverageBps: number;
+    readonly offHoursRule?: string;
+    readonly reopensAfterMs?: number;
+  };
 }
 
 /**
@@ -241,6 +265,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly marks = new Map<string, Amount>();
   /** Oracle markets: the time the feed went stale, or absent while it is live (a live oracle updates as the clock runs). */
   private readonly staleSince = new Map<string, Date>();
+  /** Session markets whose off-hours words the venue publishes none of (`setSessionPublished`); it still follows its rule. */
+  private readonly sessionUnpublished = new Set<string>();
+  /** Session markets whose home market is closed: the mark when it closed, and the reopen time the venue published. */
+  private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
   /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
@@ -328,6 +356,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
   }
 
+  /**
+   * TEST control: the most leverage the venue now allows on a perpetual (bps; a deployer raising or lowering its cap).
+   * A held leverage setting stays as it was; an opening order at a setting above the new cap refuses `leverage_above_cap`.
+   */
+  setMarketMaxLeverage(symbol: string, maxLeverageBps: number): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage`);
+    if (!Number.isInteger(maxLeverageBps) || maxLeverageBps < 10_000 || maxLeverageBps % 10_000 !== 0)
+      refuse(this.venue.id, 'venue_rejected', `a leverage cap is a whole number of times, 1x or more (got ${maxLeverageBps} bps)`);
+    this.marketsBySymbol.set(symbol, { ...market, maxLeverageBps });
+  }
+
   /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
   setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
     this.market(symbol);
@@ -370,11 +410,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * Move a perpetual's mark price. On a market priced by an oracle this is an oracle update, which a stale feed does not
-   * make: it refuses `feed_stale` and the mark holds.
+   * make: it refuses `feed_stale` and the mark holds. While a session market's home market is closed it refuses
+   * `market_off_hours`: the mark holds at the last open-hours price.
    */
   setMark(symbol: string, price: Amount): void {
     if (this.staleSince.has(symbol))
       refuse(this.venue.id, 'feed_stale', `${symbol}'s oracle is stale: its price is not updating, so the mark holds`);
+    if (this.offHours.has(symbol))
+      refuse(this.venue.id, 'market_off_hours', `${symbol}'s home market is closed: the mark holds at the last open-hours price`);
     this.marks.set(symbol, price);
   }
 
@@ -405,6 +448,38 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (!market.oracle) refuse(this.venue.id, 'not_offered', `${symbol} is not priced by an oracle on ${this.venue.displayName}`);
     if (state === 'live') this.staleSince.delete(symbol);
     else if (!this.staleSince.has(symbol)) this.staleSince.set(symbol, this.clock());
+  }
+
+  /**
+   * Close a session market's home market (`off_hours`: the venue's off-hours rule applies from now, the band around the
+   * mark at this moment) or open it again. A market with no home market has no session to switch: refuses `not_offered`.
+   */
+  setSession(symbol: string, state: 'open' | 'off_hours'): void {
+    const market = this.market(symbol);
+    if (!market.session) refuse(this.venue.id, 'not_offered', `${symbol} has no home market on ${this.venue.displayName}`);
+    if (state === 'open') {
+      this.offHours.delete(symbol);
+      return;
+    }
+    if (this.offHours.has(symbol)) return;
+    const closedMark = this.marks.get(symbol);
+    if (closedMark === undefined) throw new Error(`TEST simulator: ${symbol} has no mark to hold its off-hours band to`);
+    const after = market.session.reopensAfterMs;
+    this.offHours.set(symbol, {
+      closedMark,
+      reopensAt: after === undefined ? null : new Date(this.clock().getTime() + after),
+    });
+  }
+
+  /**
+   * TEST control: whether the venue publishes a session market's off-hours words (its mode, band, leverage, reopen time
+   * and rule). Unpublished, each reads not published while the venue still follows the same rule.
+   */
+  setSessionPublished(symbol: string, published: boolean): void {
+    const market = this.market(symbol);
+    if (!market.session) refuse(this.venue.id, 'not_offered', `${symbol} has no home market on ${this.venue.displayName}`);
+    if (published) this.sessionUnpublished.delete(symbol);
+    else this.sessionUnpublished.add(symbol);
   }
 
   /**
@@ -492,6 +567,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       markRule: published(m.markRule),
       tradingHours: published(m.tradingHours),
       feed: m.oracle ? { known: true, value: this.feedOf(m) } : { known: false },
+      session: m.session ? { known: true, value: this.sessionOf(m) } : { known: false },
     }));
     return this.asOf(list);
   }
@@ -986,6 +1062,50 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     };
   }
 
+  private sessionOf(market: SimMarketConfig): UserVenueSession {
+    const session = market.session!;
+    const closed = this.offHours.get(market.symbol);
+    if (this.sessionUnpublished.has(market.symbol)) {
+      return {
+        state: closed ? 'off_hours' : 'open',
+        homeMarket: session.homeMarket,
+        offHoursMode: { known: false },
+        offHoursBand: { known: false },
+        offHoursMaxLeverageBps: null,
+        reopensAt: null,
+        offHoursRule: { known: false },
+      };
+    }
+    return {
+      state: closed ? 'off_hours' : 'open',
+      homeMarket: session.homeMarket,
+      offHoursMode: published(session.offHoursMode),
+      offHoursBand: published(session.offHoursBand),
+      offHoursMaxLeverageBps: session.offHoursMaxLeverageBps,
+      reopensAt: closed?.reopensAt ?? null,
+      offHoursRule: published(session.offHoursRule),
+    };
+  }
+
+  /**
+   * The venue's own off-hours rule on an opening order (`checkOrderOnItsFace`): while the home market is closed, no
+   * market order, no leverage above the off-hours cap, no limit outside the band around the closing mark.
+   */
+  private checkOffHours(market: SimMarketConfig, intent: PlaceUserOrderIntent, leverageBps: number): void {
+    const closed = this.offHours.get(market.symbol);
+    if (!closed || intent.reduceOnly || !market.session) return;
+    const session = market.session;
+    // The venue's published rule, or (when it publishes none) its plain reason.
+    const words = (why: string) =>
+      (!this.sessionUnpublished.has(market.symbol) && session.offHoursRule) || `${market.symbol}'s home market is closed: ${why}`;
+    if (intent.type === 'market') refuse(this.venue.id, 'market_off_hours', words('no market orders until it reopens'));
+    if (leverageBps > session.offHoursMaxLeverageBps)
+      refuse(this.venue.id, 'market_off_hours', words(`at most ${session.offHoursMaxLeverageBps / 10_000}x off hours`));
+    const reach = div(mul(closed.closedMark, parseAmount(String(session.offHoursBandBps))), BPS, 'floor');
+    if (compare(intent.price, add(closed.closedMark, reach)) > 0 || compare(intent.price, sub(closed.closedMark, reach)) < 0)
+      refuse(this.venue.id, 'market_off_hours', words('the price is outside the off-hours band'));
+  }
+
   /** The cap's refusal, in the venue's words: the market and the most it allows. */
   private aboveCap(market: SimMarketConfig, leverageBps: number): never {
     refuse(
@@ -1079,6 +1199,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       }
       if (!intent.reduceOnly && market.maxLeverageBps !== null && setting.leverageBps > market.maxLeverageBps)
         this.aboveCap(market, setting.leverageBps);
+      // The venue's own off-hours rule, while the market's home market is closed.
+      this.checkOffHours(market, intent, setting.leverageBps);
       // The venue's own stale-feed rule: while the oracle is stale, only reduce-only orders are taken.
       if (!intent.reduceOnly && market.oracle && this.staleSince.has(market.symbol)) {
         refuse(

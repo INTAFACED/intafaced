@@ -20,6 +20,7 @@ import {
   type VenueMarket,
   type VenuePosition,
   type VenuePreview,
+  type VenueSession,
   type VenueUp,
 } from '../../../features/trade/venue-api';
 import {
@@ -272,7 +273,65 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
           <dd data-testid="venue-stale-rule">{feed ? text(feed.staleRule) : t('Not published')}</dd>
         </div>
       </dl>
+      {market.session.known ? <SessionRules session={market.session.value} symbol={market.symbol} venueName={venueName} /> : null}
     </section>
+  );
+}
+
+/**
+ * A stock perpetual's home market, read from the venue (J-derivatives-27 #4): whether it is open now, and the venue's own
+ * off-hours mode, band, leverage, reopen time and refusal rule, each in its words or "not published by this venue".
+ */
+function SessionRules({ session, symbol, venueName }: { session: VenueSession; symbol: string; venueName: string }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
+  const closed = session.state === 'off_hours';
+  return (
+    <div data-testid="venue-session" data-state={session.state}>
+      {closed ? (
+        <p role="status" data-testid="venue-off-hours">
+          {t('Off-hours notice', { venue: venueName, home: session.homeMarket, symbol, rule: text(session.offHoursRule) })}
+        </p>
+      ) : null}
+      <dl className="protocol-facts">
+        <div>
+          <dt>{t('Home market')}</dt>
+          <dd data-testid="venue-home-market">{t(closed ? 'session_off_hours' : 'session_open', { home: session.homeMarket })}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours mode')}</dt>
+          <dd data-testid="venue-off-hours-mode">{text(session.offHoursMode)}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours band')}</dt>
+          <dd data-testid="venue-off-hours-band">{text(session.offHoursBand)}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours leverage')}</dt>
+          <dd className="numeric" data-testid="venue-off-hours-leverage">
+            {session.offHoursMaxLeverageBps === null
+              ? t('Not published')
+              : t('Off-hours leverage times', { times: String(leverageTimes(session.offHoursMaxLeverageBps)) })}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Reopens')}</dt>
+          <dd data-testid="venue-reopens">
+            {!closed ? (
+              t('Reopens while open')
+            ) : session.reopensAt === null ? (
+              t('Not published')
+            ) : (
+              <time dateTime={session.reopensAt}>{session.reopensAt}</time>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours rule')}</dt>
+          <dd data-testid="venue-off-hours-rule">{text(session.offHoursRule)}</dd>
+        </div>
+      </dl>
+    </div>
   );
 }
 

@@ -18,7 +18,8 @@ name: Main trust
 # opens one issue naming the breaking commit when a check that passed before is broken, and closes it when the check
 # passes again. It only reads runs and writes issues: no schedule, nothing blocks a merge. See
 # tooling/ci/post-merge-trust.mjs. After a Real-app journeys run, a step that passed in the run before and failed outright
-# in this one starts the journeys revert (main-bisect.yml, tooling/ci/journeys-revert.mjs), which opens the culprit's revert.
+# in this one starts the journeys revert (main-bisect.yml, tooling/ci/journeys-revert.mjs), which opens the culprit's revert;
+# the run's own early-break job usually started it already as the failing shard ended, and then this start adds nothing.
 #
 # Ends: with each run of the workflows it follows (workflow_run): one run per finished run of theirs on main, so it
 # stops only when they do, and they never end on their own. A stop disables it until the lift
