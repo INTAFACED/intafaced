@@ -86,10 +86,24 @@ describe('user-venue wire', () => {
         known: true,
         value: { state: 'stale', lastOracleUpdateAt: new Date('2026-11-09T10:00:00.000Z'), staleRule: { known: true, value: '10' } },
       },
+      // A session's words that read like a number stay text too; its reopen time travels as ISO (J-derivatives-27).
+      session: {
+        known: true,
+        value: {
+          state: 'off_hours',
+          homeMarket: 'TEST home exchange',
+          offHoursMode: { known: true, value: '5' },
+          offHoursBand: { known: false },
+          offHoursMaxLeverageBps: 20_000,
+          reopensAt: new Date('2026-11-09T14:30:00.000Z'),
+          offHoursRule: { known: true, value: '2' },
+        },
+      },
     };
     const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
     expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
     expect(json.oracleRule).toEqual({ known: true, value: '3' });
+    expect(json.session.value.reopensAt).toBe('2026-11-09T14:30:00.000Z');
     const back = decodeVenueWire<UserVenueMarket>(json);
     expect(back).toEqual(market);
     expect(typeof (back.oracleRule as { value: unknown }).value).toBe('string');

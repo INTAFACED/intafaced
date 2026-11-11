@@ -24,6 +24,8 @@ import {
   OWN_AGENT_POLICY_EFFECTS,
   OWN_AGENT_POLICY_SCOPES,
   ownAgentPolicyDecisionSchema,
+  ownAgentPolicyAccountSchema,
+  ownAgentAccessSchema,
   ownAgentPolicySchema,
   ownAgentToolCallSchema,
   ownAgentCatalogueSchema,
@@ -66,6 +68,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 import { evaluateToolCall, parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { OwnPolicyStore } from './policy.js';
+import { OwnAccessStore } from './access.js';
 import { executeProcedure } from '../procedures.js';
 import { AGENT_DISABLED, ownAgentSwitch } from '../fleet/control.js';
 import { BackgroundRunStore, ownBackgroundRunSchema, type BackgroundSettings } from './background.js';
@@ -651,19 +654,71 @@ export function ownRouter(
             return store.read(ctx.principal.userId, agent.id);
           });
         }),
-      /** The gate an agent action passes first: allowed, or refused `agents.policy_denied` / `agents.policy_no_match`. */
+      /**
+       * The gate an agent action passes first. A sub-account the person has not given the agent, or one whose access has
+       * ended, is refused `agents.access_account_denied` / `agents.access_expired` before the rules are read; then the
+       * rules allow it, or refuse it `agents.policy_denied` / `agents.policy_no_match`.
+       */
       check: scopedProcedure('agents:read', { module: 'agents', person: true })
-        .input(idInput.extend({ action: z.enum(OWN_AGENT_POLICY_ACTIONS), account: z.literal('main') }))
+        .input(idInput.extend({ action: z.enum(OWN_AGENT_POLICY_ACTIONS), account: ownAgentPolicyAccountSchema }))
         .output(ownAgentPolicyDecisionSchema)
         .query(({ ctx, input }) => {
           assertPersonSetsLimits(ctx.principal);
           return guard(
             async () => {
               const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+              await new OwnAccessStore(sqlOf(sql)).assertAllows(ctx.principal.userId, agent.id, input.account);
               return new OwnPolicyStore(sqlOf(sql)).assertAllows(ctx.principal.userId, agent.id, input.action, input.account);
             },
-            (code) => (code === 'agents.policy_denied' || code === 'agents.policy_no_match' ? 'FORBIDDEN' : null),
+            (code) =>
+              code === 'agents.policy_denied' ||
+              code === 'agents.policy_no_match' ||
+              code === 'agents.access_account_denied' ||
+              code === 'agents.access_expired'
+                ? 'FORBIDDEN'
+                : null,
           );
+        }),
+    }),
+
+    /**
+     * Which of the person's venue sub-accounts this agent may act on, and until when (AG-spend-02, J-agents-08 #2). A
+     * grant names the sub-accounts exactly and always has an end; only the person writes it.
+     */
+    access: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentAccessSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnAccessStore(sqlOf(sql)).read(ctx.principal.userId, agent.id);
+          });
+        }),
+      grant: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(
+          idInput.extend({
+            grantKey: z.string().uuid(),
+            venueId: z.string().min(1).max(64),
+            owner: z.string().max(64),
+            subAccounts: z.array(z.object({ subAccount: z.string().max(64), name: z.string().max(120) })).max(32),
+            endsInDays: z.string().max(16).nullable(),
+          }),
+        )
+        .output(ownAgentAccessSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnAccessStore(sqlOf(sql)).grant(ctx.principal.userId, agent.id, {
+              grantKey: input.grantKey,
+              venueId: input.venueId,
+              owner: input.owner,
+              subAccounts: input.subAccounts,
+              endsIn: input.endsInDays,
+            });
+          });
         }),
     }),
 
