@@ -1,4 +1,5 @@
 // World: none
+// Market: live
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { EDGE, journeyState, times, toUnits } from './stack.mjs';

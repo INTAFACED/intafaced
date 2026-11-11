@@ -30,6 +30,10 @@ import {
   quotesThisCycle,
   holdTaken,
   HOLD_MAX_MS,
+  stillThisCycle,
+  stillTaken,
+  STILL_MAX_MS,
+  walkedMid,
   stackNotActive,
   STACK_INACTIVE_LIMIT_MS,
   fromScaled,
@@ -120,6 +124,18 @@ try {
   );
   assert.equal(between.status, 0, between.stderr);
   assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {}, 'a hold outlived the journey file that set it');
+  // 4d. Entering a journey file asks for a still market (no walk, no crossing) unless the file has a `// Market: live`
+  // line; with no maker running, the request waits in its file for the maker's next start. `live` clears it.
+  const stillFile = join(dirname(holdFile), 'market-still.json');
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(stillFile, 'utf8')).askedAt), 'a journey file entered on a live market');
+  r = run(home, ['live']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /not running; it starts live when it does/);
+  assert.equal(existsSync(stillFile), false);
+  r = run(home, ['still']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /not running; it starts still when it does/);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(stillFile, 'utf8')).askedAt));
   // 5. Through the command line as well: a real-looking target never gets past the guard.
   r = run(home, ['start', '--edge-url', 'https://api.intafaced.com']);
   assert.equal(r.status, 1, r.stderr);
@@ -702,6 +718,36 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   assert.equal(holdTaken({ 'BTC/USDT': 1_000 }, 'BTC/USDT', 1_000), false);
   assert.equal(holdTaken({ 'BTC/USDT': 1_001 }, 'BTC/USDT', 1_000), true);
   assert.equal(holdTaken({ 'ETH/USDT': 2_000 }, 'BTC/USDT', 1_000), false);
+}
+
+// A still market (the journeys' default, project-state #2065): the walk does not step and nothing crosses, so a price
+// read twice in one step reads the same unless someone traded. A `move` still shifts it. A still request left set (a
+// killed run) lapses on its own, but never inside one journey file's hour.
+{
+  const tick = toScaled('0.01');
+  const walk = () => createPriceWalk({ seed: 's', symbol: 'BTC/USDT', startScaled: toScaled('65000'), tickScaled: tick });
+  const still = walk();
+  const mids = Array.from({ length: 5 }, () => walkedMid(still, { still: true, shift: undefined, tick }));
+  assert.deepEqual(new Set(mids).size, 1, 'a still cycle quotes the same mid every time');
+  assert.equal(still.steps, 0);
+  assert.equal(walkedMid(still, { still: true, shift: 100n, tick }), shiftedMid(mids[0], 100n, tick));
+  const live = walk();
+  const moving = Array.from({ length: 5 }, () => walkedMid(live, { still: false, shift: undefined, tick }));
+  assert.ok(new Set(moving).size > 1, 'a live cycle steps the walk (the walk never freezes)');
+  assert.equal(live.steps, 5);
+  assert.equal(stillThisCycle(null, 2_000), false);
+  assert.equal(stillThisCycle({}, 2_000), false);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 2_000), true);
+  assert.ok(STILL_MAX_MS >= 3_600_000);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 1_000 + STILL_MAX_MS), true);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 1_000 + STILL_MAX_MS + 1), false);
+  // `still` and `live` return only on a cycle of the running maker that started after the ask and runs that way.
+  assert.equal(stillTaken(null, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 1_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 8, startedAt: 2_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000, still: false }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), true);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000 }, { still: false, askedAt: 1_000, pid: 7 }), true);
 }
 
 // A maker restart is ready only once its newest run has quoted every market it named, the perpetual (quoted last) too.
