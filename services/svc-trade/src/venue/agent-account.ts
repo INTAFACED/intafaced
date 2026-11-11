@@ -74,7 +74,26 @@ export type AgentAccountCode =
   | 'agents.account_close_balance'
   | 'agents.account_close_move_pending'
   | 'agents.account_request_invalid'
-  | 'agents.account_venue_no_sub_accounts';
+  | 'agents.account_venue_no_sub_accounts'
+  // The assistant's connection and orders (agent-orders.ts, J-agents-21 #6 #7 #10).
+  | 'agents.key_unknown'
+  | 'agents.key_revoked'
+  | 'agents.key_not_agent'
+  | 'agents.key_scope_not_trade'
+  | 'agents.key_read_unavailable'
+  | 'agents.key_already_connected'
+  | 'agents.key_not_connected'
+  | 'agents.order_needs_agent_key'
+  | 'agents.order_request_invalid'
+  | 'agents.order_perp_not_yet'
+  | 'agents.order_cap_exceeded'
+  | 'agents.order_cap_refused'
+  | 'agents.order_bound_unset'
+  | 'agents.price_bound_unset'
+  | 'agents.markets_unset'
+  | 'agents.order_above_bound'
+  | 'agents.price_past_bound'
+  | 'agents.market_not_allowed';
 
 export class AgentAccountError extends Error {
   constructor(
@@ -161,7 +180,7 @@ function invalid(message: string): never {
   throw new AgentAccountError('agents.account_request_invalid', message, 400);
 }
 
-function capErrorAs(error: unknown): never {
+export function capErrorAs(error: unknown): never {
   if (error instanceof AgentCapError) {
     const room =
       error.room === null ? {} : { [error.code === 'agents.account_cap_above_ceiling' ? 'ceiling' : 'room']: formatAmount(error.room) };
@@ -171,7 +190,7 @@ function capErrorAs(error: unknown): never {
 }
 
 /** The agent account is the person's own, from an interactive session: never an API key (the assistant's) or a sub-account. */
-function assertPerson(principal: Principal): void {
+export function assertPerson(principal: Principal): void {
   if (isApiKeyPrincipal(principal) || principal.sub_account) {
     throw new AuthError(
       "an agent account is the person's own: it is made and funded from their signed-in session, never an API key",
