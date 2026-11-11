@@ -11,8 +11,7 @@ import { attachUserVenueRoutes } from './user-venue-rest.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
 
-// J-cex-spot-01: the owner's market price protection (TRADE_MARKET_SLIPPAGE_CAP_BPS) bounds every venue market order on
-// the server, on preview and on prepare, not only in the browser. Every figure here is a TEST figure.
+// J-cex-spot-01: the owner's price protection bounds a spot market order on the server, on preview and prepare. TEST.
 
 const a = parseAmount;
 const USER = '11111111-1111-4111-8111-1111111111d1';
@@ -137,7 +136,7 @@ describe('marketProtectionBound: the same rounding as the desk', () => {
   });
 });
 
-describe('the door bounds every venue market order by the owner protection', () => {
+describe('the door bounds a spot market order by the owner protection', () => {
   it("a perpetual's market order is not bounded by it: the futures ticket's own worst price goes to the venue as typed", async () => {
     // Past the spot bound (60311) and with the protection blank: the venue is asked, on preview and prepare.
     const { d, asked } = door(null);

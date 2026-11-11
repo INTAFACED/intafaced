@@ -71,7 +71,7 @@ function router() {
         store,
         stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
         builder: BUILDER,
-        // A labelled TEST bound wide enough for these routing cases; the bound itself is proven in user-venue-protection.test.ts.
+        // A labelled TEST bound, the widest; the bound is proven in user-venue-protection.test.ts.
         slippageCapBps: TEST_SLIPPAGE_CAP_BPS,
         now: () => new Date(),
         listings,
