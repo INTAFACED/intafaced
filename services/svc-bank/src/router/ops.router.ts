@@ -13,6 +13,8 @@ import {
 import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';
+import { partnerStopsProcedure, setPartnerStopProcedure } from '../partner/partner-stops.js';
+import { partnerRefusalsProcedure } from '../partner/partner-refusals.js';
 import {
   cardPartnerTermsProcedure,
   cardProgrammeFundingProcedure,
@@ -246,6 +248,27 @@ export function createOpsRouter(c: BankRouterContext) {
           };
         }),
       ),
+
+    /**
+     * RC-bank-01 (J-bank-16 #7): the dormancy run as of `at` for the accounts named. Notices a quiet account once, then on
+     * the debit date charges the noticed fee once, or records why not. Blank rules refuse `bank.dormancy_rule_unset`.
+     */
+    runDormancy: jobProcedure
+      .input(z.object({ at: z.string().datetime({ offset: true }), userIds: z.array(z.string().min(1).max(64)).min(1).max(500) }))
+      .output(
+        z.object({
+          noticed: z.array(z.object({ userId: z.string(), assetId: z.string(), fee: amountString, debitDate: z.string() })),
+          settled: z.array(
+            z.object({
+              userId: z.string(),
+              assetId: z.string(),
+              debitDate: z.string(),
+              outcome: z.enum(['cancelled', 'skipped_zero', 'skipped_insufficient', 'charged']),
+            }),
+          ),
+        }),
+      )
+      .mutation(({ input }) => guard(() => bank.dormancy.run({ at: new Date(input.at), userIds: input.userIds }))),
 
     accrueInterest: jobProcedure
       .input(z.object({ poolId: z.string().guid().optional(), at: z.string().datetime({ offset: true }).optional() }))
@@ -1068,6 +1091,12 @@ export function createOpsRouter(c: BankRouterContext) {
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
     assetPauses: assetPausesProcedure(() => bank.assetPauses, guard),
     setAssetPause: setAssetPauseProcedure(() => bank.assetPauses, consumeOpsApproval, guard),
+    partnerStops: partnerStopsProcedure(() => bank.partnerStops, guard),
+    setPartnerStop: setPartnerStopProcedure(() => bank.partnerStops, consumeOpsApproval, guard),
+    partnerRefusals: partnerRefusalsProcedure(
+      () => ({ counts: bank.partnerRefusals, stops: bank.partnerStops, freeze: bank.postingFreeze }),
+      guard,
+    ),
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),

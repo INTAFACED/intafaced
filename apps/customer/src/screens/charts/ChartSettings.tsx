@@ -1,7 +1,8 @@
 /**
  * Chart settings: one dialog with six sections (Symbol, Status line, Scales, Canvas, Trading, Alerts). The options are
- * saved on this device as they change. Trading and Alerts only link to the controls that place orders and set alerts:
- * the dialog itself places no order and sets no alert.
+ * saved on this device as they change. Trading and Alerts keep what the chart shows (the order button on the price scale,
+ * the alert levels) and link to the controls that place orders and set alerts: the dialog itself places no order and sets
+ * no alert.
  */
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogTitle } from './deps';
@@ -31,7 +32,9 @@ const OPTIONS: readonly {
     | 'Settings show price scale'
     | 'Settings show time scale'
     | 'Settings log scale'
-    | 'Settings grid';
+    | 'Settings grid'
+    | 'Settings order button'
+    | 'Settings alert levels';
 }[] = [
   { section: 'symbol', key: 'showName', label: 'Settings show name' },
   { section: 'status', key: 'showTime', label: 'Settings show time' },
@@ -40,6 +43,8 @@ const OPTIONS: readonly {
   { section: 'scales', key: 'timeScale', label: 'Settings show time scale' },
   { section: 'scales', key: 'logScale', label: 'Settings log scale' },
   { section: 'canvas', key: 'gridLines', label: 'Settings grid' },
+  { section: 'trading', key: 'orderButton', label: 'Settings order button' },
+  { section: 'alerts', key: 'alertLevels', label: 'Settings alert levels' },
 ];
 
 export function ChartSettingsDialog({
@@ -113,7 +118,7 @@ export function ChartSettingsDialog({
               <span>{t(option.label)}</span>
             </label>
           ))}
-          {section !== 'trading' && section !== 'alerts' && <p className="cw-settings-note">{t('Settings saved here')}</p>}
+          <p className="cw-settings-note">{t('Settings saved here')}</p>
         </div>
       </DialogContent>
     </Dialog>

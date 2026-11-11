@@ -44,6 +44,8 @@ CI job names, so you can find a failure fast:
 
 Which checks a change needs, and what to do with a red, is in AGENTS.md.
 
+Locally, run the gates with `node tooling/ci/gates.mjs --changed`: it runs every gate, and the tooling tests (about four minutes) only when your branch's diff against `origin/main`, committed or not, touches `tooling/` or `.github/`. CI and `main` always run the full list.
+
 ---
 
 ## 4 · Day one

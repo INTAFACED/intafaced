@@ -292,6 +292,28 @@ const schema = serviceEnvSchema
        * refuses holding any call with agents.approval.ttl_unset: nothing is stored and the tool does not run.
        */
       AGENTS_APPROVAL_TTL_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(604_800).optional()),
+      /**
+       * The public EVM address of the Navigator's on-chain signer (RC-agents-01): the session key a person may grant the
+       * Navigator on their smart account. An address only, never a key. Blank refuses every navigator.onchain route with
+       * rail.crypto (no signer is configured); a malformed value stops the boot.
+       */
+      AGENTS_NAVIGATOR_ONCHAIN_SIGNER: blankAsAbsent(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x address')
+          .optional(),
+      ),
+      /**
+       * The Navigator's trading through the key a person signed (J-agents-19 #4). The chain node it reads the key's grant,
+       * cap and the pools from; the signer it hands the one session call to (a URL; this service holds no key); and the
+       * market it may trade, as JSON {router, spendToken, pools[], slippageBps}. Blank refuses a trade ask by name
+       * (rail.crypto with no signer, agents.navigator_market_unset with no node or market) before anything is signed; a
+       * malformed market stops the boot.
+       */
+      AGENTS_NAVIGATOR_ONCHAIN_RPC_URL: blankAsAbsent(z.string().url().optional()),
+      AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL: blankAsAbsent(z.string().url().optional()),
+      AGENTS_NAVIGATOR_ONCHAIN_MARKET: blankAsAbsent(z.string().max(4_000).optional()),
       // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
       // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
       /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */

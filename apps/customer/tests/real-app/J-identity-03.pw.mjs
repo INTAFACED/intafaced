@@ -72,7 +72,20 @@ async function timedReset(email) {
   return { status: res.status, body, ms: performance.now() - started };
 }
 
-const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+/** The middle value; with an even count, the mean of the two middle values. */
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Timed pairs in J-identity-03 #1. The known address is asked once on the page and then once per pair, so 1 + 8 stays
+ * under the stack's TEST cap of ten reset requests per address an hour (tooling/profiles/test-owner-values/identity.json).
+ * Eight pairs keep a short runner stall from setting the median: with four, two stalled requests out of four did
+ * (issues #7854, #7891). The bound stays 100 ms.
+ */
+const TIMED_PAIRS = 8;
 
 /** Identity restarted with no mail transport, as a build without a mail provider runs, or back on the stack's outbox. */
 function mail(on) {
@@ -106,11 +119,16 @@ test(`${J} #1 the find-password page answers with the same message and the same 
   expect(mailedLines(unknown, 'reset-no-account')).toHaveLength(0);
 
   // The same timing: identity's answer to a known address and to unknown ones, taken in turn, the same reply each time,
-  // and their medians within 100 ms of each other (a few requests each, well inside the address's request budget).
+  // and their medians within 100 ms of each other (TIMED_PAIRS requests each, inside the address's request budget).
+  // A known address's answer starts its mail send just after the reply (off the response path), so each unknown
+  // request is timed only once that mail is out: otherwise the unknown answer is measured while the server sends the
+  // known address's mail (issue #7854).
   const known = [];
   const strangers = [];
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < TIMED_PAIRS; i++) {
+    const mailed = resetCodes(who.email).length;
     const a = await timedReset(who.email);
+    await nextResetCode(who.email, mailed);
     const b = await timedReset(`nobody-${i}-${who.handle}@local-test.invalid`);
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);

@@ -7,6 +7,7 @@ import {
   venueClientOrderId,
   type AsOf,
   type MaybeKnown,
+  type VenueBuilderTotals,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -14,19 +15,25 @@ import {
   type UserVenueAgent,
   type UserVenueBalance,
   type UserVenueDescriptor,
+  type UserVenueFeed,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueListing,
   type UserVenueMarket,
   type UserVenueMarketStatus,
   type UserVenueOrder,
   type UserVenuePosition,
   type UserVenueSubAccount,
+  type UserVenueSession,
   type UserVenueSubAccountReads,
   type UserVenueTransfer,
   type UserVenueWithdrawal,
   type VenueAssetAmount,
   type VenueIntent,
+  type VenueBook,
+  type VenueBookLevel,
   type VenueOrderPreview,
+  type VenueBestPrices,
   type VenueMarginMode,
   type VenueRefusalCode,
   type VenueSignature,
@@ -68,6 +75,20 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     not admit refuses `market_halted` / `market_cancel_only` /
  *     `market_delisted`, one above its largest `order_above_venue_max`; cancels
  *     always pass.
+ *   · `setFeed(symbol, 'stale')` — a market priced by an oracle (`oracle`)
+ *     reports its feed stale and follows its own published stale rule: the
+ *     mark holds at the last oracle price and only reduce-only orders are
+ *     taken (an opening order refuses `feed_stale` with the rule's words).
+ *
+ *   · `setSession(symbol, 'off_hours')` — a market with a home market
+ *     (`session`, a stock perpetual) reports it closed and follows its own
+ *     published off-hours rule: an opening market order, an opening order
+ *     above the off-hours leverage cap, and an opening limit outside the
+ *     off-hours band around the last open-hours mark each refuse
+ *     `market_off_hours` with the rule's words; reduce-only closes pass.
+ *
+ * A leverage above a market's cap refuses `leverage_above_cap`, its detail
+ * naming the cap (`XAU-PERP allows at most 10x`), at prepare and at submit.
  *
  * Sub-accounts and agents, as a real venue keeps them (Hyperliquid's rules,
  * read 2026-11-09): the owner opens a sub-account and moves free balance in
@@ -109,17 +130,53 @@ export interface SimMarketConfig {
   readonly builderFeeCapBps?: MaybeKnown<Amount>;
   /** Perpetuals: maintenance margin as a fraction of notional (scaled decimal, `parseAmount('0.005')`). */
   readonly maintenanceMarginRate?: Amount;
-  /** Perpetuals: the starting mark price. */
+  /** Perpetuals: the starting mark price (on a market with an `oracle`, its starting oracle price). */
   readonly markPrice?: Amount;
   /** The market's own state at start; absent is `trading`. */
   readonly status?: UserVenueMarketStatus | null;
   /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
   readonly maxOrderQty?: Amount | null;
   readonly maxOrderNotional?: Amount | null;
+  /** Who lists the market, as the venue publishes it. Unset: not published. */
+  readonly listedBy?: UserVenueListing;
+  /** The venue's published oracle and mark-price rules and trading hours, in its words. Unset: not published. */
+  readonly oracleRule?: string;
+  readonly markRule?: string;
+  readonly tradingHours?: string;
+  /**
+   * Set on a perpetual priced by an oracle: its mark is the oracle price (a fill does not move it), its feed state is
+   * published, and while the feed is stale the mark holds and only reduce-only orders are taken. `staleRule` is the
+   * venue's published words for that rule (unset: not published, though the venue still follows it).
+   */
+  readonly oracle?: { readonly staleRule?: string };
+  /**
+   * Set on a market that tracks something traded on a home market with its own hours (a stock perpetual): its session
+   * is published, `open` at start. While `off_hours` (`setSession`) the venue follows its own rule: no opening market
+   * order, no opening order above `offHoursMaxLeverageBps`, and no opening limit priced outside `offHoursBandBps` of the
+   * mark when the home market closed. The words are the venue's (unset: not published, though the venue still follows
+   * the rule); `reopensAfterMs` sets the reopen time it publishes when it closes (unset: none published).
+   */
+  readonly session?: {
+    readonly homeMarket: string;
+    readonly offHoursMode?: string;
+    readonly offHoursBand?: string;
+    readonly offHoursBandBps: number;
+    readonly offHoursMaxLeverageBps: number;
+    readonly offHoursRule?: string;
+    readonly reopensAfterMs?: number;
+  };
 }
+
+/**
+ * TEST: how old the TEST venue says its figures may be before they are stale (b2 change 6). A real venue's adapter
+ * declares its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_VENUE_FIGURE_STALE_AFTER_MS = 60_000;
 
 export interface SimSwitches {
   venueDown: boolean;
+  /** The venue's builder totals read as not known (OWNER 288 1e), as on a venue that publishes none. */
+  builderTotalsUnknown: boolean;
   /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
   unlistPerpetuals: boolean;
   withdrawalFee: MaybeKnown<Amount>;
@@ -206,17 +263,25 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly clock: () => Date;
   private readonly marketsBySymbol = new Map<string, SimMarketConfig>();
   private readonly marks = new Map<string, Amount>();
+  /** Oracle markets: the time the feed went stale, or absent while it is live (a live oracle updates as the clock runs). */
+  private readonly staleSince = new Map<string, Date>();
+  /** Session markets whose off-hours words the venue publishes none of (`setSessionPublished`); it still follows its rule. */
+  private readonly sessionUnpublished = new Set<string>();
+  /** Session markets whose home market is closed: the mark when it closed, and the reopen time the venue published. */
+  private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
   /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
   private readonly lostAnswers = new Map<string, number>();
-  private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
+  private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
   private readonly networkFeeCharged = new Map<string, Amount>();
   private readonly withdrawalSubmittedAt = new Map<string, Date>();
   private seqCounter = 0;
   private fillCounter = 0;
+  /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
+  private readonly builderEarned = new Map<string, Map<string, Amount>>();
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
@@ -232,11 +297,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       kind: 'external-dex',
       sequencedDepth: true,
       proofLevel: 'simulator',
+      figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
+      builderTotalsUnknown: false,
       unlistPerpetuals: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
@@ -249,7 +316,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     };
     for (const market of options.markets) {
       this.marketsBySymbol.set(market.symbol, market);
-      this.book.set(market.symbol, []);
+      this.resting.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
       this.marketState.set(market.symbol, {
         status: market.status === undefined ? 'trading' : market.status,
@@ -268,7 +335,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is already listed on ${this.venue.displayName}`);
     }
     this.marketsBySymbol.set(market.symbol, market);
-    this.book.set(market.symbol, []);
+    this.resting.set(market.symbol, []);
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
     this.marketState.set(market.symbol, {
       status: market.status === undefined ? 'trading' : market.status,
@@ -283,6 +350,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.marketState.get(symbol)!.status = status;
   }
 
+  /** TEST control: the trading fees this market publishes; `known: false` publishes none (the venue still charges its unpublished rate). */
+  setMarketFees(symbol: string, fees: { makerFeeBps: MaybeKnown<Amount>; takerFeeBps: MaybeKnown<Amount> }): void {
+    const market = this.market(symbol);
+    this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+  }
+
+  /**
+   * TEST control: the most leverage the venue now allows on a perpetual (bps; a deployer raising or lowering its cap).
+   * A held leverage setting stays as it was; an opening order at a setting above the new cap refuses `leverage_above_cap`.
+   */
+  setMarketMaxLeverage(symbol: string, maxLeverageBps: number): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage`);
+    if (!Number.isInteger(maxLeverageBps) || maxLeverageBps < 10_000 || maxLeverageBps % 10_000 !== 0)
+      refuse(this.venue.id, 'venue_rejected', `a leverage cap is a whole number of times, 1x or more (got ${maxLeverageBps} bps)`);
+    this.marketsBySymbol.set(symbol, { ...market, maxLeverageBps });
+  }
+
   /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
   setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
     this.market(symbol);
@@ -292,6 +377,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
+
+  /**
+   * TEST control: every account's fills since a time, each with the account it belongs to, so a TEST journey can
+   * account for every fill on the venue in a period (never part of UserVenue; a real venue reports only your own).
+   */
+  testAllFills(since: Date): AsOf<readonly { owner: string; subAccount: string | null; fill: UserVenueFill }[]> {
+    const out: { owner: string; subAccount: string | null; fill: UserVenueFill }[] = [];
+    for (const a of this.accounts.values()) {
+      const sub = a.key.slice(a.key.indexOf('/') + 1);
+      for (const fill of a.fills)
+        if (fill.filledAt.getTime() >= since.getTime()) out.push({ owner: a.owner, subAccount: sub === '' ? null : sub, fill });
+    }
+    out.sort((x, y) => x.fill.filledAt.getTime() - y.fill.filledAt.getTime());
+    return this.asOf(out);
+  }
 
   /**
    * Credit a deposit the customer signed on their own chain. Idempotent by
@@ -308,8 +408,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return true;
   }
 
-  /** Move a perpetual's mark price. */
+  /**
+   * Move a perpetual's mark price. On a market priced by an oracle this is an oracle update, which a stale feed does not
+   * make: it refuses `feed_stale` and the mark holds. While a session market's home market is closed it refuses
+   * `market_off_hours`: the mark holds at the last open-hours price.
+   */
   setMark(symbol: string, price: Amount): void {
+    if (this.staleSince.has(symbol))
+      refuse(this.venue.id, 'feed_stale', `${symbol}'s oracle is stale: its price is not updating, so the mark holds`);
+    if (this.offHours.has(symbol))
+      refuse(this.venue.id, 'market_off_hours', `${symbol}'s home market is closed: the mark holds at the last open-hours price`);
     this.marks.set(symbol, price);
   }
 
@@ -329,6 +437,49 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (!agent) return false;
     state.agents.set(agent.address, { ...agent, validUntil: this.clock() });
     return true;
+  }
+
+  /**
+   * Make an oracle market's feed stale (the oracle stops updating at this moment) or live again. A market with no
+   * oracle has no feed to switch: refuses `not_offered`.
+   */
+  setFeed(symbol: string, state: 'live' | 'stale'): void {
+    const market = this.market(symbol);
+    if (!market.oracle) refuse(this.venue.id, 'not_offered', `${symbol} is not priced by an oracle on ${this.venue.displayName}`);
+    if (state === 'live') this.staleSince.delete(symbol);
+    else if (!this.staleSince.has(symbol)) this.staleSince.set(symbol, this.clock());
+  }
+
+  /**
+   * Close a session market's home market (`off_hours`: the venue's off-hours rule applies from now, the band around the
+   * mark at this moment) or open it again. A market with no home market has no session to switch: refuses `not_offered`.
+   */
+  setSession(symbol: string, state: 'open' | 'off_hours'): void {
+    const market = this.market(symbol);
+    if (!market.session) refuse(this.venue.id, 'not_offered', `${symbol} has no home market on ${this.venue.displayName}`);
+    if (state === 'open') {
+      this.offHours.delete(symbol);
+      return;
+    }
+    if (this.offHours.has(symbol)) return;
+    const closedMark = this.marks.get(symbol);
+    if (closedMark === undefined) throw new Error(`TEST simulator: ${symbol} has no mark to hold its off-hours band to`);
+    const after = market.session.reopensAfterMs;
+    this.offHours.set(symbol, {
+      closedMark,
+      reopensAt: after === undefined ? null : new Date(this.clock().getTime() + after),
+    });
+  }
+
+  /**
+   * TEST control: whether the venue publishes a session market's off-hours words (its mode, band, leverage, reopen time
+   * and rule). Unpublished, each reads not published while the venue still follows the same rule.
+   */
+  setSessionPublished(symbol: string, published: boolean): void {
+    const market = this.market(symbol);
+    if (!market.session) refuse(this.venue.id, 'not_offered', `${symbol} has no home market on ${this.venue.displayName}`);
+    if (published) this.sessionUnpublished.delete(symbol);
+    else this.sessionUnpublished.add(symbol);
   }
 
   /**
@@ -411,8 +562,47 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
+      listedBy: published(m.listedBy),
+      oracleRule: published(m.oracleRule),
+      markRule: published(m.markRule),
+      tradingHours: published(m.tradingHours),
+      feed: m.oracle ? { known: true, value: this.feedOf(m) } : { known: false },
+      session: m.session ? { known: true, value: this.sessionOf(m) } : { known: false },
     }));
     return this.asOf(list);
+  }
+
+  /** The best resting bid and ask on `symbol`, every account's orders, as the public book shows them. */
+  async bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
+    this.up();
+    const market = this.market(symbol);
+    let bid: Amount | null = null;
+    let ask: Amount | null = null;
+    for (const o of this.bookOf(market.symbol)) {
+      if (o.order.side === 'buy' && (bid === null || compare(o.order.price, bid) > 0)) bid = o.order.price;
+      if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
+    }
+    return this.asOf({ symbol: market.symbol, bid, ask });
+  }
+
+  async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    this.up();
+    this.market(symbol);
+    const levels = (side: 'buy' | 'sell'): VenueBookLevel[] => {
+      const out: VenueBookLevel[] = [];
+      const resting = this.bookOf(symbol)
+        .filter((o) => o.order.side === side && o.order.remaining > ZERO)
+        .sort((a, b) => (side === 'buy' ? compare(b.order.price, a.order.price) : compare(a.order.price, b.order.price)));
+      for (const o of resting) {
+        const last = out[out.length - 1];
+        if (last && compare(last.price, o.order.price) === 0)
+          out[out.length - 1] = { price: last.price, amount: add(last.amount, o.order.remaining) };
+        else if (out.length < depth) out.push({ price: o.order.price, amount: o.order.remaining });
+        else break;
+      }
+      return out;
+    };
+    return this.asOf({ symbol, bids: levels('buy'), asks: levels('sell') });
   }
 
   async preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
@@ -793,6 +983,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).builderApprovals.get(builder.toLowerCase()) ?? ZERO);
   }
 
+  /**
+   * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
+   * carried that builder, per fee asset. No builder claims here, so all of it is unclaimed. The `builderTotalsUnknown`
+   * switch answers not known.
+   */
+  async builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
+    this.up();
+    if (this.switches.builderTotalsUnknown) return this.asOf({ known: false });
+    const b = builder.toLowerCase();
+    const assets = [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()]
+      .sort(([x], [y]) => x.localeCompare(y))
+      .map(([asset, earned]) => ({ asset, earned, unclaimed: earned }));
+    return this.asOf({ known: true, value: { builder: b, assets } });
+  }
+
   async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     this.up();
     this.market(symbol);
@@ -848,12 +1053,76 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return agent !== undefined && (agent.validUntil === null || agent.validUntil.getTime() > this.clock().getTime());
   }
 
+  private feedOf(market: SimMarketConfig): UserVenueFeed {
+    const since = this.staleSince.get(market.symbol);
+    return {
+      state: since ? 'stale' : 'live',
+      lastOracleUpdateAt: since ?? this.clock(),
+      staleRule: published(market.oracle?.staleRule),
+    };
+  }
+
+  private sessionOf(market: SimMarketConfig): UserVenueSession {
+    const session = market.session!;
+    const closed = this.offHours.get(market.symbol);
+    if (this.sessionUnpublished.has(market.symbol)) {
+      return {
+        state: closed ? 'off_hours' : 'open',
+        homeMarket: session.homeMarket,
+        offHoursMode: { known: false },
+        offHoursBand: { known: false },
+        offHoursMaxLeverageBps: null,
+        reopensAt: null,
+        offHoursRule: { known: false },
+      };
+    }
+    return {
+      state: closed ? 'off_hours' : 'open',
+      homeMarket: session.homeMarket,
+      offHoursMode: published(session.offHoursMode),
+      offHoursBand: published(session.offHoursBand),
+      offHoursMaxLeverageBps: session.offHoursMaxLeverageBps,
+      reopensAt: closed?.reopensAt ?? null,
+      offHoursRule: published(session.offHoursRule),
+    };
+  }
+
+  /**
+   * The venue's own off-hours rule on an opening order (`checkOrderOnItsFace`): while the home market is closed, no
+   * market order, no leverage above the off-hours cap, no limit outside the band around the closing mark.
+   */
+  private checkOffHours(market: SimMarketConfig, intent: PlaceUserOrderIntent, leverageBps: number): void {
+    const closed = this.offHours.get(market.symbol);
+    if (!closed || intent.reduceOnly || !market.session) return;
+    const session = market.session;
+    // The venue's published rule, or (when it publishes none) its plain reason.
+    const words = (why: string) =>
+      (!this.sessionUnpublished.has(market.symbol) && session.offHoursRule) || `${market.symbol}'s home market is closed: ${why}`;
+    if (intent.type === 'market') refuse(this.venue.id, 'market_off_hours', words('no market orders until it reopens'));
+    if (leverageBps > session.offHoursMaxLeverageBps)
+      refuse(this.venue.id, 'market_off_hours', words(`at most ${session.offHoursMaxLeverageBps / 10_000}x off hours`));
+    const reach = div(mul(closed.closedMark, parseAmount(String(session.offHoursBandBps))), BPS, 'floor');
+    if (compare(intent.price, add(closed.closedMark, reach)) > 0 || compare(intent.price, sub(closed.closedMark, reach)) < 0)
+      refuse(this.venue.id, 'market_off_hours', words('the price is outside the off-hours band'));
+  }
+
+  /** The cap's refusal, in the venue's words: the market and the most it allows. */
+  private aboveCap(market: SimMarketConfig, leverageBps: number): never {
+    refuse(
+      this.venue.id,
+      'leverage_above_cap',
+      `${market.symbol} allows at most ${(market.maxLeverageBps ?? 0) / 10_000}x; ${leverageBps / 10_000}x is above its cap`,
+    );
+  }
+
   private up(): void {
     if (this.switches.venueDown) refuse(this.venue.id, 'venue_down', `${this.venue.displayName} is down (TEST switch)`);
   }
 
   private asOf<T>(value: T): AsOf<T> {
-    return { venueId: this.venue.id, value, asOf: this.clock() };
+    const at = this.clock();
+    // The venue's own clock is the time of every read it gives (b2 change 6).
+    return { venueId: this.venue.id, value, asOf: at, reportedAt: at };
   }
 
   private account(account: UserVenueAccount): AccountState {
@@ -924,8 +1193,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
         refuse(this.venue.id, 'not_offered', 'a resting reduce-only order is not offered on the TEST simulator: close with IOC or market');
       }
-      if (!state.leverage.has(market.symbol)) {
+      const setting = state.leverage.get(market.symbol);
+      if (!setting) {
         refuse(this.venue.id, 'leverage_not_set', `no leverage is set on ${market.symbol} for this account: set it first`);
+      }
+      if (!intent.reduceOnly && market.maxLeverageBps !== null && setting.leverageBps > market.maxLeverageBps)
+        this.aboveCap(market, setting.leverageBps);
+      // The venue's own off-hours rule, while the market's home market is closed.
+      this.checkOffHours(market, intent, setting.leverageBps);
+      // The venue's own stale-feed rule: while the oracle is stale, only reduce-only orders are taken.
+      if (!intent.reduceOnly && market.oracle && this.staleSince.has(market.symbol)) {
+        refuse(
+          this.venue.id,
+          'feed_stale',
+          market.oracle.staleRule ?? `${market.symbol}'s oracle is stale: only reduce-only orders are taken until it updates`,
+        );
       }
     } else if (intent.reduceOnly) {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is cash spot: no reduce-only`);
@@ -937,14 +1219,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage or margin mode`);
     if (!market.marginModes.includes(marginMode))
       refuse(this.venue.id, 'not_offered', `margin mode ${marginMode} is not offered on ${symbol}`);
-    if (
-      !Number.isInteger(leverageBps) ||
-      leverageBps % 10_000 !== 0 ||
-      leverageBps < 10_000 ||
-      (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps)
-    ) {
+    if (!Number.isInteger(leverageBps) || leverageBps % 10_000 !== 0 || leverageBps < 10_000) {
       refuse(this.venue.id, 'not_offered', `leverage ${leverageBps} bps is outside what ${symbol} offers`);
     }
+    if (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps) this.aboveCap(market, leverageBps);
     return market;
   }
 
@@ -1264,7 +1542,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   private bookOf(symbol: string): OrderState[] {
-    return this.book.get(symbol) as OrderState[];
+    return this.resting.get(symbol) as OrderState[];
   }
 
   /** One fill between a resting maker and an incoming taker at the maker's price. */
@@ -1298,6 +1576,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       side.order = { ...o, filled, remaining, averagePrice, status: remaining === ZERO ? 'filled' : 'partially_filled' };
       if (remaining === ZERO) this.release(side, 'filled');
 
+      if (builderFee > ZERO) {
+        const b = side.builderFee!.builder.toLowerCase();
+        const asset = feeInBase ? market.baseAsset : market.quoteAsset;
+        const byAsset = this.builderEarned.get(b) ?? new Map<string, Amount>();
+        byAsset.set(asset, add(byAsset.get(asset) ?? ZERO, builderFee));
+        this.builderEarned.set(b, byAsset);
+      }
       this.fillCounter += 1;
       side.account.fills.push({
         fillId: `sim-fill-${this.fillCounter}`,
@@ -1314,7 +1599,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         filledAt: now,
       });
     }
-    if (market.kind === 'perpetual') this.marks.set(market.symbol, price);
+    // An oracle market's mark is the oracle price: a fill does not move it.
+    if (market.kind === 'perpetual' && !market.oracle) this.marks.set(market.symbol, price);
   }
 
   /**
@@ -1431,6 +1717,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const at = book.indexOf(order);
     if (at >= 0) book.splice(at, 1);
   }
+}
+
+/** A published word of the venue's, or `known: false` when it publishes none. */
+function published<T>(value: T | undefined): MaybeKnown<T> {
+  return value === undefined ? { known: false } : { known: true, value };
 }
 
 function isLive(o: OrderState): boolean {

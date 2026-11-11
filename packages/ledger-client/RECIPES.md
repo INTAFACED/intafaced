@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**90 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**99 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -18,6 +18,15 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `tradeFillMakerRebate`          | `trade`     | `trade.fill.rebate`                                              |
 | `builderFeeEarn`                | `trade`     | `trade.builder_fee.earned`                                       |
 | `builderFeeReceive`             | `trade`     | `trade.builder_fee.received`                                     |
+| `ownFundsMove`                  | `treasury`  | `treasury.own_funds.moved`                                       |
+| `campaignBudgetFund`            | `campaigns` | `campaigns.budget.funded`                                        |
+| `rewardOwe`                     | `campaigns` | `campaigns.reward.owed`                                          |
+| `rewardPayOut`                  | `campaigns` | `campaigns.reward.paid_out`                                      |
+| `feeShareBudgetFund`            | `trade`     | `trade.fee_share.budget_funded`                                  |
+| `feeShareOwe`                   | `trade`     | `trade.fee_share.owed`                                           |
+| `feeSharePayOut`                | `trade`     | `trade.fee_share.paid_out`                                       |
+| `chargeEarn`                    | `<module>`  | `charge.earned`                                                  |
+| `chargeCollect`                 | `<module>`  | `charge.collected`                                               |
 | `orderHold`                     | `trade`     | `order.hold`                                                     |
 | `orderHoldRelease`              | `trade`     | `order.hold.released`                                            |
 | `orderHoldAmend`                | `trade`     | `order.hold.amend`                                               |
@@ -113,6 +122,9 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, reverse, and late-fill booking from clearing or fx-inventory |
 | `src/recipes/staff-hold.ts`       | ops staff holds: place, release in part (approver or expiry), confirm to the owner-named account   |
 | `src/recipes/campaign-lock.ts`    | campaign locked rewards and bonuses: rewards engine to a per-reward pot, then unlock or forfeit    |
+| `src/recipes/reward-owed.ts`      | reward owed with custody off: budget, owe (ceiling unset refuses), pay to the customer wallet      |
+| `src/recipes/fee-share-owed.ts`   | fee share owed with custody off: budget from a collected claim, owe (rate unset refuses), pay      |
+| `src/recipes/charge.ts`           | a charge a customer owes us with custody off: earn (price unset refuses), collect at our place     |
 
 ## Sealed notes
 

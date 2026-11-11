@@ -9,6 +9,7 @@
  * A red CI job that names no test file but has a probe here (JOB_PROBES: Doctrine gates runs `pnpm gates`) is
  * searched the same way with that job's own command. The result is a comment on the culprit's pull request and on the
  * "Main is red" issue, and the culprit as this job's output, which main-bisect.yml's revert job opens a revert for
+ * only when the culprit's parent passes on this runner (confirmBlame); else nothing is blamed
  * (journeys-revert.mjs open, the one revert on main for journeys and CI; OWNER 180: a red main is fixed or undone
  * within 2 hours). (Failure it prevents: on 9 Nov 2026 main's Doctrine gates stayed red on #7602's
  * journey-reach-map.test.mjs:555, and builders merged main three times to clear it.)
@@ -28,6 +29,12 @@ const TEST_PATH = /^(apps|services|packages|tooling)\/[\w.-]+\/[\w./@-]+\.(test|
 export const MAX_COMMITS = 200;
 /** CI jobs on main whose failure names no test file, with the command that decides them: each probe runs it twice. */
 export const JOB_PROBES = { 'Doctrine gates': ['pnpm', 'gates'] };
+/**
+ * The pick 1 labels of the "Main is red" issue (project-state BUILDER.md; RULING 7, project-state #2065): it opens as
+ * `main-unknown-red` (main-trust.mjs) and switches to `regression` once this bisect names the merge that broke it.
+ * Defined here, not in main-trust.mjs, because this file runs alone from RUNNER_TEMP and may import nothing of ours.
+ */
+export const RED_LABELS = { untraced: 'main-unknown-red', traced: 'regression' };
 
 /** The probed job names in a comma- or line-separated list; anything else is refused. */
 export function parseJobs(text) {
@@ -91,6 +98,36 @@ function git(...args) {
  * network flake looks the same), so it stops the search with no culprit instead of counting the commit as failing: a
  * wrong culprit would open a revert of an innocent pull request.
  */
+/**
+ * Blames the culprit only when its parent passes on this runner. The search assumes the commit before the first is good
+ * because it was green on main, but that green may have run on another runner image: on 11 Nov 2026 an ubuntu-26.04
+ * runner's pg_dump turned three Postgres tests red on every commit, and the bisect blamed #7926 and opened revert #7934
+ * for a pull request that broke nothing. A parent the search already found passing costs no probe. Returns the culprit,
+ * or null with why. `isBad(sha)` probes one commit.
+ */
+export function confirmBlame({ commits, culprit, probed, good }, isBad) {
+  const i = commits.indexOf(culprit);
+  const parent = i > 0 ? commits[i - 1] : good;
+  const known = probed.find((p) => p.sha === parent);
+  const parentBad = known ? known.bad : isBad(parent);
+  if (!parentBad) return { culprit, parent, probedParent: !known };
+  return {
+    culprit: null,
+    parent,
+    probedParent: !known,
+    why: `the commit before it, \`${parent.slice(0, 10)}\`, fails here too, so the red is not from a commit (a runner image, a service or the network): nothing is blamed and nothing is reverted`,
+  };
+}
+
+/** No commit is to blame: say why on the open "Main is red" issue, which keeps its `main-unknown-red` label. */
+async function noteUntracedRed(repo, body) {
+  const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "Main is red"`);
+  const found = await gh('GET', `/search/issues?q=${q}&per_page=5`);
+  const issue = (found.json?.items ?? []).find((i) => i.title === 'Main is red');
+  if (issue) await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body });
+  return issue?.number ?? null;
+}
+
 export function installOrStop(run = sh) {
   for (let attempt = 1; attempt <= 2; attempt++) if (run('pnpm', ['install', '--frozen-lockfile']).status === 0) return;
   throw new Error("can't probe: pnpm install --frozen-lockfile failed twice at this commit; stopping with no culprit");
@@ -155,11 +192,25 @@ async function report(repo, culprit, tests, probed, runUrl, jobs = []) {
   ];
   const body = lines.join('\n');
   if (pr) await gh('POST', `/repos/${repo}/issues/${pr}/comments`, { body });
+  const issue = await noteTracedRed(repo, body);
+  console.log(`culprit ${culprit} (${subject}); commented on ${pr ? `#${pr}` : 'no PR'}${issue ? ` and issue #${issue}` : ''}`);
+}
+
+/**
+ * The bisect named a merge: comment on the open "Main is red" issue and switch its pick 1 label from
+ * `main-unknown-red` to `regression`. Returns the issue number, or null when none is open.
+ */
+export async function noteTracedRed(repo, body) {
   const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "Main is red"`);
   const found = await gh('GET', `/search/issues?q=${q}&per_page=5`);
   const issue = (found.json?.items ?? []).find((i) => i.title === 'Main is red');
-  if (issue) await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body });
-  console.log(`culprit ${culprit} (${subject}); commented on ${pr ? `#${pr}` : 'no PR'}${issue ? ` and issue #${issue.number}` : ''}`);
+  if (!issue) return null;
+  await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body });
+  // Add the new label before removing the old, so the issue is never without a pick 1 label.
+  await gh('POST', `/repos/${repo}/issues/${issue.number}/labels`, { labels: [RED_LABELS.traced] });
+  const off = await gh('DELETE', `/repos/${repo}/issues/${issue.number}/labels/${RED_LABELS.untraced}`);
+  if (off.status !== 200 && off.status !== 404) throw new Error(`could not remove ${RED_LABELS.untraced}: HTTP ${off.status}`);
+  return issue.number;
 }
 
 function selfTest() {
@@ -189,6 +240,21 @@ function selfTest() {
     assert(calls <= 4, `13 commits take at most 4 probes, took ${calls} for ${culpritIdx}`);
   }
   assert(firstBad(['only'], () => assert(false, 'a single commit needs no probe')).culprit === 'only', 'one commit is the culprit');
+  // The culprit's parent must pass on this runner (11 Nov 2026: a runner-image red blamed #7926).
+  const cs = ['c0', 'c1', 'c2'];
+  let asked = [];
+  const bad = (set) => (sha) => (asked.push(sha), set.includes(sha));
+  let b = confirmBlame({ commits: cs, culprit: 'c1', probed: [{ sha: 'c1', bad: true }], good: 'g' }, bad(['c1', 'c2']));
+  assert(b.culprit === 'c1' && asked.join() === 'c0', 'a parent that passes here confirms the culprit');
+  asked = [];
+  b = confirmBlame({ commits: cs, culprit: 'c1', probed: [{ sha: 'c1', bad: true }], good: 'g' }, bad(['c0', 'c1', 'c2']));
+  assert(b.culprit === null && /fails here too/.test(b.why), 'a parent that fails here too blames no one');
+  asked = [];
+  b = confirmBlame({ commits: cs, culprit: 'c0', probed: [], good: 'g' }, bad(['g', 'c0', 'c1', 'c2']));
+  assert(b.culprit === null && asked.join() === 'g', 'the first commit is checked against the last green, probed here');
+  asked = [];
+  b = confirmBlame({ commits: cs, culprit: 'c2', probed: [{ sha: 'c1', bad: false }], good: 'g' }, bad(['c2']));
+  assert(b.culprit === 'c2' && asked.length === 0, 'a parent the search found passing costs no probe');
   assert(splitTestPath('services/svc-x/src/a.test.ts').join('|') === 'services/svc-x|src/a.test.ts', 'splits a test path');
   assert(parseTests('services/svc-x/src/a.test.ts\npackages/y/b.spec.tsx').length === 2, 'parses a list');
   let threw = false;
@@ -215,6 +281,36 @@ function selfTest() {
     threw = true;
   }
   assert(threw, 'a job with no probe is refused, so no input becomes a command');
+}
+
+/** The traced-red path against a stub GitHub: what the bisect writes on the "Main is red" issue. */
+async function selfTestTraced() {
+  const assert = (cond, msg) => {
+    if (!cond) throw new Error(msg);
+  };
+  const calls = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const path = String(url).replace('https://api.github.com', '');
+    calls.push({ method: init.method, path, body: init.body ? JSON.parse(init.body) : null });
+    const json = path.startsWith('/search/issues') ? { items: [{ number: 7881, title: 'Main is red' }] } : {};
+    return new Response(JSON.stringify(json), { status: init.method === 'DELETE' ? 200 : 201 });
+  };
+  try {
+    assert((await noteTracedRed('o/r', 'culprit body')) === 7881, 'the open "Main is red" issue is found');
+  } finally {
+    globalThis.fetch = real;
+  }
+  const writes = calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`);
+  assert(
+    JSON.stringify(writes) ===
+      JSON.stringify([
+        'POST /repos/o/r/issues/7881/comments {"body":"culprit body"}',
+        'POST /repos/o/r/issues/7881/labels {"labels":["regression"]}',
+        'DELETE /repos/o/r/issues/7881/labels/main-unknown-red null',
+      ]),
+    `a traced red comments, adds regression, then removes main-unknown-red; got ${JSON.stringify(writes)}`,
+  );
   console.log('✓ bisect-main --self-test OK');
 }
 
@@ -230,20 +326,36 @@ async function main() {
   console.log(
     `${commits.length} commit(s) between the last green and the red; probing with ${tests.length} test file(s) and ${jobs.length} job(s)`,
   );
-  const { culprit, probed } = firstBad(commits, (sha) => {
+  const probe = (sha) => {
     git('checkout', '--quiet', '--force', sha);
     const bad = failsHere(tests, jobs);
     console.log(`probe ${sha.slice(0, 10)}: ${bad ? 'FAILS' : 'passes'}`);
     return bad;
-  });
-  await report(repo, culprit, tests, probed, `${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}`, jobs);
+  };
+  const { culprit: found, probed } = firstBad(commits, probe);
+  const blame = confirmBlame({ commits, culprit: found, probed, good: GOOD }, probe);
+  const runUrl = `${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}`;
+  if (!blame.culprit) {
+    const body = `Bisect of the red on main: the search pointed at \`${found.slice(0, 10)}\`, but ${blame.why}. [Bisect run](${runUrl}).\n\n_Opened by tooling/ci/bisect-main.mjs._`;
+    const issue = await noteUntracedRed(repo, body);
+    console.log(`no culprit: ${blame.why}${issue ? `; commented on issue #${issue}` : ''}`);
+    if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, 'culprit=\n');
+    return;
+  }
+  const culprit = blame.culprit;
+  await report(repo, culprit, tests, probed, runUrl, jobs);
   // The revert job (main-bisect.yml revert-open) opens the culprit's revert through the normal seal.
   if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `culprit=${culprit}\n`);
 }
 
-if (process.argv.includes('--self-test')) {
+const runAsScript = import.meta.url === `file://${process.argv[1]}`;
+if (runAsScript && process.argv.includes('--self-test')) {
   selfTest();
-} else if (import.meta.url === `file://${process.argv[1]}`) {
+  selfTestTraced().catch((e) => {
+    console.error(`✖ bisect-main --self-test: ${e.message}`);
+    process.exit(1);
+  });
+} else if (runAsScript) {
   main().catch((e) => {
     console.error(`✖ bisect-main: ${e.message}`);
     process.exit(1);

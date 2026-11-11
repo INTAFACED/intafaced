@@ -20,8 +20,9 @@
  * that changes the code is reviewed afresh. (Failure it prevents: #7078 merged 12 minutes before its review, OWNER 154
  * (a); and a PASS comment from the one login every agent shares said nothing about who reviewed.)
  *
- * The seal waits up to REVIEW_WAIT_MS for the review before it fails, and the review job re-runs a red seal on its head
- * once it passes (ci-review.mjs), so nobody re-runs it by hand. Same requirement, later verdict: a head without the
+ * The seal waits up to REVIEW_WAIT_MS for the review before it fails, and the review run's last job (`Start the seal`,
+ * journey-seal.mjs START_JOB) re-runs the seal on its head once every input there has finished, so nobody re-runs it by
+ * hand. Same requirement, later verdict: a head without the
  * review still fails.
  *
  * Only gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
@@ -69,8 +70,26 @@ export const JUDGE_CHECK = {
   label: 'test judge',
   standingFails: [{ job: JUDGE_JOB, step: VERDICT_STEP }],
 };
+/**
+ * The step REVIEW_JOB runs instead of its verdicts when the reviewer call failed for a reason that is not the change
+ * (reviewer-error.mjs classify `down`; project-state OWNER 289 point 11: "No PR merges without its judge."): the job
+ * then concludes success with its verdict steps skipped, which `passed` below never reads as a pass (no verdict step
+ * concluded success), and the seal waits for the judge as for a review still running (journey-seal.mjs inputsGoing).
+ */
+export const JUDGE_DOWN_STEP = 'Judge down';
 /** The verdict steps of REVIEW_JOB: a FAIL in one never voids the other's PASS. */
 export const VERDICT_STEPS = [VERDICT_STEP, TEST_VERDICT_STEP];
+/** Whether a REVIEW_JOB job ended with the judge down: its Judge down step ran and no verdict step concluded. */
+export const isJudgeDown = (job) =>
+  job?.name === REVIEW_JOB &&
+  job?.status === 'completed' &&
+  (job.steps ?? []).some((s) => s?.name === JUDGE_DOWN_STEP && s?.conclusion === 'success') &&
+  !(job.steps ?? []).some((s) => VERDICT_STEPS.includes(s?.name) && ['success', 'failure'].includes(s?.conclusion));
+/**
+ * Whether a REVIEW_JOB job actually ran: not skipped and with steps. A title or body edit starts a CI review run whose
+ * job is skipped by its `if:` (0 steps; head e1d3ad61, run 42803694870), so the newest run on a head may hold no review.
+ */
+export const reviewRan = (job) => job?.name === REVIEW_JOB && job?.conclusion !== 'skipped' && (job?.steps ?? []).length > 0;
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -198,6 +217,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
     };
   let passedIn = null;
   let pending = false;
+  let down = null;
   for (const run of own) {
     for (const [i, jobs] of (await attempts(run)).entries()) {
       for (const job of jobs ?? []) {
@@ -213,12 +233,19 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
         const step = (job.steps ?? []).find((s) => s?.name === STEP);
         if (job.status !== 'completed') pending = true;
         else if (passed(job, step)) passedIn ??= `run ${run.id} attempt ${i + 1}`;
+        else if (isJudgeDown(job)) down = `run ${run.id} attempt ${i + 1}`;
       }
     }
   }
   if (passedIn) return { ok: true, state: 'pass', why: `${label} passed on ${want} (${passedIn})` };
-  return pending
-    ? { ok: false, state: 'pending', why: `the ${label} on ${want} is still running` }
+  if (pending) return { ok: false, state: 'pending', why: `the ${label} on ${want} is still running` };
+  // A down judge is no verdict: never a pass, and the seal waits for the judge (journey-seal.mjs inputsGoing).
+  return down
+    ? {
+        ok: false,
+        state: 'none',
+        why: `the judge was down in ${down}, so ${want} has no ${label} verdict yet; the review re-runs when the judge is back`,
+      }
     : {
         ok: false,
         state: 'none',
@@ -284,6 +311,23 @@ export function groupPulls(commits, headRef) {
  * the head and on the pull request's branch, `io.attempts(run)` the jobs of each attempt, `io.tree(sha)` a commit's tree.
  * Returns { ok, state, why }.
  */
+/**
+ * A change that needs no verdict (requiredChecks is empty) merges without one when the judge is up, by the owner's
+ * decisions of 2026-10-22 and 2026-11-06. When the judge was down on its head, it waits for the judge as a gate-file change
+ * does: "No PR merges without its judge" (project-state OWNER 289 point 11; CI review on 0cef53f9b, item 3). Returns that
+ * need, or null when the head's CI review was not down.
+ */
+export const judgeDownNeed = (verdict) =>
+  verdict?.state === 'none' && /the judge was down in run/.test(String(verdict.why ?? ''))
+    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and no pull request merges without its judge' }
+    : null;
+
+/** A sign-off missing because the judge was down says so in its title, never a red that reads as the change's own (OWNER 289 point 11). */
+export const missingTitle = (why) =>
+  /the judge was down in run/.test(String(why ?? ''))
+    ? 'judge down: CI review (no verdict yet; the review re-runs when the judge is back)'
+    : 'Review sign-off missing';
+
 export async function lookForSignoff({ sha, io, branch, base, number, check = REVIEW_CHECK }) {
   return ciReviewVerdict({
     sha,
@@ -907,6 +951,23 @@ async function main() {
   }
   if (PR_NUMBER) {
     needs = requiredChecks(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
+    // A change that needs no verdict still waits for a judge that was down on its head (judgeDownNeed).
+    if (needs.length === 0) {
+      const down = judgeDownNeed(
+        await lookForSignoff({
+          sha: HEAD_SHA,
+          io: {
+            reviewRuns: (sha) => readReviewRuns(REPO, sha, GH_TOKEN, branch),
+            attempts: (run) => readAttempts(REPO, run, GH_TOKEN),
+            tree: (sha) => readTree(REPO, sha, GH_TOKEN),
+          },
+          base: pull?.base?.ref,
+          number: PR_NUMBER,
+          check: REVIEW_CHECK,
+        }),
+      );
+      if (down) needs = [down];
+    }
     if (needs.length === 0) {
       console.log(
         'independent review not required: no gate file, look baseline, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',
@@ -940,8 +1001,10 @@ async function main() {
       } else if (verdict.state === 'fail') failed = true;
     }
     if (open.size === 0) return;
-    // A FAIL stands for this head and for its code: waiting can't change it.
-    if (failed || Date.now() + REVIEW_POLL_MS > deadline) break;
+    // A FAIL stands for this head and for its code: waiting can't change it. Nor can waiting on a down judge: the run
+    // that catches up when it is back starts this seal again (judge-down.mjs catchup), so no runner is held for it.
+    const allDown = [...open.keys()].every((l) => judgeDownNeed(last.get(l)));
+    if (failed || allDown || Date.now() + REVIEW_POLL_MS > deadline) break;
     if (attempt === 1)
       console.log(
         `${[...open.keys()].map((l) => last.get(l).why).join('; ')}; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`,
@@ -950,7 +1013,7 @@ async function main() {
   }
   for (const [label, { reason }] of open)
     console.error(
-      `::error title=Review sign-off missing::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
+      `::error title=${missingTitle(last.get(label)?.why)}::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
     );
   process.exit(1);
 }

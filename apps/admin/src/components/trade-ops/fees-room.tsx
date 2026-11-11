@@ -8,7 +8,7 @@ import { OutcomeNotice } from './outcome-notice';
 import { tradeOpsAction } from '@/lib/trade-ops/client';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import type { FeesDeskView } from '@/lib/trade-ops/fees-calls';
-import type { FeeNotice } from '@/lib/trade-ops/fees-desk-parse';
+import type { FeeNotice, VenueFigure } from '@/lib/trade-ops/fees-desk-parse';
 import type { BuilderCaps } from '@/lib/trade-ops/builder-fees-model';
 import { BuilderFeeInputs, BuilderFeeVersions } from './builder-fees';
 import {
@@ -657,6 +657,67 @@ function SellQuotes({ view }: { view: FeesDeskView['sellQuotes'] }) {
   );
 }
 
+/** A figure the venue gave, with its asset, or "not known": never a 0 standing in for one. */
+const venueFigure = (f: VenueFigure) => (f.known ? `${f.amount} ${f.asset}` : 'not known');
+
+function VenueSellQuotes({ view }: { view: FeesDeskView['venueSellQuotes'] }) {
+  if (view.kind !== 'ok') return <Problem outcome={view} title="The venue's sell prices could not be read" />;
+  const test = view.data.some((q) => q.test);
+  return (
+    <div data-fees="venue-sells" className="flex flex-col gap-2">
+      <p className="text-sm text-fg-2">
+        The latest sells priced by the venue on customers' own venue accounts: the venue's own preview of each sell, exactly as the venue
+        gave it, "not known" where it gave no figure. Read only.
+        {test ? ' TEST: these prices come from a TEST venue, not a live one.' : ''}
+      </p>
+      {view.data.length === 0 ? (
+        <p className="text-sm text-fg-2">No venue sell price has been given.</p>
+      ) : (
+        <table className={TABLE}>
+          <thead>
+            <tr>
+              <th scope="col">Quoted at</th>
+              <th scope="col">Customer</th>
+              <th scope="col">Venue</th>
+              <th scope="col">Sells</th>
+              <th scope="col">Fills now</th>
+              <th scope="col">Average price</th>
+              <th scope="col">Venue fee</th>
+              <th scope="col">Builder fee</th>
+              <th scope="col">Venue's time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view.data.map((q) => (
+              <tr key={q.quoteId} data-venue-quote={q.quoteId}>
+                <th scope="row" className="if-num">
+                  {shownTime(q.createdAt)}
+                </th>
+                <td className="if-num">{q.userId}</td>
+                <td>{q.venueId}</td>
+                <td className="if-num">
+                  {q.amount} {q.baseAsset} on {q.symbol}
+                </td>
+                <td className="if-num">{q.fill.known ? `${q.fill.amount} ${q.baseAsset}` : 'not known'}</td>
+                <td className="if-num">
+                  {q.fill.known
+                    ? q.fill.averagePrice === null
+                      ? 'none: nothing fills'
+                      : `${q.fill.averagePrice} ${q.quoteAsset}`
+                    : 'not known'}
+                </td>
+                <td className="if-num">{venueFigure(q.venueFee)}</td>
+                <td className="if-num">{venueFigure(q.builderFee)}</td>
+                <td className="if-num">{shownTime(q.asOf)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function FiatBuy({ view }: { view: FeesDeskView['onrampQuotes'] }) {
   if (view.kind !== 'ok') return <Problem outcome={view} title="The fiat buy fees could not be read" />;
   const standIn = view.data.some((q) => q.simulated);
@@ -828,6 +889,7 @@ export function FeesRoom({ initial, builderCaps = null }: { initial: FeesDeskVie
       </PageSection>
       <PageSection title="Sell quotes">
         <SellQuotes view={view.sellQuotes} />
+        <VenueSellQuotes view={view.venueSellQuotes} />
       </PageSection>
       <PageSection title="Partner buy fees">
         <FiatBuy view={view.onrampQuotes} />

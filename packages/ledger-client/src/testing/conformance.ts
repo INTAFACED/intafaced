@@ -1,8 +1,28 @@
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { houseFees, railBoundary, rewardsEngine, userAvailable, userCollateral, userEscrow, userHold, userStake } from '../accounts.js';
+import {
+  houseFees,
+  partnerReserve,
+  railBoundary,
+  rewardsEngine,
+  treasuryWallet,
+  venueBuilderAccount,
+  venueBuilderFeeReceivable,
+  userAvailable,
+  userCollateral,
+  userEscrow,
+  userHold,
+  userStake,
+} from '../accounts.js';
 import { InsufficientFundsError, InvalidEntryError, type AccountKind, type LedgerTx } from '../types.js';
-import { campaignLockAccount, recipes } from '../recipes/index.js';
+import {
+  campaignLockAccount,
+  chargeReceivableAccount,
+  feeShareBudgetAccount,
+  feeShareOwedAccount,
+  recipes,
+  rewardOwedAccount,
+} from '../recipes/index.js';
 import type { LedgerClient } from '../client.js';
 
 /**
@@ -180,6 +200,172 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         await fund(USER_A, 'USDT', '100');
         const boundary = await ledger.balance(railBoundary('test', 'USDT'));
         expect(formatAmount(boundary.amount)).toBe('-100');
+      });
+
+      it('never lets an own-funds place show less than nothing of ours', async () => {
+        // Collect 5 into our builder account at the venue: the place holds 5 (balance -5).
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            assetId: 'USDT',
+            amount: amt('5'),
+            userId: USER_A,
+          }),
+        );
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf', claimId: 'c1', assetId: 'USDT', amount: amt('5') }));
+        const move = (reference: string, amount: string) =>
+          recipes.ownFundsMove({
+            from: { kind: 'venue-builder-account', venueId: 'conf' },
+            to: { kind: 'treasury-wallet', walletId: 'conf' },
+            assetId: 'USDT',
+            amount: amt(amount),
+            reference,
+          });
+        // More than the place holds: refused, and nothing moves.
+        await expect(ledger.post(move('0xover', '6'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDT'))).amount)).toBe('-5');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf', 'USDT'))).amount)).toBe('0');
+        // Exactly what it holds: allowed.
+        await ledger.post(move('0xall', '5'));
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDT'))).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf', 'USDT'))).amount)).toBe('-5');
+        // A place that never held anything cannot pay out of it, even into another boundary.
+        await expect(
+          ledger.post({
+            idempotencyKey: 'own-funds-empty-place-test',
+            module: 'test',
+            reason: 'test',
+            entries: [
+              { account: partnerReserve('conf', 'USDT'), direction: 'debit', amount: amt('1') },
+              { account: venueBuilderFeeReceivable('conf', 'USDT'), direction: 'credit', amount: amt('1') },
+            ],
+          }),
+        ).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(partnerReserve('conf', 'USDT'))).amount)).toBe('0');
+      });
+
+      it('never pays a reward past what the paying place holds or past what is owed for it', async () => {
+        // 10 USDC earned and collected into our builder account; 6 swept to the rewards engine, set aside, and owed.
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            assetId: 'USDC',
+            amount: amt('10'),
+            userId: USER_A,
+          }),
+        );
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf', claimId: 'c1', assetId: 'USDC', amount: amt('10') }));
+        await ledger.post(recipes.sweepFeesToRewards({ windowId: 'w1', sourceModule: 'builder', assetId: 'USDC', amount: amt('6') }));
+        await ledger.post(recipes.campaignBudgetFund({ campaignId: 'conf', decisionId: 'd1', assetId: 'USDC', amount: amt('6') }));
+        const rewardId = `campaign:conf:${USER_A}:task`;
+        // TEST ceiling: the owner's ceiling is unset, and Owe refuses without one.
+        await ledger.post(
+          recipes.rewardOwe({
+            campaignId: 'conf',
+            rewardId,
+            userId: USER_A,
+            kind: 'reward',
+            assetId: 'USDC',
+            amount: amt('6'),
+            ceiling: { perCampaign: amt('6'), total: amt('6') },
+            owedSoFar: { campaign: 0n, total: 0n },
+          }),
+        );
+        const pay = (chainTx: string, amount: string, venueId: string) =>
+          recipes.rewardPayOut({
+            rewardId,
+            from: { kind: 'venue-builder-account', venueId },
+            toWallet: '0x00000000000000000000000000000000000000c1',
+            chainTx,
+            assetId: 'USDC',
+            amount: amt(amount),
+          });
+        // Out of a place that holds nothing: refused, nothing moves.
+        await expect(ledger.post(pay('0xempty', '1', 'empty'))).rejects.toThrow(InsufficientFundsError);
+        // More than is owed (the place holds 10, 6 is owed): refused, nothing moves.
+        await expect(ledger.post(pay('0xover', '7', 'conf'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(rewardOwedAccount(rewardId))).amount)).toBe('6');
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDC'))).amount)).toBe('-10');
+        // Exactly what is owed: paid, and the place holds 4.
+        await ledger.post(pay('0xpaid', '6', 'conf'));
+        expect(formatAmount((await ledger.balance(rewardOwedAccount(rewardId))).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDC'))).amount)).toBe('-4');
+      });
+
+      it('never owes a fee share past its budget, nor pays one past the paying place or what is owed', async () => {
+        const recipient = { kind: 'lead-trader' as const, userId: USER_A };
+        // TEST rate: the owner's share rate is unset, and Owe refuses without one.
+        const owe = (fillId: string, amount: string) =>
+          recipes.feeShareOwe({
+            venueId: 'conf',
+            venueAccount: '0xconf',
+            fillId,
+            recipient,
+            assetId: 'USDC',
+            feeEarned: amt('10'),
+            rate: { bps: 10_000 },
+            amount: amt(amount),
+            sharedSoFarOnFill: 0n,
+          });
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            assetId: 'USDC',
+            amount: amt('10'),
+            userId: USER_A,
+          }),
+        );
+        // Earned and not collected: nothing is set aside, so Owe is refused.
+        await expect(ledger.post(owe('f1', '1'))).rejects.toThrow(InsufficientFundsError);
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf', claimId: 'c1', assetId: 'USDC', amount: amt('10') }));
+        await ledger.post(
+          recipes.feeShareBudgetFund({ venueId: 'conf', claimId: 'c1', assetId: 'USDC', claimAmount: amt('10'), amount: amt('6') }),
+        );
+        await expect(ledger.post(owe('f1', '7'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(feeShareBudgetAccount('conf', 'USDC'))).amount)).toBe('6');
+        await ledger.post(owe('f1', '6'));
+        const pay = (chainTx: string, amount: string, venueId: string) =>
+          recipes.feeSharePayOut({
+            recipient,
+            from: { kind: 'venue-builder-account', venueId },
+            toWallet: '0x00000000000000000000000000000000000000c1',
+            chainTx,
+            assetId: 'USDC',
+            amount: amt(amount),
+          });
+        await expect(ledger.post(pay('0xempty', '1', 'empty'))).rejects.toThrow(InsufficientFundsError);
+        await expect(ledger.post(pay('0xover', '7', 'conf'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(feeShareOwedAccount(recipient, 'USDC'))).amount)).toBe('6');
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDC'))).amount)).toBe('-10');
+        await ledger.post(pay('0xpaid', '6', 'conf'));
+        expect(formatAmount((await ledger.balance(feeShareOwedAccount(recipient, 'USDC'))).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDC'))).amount)).toBe('-4');
+      });
+
+      it('never collects a charge past what the customer owes, and lands it only at our own place', async () => {
+        const owed = chargeReceivableAccount('agents', USER_A, 'USDC');
+        const wallet = { kind: 'treasury-wallet' as const, walletId: 'conf' };
+        const collect = (paymentId: string, amount: string) =>
+          recipes.chargeCollect({ module: 'agents', userId: USER_A, to: wallet, paymentId, assetId: 'USDC', amount: amt(amount) });
+        // Nothing earned: nothing is owed, so Collect is refused.
+        await expect(ledger.post(collect('0xnone', '1'))).rejects.toThrow(InsufficientFundsError);
+        // TEST price: the owner's price is unset, and Earn refuses without one.
+        await ledger.post(
+          recipes.chargeEarn({ module: 'agents', saleId: 's1', userId: USER_A, assetId: 'USDC', price: { perUnit: amt('2') }, units: 3n }),
+        );
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-6');
+        await expect(ledger.post(collect('0xover', '7'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-6');
+        await ledger.post(collect('0xpaid', '6'));
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf', 'USDC'))).amount)).toBe('-6');
+        expect(formatAmount((await ledger.balance(houseFees('agents', 'USDC'))).amount)).toBe('6');
       });
     });
 

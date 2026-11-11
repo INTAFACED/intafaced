@@ -23,12 +23,15 @@ const messages = {
   'About this leader': 'About this leader',
   Action: 'Action',
   Active: 'Active',
+  Address: 'Address',
   'After this time no new trades are copied.': 'After this time no new trades are copied.',
   'All copied orders together can never go past this.': 'All copied orders together can never go past this.',
   'All leaders': 'All leaders',
   'All-in before you start': 'All-in before you start',
   Amount: 'Amount',
   'Amount, {asset}': 'Amount, {asset}',
+  'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell), an amount and the worst price you accept.':
+    'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell), an amount and the worst price you accept.',
   'An amount, a schedule, and a recurring-order service': 'An amount, a schedule, and a recurring-order service',
   'An earlier request has no confirmed result': 'An earlier request has no confirmed result',
   Asset: 'Asset',
@@ -68,6 +71,7 @@ const messages = {
   Cancelled: 'Cancelled',
   Catalogue: 'Catalogue',
   'Change this follow': 'Change this follow',
+  'Chart alert webhooks': 'Chart alert webhooks',
   'Check what happened': 'Check what happened',
   Checked: 'Checked',
   Checking: 'Checking',
@@ -102,6 +106,7 @@ const messages = {
   'Copy desk open': 'Copy desk open',
   'Copy desk unknown': 'Copy desk unknown',
   'Copy permission': 'Copy permission',
+  'Copy these now. The token is shown only this once.': 'Copy these now. The token is shown only this once.',
   'Copy trading': 'Copy trading',
   'Copy trading is closed right now': 'Copy trading is closed right now',
   'Copy trading is closed right now, so the final step will be refused. Nothing is followed and no money moves.':
@@ -114,11 +119,14 @@ const messages = {
   Countries: 'Countries',
   Country: 'Country',
   'Create bot': 'Create bot',
+  'Create webhook': 'Create webhook',
   Custom: 'Custom',
   'Daily cap': 'Daily cap',
   'Days trading': 'Days trading',
   Dismiss: 'Dismiss',
   'Drawdown limit': 'Drawdown limit',
+  'Each alert prepares one order on the venue. Nothing is sent until your wallet signs it: INTAFACED holds no key that can sign for you.':
+    'Each alert prepares one order on the venue. Nothing is sent until your wallet signs it: INTAFACED holds no key that can sign for you.',
   'Each copied order uses this much, never more than the most per order.':
     'Each copied order uses this much, never more than the most per order.',
   'Each new trade the leader makes is copied for you, within your limits.':
@@ -126,7 +134,10 @@ const messages = {
   'Each slice': 'Each slice',
   'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)':
     'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)',
+  'Each webhook prepares orders on one venue market, for your venue account.':
+    'Each webhook prepares orders on one venue market, for your venue account.',
   Earlier: 'Earlier',
+  Ended: 'Ended',
   'Enter 1 to 10000': 'Enter 1 to 10000',
   'Enter a price above zero, or leave it empty': 'Enter a price above zero, or leave it empty',
   'Enter all 6 digits': 'Enter all 6 digits',
@@ -215,6 +226,7 @@ const messages = {
   'Loss limit': 'Loss limit',
   'Lot size {lot}': 'Lot size {lot}',
   'Lower price': 'Lower price',
+  'Make one for the market your alert watches.': 'Make one for the market your alert watches.',
   Manage: 'Manage',
   Margin: 'Margin',
   Market: 'Market',
@@ -248,6 +260,7 @@ const messages = {
   'New trades stop being copied. While automatic copying is on, when the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.':
     'New trades stop being copied. While automatic copying is on, when the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.',
   'New trades will be copied again, within the limits you set.': 'New trades will be copied again, within the limits you set.',
+  'New webhook': 'New webhook',
   Newer: 'Newer',
   Next: 'Next',
   'Next slice number': 'Next slice number',
@@ -395,6 +408,7 @@ const messages = {
   'Show more bots': 'Show more bots',
   Side: 'Side',
   'Sign in': 'Sign in',
+  'Sign in to make a webhook.': 'Sign in to make a webhook.',
   'Sign in to see the leaders you follow.': 'Sign in to see the leaders you follow.',
   'Sign in to see your bots.': 'Sign in to see your bots.',
   'Sign in to set up a bot.': 'Sign in to set up a bot.',
@@ -491,6 +505,7 @@ const messages = {
   'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.':
     'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.',
   'The total can’t be below the amount per order': 'The total can’t be below the amount per order',
+  'The wallet address that signs your venue orders.': 'The wallet address that signs your venue orders.',
   'These are your {count} newest bots.': 'These are your {count} newest bots.',
   'This bot can’t be set up here.': 'This bot can’t be set up here.',
   'This bot has already ended': 'This bot has already ended',
@@ -500,6 +515,7 @@ const messages = {
     'This lowers what your bot sets aside by the amount. No money moves: the profit is already in your {asset} balance, and it is no longer held for the bot. The bot keeps its investment.',
   Time: 'Time',
   'Time-weighted (TWAP)': 'Time-weighted (TWAP)',
+  Token: 'Token',
   'Top return': 'Top return',
   Total: 'Total',
   'Total amount ({asset})': 'Total amount ({asset})',
@@ -513,6 +529,8 @@ const messages = {
   Trending: 'Trending',
   'Try again': 'Try again',
   'Try another name, or clear the search.': 'Try another name, or clear the search.',
+  'Turn a chart alert into an order on one venue market, ready for your wallet to sign.':
+    'Turn a chart alert into an order on one venue market, ready for your wallet to sign.',
   'Turn off automatic copying': 'Turn off automatic copying',
   'Turn on automatic copying': 'Turn on automatic copying',
   'Two letters. Copy trading is only offered in some countries.': 'Two letters. Copy trading is only offered in some countries.',
@@ -524,6 +542,7 @@ const messages = {
   Used: 'Used',
   'Used now': 'Used now',
   'Used today': 'Used today',
+  'Venue account': 'Venue account',
   'Verified live': 'Verified live',
   'Volume history is still short. A slice may be refused when it is due.':
     'Volume history is still short. A slice may be refused when it is due.',
@@ -531,6 +550,7 @@ const messages = {
   'Waiting for the first read': 'Waiting for the first read',
   'We could not check right now. Try again in a moment.': 'We could not check right now. Try again in a moment.',
   'We couldn’t find that grid bot': 'We couldn’t find that grid bot',
+  Webhooks: 'Webhooks',
   'What it costs': 'What it costs',
   'What it does': 'What it does',
   'What it will do': 'What it will do',
@@ -567,6 +587,7 @@ const messages = {
     'You have no passkey or authenticator app, so closing everything cannot be confirmed.',
   'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.':
     'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.',
+  'You have no webhooks': 'You have no webhooks',
   'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.':
     'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.',
   'You set them. A leader can never raise them': 'You set them. A leader can never raise them',
@@ -581,6 +602,7 @@ const messages = {
   'Your follows': 'Your follows',
   'Your limits': 'Your limits',
   'Your trading fee': 'Your trading fee',
+  'Your webhooks': 'Your webhooks',
   '{amount} is open in {market}. The part you close is sold at the market price.':
     '{amount} is open in {market}. The part you close is sold at the market price.',
   '{count} levels. The service plans the real ones when the bot starts.':

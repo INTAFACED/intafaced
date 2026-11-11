@@ -8,7 +8,10 @@ const WINDOW = { from: new Date('2026-10-01T00:00:00Z'), to: new Date('2026-11-0
 const OK_BODY = {
   from: WINDOW.from.toISOString(),
   to: WINDOW.to.toISOString(),
-  assets: [{ assetId: 'USDT', collected: '12.5', returned: '0.25', net: '12.25' }],
+  assets: [
+    { venueId: null, assetId: 'USDT', earned: '12.5', returned: '0.25', net: '12.25', collected: null },
+    { venueId: 'test-venue', assetId: 'USDC', earned: '3', returned: '0', net: '3', collected: '1' },
+  ],
 };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -58,7 +61,9 @@ describe('fee revenue client', () => {
     const cases: Array<() => Response | never> = [
       () => json({ code: 'ledger.caller_forbidden' }, 403),
       () => json({ nope: true }),
-      () => json({ ...OK_BODY, assets: [{ assetId: 'USDT', collected: 12, returned: '0', net: '12' }] }),
+      () => json({ ...OK_BODY, assets: [{ venueId: null, assetId: 'USDT', earned: 12, returned: '0', net: '12', collected: null }] }),
+      // A ledger still on the old answer, one "collected" that was the earned figure: refused, never read as collected.
+      () => json({ ...OK_BODY, assets: [{ assetId: 'USDT', collected: '12', returned: '0', net: '12' }] }),
       () => json({ ...OK_BODY, from: '2026-09-01T00:00:00.000Z' }),
       () => {
         throw new Error('connection refused');

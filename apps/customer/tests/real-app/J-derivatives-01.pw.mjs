@@ -1,7 +1,8 @@
-// World: book
+// World: book, market
 import { test, expect } from './journey.mjs';
-import { api, journeyState, toUnits } from './stack.mjs';
+import { api, bestPrices, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-01, in the running app (docs/roadmap/journeys.json): open a first futures position with isolated
 // margin, watch it, close 40 percent and then the rest. One test per step, titled "J-derivatives-01 #<n>", run in order
@@ -223,27 +224,46 @@ test(`${J} #7 looks at the order types: market and limit offered, the rest liste
 test(`${J} #8 confirms "Open long": one position opens and its margin is locked`, async ({ page }) => {
   const who = account();
   const before = (await (await api(who)).balances()).USDT;
-  await desk(page);
-  await expect(access(page).getByText('Open for your account')).toBeVisible();
-  const ticket = await fillTicket(page);
-  await expect(ticket.getByText('Total to commit now', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Open long' }).click();
-  const confirm = page.getByRole('alertdialog');
-  // 0.01 BTC sits above the first margin tier on the TEST book's depth, so the confirm names the tier it opens in
-  // (J-derivatives-02 #6) and the trader accepts it first.
-  await expect(confirm).toBeVisible();
-  const tier = confirm.getByRole('region', { name: 'New margin tier' });
-  if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
-  // A double press sends one order: the request id holds until the numbers change.
-  await confirm.getByRole('button', { name: 'Confirm open long' }).dblclick();
-  // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures, and the tier is ticked again.
-  const filled = page.getByText('Order filled');
-  await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
-  if (!(await filled.isVisible())) {
+  // Held from the review to the fill, as J-derivatives-02 #6 is: the margin tier is rated on the perp book's depth, and
+  // the TEST maker puts its new ladder up before it takes the old one down, so the depth can move between the confirm's
+  // re-check and the order. The tier the trader accepted (2) was then below the one svc-trade rated at the order, which
+  // refused trade.risk_limit_confirm_required and filled nothing (#7885: run 42917998286, shard 24, attempt 1). Held,
+  // both ladders rest as the maker's last cycle left them and nothing crosses them, so the review, the confirm and the
+  // order read one depth and one mark. Asked for once each book has both sides, and timed from before the ask.
+  await bestPrices('BTC/USDT', 50, 60_000);
+  await bestPrices(SYMBOL, 50, 60_000);
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+  tool('local-test-market.mjs', 'hold', SYMBOL);
+  try {
+    await bestPrices('BTC/USDT', 50, 60_000);
+    await bestPrices(SYMBOL, 50, 60_000);
+    await desk(page);
+    await expect(access(page).getByText('Open for your account')).toBeVisible();
+    const ticket = await fillTicket(page);
+    await expect(ticket.getByText('Total to commit now', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Open long' }).click();
+    const confirm = page.getByRole('alertdialog');
+    // 0.01 BTC sits above the first margin tier on the TEST book's depth, so the confirm names the tier it opens in
+    // (J-derivatives-02 #6) and the trader accepts it first.
+    await expect(confirm).toBeVisible();
+    const tier = confirm.getByRole('region', { name: 'New margin tier' });
     if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
-    await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+    // A double press sends one order: the request id holds until the numbers change.
+    await confirm.getByRole('button', { name: 'Confirm open long' }).dblclick();
+    // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures, and the tier is ticked again.
+    const filled = page.getByText('Order filled');
+    await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
+    if (!(await filled.isVisible())) {
+      if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
+      await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+    }
+    await expect(filled).toBeVisible({ timeout: 20_000 });
+    expect(Date.now() - heldAt, 'the hold lapsed before the open long filled').toBeLessThan(HOLD_MAX_MS);
+  } finally {
+    tool('local-test-market.mjs', 'release', SYMBOL);
+    tool('local-test-market.mjs', 'release', 'BTC/USDT');
   }
-  await expect(filled).toBeVisible({ timeout: 20_000 });
   const positions = await until(
     () => positionsOf(who),
     (list) => list.length === 1 && list[0].contracts === SIZE,

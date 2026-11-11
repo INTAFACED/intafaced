@@ -8,12 +8,14 @@ import { houseFees, venueBuilderAccount, venueBuilderFeeReceivable } from '../ac
  * OWNER 237). At launch the venue holds the customer's collateral, positions and fills: none of that is posted here. The
  * only money these two recipes move is ours.
  *
- * - `builderFeeEarn`: the fee the venue charged on one fill of one of our users, keyed on the venue's own stable fill id
- *   (`builder-fee:<venueId>:<fillId>`), so a fill read twice posts once. House builder-fee revenue goes up; what the venue
- *   owes us (`venueBuilderFeeReceivable`) goes down by the same amount.
- * - `builderFeeReceive`: the venue pays builder fees out to our builder account there, keyed on the venue's payout id
- *   (`builder-fee-payout:<venueId>:<payoutId>`). The receivable comes back up; our builder account (`venueBuilderAccount`)
- *   records the money now ours at the venue.
+ * - `builderFeeEarn`: the fee the venue charged on one fill of one of our users' venue accounts, keyed on the venue, the
+ *   account and the venue's own fill id (`builder-fee:<venueId>:<venueAccount>:<fillId>`), so a fill read twice posts once,
+ *   and the two sides of one trade, each one of our accounts, are two facts under two keys (OWNER 288, change 1a). House
+ *   builder-fee revenue goes up; what the venue owes us (`venueBuilderFeeReceivable`) goes down by the same amount.
+ * - `builderFeeReceive` (Collect): one claim the venue records for our builder address, keyed on the venue's own id for
+ *   that claim (`builder-fee-payout:<venueId>:<claimId>`), so a claim read twice posts once. The receivable comes back
+ *   up; our builder account (`venueBuilderAccount`, an own-funds place) records the money now ours at the venue. Only a
+ *   claim the venue itself records is collected; "earned" and "collected" stay two figures.
  *
  * Neither touches a customer account, so neither is in the custody-layer inventory.
  */
@@ -26,7 +28,12 @@ const VENUE_REF = /^[^\s:]+$/;
 
 export interface BuilderFeeEarnInput {
   readonly venueId: string;
-  /** The venue's own stable trade id for the fill (`UserVenueFill.fillId`). */
+  /**
+   * The venue account that made the fill, as one id with no spaces or colons (svc-trade's `builderFeeVenueAccount`: the
+   * owner, or `<owner>/<subAccount>`). The two sides of one trade can be two of our accounts under one fill id.
+   */
+  readonly venueAccount: string;
+  /** The venue's own fill id, unique on the venue for that account (`UserVenueFill.fillId`). */
   readonly fillId: string;
   /** The venue's fee asset for the fill. */
   readonly assetId: string;
@@ -38,8 +45,8 @@ export interface BuilderFeeEarnInput {
 
 export interface BuilderFeeReceiveInput {
   readonly venueId: string;
-  /** The venue's own id for the payout. */
-  readonly payoutId: string;
+  /** The venue's own id for the claim it records for our builder address. */
+  readonly claimId: string;
   readonly assetId: string;
   readonly amount: Amount;
 }
@@ -63,25 +70,30 @@ function requireAmount(label: string, amount: Amount): void {
     throw new InvalidEntryError(`${label} must be above zero; a fill with no builder fee posts nothing`);
 }
 
-export function earnedBuilderFeeKey(venueId: string, fillId: string): string {
-  return `builder-fee:${venueId}:${fillId}`;
+/**
+ * The key of one builder fee earned. It must never change once posts exist under it
+ * (docs/adr/2026-08-07-fill-sequence-key-stays.md); it names the account since OWNER 288, before any real venue posts.
+ */
+export function earnedBuilderFeeKey(venueId: string, venueAccount: string, fillId: string): string {
+  return `builder-fee:${venueId}:${venueAccount}:${fillId}`;
 }
 
-export function builderFeePayoutKey(venueId: string, payoutId: string): string {
-  return `builder-fee-payout:${venueId}:${payoutId}`;
+export function builderFeePayoutKey(venueId: string, claimId: string): string {
+  return `builder-fee-payout:${venueId}:${claimId}`;
 }
 
 export function builderFeeEarn(input: BuilderFeeEarnInput): PostRequest {
   requireVenue(input.venueId);
+  requireRef('venueAccount', input.venueAccount);
   requireRef('fillId', input.fillId);
   requireAsset(input.assetId);
   requireAmount('builder fee', input.amount);
   if (!input.userId?.trim()) throw new InvalidEntryError('userId is required');
   return {
-    idempotencyKey: earnedBuilderFeeKey(input.venueId, input.fillId),
+    idempotencyKey: earnedBuilderFeeKey(input.venueId, input.venueAccount, input.fillId),
     module: BUILDER_FEE_MODULE,
     reason: 'trade.builder_fee.earned',
-    meta: { venueId: input.venueId, fillId: input.fillId, userId: input.userId },
+    meta: { venueId: input.venueId, venueAccount: input.venueAccount, fillId: input.fillId, userId: input.userId },
     entries: [
       debit(houseFees(BUILDER_FEE_POT, input.assetId), input.amount),
       credit(venueBuilderFeeReceivable(input.venueId, input.assetId), input.amount),
@@ -91,14 +103,14 @@ export function builderFeeEarn(input: BuilderFeeEarnInput): PostRequest {
 
 export function builderFeeReceive(input: BuilderFeeReceiveInput): PostRequest {
   requireVenue(input.venueId);
-  requireRef('payoutId', input.payoutId);
+  requireRef('claimId', input.claimId);
   requireAsset(input.assetId);
-  requireAmount('builder fee payout', input.amount);
+  requireAmount('builder fee claim', input.amount);
   return {
-    idempotencyKey: builderFeePayoutKey(input.venueId, input.payoutId),
+    idempotencyKey: builderFeePayoutKey(input.venueId, input.claimId),
     module: BUILDER_FEE_MODULE,
     reason: 'trade.builder_fee.received',
-    meta: { venueId: input.venueId, payoutId: input.payoutId },
+    meta: { venueId: input.venueId, claimId: input.claimId },
     entries: [
       debit(venueBuilderFeeReceivable(input.venueId, input.assetId), input.amount),
       credit(venueBuilderAccount(input.venueId, input.assetId), input.amount),
