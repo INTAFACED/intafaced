@@ -247,7 +247,8 @@ jobs:
       # deferred: it runs nothing now, so it holds no runner, and main's run re-runs it once main's shards are queued (the
       # `release` job). It never gives up on main. Runners go to the jobs queued first: on 9 Nov 2026 main's 44 shards
       # waited 23 to 42 minutes behind branch runs, and a waiting step held one runner on each of 13 branch runs at 10:47
-      # UTC. A hand-dispatched full run is also deferred while 2 others run. It never fails the run (continue-on-error;
+      # UTC. Only a full run waits for main: a targeted one (the touch job gave it journey files) goes ahead (theo-01
+      # part 0, project-state#2065). A hand-dispatched full run is also deferred while 2 others run. It never fails the run (continue-on-error;
       # an unreadable API goes on) and never runs on main. It runs the default branch's copy (.base), or, where there is
       # none, the branch's.
       - name: Main's journeys first
@@ -261,6 +262,7 @@ jobs:
           DISPATCH_FULL: ${{ github.event_name == 'workflow_dispatch' && env.JOURNEYS_TARGET == '' }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }} # a re-run the release let go doesn't wait for main again
+          TARGETED: ${{ steps.touch.outputs.target != '' }} # a targeted run (at most 10 shards) never waits for main
         run: |
           script=.base/tooling/ci/main-first.mjs
           [ -f "$script" ] || script=tooling/ci/main-first.mjs
