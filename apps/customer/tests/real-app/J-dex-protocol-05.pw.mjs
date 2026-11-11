@@ -7,7 +7,7 @@ import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { api, ROOT, tool } from './stack.mjs';
+import { api, journeyState, ROOT, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 
 // J-dex-protocol-05, in the running app (docs/roadmap/journeys.json): move value between a trading venue, the wallet and
@@ -19,9 +19,11 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // it back off. The TEST venue publishes its deposit terms (TEST_VENUE_DEPOSIT_TERMS there): deposits under 5 TEST USDC
 // are not credited, and a deposit is credited after 3 confirmations. It links each deposit to the TEST chain's explorer,
 // the app's own /chain/tx/<hash> (TEST_VENUE_DEPOSIT_EXPLORER); #2 switches that link off on the TEST venue for a network
-// with no explorer, where the row shows the hash alone, and puts it back. The stack's anvil mines a block per transaction only, so #2 mines the blocks that confirm a deposit
-// (`evm_mine`, the TEST chain's own control). A withdrawal needs a fresh second factor (`trade.step_up.venue.withdraw`),
-// so #3 adds an authenticator app first. Money: the user's wallet signs each venue deposit and withdrawal; the
+// with no explorer, where the row shows the hash alone, and puts it back. Once seeded, the stack's TEST chain mines a block
+// every second (services/svc-protocol/scripts/seed-test-chain.ts mineOnInterval), which takes a deposit past the venue's 3
+// confirmations before the room can show "Confirming 1 of 3". So #1 and #2 pause interval mining while they watch a deposit
+// and mine each block themselves (`evm_mine`, the TEST chain's own control), as J-dex-protocol-04 and -09 do, and put it back.
+// A withdrawal needs a fresh second factor (`trade.step_up.venue.withdraw`), so #3 adds an authenticator app first. Money: the user's wallet signs each venue deposit and withdrawal; the
 // ledger posts nothing, read before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - the bank ramps have no "Buy to wallet" route (D-bridge-chain-02);
@@ -32,8 +34,9 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // - #1's "no banned partner wording" clause reads the names from the brand scan's own list (tooling/ci/brand-scan.mjs
 //   FORBIDDEN) and checks the room's text against each; the test does not spell them out, since the scan refuses them
 //   anywhere under apps/;
-// - #1's later clause (OWNER 226) is the exchange Deposit page with custody absent: its address panel says deposit
-//   addresses are not available because crypto custody isn't connected;
+// - #1's later clause (OWNER 226) is the exchange Deposit page with custody absent: #1 restarts the bank with no deposit
+//   custody (as J-wallet-02 #1 does) and puts it back; its address panel says deposit addresses are not available because
+//   crypto custody isn't connected;
 // - #7's crash clause (the process stopping after the intent is stored) cannot be caused from the browser; the step
 //   checks the browser half: the same single row comes back after the browser closes.
 const J = 'J-dex-protocol-05';
@@ -68,6 +71,31 @@ function venueState() {
   if (!s.who || !s.venueKey) throw new Error(`${J} starts made no account and venue wallet, so this step has no one to act as`);
   return s;
 }
+
+/**
+ * The bank restarted with no deposit custody, or back on the stack's svc-pay (as J-wallet-02 does). "Off" is written to
+ * its own state file before the restart, so a step that fails or a run cancelled while custody is off is put back by the
+ * hooks below, and cleared only once the bank is connected again.
+ */
+const custody = journeyState(`${J}-custody`);
+function bankDepositCustody(on) {
+  const before = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+  if (on) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+  else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
+  if (!on) custody.write({ off: true });
+  try {
+    tool('local-test-stack.mjs', 'restart', 'bank');
+    if (on) custody.reset({});
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+    else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = before;
+  }
+}
+const putCustodyBack = () => {
+  if (custody.read().off) bankDepositCustody(true);
+};
+test.beforeAll(putCustodyBack);
+test.afterEach(putCustodyBack);
 
 const rails = (page) => page.getByRole('region', { name: 'Bridge routes' });
 const transfers = (page) => page.getByRole('region', { name: 'Bridge transfers' }).getByRole('table');
@@ -112,6 +140,20 @@ async function chainRpc(method, params = []) {
   const body = await res.json();
   if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
   return body.result;
+}
+
+/**
+ * Runs `fn` with the TEST chain's interval mining paused, so a block lands only when the step mines one, and puts the
+ * interval back after, whatever happens. A transfer the wallet sends meanwhile stays pending until the step mines it.
+ */
+async function withMiningPaused(fn) {
+  const interval = await chainRpc('anvil_getIntervalMining');
+  await chainRpc('evm_setIntervalMining', [0]);
+  try {
+    return await fn();
+  } finally {
+    await chainRpc('evm_setIntervalMining', [interval]);
+  }
 }
 
 /** The wallet's TEST USD on the TEST chain, in base units (6 decimals), read from the node itself. */
@@ -243,11 +285,13 @@ test(`${J} starts: a verified account, a connected wallet and a TEST venue accou
   });
   const address = privateKeyToAccount(venueKey).address;
   fundOnTestChain(address, 'venue');
-  // The wallet connected to the account: the person signs the connection message in it.
-  await openVenue(page, who, venueKey);
-  await connectAndSign(page, 'Connect to my account');
-  await expect(page.locator('[data-venue-address]')).toHaveText(address);
-  await expect(page.getByTestId('venue-balance')).toHaveText('0 TEST USDC');
+  // The wallet connected to the account: the person signs the connection message in it. Its own tab, since this tab
+  // already holds the swap wallet and a tab takes one TEST wallet.
+  const venuePage = await page.context().newPage();
+  await openVenue(venuePage, who, venueKey);
+  await connectAndSign(venuePage, 'Connect to my account');
+  await expect(venuePage.locator('[data-venue-address]')).toHaveText(address);
+  await expect(venuePage.getByTestId('venue-balance')).toHaveText('0 TEST USDC');
   account.run.write({ ledgerBefore: await (await api(who)).balances() });
 });
 
@@ -268,31 +312,39 @@ test(`${J} #1 opens the venue's deposit for a chain: minimums and arrival terms 
   await expect(terms).toContainText(`The venue credits a deposit after ${CONFIRMATIONS} confirmations on TEST chain.`);
   await expect(terms).toContainText('Your wallet signs each deposit: it is your own transfer to the venue.');
 
-  // The user's wallet signs the deposit: its own transfer of the venue's token to the venue's deposit address.
-  const { send, hash } = await depositFromWallet(page, wallet, '25');
-  expect(send.method).toBe('eth_sendTransaction');
-  expect(send.params[0].to.toLowerCase()).toBe(TEST_USD);
-  expect(send.params[0].data.toLowerCase()).toContain(door.deposit.address.slice(2));
-  // Nothing else signed it: the only send is the wallet's own, and INTAFACED asked nothing more of the wallet.
-  expect(wallet.sends).toHaveLength(1);
-  // The venue has seen it on chain, in the one block that mined it: confirming, one of the published three.
-  await expect(rowOf(page, hash)).toContainText(`Confirming 1 of ${CONFIRMATIONS}`, { timeout: 30_000 });
-  account.run.write({ firstDeposit: hash });
+  await withMiningPaused(async () => {
+    // The user's wallet signs the deposit: its own transfer of the venue's token to the venue's deposit address.
+    const { send, hash } = await depositFromWallet(page, wallet, '25');
+    expect(send.method).toBe('eth_sendTransaction');
+    expect(send.params[0].to.toLowerCase()).toBe(TEST_USD);
+    expect(send.params[0].data.toLowerCase()).toContain(door.deposit.address.slice(2));
+    // Nothing else signed it: the only send is the wallet's own, and INTAFACED asked nothing more of the wallet.
+    expect(wallet.sends).toHaveLength(1);
+    // The venue has seen it on chain, in the one block that mined it: confirming, one of the published three.
+    await chainRpc('evm_mine');
+    await expect(rowOf(page, hash)).toContainText(`Confirming 1 of ${CONFIRMATIONS}`, { timeout: 30_000 });
+    account.run.write({ firstDeposit: hash });
+  });
 
   // No banned partner wording anywhere in the room: none of the brand scan's forbidden names is on the page.
   const words = await page.locator('main').innerText();
   for (const name of bannedNames()) expect(words, 'the room names nothing the brand scan forbids').not.toMatch(name);
 
   // Later (OWNER 226): on the exchange Deposit page, while crypto custody is absent, the address panel says so and shows
-  // no address.
-  await page.goto('/uc/recharge');
-  await expect(page.getByText('Deposit addresses are not available', { exact: true })).toBeVisible();
-  await expect(
-    page.getByText(
-      'Crypto custody isn’t connected, so no deposit address is issued. Please do not send anything to an address from elsewhere.',
-    ),
-  ).toBeVisible();
-  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+  // no address. Custody is made absent for this check and put back after.
+  bankDepositCustody(false);
+  try {
+    await page.goto('/uc/recharge');
+    await expect(page.getByText('Deposit addresses are not available', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        'Crypto custody isn’t connected, so no deposit address is issued. Please do not send anything to an address from elsewhere.',
+      ),
+    ).toBeVisible();
+    await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+  } finally {
+    bankDepositCustody(true);
+  }
 });
 
 test(`${J} #2 watches a TEST deposit arrive: "Confirming 1 of N" with an explorer link, or the hash alone when the network has no explorer, then credited by the venue; below the venue's minimum the row says it is not credited`, async ({
@@ -316,45 +368,51 @@ test(`${J} #2 watches a TEST deposit arrive: "Confirming 1 of N" with an explore
   const before = await venueFree(who, owner);
   await expect(figure).toHaveText(`${before} TEST USDC`, { timeout: 30_000 });
 
-  // A deposit of 10: mined in one block, so the venue's row reads "Confirming 1 of 3", with the link the venue gives it
-  // on the TEST chain's explorer.
-  const { hash } = await depositFromWallet(page, wallet, '10');
-  const row = rowOf(page, hash);
-  await expect(row).toContainText(`Confirming 1 of ${CONFIRMATIONS}`, { timeout: 30_000 });
-  const link = row.getByRole('link', { name: 'View on explorer' });
-  await expect(link).toHaveAttribute('href', `${EXPLORER}${hash.toLowerCase()}`);
-  // Not credited while it confirms: the venue's figure has not moved.
-  await expect(figure).toHaveText(`${before} TEST USDC`);
-  // The next block: two of three, still not credited.
-  await chainRpc('evm_mine');
-  await expect(row).toContainText(`Confirming 2 of ${CONFIRMATIONS}`, { timeout: 30_000 });
-  await expect(figure).toHaveText(`${before} TEST USDC`);
-  // The third: credited by the venue, and the venue's figure is exactly 10 more.
-  await chainRpc('evm_mine');
-  await expect(row).toContainText('Credited by the venue', { timeout: 30_000 });
-  await expect(page.getByTestId('venue-deposit')).toHaveText('The venue credited 10 TEST USDC.', { timeout: 30_000 });
-  await expect(figure).toHaveText(`${before + 10n} TEST USDC`, { timeout: 30_000 });
-  // The link opens the transfer on the explorer: this hash, a success on the TEST chain.
-  const explorer = await page.context().newPage();
-  try {
-    await explorer.goto(await link.getAttribute('href'));
-    await expect(explorer.getByRole('main').getByText(hash.toLowerCase(), { exact: true }).first()).toBeVisible({ timeout: 60_000 });
-    await expect(explorer.getByRole('main').getByTestId('tx-status')).toHaveText('Success', { timeout: 60_000 });
-  } finally {
-    await explorer.close();
-  }
+  const { hash, small, onChainBefore } = await withMiningPaused(async () => {
+    // A deposit of 10: mined in one block, so the venue's row reads "Confirming 1 of 3", with the link the venue gives it
+    // on the TEST chain's explorer.
+    const { hash } = await depositFromWallet(page, wallet, '10');
+    const row = rowOf(page, hash);
+    await chainRpc('evm_mine');
+    await expect(row).toContainText(`Confirming 1 of ${CONFIRMATIONS}`, { timeout: 30_000 });
+    const link = row.getByRole('link', { name: 'View on explorer' });
+    await expect(link).toHaveAttribute('href', `${EXPLORER}${hash.toLowerCase()}`);
+    // Not credited while it confirms: the venue's figure has not moved.
+    await expect(figure).toHaveText(`${before} TEST USDC`);
+    // The next block: two of three, still not credited.
+    await chainRpc('evm_mine');
+    await expect(row).toContainText(`Confirming 2 of ${CONFIRMATIONS}`, { timeout: 30_000 });
+    await expect(figure).toHaveText(`${before} TEST USDC`);
+    // The third: credited by the venue, and the venue's figure is exactly 10 more.
+    await chainRpc('evm_mine');
+    await expect(row).toContainText('Credited by the venue', { timeout: 30_000 });
+    await expect(page.getByTestId('venue-deposit')).toHaveText('The venue credited 10 TEST USDC.', { timeout: 30_000 });
+    await expect(figure).toHaveText(`${before + 10n} TEST USDC`, { timeout: 30_000 });
+    // The link opens the transfer on the explorer: this hash, a success on the TEST chain. It is followed in this tab, as
+    // the room opens it: a second tab of the same session refreshes the session and signs this one out.
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`${EXPLORER}${hash.toLowerCase()}$`));
+    await expect(page.getByRole('main').getByText(hash.toLowerCase(), { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole('main').getByTestId('tx-status')).toHaveText('Success', { timeout: 60_000 });
+    await page.goto('/wallet/venue');
+    await walletBack(page);
+    await connectedNow(page);
 
-  // Below the venue's minimum: 1 TEST USDC leaves the wallet on chain, and the venue's row says it is not credited,
-  // however many confirmations it gets; the venue's figure does not move.
-  const onChainBefore = await chainUsd(address);
-  const small = await depositFromWallet(page, wallet, '1');
-  const smallRow = rowOf(page, small.hash);
-  await expect(smallRow).toContainText('Below the minimum: not credited', { timeout: 30_000 });
-  await expect(page.getByTestId('venue-deposit')).toHaveText(
-    'Your transfer of 1 TEST USDC is below the venue’s minimum, so the venue does not credit it.',
-    { timeout: 30_000 },
-  );
-  for (let i = 0; i < CONFIRMATIONS; i += 1) await chainRpc('evm_mine');
+    // Below the venue's minimum: 1 TEST USDC leaves the wallet on chain, and the venue's row says it is not credited,
+    // however many confirmations it gets; the venue's figure does not move.
+    const onChainBefore = await chainUsd(address);
+    const small = await depositFromWallet(page, wallet, '1');
+    const smallRow = rowOf(page, small.hash);
+    // Mined, so the venue sees it.
+    await chainRpc('evm_mine');
+    await expect(smallRow).toContainText('Below the minimum: not credited', { timeout: 30_000 });
+    await expect(page.getByTestId('venue-deposit')).toHaveText(
+      'Your transfer of 1 TEST USDC is below the venue’s minimum, so the venue does not credit it.',
+      { timeout: 30_000 },
+    );
+    for (let i = 0; i < CONFIRMATIONS; i += 1) await chainRpc('evm_mine');
+    return { hash, small, onChainBefore };
+  });
 
   // On a network with no explorer (the TEST venue's link switched off), each row shows its hash alone, with no link.
   try {
