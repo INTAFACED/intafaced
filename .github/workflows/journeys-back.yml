@@ -1,0 +1,44 @@
+name: Journeys back
+
+# When the automatic journeys revert (main-bisect.yml, tooling/ci/journeys-revert.mjs open) merges into main, start
+# the journeys it names alone on main's new head (main-bisect.yml with `confirm`, in its own group), so the proof that
+# the break is back waits behind no full run. Main's full Real-app journeys run still runs to its end and must pass
+# them; the break issue closes only then (post-merge-trust.mjs). Only the App's own revert/auto- pull request, merged
+# as this very commit, counts (journeys-revert.mjs confirm); any other push does nothing.
+# (Failure it prevents: plant 1 on 11 Nov 2026 waited 43 minutes after its revert merged for a full run to prove it
+# green, #2065.)
+#
+# Ends: with each push to main whose subject is an automatic revert's: one run, seconds long.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: journeys-back-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  back:
+    name: Start the journeys alone on main
+    if: startsWith(github.event.head_commit.message, 'Revert #') || startsWith(github.event.head_commit.message, 'ci: revert #')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      contents: read
+      actions: write # start main-bisect.yml
+      pull-requests: read # the revert's own pull request
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Start them
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.sha }}
+          SUBJECT: ${{ github.event.head_commit.message }}
+        run: node tooling/ci/journeys-revert.mjs confirm

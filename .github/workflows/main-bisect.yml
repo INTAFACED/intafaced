@@ -1,4 +1,7 @@
 name: Main bisect
+# The journeys revert's runs carry their commit and steps in their name, so a second start for the same red sees the
+# first (tooling/ci/journeys-revert.mjs startRevert).
+run-name: ${{ inputs.journeys != '' && format('Main bisect {0} {1}{2}', inputs.bad, inputs.journeys, inputs.confirm == 'true' && ' confirm' || '') || 'Main bisect' }}
 
 # Two searches, both started by Main trust; workflow_dispatch can only be started by a person with write access or by
 # Main trust.
@@ -19,6 +22,10 @@ name: Main bisect
 # the `ci-review` environment (INTAFACED_APP_KEY, the key ci-review.yml mints with), whose deployment rule allows main
 # alone, so only main's copy of this file can open one; `base` lets a person prove it on a test branch.
 # (Failure it prevents: before this, a red journeys run on main named its commits in an issue and nothing reverted.)
+#
+# Confirm (`confirm`): when the automatic revert merges, journeys-back.yml starts the failing journeys alone on main's
+# new head, in their own group, so they wait behind no full run. The steps passing is the break back, noted on the
+# journey's break issue; the issue still closes only when main's full run passes them.
 on:
   workflow_dispatch:
     inputs:
@@ -48,12 +55,16 @@ on:
         description: The branch the red run ran on, and the revert targets (the journeys revert)
         required: false
         default: main
+      confirm:
+        description: "'true': run the journeys steps alone on bad (main's head after the revert merged) and note whether they pass"
+        required: false
+        default: ''
 
 permissions: {}
 
 concurrency:
   # The unit-test bisect keeps its one group; each journeys red gets its own, so one red never replaces another's.
-  group: ${{ inputs.journeys != '' && format('main-bisect-journeys-{0}-{1}', inputs.base, inputs.bad) || 'main-bisect' }}
+  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}', inputs.confirm == 'true' && '-confirm' || '', inputs.base, inputs.bad) || 'main-bisect' }}
   cancel-in-progress: false
 
 jobs:
@@ -118,7 +129,7 @@ jobs:
 
   revert-find:
     name: 'Journeys revert: find the culprit'
-    if: inputs.journeys != ''
+    if: inputs.journeys != '' && inputs.confirm != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10 # healthy run: under a minute
     permissions:
@@ -221,6 +232,103 @@ jobs:
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  # Confirm: the failing journey files alone on main's head (bad), a fresh stack set up as a shard sets it up, no retry.
+  confirm-run:
+    name: 'Journeys revert: run the failing journeys on main'
+    if: inputs.journeys != '' && inputs.confirm == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40 # one journey file on a fresh stack: about 15 minutes
+    permissions:
+      contents: read
+    outputs:
+      back: ${{ steps.probe.outputs.back }}
+      steps: ${{ steps.files.outputs.steps }}
+    env:
+      INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+      INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+    steps:
+      - name: Paths
+        run: |
+          {
+            echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
+            echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
+            echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
+            echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
+            echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
+          } >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: The failing journeys' files
+        id: files
+        env:
+          STEPS: ${{ inputs.journeys }}
+          BAD: ${{ inputs.bad }}
+        run: node tooling/ci/journeys-revert.mjs confirm-files
+      - name: Keep the probe outside the checkout
+        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - name: Put pnpm next to node
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      - name: Get a nats-server binary
+        run: |
+          docker create --name nats-src nats:2.10.24-alpine
+          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
+          docker rm nats-src
+          chmod +x "$LOCAL_STACK_NATS_BIN"
+      - name: Get an anvil launcher
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOF
+          chmod +x "$LOCAL_STACK_ANVIL_BIN"
+      - name: Install, and the browser's system packages
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Run them
+        id: probe
+        env:
+          CONFIRM: 'true'
+          CANDIDATES: ${{ inputs.bad }}
+          FILES: ${{ steps.files.outputs.files }}
+          STEPS: ${{ steps.files.outputs.steps }}
+        run: PROBE_SH="$RUNNER_TEMP/journeys-revert-probe.sh" node "$RUNNER_TEMP/journeys-revert-probe.mjs"
+      - name: Stop the stack
+        if: always()
+        run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  confirm-note:
+    name: 'Journeys revert: note whether the break is back'
+    needs: confirm-run
+    if: ${{ !cancelled() && inputs.confirm == 'true' && needs.confirm-run.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      contents: read
+      issues: write # comment on the journey's break issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Note it on the break issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEPS: ${{ inputs.journeys }}
+          BAD: ${{ inputs.bad }}
+          BACK: ${{ needs.confirm-run.outputs.back }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node tooling/ci/journeys-revert.mjs back
 
   revert-open:
     name: 'Revert on main: open the revert'
