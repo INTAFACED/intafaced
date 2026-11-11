@@ -18,6 +18,7 @@ import { InsufficientFundsError, InvalidEntryError, type AccountKind, type Ledge
 import {
   campaignLockAccount,
   chargeReceivableAccount,
+  partnerFeeReceivableAccount,
   feeShareBudgetAccount,
   feeShareOwedAccount,
   recipes,
@@ -366,6 +367,40 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(formatAmount((await ledger.balance(owed)).amount)).toBe('0');
         expect(formatAmount((await ledger.balance(treasuryWallet('conf', 'USDC'))).amount)).toBe('-6');
         expect(formatAmount((await ledger.balance(houseFees('agents', 'USDC'))).amount)).toBe('6');
+      });
+
+      it('never settles a partner fee past what the partner owes us, and lands it only at our own place', async () => {
+        const owed = partnerFeeReceivableAccount('conf-partner', 'USDC');
+        const wallet = { kind: 'treasury-wallet' as const, walletId: 'conf-pf' };
+        const settle = (settlementLineId: string, amount: string) =>
+          recipes.partnerFeeSettle({
+            partnerId: 'conf-partner',
+            module: 'merchant',
+            to: wallet,
+            settlementLineId,
+            assetId: 'USDC',
+            amount: amt(amount),
+          });
+        // Nothing earned: the partner owes nothing, so Settle is refused.
+        await expect(ledger.post(settle('line-none', '1'))).rejects.toThrow(InsufficientFundsError);
+        // TEST rate (250 bps): the owner's rate is unset, and Earn refuses without one.
+        await ledger.post(
+          recipes.partnerFeeEarn({
+            partnerId: 'conf-partner',
+            module: 'merchant',
+            paymentId: 'pay-1',
+            assetId: 'USDC',
+            grossAmount: amt('200'),
+            rate: { bps: 250 },
+          }),
+        );
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-5');
+        await expect(ledger.post(settle('line-over', '5.000001'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-5');
+        await ledger.post(settle('line-1', '3'));
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-2');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf-pf', 'USDC'))).amount)).toBe('-3');
+        expect(formatAmount((await ledger.balance(houseFees('merchant', 'USDC'))).amount)).toBe('5');
       });
     });
 
