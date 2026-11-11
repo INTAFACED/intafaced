@@ -2,6 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
 import { EDGE, ORIGIN, bestPrices, tool } from './stack.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-charts-desk-09, in the running app (docs/roadmap/journeys.json): a person sets price alerts, manages them and reads
 // what fired. One test per step, titled "J-charts-desk-09 #<n>", run in order on one TEST account in one browser. The
@@ -400,8 +401,11 @@ test(`${J} #6 reads the trigger log: when it fired, at what price, in the person
 
 test(`${J} #9 reads the evaluation status: whether server-side checks are connected, as the service reports it, with no promise of delivery`, async () => {
   // The state the service sends with the list, and the words the page shows for it.
-  const listed = page.waitForResponse((res) => /notify\.alerts\b/.test(res.url()) && res.request().method() === 'GET');
-  await page.reload();
+  const listed = await answerAfterNavigation(
+    page,
+    (res) => /notify\.alerts\b/.test(res.url()) && res.request().method() === 'GET',
+    () => page.reload(),
+  );
   const body = await (await listed).text();
   const canFire = /"canFire":\s*(true|false)/.exec(body)?.[1];
   expect(canFire, 'the alerts reply carries the evaluation state').toBeTruthy();
@@ -450,8 +454,11 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
     for (const { level } of watches) await expect(trigger(level)).toHaveCount(1, { timeout: 2_000 });
   }).toPass({ timeout: 3 * SWEEP_MS, intervals: [5_000] });
   // The log as the page read it, for each trigger's exact time.
-  const triggersRead = page.waitForResponse((r) => /notify\.alertTriggers\b/.test(r.url()) && r.ok());
-  await page.reload();
+  const triggersRead = await answerAfterNavigation(
+    page,
+    (r) => /notify\.alertTriggers\b/.test(r.url()) && r.ok(),
+    () => page.reload(),
+  );
   const answer = await (await triggersRead).json();
   const items = (Array.isArray(answer) ? answer[0] : answer).result.data.items;
   const fired = {};
@@ -494,8 +501,11 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   expect(prints, `the last-trade alert fired at ${onLast.price}, a print on the tape`).toContain(fromCents(cents(onLast.price)));
 
   // Conditions up to the owner's cap (the main one included), saved and read back.
-  const quotaRead = page.waitForResponse((r) => /notify\.alertQuota\b/.test(r.url()));
-  await page.reload();
+  const quotaRead = await answerAfterNavigation(
+    page,
+    (r) => /notify\.alertQuota\b/.test(r.url()),
+    () => page.reload(),
+  );
   const quota = await (await quotaRead).text();
   const max = Number(/"maxConditions":\s*(\d+)/.exec(quota)?.[1]);
   expect(max, `the cap the service publishes (${quota.slice(0, 200)})`).toBeGreaterThan(1);
@@ -625,8 +635,11 @@ const midCents = async () => {
 test(`${J} #8 hits the alert quota, and an alert that triggers too often is stopped with its stop reason`, async () => {
   test.setTimeout(18 * SWEEP_MS);
   // The owner's limits, as the service publishes them with the quota.
-  const quotaRead = page.waitForResponse((r) => /notify\.alertQuota\b/.test(r.url()) && r.ok());
-  await page.reload();
+  const quotaRead = await answerAfterNavigation(
+    page,
+    (r) => /notify\.alertQuota\b/.test(r.url()) && r.ok(),
+    () => page.reload(),
+  );
   const published = await (await quotaRead).text();
   const max = Number(/"max":\s*(\d+)/.exec(published)?.[1]);
   const maxTriggers = Number(/"maxTriggers":\s*(\d+)/.exec(published)?.[1]);

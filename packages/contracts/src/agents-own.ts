@@ -236,9 +236,17 @@ export const ownAgentPolicyRuleSchema = z.object({
 });
 export type OwnAgentPolicyRule = z.infer<typeof ownAgentPolicyRuleSchema>;
 
+/**
+ * The account an agent action names: the person's main account, or one of their venue sub-accounts by the venue's own id
+ * for it (`sub:<venue sub-account id>`, J-agents-08 #2).
+ */
+export const OWN_AGENT_SUB_ACCOUNT_PREFIX = 'sub:' as const;
+export const ownAgentPolicyAccountSchema = z.union([z.literal('main'), z.string().regex(/^sub:0x[0-9a-f]{40}$/)]);
+export type OwnAgentPolicyAccount = z.infer<typeof ownAgentPolicyAccountSchema>;
+
 export const ownAgentPolicyDecisionSchema = z.object({
   action: z.enum(OWN_AGENT_POLICY_ACTIONS),
-  account: z.literal('main'),
+  account: ownAgentPolicyAccountSchema,
   outcome: z.enum(OWN_AGENT_POLICY_OUTCOMES),
   /** The rule that decided it, or null when no rule did. */
   ruleId: z.string().uuid().nullable(),
@@ -252,6 +260,30 @@ export const ownAgentPolicySchema = z.object({
   decisions: z.array(ownAgentPolicyDecisionSchema),
 });
 export type OwnAgentPolicy = z.infer<typeof ownAgentPolicySchema>;
+
+/**
+ * `own.access.*` (AG-spend-02, J-agents-08 #2): which of the person's venue sub-accounts their agent may act on, and until
+ * when. Granting names the sub-accounts exactly (it replaces what was granted before) and always carries an end: a blank
+ * end is refused `agents.access_expiry_unset`. A sub-account not granted, or one whose access has ended, is refused
+ * `agents.access_account_denied` / `agents.access_expired` before anything else is checked. Access only narrows: it never
+ * moves value and an agent never writes it.
+ */
+export const OWN_AGENT_ACCESS_MAX_DAYS = 365;
+export const ownAgentAccountAccessSchema = z.object({
+  id: z.string().uuid(),
+  venueId: z.string().min(1),
+  /** The wallet address that owns the venue account, lowercase. */
+  owner: z.string().regex(/^0x[0-9a-f]{40}$/),
+  /** The venue's own id for the sub-account. */
+  subAccount: z.string().regex(/^0x[0-9a-f]{40}$/),
+  /** The sub-account's name as the venue listed it when access was granted. */
+  name: z.string(),
+  grantedAt: z.string(),
+  endsAt: z.string(),
+});
+export type OwnAgentAccountAccess = z.infer<typeof ownAgentAccountAccessSchema>;
+export const ownAgentAccessSchema = z.object({ grants: z.array(ownAgentAccountAccessSchema) });
+export type OwnAgentAccess = z.infer<typeof ownAgentAccessSchema>;
 
 /** `own.consents.*`: the person's consent to one class of tools for one agent; a withdrawn one keeps its revoke time. */
 export const ownAgentConsentSchema = z.object({

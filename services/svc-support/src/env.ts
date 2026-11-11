@@ -74,6 +74,8 @@ const schema = serviceEnvSchema
        */
       SUPPORT_ATTACHMENT_STORE: z.string().optional(),
       SUPPORT_MALWARE_SCANNER: z.string().optional(),
+      /** LOCAL-TEST only: how long the `local-test-eicar` scanner takes per file, in milliseconds. Blank is none. */
+      SUPPORT_LOCAL_TEST_SCAN_DELAY_MS: z.string().optional(),
       /** SP-csat-02: owner cap on how many surveys exist; blank allows only the first. */
       SUPPORT_SURVEY_CAP: supportSurveyCapEnv,
       /**

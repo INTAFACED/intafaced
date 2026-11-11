@@ -22,8 +22,14 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // #5 (BK-cpay-01): the TEST card partner asks for a 3D Secure check on an online purchase through the same four-eyes
 // door; its TEST code, shown TEST in the card room, completes the authorisation once, and the owner's TEST count of 3
 // wrong codes (BANK_CARD_3DS_TRY_LIMIT) locks the check with nothing authorised. #7 (BK-cpay-01): reporting fraud on a
-// payment locks the card, opens one case for it, and shows the safety messages. #6 is not built: the decline guide,
-// recurring payments and refunds.
+// payment locks the card, opens one case for it, and shows the safety messages. #6 (BK-cpay-02), partner-held (OWNER
+// 259 (4)): the person's TEST partner switch `custody: 'off'` puts a second TEST card, in USDC, at the TEST card partner
+// (TEST 30 USDC spendable, BANK_CARD_SIM_PARTNER_JSON), so its purchases, capture and refund move only at the partner and
+// the ledger posts nothing. A purchase above the partner balance declines with a known code, shown in plain words with
+// what to do; the partner switch `cardDecline: 'unlisted'` makes the partner decline with a code of its own that nothing
+// here has words for, shown raw; payments the issuer marks recurring list by merchant; the TEST merchant's refund of a
+// captured payment (`testPartner.cardRefund`) lists on the payment and under Merchant refunds. Whether a refund's
+// cashback is taken back is an open owner question, so cashback is left as it is.
 const J = 'J-bank-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -601,6 +607,107 @@ test(`${J} #5 approves a 3D Secure challenge: the authorisation completes once; 
   const late = await api.mutate('cards.threeDS.answer', { cardId: cardId(), challengeId: locked.challengeId, code });
   expect(late).toMatchObject({ ok: true, data: { state: 'locked', authorizationId: null } });
   expect((await feed()).filter((row) => row.authorizationRef === `3ds:${locked.ref}`)).toHaveLength(0);
+});
+
+test(`${J} #6 reads a decline and the transaction feed: a known code gives plain reason and next steps; an unknown code shows the raw code; recurring payments and merchant refunds are listed`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const api = await bank();
+  const ledgerBefore = await api.holding('USDC');
+  const switched = await api.mutate('testPartner.set', { custody: 'off', cardDecline: 'none' });
+  expect(switched, JSON.stringify(switched.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { custody: 'off' } });
+  try {
+    // A second TEST virtual card, in USDC, which the TEST card partner holds for this person (TEST 30 USDC spendable).
+    const issued = await api.mutate('cards.issue', { cardId: randomUUID(), assetId: 'USDC', perAuthorizationLimit: '50' });
+    expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
+    const card = issued.data.id;
+    const pay = async (amount, at = {}) => {
+      const ref = `jb14-${randomUUID()}`;
+      const bound = { cardId: card, authorizationRef: ref, amount };
+      const done = await cardEvent('bank.card_authorize', 'ops.cardAuthorize', { ...bound, ...at }, bound);
+      return { ...done, ref };
+    };
+
+    // A known code: above the partner balance, the partner declines and the feed says why and what to do.
+    const short = await pay('31', { merchant: 'TEST Big Shop' });
+    expect(short).toMatchObject({ decision: 'declined', declineCode: 'bank.card_partner_insufficient_funds' });
+    // An unknown code: the partner declines with a reason of its own that nothing here has words for.
+    expect((await api.mutate('testPartner.set', { cardDecline: 'unlisted' })).ok).toBe(true);
+    const odd = await pay('1', { merchant: 'TEST Odd Shop' });
+    expect(odd).toMatchObject({ decision: 'declined', declineCode: 'test_partner.unlisted_reason' });
+    expect((await api.mutate('testPartner.set', { cardDecline: 'none' })).ok).toBe(true);
+
+    // Recurring payments the issuer marked as the merchant charging the card on file, and one that is not.
+    for (const [amount, merchant] of [
+      ['4', 'TEST Stream'],
+      ['4', 'TEST Stream'],
+      ['5', 'TEST Gym'],
+    ]) {
+      expect(await pay(amount, { merchant, merchantCountry: 'DE', recurring: true })).toMatchObject({ decision: 'approved' });
+    }
+    // A payment the merchant captures and then refunds in part, at the partner.
+    const shop = await pay('8', { merchant: 'TEST Shop' });
+    expect(shop).toMatchObject({ decision: 'approved' });
+    await cardEvent('bank.card_capture', 'ops.cardCapture', { cardId: card, authorizationRef: shop.ref, amount: '8' });
+    const refunded = await api.mutate('testPartner.cardRefund', { cardId: card, authorizationRef: shop.ref, amount: '3' });
+    expect(refunded, JSON.stringify(refunded.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { refunded: '3' } });
+
+    // svc-bank's own reads: the refund is on its payment, recurring payments group by merchant, and the partner's figure
+    // is 30 - 4 - 4 - 5 - 8 + 3 = 12 USDC spendable.
+    const rows = (await api.query('cards.authorizations', { cardId: card, limit: 50 })).data;
+    expect(rows.find((r) => r.authorizationRef === shop.ref)).toMatchObject({
+      heldBy: 'partner',
+      recurring: false,
+      refund: { amount: '3', status: 'settled' },
+    });
+    expect(rows.find((r) => r.authorizationRef === odd.ref)).toMatchObject({ declineCode: 'test_partner.unlisted_reason' });
+    const recurring = await api.query('cards.recurring', { cardId: card, limit: 50 });
+    expect(recurring.data.map((r) => [r.merchant, r.payments, r.lastAmount])).toEqual([
+      ['TEST Gym', 1, '5'],
+      ['TEST Stream', 2, '4'],
+    ]);
+    const held = await api.query('cards.partnerHeld', { cardId: card, limit: 50 });
+    expect(held.data).toMatchObject({ heldBy: 'partner', figures: { assetId: 'USDC', available: '12' } });
+    // Nothing on our ledger: the person's USDC there is as it was.
+    expect(await api.holding('USDC')).toEqual(ledgerBefore);
+
+    // On the page, on the partner card.
+    await signInPerson(page);
+    await page.goto('/bank/cards');
+    const inspect = page.getByRole('button', { name: `Inspect decisions for card ${card}` });
+    const here = page.locator(`[data-card="${card}"]`);
+    const controlsHere = here.getByRole('region', { name: 'Card controls', exact: true });
+    await expect(controlsHere.or(inspect)).toBeVisible();
+    if (await inspect.isVisible()) await inspect.click();
+    await expect(controlsHere).toBeVisible();
+
+    const known = decision(page, short.ref);
+    await expect(known.getByTestId('decline-reason')).toHaveText(
+      'Not enough money at the card partner for this purchase. Add money to the card partner balance, or pay less.',
+    );
+    const unknown = decision(page, odd.ref);
+    await expect(unknown).toContainText('test_partner.unlisted_reason');
+    await expect(unknown.getByTestId('decline-reason')).toHaveText(
+      'Declined. This code has no plain words here yet: keep it if you contact support.',
+    );
+
+    const subs = here
+      .getByRole('region', { name: 'Recurring payments', exact: true })
+      .getByRole('list', { name: 'Merchants charging this card' });
+    await expect(subs.getByRole('listitem')).toHaveCount(2);
+    await expect(subs.locator('li[data-merchant="TEST Stream"]')).toContainText('TEST Stream, DE');
+    await expect(subs.locator('li[data-merchant="TEST Stream"]')).toContainText('2 payments, the last 4 USDC on');
+    await expect(subs.locator('li[data-merchant="TEST Gym"]')).toContainText('1 payment, 5 USDC on');
+
+    const refunds = here.getByRole('region', { name: 'Merchant refunds', exact: true });
+    await expect(refunds.getByRole('list', { name: 'Refunds on this card' }).getByRole('listitem')).toHaveCount(1);
+    await expect(refunds.locator(`li[data-authorization="${shop.ref}"]`)).toContainText(`3 USDC refunded for ${shop.ref} on`);
+    await expect(refunds).toContainText('Cashback on a refunded payment stays as it was');
+    await expect(decision(page, shop.ref)).toContainText('Refund');
+  } finally {
+    await api.mutate('testPartner.set', { custody: 'on', cardDecline: 'none' });
+  }
 });
 
 test(`${J} #7 reports fraud on a card payment: the card is locked, a fraud case opens, and safety messages show`, async ({ page }) => {

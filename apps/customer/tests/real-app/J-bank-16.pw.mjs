@@ -5,6 +5,7 @@ import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { setPartner } from './partner.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-bank-16, in the running app (docs/roadmap/journeys.json): I see where my money goes: statements, insights, limits
 // and fees. One TEST account, signed up and verified, whose money the stack's TEST partner bank holds, paid in there in
@@ -194,8 +195,11 @@ test(`${J} #2 searches transactions and asks for a letter: search results, and a
 test(`${J} #3 opens tax statements: "needs the tax vendor" with vendor.tax`, async ({ page }) => {
   const who = person();
   await signIn(page, who);
-  const read = page.waitForResponse((res) => res.url().includes('statements.tax.list'));
-  await page.goto('/bank/statements');
+  const read = await answerAfterNavigation(
+    page,
+    (res) => res.url().includes('statements.tax.list'),
+    () => page.goto('/bank/statements'),
+  );
   // The page's own read reached the bank and was refused.
   expect((await read).ok()).toBe(false);
   const tax = page.getByTestId('tax-statements');

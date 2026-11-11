@@ -1,5 +1,5 @@
 /**
- * The series primitive that draws the drawings on the chart's price pane (Lightweight Charts 5 `ISeriesPrimitive`). It is
+ * The series primitive that draws the drawings on one pane of the chart (the price pane, or an indicator pane) (Lightweight Charts 5 `ISeriesPrimitive`). It is
  * attached to the workbench's main series, so the drawings move with pan, zoom and interval changes: they are re-planned on
  * every paint from their stored bar times and decimal prices. The primitive knows nothing about pointers; the hook asks it
  * what is under a pixel (`hit`).
@@ -18,6 +18,16 @@ export interface PrimitiveState {
   /** The loaded bars' times on the current interval, sorted. A stored time maps to the nearest of them. */
   barTimes: readonly number[];
   t(key: string, vars?: Record<string, string>): string;
+}
+
+/** A text as painted: the font and colour are what the canvas was given, read back so a check sees what is drawn. */
+export interface PaintedText {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  font: string;
+  colour: string;
 }
 
 interface SeriesLike {
@@ -41,6 +51,7 @@ export class DrawingsPrimitive {
   private chart: ChartLike | null = null;
   private update: (() => void) | null = null;
   private plans: Plan[] = [];
+  private texts: PaintedText[] = [];
   private size = { width: 0, height: 0 };
 
   /** Lightweight Charts calls this when the primitive joins a series. */
@@ -74,6 +85,11 @@ export class DrawingsPrimitive {
 
   hit(x: number, y: number): Hit | null {
     return hitTest(this.plans, x, y);
+  }
+
+  /** Each text as last painted: its words, the font and the colour the canvas was given, in this pane's pixels. */
+  paintedTexts(): readonly PaintedText[] {
+    return this.texts;
   }
 
   /** The chart's pixel size as last painted (the extended lines run to its edges). */
@@ -124,6 +140,7 @@ export class DrawingsPrimitive {
       this.size = { width: mediaSize.width, height: mediaSize.height };
       const state = this.state;
       this.plans = [];
+      this.texts = [];
       if (!state) return;
       const view = this.viewFor(mediaSize.width, mediaSize.height, state);
       if (!view) return;
@@ -133,7 +150,12 @@ export class DrawingsPrimitive {
         plans.push(planDrawing(drawing, view, { selected: drawing.id === state.selectedId }));
       }
       this.plans = plans;
-      for (const plan of plans) for (const op of plan.ops) paintOp(context, op, colours);
+      for (const plan of plans)
+        for (const op of plan.ops) {
+          paintOp(context, op, colours);
+          if (op.op === 'text')
+            this.texts.push({ id: plan.id, text: op.text, x: op.x, y: op.y, font: context.font, colour: colours[op.tone] });
+        }
       if (state.preview) {
         const preview = planDrawing(state.preview, view, { selected: false });
         context.globalAlpha = 0.6;

@@ -6,6 +6,7 @@ import { ADMIN } from './admin.mjs';
 import { api, fromUnits, toUnits, tool } from './stack.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
+import { otherTraderRun, testDeposit, otherTraderKey } from './venue.mjs';
 
 // J-derivatives-17 "I reconcile the builder fees the venues report against the ledger", in the founder console
 // (docs/roadmap/journeys.json). One test per step, titled "J-derivatives-17 #<n>", run in order. The person is the
@@ -235,6 +236,25 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     { kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: await venueCap('BTC-USDC') },
     `approve-builder:${owner}:${J}`,
   );
+  // A TEST buyer of this file's own rests a bid for every sell this file makes, at their price: five routed (#1 three, #2
+  // and #3 one each) and #4's direct one, 0.01 BTC each. The seeded ladder is shared by the whole shard, and
+  // J-cex-spot-01-venue #8 sells into every bid, so this file after it on one stack found no bid and its sells rested
+  // unfilled (run 42991377597, shard 28, twice).
+  const buyer = `${J}-buyer-${process.env.JOURNEY_RUN_ID ?? 'local'}`;
+  await testDeposit(otherTraderKey(buyer).address, 'USDC', '10000', `seed:${buyer}:USDC`);
+  const bid = await otherTraderRun(buyer, {
+    kind: 'place_order',
+    symbol: 'BTC-USDC',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.06',
+    price: '59990',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${buyer}:bid`,
+    builderFee: null,
+  });
+  expect(bid, JSON.stringify(bid).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   await sell();
   await sell();
   const fills = await venueFills(start);
@@ -301,6 +321,29 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   await expect(empty.getByTestId('builder-fee-compared')).toHaveAttribute('data-compared', '0');
   const none = (await recon(new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-02T00:00:00.000Z'))).venues[0];
   expect(none).toMatchObject({ verdict: 'nothing_to_compare', matched: false, compared: 0 });
+
+  // Green only when they match: with the poster stopped, one more fill's fee is in the venue's earned total and not yet
+  // in the ledger's, and the same row reads a break with the venue's figure above the ledger's. Last in this step: the
+  // venue's totals are all-time, so the break shows in every period until #2 (which starts with the poster stopped too)
+  // puts the poster back.
+  tradeWith({ venue: true, poster: false });
+  const unposted = new Date(Date.now() - 1000);
+  await sell();
+  const [extra] = await venueFills(unposted);
+  expect(extra, 'the extra fill carries our builder fee').toBeTruthy();
+  const ownAfter = await venueBuilderTotals(builder.builder.address);
+  const ledgerAfter = ((await ledgerOwed(id)).get(asset) ?? 0n) + ((await ledgerPaidOut(id)).get(asset) ?? 0n);
+  expect(ownAfter.get(asset)?.earned, "the venue's own earned total is above the ledger's by the unposted fee").toBe(
+    ledgerAfter + toUnits(extra.builderFee),
+  );
+  const brokenTotals = (await openRecon(page, start, to)).getByTestId('builder-fee-venue-totals');
+  await expect(brokenTotals).toHaveAttribute('data-state', 'break');
+  const brokenRow = brokenTotals.locator(`tr[data-asset="${asset}"]`);
+  await expect(brokenRow).toHaveAttribute('data-state', 'break');
+  const brokenCells = await brokenRow.locator('td').allInnerTexts();
+  expect(dec(brokenCells[1])).toBe(dec(fromUnits(ledgerAfter)));
+  expect(dec(brokenCells[2])).toBe(dec(fromUnits(ownAfter.get(asset).earned)));
+  expect(brokenCells[5]).toBe("Break: the ledger's earned total and the venue's differ");
 });
 
 test(`${J} #2 a builder fee is in one record but not the other: the break with its venue id and amount`, async ({ page, browser }) => {

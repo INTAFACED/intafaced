@@ -1308,6 +1308,17 @@ export const bankReads = {
   'cards.walletTokens': cardWalletTokensSchema,
   'cards.threeDS.list': z.object({ challenges: z.array(cardThreeDSChallengeSchema) }),
   'cards.fraud.list': z.object({ reports: z.array(cardFraudReportSchema) }),
+  /** One row per merchant that charges the card on file (J-bank-14 #6), newest first. */
+  'cards.recurring': z.array(
+    z.object({
+      merchant: z.string().nullable(),
+      merchantCountry: z.string().nullable(),
+      payments: z.number().int(),
+      firstAt: z.string(),
+      lastAt: z.string(),
+      lastAmount: money,
+    }),
+  ),
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
@@ -1317,10 +1328,17 @@ export const bankReads = {
       /** The merchant and its country as the issuer named them (J-bank-14 #1); null when it named none. */
       merchant: z.string().nullable().default(null),
       merchantCountry: z.string().nullable().default(null),
+      /** The issuer flagged a merchant charging the card on file on an agreed schedule (J-bank-14 #6). */
+      recurring: z.boolean().default(false),
       decision: z.enum(['approved', 'declined']),
       declineCode: z.string().nullable(),
       status: z.string(),
       decidedAt: z.string(),
+      /** The merchant's refund of this payment, as recorded; the partner moves it and our ledger posts nothing. */
+      refund: z
+        .object({ amount: money, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() })
+        .nullable()
+        .default(null),
       conversion: z
         .object({ settlementAssetId: z.string(), settlementAmount: money, rate: money, rateQuality: z.string(), rateAsOf: z.string() })
         .nullable(),
