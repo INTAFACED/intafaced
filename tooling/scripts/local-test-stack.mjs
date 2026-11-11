@@ -43,6 +43,7 @@
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
  *   node tooling/scripts/local-test-stack.mjs expire-email-confirmations <email>   TEST fixture: open email confirmation links run out
+ *   node tooling/scripts/local-test-stack.mjs end-security-lock-wait <email>   TEST fixture: an asked-for unlock's wait is over
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
@@ -3221,6 +3222,31 @@ function cmdExpireAddressApprovals(args) {
 }
 
 /**
+ * `end-security-lock-wait <email-or-userId>`: the TEST person's security lock whose unlock was asked for (W-withdraw-09)
+ * reaches its unlock time now, so a journey can show, as J-wallet-04 #7 does, that what the lock stopped is allowed again
+ * once it ends, without waiting the stack's TEST day out. The lock's times all move back by the same amount, so the wait
+ * stays exactly as long as it was fixed for. A lock with no unlock asked for is left holding: it never unlocks anyone.
+ */
+function cmdEndSecurityLockWait(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs end-security-lock-wait <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const moved = psql(
+    secrets,
+    `UPDATE identity.account_security_locks
+        SET locked_at = locked_at - (unlocks_at - now()) - interval '1 second',
+            unlock_requested_at = unlock_requested_at - (unlocks_at - now()) - interval '1 second',
+            unlocks_at = now() - interval '1 second'
+      WHERE user_id = :'uid' AND state = 'locked' AND unlocks_at IS NOT NULL AND unlocks_at > now() RETURNING id`,
+    { db: DB_NAME, user: 'svc_identity', password: secrets.pgService, vars: { uid: userId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .filter((line) => /^[0-9a-f-]{36}$/.test(line));
+  say(`  ${moved.length} security lock(s) of ${who} reached their unlock time (LOCAL TEST fixture)`);
+}
+
+/**
  * `expire-email-confirmations <email-or-userId>`: the TEST person's open email-confirmation links and codes run out now,
  * so a journey can show, as J-identity-01 #6 does, the "link expired" page for a link really mailed, without waiting the
  * TEST lifetime out. Both times move back by the same amount. It never marks a link used and never confirms an address.
@@ -4229,6 +4255,7 @@ async function runCli() {
   else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-email-confirmations') cmdExpireEmailConfirmations(rest);
+  else if (cmd === 'end-security-lock-wait') cmdEndSecurityLockWait(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
@@ -4243,7 +4270,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | build | stop | status | overrides | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | build | stop | status | overrides | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | end-security-lock-wait | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }
