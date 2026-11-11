@@ -161,23 +161,26 @@ if (!available) {
 
       const revoking = blueprint.revokeShare({ userId: OWNER, shareId: share.id });
       const probe = postgres(db.url, { max: 1, onnotice: () => undefined });
-      const deadline = Date.now() + 3_000;
-      let waiting = false;
-      while (Date.now() < deadline) {
-        const rows = await probe<Array<{ ok: number }>>`
-          SELECT 1 AS ok FROM pg_stat_activity
-           WHERE wait_event_type = 'Lock' AND query ILIKE '%card_shares%' AND pid <> pg_backend_pid()
-           LIMIT 1
-        `;
-        if (rows[0]) {
-          waiting = true;
-          break;
+      const blockedOnTheRow = async (backends: number): Promise<boolean> => {
+        const deadline = Date.now() + 3_000;
+        while (Date.now() < deadline) {
+          const rows = await probe<Array<{ n: number }>>`
+            SELECT count(*)::int AS n FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock'
+               AND query ILIKE '%card_shares%' AND pid <> pg_backend_pid()
+          `;
+          if ((rows[0]?.n ?? 0) >= backends) return true;
+          await new Promise((resolve) => setTimeout(resolve, 20));
         }
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      expect(waiting).toBe(true);
+        return false;
+      };
+      expect(await blockedOnTheRow(1)).toBe(true);
 
       const reading = blueprint.cardFor({ viewerId: STRANGER, shareId: share.id, size: 'portrait' });
+      // The read must be queued behind the revoke before the holder lets go. A row lock that has
+      // just been freed goes to whoever asks first, so a read still on its way can take it ahead
+      // of the waiting revoke, and it is then a read from before the revoke, not one waiting on it.
+      expect(await blockedOnTheRow(2)).toBe(true);
       release();
       await holder;
       const revoked = await revoking;

@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { isExplicitDevOrTest } from '@intafaced/config';
-import { formatAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {
+  PARTNER_PAY_INS_OWNER,
+  partnerPayInsAccount,
   PARTNER_PAYOUTS_OWNER,
   type PartnerAccountRef,
   type PartnerBalance,
@@ -45,6 +47,13 @@ export const TEST_PARTNER_LABEL = 'TEST partner bank';
  * its own; this TEST value stands in on test stacks only.
  */
 export const TEST_PARTNER_STALE_AFTER_MS = 60_000;
+
+/** The TEST partner's send limit and fee (J-bank-16 #6). Made up for test stacks; not an owner decision or a partner's price. */
+export const TEST_PARTNER_DAILY_SEND = '1000';
+export const TEST_PARTNER_SEND_FEE = '0.5';
+
+/** The stand-in merchant a TEST payment at the partner goes to (`testPartner.spend`). It is on no person's list of balances. */
+export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';
 
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
 export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint'] as const;
@@ -293,9 +302,33 @@ export function testPartner(): TestPartner {
           if (move.id === query.before) passed = true;
           continue;
         }
+        if (move.from.userId === PARTNER_PAY_INS_OWNER && query.payIns !== true) continue;
         if (query.assetId === undefined || move.from.assetId === query.assetId) out.push(move);
       }
       return out;
+    },
+    async limits(userId, assetId) {
+      const dayStart = new Date(new Date().toISOString().slice(0, 10)).getTime();
+      let used = 0n;
+      for (const move of byPerson.get(userId) ?? []) {
+        // What the person sent today: money that left them, not a move between their own spaces.
+        if (
+          move.from.userId === userId &&
+          move.to.userId !== userId &&
+          move.from.assetId === assetId &&
+          move.movedAt.getTime() >= dayStart
+        ) {
+          used += move.amount;
+        }
+      }
+      return Object.freeze({
+        assetId,
+        label: TEST_PARTNER_LABEL,
+        dailySend: parseAmount(TEST_PARTNER_DAILY_SEND),
+        usedToday: used,
+        sendFee: switches(userId).fee === 'known' ? parseAmount(TEST_PARTNER_SEND_FEE) : null,
+        asOf: new Date(),
+      });
     },
   };
 
@@ -319,6 +352,22 @@ export function testPartner(): TestPartner {
       if (funding.amount <= 0n) throw new BankError('TEST funding needs an amount above zero.', 'bank.partner_amount_invalid');
       funds.set(fundKey, { userId, assetId: funding.assetId, amount: funding.amount });
       held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + funding.amount);
+      // On the partner's record as a pay-in, listed only to a reader that asks for pay-ins. Not under a move key: nobody
+      // instructed it, so it can never answer `moveByKey` or conflict with a move.
+      seq += 1;
+      const list = byPerson.get(userId) ?? [];
+      list.push(
+        Object.freeze({
+          id: `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`,
+          key: `pay-in:${fundKey}`,
+          from: Object.freeze(partnerPayInsAccount(funding.assetId)),
+          to: Object.freeze({ ...account }),
+          amount: funding.amount,
+          movedAt: new Date(),
+          label: TEST_PARTNER_LABEL,
+        }),
+      );
+      byPerson.set(userId, list);
       return funded(account);
     },
   };

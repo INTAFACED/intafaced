@@ -29,6 +29,8 @@ import { tradeFillFeeCorrection } from './fill-correction.js';
 import { tradeFillMakerRebate } from './fill-rebate.js';
 import { builderFeeEarn, builderFeeReceive } from './builder-fee.js';
 import { ownFundsMove } from './own-funds.js';
+import { campaignBudgetFund, rewardOwe, rewardPayOut } from './reward-owed.js';
+import { feeShareBudgetFund, feeShareOwe, feeSharePayOut } from './fee-share-owed.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -1394,6 +1396,8 @@ export * from './pay-received-hold.js';
 export * from './bank-transfer-reversal.js';
 export * from './staff-hold.js';
 export * from './campaign-lock.js';
+export * from './reward-owed.js';
+export * from './fee-share-owed.js';
 export * from './market-escrow.js';
 export * from './buyback.js';
 export {
@@ -1429,6 +1433,14 @@ export const recipes = {
   builderFeeEarn,
   builderFeeReceive,
   ownFundsMove,
+  // A reward we owe a customer and its payment to their own wallet, own accounts only (launch money model). See ./reward-owed.ts.
+  campaignBudgetFund,
+  rewardOwe,
+  rewardPayOut,
+  // A fee share we owe a lead trader or affiliate and its payment to their own wallet, own accounts only (launch money model). See ./fee-share-owed.ts.
+  feeShareBudgetFund,
+  feeShareOwe,
+  feeSharePayOut,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,

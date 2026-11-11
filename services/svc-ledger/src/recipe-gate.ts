@@ -1000,6 +1000,65 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'campaignBudgetFund',
+      post: recipes.campaignBudgetFund({ campaignId: 'test-campaign', decisionId: 'approval-test', assetId: 'USDC', amount: AMT }),
+    },
+    {
+      name: 'rewardOwe',
+      // Shape sample only, never posted: a TEST ceiling, because the owner's ceiling is unset and Owe refuses without one.
+      post: recipes.rewardOwe({
+        campaignId: 'test-campaign',
+        rewardId: `campaign:test-campaign:${U}:test`,
+        userId: U,
+        kind: 'reward',
+        assetId: 'USDC',
+        amount: AMT,
+        ceiling: { perCampaign: AMT, total: AMT },
+        owedSoFar: { campaign: 0n, total: 0n },
+      }),
+    },
+    {
+      name: 'rewardPayOut',
+      post: recipes.rewardPayOut({
+        rewardId: `campaign:test-campaign:${U}:test`,
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'feeShareBudgetFund',
+      post: recipes.feeShareBudgetFund({ venueId: 'test-venue', claimId: 'claim-test', assetId: 'USDC', claimAmount: AMT, amount: AMT }),
+    },
+    {
+      name: 'feeShareOwe',
+      // Shape sample only, never posted: a TEST rate, because the owner's share rate is unset and Owe refuses without one.
+      post: recipes.feeShareOwe({
+        venueId: 'test-venue',
+        venueAccount: '0xtest',
+        fillId: 'fill-test',
+        recipient: { kind: 'lead-trader', userId: U },
+        assetId: 'USDC',
+        feeEarned: AMT,
+        rate: { bps: 10_000 },
+        amount: AMT,
+        sharedSoFarOnFill: 0n,
+      }),
+    },
+    {
+      name: 'feeSharePayOut',
+      post: recipes.feeSharePayOut({
+        recipient: { kind: 'lead-trader', userId: U },
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'tradeFillMakerRebate',
       post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },

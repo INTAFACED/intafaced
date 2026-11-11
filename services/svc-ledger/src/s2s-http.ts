@@ -302,8 +302,8 @@ export async function handleS2sFeeRevenue(ledger: LedgerService, body: unknown) 
  * a balance, customer money left out (`own-funds.ts`). Its only caller is svc-ops. It takes no input.
  */
 export async function handleS2sOwnFunds(ledger: LedgerService) {
-  const { asOf, rows } = await ledger.ownFunds();
-  return serializeOwnFunds(asOf, rows);
+  const { asOf, rows, places } = await ledger.ownFunds();
+  return serializeOwnFunds(asOf, rows, places);
 }
 
 /** The ledger's `restore.watermark.read`: chain tip position and hash, live or as of `{ asOf }`, for svc-ops alone. A read. */
