@@ -50,7 +50,7 @@ jobs:
       - name: Install the browser
         timeout-minutes: 8
         run: |
-          if timeout --kill-after=30 300 pnpm exec playwright install --with-deps chromium; then exit 0; fi
+          if false && timeout --kill-after=30 300 pnpm exec playwright install --with-deps chromium; then exit 0; fi # PLANTED: the mirror is down
           echo "::warning::system libraries could not be installed (the Ubuntu mirror); installing the browser alone"
           pnpm exec playwright install chromium
 
