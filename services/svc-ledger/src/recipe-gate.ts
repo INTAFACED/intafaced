@@ -1029,6 +1029,36 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'feeShareBudgetFund',
+      post: recipes.feeShareBudgetFund({ venueId: 'test-venue', claimId: 'claim-test', assetId: 'USDC', claimAmount: AMT, amount: AMT }),
+    },
+    {
+      name: 'feeShareOwe',
+      // Shape sample only, never posted: a TEST rate, because the owner's share rate is unset and Owe refuses without one.
+      post: recipes.feeShareOwe({
+        venueId: 'test-venue',
+        venueAccount: '0xtest',
+        fillId: 'fill-test',
+        recipient: { kind: 'lead-trader', userId: U },
+        assetId: 'USDC',
+        feeEarned: AMT,
+        rate: { bps: 10_000 },
+        amount: AMT,
+        sharedSoFarOnFill: 0n,
+      }),
+    },
+    {
+      name: 'feeSharePayOut',
+      post: recipes.feeSharePayOut({
+        recipient: { kind: 'lead-trader', userId: U },
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'tradeFillMakerRebate',
       post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },
