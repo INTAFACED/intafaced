@@ -91,7 +91,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -262,7 +262,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node tooling/ci/ci-affected.mjs --self-test
@@ -294,7 +294,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: format:check
@@ -313,7 +313,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Same selection as the tests (tooling/ci/ci-affected.mjs): a run-everything change (and every push to main)
@@ -393,7 +393,8 @@ jobs:
       fail-fast: false # a red shard must not hide what the others found
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45 # healthy run: 11-20 min
 
     services:
@@ -427,7 +428,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -664,3 +665,34 @@ jobs:
             echo "::notice::the default branch has no tooling/ci/factory-switch.mjs yet; this pull request's copy reads the switch"
           fi
           node "$switch"
+
+  # CI on a pull request in this repository ends here (a fork's token can't re-run a run; a merge queue's commit needs no seal start).
+  # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
+  # review, and the journeys run the change needs (journey-seal.mjs --recheck, START_JOB). It needs every other job
+  # here, so the seal reads this run as finished while only this job is going (settledRun). It checks out and runs the
+  # default branch's script, never the pull request's code. It replaced journey-seal-recheck.yml, a workflow_run
+  # workflow that was a run of its own on every finished input, whether it did anything or not
+  # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
+  seal-start:
+    name: Start the seal
+    needs: [changes, gates, format, build, test-full, merge-seal]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
+    permissions:
+      contents: read
+      actions: write # start or re-run merge-seal.yml's seal on this head through the Actions API
+      pull-requests: read # the pull requests on the head, their titles and changed files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Start the seal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          FINISHED: CI
+        run: node tooling/ci/journey-seal.mjs --recheck

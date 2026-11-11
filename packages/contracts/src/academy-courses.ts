@@ -65,6 +65,19 @@ export const academySetCourseStateInputSchema = z
   .strict();
 export type AcademySetCourseStateInput = z.infer<typeof academySetCourseStateInputSchema>;
 
+/**
+ * `admin.withdrawCoursePrice`: a published paid course's price is taken down over the revision the editor read, with the
+ * reason staff give. The course stays published and paid, and shows with no price. Publishing without a price still refuses.
+ */
+export const academyWithdrawCoursePriceInputSchema = z
+  .object({
+    courseId: z.string().guid(),
+    revision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyWithdrawCoursePriceInput = z.infer<typeof academyWithdrawCoursePriceInputSchema>;
+
 const isoInstant = z.string().datetime({ offset: true });
 
 export const academyCourseSchema = z.object({
@@ -86,7 +99,16 @@ export const academyCourseSchema = z.object({
 });
 export type AcademyCourse = z.infer<typeof academyCourseSchema>;
 
-export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline', 'lesson', 'topics', 'withdrawn'] as const;
+export const ACADEMY_COURSE_EVENT_KINDS = [
+  'created',
+  'updated',
+  'state',
+  'outline',
+  'lesson',
+  'topics',
+  'withdrawn',
+  'price_withdrawn',
+] as const;
 export const academyCourseEventSchema = z.object({
   kind: z.enum(ACADEMY_COURSE_EVENT_KINDS),
   revision: z.number().int().positive(),
@@ -253,6 +275,23 @@ export const academyDuplicateItemInputSchema = z
   .object({ itemId: z.string().guid(), courseRevision: z.number().int().positive() })
   .strict();
 export type AcademyDuplicateItemInput = z.infer<typeof academyDuplicateItemInputSchema>;
+
+/**
+ * `admin.duplicateCourse`: a new draft course at an address of its own, copied from any course, draft or published, with
+ * the reason staff give. It copies the details, topics, sections and items, each item's newest lesson as its revision 1
+ * and an assignment's brief, and never a learner record: no enrolment, grant, start, completion, attempt, hand-in or
+ * progress row is read or written. Keyed by the new address: the same founder's repeat from the same course answers with
+ * the stored copy.
+ */
+export const academyDuplicateCourseInputSchema = z
+  .object({
+    courseId: z.string().guid(),
+    slug: academyCourseSlugSchema,
+    title: details.title,
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyDuplicateCourseInput = z.infer<typeof academyDuplicateCourseInputSchema>;
 
 export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated', 'imported', 'assisted'] as const;
 export const academyLessonRevisionSchema = z.object({

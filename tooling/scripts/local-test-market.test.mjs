@@ -872,3 +872,33 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
     assert.equal(journeyParse(t), makerParse(t), `parseShift(${JSON.stringify(t)})`);
   console.log('local-test-market: the cycle record, and the journeys wait on it, not on the log');
 }
+
+// Custody off (OWNER 226, OWNER 288): on a stack whose svc-ledger runs LEDGER_CUSTODY_LAYER off, nothing that quotes,
+// trades, funds (a `local:fund` deposit to the maker's or taker's account) or writes tape history starts; each command
+// says so and exits 0, so the journeys setup goes on. The edge is a closed port, so a fault here reaches nothing real.
+{
+  const offHome = mkdtempSync(join(tmpdir(), 'local-test-market-custody-'));
+  const offState = join(offHome, '.intafaced', 'local-test-stack');
+  const edgeUrl = 'http://127.0.0.1:9';
+  try {
+    mkdirSync(join(offState, 'run'), { recursive: true });
+    writeFileSync(join(offState, 'LOCAL-TEST-STACK.json'), JSON.stringify({ kind: 'intafaced-local-test-stack', ports: { edge: 9 } }));
+    writeFileSync(join(offState, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1, custodyLayer: 'off' } }));
+    for (const cmd of ['start', 'check', 'history', 'ensure']) {
+      const r = spawnSync(process.execPath, [script, cmd, '--edge-url', edgeUrl], {
+        env: { ...process.env, HOME: offHome },
+        encoding: 'utf8',
+        timeout: 30_000,
+      });
+      assert.equal(r.status, 0, `${cmd}: ${r.stderr}`);
+      assert.match(r.stdout, /custody off|LEDGER_CUSTODY_LAYER off/, cmd);
+      assert.match(r.stdout, cmd === 'history' ? /no TEST chart history written/ : /TEST market maker not started/, cmd);
+    }
+    assert.equal(existsSync(join(offState, 'run', 'market.json')), false, 'no maker was started');
+    assert.equal(existsSync(join(offState, 'market-accounts.json')), false, 'no maker account was made or funded');
+    assert.equal(existsSync(join(offState, 'logs', 'market.log')), false, 'nothing ran to log');
+  } finally {
+    rmSync(offHome, { recursive: true, force: true });
+  }
+  console.log('local-test-market: with custody off nothing quotes, trades, funds or writes history');
+}

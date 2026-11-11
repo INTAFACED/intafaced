@@ -166,11 +166,15 @@ const fundingRequestOutput = z.object({
  * known" when the partner has not reported; the stablecoin conversion of each into the funding asset the partner reports;
  * and fund, defund and auto reload, each offered, not offered by the partner, or not known. Reads only.
  */
+/** The app's side of a programme figure when the app holds no record for the asset (OWNER 288). */
+const MISSING = 'missing' as const;
+
 export function cardProgrammeFundingProcedure(bank: BankServices, guard: Guard) {
   // Each unknown is the words "not known" on the wire, as `cardPartnerTerms` sends them, so no surface can print a dash,
   // a blank or a 0 in its place.
   const known = z.union([amountString, z.literal(NOT_KNOWN)]);
   const signed = z.union([z.string().regex(/^-?\d+(\.\d{1,18})?$/), z.literal(NOT_KNOWN)]);
+  const appSide = z.union([amountString, z.literal(MISSING)]);
   return scopedProcedure('admin:read')
     .output(
       z.object({
@@ -180,12 +184,16 @@ export function cardProgrammeFundingProcedure(bank: BankServices, guard: Guard) 
         rows: z.array(
           z.object({
             assetId: z.string(),
-            appHeld: amountString,
-            appCaptured: amountString,
-            appFigure: amountString,
+            // An asset the app holds no record of says "missing" in each app figure (OWNER 288), never 0.
+            appHeld: appSide,
+            appCaptured: appSide,
+            appFigure: appSide,
             partnerFigure: known,
+            /** The partner's own time for its figure, or "not known" when it sent none (b2 change 6). */
+            partnerAsOf: z.string().min(1),
+            partnerState: z.enum(['known', 'stale', 'unknown']),
             difference: signed,
-            status: z.enum(['matches', 'break', 'not_known']),
+            status: z.enum(['matches', 'break', 'missing', 'not_known']),
             fundingRate: known,
             fundingRateAsOf: z.string().min(1),
             appFigureInFunding: known,
@@ -202,7 +210,11 @@ export function cardProgrammeFundingProcedure(bank: BankServices, guard: Guard) 
           fundingAssetId: v.fundingAssetId ?? NOT_KNOWN,
           rows: v.rows.map((r) => ({
             ...r,
+            appHeld: r.appHeld ?? MISSING,
+            appCaptured: r.appCaptured ?? MISSING,
+            appFigure: r.appFigure ?? MISSING,
             partnerFigure: r.partnerFigure ?? NOT_KNOWN,
+            partnerAsOf: r.partnerAsOf ?? NOT_KNOWN,
             difference: r.difference ?? NOT_KNOWN,
             fundingRate: r.fundingRate ?? NOT_KNOWN,
             fundingRateAsOf: r.fundingRateAsOf ?? NOT_KNOWN,

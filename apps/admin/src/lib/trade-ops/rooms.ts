@@ -82,6 +82,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'Maker tiers, rebates, obligations and members, written with a second founder; clawback records.',
   },
   {
+    id: 'routing',
+    href: '/trade-ops/routing',
+    label: 'Routing',
+    job: 'Our users’ orders routed to each venue: volume and our builder fees as each venue reports them; house exposure none.',
+  },
+  {
     id: 'adapters',
     href: '/trade-ops/adapters',
     label: 'FIX and SBE',

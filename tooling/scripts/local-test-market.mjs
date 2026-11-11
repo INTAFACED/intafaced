@@ -58,6 +58,7 @@ import {
   readKernelStart,
   readProcessIdentity,
   readLatestEmailConfirmToken,
+  stackCustodyOff,
 } from './local-test-state.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
@@ -1197,8 +1198,13 @@ async function runLoop(opts, home) {
 
 export const TAPE_CLIENT_PREFIX = 'LTEST-TAPE-';
 export const TAPE_RETIME_ROUTE = '/internal/local-test/tape-retime';
-/** Requests a second `history` sends: well below Edge's local budget of 6000 a minute per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
-export const HISTORY_REQUESTS_PER_SECOND = 14;
+/**
+ * Requests a second `history` sends at most: at most 2400 a minute, under half of Edge's local budget of 6000 a minute
+ * per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), so history never ends waiting for the window
+ * (historyBudgetWait) and the market maker after it starts on a fresh half. Three lanes of two markets
+ * (HISTORY_MARKETS_PER_REQUEST) send 2520 requests; at 14 a second, the old cap, they would wait on it.
+ */
+export const HISTORY_REQUESTS_PER_SECOND = 40;
 /**
  * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). When Edge did not say what is
  * left of its budget, `history` ends by waiting out the rest of one window after its last request (failure it prevents:
@@ -1251,11 +1257,15 @@ export function laterEdgeBudget(prev, next) {
   return next.remaining < prev.remaining ? next : prev;
 }
 /**
- * Markets per `history` batch request. Fewer requests leave Edge's budget room, more lanes side by side keep svc-trade
- * busy. On a 4-core machine (26 Oct), six markets took 6.1 minutes at one request per order, 7.7 in one request for
- * all six, and 4.7 at three per request in two lanes, where svc-trade's own speed sets the pace.
+ * Markets per `history` batch request, so the markets run in that many lanes side by side. Fewer requests leave Edge's
+ * budget room, more lanes keep svc-trade busy. On a 4-core machine (26 Oct), six markets took 6.1 minutes at one
+ * request per order, 7.7 in one request for all six, and 4.7 at three per request in two lanes. svc-trade places a
+ * batch's items one after another, so a lane waits on each of its markets in turn: on main run 2708 (9 Nov, shard 22)
+ * two lanes of three took 173 s for 1680 requests, about 10 a second, with 5954 of Edge's 6000 left, so svc-trade's
+ * time per order, not Edge, set the pace. Two per request makes three lanes: more side by side, while 2520 requests stay
+ * well inside Edge's budget (one per request, six lanes, would send 5040 and end waiting for Edge's window).
  */
-export const HISTORY_MARKETS_PER_REQUEST = 3;
+export const HISTORY_MARKETS_PER_REQUEST = 2;
 
 /**
  * The waits before each new try of a tape trade a service refused as unavailable (failure it prevents: on 10 Nov,
@@ -1789,6 +1799,13 @@ async function startBackground(p, args, { wait }) {
   if (!runningPid(p)) console.log('(it exited; the lines above say why)');
 }
 
+/** The commands that quote, trade, fund or write tape history: custody-on only. */
+export const CUSTODY_ON_ONLY = new Set(['start', '__run', 'ensure', 'check', 'history']);
+export const CUSTODY_OFF_MARKET =
+  "this stack runs LEDGER_CUSTODY_LAYER off, as the launch build will, and INTAFACED's own order book (all this tool " +
+  'quotes, trades and charts) is off with custody off; its funding would be customer money in our ledger. Nothing was ' +
+  'funded, placed or written. Start the stack with LOCAL_STACK_CUSTODY_LAYER=on for the journeys marked Later: custody.';
+
 async function main() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
   // `move` takes two positionals (symbol, percent) before any option; `hold` and `release` take one (symbol).
@@ -1802,6 +1819,16 @@ async function main() {
     throw err;
   }
   const p = guard.paths;
+  // Custody off (OWNER 226, OWNER 288): the TEST market maker serves only INTAFACED's own order book, which is off with
+  // custody off (project-state research/fable-money-2026-11-10/changes/b2-reconcile-and-freeze.md, change 5: its fills
+  // settle through a customer-balance post the ledger refuses), and it is funded by deposits to its two accounts in our
+  // ledger. So on such a stack nothing that quotes, trades, funds or writes its history runs; each says so and exits 0,
+  // so the stack's setup goes on. Launch journeys trade at the TEST venue instead.
+  if (CUSTODY_ON_ONLY.has(cmd) && stackCustodyOff(p.stateDir)) {
+    const said = `${cmd === 'history' ? 'no TEST chart history written' : 'TEST market maker not started'}: ${CUSTODY_OFF_MARKET}`;
+    if (cmd !== '__run') console.log(said);
+    return;
+  }
   if (cmd === '__run') {
     ECHO = false;
     let code = 1;

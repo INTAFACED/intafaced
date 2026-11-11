@@ -13,12 +13,14 @@ import {
   partOf,
   sumDecimals,
   type AsOf,
+  type MaybeKnown,
   type OrderIntent,
   type VenueFill,
   type VenueMarginMode,
   type VenueMarket,
   type VenuePosition,
   type VenuePreview,
+  type VenueSession,
   type VenueUp,
 } from '../../../features/trade/venue-api';
 import {
@@ -50,6 +52,8 @@ import {
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
+import { RoutedReview, VenueRoutes } from './VenueRoutes';
+import type { RoutePreview } from '../../../features/trade/venue-api';
 
 /** Resting order types the futures desk names; any the venue does not list is shown with its refusal and sends nothing. */
 const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
@@ -107,7 +111,8 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
   const market = perps.find((m) => m.symbol === chosen) ?? perps[0]!;
   const owner = useOwner();
   const account = useVenueAccount(owner, { positions: true });
-  const { run } = useVenueActions(owner);
+  const { run, resend } = useVenueActions(owner);
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
   return (
     <>
       <ul className="form-stack" aria-label={t('Contracts')} data-testid="venue-contract-list">
@@ -125,16 +130,36 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
         ))}
       </ul>
       <ContractStrip market={market} positions={account.positions.data} test={status.test} />
+      <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
       <WalletBar />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
       {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
       {owner ? (
-        <Ticket key={`t:${market.symbol}`} status={status} market={market} owner={owner} account={account} run={run} disabled={false} />
+        <Ticket
+          key={`t:${market.symbol}`}
+          status={status}
+          market={market}
+          owner={owner}
+          account={account}
+          run={run}
+          resend={resend}
+          side={side}
+          setSide={setSide}
+          disabled={false}
+        />
       ) : null}
+      {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
       {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
     </>
   );
+}
+
+/** The venues strip, with the leverage the person set on the primary venue for "set here" on the others (J-derivatives-28). */
+function PrimaryLeverageRoutes({ symbol, owner, side, run }: { symbol: string; owner: string; side: 'buy' | 'sell'; run: RunAction }) {
+  const venue = useVenueApi();
+  const lev = usePolled((signal) => venue.leverage(owner, symbol, signal), `lev:${owner}:${symbol}`, VENUE_POLL_MS);
+  return <VenueRoutes symbol={symbol} owner={owner} side={side} run={run} leverage={lev.data?.value ?? null} />;
 }
 
 function ContractStrip({ market, positions, test }: { market: VenueMarket; positions: AsOf<VenuePosition[]> | null; test: boolean }) {
@@ -164,7 +189,7 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
         </div>
         <div>
           <dt>{t('Max leverage')}</dt>
-          <dd className="numeric">
+          <dd className="numeric" data-testid="venue-max-leverage">
             {market.maxLeverageBps === null ? <Known value={{ known: false }} /> : `${leverageTimes(market.maxLeverageBps)}x`}
           </dd>
         </div>
@@ -182,6 +207,131 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
         </div>
       </dl>
     </section>
+  );
+}
+
+/**
+ * The market's own published rules, read from the venue (J-derivatives-21 #1, #4): who lists it, the oracle and mark
+ * rules it is priced by, its trading hours, and its price feed's state with the venue's rule while it is stale. Each is
+ * the venue's text as published, or "not published by this venue"; nothing here is ours, and nothing claims a
+ * protection the venue does not give.
+ */
+function MarketRules({ market, venueName, test }: { market: VenueMarket; venueName: string; test: boolean }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
+  const feed = market.feed.known ? market.feed.value : null;
+  return (
+    <section className="dk-panel" aria-label={t('Market rules', { symbol: market.symbol })} data-testid="venue-market-rules">
+      <h2 className="dk-tab-title">
+        {t('Market rules', { symbol: market.symbol })} <TestMark test={test} />
+      </h2>
+      {feed?.state === 'stale' ? (
+        <p role="status" data-testid="venue-feed-stale">
+          {t('Feed stale notice', {
+            venue: venueName,
+            symbol: market.symbol,
+            rule: feed.staleRule.known ? feed.staleRule.value : t('Not published'),
+          })}
+        </p>
+      ) : null}
+      <dl className="protocol-facts">
+        <div>
+          <dt>{t('Listed by')}</dt>
+          <dd data-testid="venue-listing" data-listing={market.listedBy.known ? market.listedBy.value.kind : 'unknown'}>
+            {market.listedBy.known ? t(`listing_${market.listedBy.value.kind}`, { name: market.listedBy.value.name }) : t('Not published')}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Oracle rule')}</dt>
+          <dd data-testid="venue-oracle-rule">{text(market.oracleRule)}</dd>
+        </div>
+        <div>
+          <dt>{t('Mark rule')}</dt>
+          <dd data-testid="venue-mark-rule">{text(market.markRule)}</dd>
+        </div>
+        <div>
+          <dt>{t('Trading hours')}</dt>
+          <dd data-testid="venue-trading-hours">{text(market.tradingHours)}</dd>
+        </div>
+        <div>
+          <dt>{t('Price feed')}</dt>
+          <dd data-testid="venue-feed-state" data-state={feed?.state ?? 'unknown'}>
+            {feed ? (
+              <>
+                {t(feed.state === 'stale' ? 'feed_stale' : 'feed_live')}{' '}
+                <time dateTime={feed.lastOracleUpdateAt} data-testid="venue-feed-updated">
+                  {feed.lastOracleUpdateAt}
+                </time>
+              </>
+            ) : (
+              t('Not published')
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Stale rule')}</dt>
+          <dd data-testid="venue-stale-rule">{feed ? text(feed.staleRule) : t('Not published')}</dd>
+        </div>
+      </dl>
+      {market.session.known ? <SessionRules session={market.session.value} symbol={market.symbol} venueName={venueName} /> : null}
+    </section>
+  );
+}
+
+/**
+ * A stock perpetual's home market, read from the venue (J-derivatives-27 #4): whether it is open now, and the venue's own
+ * off-hours mode, band, leverage, reopen time and refusal rule, each in its words or "not published by this venue".
+ */
+function SessionRules({ session, symbol, venueName }: { session: VenueSession; symbol: string; venueName: string }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
+  const closed = session.state === 'off_hours';
+  return (
+    <div data-testid="venue-session" data-state={session.state}>
+      {closed ? (
+        <p role="status" data-testid="venue-off-hours">
+          {t('Off-hours notice', { venue: venueName, home: session.homeMarket, symbol, rule: text(session.offHoursRule) })}
+        </p>
+      ) : null}
+      <dl className="protocol-facts">
+        <div>
+          <dt>{t('Home market')}</dt>
+          <dd data-testid="venue-home-market">{t(closed ? 'session_off_hours' : 'session_open', { home: session.homeMarket })}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours mode')}</dt>
+          <dd data-testid="venue-off-hours-mode">{text(session.offHoursMode)}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours band')}</dt>
+          <dd data-testid="venue-off-hours-band">{text(session.offHoursBand)}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours leverage')}</dt>
+          <dd className="numeric" data-testid="venue-off-hours-leverage">
+            {session.offHoursMaxLeverageBps === null
+              ? t('Not published')
+              : t('Off-hours leverage times', { times: String(leverageTimes(session.offHoursMaxLeverageBps)) })}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Reopens')}</dt>
+          <dd data-testid="venue-reopens">
+            {!closed ? (
+              t('Reopens while open')
+            ) : session.reopensAt === null ? (
+              t('Not published')
+            ) : (
+              <time dateTime={session.reopensAt}>{session.reopensAt}</time>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours rule')}</dt>
+          <dd data-testid="venue-off-hours-rule">{text(session.offHoursRule)}</dd>
+        </div>
+      </dl>
+    </div>
   );
 }
 
@@ -208,12 +358,13 @@ function MarginStep({
   const [result, setResult] = useState<ActionResult | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const draft = useRef(draftId());
-  const max = market.maxLeverageBps === null ? null : leverageTimes(market.maxLeverageBps);
 
   async function sign() {
     setProblem(null);
     const n = Number(times);
-    if (!Number.isInteger(n) || n < 1 || (max !== null && n > max)) return setProblem(t('Leverage whole', { max: String(max ?? '') }));
+    // Only the shape is checked here. The cap is the venue's: a leverage above it is sent to the venue's prepare, which
+    // refuses it on its face, naming its cap, before the wallet is asked (nothing is signed or changed).
+    if (!Number.isInteger(n) || n < 1) return setProblem(t('Leverage whole'));
     const bps = leverageBpsOf(n);
     const answer = await run(
       { kind: 'update_leverage', symbol: market.symbol, leverageBps: bps, marginMode: mode },
@@ -281,6 +432,9 @@ function Ticket({
   owner,
   account,
   run,
+  resend,
+  side,
+  setSide,
   disabled,
 }: {
   status: VenueUp;
@@ -288,12 +442,15 @@ function Ticket({
   owner: string;
   account: VenueAccount;
   run: RunAction;
+  resend: (intent: OrderIntent, opts: { venueId?: string }) => Promise<ActionResult>;
+  side: 'buy' | 'sell';
+  setSide: (s: 'buy' | 'sell') => void;
   disabled: boolean;
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
-  const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const [routed, setRouted] = useState<{ intent: OrderIntent; route: RoutePreview } | null>(null);
   const [type, setType] = useState<'limit' | 'market'>(market.orderTypes.includes('market') ? 'market' : 'limit');
   const [size, setSize] = useState('');
   const [price, setPrice] = useState('');
@@ -329,6 +486,13 @@ function Ticket({
       clientOrderKey: keys.order(owner, market.symbol, draftId(Date.now(), counter.current++)),
       builderFee: null,
     };
+    if (status.routes) {
+      // J-derivatives-28: several venues, so the router chooses one for this order and says why.
+      const route = await venue.routePreview(owner, intent);
+      if (!route.ok) return setProblem(v('Outcome refused', { detail: route.message }));
+      setRouted({ intent, route: route.data });
+      return;
+    }
     const preview = await venue.preview(owner, intent);
     if (!preview.ok) return setProblem(v('Outcome refused', { detail: preview.message }));
     setReview({ intent, preview: preview.data });
@@ -406,7 +570,26 @@ function Ticket({
           {problem}
         </p>
       ) : null}
-      <OutcomeLine result={review ? null : last} owner={owner} />
+      <OutcomeLine result={review || routed ? null : last} owner={owner} />
+      {routed ? (
+        <RoutedReview
+          title={t('Review open', { side: side === 'buy' ? t('Long').toLowerCase() : t('Short').toLowerCase() })}
+          route={routed.route}
+          intent={routed.intent}
+          status={status}
+          owner={owner}
+          run={run}
+          resend={resend}
+          confirmLabel={side === 'buy' ? t('Open long') : t('Open short')}
+          onSent={(answer) => {
+            if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
+              keysHeld.set(answer.clientOrderId, routed.intent.clientOrderKey);
+            setLast(answer);
+            account.reload();
+          }}
+          onClose={() => setRouted(null)}
+        />
+      ) : null}
       {review ? (
         <ReviewDialog
           title={t('Review open', { side: side === 'buy' ? t('Long').toLowerCase() : t('Short').toLowerCase() })}

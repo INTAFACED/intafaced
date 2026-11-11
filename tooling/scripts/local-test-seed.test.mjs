@@ -1215,3 +1215,78 @@ test('age-loan takes exactly its two operands; every other command still takes n
   });
   assert.throws(() => parseArgs(['age-earn-position', 'id']), /needs <positionId> <days>/);
 });
+
+// Custody off (OWNER 226, OWNER 288): a ledger that refuses every post with a leg on a person's account, as svc-ledger
+// does with LEDGER_CUSTODY_LAYER off (packages/ledger-client isCustomerBalanceAccount: ownerType user or subaccount).
+function custodyOffLedger(ledger) {
+  const refused = [];
+  const post = ledger.post.bind(ledger);
+  ledger.post = async (wire) => {
+    if (wire.entries.some((e) => e.account.ownerType === 'user' || e.account.ownerType === 'subaccount')) {
+      refused.push(wire.idempotencyKey);
+      const err = new Error('ledger post refused (412): ledger.custody_layer_off');
+      err.code = 'ledger.custody_layer_off';
+      throw err;
+    }
+    return post(wire);
+  };
+  return refused;
+}
+
+test('custody off: apply posts nothing to a person account, leaves earn and loans out, loads house inventory and P2P', async () => {
+  const { deps, earn, loans, ledger } = world();
+  const refused = custodyOffLedger(ledger);
+  const report = await applyAll(deps, { custodyLayer: 'off' });
+  assert.deepEqual(refused, []);
+  assert.ok(ledger.attempts.length > 0);
+  for (const attempt of ledger.attempts)
+    for (const entry of attempt.wire.entries)
+      assert.ok(!['user', 'subaccount'].includes(entry.account.ownerType), attempt.wire.idempotencyKey);
+  assert.equal(earn.pools.length, 0);
+  assert.equal(loans.products.length, 0);
+  assert.equal(report.house.posted, TEST_HOUSE_INVENTORY.length);
+  assert.equal(report.p2p.methodId, P2P_METHOD_ID);
+  assert.match(report.lines[0], /earn pools: not loaded: custody off/);
+  assert.match(report.lines[1], /loan products: not loaded: custody off/);
+});
+
+test('custody on: apply still funds earn and loans through the TEST funder, as before', async () => {
+  const { deps, earn, loans, ledger } = world();
+  const report = await applyAll(deps, { custodyLayer: 'on' });
+  assert.equal(report.earn.created, TEST_EARN.length);
+  assert.equal(earn.pools.length, TEST_EARN.length);
+  assert.equal(loans.products.length, TEST_LOANS.length);
+  assert.ok(ledger.attempts.some((a) => a.wire.entries.some((e) => e.account.ownerType === 'user')));
+});
+
+test('custody off: main reads the running ledger record, so apply skips the funder and fund-earn-pool refuses typed', async () => {
+  const dir = tmp();
+  try {
+    writeState(dir, marker());
+    mkdirSync(path.join(dir, 'run'));
+    writeFileSync(path.join(dir, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1, custodyLayer: 'off' } }));
+    assert.equal(guardSeed({ LOCAL_TEST: '1' }, dir).custodyLayer, 'off');
+    const { deps, ledger } = world();
+    const refused = custodyOffLedger(ledger);
+    const out = [];
+    const code = await main(['apply', '--state', dir], { LOCAL_TEST: '1' }, { deps, out: (line) => out.push(line), log: () => {} });
+    assert.equal(code, 0);
+    assert.deepEqual(refused, []);
+    assert.ok(out.some((line) => /earn pools: not loaded: custody off/.test(line)));
+    const errors = [];
+    const before = ledger.attempts.length;
+    const refusedCode = await main(
+      ['fund-earn-pool', 'pool-1', '25', 'ref1', '--state', dir],
+      { LOCAL_TEST: '1' },
+      { deps, log: (l) => errors.push(l) },
+    );
+    assert.equal(refusedCode, 2);
+    assert.match(errors.join('\n'), /local_test\.custody_layer_off: fund-earn-pool/);
+    assert.equal(ledger.attempts.length, before);
+    // A ledger record with no switch was started before the stack recorded it, when every stack ran custody on.
+    writeFileSync(path.join(dir, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1 } }));
+    assert.equal(guardSeed({ LOCAL_TEST: '1' }, dir).custodyLayer, 'on');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

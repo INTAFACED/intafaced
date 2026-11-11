@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * JOURNEYS REVERT PROBE: which of several candidate commits broke the failing journey steps (main-bisect.yml, the
+ * JOURNEYS REVERT PROBE: which of the candidate commits broke the failing journey steps (main-bisect.yml, the
  * `Journeys revert: probe` job; journeys-revert.mjs `find` names the candidates). A binary search over the candidates
  * (oldest first; the commit before the first is the last green one): at each probe it checks the commit out, starts the
  * local test stack on it the way a Real-app journeys shard does (journeys-revert-probe.sh) and runs only the failing
@@ -67,6 +67,9 @@ export function stepsRan(report, steps) {
   return ran;
 }
 
+/** One or more full commit shas: a lone candidate is run too, so a red that was the stack's blames no one. */
+export const validCandidates = (commits) => commits.length > 0 && commits.every((c) => SHA.test(c));
+
 function main() {
   const { CANDIDATES, FILES, STEPS, PROBE_SH, JOURNEY_REPORT } = process.env;
   const commits = String(CANDIDATES ?? '')
@@ -78,7 +81,7 @@ function main() {
   const steps = String(STEPS ?? '')
     .split(/[\s,]+/)
     .filter(Boolean);
-  if (commits.length < 2 || !commits.every((c) => SHA.test(c))) throw new Error('CANDIDATES: two or more full shas');
+  if (!validCandidates(commits)) throw new Error('CANDIDATES: one or more full shas');
   if (!files.length || !files.every((f) => FILE.test(f))) throw new Error('FILES: journey file names');
   if (!steps.length || !steps.every((s) => STEP.test(s))) throw new Error('STEPS: journey steps');
   if (!PROBE_SH || !JOURNEY_REPORT) throw new Error('PROBE_SH and JOURNEY_REPORT are required');
@@ -94,6 +97,17 @@ function main() {
     console.log(`probe ${sha.slice(0, 10)}: ${bad ? 'fails' : 'passes'}`);
     return bad;
   };
+  // Confirm (main-bisect.yml, after the automatic revert merged): the failing journeys alone on main's head. Back when
+  // the steps pass.
+  if (process.env.CONFIRM === 'true') {
+    if (commits.length !== 1) throw new Error("CONFIRM: exactly one commit, main's head");
+    const back = !isBad(commits[0]);
+    const text = `### Journeys revert: confirm\n\n${steps.join(', ')} ${back ? 'pass' : 'still fail'} on \`${commits[0].slice(0, 10)}\`, run alone.\n`;
+    process.stdout.write(text);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `back=${back}\n`);
+    return;
+  }
   const { culprit, probed } = firstBad(commits, isBad);
   const confirmed = probed.has(culprit) ? probed.get(culprit) : isBad(culprit);
   const lines = [...probed].map(([s, b]) => `- \`${s.slice(0, 10)}\`: ${b ? 'fails' : 'passes'}`);
@@ -122,13 +136,18 @@ function selfTest() {
     eq(r.culprit, c[k], `culprit at ${k}`);
     eq(calls.length <= 3, true, `at most ceil(log2 5) probes for ${k}`);
   }
+  const one = firstBad([c[0]], () => {
+    throw new Error('a lone candidate needs no search');
+  });
+  eq([one.culprit, one.probed.has(c[0])], [c[0], false], 'a lone candidate is settled unprobed, so main() probes it before blaming it');
+  eq([validCandidates([c[0]]), validCandidates([]), validCandidates(['x'])], [true, false, false], 'one or more full shas');
   const rep = (status) => ({ suites: [{ specs: [{ title: 'J-a-01 #2 y', tests: [{ status }] }] }] });
   eq(stepsFail(rep('unexpected'), ['J-a-01#2']), true, 'outright failure is bad');
   eq(stepsFail(rep('expected'), ['J-a-01#2']), false, 'a pass is good');
   eq(stepsFail(rep('unexpected'), ['J-a-01#3']), false, 'another step does not count');
   eq(stepsRan(rep('skipped'), ['J-a-01#2']), false, 'a skipped step did not run');
   eq(stepsRan(rep('expected'), ['J-a-01#2']), true, 'a step that ran');
-  console.log('✓ journeys-revert-probe --self-test OK (15 fixtures)');
+  console.log('✓ journeys-revert-probe --self-test OK (17 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) selfTest();

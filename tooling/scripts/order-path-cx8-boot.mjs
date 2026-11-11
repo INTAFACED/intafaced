@@ -413,6 +413,8 @@ async function main() {
     MATCHING_OPERATOR_IDS: founders.map((f) => f.userId).join(','),
     // Matching consumes the two-person approval that opens a market at identity.
     IDENTITY_URL: 'http://127.0.0.1:4002',
+    // Our own engine runs only with the custodial layer on (OWNER 288): on, as this rig's svc-ledger runs it.
+    LEDGER_CUSTODY_LAYER: 'on',
   });
   await waitHealth('http://127.0.0.1:4005', 'matching');
 
@@ -428,6 +430,9 @@ async function main() {
     IDENTITY_URL: 'http://127.0.0.1:4002',
     IDENTITY_ADMISSION_SECRET: ADMISSION_SECRET,
     TRADE_SPOT_ENABLED: 'true',
+    // Our own book runs only with the custodial layer on (OWNER 288; svc-trade refuses boot otherwise): on, as this
+    // rig's svc-ledger runs it.
+    LEDGER_CUSTODY_LAYER: 'on',
     // The smoke supplies no sanctions screening list (INTAFACED_SANCTIONS_REGIONS
     // is counsel's to publish; this rig must not invent one). With the switch
     // unset, POST /api/v1/orders is refused 403 denied.screening_unconfigured.

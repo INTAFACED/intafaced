@@ -1,7 +1,7 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { journeyState, toUnits, fromUnits } from './stack.mjs';
+import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -20,9 +20,9 @@ import {
 // J-derivatives-01's steps on the user's own venue account (B1, project-state #1789), in the running app against the
 // stack's TEST venue simulator (BTC-PERP, isolated margin only). One test per step, titled "J-derivatives-01 #<n>" as
 // today's files title them; a step in two files must pass in both. #1 makes the verified account and its TEST 1000 USDC
-// (the journey's start). #2 (the gated list), #3 (deferred to launch prep), #4 (the strip's mark price and funding,
-// which the venue's market read does not carry) and #10 (our ledger posting our builder fee once per fill, not built
-// yet) are not here; #11's setup closes the position. Every figure is TEST. The door is on for this file only.
+// (the journey's start). #2 (the gated list), #3 (deferred to launch prep) and #4 (the strip's mark price and funding,
+// which the venue's market read does not carry) are not here. #10 closes the position and reads our builder fee on
+// svc-ledger's own operator door; #11 reads what #10 closed. Every figure is TEST. The door is on for this file only.
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC-PERP';
@@ -74,12 +74,27 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
 
   const { displayName } = await venueInfo();
   const markets = (await testVenue('/markets', {})).body.value.filter((m) => m.kind === 'perpetual');
-  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL]);
+  // The TEST venue lists BTC-PERP, the TEST gold perpetual XAU-PERP (J-derivatives-21) and the TEST stock perpetual
+  // XSTK-PERP (J-derivatives-27); the desk lists every one, each with its venue named.
+  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'XAU-PERP', 'XSTK-PERP']);
   const list = page.getByTestId('venue-contract-list');
-  await expect(list.getByRole('button', { name: `${SYMBOL} · ${displayName}` })).toBeVisible();
+  await expect(list.getByRole('button')).toHaveCount(markets.length);
+  for (const m of markets) await expect(list.getByRole('button', { name: `${m.symbol} · ${displayName}` })).toBeVisible();
   await expect(list.getByTestId('venue-test').first()).toHaveText('TEST');
   for (const part of ['venue-contract-strip', 'venue-wallet', 'venue-balances', 'venue-margin', 'venue-ticket', 'venue-blotter'])
     await expect(page.getByTestId(part)).toBeVisible();
+
+  // Where the venue lists no contract for this account: "No futures contract is listed", with the reason naming the venue.
+  try {
+    expect((await testVenue('/test/switches', { unlistPerpetuals: true })).status).toBe(200);
+    const none = page.getByTestId('venue-no-contract');
+    await expect(none).toContainText('No futures contract is listed', { timeout: 20_000 });
+    await expect(none).toContainText(`${displayName} lists no perpetual contract for this account.`);
+    await expect(list.getByRole('button', { name: `${SYMBOL} · ${displayName}` })).toHaveCount(0);
+  } finally {
+    await testVenue('/test/switches', { unlistPerpetuals: false });
+  }
+  await expect(list.getByRole('button', { name: `${SYMBOL} · ${displayName}` })).toBeVisible({ timeout: 20_000 });
 
   // The venue goes down: the desk names it, and a control answers with the venue's typed refusal; nothing is sent.
   try {
@@ -239,17 +254,40 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
   await expect(room.getByTestId('venue-test').first()).toHaveText('TEST');
 });
 
+/** One read of svc-ledger's own operator door, as the stack's TEST founder a with admin:treasury reads it (as J-derivatives-17). */
+let staffDoor;
+async function ledgerRead(path) {
+  staffDoor ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    const sessions = await gates.approverSessions(ctx);
+    return { ctx, token: await sessions.a.treasuryToken() };
+  })();
+  const { ctx, token } = await staffDoor;
+  const res = await fetch(`${ctx.url('ledger')}${path}`, { headers: { authorization: `Bearer ${token}` } });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  return JSON.parse(text);
+}
+
+/** The person's fills on SYMBOL, as the venue records them. */
+const symbolFills = async (owner) => (await venueRecord(owner, '/fills', { since: since() })).value.filter((f) => f.symbol === SYMBOL);
+
 /**
- * TEST setup for #11, not a journey step (this file does not claim #10, whose ledger posting of our builder fee is not
- * built): close the position, 40 percent pressed twice in the same moment (one close id, one signature, one order), then
- * the rest; the venue's closing fills sum to the position.
+ * Closes the position: 40 percent pressed twice in the same moment (one close id, one signature, one order), then the
+ * rest. Answers the first close's submit (the bytes the desk sent and the door's answer) and the venue's closing fills.
  */
-async function closeAll(page, { owner, wallet }) {
+async function closeAll(page, { owner, wallet }, afterFirst = async () => {}) {
   const row = page.getByTestId('venue-positions').locator(`tr[data-symbol="${SYMBOL}"]`);
   await expect(row).toBeVisible({ timeout: 15_000 });
   const close = row.getByTestId('venue-close');
   const submits = [];
-  page.on('request', (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/venue/submit') && submits.push(r.url()));
+  page.on('response', (res) => {
+    const req = res.request();
+    if (req.method() === 'POST' && req.url().endsWith('/api/v1/venue/submit'))
+      submits.push(res.json().then((answer) => ({ body: req.postDataJSON(), answer })));
+  });
+  const signed = wallet.requests.length;
   await close.getByRole('textbox').fill('40');
   await close.getByRole('button', { name: 'Close 40%' }).evaluate((b) => {
     b.click();
@@ -258,28 +296,95 @@ async function closeAll(page, { owner, wallet }) {
   await continueInWallet(page);
   await expect(close.getByTestId('venue-close-outcome')).toContainText('Close of 0.04 BTC: Filled on the venue.', { timeout: 15_000 });
   await page.waitForTimeout(1_500);
-  expect(wallet.requests).toHaveLength(1);
+  expect(wallet.requests.length - signed).toBe(1);
   expect(submits).toHaveLength(1);
+  const first = await submits[0];
   await expect.poll(async () => (await venueRecord(owner, '/positions')).value[0]?.size, { timeout: 15_000 }).toBe('0.06');
+  await afterFirst(first);
   await close.getByRole('textbox').fill('100');
   await close.getByRole('button', { name: 'Close 100%' }).click();
   await continueInWallet(page);
   await expect(close).toHaveCount(0, { timeout: 15_000 });
   expect((await venueRecord(owner, '/positions')).value).toEqual([]);
-  const closing = (await venueRecord(owner, '/fills', { since: since() })).value.filter(
-    (f) => f.symbol === SYMBOL && f.realisedPnl !== null,
-  );
+  const closing = (await symbolFills(owner)).filter((f) => f.realisedPnl !== null);
   expect(fromUnits(closing.reduce((t, f) => t + toUnits(f.amount), 0n))).toBe(OPEN.size);
   await expect.poll(async () => toUnits((await shownBalance(page, 'USDC')).used), { timeout: 15_000 }).toBe(0n);
   expect(sameDecimal((await venueBalance(owner, 'USDC')).locked, '0')).toBe(true);
+  return { first, closing };
 }
+
+test(`${J} #10 closes 40 percent, then the rest: the venue's split results sum to the full close; a repeated close id is sent and answered once; our ledger posts only our builder fee`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const opened = await desk(page);
+  const { owner, account } = opened;
+  const person = await api(account);
+  const ledgerBefore = await person.balances();
+  const { id: venueId } = await venueInfo();
+
+  // The first close's signed submit sent again, as a lost answer's retry would send it: the door answers the first close's
+  // own answer, marked as the stored one, and the venue closes nothing more.
+  const { closing } = await closeAll(page, opened, async (sent) => {
+    expect(sent.answer.outcome, JSON.stringify(sent.answer).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
+    expect(sent.answer.replayed).toBe(false);
+    const fillsBefore = (await symbolFills(owner)).length;
+    const replay = await person.post('/api/v1/venue/submit', sent.body);
+    expect(replay.status, JSON.stringify(replay.body).slice(0, 400)).toBe(200);
+    expect(replay.body.replayed).toBe(true);
+    expect(replay.body.outcome).toEqual(sent.answer.outcome);
+    await page.waitForTimeout(2_000);
+    expect((await venueRecord(owner, '/positions')).value[0]?.size).toBe('0.06');
+    expect((await venueRecord(owner, '/open-orders')).value).toEqual([]);
+    expect(await symbolFills(owner)).toHaveLength(fillsBefore);
+  });
+
+  // Two closes, each its own order with its own close id: 40 percent, then the rest, together the whole position. The
+  // desk shows each closing fill with the venue's own result, and the closed position's result as their sum.
+  const byClose = Map.groupBy(closing, (f) => f.venueClientOrderId);
+  expect(byClose.size).toBe(2);
+  const sizes = [...byClose.values()].map((list) => fromUnits(list.reduce((t, f) => t + toUnits(f.amount), 0n)));
+  expect(sizes.sort()).toEqual(['0.04', '0.06']);
+  const realised = closing.reduce((t, f) => t + toUnits(f.realisedPnl), 0n);
+  await page.getByTestId('venue-blotter').getByRole('button', { name: 'History' }).click();
+  for (const f of closing) {
+    const shown = page.getByTestId('venue-fills').locator(`tr[data-fill="${f.fillId}"]`);
+    await expect(shown).toBeVisible({ timeout: 15_000 });
+    expect(sameDecimal(await shown.locator('[data-cell="realised"]').innerText(), f.realisedPnl)).toBe(true);
+  }
+  const closed = page.getByTestId('venue-history').locator(`tr[data-closed="${SYMBOL}"]`);
+  expect(sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), fromUnits(realised))).toBe(true);
+
+  // Our ledger posts only our builder fee: for every fill of this position that carries it (both closes do) one transaction
+  // under the fill's own key, our fee exactly as the venue charged it, in two postings; a fill without it posts nothing;
+  // the person's own balances on our ledger never move.
+  for (const f of closing) expect(toUnits(f.builderFee), `our builder fee on close fill ${f.fillId}`).toBeGreaterThan(0n);
+  for (const f of await symbolFills(owner)) {
+    const businessKey = `builder-fee:${venueId}:${owner.toLowerCase()}:${f.fillId}`;
+    const trace = () => ledgerRead(`/operator/trace?businessKey=${encodeURIComponent(businessKey)}`);
+    if (toUnits(f.builderFee) === 0n) {
+      expect(await trace()).toEqual({ found: false, businessKey });
+      continue;
+    }
+    await expect.poll(async () => (await trace()).found, { timeout: 30_000, message: `${businessKey} posted` }).toBe(true);
+    const tx = await trace();
+    expect(tx).toMatchObject({ businessKey, module: 'trade', reason: 'trade.builder_fee.earned' });
+    expect(tx.postings).toHaveLength(2);
+    for (const p of tx.postings) {
+      expect(p.assetId).toBe(f.feeAsset);
+      expect(sameDecimal(p.amount, f.builderFee)).toBe(true);
+    }
+  }
+  expect(await person.balances()).toEqual(ledgerBefore);
+});
 
 test(`${J} #11 opens History: the closed position with its realised result, the venue's fee and our builder fee, from the venue`, async ({
   page,
 }) => {
   const opened = await desk(page);
   const { owner } = opened;
-  await closeAll(page, opened);
+  // #10 closed the position; when it did not get that far, this step closes it itself first.
+  if ((await venueRecord(owner, '/positions')).value.length > 0) await closeAll(page, opened);
   await page.getByTestId('venue-blotter').getByRole('button', { name: 'History' }).click();
   const fills = (await venueRecord(owner, '/fills', { since: since() })).value.filter((f) => f.symbol === SYMBOL);
   const realised = fromUnits(fills.filter((f) => f.realisedPnl !== null).reduce((t, f) => t + toUnits(f.realisedPnl), 0n));

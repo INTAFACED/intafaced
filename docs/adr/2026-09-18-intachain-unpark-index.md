@@ -1,5 +1,7 @@
 # INTACHAIN unpark — what is written, what is left (English)
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The row "Fiat = ledger post" applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Proposed (index).** Not a tracker recook. Not LIVE-LANES.  
 **Written:** 2026-09-18. Tip at write: re-derive `origin/main`.  
 **Does not unpark P1.** Nitro still writes GO on [`2026-09-03-protocol-rails-until-intachain.md`](2026-09-03-protocol-rails-until-intachain.md).

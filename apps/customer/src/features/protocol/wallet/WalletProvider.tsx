@@ -48,8 +48,15 @@ function browserStore(): Storage | undefined {
 }
 
 /** The node reads a room may make through the wallet. Nothing here can sign or send. */
-export type ReadMethod = 'eth_getTransactionReceipt' | 'eth_blockNumber';
-const READ_METHODS: ReadonlySet<string> = new Set<ReadMethod>(['eth_getTransactionReceipt', 'eth_blockNumber']);
+/** Read-only node calls. `eth_getBlockByNumber`, `eth_getBalance` and `eth_call` at one block let Assets read a wallet as of one block. */
+export type ReadMethod = 'eth_getTransactionReceipt' | 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getBalance' | 'eth_call';
+const READ_METHODS: ReadonlySet<string> = new Set<ReadMethod>([
+  'eth_getTransactionReceipt',
+  'eth_blockNumber',
+  'eth_getBlockByNumber',
+  'eth_getBalance',
+  'eth_call',
+]);
 type TransactionRequest = Extract<SignRequest, { kind: 'transaction' }>;
 /**
  * One step of a sequence: a transaction to send; typed data to sign (a permit); or a transaction that can only be built

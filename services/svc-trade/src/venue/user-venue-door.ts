@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, isApiKeyPrincipal, type Principal } from '@intafaced/auth';
@@ -13,8 +14,10 @@ import {
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
+  type UserVenueOrder,
   type UserVenueDepositRoute,
   type VenueIntent,
+  type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
@@ -64,6 +67,32 @@ const MARKET_KINDS_TTL_MS = 60_000;
 /** On a symbol the list doesn't hold, the list is read again at most this often, so unlisted symbols can't each cost a venue read. */
 const MARKET_MISS_REREAD_MS = 5_000;
 
+/**
+ * Opening a sub-account and moving funds into or out of one are the agent account's own actions (J-agents-21,
+ * agent-account.ts): it checks the person's cap before the wallet is asked to sign a move in, and keeps the count of
+ * moves the cap is held to. The plain door refuses them, at prepare and at submit, so no move reaches the venue around
+ * that check.
+ */
+export const AGENT_ACCOUNT_INTENTS: ReadonlySet<VenueIntent['kind']> = new Set<VenueIntent['kind']>([
+  'create_sub_account',
+  'sub_account_transfer',
+]);
+
+/** How the agent account (agent-account.ts) calls the door for its own actions. */
+export interface DoorCaller {
+  readonly agentAccount?: boolean;
+}
+
+function assertDoorMay(kind: VenueIntent['kind'], caller: DoorCaller | undefined): void {
+  if (AGENT_ACCOUNT_INTENTS.has(kind) && !caller?.agentAccount) {
+    throw new UserVenueDoorError(
+      `a venue ${kind} is made only through the agent account (/api/v1/venue/agent-accounts), which holds it to the person's cap`,
+      'trade.venue_agent_account_only',
+      403,
+    );
+  }
+}
+
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
 
 /** Identity's step-up request id is at most 128 characters. */
@@ -76,10 +105,44 @@ export type UserVenueDoorCode =
   | 'trade.user_venue_off'
   | 'trade.venue_request_invalid'
   | 'trade.venue_action_key_invalid'
-  | 'trade.venue_action_key_reused'
+  | 'idempotency.conflict'
+  | 'idempotency.in_progress'
+  | 'idempotency.key_invalid'
+  | 'trade.venue_orders_page_max_unset'
+  | 'trade.venue_orders_limit_invalid'
+  | 'trade.invalid_cursor'
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
+  | 'trade.venue_agent_account_only'
+  | 'trade.venue_action_other_venue'
+  | 'trade.venue_unknown'
+  | 'trade.venue_action_key_reserved'
+  | 'trade.venue_session_key_reused'
+  | 'trade.venue_session_pending'
+  | 'trade.venue_session_none'
+  | 'trade.venue_session_unavailable'
+  | 'trade.venue_session_superseded'
+  // Convert's venue sell quotes (venue-sell-quotes.ts, J-cex-spot-17 #8).
+  | 'trade.venue_sell_quote_unwired'
+  | 'trade.venue_sell_quote_market_unknown'
+  | 'trade.venue_sell_quote_not_spot'
+  | 'trade.venue_sell_quote_key_reused'
   | VenueRouteRefusalCode;
+
+/**
+ * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
+ * session key is stored under `session-key:<accountId>:<venueId>:<sessionId>`, and its `revoke_agent` under
+ * `session-key-end:` with the same tail. Only the session routes prepare under these keys, so the rule "a new session
+ * approves a new key, never one used before" cannot be walked around through the plain prepare route.
+ */
+export const SESSION_KEY_PREFIX = 'session-key:';
+export const SESSION_KEY_END_PREFIX = 'session-key-end:';
+const RESERVED_KEY_PREFIXES = [SESSION_KEY_PREFIX, SESSION_KEY_END_PREFIX] as const;
+
+export interface PrepareOptions extends DoorCaller {
+  /** Set only by the session routes (session-key.ts): lets the action be stored under a reserved session key. */
+  readonly sessionKey?: boolean;
+}
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -90,6 +153,79 @@ export class UserVenueDoorError extends Error {
     super(message);
     this.name = 'UserVenueDoorError';
   }
+}
+
+/** The longest Idempotency-Key header accepted (DV-auth-03). */
+export const IDEMPOTENCY_KEY_MAX = 255;
+/** How long one request may hold a key's send before another request can take it over (a crashed request). */
+const SEND_CLAIM_MS = 30_000;
+
+/**
+ * The business key an order sent with an `Idempotency-Key` header is stored and placed under (J-developer-05): the same
+ * header always gives the same key, so the venue always sees the same client order id for it and places at most one
+ * order. The header is the developer's own API-level key: it is hashed into ours, never used as a ledger key, and the
+ * store keeps keys per person, so two people's headers never meet.
+ */
+export function orderKeyOfIdempotencyKey(header: string | null | undefined): string {
+  const k = header ?? '';
+  if (k.length < 1 || k.length > IDEMPOTENCY_KEY_MAX || !/^[\x21-\x7e]+$/.test(k)) {
+    throw new UserVenueDoorError(
+      `the Idempotency-Key must be 1 to ${IDEMPOTENCY_KEY_MAX} visible ASCII characters with no spaces`,
+      'idempotency.key_invalid',
+      400,
+    );
+  }
+  return `order:api:${createHash('sha256').update(k).digest('hex')}`;
+}
+
+/**
+ * What we know of one order sent through this door, by its key (J-developer-05 #5). `accepted` carries the venue's
+ * record of the order. `unknown` is a send with no definite answer yet: it is never shown as failed or filled, and a
+ * retry on the same key re-sends the same signed bytes, so the venue places it at most once. `refused` is the venue's
+ * definite refusal; `not_sent` an order prepared and signed nowhere yet.
+ */
+export interface VenueOrderByKey {
+  readonly actionKey: string;
+  readonly venueClientOrderId: string | null;
+  readonly state: 'accepted' | 'unknown' | 'refused' | 'not_sent';
+  /** Why the state is unknown: the venue did not answer this read, or it has no record of the order yet. */
+  readonly reason?: 'venue_down' | 'not_on_venue_yet';
+  readonly order: UserVenueOrder | null;
+  readonly refusal?: VenueRefusal;
+  /** The venue's as-of time of what is shown, or null when the venue was not reached. */
+  readonly asOf: Date | null;
+}
+
+export interface VenueOrderPage {
+  readonly orders: readonly VenueOrderByKey[];
+  /** Pass it as `cursor` for the next page; null on the last page. */
+  readonly nextCursor: string | null;
+}
+
+/** Parse the owner value for the largest page of orders: blank is null (every list refuses); anything else 1 to 1000. */
+export function parseOrdersPageMax(raw: string | undefined): number | null {
+  const v = (raw ?? '').trim();
+  if (v === '') return null;
+  if (!/^\d+$/.test(v) || Number(v) < 1 || Number(v) > 1000) {
+    throw new Error(`TRADE_USER_VENUE_ORDERS_PAGE_MAX must be a whole number 1 to 1000, got ${JSON.stringify(raw)}`);
+  }
+  return Number(v);
+}
+
+function encodeCursor(row: { createdAt: Date; businessKey: string }): string {
+  return Buffer.from(JSON.stringify({ t: row.createdAt.toISOString(), k: row.businessKey })).toString('base64url');
+}
+
+function decodeCursor(cursor: string | undefined): { createdAt: Date; businessKey: string } | null {
+  if (cursor === undefined || cursor === '') return null;
+  try {
+    const v = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { t?: unknown; k?: unknown };
+    const at = new Date(typeof v.t === 'string' ? v.t : '');
+    if (typeof v.k === 'string' && v.k !== '' && !Number.isNaN(at.getTime())) return { createdAt: at, businessKey: v.k };
+  } catch {
+    /* refused below */
+  }
+  throw new UserVenueDoorError('cursor must be the nextCursor of the previous page', 'trade.invalid_cursor', 400);
 }
 
 /** The owner values for our builder fee. `null` when either is blank: orders then refuse. */
@@ -131,6 +267,8 @@ export interface UserVenueDoorDeps {
   readonly now: () => Date;
   /** Our listings, routing states and largest routed orders (J-cex-spot-16). */
   readonly listings: VenueRoutingGate;
+  /** Owner value: the largest page of `GET /api/v1/venue/orders`. Null (blank) refuses every list. */
+  readonly ordersPageMax?: number | null;
 }
 
 export interface PrepareRequest {
@@ -142,6 +280,11 @@ export interface PrepareRequest {
   readonly actionKey?: string | null;
   /** Withdrawals: the identity step-up approval id the customer confirmed. */
   readonly stepUpApprovalId?: string | null;
+  /**
+   * The request's `Idempotency-Key` header (J-developer-05). An order sent with one is stored and placed under
+   * `orderKeyOfIdempotencyKey(header)`, which becomes its `clientOrderKey`.
+   */
+  readonly idempotencyKey?: string | null;
 }
 
 export interface PreparedAnswer {
@@ -158,6 +301,8 @@ export interface SubmitAnswer {
   readonly outcome: VenueSubmitOutcome;
   /** Where to read the action back when `outcome.definite` is false. */
   readonly readBack: { readonly venueClientOrderId: string } | { readonly nonce: string } | null;
+  /** True when this is the stored answer of an earlier send: nothing was sent again. */
+  readonly replayed: boolean;
 }
 
 function invalid(message: string): never {
@@ -224,14 +369,22 @@ async function assertSignatureRecovers(prepared: PreparedVenueAction, signature:
 
 export class UserVenueDoor {
   private venuePromise: Promise<ConnectedUserVenue> | null = null;
+  /** The id of the venue this door last connected to; `null` before the first connect. */
+  connectedVenueId: string | null = null;
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
+
+  /** The store and clock the trading-session routes read with (session-key.ts). */
+  get sessionDeps(): { readonly store: PreparedActionStore; readonly now: () => Date } {
+    return { store: this.deps.store, now: this.deps.now };
+  }
 
   /** The connected venue, checked against APP_ENV. A failed connect is retried on the next call. */
   async venue(): Promise<ConnectedUserVenue> {
     if (!this.venuePromise) {
       this.venuePromise = this.deps.connect().then((v) => {
         refuseTestVenueOutsideTest(v.venue, this.deps.appEnv);
+        this.connectedVenueId = v.venue.id;
         return v;
       });
       this.venuePromise.catch(() => {
@@ -330,6 +483,33 @@ export class UserVenueDoor {
     return { ...intent, builderFee: { builder: address, feeBps } };
   }
 
+  /**
+   * Our builder fee on an order of `side` on `symbol` here: `{ carries: false }` for a spot buy, the fee in force when it
+   * carries one, or `null` when the owner value is blank (or the version in force can't be read). The venues strip and the
+   * route preview read it; an order is still priced by `withBuilderFee` at prepare.
+   */
+  async builderFeeFor(symbol: string, side: 'buy' | 'sell'): Promise<{ carries: false } | { carries: true; feeBps: Amount } | null> {
+    const venue = await this.venue();
+    try {
+      const priced = await this.withBuilderFee(venue, {
+        kind: 'place_order',
+        symbol,
+        side,
+        type: 'limit',
+        amount: 1n,
+        price: 1n,
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: 'order:builder-fee-read',
+        builderFee: null,
+      });
+      return priced.builderFee ? { carries: true, feeBps: priced.builderFee.feeBps } : { carries: false };
+    } catch (err) {
+      if (err instanceof VenueRefusalError && err.refusal.code === 'builder_fee_not_published') return null;
+      throw err;
+    }
+  }
+
   /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
   async markets() {
     const venue = await this.venue();
@@ -371,6 +551,8 @@ export class UserVenueDoor {
     if (intent.kind === 'place_order') key = intent.clientOrderKey;
     else if (intent.kind === 'withdraw') key = intent.withdrawalKey;
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
+    else if (intent.kind === 'sub_account_transfer') key = intent.moveKey;
+    else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {
@@ -383,9 +565,20 @@ export class UserVenueDoor {
     return k;
   }
 
-  async prepare(principal: Principal, req: PrepareRequest): Promise<PreparedAnswer> {
-    const intent = req.intent;
+  async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
+    let intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
+    if (req.idempotencyKey !== undefined && req.idempotencyKey !== null) {
+      if (intent.kind !== 'place_order') invalid('an Idempotency-Key is taken on an order (kind place_order)');
+      const key = orderKeyOfIdempotencyKey(req.idempotencyKey);
+      const given = (intent as { clientOrderKey?: unknown }).clientOrderKey;
+      if (given !== undefined && given !== null && given !== '' && given !== key) {
+        invalid('with an Idempotency-Key, leave clientOrderKey out: the order is placed under the key the header names');
+      }
+      intent = { ...intent, clientOrderKey: key };
+    }
+    const caller: DoorCaller = opts;
+    assertDoorMay(intent.kind, caller);
     if (
       !req.signer ||
       (req.signer.role !== 'owner' && req.signer.role !== 'agent') ||
@@ -396,6 +589,41 @@ export class UserVenueDoor {
     assertInteractive(principal, intent.kind);
     if (intent.kind === 'place_order') assertPlaceIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
+    // The agent account's keys (`agent:account:...`, `agent:move:...`) are its own: the plain door never stores an action
+    // under one, so the agent account reads back only what it prepared.
+    if (key.startsWith('agent:') && !caller?.agentAccount) {
+      throw new UserVenueDoorError(`the key ${key} belongs to the agent account`, 'trade.venue_agent_account_only', 403);
+    }
+    if (!opts.sessionKey && RESERVED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      throw new UserVenueDoorError(
+        `the action key ${JSON.stringify(key)} belongs to the trading session's own routes (/api/v1/venue/session/...)`,
+        'trade.venue_action_key_reserved',
+        409,
+      );
+    }
+    // An agent key (a session key) never signs a withdrawal or an approval: refused here, before a step-up is spent or
+    // the venue is asked, as the venue would refuse it (user-venue.ts `assertSignerMaySign`).
+    if (req.signer.role === 'agent' && OWNER_ONLY_INTENTS.has(intent.kind)) {
+      throw new VenueRefusalError({
+        venueId: (await this.venue()).venue.id,
+        code: 'agent_not_permitted',
+        detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
+      });
+    }
+    // An agent key is approved once, under one business key, and never again, on any venue account and by any route,
+    // the session routes included (user-venue.ts:177-180: a venue that prunes nonces could accept a replay of an old
+    // key's actions). The same key asked again is the same stored approval (`reuse` below), never a second one.
+    if (intent.kind === 'approve_agent') {
+      const address = (intent.agentAddress ?? '').toLowerCase();
+      const earlier = await this.deps.store.agentApprovals(principal.userId, address);
+      if (earlier.some((row) => row.businessKey !== key)) {
+        throw new UserVenueDoorError(
+          `${address} was approved as an agent before; a key is approved once and never again`,
+          'trade.venue_session_key_reused',
+          409,
+        );
+      }
+    }
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
     if (intent.kind === 'withdraw') {
@@ -468,8 +696,8 @@ export class UserVenueDoor {
     }
     if (!sameJson(p.account, account) || !sameJson(p.signer, signer) || !sameJson(p.intent, intent)) {
       throw new UserVenueDoorError(
-        `the action key ${row.businessKey} was already used for a different action; a new action needs a new key`,
-        'trade.venue_action_key_reused',
+        `the key ${row.businessKey} was already used for a different action; a new action needs a new key`,
+        'idempotency.conflict',
         409,
       );
     }
@@ -481,12 +709,53 @@ export class UserVenueDoor {
    * is the one every re-submit re-sends. A signature that does not claim the stored digest and signer, or whose bytes do
    * not recover to the prepared signer, is refused before it is stored; the venue verifies the bytes again.
    */
-  async submit(principal: Principal, actionKey: string, signature: VenueSignature): Promise<SubmitAnswer> {
+  /** The stored action under `actionKey`, or `null`: what the agent account reads back its own actions by. */
+  async stored(principal: Principal, actionKey: string): Promise<StoredVenueAction | null> {
+    return this.deps.store.find(principal.userId, actionKey);
+  }
+
+  async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
     const key = (actionKey ?? '').trim();
     const row = await this.deps.store.find(principal.userId, key);
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
+    assertDoorMay(row.prepared.intent.kind, caller);
     assertInteractive(principal, row.prepared.intent.kind);
+    // An action is only ever sent to the venue it was prepared for: with several venues behind the router, a key stored
+    // for another venue is that venue's door's to send (venue-router.ts), never this one's.
+    // The id last connected, never a fresh connect: a venue down now still answers a signed key with its read-back below.
+    const here = this.connectedVenueId;
+    if (here !== null && row.prepared.venueId !== here) {
+      throw new UserVenueDoorError(
+        `${key} was prepared for ${row.prepared.venueId}, not ${here}; it is sent only to the venue it was prepared for`,
+        'trade.venue_action_other_venue',
+        409,
+      );
+    }
+    // A trading session's approval that was never signed, and that a later session of the same sign-in on the same venue
+    // account has replaced, is abandoned: it is never signed and sent later (a stale tab), where it would take the newer
+    // session's slot. A later session on another wallet takes no slot of this one's.
+    if (!row.signature && key.startsWith(SESSION_KEY_PREFIX)) {
+      const m = /^(.*\.)(\d+)$/.exec(key);
+      const later = m
+        ? (await this.deps.store.listByPrefix(principal.userId, m[1]!)).some((r) => {
+            const n = /\.(\d+)$/.exec(r.businessKey)?.[1];
+            return (
+              n !== undefined &&
+              r.businessKey.slice(0, -n.length) === m[1] &&
+              Number(n) > Number(m[2]) &&
+              r.prepared.account.owner.toLowerCase() === row.prepared.account.owner.toLowerCase()
+            );
+          })
+        : false;
+      if (later) {
+        throw new UserVenueDoorError(
+          'a newer trading session was started in this sign-in, so this approval is no longer asked for; nothing was sent',
+          'trade.venue_session_superseded',
+          409,
+        );
+      }
+    }
     if (
       !signature ||
       typeof signature.signature !== 'string' ||
@@ -495,6 +764,31 @@ export class UserVenueDoor {
     ) {
       invalid('signature must be { digest, signature, signedBy }');
     }
+    // A definite answer is already recorded: the same stored bytes are sent again (the venue answers its first answer, and
+    // a lost or "already used" answer never replaces the recorded one), and the answer is marked as the stored response.
+    const replayed = row.signature !== null && row.lastOutcome?.definite === true;
+    // One request sends a key at a time: a second one at the same moment is told to retry, never raced to the venue.
+    const at = this.deps.now();
+    if (!(await this.deps.store.claimSend(principal.userId, key, at, new Date(at.getTime() + SEND_CLAIM_MS)))) {
+      throw new UserVenueDoorError(
+        `another request with the key ${key} is being sent to the venue now; retry once it has answered`,
+        'idempotency.in_progress',
+        409,
+      );
+    }
+    try {
+      return { ...(await this.send(principal, key, row, signature)), replayed };
+    } finally {
+      await this.deps.store.releaseSend(principal.userId, key);
+    }
+  }
+
+  private async send(
+    principal: Principal,
+    key: string,
+    row: StoredVenueAction,
+    signature: VenueSignature,
+  ): Promise<Omit<SubmitAnswer, 'replayed'>> {
     let signed = row;
     // An order never sent yet is checked again: a stop or limit approved since it was prepared applies to it.
     if (!row.signature && row.prepared.intent.kind === 'place_order') await this.admitPlace(row.prepared.venueId, row.prepared.intent);
@@ -523,5 +817,82 @@ export class UserVenueDoor {
     // A definite outcome already recorded is never replaced by a not-definite one: that is the answer.
     const outcome = await this.deps.store.recordOutcome(principal.userId, key, answered, this.deps.now());
     return { actionKey: key, outcome, readBack: readBackOf(outcome) };
+  }
+
+  /** One order sent through this door, read by its key: the venue's record, or `unknown` until the venue answers. */
+  async orderByKey(principal: Principal, actionKey: string): Promise<VenueOrderByKey> {
+    const key = (actionKey ?? '').trim();
+    const row = key ? await this.deps.store.find(principal.userId, key) : null;
+    if (!row || row.prepared.intent.kind !== 'place_order') {
+      throw new UserVenueDoorError(`no order under ${JSON.stringify(key)}`, 'trade.venue_action_unknown', 404);
+    }
+    return this.orderState(principal.userId, row);
+  }
+
+  /**
+   * One person's orders on one venue account, oldest first, a page at a time (J-developer-05 #6). Each order once,
+   * by its key; the next cursor is null on the last page. The largest page is the owner's value: blank refuses.
+   */
+  async orders(principal: Principal, owner: string, cursor: string | undefined, limit: string | undefined): Promise<VenueOrderPage> {
+    const max = this.deps.ordersPageMax ?? null;
+    if (max === null) {
+      throw new UserVenueDoorError(
+        'the largest page of orders is not set (owner value blank), so no list of orders is served',
+        'trade.venue_orders_page_max_unset',
+        503,
+      );
+    }
+    let size = max;
+    if (limit !== undefined && limit !== '') {
+      if (!/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > max) {
+        throw new UserVenueDoorError(`limit must be a whole number 1 to ${max}`, 'trade.venue_orders_limit_invalid', 400);
+      }
+      size = Number(limit);
+    }
+    const after = decodeCursor(cursor);
+    const account = await this.account(owner);
+    const rows = await this.deps.store.listSignedOrders(principal.userId, account, after, size + 1);
+    const page = rows.slice(0, size);
+    const orders: VenueOrderByKey[] = [];
+    for (const row of page) orders.push(await this.orderState(principal.userId, row));
+    return { orders, nextCursor: rows.length > size ? encodeCursor(page[page.length - 1]!) : null };
+  }
+
+  private async orderState(userId: string, row: StoredVenueAction): Promise<VenueOrderByKey> {
+    const p = row.prepared;
+    const base = { actionKey: row.businessKey, venueClientOrderId: p.venueClientOrderId };
+    const recorded = row.lastOutcome;
+    if (!row.signature) return { ...base, state: 'not_sent', order: null, asOf: null };
+    if (recorded?.definite && !recorded.accepted)
+      return { ...base, state: 'refused', refusal: recorded.refusal, order: null, asOf: recorded.asOf };
+    const accepted = recorded?.definite && recorded.accepted ? recorded : null;
+    if (!p.venueClientOrderId) {
+      return accepted
+        ? { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf }
+        : { ...base, state: 'unknown', reason: 'not_on_venue_yet', order: null, asOf: null };
+    }
+    let read: Awaited<ReturnType<UserVenue['orderByClientId']>>;
+    try {
+      read = await (await this.venue()).orderByClientId(p.account, p.venueClientOrderId);
+    } catch (err) {
+      if (!(err instanceof VenueRefusalError && err.refusal.code === 'venue_down')) throw err;
+      return accepted
+        ? { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf }
+        : { ...base, state: 'unknown', reason: 'venue_down', order: null, asOf: null };
+    }
+    if (read.value) {
+      // The venue has the order: that settles an answer that was not definite, and it is recorded as the venue's.
+      if (!accepted) {
+        await this.deps.store.recordOutcome(
+          userId,
+          row.businessKey,
+          { definite: true, accepted: true, venueRef: read.value.venueOrderId, order: read.value, asOf: read.asOf },
+          this.deps.now(),
+        );
+      }
+      return { ...base, state: 'accepted', order: read.value, asOf: read.asOf };
+    }
+    if (accepted) return { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf };
+    return { ...base, state: 'unknown', reason: 'not_on_venue_yet', order: null, asOf: read.asOf };
   }
 }

@@ -3,6 +3,9 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import nodePath from 'node:path';
+import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { ORIGIN, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
@@ -19,6 +22,50 @@ let courseUrl = null;
 
 test.describe.configure({ mode: 'serial' });
 
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** One query on svc-academy's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+async function academyDb(read) {
+  const ctx = await makeContext({ log: () => undefined });
+  const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-academy', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  const sql = postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await read(sql);
+  } finally {
+    await sql.end();
+  }
+}
+
+/**
+ * Every learner, enrolment and progress record svc-academy keeps, as row counts per table: what learners did,
+ * enrolments (staff-made courses and curriculum paths), item completions, quiz and assessment attempts, hand-ins and
+ * video positions. A preview that wrote any of them
+ * changes a count.
+ */
+const LEARNER_TABLES = [
+  'learner_events',
+  'course_enrolments',
+  'cert_enrollments',
+  'item_completion_events',
+  'cert_item_completions',
+  'course_quiz_attempts',
+  'quiz_attempts',
+  'assessment_attempts',
+  'assignment_submissions',
+  'video_progress',
+];
+const learnerRecords = () =>
+  academyDb(async (sql) => {
+    const counts = {};
+    for (const table of LEARNER_TABLES)
+      counts[table] = Number((await sql`SELECT count(*)::int AS n FROM ${sql('academy')}.${sql(table)}`)[0].n);
+    return counts;
+  });
+
 /** Founder A on the console, in a context of its own. */
 async function console_(browser) {
   const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
@@ -26,6 +73,62 @@ async function console_(browser) {
   await founderSignIn(page, 'a');
   return page;
 }
+
+/**
+ * The course's Section 1 item 2 lesson, opened at the address its "Write" link names. #4 proves that link by clicking it;
+ * the later steps go to its address so a click the console's client router drops (issue #7639: the click landed and the
+ * page stayed on the course for 210 s) can't fail a step about the lesson itself.
+ */
+async function openLesson(page) {
+  await page.goto(courseUrl);
+  const href = await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).getAttribute('href');
+  if (!href || !/\/items\/[0-9a-f-]{36}$/.test(href)) throw new Error(`${J}: the Write link names no lesson address (${href})`);
+  await page.goto(href);
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+}
+
+/** One change on a console desk from the founder's own page, with the session's CSRF nonce, as the desk's browser hop sends it. */
+async function consoleChange(page, url, body) {
+  const answer = await page.evaluate(
+    async ({ url, body }) => {
+      const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    },
+    { url, body },
+  );
+  if (answer.status !== 200 || !answer.body?.ok)
+    throw new Error(`${J}: ${url} ${body.op} answered ${answer.status} ${JSON.stringify(answer.body)}`);
+  return answer.body;
+}
+
+/** One course as svc-academy holds it, read through the console's course desk. */
+async function courseDetail(page, courseId) {
+  const res = await page.request.get(`/api/academy-courses?courseId=${courseId}`);
+  expect(res.status(), await res.text()).toBe(200);
+  const view = await res.json();
+  expect(view.detail.kind, JSON.stringify(view.detail)).toBe('ok');
+  return view.detail.data;
+}
+
+/** Rows svc-academy keeps about learners on one course: its enrolments, and every learner row on one of its items. */
+const learnerRowsOn = (courseId) =>
+  academyDb(async (sql) => {
+    const items = sql`SELECT id FROM academy.course_items WHERE course_id = ${courseId}`;
+    const [row] = await sql`
+      SELECT
+        (SELECT count(*)::int FROM academy.course_enrolments WHERE course_id = ${courseId}) AS enrolments,
+        (SELECT count(*)::int FROM academy.course_quiz_attempts WHERE item_id IN (${items})) AS quiz_attempts,
+        (SELECT count(*)::int FROM academy.course_survey_responses WHERE item_id IN (${items})) AS survey_responses,
+        (SELECT count(*)::int FROM academy.assignment_submissions WHERE item_id IN (${items})) AS hand_ins,
+        (SELECT count(*)::int FROM academy.course_item_extensions WHERE item_id IN (${items})) AS extensions
+    `;
+    return row;
+  });
 
 const SECTIONS = [
   { href: '/academy-ops/catalogue', heading: 'Academy: catalogue', read: 'academy.courses' },
@@ -205,6 +308,7 @@ test(`${J} #3 the outline holds ordered sections of typed items; with the sectio
 test(`${J} #4 a lesson's edits stay off learners until republished; revert makes a new revision; duplicate copies no learner record`, async ({
   browser,
 }) => {
+  test.setTimeout(240_000);
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to write in`);
   const page = await console_(browser);
   await page.goto(courseUrl);
@@ -272,6 +376,105 @@ test(`${J} #4 a lesson's edits stay off learners until republished; revert makes
   await expect(page.getByTestId('outline-item-0-1')).toContainText('revision 3, learners see 2');
   await expect(page.getByTestId('outline-item-0-2')).toContainText('revision 1, not published');
   await expect(page.getByTestId('course-history')).toContainText('a lesson published to learners');
+
+  // Duplicate copies no learner record, on a course that has a learner: a free course with one published lesson is
+  // published, a verified learner enrols on it, and the founder duplicates the whole course from its desk.
+  const source = { slug: `test-j11-src-${RUN}`, title: `TEST J-academy-11 source ${RUN}` };
+  const words = 'TEST Size from the stop, never from the target.';
+  const { course } = await consoleChange(page, '/api/academy-courses', {
+    op: 'create',
+    slug: source.slug,
+    title: source.title,
+    summary: '',
+    thumbnailUrl: '',
+    pricing: 'free',
+  });
+  await consoleChange(page, '/api/academy-courses', {
+    op: 'outline',
+    courseId: course.id,
+    revision: course.revision,
+    sections: [{ title: 'TEST Only part', items: [{ kind: 'lesson', title: 'TEST Sizing recap', indent: 0, url: null }] }],
+  });
+  const outlined = await courseDetail(page, course.id);
+  const sourceItem = outlined.outline[0].items[0];
+  await consoleChange(page, '/api/academy-lessons', {
+    op: 'save',
+    itemId: sourceItem.id,
+    revision: 0,
+    blocks: [{ type: 'text', markdown: words }],
+  });
+  const { lesson } = await consoleChange(page, '/api/academy-lessons', {
+    op: 'publish',
+    itemId: sourceItem.id,
+    lessonRevision: 1,
+    courseRevision: outlined.course.revision,
+    reason: 'TEST first cut',
+  });
+  await consoleChange(page, '/api/academy-courses', {
+    op: 'move',
+    courseId: course.id,
+    to: 'published',
+    revision: lesson.courseRevision,
+    reason: 'TEST open to learners',
+  });
+
+  const learner = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  const who = await signUp(learner, 'j11d');
+  await verify(learner, who);
+  await signIn(learner, who);
+  await learner.goto(`/academy/learning/course/${source.slug}`);
+  const block = learner.locator(`[data-academy-enrol="${source.slug}"]`);
+  await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
+  await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  const sourceRows = await learnerRowsOn(course.id);
+  expect(sourceRows.enrolments, 'the source has its learner before the duplicate').toBe(1);
+  const everyRecordBefore = await learnerRecords();
+
+  const sourceUrl = `/academy-ops/catalogue/courses/${course.id}`;
+  await page.goto(sourceUrl);
+  await expect(page.getByTestId('course-facts')).toContainText('Published');
+  const copySlug = `test-j11-copy-${RUN}`;
+  await page.getByLabel('Copy address', { exact: true }).fill(copySlug);
+  await page.getByLabel('Copy title', { exact: true }).fill(`TEST J-academy-11 copy ${RUN}`);
+  await page.getByLabel('Why copy it', { exact: true }).fill('TEST next cohort');
+  await page.getByRole('button', { name: 'Duplicate this course', exact: true }).click();
+  await page.waitForURL((url) => /\/academy-ops\/catalogue\/courses\/[0-9a-f-]{36}$/.test(url.pathname) && url.pathname !== sourceUrl);
+  const copyId = new URL(page.url()).pathname.split('/').pop();
+
+  // The copy: a draft at its own address, the same outline, its history naming the source and the reason.
+  await expect(page.getByRole('heading', { level: 1, name: `TEST J-academy-11 copy ${RUN}`, exact: true })).toBeVisible();
+  const copyFacts = page.getByTestId('course-facts');
+  await expect(copyFacts).toContainText('Draft');
+  await expect(copyFacts).toContainText(copySlug);
+  await expect(page.getByTestId('course-history').locator('li')).toHaveCount(1);
+  await expect(page.getByTestId('course-history')).toContainText(`created as a draft (revision 1)`);
+  await expect(page.getByTestId('course-history')).toContainText(`duplicated from ${source.slug}: TEST next cohort`);
+  const copy = await courseDetail(page, copyId);
+  expect(copy.outline.map((s) => [s.title, s.items.map((i) => [i.kind, i.title])])).toEqual([
+    ['TEST Only part', [['lesson', 'TEST Sizing recap']]],
+  ]);
+  expect(copy.outline[0].items[0].id).not.toBe(sourceItem.id);
+  await expect(page.getByTestId('outline-item-0-0')).toContainText('revision 1, not published');
+  // Its lesson holds the source's words as its own revision 1, and nothing is live on it.
+  await page.goto(page.url());
+  const write = await page.getByRole('link', { name: 'Write Section 1 item 1', exact: true }).getAttribute('href');
+  await page.goto(write);
+  await expect(page.getByTestId('lesson-revision-1')).toContainText('Revision 1: duplicated from another item');
+  await expect(page.getByTestId('lesson-revisions').locator('li')).toHaveCount(1);
+  await expect(page.getByLabel('Block 1 text', { exact: true })).toHaveValue(words);
+  await expect(liveRevision).toHaveText('Nothing: no revision is published');
+
+  // No learner record is copied: nothing about learners is on the copy, the source keeps its learner, and the duplicate
+  // wrote no learner, enrolment or progress row anywhere.
+  expect(await learnerRowsOn(copyId)).toEqual({ enrolments: 0, quiz_attempts: 0, survey_responses: 0, hand_ins: 0, extensions: 0 });
+  expect(await learnerRowsOn(course.id)).toEqual(sourceRows);
+  expect(await learnerRecords(), 'learner, enrolment and progress records after the duplicate').toEqual(everyRecordBefore);
+  // The learner is still enrolled on the source, and the draft copy is not open to anyone.
+  await learner.reload();
+  await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  await learner.goto(`/academy/learning/course/${copySlug}`);
+  await expect(learner.getByText('There is no published course at this address.')).toBeVisible();
+  await learner.context().close();
   await page.context().close();
 });
 
@@ -280,9 +483,7 @@ test(`${J} #5 a lesson file over the size limit is refused before it is read; an
 }) => {
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to import into`);
   const page = await console_(browser);
-  await page.goto(courseUrl);
-  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
-  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await openLesson(page);
   await expect(page.getByTestId('lesson-import-limit')).toContainText('Up to 8192 bytes');
   const revisions = page.getByTestId('lesson-revisions').locator('li');
   const before = await revisions.count();
@@ -334,9 +535,7 @@ test(`${J} #6 Draft with no model provider gives the template draft and an owner
 }) => {
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to draft`);
   const page = await console_(browser);
-  await page.goto(courseUrl);
-  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
-  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await openLesson(page);
   const outcome = page.getByTestId('course-desk-outcome');
   const revisions = page.getByTestId('lesson-revisions').locator('li');
   const before = await revisions.count();
@@ -387,9 +586,7 @@ test(`${J} #7 a video, an SRT file and a handout upload; blank limits refuse; to
   test.setTimeout(240_000);
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to upload to`);
   const page = await console_(browser);
-  await page.goto(courseUrl);
-  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
-  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await openLesson(page);
   const limits = page.getByTestId('media-limits');
   const outcome = page.getByTestId('media-outcome');
   const uploads = [];
@@ -471,9 +668,7 @@ test(`${J} #8 a lesson featured on the Learn hub fills the slot and leaves it wh
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to feature`);
   const page = await console_(browser);
   const outcome = page.getByTestId('course-desk-outcome');
-  await page.goto(courseUrl);
-  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
-  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await openLesson(page);
   const lessonUrl = page.url();
   const featuredNote = page.getByTestId('lesson-featured');
   await expect(featuredNote).toContainText('Learners can read it, so it can be featured');
@@ -558,7 +753,9 @@ test(`${J} #9 Preview as new learner shows the real syllabus with locks and reco
   const before = await history.allTextContents();
   expect(before.length).toBeGreaterThan(0);
 
-  // Preview as new learner: the stored syllabus, each item with its lock; nothing is recorded.
+  // Preview as new learner: the stored syllabus, each item with its lock; nothing is recorded. The learner, enrolment and
+  // progress records svc-academy keeps are counted before and after, so a write the course history does not list shows.
+  const recordsBefore = await learnerRecords();
   await page.getByRole('link', { name: 'Preview as new learner', exact: true }).click();
   await page.waitForURL(/\/preview$/);
   await expect(page.getByTestId('preview-note')).toContainText('Opening it records nothing');
@@ -570,6 +767,7 @@ test(`${J} #9 Preview as new learner shows the real syllabus with locks and reco
   await expect(item('TEST Check yourself')).toHaveAttribute('data-lock', 'not_released');
   await expect(item('TEST Reading list')).toHaveAttribute('data-lock', 'enrolment_closed');
   await expect(item('TEST Part 1')).toHaveAttribute('data-lock', 'none');
+  expect(await learnerRecords(), 'learner, enrolment and progress records after the preview').toEqual(recordsBefore);
   await page.goto(courseUrl);
   await expect(history).toHaveText(before);
 

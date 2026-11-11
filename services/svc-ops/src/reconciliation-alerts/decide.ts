@@ -7,6 +7,8 @@ type AssetEvidence = ReconciliationEvaluation['run']['assets'][number];
 
 /** The ledger's own rule (svc-ledger withinStored): a set, non-zero difference outside a set tolerance fails. */
 export function assetFails(asset: AssetEvidence): boolean {
+  // A side with no record is a break by name (OWNER 288), whatever the difference shows.
+  if (asset.missing !== undefined) return true;
   if (asset.difference === 'unset') return false;
   const difference = parseAmount(asset.difference);
   if (difference === 0n) return false;
@@ -47,7 +49,7 @@ export type AlertTarget =
 
 /**
  * The alerts an evaluation raises. A FAIL raises one per failing asset (finance); an ERROR raises one with no asset
- * (platform), naming the run's own code and phase, or `unset` when the ledger stored none. PASS and UNSET raise none.
+ * (platform), naming the run's own code and phase, or `unset` when the ledger stored none. PASS, UNSET and NOTHING_TO_COMPARE raise none.
  */
 export function alertTargets(evaluation: ReconciliationEvaluation): AlertTarget[] {
   const { run } = evaluation;
@@ -71,6 +73,15 @@ export function alertTargets(evaluation: ReconciliationEvaluation): AlertTarget[
 export function sameFrozenFigures(frozen: AssetEvidence | null, now: AssetEvidence | null): boolean {
   if (!frozen || !now) return frozen === now;
   if (frozen.assetId !== now.assetId) return false;
-  if (frozen.difference === 'unset' || now.difference === 'unset') return frozen.difference === now.difference;
+  // With no difference to compare (a missing side, OWNER 288), the figures are the row itself: a changed bound or a side
+  // that reappears is a new discrepancy.
+  if (frozen.difference === 'unset' || now.difference === 'unset') {
+    return (
+      frozen.difference === now.difference &&
+      frozen.observed === now.observed &&
+      frozen.expected === now.expected &&
+      frozen.missing === now.missing
+    );
+  }
   return parseAmount(frozen.difference) === parseAmount(now.difference);
 }

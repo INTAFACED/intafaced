@@ -40,6 +40,8 @@ export const venueStatusSchema = z.union([
     label: z.literal('TEST').optional(),
     chainId: z.number().int().positive().nullable(),
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
+    // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
+    routes: z.boolean().optional(),
   }),
 ]);
 export type VenueStatus = z.infer<typeof venueStatusSchema>;
@@ -63,8 +65,28 @@ export const venueMarketSchema = z.object({
   lotSize: decimalSchema,
   makerFeeBps: maybeKnown(signedDecimalSchema),
   takerFeeBps: maybeKnown(signedDecimalSchema),
+  // The venue's own published words for the market, each "not published" where the venue gives none (J-derivatives-21).
+  listedBy: maybeKnown(z.object({ kind: z.enum(['venue', 'hip3', 'ostium']), name: z.string() })),
+  oracleRule: maybeKnown(z.string()),
+  markRule: maybeKnown(z.string()),
+  tradingHours: maybeKnown(z.string()),
+  feed: maybeKnown(z.object({ state: z.enum(['live', 'stale']), lastOracleUpdateAt: isoTime, staleRule: maybeKnown(z.string()) })),
+  // A stock perpetual's home market and the venue's off-hours mode, each in the venue's words (J-derivatives-27).
+  session: maybeKnown(
+    z.object({
+      state: z.enum(['open', 'off_hours']),
+      homeMarket: z.string(),
+      offHoursMode: maybeKnown(z.string()),
+      offHoursBand: maybeKnown(z.string()),
+      offHoursMaxLeverageBps: z.number().int().positive().nullable(),
+      reopensAt: isoTime.nullable(),
+      offHoursRule: maybeKnown(z.string()),
+    }),
+  ),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
+/** A stock perpetual's home-market session as the venue publishes it (J-derivatives-27). */
+export type VenueSession = Extract<VenueMarket['session'], { known: true }>['value'];
 
 export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
@@ -141,6 +163,8 @@ export const venuePreviewSchema = z.object({
   role: z.enum(['maker', 'taker']),
   venueFee: maybeKnown(assetAmount),
   builderFee: maybeKnown(assetAmount),
+  // What fills now against the venue's book, and at what average price (the venue's word; not a quote).
+  fill: maybeKnown(z.object({ amount: decimalSchema, averagePrice: decimalSchema.nullable() })).optional(),
   perpetual: z
     .object({
       leverageBps: z.number().int().positive(),
@@ -151,6 +175,77 @@ export const venuePreviewSchema = z.object({
     .nullable(),
 });
 export type VenuePreview = z.infer<typeof venuePreviewSchema>;
+
+// ── Routing over several venues (J-derivatives-28) ───────────────────────────────────────────────────────────────
+
+const health = z.object({ state: z.enum(['up', 'down']), since: isoTime, reason: z.string().nullable(), checkedAt: isoTime });
+export type VenueHealth = z.infer<typeof health>;
+const level = z.object({ price: decimalSchema, amount: decimalSchema });
+export const marketVenueSchema = z.object({
+  venueId: z.string().nullable(),
+  displayName: z.string().nullable(),
+  test: z.boolean(),
+  health,
+  listed: z.boolean().nullable(),
+  market: z
+    .object({
+      kind: z.enum(['spot', 'perpetual']),
+      baseAsset: z.string(),
+      quoteAsset: z.string(),
+      makerFeeBps: maybeKnown(decimalSchema),
+      takerFeeBps: maybeKnown(decimalSchema),
+      lotSize: decimalSchema,
+      tickSize: decimalSchema,
+    })
+    .nullable(),
+  book: z
+    .object({ venueId: z.string(), asOf: isoTime, value: z.object({ symbol: z.string(), bids: z.array(level), asks: z.array(level) }) })
+    .nullable(),
+  builderFee: z
+    .union([
+      z.object({ published: z.literal(false) }),
+      z.object({ published: z.literal(true), carries: z.literal(false) }),
+      z.object({ published: z.literal(true), carries: z.literal(true), feeBps: decimalSchema }),
+    ])
+    .nullable(),
+  account: z.enum(['signable', 'connect', 'unknown']),
+});
+export type MarketVenue = z.infer<typeof marketVenueSchema>;
+export const marketVenuesSchema = z.object({ symbol: z.string(), venues: z.array(marketVenueSchema), at: isoTime });
+
+const cost = z.object({
+  venueId: z.string(),
+  fillsNow: decimalSchema.nullable(),
+  averagePrice: decimalSchema.nullable(),
+  fillsWhole: z.boolean(),
+  notional: decimalSchema,
+  knownFees: decimalSchema,
+  total: signedDecimalSchema,
+  unknownFees: z.array(z.enum(['venue_fee', 'builder_fee'])),
+});
+export type RouteCost = z.infer<typeof cost>;
+const shownBest = level.nullable();
+export const routePreviewSchema = z.object({
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  amount: decimalSchema,
+  quoteAsset: z.string().nullable(),
+  chosen: z
+    .object({
+      venueId: z.string(),
+      displayName: z.string(),
+      test: z.boolean(),
+      shownBest,
+      preview: z.object({ venueId: z.string(), asOf: isoTime, value: venuePreviewSchema }),
+      cost,
+    })
+    .nullable(),
+  others: z.array(cost.extend({ displayName: z.string(), shownBest })),
+  excluded: z.array(z.object({ venueId: z.string().nullable(), displayName: z.string().nullable(), code: z.string(), detail: z.string() })),
+  reason: z.enum(['only_venue', 'fills_whole', 'lowest_cost', 'fills_most', 'tie_by_id', 'no_signable_venue_up']),
+  at: isoTime,
+});
+export type RoutePreview = z.infer<typeof routePreviewSchema>;
 
 const orderOutcome = z.union([
   z.object({
@@ -275,7 +370,10 @@ export const keys = {
   cancel: (clientOrderKey: string) => `cancel:${clientOrderKey}`,
   leverage: (owner: string, symbol: string, mode: VenueMarginMode, leverageBps: number, draft: string) =>
     `leverage:${part(owner)}:${part(symbol)}:${mode}:${leverageBps}:${draft}`,
-  builderApproval: (owner: string, builder: string, maxFeeBps: string) => `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}`,
+  builderApproval: (owner: string, builder: string, maxFeeBps: string, venueId?: string) =>
+    venueId
+      ? `builder-approval:${part(owner)}:${part(venueId)}:${part(builder)}:${maxFeeBps}`
+      : `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}`,
   withdraw: (owner: string, draft: string) => `withdraw:${part(owner)}:${draft}`,
 };
 
@@ -362,14 +460,24 @@ export function venueApi(api: ApiClient) {
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal) => read('/fills', asOf(z.array(venueFillSchema)), { owner, since }, signal),
     positions: (owner: string, signal?: AbortSignal) => read('/positions', asOf(z.array(venuePositionSchema)), { owner }, signal),
-    leverage: (owner: string, symbol: string, signal?: AbortSignal) =>
-      read('/leverage', asOf(venueLeverageSchema.nullable()), { owner, symbol }, signal),
-    builderFeeApproval: (owner: string, signal?: AbortSignal) => read('/builder-fee-approval', asOf(decimalSchema), { owner }, signal),
+    /** The owner's own sub-accounts, as the venue lists them on the main account (J-agents-08 #2). */
+    subAccounts: (owner: string, signal?: AbortSignal) =>
+      read('/sub-accounts', asOf(z.array(z.object({ subAccount: z.string(), name: z.string() }))), { owner }, signal),
+    leverage: (owner: string, symbol: string, signal?: AbortSignal, venueId?: string) =>
+      read('/leverage', asOf(venueLeverageSchema.nullable()), { owner, symbol, venueId }, signal),
+    builderFeeApproval: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/builder-fee-approval', asOf(decimalSchema), { owner, venueId }, signal),
+    marketVenues: (symbol: string, owner: string, side: 'buy' | 'sell', signal?: AbortSignal) =>
+      api.rest(`/venue/markets/${encodeURIComponent(symbol)}/venues`, marketVenuesSchema, { query: { owner, side }, signal }),
+    routePreview: (owner: string, intent: OrderIntent) => write('/route-preview', routePreviewSchema, { owner, intent }),
+    ordersByClientIdOn: (venueId: string, owner: string, clientOrderId: string, signal?: AbortSignal) =>
+      read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId, venueId }, signal),
     withdrawal: (owner: string, nonce: string, signal?: AbortSignal) =>
       api.rest(`/venue/withdrawals/${encodeURIComponent(nonce)}`, asOf(venueWithdrawalSchema.nullable()), { query: { owner }, signal }),
     preview: (owner: string, intent: OrderIntent) => write('/preview', asOf(venuePreviewSchema), { owner, intent }),
-    prepare: (input: { owner: string; intent: VenueIntent; actionKey?: string; stepUpApprovalId?: string | null }) =>
+    prepare: (input: { owner: string; intent: VenueIntent; actionKey?: string; stepUpApprovalId?: string | null; venueId?: string }) =>
       write('/prepare', preparedAnswerSchema, {
+        ...(input.venueId ? { venueId: input.venueId } : {}),
         owner: input.owner,
         signer: { role: 'owner', address: input.owner },
         intent: input.intent,

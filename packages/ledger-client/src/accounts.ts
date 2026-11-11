@@ -394,3 +394,66 @@ export function venueBuilderFeeReceivable(venueId: string, assetId: string): Acc
 export function venueBuilderAccount(venueId: string, assetId: string): AccountRef {
   return { ownerType: 'treasury', ownerId: `venue-builder-account:${venueId}`, assetId, kind: 'available' };
 }
+
+/**
+ * OUR FUNDS AT AN OUTSIDE PLACE (launch money model, rule 1; project-state OWNER.md item 288). INTAFACED's own money that
+ * sits somewhere we do not run the book of: our builder account at a venue (`venueBuilderAccount`), our reserve at a
+ * partner, our treasury wallet on a chain. One named account per place. Each is a boundary, like `venueBuilderAccount`: its
+ * negative balance is exactly our own money there, so "how much of ours is at that partner" is a query. Never a customer's.
+ *
+ * A place can never show less than nothing of ours: its balance may not go above zero (`balanceAllowed`). Moving more out of
+ * a place than the book shows there is refused like any overdraft, with `ledger.insufficient_funds`.
+ */
+export function partnerReserve(partnerId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `partner-reserve:${partnerId}`, assetId, kind: 'available' };
+}
+
+/** Our own treasury wallet on a chain (see `partnerReserve`). `walletId` names the wallet, e.g. `base:ops`. */
+export function treasuryWallet(walletId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `treasury-wallet:${walletId}`, assetId, kind: 'available' };
+}
+
+/** The `ownerId` prefixes of every own-funds place. A place is a `treasury` account whose `ownerId` starts with one. */
+export const OWN_FUNDS_PLACE_PREFIXES = ['venue-builder-account:', 'partner-reserve:', 'treasury-wallet:'] as const;
+
+/** True for an account that is one of our own-funds places. */
+export function isOwnFundsPlace(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>): boolean {
+  return ref.ownerType === 'treasury' && OWN_FUNDS_PLACE_PREFIXES.some((p) => ref.ownerId.startsWith(p));
+}
+
+/**
+ * WHAT A CUSTOMER OWES US FOR A CHARGE (launch money model; project-state OWNER.md item 288: "earn a charge a customer owes
+ * us", then "collect it"). A boundary like `venueBuilderFeeReceivable`: the money is still the customer's, outside our book,
+ * so its negative balance is exactly what they owe us for that module's charges. It is never a balance of theirs.
+ *
+ * It may not go above zero (`balanceAllowed`): collecting more than is owed would record money of theirs in our book, which
+ * at launch we never hold, so it is refused like any overdraft, with `ledger.insufficient_funds`.
+ */
+export const CHARGE_RECEIVABLE_PREFIX = 'charge-receivable:';
+
+export function chargeReceivable(module: string, userId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `${CHARGE_RECEIVABLE_PREFIX}${module}.${userId}`, assetId, kind: 'available' };
+}
+
+/** True for an account that records what a customer owes us for a charge. */
+export function isChargeReceivable(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>): boolean {
+  return ref.ownerType === 'treasury' && ref.ownerId.startsWith(CHARGE_RECEIVABLE_PREFIX);
+}
+
+/**
+ * The balance rule every ledger applies to each entry: an account may not go below zero, except a `treasury` boundary; an
+ * own-funds place, whose negative balance is our money there, may not go above zero; and a charge receivable, whose negative
+ * balance is what a customer owes us, may not go above zero either.
+ */
+export function balanceAllowed(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>, next: bigint): boolean {
+  if (isOwnFundsPlace(ref) || isChargeReceivable(ref)) return next <= 0n;
+  return next >= 0n || ref.ownerType === 'treasury';
+}
+
+/**
+ * What an account holds, as an overdraft names it: an own-funds place holds the negative of its balance, and a charge
+ * receivable the negative of its balance (what is owed).
+ */
+export function heldForRefusal(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>, balance: bigint): bigint {
+  return isOwnFundsPlace(ref) || isChargeReceivable(ref) ? -balance : balance;
+}

@@ -18,6 +18,18 @@
  *     own full runs recorded reaching it, when no full path above is in the change and the map can speak for every
  *     product path in it (shared setup, scripts, admin-app paths, packages it can't map, a switched-off, missing or
  *     stale map: full). Its journeys join the `files` list, and `reach` says why;
+ *   - named (theo-01 part 1, project-state#2065, OWNER 296): a pull request whose title or branch names a journey
+ *     (`J-<area>-<n>`, namedJourneyIds) that has a journey file at its head is judged on that journey. Its product paths
+ *     go to neither the full run nor the map: it runs the journeys it names, every journey test file it changes, and the
+ *     map's always-run list (the map's `full` journeys, which no recorded run speaks for). Every other full path above
+ *     still makes it full. Main runs every journey after every merge and is the backstop: a break of another journey is
+ *     caught there and reverted (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main
+ *     after a merge, a red main is reverted"). A product pull request that names no journey keeps the rules above;
+ *   - stack (theo-01 part 2, OWNER 296: "A change to one service's own test-stack file runs the journeys that use that
+ *     file"): a named pull request's change to a service's own stack file (STACK_FILE: `local-stack-services/<service>.mjs`,
+ *     `test-owner-values/<service>.json`) also runs the journeys whose tests use it (stackImporters), when nothing else
+ *     makes it full. Without a name, or when the journey files can't be read, it stays full, and stack-wide files
+ *     (local-test-stack.mjs and the rest of SHARED_SETUP) always are;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -33,6 +45,9 @@
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
  *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
+ *   … --title <t> --branch <b>                                (the journeys the pull request names; with --reach, the
+ *                                                              env's TITLE and GITHUB_HEAD_REF when not given, which is
+ *                                                              how real-app-journeys.yml's touch step passes them)
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
@@ -90,6 +105,7 @@ export const DOCS_READ = [
   'docs/runbooks/',
   'docs/audits/',
   'docs/agents/',
+  'docs/adr/2026-11-10-launch-money-model.md',
   'docs/decisions/s2s-body-bind.md',
   'docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md',
   'docs/CODEOWNERS',
@@ -132,9 +148,74 @@ const NONE_RULES = [
 
 const PRODUCT = 'product code, and no map recorded from real runs says which journeys reach it yet';
 
-/** One path's kind: { kind: 'full', why } | { kind: 'file', file } | { kind: 'none' }. */
+/** A journey id as the seal reads one in a title (journey-seal.mjs JOURNEY_ID). */
+const JOURNEY_ID = /\bJ-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/gi;
+
+/** The journey ids a pull request's title or branch names (`J-bank-13`, branch `j/j-bank-13` or `agents-j-agents-19`),
+ *  in the seal's case (`J-` then lower case), sorted. */
+export function namedJourneyIds({ title = '', branch = '' } = {}) {
+  const ids = new Set();
+  for (const t of [title, branch]) for (const m of String(t ?? '').matchAll(JOURNEY_ID)) ids.add(m[0].toLowerCase().replace(/^j-/, 'J-'));
+  return [...ids].sort();
+}
+
+/**
+ * What a named-journey pull request runs besides its changed journey files (journeyTouch's `named`), or null when it
+ * names no journey with a file at its head (then the other rules decide). `journeyFiles`: the journey file names at the
+ * head (a Set), or null when they can't be read (then null: fail to the other rules, never fewer). `map`: the
+ * touched-journeys map the run chose (journey-reach-map.mjs newerMap), whose `full` keys are the always-run list.
+ */
+export function namedInputs({ ids, journeyFiles, map, importers = null }) {
+  if (!ids?.length || !journeyFiles) return null;
+  const want = new Set(ids);
+  const files = [...journeyFiles].filter((f) => want.has(JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1])).sort();
+  if (!files.length) return null;
+  const always = Object.keys(map?.full ?? {})
+    .filter((f) => journeyFiles.has(f))
+    .sort();
+  return { ids: [...ids], files, always, ...(importers ? { importers } : {}) };
+}
+
+/** A service's own stack file: what `local:stack` starts that one service with. A test file beside them, or any other
+ *  name, isn't one. */
+export const STACK_FILE = /^tooling\/(?:scripts\/local-stack-services\/[a-z0-9-]+\.mjs|profiles\/test-owner-values\/[a-z0-9-]+\.json)$/;
+
+/** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
+const joinedPaths = (t) =>
+  String(t)
+    .replace(/['"`]\s*,\s*['"`]/g, '/')
+    .replace(/\/[ \t]*\r?\n[ \t]*(?:\/\/|\*)[ \t]*/g, '/');
+
+/**
+ * The journey files whose tests use a changed stack file (OWNER 296; blueprint file 10 item 6), from `texts`: the head's
+ * .mjs files in the real-app folder, name to text. A file uses it when it names it by path anywhere, in code or in a
+ * comment (most journeys that lean on a stack value say so in a comment and restart the service, and never `import` it;
+ * running one too many is safe), or imports a helper in that folder that does.
+ */
+export function stackImporters(paths, texts) {
+  const names = [...new Set(paths)].map((p) => String(p).replace(/^tooling\/(?:scripts|profiles)\//, ''));
+  const sources = new Map([...texts].map(([f, t]) => [f, joinedPaths(t)]));
+  const reaches = new Set([...sources].filter(([, t]) => names.some((n) => t.includes(n))).map(([f]) => f));
+  const uses = new Map([...sources].map(([f, t]) => [f, [...t.matchAll(/(['"`])\.\/([A-Za-z0-9._-]+\.mjs)\1/g)].map((m) => m[2])]));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [f, deps] of uses)
+      if (!reaches.has(f) && deps.some((d) => reaches.has(d))) {
+        reaches.add(f);
+        grew = true;
+      }
+  }
+  return [...reaches].filter((f) => JOURNEY_TEST.test(`apps/customer/tests/real-app/${f}`)).sort();
+}
+
+/** One path's kind: { kind: 'full', why, stack? } | { kind: 'file', file } | { kind: 'none' }. `stack`: a service's own
+ *  stack file, which only a pull request that names a journey narrows (journeyTouch). */
 export function pathKind(path) {
-  const p = String(path);
+  const k = kindOf(String(path));
+  return STACK_FILE.test(String(path)) ? { ...k, stack: true } : k;
+}
+
+function kindOf(p) {
   if (isSharedSetup(p)) return { kind: 'full', why: 'the journey stack’s shared setup (SHARED_SETUP)' };
   const run = RUN_FILE.exec(p);
   if (run && JOURNEY_TEST.test(p)) return { kind: 'file', file: run[1] };
@@ -156,20 +237,33 @@ export function pathKind(path) {
  * reachSelect: { map, behind, journeyFiles, subscribes }), or null: then every product path is full. With it, product
  * paths run only the journeys whose recorded reach touches them, when every other path allows it and the map can speak
  * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
- * reach?: [lines] }.
+ * reach?: [lines] }. `named`: what namedInputs gives for a pull request that names a journey, or null; with it, product
+ * paths run the named journeys and the always-run list instead of the full suite or the map, and `named` says why. With
+ * it, a service's own stack file adds the journeys that use it, when nothing else is full (`stack` lists those paths,
+ * `importers` those journeys); otherwise it is full like any other.
  */
-export function journeyTouch(paths, atHead = () => true, reach = null) {
+export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
   const full = [];
   const product = [];
+  const stack = [];
   const files = new Set();
   for (const p of [...new Set(paths ?? [])].sort()) {
     const k = pathKind(p);
     if (k.kind === 'full' && k.product) product.push(p);
+    else if (k.stack) stack.push({ path: printable(p), why: k.why });
     else if (k.kind === 'full') full.push({ path: printable(p), why: k.why });
     else if (k.kind === 'file' && atHead(p)) files.add(k.file);
   }
   let because;
-  if (product.length && !full.length && reach) {
+  let byName;
+  if (product.length && named) {
+    // Judged on the journeys it names (theo-01 part 1); another full path still makes the whole change full.
+    if (full.length) for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+    else {
+      for (const f of [...named.files, ...named.always]) files.add(f);
+      byName = `it names ${named.ids.join(', ')}, so its ${product.length} product path(s) run ${named.files.join(', ')} and the ${named.always.length} always-run journey file(s), and main's full run judges the rest`;
+    }
+  } else if (product.length && !full.length && reach) {
     const sel = reachSelect({
       map: reach.map,
       paths: product,
@@ -183,10 +277,32 @@ export function journeyTouch(paths, atHead = () => true, reach = null) {
       because = sel.because.map(printable);
     } else for (const p of product) full.push({ path: printable(p), why: printable(sel.why) });
   } else for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+  // Decided last, so any other full path, product code included, makes the stack files full with it.
+  const importers = stack.length && !full.length ? (named?.importers?.(stack.map((x) => x.path)) ?? null) : null;
+  if (importers) {
+    for (const f of [...named.files, ...named.always, ...importers]) files.add(f);
+    byName = `${byName ? `${byName}; ` : ''}it names ${named.ids.join(', ')}, so its ${stack.length} stack file(s) run ${named.files.join(', ')}, the ${named.always.length} always-run journey file(s) and the ${importers.length} journey file(s) using them`;
+  } else full.push(...stack);
   full.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const list = [...files].sort();
   const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
+  if (byName && !full.length)
+    return { ...out, named: printable(byName), ...(importers ? { stack: stack.map((x) => x.path), importers } : {}) };
   return because && !full.length ? { ...out, reach: because } : out;
+}
+
+/** The .mjs files directly in a checkout's real-app folder, name to text, or null when they can't be read. */
+export function checkoutJourneyTexts(root = '.') {
+  try {
+    const dir = `${root}/apps/customer/tests/real-app`;
+    return new Map(
+      readdirSync(dir)
+        .filter((f) => f.endsWith('.mjs'))
+        .map((f) => [f, readFileSync(`${dir}/${f}`, 'utf8')]),
+    );
+  } catch {
+    return null;
+  }
 }
 
 /** The journey files in a checkout's real-app folder, or null when it can't be listed. */
@@ -267,7 +383,13 @@ async function main() {
   // checkout of the head. The map is the newest one main's map workflow built and verified before this run was created
   // (journey-reach-map.mjs builtMap), or this file's own committed copy (the default branch's, in the journeys workflow)
   // when that one is newer or the build can't be read.
+  const arg = (k) => (args.indexOf(k) >= 0 ? args[args.indexOf(k) + 1] : undefined);
+  const ids = namedJourneyIds({
+    title: arg('--title') ?? (args.includes('--reach') ? process.env.TITLE : ''),
+    branch: arg('--branch') ?? (args.includes('--reach') ? process.env.GITHUB_HEAD_REF : ''),
+  });
   let reach = null;
+  let map = null;
   if (args.includes('--reach')) {
     const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
     const built = await builtMap({
@@ -276,10 +398,18 @@ async function main() {
       before: runCreated(),
       repo,
     });
-    const map = newerMap(built, loadMap());
+    map = newerMap(built, loadMap());
     reach = { map, behind: behindFromApi(map), journeyFiles: checkoutJourneyFiles(), subscribes: subscribesIn() };
   }
-  const t = journeyTouch(paths, atHead, reach);
+  const texts = paths.some((p) => STACK_FILE.test(p)) ? checkoutJourneyTexts() : null;
+  const named = namedInputs({
+    ids,
+    journeyFiles: checkoutJourneyFiles(),
+    map: map ?? loadMap(),
+    importers: texts ? (stack) => stackImporters(stack, texts) : null,
+  });
+  const t = journeyTouch(paths, atHead, named ? null : reach, named);
+  if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
   if (t.mode === 'full') {
     console.log('full: this change needs a clean full Real-app journeys run on its exact head (no journeys input), because of:');
@@ -287,6 +417,7 @@ async function main() {
     if (t.full.length > 20) console.log(`  … ${t.full.length - 20} more`);
   } else if (t.mode === 'files') {
     for (const l of t.reach ?? []) console.log(`  reach: ${l}`);
+    if (t.named) console.log(`  named: ${t.named}`);
     console.log(`files: gh workflow run real-app-journeys.yml -R INTAFACED/intafaced --ref <branch> -f journeys="${t.files.join(' ')}"`);
   } else console.log('none: no journeys run executes or reads what this change touches');
 }

@@ -5,6 +5,23 @@ import { confirmFounderEmails } from '../local-test-founders.mjs';
 import { founderTotp, makeContext } from '../local-test-gates.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from '../local-test-device.mjs';
 
+/**
+ * LOCAL TEST ONLY. The one TEST membership tier identity publishes when it starts or restarts with
+ * `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` (J-wallet-01 #6, "with config set, the tier"). It is not an owner decision:
+ * without the switch the tiers stay blank, as production is until the owner publishes them. It lives here, not in the
+ * profile file, because a rig loads that file whole and every other journey must see membership not offered.
+ */
+export const TEST_MEMBERSHIP_TIERS = Object.freeze([
+  Object.freeze({
+    id: 'test-plus',
+    name: 'TEST Plus',
+    price: '9.99',
+    assetId: 'USDT',
+    periodDays: 30,
+    perks: Object.freeze(['TEST perk: not an owner decision']),
+  }),
+]);
+
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
@@ -156,6 +173,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
     IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
+    // `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` on a start or restart publishes the one TEST membership tier above, so the
+    // published tier can be seen (J-wallet-01 #6); without it the tiers are blank and Account says membership is not offered.
+    ...(process.env.LOCAL_STACK_IDENTITY_MEMBERSHIP === 'test' ? { IDENTITY_MEMBERSHIP_TIERS: JSON.stringify(TEST_MEMBERSHIP_TIERS) } : {}),
     IDENTITY_KYC_HANDOFF_TTL_SECONDS: testValue('IDENTITY_KYC_HANDOFF_TTL_SECONDS'),
     // `LOCAL_STACK_IDENTITY_KYC_ATTEMPTS=off` on a start or restart leaves the attempt limit blank (all three), so the
     // page's "no limit is set" can be seen too (J-identity-08 #4).
@@ -219,6 +239,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...(process.env.LOCAL_STACK_IDENTITY_KEY_CAP === 'off'
       ? {}
       : { IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3' }),
+    // Keys per sub-account (J-developer-15 #2): an explicit LOCAL TEST value, not an owner limit. Blank refuses every
+    // sub-account key with identity.portfolio_key_cap_unset; `LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP=off` on a start or
+    // restart leaves it blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP === 'off' ? {} : { IDENTITY_PORTFOLIO_KEYS_MAX: '2' }),
+    // Developer roles in an organisation (J-developer-15 #4): an explicit LOCAL TEST role set, not the owner's. Blank is
+    // `roles not set`; `LOCAL_STACK_IDENTITY_DEVELOPER_ROLES=off` on a start or restart leaves it blank so that state can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_DEVELOPER_ROLES === 'off' ? {} : { IDENTITY_DEVELOPER_ROLES: 'keys_admin,keys_read' }),
     // LOCAL TEST named developer sandboxes (J-developer-02 #2, #3), labelled in the same profile, never an owner decision.
     // The code keeps no default: blank refuses a second sandbox with identity.sandbox_cap_unset, and
     // `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a start or restart leaves it blank so that refusal can be seen.

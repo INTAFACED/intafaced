@@ -1,5 +1,7 @@
 # ADR: Reconciliation proves a snapshot; an unfinished proof never freezes posting
 
+> **Holds at launch for INTAFACED's own book (OWNER 226).** It was written when the ledger also held customer balances; at launch it holds none, so this proof covers only INTAFACED's own records. What the proof compares with outside records is in 2026-11-10-launch-money-model.md. It stays as written.
+
 **Status:** Accepted, phase 1. **Date:** 2026-10-14; revised 2026-10-15; revised 2026-10-17 for D-128.
 
 **Area:** svc-ledger. **Issue:** #4755. **Policy:** `LEDGER-RECONCILE-NO-FREEZE-ON-INCOMPLETE`.

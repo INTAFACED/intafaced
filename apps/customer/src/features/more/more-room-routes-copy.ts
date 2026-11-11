@@ -2,10 +2,12 @@ import { defineCopy } from '../../shared/i18n';
 
 const en = {
   positions: 'Predict positions',
+  predictSettings: 'Predict settings',
   purchases: 'Market purchases',
   newLaunch: 'New launch',
   launchCheck: 'Launch check',
   launchRequirements: 'Launch requirements',
+  myLaunches: 'My Launch orders',
   governance: 'Token governance',
   economy: 'Token economy',
   burn: 'Token burn',

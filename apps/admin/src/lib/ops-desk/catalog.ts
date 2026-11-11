@@ -299,7 +299,7 @@ const bankSections: readonly DeskSection[] = [
       {
         id: 'bank.card-funding-reconciliation',
         title: 'Settlement reconciliation against the partner’s figures',
-        note: 'Per funding asset: this app’s open authorisation holds and settled captures, beside the partner’s own figure for the same. The difference is the partner’s minus the app’s. A figure the partner has not reported is "not known", never 0, and so is its difference. The conversion is one unit in the funding stablecoin from the rate source, and the app’s figure at that rate.',
+        note: 'Per funding asset: this app’s open authorisation holds and settled captures, beside the partner’s own figure for the same. The difference is the partner’s minus the app’s. A figure the partner has not reported is "not known", never 0, and so is its difference. An asset the partner reports that this app has no record of is "missing", a break, never 0. The conversion is one unit in the funding stablecoin from the rate source, and the app’s figure at that rate.',
         module: 'bank',
         plainName: 'card programme reconciliation',
         procedure: 'ops.cardProgrammeFunding',
@@ -312,8 +312,12 @@ const bankSections: readonly DeskSection[] = [
           amount('appCaptured', 'Captured (app)'),
           amount('appFigure', 'Held plus captured (app)'),
           amount('partnerFigure', 'Partner’s figure'),
+          text('partnerAsOf', 'Partner’s time'),
+          text('partnerState', 'Partner’s figure is', { words: { known: 'current', stale: 'stale', unknown: 'not known' } }),
           amount('difference', 'Difference'),
-          text('status', 'Reconciliation', { words: { matches: 'matches', break: 'break', not_known: 'not known' } }),
+          text('status', 'Reconciliation', {
+            words: { matches: 'matches', break: 'break', missing: 'break: missing in this app’s records', not_known: 'not known' },
+          }),
           amount('fundingRate', 'Rate in the funding stablecoin'),
           text('fundingRateAsOf', 'Rate time'),
           amount('appFigureInFunding', 'App figure in the funding stablecoin'),

@@ -30,6 +30,7 @@ async function mount(asked: { feeRevenue: unknown[]; other: number }) {
         return {
           asOf: new Date('2026-11-09T01:00:00.000Z'),
           rows: [{ ownerType: 'house', ownerId: 'market-maker', assetId: 'BTC', kind: 'available', purpose: '', balance: amt('0.25') }],
+          places: [{ ownerId: 'venue-builder-account:test-venue', assetId: 'USDC', balance: amt('-1.5') }],
         };
       },
     },
@@ -76,6 +77,7 @@ describe('ownFunds door (J-ops-console-24 #1)', () => {
     expect(res.json()).toEqual({
       asOf: '2026-11-09T01:00:00.000Z',
       accounts: [{ ownerType: 'house', ownerId: 'market-maker', assetId: 'BTC', kind: 'available', purpose: '', balance: '0.25' }],
+      places: [{ kind: 'venue_builder_account', placeId: 'test-venue', assetId: 'USDC', held: '1.5' }],
     });
     expect(asked.other).toBe(0);
     await m.app.close();
