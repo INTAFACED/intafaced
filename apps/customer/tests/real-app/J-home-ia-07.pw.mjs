@@ -143,9 +143,6 @@ test(`${J} #3 has the membership removed by an owner, then reloads: the app fall
 });
 
 test(`${J} #4 signs out from the menu: the session ends and the public home shows`, async ({ page }) => {
-  // PLANTED FAULT, for the test that main heals by code (project-state #2065, fix-01; blueprint file 11 item 7): it fails on
-  // main only, so main-bisect reverts this commit. The automatic revert removes this line.
-  if (process.env.GITHUB_REF === 'refs/heads/main') throw new Error('planted fault: J-home-ia-07 #4 fails on main until its revert merges');
   await signIn(page, person);
   const menu = await openMenu(page);
   await menu.getByRole('button', { name: 'Sign out' }).click();

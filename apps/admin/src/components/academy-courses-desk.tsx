@@ -324,6 +324,17 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
   const loaded = view?.detail.kind === 'ok' ? view.detail.data.course : null;
   const [fields, setFields] = useState<Fields>(fieldsOf(loaded));
   const [reason, setReason] = useState('');
+  const router = useRouter();
+  const [copy, setCopy] = useState({ slug: '', title: '', reason: '' });
+
+  /** AC-course-structure-03: a draft copy at its own address; on success the desk opens the copy. */
+  const duplicate = async () => {
+    setBusy(true);
+    const answer = await postCourseChange({ op: 'duplicate', courseId, ...copy });
+    setReply(answer);
+    setBusy(false);
+    if (answer.ok) router.push(`/academy-ops/catalogue/courses/${answer.course.id}`);
+  };
 
   /** `resetForm` only after a saved change: a refused edit keeps what the founder typed, so they can correct it. */
   const reload = useCallback(
@@ -445,6 +456,51 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               </div>
               <button type="submit" className="adm-btn" disabled={busy || detail.data.course.state !== 'draft'}>
                 Publish
+              </button>
+            </form>
+          </section>
+          <section className="dk-stack" aria-labelledby="h-course-duplicate">
+            <h2 id="h-course-duplicate">Duplicate</h2>
+            <p className="dk-muted">
+              A new draft at its own address with this course&apos;s details, topics, outline and newest lessons. Nothing about learners is
+              copied: enrolments, progress, attempts and hand-ins stay with this course.
+            </p>
+            <form
+              className="dk-stack"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void duplicate();
+              }}
+            >
+              <div className="adm-field">
+                <label htmlFor="course-copy-slug">Copy address</label>
+                <input
+                  id="course-copy-slug"
+                  value={copy.slug}
+                  maxLength={64}
+                  onChange={(e) => setCopy({ ...copy, slug: e.target.value })}
+                />
+              </div>
+              <div className="adm-field">
+                <label htmlFor="course-copy-title">Copy title</label>
+                <input
+                  id="course-copy-title"
+                  value={copy.title}
+                  maxLength={120}
+                  onChange={(e) => setCopy({ ...copy, title: e.target.value })}
+                />
+              </div>
+              <div className="adm-field">
+                <label htmlFor="course-copy-reason">Why copy it</label>
+                <input
+                  id="course-copy-reason"
+                  value={copy.reason}
+                  maxLength={500}
+                  onChange={(e) => setCopy({ ...copy, reason: e.target.value })}
+                />
+              </div>
+              <button type="submit" className="adm-btn" disabled={busy}>
+                Duplicate this course
               </button>
             </form>
           </section>

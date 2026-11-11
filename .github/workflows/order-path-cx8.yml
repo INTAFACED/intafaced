@@ -47,7 +47,8 @@ env:
 jobs:
   assembled:
     name: CX-8 assembled smoke
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
       postgres:

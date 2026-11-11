@@ -11,6 +11,7 @@ const ME = '0x1111111111111111111111111111111111111111';
 const SMART = '0x2222222222222222222222222222222222222222';
 const SIGNER = '0x00000000000000000000000000000000005e0019';
 const ROUTER = '0x8d28045bbe8a1aed986751257c5711524a7ec73f';
+const POOL = '0x00000000000000000000000000000000000c0019';
 const HASH = `0x${'c'.repeat(64)}`;
 const SPEC_HASH = `0x${'a'.repeat(64)}`;
 const GRANT_DATA = '0xabcdef0012';
@@ -67,7 +68,7 @@ HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
 };
 
 const { NavigatorOnChain, NAVIGATOR_DEFAULT_SELECTOR, keyStatus } = await import('./NavigatorOnChain');
-const { NavigatorApprovalRequestView } = await import('./NavigatorApprovals');
+const { NavigatorOrderView, NavigatorTradeRefusalView, NavigatorCapLine } = await import('./NavigatorOrders');
 
 const binding = (over: object = {}) => ({
   id: '99999999-9999-4999-8999-999999999999',
@@ -147,7 +148,7 @@ beforeEach(() => {
   wallet.chainId = 84532;
   wallet.guard = { ok: true };
   answers = {
-    'navigator.onchain.signer': { ok: true, data: { signer: SIGNER, chainId: 84532, network: 'testnet' } },
+    'navigator.onchain.signer': { ok: true, data: { signer: SIGNER, chainId: 84532, network: 'testnet', pools: [POOL], router: null } },
     'navigator.onchain.binding': { ok: true, data: { binding: null } },
     // As the service does: what is bound is what a later read returns.
     'navigator.onchain.bind': (input: {
@@ -297,6 +298,19 @@ describe('Prepare grant', () => {
     expect(status()).toBeNull();
   });
 
+  it('names the router the Navigator trades through, when its market is set, with its pools', async () => {
+    const market = '0x' + '0b'.repeat(20);
+    answers['navigator.onchain.signer'] = {
+      ok: true,
+      data: { signer: SIGNER, chainId: 84532, network: 'testnet', pools: [POOL], router: market },
+    };
+    await mount();
+    type(/^Spend cap/, '1');
+    type(/^Expires/, '1d');
+    await prepare();
+    expect(protocol.buildSessionGrant.mock.calls[0]![0].spec.targets).toEqual([market, POOL]);
+  });
+
   it('a valid test-network grant builds the call for the Navigator’s key, records it, and shows the unsigned call', async () => {
     await mount();
     type(/^Spend cap/, '1');
@@ -306,7 +320,8 @@ describe('Prepare grant', () => {
     const spec = protocol.buildSessionGrant.mock.calls[0]![0].spec;
     expect(spec).toMatchObject({
       key: SIGNER,
-      targets: [ROUTER],
+      // The router and the Navigator's pool, so the key can reach the pool it trades in.
+      targets: [ROUTER, POOL],
       selectors: [NAVIGATOR_DEFAULT_SELECTOR],
       spendLimitWei: '1000000000000000000',
     });
@@ -318,7 +333,7 @@ describe('Prepare grant', () => {
       specHash: SPEC_HASH,
       spendLimitWei: '1000000000000000000',
       validUntil: spec.validUntil,
-      targets: [ROUTER],
+      targets: [ROUTER, POOL],
       selectors: [NAVIGATOR_DEFAULT_SELECTOR],
     });
     expect(bind).not.toHaveProperty('sessionKey');
@@ -394,26 +409,62 @@ describe('the binding, read from the chain', () => {
   });
 });
 
-describe('Approval request', () => {
-  const request = {
+describe('The Navigator trading inside the cap you signed', () => {
+  const order = {
     id: '88888888-8888-4888-8888-888888888888',
     sessionId: '77777777-7777-4777-8777-777777777777',
-    requestKey: 'agents:approve:77777777-7777-4777-8777-777777777777:r-1',
-    tool: 'trade' as const,
-    text: 'TEST: swap 0.1 TEST Token A for TEST Token B on-chain',
-    status: 'waiting' as const,
+    orderKey: 'agents:navigator:order:77777777-7777-4777-8777-777777777777:r-1',
+    placedBy: 'assistant' as const,
+    text: 'TEST: swap 0.1 TEST Wrapped ETH for TEST Token B',
+    chainId: 84532,
+    account: SMART,
+    pool: '0x' + 'cc'.repeat(20),
+    tokenIn: '0x' + 'e7'.repeat(20),
+    tokenInSymbol: 'TESTWETH',
+    tokenOut: '0x' + 'b0'.repeat(20),
+    tokenOutSymbol: 'TESTB',
+    amountInWei: '100000000000000000',
+    minOutWei: '98000000000000000000',
+    status: 'filled' as const,
+    txHash: '0x' + '12'.repeat(32),
     createdAt: '2026-11-10T00:00:00.000Z',
-    expiresAt: '2026-11-10T01:00:00.000Z',
   };
-  it('shows the ask, waiting, its expiry and the ceiling sentence; the live-key line only with a live key', async () => {
-    await act(async () => root.render(<NavigatorApprovalRequestView request={request} ceiling={false} />));
-    const view = host.querySelector('section[aria-label="Approval request"]')!;
-    expect(view.textContent).toContain(request.text);
-    expect(view.textContent).toContain('Waiting for your approval');
-    expect(view.textContent).toContain('2026-11-10 01:00 UTC');
-    expect(view.textContent).toContain('A session key is a ceiling, not your consent.');
-    expect(view.textContent).not.toContain('holds a live session key');
-    await act(async () => root.render(<NavigatorApprovalRequestView request={request} ceiling />));
-    expect(host.textContent).toContain('Your Navigator holds a live session key on the test network; it still asks.');
+  const trading = {
+    key: {
+      chainId: 84532,
+      account: SMART,
+      capWei: '1000000000000000000',
+      spentWei: '100000000000000000',
+      leftWei: '900000000000000000',
+      validUntil: 2_000_000_000,
+    },
+  };
+  it('shows the order tagged by your assistant, its trade, its status and its hash, and asks nothing', async () => {
+    await act(async () => root.render(<NavigatorOrderView order={order} />));
+    const view = host.querySelector('section[aria-label="Order sent"]')!;
+    expect(view.querySelector('[data-placed-by="assistant"]')!.textContent).toBe('by your assistant');
+    expect(view.textContent).toContain('0.1 TESTWETH for at least 98 TESTB');
+    expect(view.textContent).toContain('Filled on the chain');
+    expect(view.textContent).toContain(order.txHash);
+    expect(view.textContent).not.toMatch(/approv/i);
+  });
+  it('names the cap you signed above the cap, as a refusal, and says nothing was signed', async () => {
+    const failure = { ok: false as const, code: 'FORBIDDEN', message: 'agents.navigator_trade_over_cap' };
+    await act(async () => root.render(<NavigatorTradeRefusalView failure={failure as never} trading={trading} />));
+    const alert = host.querySelector('[role="alert"]')!;
+    expect(alert.getAttribute('data-refusal-code')).toBe('agents.navigator_trade_over_cap');
+    expect(alert.textContent).toContain('above the cap you signed, 1 TEST ETH, of which 0.9 TEST ETH is left');
+    expect(host.textContent).toContain('Nothing was signed or sent');
+  });
+  it('refuses moving money out by name', async () => {
+    const failure = { ok: false as const, code: 'FORBIDDEN', message: 'agents.navigator_money_out_forbidden' };
+    await act(async () => root.render(<NavigatorTradeRefusalView failure={failure as never} trading={trading} />));
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain('never moves money out of your account');
+  });
+  it('shows the cap line from the chain, or that there is no live key', async () => {
+    await act(async () => root.render(<NavigatorCapLine trading={trading} />));
+    expect(host.textContent).toContain('The cap you signed: 1 TEST ETH. The Navigator’s trades hold 0.1; 0.9 TEST ETH is left.');
+    await act(async () => root.render(<NavigatorCapLine trading={{ key: null }} />));
+    expect(host.textContent).toContain('holds no live session key');
   });
 });

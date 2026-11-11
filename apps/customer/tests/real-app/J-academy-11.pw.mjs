@@ -87,6 +87,49 @@ async function openLesson(page) {
   await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
 }
 
+/** One change on a console desk from the founder's own page, with the session's CSRF nonce, as the desk's browser hop sends it. */
+async function consoleChange(page, url, body) {
+  const answer = await page.evaluate(
+    async ({ url, body }) => {
+      const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    },
+    { url, body },
+  );
+  if (answer.status !== 200 || !answer.body?.ok)
+    throw new Error(`${J}: ${url} ${body.op} answered ${answer.status} ${JSON.stringify(answer.body)}`);
+  return answer.body;
+}
+
+/** One course as svc-academy holds it, read through the console's course desk. */
+async function courseDetail(page, courseId) {
+  const res = await page.request.get(`/api/academy-courses?courseId=${courseId}`);
+  expect(res.status(), await res.text()).toBe(200);
+  const view = await res.json();
+  expect(view.detail.kind, JSON.stringify(view.detail)).toBe('ok');
+  return view.detail.data;
+}
+
+/** Rows svc-academy keeps about learners on one course: its enrolments, and every learner row on one of its items. */
+const learnerRowsOn = (courseId) =>
+  academyDb(async (sql) => {
+    const items = sql`SELECT id FROM academy.course_items WHERE course_id = ${courseId}`;
+    const [row] = await sql`
+      SELECT
+        (SELECT count(*)::int FROM academy.course_enrolments WHERE course_id = ${courseId}) AS enrolments,
+        (SELECT count(*)::int FROM academy.course_quiz_attempts WHERE item_id IN (${items})) AS quiz_attempts,
+        (SELECT count(*)::int FROM academy.course_survey_responses WHERE item_id IN (${items})) AS survey_responses,
+        (SELECT count(*)::int FROM academy.assignment_submissions WHERE item_id IN (${items})) AS hand_ins,
+        (SELECT count(*)::int FROM academy.course_item_extensions WHERE item_id IN (${items})) AS extensions
+    `;
+    return row;
+  });
+
 const SECTIONS = [
   { href: '/academy-ops/catalogue', heading: 'Academy: catalogue', read: 'academy.courses' },
   { href: '/academy-ops/certificates', heading: 'Academy: certificates', read: 'academy.cert-defs' },
@@ -265,6 +308,7 @@ test(`${J} #3 the outline holds ordered sections of typed items; with the sectio
 test(`${J} #4 a lesson's edits stay off learners until republished; revert makes a new revision; duplicate copies no learner record`, async ({
   browser,
 }) => {
+  test.setTimeout(240_000);
   if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to write in`);
   const page = await console_(browser);
   await page.goto(courseUrl);
@@ -332,6 +376,105 @@ test(`${J} #4 a lesson's edits stay off learners until republished; revert makes
   await expect(page.getByTestId('outline-item-0-1')).toContainText('revision 3, learners see 2');
   await expect(page.getByTestId('outline-item-0-2')).toContainText('revision 1, not published');
   await expect(page.getByTestId('course-history')).toContainText('a lesson published to learners');
+
+  // Duplicate copies no learner record, on a course that has a learner: a free course with one published lesson is
+  // published, a verified learner enrols on it, and the founder duplicates the whole course from its desk.
+  const source = { slug: `test-j11-src-${RUN}`, title: `TEST J-academy-11 source ${RUN}` };
+  const words = 'TEST Size from the stop, never from the target.';
+  const { course } = await consoleChange(page, '/api/academy-courses', {
+    op: 'create',
+    slug: source.slug,
+    title: source.title,
+    summary: '',
+    thumbnailUrl: '',
+    pricing: 'free',
+  });
+  await consoleChange(page, '/api/academy-courses', {
+    op: 'outline',
+    courseId: course.id,
+    revision: course.revision,
+    sections: [{ title: 'TEST Only part', items: [{ kind: 'lesson', title: 'TEST Sizing recap', indent: 0, url: null }] }],
+  });
+  const outlined = await courseDetail(page, course.id);
+  const sourceItem = outlined.outline[0].items[0];
+  await consoleChange(page, '/api/academy-lessons', {
+    op: 'save',
+    itemId: sourceItem.id,
+    revision: 0,
+    blocks: [{ type: 'text', markdown: words }],
+  });
+  const { lesson } = await consoleChange(page, '/api/academy-lessons', {
+    op: 'publish',
+    itemId: sourceItem.id,
+    lessonRevision: 1,
+    courseRevision: outlined.course.revision,
+    reason: 'TEST first cut',
+  });
+  await consoleChange(page, '/api/academy-courses', {
+    op: 'move',
+    courseId: course.id,
+    to: 'published',
+    revision: lesson.courseRevision,
+    reason: 'TEST open to learners',
+  });
+
+  const learner = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  const who = await signUp(learner, 'j11d');
+  await verify(learner, who);
+  await signIn(learner, who);
+  await learner.goto(`/academy/learning/course/${source.slug}`);
+  const block = learner.locator(`[data-academy-enrol="${source.slug}"]`);
+  await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
+  await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  const sourceRows = await learnerRowsOn(course.id);
+  expect(sourceRows.enrolments, 'the source has its learner before the duplicate').toBe(1);
+  const everyRecordBefore = await learnerRecords();
+
+  const sourceUrl = `/academy-ops/catalogue/courses/${course.id}`;
+  await page.goto(sourceUrl);
+  await expect(page.getByTestId('course-facts')).toContainText('Published');
+  const copySlug = `test-j11-copy-${RUN}`;
+  await page.getByLabel('Copy address', { exact: true }).fill(copySlug);
+  await page.getByLabel('Copy title', { exact: true }).fill(`TEST J-academy-11 copy ${RUN}`);
+  await page.getByLabel('Why copy it', { exact: true }).fill('TEST next cohort');
+  await page.getByRole('button', { name: 'Duplicate this course', exact: true }).click();
+  await page.waitForURL((url) => /\/academy-ops\/catalogue\/courses\/[0-9a-f-]{36}$/.test(url.pathname) && url.pathname !== sourceUrl);
+  const copyId = new URL(page.url()).pathname.split('/').pop();
+
+  // The copy: a draft at its own address, the same outline, its history naming the source and the reason.
+  await expect(page.getByRole('heading', { level: 1, name: `TEST J-academy-11 copy ${RUN}`, exact: true })).toBeVisible();
+  const copyFacts = page.getByTestId('course-facts');
+  await expect(copyFacts).toContainText('Draft');
+  await expect(copyFacts).toContainText(copySlug);
+  await expect(page.getByTestId('course-history').locator('li')).toHaveCount(1);
+  await expect(page.getByTestId('course-history')).toContainText(`created as a draft (revision 1)`);
+  await expect(page.getByTestId('course-history')).toContainText(`duplicated from ${source.slug}: TEST next cohort`);
+  const copy = await courseDetail(page, copyId);
+  expect(copy.outline.map((s) => [s.title, s.items.map((i) => [i.kind, i.title])])).toEqual([
+    ['TEST Only part', [['lesson', 'TEST Sizing recap']]],
+  ]);
+  expect(copy.outline[0].items[0].id).not.toBe(sourceItem.id);
+  await expect(page.getByTestId('outline-item-0-0')).toContainText('revision 1, not published');
+  // Its lesson holds the source's words as its own revision 1, and nothing is live on it.
+  await page.goto(page.url());
+  const write = await page.getByRole('link', { name: 'Write Section 1 item 1', exact: true }).getAttribute('href');
+  await page.goto(write);
+  await expect(page.getByTestId('lesson-revision-1')).toContainText('Revision 1: duplicated from another item');
+  await expect(page.getByTestId('lesson-revisions').locator('li')).toHaveCount(1);
+  await expect(page.getByLabel('Block 1 text', { exact: true })).toHaveValue(words);
+  await expect(liveRevision).toHaveText('Nothing: no revision is published');
+
+  // No learner record is copied: nothing about learners is on the copy, the source keeps its learner, and the duplicate
+  // wrote no learner, enrolment or progress row anywhere.
+  expect(await learnerRowsOn(copyId)).toEqual({ enrolments: 0, quiz_attempts: 0, survey_responses: 0, hand_ins: 0, extensions: 0 });
+  expect(await learnerRowsOn(course.id)).toEqual(sourceRows);
+  expect(await learnerRecords(), 'learner, enrolment and progress records after the duplicate').toEqual(everyRecordBefore);
+  // The learner is still enrolled on the source, and the draft copy is not open to anyone.
+  await learner.reload();
+  await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  await learner.goto(`/academy/learning/course/${copySlug}`);
+  await expect(learner.getByText('There is no published course at this address.')).toBeVisible();
+  await learner.context().close();
   await page.context().close();
 });
 

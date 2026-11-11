@@ -81,6 +81,7 @@ const messages = {
   C: 'C',
   Change: 'Change',
   'No trades in this period': 'No trades in this period.',
+  'No volume in this period': 'This market has no volume in the loaded bars.',
   'Couldn’t load the chart': 'Couldn’t load the chart.',
   'Couldn’t load this market': 'Couldn’t load this market.',
   'Try again': 'Try again',
@@ -191,10 +192,13 @@ const messages = {
   'Settings show time scale': 'Show the time scale',
   'Settings log scale': 'Logarithmic price scale',
   'Settings grid': 'Show grid lines',
-  'Settings trading text': 'The chart places no order. Order entry is on the trading desk, which refuses while the market is halted.',
+  'Settings order button': 'Show the order button on the price scale',
+  'Settings alert levels': 'Show my price alert levels on the chart',
+  'Settings trading text':
+    'Order entry on the chart opens a ticket you review before anything is placed. The trading desk refuses while the market is halted.',
   'Settings trading link': 'Open the trading desk for {symbol}',
   'Settings alerts text':
-    'Price alerts are set and read on the notifications page. Your alerts on this market show on the chart: drag one to move its price.',
+    'Price alerts are set and read on the notifications page. Your alerts on this market are listed under the chart, and their levels can show on it: drag one to move its price.',
   'Settings alerts link': 'Open price alerts',
   // Price-line overlays: a labelled line at one exact price, kept on this device for this market.
   'Price line': 'Price line',
