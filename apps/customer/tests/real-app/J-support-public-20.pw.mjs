@@ -3,7 +3,7 @@ import { test, expect } from './journey.mjs';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { asDesk, deskPeople } from './help-centre.mjs';
+import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
 import { awayBid, fundedTrader } from './desk.mjs';
 import { api, ORIGIN, ROOT, stackFile, tool } from './stack.mjs';
 
@@ -362,6 +362,15 @@ test(`${J} #3 the account state is read for the ticket's owner only, one append-
     const self = await (await api(who)).get(query('accountState', { ticketId: ticket.id }));
     expect(self.status, JSON.stringify(self.body).slice(0, 300)).not.toBe(200);
     expect(JSON.stringify(self.body)).not.toContain('"kycTier"');
+    // A desk agent who does not own the request is refused too. Once the desk has groups, an agent sees only what is
+    // assigned to them or in their groups (the stack marks no role as seeing every group), so the agent, founder B, is
+    // answered as if the request did not exist, and reads nothing.
+    await ensureDeskGroup(`TEST ${J} desk`);
+    const { agent } = await deskPeople();
+    expect(agent).not.toBe(leadId);
+    const other = await asDesk('agent', 'query', 'accountState', { ticketId: ticket.id });
+    expect(other.json?.result?.data, other.text.slice(0, 300)).toBeUndefined();
+    expect(other.text).toContain('support.not_found');
 
     // Exactly one row, from the one answered read: it names the lead as the operator who looked, and holds no balance.
     const after = await rows();
