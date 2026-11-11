@@ -384,6 +384,35 @@ jobs:
           REPO: ${{ github.repository }}
         run: node .base/tooling/ci/main-first.mjs --release
 
+  # On main, a journey step that passed in main's run before and fails outright in a shard of this run starts the
+  # journeys revert (main-bisect.yml) as that shard's job ends, not when the whole run ends: it reads each shard's own
+  # report as the shard finishes (tooling/ci/journeys-revert.mjs early). Main trust's start at the run's end still
+  # runs and starts only the steps this one did not. It runs no code of the run's commit beyond main's own tooling.
+  early-break:
+    name: Act on a shard's break as it ends
+    needs: [touch]
+    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 110 # waits on the shards (90 minutes each at most), reading each one once as it ends
+    permissions:
+      contents: read
+      actions: write # read this run's jobs and shard reports, and start main-bisect.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Start the journeys revert as each shard ends
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_ID: real-app-journeys.yml
+          RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node tooling/ci/journeys-revert.mjs early
+
   release-after-dispatch:
     name: Let deferred runs go after this full run
     needs: [touch, journeys]
@@ -750,8 +779,8 @@ jobs:
         if: success() || failure()
         run: node tooling/scripts/local-test-stack.mjs csp-report --fail
 
-      # The shard's blob (merged by the scoreboard job) and its failure screenshots; the run's TEST account files stay
-      # on the runner.
+      # The shard's blob (merged by the scoreboard job), its failure screenshots, and its own JSON report (which the
+      # early-break job reads as the shard ends); the run's TEST account files stay on the runner.
       - name: Keep the shard's report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -759,6 +788,7 @@ jobs:
           name: real-app-journeys-shard-${{ matrix.shard }}
           path: |
             ${{ runner.temp }}/journeys/blob
+            ${{ runner.temp }}/journeys/report.json
             /tmp/intafaced-real-app/results
           if-no-files-found: warn
           retention-days: 7
@@ -912,7 +942,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [touch, release, release-after-dispatch, build, journeys, scoreboard]
+    needs: [touch, release, early-break, release-after-dispatch, build, journeys, scoreboard]
     if: ${{ !cancelled() && github.ref != 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
