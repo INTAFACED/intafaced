@@ -11,7 +11,7 @@ import {
   subAccountAvailable,
   userAvailable,
 } from './accounts.js';
-import { isCustomerBalanceAccount, movesCustomerBalance, parseCustodyLayer } from './custody-layer.js';
+import { isCustomerBalanceAccount, movesCustomerBalance, parseCustodyLayer, resolveOwnOrderBook } from './custody-layer.js';
 import { recipes } from './recipes/index.js';
 import { parseAmount } from './money.js';
 
@@ -60,5 +60,21 @@ describe('parseCustodyLayer', () => {
   });
   it.each(['true', '1', 'of'])('throws on %j rather than guess', (v) => {
     expect(() => parseCustodyLayer(v)).toThrow(/LEDGER_CUSTODY_LAYER/);
+  });
+});
+
+describe('resolveOwnOrderBook (our own order book follows the custody switch, OWNER 288)', () => {
+  it('unset is on only with custody on', () => {
+    expect(resolveOwnOrderBook('X', undefined, 'off')).toEqual({ enabled: false });
+    expect(resolveOwnOrderBook('X', undefined, 'on')).toEqual({ enabled: true });
+  });
+  it('set on with custody off is a boot refusal naming the switch', () => {
+    const answer = resolveOwnOrderBook('MATCHING_ENGINE_ENABLED', true, 'off');
+    expect('refusal' in answer && answer.refusal).toMatch(/^MATCHING_ENGINE_ENABLED is on but LEDGER_CUSTODY_LAYER is off/);
+  });
+  it('set off is always allowed, set on is allowed with custody on', () => {
+    expect(resolveOwnOrderBook('X', false, 'off')).toEqual({ enabled: false });
+    expect(resolveOwnOrderBook('X', false, 'on')).toEqual({ enabled: false });
+    expect(resolveOwnOrderBook('X', true, 'on')).toEqual({ enabled: true });
   });
 });

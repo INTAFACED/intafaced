@@ -61,9 +61,13 @@ Account metadata (OPS-ledger-desk-01, J-ops-console-03 #6, #7; migration 0029) i
 
 Each door on the service port names the services that may call it (`src/door-callers.ts`), and the caller is the owner of the S2S v3 key that signed the request. A service not listed gets `403 ledger.caller_forbidden`; a door with no named caller (`portfolio`, `statementPnl`, `reportExport`, `custody`, `financeClose`, `resilience`) refuses everyone until one exists. Settings and the move off the shared secret: [`CALLER-BINDING.md`](CALLER-BINDING.md).
 
-### `feeRevenue` — fee revenue per asset, for one caller
+### `feeRevenue` — fee revenue per venue and asset, for one caller
 
-`POST /trpc/feeRevenue` takes a half-open ISO window (`from` inclusive, `to` exclusive) and answers, for each asset with a fee movement in it, the fees collected (debits to `fees:*` house accounts), the fees returned (credits out of them) and the signed net, as decimal strings. It reads sums over those accounts and nothing else: no user account, no insurance fund, no entries. An asset with no movement is absent, never a zero row. It is a READ with no path into `post()`.
+`POST /trpc/feeRevenue` takes a half-open ISO window (`from` inclusive, `to` exclusive) and answers, for each venue and asset with a fee movement in it, the fees earned (debits to `fees:*` house accounts), the fees returned (credits out of them), the signed net, and the fees collected, as decimal strings (project-state OWNER.md item 288; b2 change 3). Earned is not cash: a builder fee stays owed by the venue (`venue-builder-fee:<venue>`) until it pays. Collected counts Collect entries only (`builderFeeReceive`: what the venue paid to our builder account there by its own claim record), and is `"0"` for a venue that paid nothing yet. A fee's venue is the `venue-builder-fee:` leg of its transaction; a fee with none is ours (own book, payments), with `venueId` and `collected` null. It reads sums over those accounts and nothing else: no user account, no insurance fund, no entries. A row with no movement is absent, never a zero row. It is a READ with no path into `post()`.
+
+### `ownFunds` — our own funds, and every named place they sit
+
+`POST /trpc/ownFunds` answers every house and module account with a balance (customer money and the pots holding someone else's money left out; `src/ledger/own-funds.ts`), and every own-funds place the ledger has an account for: our builder account at a venue, a reserve at a partner, our treasury wallet (`isOwnFundsPlace` in ledger-client), each with what the book shows of ours there, zero included, in one snapshot. svc-ops sets each place beside the venue's or partner's own figure and that figure's time. A row that is not a place, or a place showing less than nothing of ours, refuses the read.
 
 The door names one caller, svc-ops (`src/door-callers.ts`), which uses it for the venue unit-economics report. Besides it, svc-ops is named on `restoreWatermark`, `reconciliationEvaluations`, `transactionsExist`, and `post` and `txByKey` for its staff holds; `fee-revenue-door.test.ts` proves every other door refuses it.
 
