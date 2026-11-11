@@ -26,6 +26,7 @@ import {
   type VenueIntent,
   type VenueBook,
   type VenueOrderPreview,
+  type VenueBestPrices,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -211,6 +212,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
     return this.read('/preview', { account, intent });
+  }
+
+  bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
+    return this.read('/best-prices', { symbol });
   }
 
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
