@@ -295,6 +295,8 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
 });
 
 test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots and the badge, an empty Unread tab`, async ({ page }) => {
+  // fix-01 plant 2 (project-state #2065): fails on main only, until the automatic revert of this commit merges.
+  if (process.env.GITHUB_REF === 'refs/heads/main') throw new Error('planted fault: J-home-ia-05 #3 fails on main until its revert merges');
   await signIn(page, who);
   await page.goto('/notifications');
   const pageRows = Math.min(total, PAGE_ITEMS);
