@@ -152,7 +152,7 @@ export function DepositTerms({ route, t }: { route: VenueDepositRoute; t: T }) {
 }
 
 /** The venue's list of the deposits it has seen for this wallet, newest first. */
-export function DepositsOnTheirWay({ deposits, route, t }: { deposits: readonly VenueDeposit[]; route: VenueDepositRoute; t: T }) {
+export function DepositsOnTheirWay({ deposits, t }: { deposits: readonly VenueDeposit[]; t: T }) {
   return (
     <section aria-label={t('onItsWay')}>
       <h3>{t('onItsWay')}</h3>
@@ -169,12 +169,12 @@ export function DepositsOnTheirWay({ deposits, route, t }: { deposits: readonly 
           </thead>
           <tbody>
             {deposits.map((deposit) => (
-              <tr key={deposit.depositRef} data-deposit-status={deposit.status}>
+              <tr key={deposit.depositRef} data-deposit-status={deposit.status} data-tx-hash={deposit.txHash.toLowerCase()}>
                 <td>{t('feeValue', { amount: plainDecimal(deposit.amount) })}</td>
                 <td>{depositStatusText(deposit, t)}</td>
                 <td>
-                  {route.explorerTxUrl ? (
-                    <a href={`${route.explorerTxUrl}${deposit.txHash}`} target="_blank" rel="noreferrer">
+                  {deposit.explorerUrl ? (
+                    <a href={deposit.explorerUrl} title={deposit.txHash}>
                       {t('viewOnExplorer')}
                     </a>
                   ) : (
@@ -853,7 +853,7 @@ export function VenueWalletRoom() {
                           : t('depositSent', { amount: depositNote.amount })}
                   </p>
                 ) : null}
-                {live && venueReady && route && deposits ? <DepositsOnTheirWay deposits={deposits} route={route} t={t} /> : null}
+                {live && venueReady && route && deposits ? <DepositsOnTheirWay deposits={deposits} t={t} /> : null}
                 {withdrawAsk ? (
                   <div data-venue-step-up>
                     <StepUpConfirm

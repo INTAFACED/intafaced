@@ -588,7 +588,6 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     minimum: '5',
     confirmations: 3,
     network: 'TEST chain',
-    explorerTxUrl: null,
   };
   let server: http.Server;
   let sim: TestVenueSimulator;
@@ -674,13 +673,12 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       address: ROUTE.address,
       asset: ROUTE.asset,
     };
-    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null, explorerTxUrl: null });
-    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ', explorerTxUrl: 'http://x.test/tx/' })).toEqual({
+    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null });
+    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ' })).toEqual({
       ...bare,
       minimum: null,
       confirmations: null,
       network: null,
-      explorerTxUrl: null,
     });
     expect(readDepositRoute(null)).toBeNull();
     expect(readDepositRoute({ ...ROUTE, address: 'nowhere' })).toBeNull();

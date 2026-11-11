@@ -198,7 +198,6 @@ describe('the venue deposit terms and list (J-dex-protocol-05 #1, #2)', () => {
     minimum: '5',
     confirmations: 3,
     network: 'TEST chain',
-    explorerTxUrl: null,
   });
   const row = (over: Partial<VenueDeposit>): VenueDeposit => ({
     depositRef: '84532:0x1:0',
@@ -210,6 +209,7 @@ describe('the venue deposit terms and list (J-dex-protocol-05 #1, #2)', () => {
     required: 3,
     reason: null,
     seenAt: '2026-11-11T12:00:00.000Z',
+    explorerUrl: null,
     ...over,
   });
 
@@ -232,20 +232,22 @@ describe('the venue deposit terms and list (J-dex-protocol-05 #1, #2)', () => {
   });
 
   it('a network with no explorer shows the hash alone; one with an explorer links the transaction', () => {
-    const plain = renderToStaticMarkup(<DepositsOnTheirWay deposits={[row({})]} route={route} t={t} />);
+    const plain = renderToStaticMarkup(<DepositsOnTheirWay deposits={[row({})]} t={t} />);
     expect(plain).toContain(`<code>0x${'a'.repeat(64)}</code>`);
     expect(plain).not.toContain('View on explorer');
-    const linked = renderToStaticMarkup(
-      <DepositsOnTheirWay deposits={[row({})]} route={{ ...route, explorerTxUrl: 'https://explorer.test/tx/' }} t={t} />,
-    );
-    expect(linked).toContain(`href="https://explorer.test/tx/0x${'a'.repeat(64)}"`);
+    const linked = renderToStaticMarkup(<DepositsOnTheirWay deposits={[row({ explorerUrl: `/chain/tx/0x${'a'.repeat(64)}` })]} t={t} />);
+    expect(linked).toContain(`href="/chain/tx/0x${'a'.repeat(64)}"`);
     expect(linked).toContain('View on explorer');
-    expect(renderToStaticMarkup(<DepositsOnTheirWay deposits={[]} route={route} t={t} />)).toContain('The venue has seen no deposit');
+    expect(renderToStaticMarkup(<DepositsOnTheirWay deposits={[]} t={t} />)).toContain('The venue has seen no deposit');
   });
 
   it('a deposit read with an amount that is not a decimal string is refused, never read as money', () => {
     const answer = { venueId: 'v', asOf: '2026-11-11T12:00:00.000Z', value: [row({})] };
     expect(venueDepositsSchema.safeParse(answer).success).toBe(true);
     expect(venueDepositsSchema.safeParse({ ...answer, value: [{ ...row({}), amount: 25 }] }).success).toBe(false);
+    // An explorer link that is not https or a path on this app (a script URL, another scheme) is refused.
+    for (const explorerUrl of ['javascript:alert(1)', 'http://x.test/tx/1', '//x.test/tx/1'])
+      expect(venueDepositsSchema.safeParse({ ...answer, value: [row({ explorerUrl })] }).success, explorerUrl).toBe(false);
+    expect(venueDepositsSchema.safeParse({ ...answer, value: [row({ explorerUrl: 'https://x.test/tx/1' })] }).success).toBe(true);
   });
 });

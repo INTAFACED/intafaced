@@ -76,11 +76,15 @@ export const TEST_VENUE_DEPOSIT_ASSET = 'USDC';
 const TEST_USD_DECIMALS = 6;
 /**
  * The TEST venue's published deposit terms (J-dex-protocol-05 #1 and #2), all TEST: a transfer under 5 TEST USDC is never
- * credited, and one is credited after 3 confirmations on the TEST chain. The TEST chain has no explorer, so a deposit
- * shows its hash alone. The stack's anvil mines a block per transaction only, so a journey that waits for confirmations
- * mines the blocks itself (`anvil_mine`, the TEST chain's own control).
+ * credited, and one is credited after 3 confirmations on the TEST chain. The stack's anvil mines a block per transaction
+ * only, so a journey that waits for confirmations mines the blocks itself (`evm_mine`, the TEST chain's own control).
  */
-export const TEST_VENUE_DEPOSIT_TERMS = { minimum: '5', confirmations: 3, network: 'TEST chain', explorerTxUrl: null };
+export const TEST_VENUE_DEPOSIT_TERMS = { minimum: '5', confirmations: 3, network: 'TEST chain' };
+/**
+ * The TEST chain's explorer is the app's own (/chain/tx/<hash>, which reads the stack's TEST chain), so the TEST venue links
+ * each deposit there. A journey switches it off (`/test/switches {depositExplorerTxUrl: null}`) for a network with none.
+ */
+export const TEST_VENUE_DEPOSIT_EXPLORER = '/chain/tx/';
 
 /**
  * The deposit route for this venue, or null when the TEST chain or its token is not given. Its chain is the stack's TEST
@@ -112,6 +116,7 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
   const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
   const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
+  if (deposit) started.sim.switches.depositExplorerTxUrl = TEST_VENUE_DEPOSIT_EXPLORER;
   if (deposit) await sim.startChainDeposits({ sim: started.sim, route: deposit, rpcUrl, log });
   log({ msg: 'test-venue.listening', label: 'TEST', url: started.url, chainId: started.sim.chainId, seeded: seeded.orders, deposit });
   return started;

@@ -164,7 +164,7 @@ describe('TEST venue deposits from the chain (J-wallet-09 #3)', () => {
 });
 
 describe("TEST venue deposits keep the venue's published terms (J-dex-protocol-05 #1, #2)", () => {
-  const TERMS: UserVenueDepositRoute = { ...ROUTE, minimum: '5', confirmations: 3, network: 'TEST chain', explorerTxUrl: null };
+  const TERMS: UserVenueDepositRoute = { ...ROUTE, minimum: '5', confirmations: 3, network: 'TEST chain' };
 
   it('is confirming until its block has the published confirmations, then credited once, and listed throughout', async () => {
     const w = world();
@@ -189,6 +189,7 @@ describe("TEST venue deposits keep the venue's published terms (J-dex-protocol-0
         required: 3,
         reason: null,
         seenAt,
+        explorerUrl: null,
       },
     ]);
     // Head 11: two of three, still not credited.
@@ -211,6 +212,7 @@ describe("TEST venue deposits keep the venue's published terms (J-dex-protocol-0
         required: 3,
         reason: null,
         seenAt,
+        explorerUrl: null,
       },
     ]);
   });
@@ -242,6 +244,23 @@ describe("TEST venue deposits keep the venue's published terms (J-dex-protocol-0
     const wire = body as { value: Array<Record<string, unknown>> };
     expect(wire.value).toHaveLength(1);
     expect(wire.value[0]).toMatchObject({ amount: '6', status: 'confirming', confirmations: 1, required: 3, txHash: hash(10) });
+  });
+
+  it('links each deposit to the explorer the venue names, or gives none for a network without one', async () => {
+    const w = world();
+    creditDepositLogs(w.sim, TERMS, [w.deposit(6_000_000n, 13, { blockNumber: 3n })], 3n);
+    expect((await w.sim.deposits(w.account)).value[0]!.explorerUrl).toBeNull();
+    const [ok] = await answerTestVenue(w.sim, 'POST', '/test/switches', JSON.stringify({ depositExplorerTxUrl: '/chain/tx/' }), TERMS);
+    expect(ok).toBe(200);
+    expect((await w.sim.deposits(w.account)).value[0]!.explorerUrl).toBe(`/chain/tx/${hash(13)}`);
+    // Only https or a path on the app: a script URL or another scheme is refused, and the link stays as it was.
+    for (const bad of ['javascript:alert(1)', 'http://x.test/tx/', '//x.test/tx/']) {
+      const [status] = await answerTestVenue(w.sim, 'POST', '/test/switches', JSON.stringify({ depositExplorerTxUrl: bad }), TERMS);
+      expect(status, bad).toBeGreaterThanOrEqual(400);
+    }
+    expect(w.sim.switches.depositExplorerTxUrl).toBe('/chain/tx/');
+    await answerTestVenue(w.sim, 'POST', '/test/switches', JSON.stringify({ depositExplorerTxUrl: null }), TERMS);
+    expect((await w.sim.deposits(w.account)).value[0]!.explorerUrl).toBeNull();
   });
 
   it('a route with no published terms credits at once, as before', async () => {

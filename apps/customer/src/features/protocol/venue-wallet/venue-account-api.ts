@@ -23,7 +23,6 @@ export const venueDepositRouteSchema = z.object({
   minimum: decimal.nullable().optional(),
   confirmations: z.number().int().positive().nullable().optional(),
   network: z.string().min(1).nullable().optional(),
-  explorerTxUrl: z.string().url().nullable().optional(),
 });
 export type VenueDepositRoute = z.infer<typeof venueDepositRouteSchema>;
 
@@ -76,6 +75,11 @@ export const venueDepositSchema = z.object({
   required: z.number().int().positive(),
   reason: z.enum(['below_minimum']).nullable(),
   seenAt: z.string(),
+  // The venue's link to the transfer on its network's explorer: https, or a path on this app; null when it has none.
+  explorerUrl: z
+    .string()
+    .regex(/^(https:\/\/|\/(?!\/))/)
+    .nullable(),
 });
 export type VenueDeposit = z.infer<typeof venueDepositSchema>;
 export const venueDepositsSchema = z.object({ venueId: z.string(), asOf: z.string(), value: z.array(venueDepositSchema) });

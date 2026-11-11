@@ -1,4 +1,5 @@
 // World: restart
+import fs from 'node:fs';
 import path from 'node:path';
 import { encodeFunctionData, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -16,8 +17,9 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // stack's TEST chain. They run on the TEST venue simulator behind svc-trade's user-venue door: the start step restarts
 // trade with `LOCAL_STACK_USER_VENUE=on` (which starts the TEST venue, tooling/scripts/local-test-venue.mjs) and #3 puts
 // it back off. The TEST venue publishes its deposit terms (TEST_VENUE_DEPOSIT_TERMS there): deposits under 5 TEST USDC
-// are not credited, a deposit is credited after 3 confirmations, and its TEST chain has no explorer, so a deposit shows
-// its hash alone. The stack's anvil mines a block per transaction only, so #2 mines the blocks that confirm a deposit
+// are not credited, and a deposit is credited after 3 confirmations. It links each deposit to the TEST chain's explorer,
+// the app's own /chain/tx/<hash> (TEST_VENUE_DEPOSIT_EXPLORER); #2 switches that link off on the TEST venue for a network
+// with no explorer, where the row shows the hash alone, and puts it back. The stack's anvil mines a block per transaction only, so #2 mines the blocks that confirm a deposit
 // (`evm_mine`, the TEST chain's own control). A withdrawal needs a fresh second factor (`trade.step_up.venue.withdraw`),
 // so #3 adds an authenticator app first. Money: the user's wallet signs each venue deposit and withdrawal; the
 // ledger posts nothing, read before and after.
@@ -27,8 +29,11 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 //   review sheet (RC-dex-protocol-04);
 // - /dex/venue has no deposit or withdraw of base, and there is no asset link review or contract-read docs
 //   (D-bridge-chain-04);
-// - #1's "no banned partner wording" clause is the shipped copy's, which `pnpm scan:brand` checks on every PR; the test
-//   does not spell the names out, since the scan refuses them anywhere under apps/;
+// - #1's "no banned partner wording" clause reads the names from the brand scan's own list (tooling/ci/brand-scan.mjs
+//   FORBIDDEN) and checks the room's text against each; the test does not spell them out, since the scan refuses them
+//   anywhere under apps/;
+// - #1's later clause (OWNER 226) is the exchange Deposit page with custody absent: its address panel says deposit
+//   addresses are not available because crypto custody isn't connected;
 // - #7's crash clause (the process stopping after the intent is stored) cannot be caused from the browser; the step
 //   checks the browser half: the same single row comes back after the browser closes.
 const J = 'J-dex-protocol-05';
@@ -41,6 +46,10 @@ const TEST_USD = '0x000000000000000000000000000000000000d011';
 /** The TEST venue's published deposit terms (tooling/scripts/local-test-venue.mjs TEST_VENUE_DEPOSIT_TERMS). */
 const MINIMUM = '5';
 const CONFIRMATIONS = 3;
+/** The TEST venue's own TEST controls (packages/venue-sim src/http-server.ts), on the stack's loopback port. */
+const TEST_VENUE = 'http://127.0.0.1:14560';
+/** The TEST chain's explorer, as the TEST venue links a deposit (tooling/scripts/local-test-venue.mjs). */
+const EXPLORER = '/chain/tx/';
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
 test.describe.configure({ mode: 'default' });
@@ -176,8 +185,31 @@ async function connectedNow(page) {
 
 /** The venue's list of the deposits it has seen for this wallet, as the room shows it. */
 const onItsWay = (page) => page.getByRole('region', { name: 'On its way' }).getByRole('table');
-/** The row of one transfer, by its hash (the TEST chain has no explorer, so the row shows the hash itself). */
-const rowOf = (page, hash) => onItsWay(page).getByRole('row').filter({ hasText: hash.toLowerCase() });
+/** The row of one transfer, by its hash (the row's own record of it, whether it shows an explorer link or the hash). */
+const rowOf = (page, hash) => onItsWay(page).locator(`tr[data-tx-hash="${hash.toLowerCase()}"]`);
+
+/**
+ * The brand scan's forbidden names, read from its own list (tooling/ci/brand-scan.mjs FORBIDDEN), never spelled out here:
+ * the scan refuses them anywhere under apps/. A list that reads short fails, so the check can't pass by reading nothing.
+ */
+function bannedNames() {
+  const src = fs.readFileSync(path.join(ROOT, 'tooling/ci/brand-scan.mjs'), 'utf8');
+  const start = src.indexOf('const FORBIDDEN = [');
+  const block = src.slice(start, src.indexOf('\n];', start));
+  const names = [...block.matchAll(/pattern: \/((?:\\.|[^/\\\n])+)\/([a-z]*),/g)].map(([, source, flags]) => new RegExp(source, flags));
+  expect(names.length, 'the brand scan lists its forbidden names').toBeGreaterThan(5);
+  return names;
+}
+
+/** The TEST venue's explorer link for deposits: the TEST chain's explorer, or none (a network with no explorer). */
+async function depositExplorer(url) {
+  const res = await fetch(`${TEST_VENUE}/test/switches`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ depositExplorerTxUrl: url }),
+  });
+  expect(res.status).toBe(200);
+}
 
 /** Fills the amount, presses Deposit, and the TEST wallet sends the person's own transfer. Returns its hash. */
 async function depositFromWallet(page, wallet, amount) {
@@ -243,11 +275,24 @@ test(`${J} #1 opens the venue's deposit for a chain: minimums and arrival terms 
   expect(send.params[0].data.toLowerCase()).toContain(door.deposit.address.slice(2));
   // Nothing else signed it: the only send is the wallet's own, and INTAFACED asked nothing more of the wallet.
   expect(wallet.sends).toHaveLength(1);
-  // The venue has seen it on chain: the row of this transfer, confirming.
-  await expect(rowOf(page, hash)).toContainText(new RegExp(`Confirming \\d of ${CONFIRMATIONS}|Credited by the venue`), {
-    timeout: 30_000,
-  });
+  // The venue has seen it on chain, in the one block that mined it: confirming, one of the published three.
+  await expect(rowOf(page, hash)).toContainText(`Confirming 1 of ${CONFIRMATIONS}`, { timeout: 30_000 });
   account.run.write({ firstDeposit: hash });
+
+  // No banned partner wording anywhere in the room: none of the brand scan's forbidden names is on the page.
+  const words = await page.locator('main').innerText();
+  for (const name of bannedNames()) expect(words, 'the room names nothing the brand scan forbids').not.toMatch(name);
+
+  // Later (OWNER 226): on the exchange Deposit page, while crypto custody is absent, the address panel says so and shows
+  // no address.
+  await page.goto('/uc/recharge');
+  await expect(page.getByText('Deposit addresses are not available', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      'Crypto custody isn’t connected, so no deposit address is issued. Please do not send anything to an address from elsewhere.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
 });
 
 test(`${J} #2 watches a TEST deposit arrive: "Confirming 1 of N" with an explorer link, or the hash alone when the network has no explorer, then credited by the venue; below the venue's minimum the row says it is not credited`, async ({
@@ -271,13 +316,13 @@ test(`${J} #2 watches a TEST deposit arrive: "Confirming 1 of N" with an explore
   const before = await venueFree(who, owner);
   await expect(figure).toHaveText(`${before} TEST USDC`, { timeout: 30_000 });
 
-  // A deposit of 10: mined in one block, so the venue's row reads "Confirming 1 of 3", with the hash alone (the TEST
-  // chain has no explorer, so no explorer link).
+  // A deposit of 10: mined in one block, so the venue's row reads "Confirming 1 of 3", with the link the venue gives it
+  // on the TEST chain's explorer.
   const { hash } = await depositFromWallet(page, wallet, '10');
   const row = rowOf(page, hash);
   await expect(row).toContainText(`Confirming 1 of ${CONFIRMATIONS}`, { timeout: 30_000 });
-  await expect(row.getByText(/^0x[0-9a-f]{64}$/)).toHaveText(hash.toLowerCase());
-  await expect(row.getByRole('link', { name: /^View on explorer/ })).toHaveCount(0);
+  const link = row.getByRole('link', { name: 'View on explorer' });
+  await expect(link).toHaveAttribute('href', `${EXPLORER}${hash.toLowerCase()}`);
   // Not credited while it confirms: the venue's figure has not moved.
   await expect(figure).toHaveText(`${before} TEST USDC`);
   // The next block: two of three, still not credited.
@@ -289,6 +334,15 @@ test(`${J} #2 watches a TEST deposit arrive: "Confirming 1 of N" with an explore
   await expect(row).toContainText('Credited by the venue', { timeout: 30_000 });
   await expect(page.getByTestId('venue-deposit')).toHaveText('The venue credited 10 TEST USDC.', { timeout: 30_000 });
   await expect(figure).toHaveText(`${before + 10n} TEST USDC`, { timeout: 30_000 });
+  // The link opens the transfer on the explorer: this hash, a success on the TEST chain.
+  const explorer = await page.context().newPage();
+  try {
+    await explorer.goto(await link.getAttribute('href'));
+    await expect(explorer.getByRole('main').getByText(hash.toLowerCase(), { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+    await expect(explorer.getByRole('main').getByTestId('tx-status')).toHaveText('Success', { timeout: 60_000 });
+  } finally {
+    await explorer.close();
+  }
 
   // Below the venue's minimum: 1 TEST USDC leaves the wallet on chain, and the venue's row says it is not credited,
   // however many confirmations it gets; the venue's figure does not move.
@@ -301,10 +355,23 @@ test(`${J} #2 watches a TEST deposit arrive: "Confirming 1 of N" with an explore
     { timeout: 30_000 },
   );
   for (let i = 0; i < CONFIRMATIONS; i += 1) await chainRpc('evm_mine');
-  await page.reload();
-  await walletBack(page);
-  await connectedNow(page);
-  await expect(rowOf(page, small.hash)).toContainText('Below the minimum: not credited');
+
+  // On a network with no explorer (the TEST venue's link switched off), each row shows its hash alone, with no link.
+  try {
+    await depositExplorer(null);
+    await page.reload();
+    await walletBack(page);
+    await connectedNow(page);
+    for (const h of [hash, small.hash]) {
+      const plain = rowOf(page, h);
+      await expect(plain.getByText(/^0x[0-9a-f]{64}$/)).toHaveText(h.toLowerCase());
+      await expect(plain.getByRole('link')).toHaveCount(0);
+    }
+    await expect(rowOf(page, hash)).toContainText('Credited by the venue');
+    await expect(rowOf(page, small.hash)).toContainText('Below the minimum: not credited');
+  } finally {
+    await depositExplorer(EXPLORER);
+  }
   await expect(figure).toHaveText(`${before + 10n} TEST USDC`);
   expect(onChainBefore - (await chainUsd(address))).toBe(1_000_000n);
   // The venue's own record, read through the door, is the same figure.

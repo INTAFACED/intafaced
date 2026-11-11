@@ -40,7 +40,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -467,12 +467,19 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (typeof body.builderTotalsUnknown === 'boolean') sim.switches.builderTotalsUnknown = body.builderTotalsUnknown;
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
+      if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
+        const url = body.depositExplorerTxUrl;
+        if (url !== null && !/^(https:\/\/|\/(?!\/))/.test(url))
+          throw new VenueWireError('depositExplorerTxUrl must be https:// or a path');
+        sim.switches.depositExplorerTxUrl = url;
+      }
       return {
         venueDown: sim.switches.venueDown,
         unlistPerpetuals: sim.switches.unlistPerpetuals,
         builderTotalsUnknown: sim.switches.builderTotalsUnknown,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
+        depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
         label: 'TEST',
       };
     }

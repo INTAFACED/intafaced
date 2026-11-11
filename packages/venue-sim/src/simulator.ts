@@ -161,6 +161,11 @@ export interface SimSwitches {
   unpublishedWithdrawalFee: Amount;
   /** The network fee a withdrawal reports, taken from what arrives at its destination. */
   networkFee: MaybeKnown<Amount>;
+  /**
+   * The explorer link the venue gives each chain deposit, a transaction hash appended (J-dex-protocol-05 #2); `null` for a
+   * network with no explorer, when a deposit shows its hash alone.
+   */
+  depositExplorerTxUrl: string | null;
   /** The network fee actually taken when `networkFee` is not published (never 0 by default, as `unpublishedWithdrawalFee`). */
   unpublishedNetworkFee: Amount;
   /** The trading fees actually charged, and reported on fills, on a market whose fee is not published. */
@@ -283,6 +288,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
       networkFee: { known: true, value: parseAmount('0.25') },
+      depositExplorerTxUrl: null,
       unpublishedNetworkFee: parseAmount('0.5'),
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
@@ -378,7 +384,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    */
   trackChainDeposit(
     account: UserVenueAccount,
-    seen: Omit<UserVenueDeposit, 'seenAt' | 'status'> & { readonly status: UserVenueDeposit['status'] },
+    seen: Omit<UserVenueDeposit, 'seenAt' | 'status' | 'explorerUrl'> & { readonly status: UserVenueDeposit['status'] },
   ): void {
     const state = this.account(account);
     const before = this.chainDeposits.get(seen.depositRef);
@@ -391,6 +397,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         status,
         confirmations: Math.max(seen.confirmations, before?.record.confirmations ?? 0),
         seenAt: before?.record.seenAt ?? this.clock(),
+        explorerUrl: null,
       },
     });
   }
@@ -399,7 +406,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   async deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {
     this.up();
     const key = this.account(account).key;
-    const mine = [...this.chainDeposits.values()].filter((d) => d.accountKey === key).map((d) => d.record);
+    // The explorer link as the venue gives it now: its network's explorer, or none.
+    const explorer = this.switches.depositExplorerTxUrl;
+    const mine = [...this.chainDeposits.values()]
+      .filter((d) => d.accountKey === key)
+      .map((d) => ({ ...d.record, explorerUrl: explorer ? `${explorer}${d.record.txHash}` : null }));
     return this.asOf(mine.reverse());
   }
 
