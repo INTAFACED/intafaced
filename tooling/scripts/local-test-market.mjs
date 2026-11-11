@@ -58,6 +58,7 @@ import {
   readKernelStart,
   readProcessIdentity,
   readLatestEmailConfirmToken,
+  stackCustodyOff,
 } from './local-test-state.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
@@ -1758,6 +1759,13 @@ async function startBackground(p, args, { wait }) {
   if (!runningPid(p)) console.log('(it exited; the lines above say why)');
 }
 
+/** The commands that quote, trade, fund or write tape history: custody-on only. */
+export const CUSTODY_ON_ONLY = new Set(['start', '__run', 'ensure', 'check', 'history']);
+export const CUSTODY_OFF_MARKET =
+  "this stack runs LEDGER_CUSTODY_LAYER off, as the launch build will, and INTAFACED's own order book (all this tool " +
+  'quotes, trades and charts) is off with custody off; its funding would be customer money in our ledger. Nothing was ' +
+  'funded, placed or written. Start the stack with LOCAL_STACK_CUSTODY_LAYER=on for the journeys marked Later: custody.';
+
 async function main() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
   // `move` takes two positionals (symbol, percent) before any option; `hold` and `release` take one (symbol).
@@ -1771,6 +1779,16 @@ async function main() {
     throw err;
   }
   const p = guard.paths;
+  // Custody off (OWNER 226, OWNER 288): the TEST market maker serves only INTAFACED's own order book, which is off with
+  // custody off (project-state research/fable-money-2026-11-10/changes/b2-reconcile-and-freeze.md, change 5: its fills
+  // settle through a customer-balance post the ledger refuses), and it is funded by deposits to its two accounts in our
+  // ledger. So on such a stack nothing that quotes, trades, funds or writes its history runs; each says so and exits 0,
+  // so the stack's setup goes on. Launch journeys trade at the TEST venue instead.
+  if (CUSTODY_ON_ONLY.has(cmd) && stackCustodyOff(p.stateDir)) {
+    const said = `${cmd === 'history' ? 'no TEST chart history written' : 'TEST market maker not started'}: ${CUSTODY_OFF_MARKET}`;
+    if (cmd !== '__run') console.log(said);
+    return;
+  }
   if (cmd === '__run') {
     ECHO = false;
     let code = 1;

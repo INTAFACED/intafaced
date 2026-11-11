@@ -50,9 +50,9 @@ export const DISPATCH_MARK = 'A hand-dispatched full run';
 export const TOUCH_JOB = 'What this run runs';
 /** A job GitHub has created but not yet given a runner. */
 const WAITING = new Set(['queued', 'waiting', 'pending', 'requested']);
-/** real-app-journeys.yml's planner job: until it finishes, a main run has not queued its shards (workflow-concurrency.test.mjs
- *  holds the name). */
-export const PLAN_JOB = 'Plan the shards';
+/** real-app-journeys.yml's planner: the touch job plans the shards too, so until it finishes a main run has not queued its
+ *  shards (workflow-concurrency.test.mjs holds the name). */
+export const PLAN_JOB = TOUCH_JOB;
 
 /**
  * Why a main run is still waiting for runners, or null when none is. `runs` are WORKFLOW's runs on main not completed;
@@ -160,22 +160,22 @@ async function selfTest() {
   const jobs = {
     1: [{ name: 'What this run runs', status: 'queued' }],
     2: [
-      { name: 'What this run runs', status: 'completed', conclusion: 'success' },
-      { name: 'Plan the shards', status: 'in_progress' },
+      { name: 'What this run runs', status: 'in_progress' },
+      { name: 'Build the stack once', status: 'completed', conclusion: 'skipped' },
     ],
     3: [
-      { name: 'Plan the shards', status: 'completed', conclusion: 'success' },
+      { name: 'What this run runs', status: 'completed', conclusion: 'success' },
       { name: 'Journeys (shard 1 of 2)', status: 'in_progress' },
       { name: 'Journeys (shard 2 of 2)', status: 'queued' },
     ],
     4: [
-      { name: 'Plan the shards', status: 'completed', conclusion: 'success' },
+      { name: 'What this run runs', status: 'completed', conclusion: 'success' },
       { name: 'Journeys (shard 1 of 2)', status: 'in_progress' },
       { name: 'Journeys (shard 2 of 2)', status: 'in_progress' },
     ],
-    5: [{ name: 'Plan the shards', status: 'completed', conclusion: 'failure' }],
+    5: [{ name: 'What this run runs', status: 'completed', conclusion: 'failure' }],
     6: [{ name: 'What this run runs', status: 'in_progress' }],
-    7: [{ name: 'Plan the shards', status: 'completed', conclusion: 'success' }], // shards skipped after the plan
+    7: [{ name: 'What this run runs', status: 'completed', conclusion: 'success' }], // shards skipped after the plan
   };
   const jobsOf = async (id) => jobs[id];
   const run = (id, status, over = {}) => ({ id, status, head_branch: 'main', event: 'push', ...over });
