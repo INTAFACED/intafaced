@@ -1,9 +1,9 @@
-// World: restart, stack
+// World: book, restart, stack
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { awayBid, fundedTrader, signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
 import { api, restartWith, ROOT, tool } from './stack.mjs';
 
@@ -33,9 +33,9 @@ test.beforeAll(async ({ browser }) => {
 });
 
 /** The customer sends one request through its own support API; returns the stored ticket. */
-async function request(subject, category = 'account') {
+async function request(subject, category = 'account', who = customer) {
   const res = await (
-    await api(customer)
+    await api(who)
   ).post('/api/support/trpc/create', {
     category,
     subject,
@@ -329,7 +329,36 @@ test(`${J} #4 claiming the next request opens its workspace at its own address; 
 
 test(`${J} #5 the customer card shows the account state, never "active" when identity can't be read, and the related order or "none"`, async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(240_000);
+  // A request the desk has linked to the customer's own order shows that order, read from the link svc-trade vouched for.
+  const shopperPage = await browser.newPage();
+  const shopper = await fundedTrader(shopperPage, 'sq10o', '20');
+  await shopperPage.close();
+  const trader = await api(shopper);
+  const placed = await trader.post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'limit',
+    side: 'buy',
+    price: await awayBid(90),
+    amount: '0.0002',
+    clientOrderId: `${J}-${RUN}-card`,
+  });
+  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
+  const orderId = placed.body.id;
+  try {
+    const linkedTicket = await request(`TEST card order ${RUN}`, 'account', shopper);
+    await desk('lead', 'mutation', 'linkRecord', { ticketId: linkedTicket.id, kind: 'order', recordId: orderId });
+    const linkedWorkspace = await openRequest(page, await openQueue(page), linkedTicket);
+    await expect(linkedWorkspace.getByRole('region', { name: 'Customer', exact: true }).getByTestId('customer-related-order')).toHaveText(
+      orderId,
+    );
+  } finally {
+    const cancelled = await trader.delete(`/api/v1/orders/${orderId}?symbol=${encodeURIComponent('BTC/USDT')}`);
+    expect(cancelled.status, JSON.stringify(cancelled.body).slice(0, 300)).toBeLessThan(300);
+  }
+
   const ticket = await request(`TEST card ${RUN}`);
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
@@ -344,7 +373,6 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
   await expect(card.getByTestId('customer-related-order')).toHaveText('none');
 
   // With identity unreachable the card says "unread", never "active".
-  test.setTimeout(240_000);
   try {
     const dark = await accountStateAsIdentityStops(ticket.id);
     expect(dark).toEqual({ status: 'unread', reason: 'plane_dark' });
