@@ -71,15 +71,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import {
-  JOURNEYS_ARTIFACT,
-  fetchInputs,
-  isMainRun,
-  judge,
-  manifestsAt,
-  readReport,
-  rootInputs,
-} from './journey-verdict.mjs';
+import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';

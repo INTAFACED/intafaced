@@ -4,15 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseStepWords } from './test-judge.mjs';
-import {
-  READ_SCHEMA,
-  buildReads,
-  cmdRead,
-  countSample,
-  readStatus,
-  secondReason,
-  writeReads,
-} from './step-read.mjs';
+import { READ_SCHEMA, buildReads, cmdRead, countSample, readStatus, secondReason, writeReads } from './step-read.mjs';
 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
@@ -151,9 +143,21 @@ test('OWNER 296: a second, blind call follows the 15% sample alone; a money step
     for (let n = 1; ; n++) if (countSample(step, `run:${n}`) === want) return n;
   };
   const dir = tmp();
-  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-wallet-01 #1', loadWords: words, runId: seedFor('J-wallet-01 #1', true) });
+  await writeReads(dir, {
+    src: fakeSrc(DOCS),
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    title: 'svc: J-wallet-01 #1',
+    loadWords: words,
+    runId: seedFor('J-wallet-01 #1', true),
+  });
   assert.equal(secondReason('J-wallet-01 #1', { seed: `run:${seedFor('J-wallet-01 #1', true)}` }), '15% sample');
-  assert.equal(secondReason('J-wallet-01 #1', { seed: `run:${seedFor('J-wallet-01 #1', false)}` }), null, 'planted: a money step outside the sample');
+  assert.equal(
+    secondReason('J-wallet-01 #1', { seed: `run:${seedFor('J-wallet-01 #1', false)}` }),
+    null,
+    'planted: a money step outside the sample',
+  );
   const second = readFileSync(join(dir, 'second', 'prompt.txt'), 'utf8');
   assert.match(second, /ANSWER FOR\nJ-wallet-01 #1\n/);
   assert.doesNotMatch(second, /FAITHFUL"|WEAK"/, 'the second prompt carries no first answer');
