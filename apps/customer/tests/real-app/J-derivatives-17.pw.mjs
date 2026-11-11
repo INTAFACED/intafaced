@@ -314,9 +314,18 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   expect(dec(ownCells[2])).toBe(dec(fromUnits(own.get(asset).earned)));
   expect(ownCells[5]).toBe('Matched');
 
+  // Green only when at least one fill was compared: a period with no fills reads "nothing to compare", never matched.
+  const empty = await openRecon(page, new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-02T00:00:00.000Z'));
+  await expect(empty).toHaveAttribute('data-state', 'nothing-to-compare');
+  await expect(empty.getByTestId('builder-fee-verdict')).toContainText('Nothing to compare');
+  await expect(empty.getByTestId('builder-fee-compared')).toHaveAttribute('data-compared', '0');
+  const none = (await recon(new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-02T00:00:00.000Z'))).venues[0];
+  expect(none).toMatchObject({ verdict: 'nothing_to_compare', matched: false, compared: 0 });
+
   // Green only when they match: with the poster stopped, one more fill's fee is in the venue's earned total and not yet
-  // in the ledger's, and the same row reads a break with the venue's figure above the ledger's. (#2 starts with the
-  // poster stopped too; it puts it back.)
+  // in the ledger's, and the same row reads a break with the venue's figure above the ledger's. Last in this step: the
+  // venue's totals are all-time, so the break shows in every period until #2 (which starts with the poster stopped too)
+  // puts the poster back.
   tradeWith({ venue: true, poster: false });
   const unposted = new Date(Date.now() - 1000);
   await sell();
@@ -335,14 +344,6 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   expect(dec(brokenCells[1])).toBe(dec(fromUnits(ledgerAfter)));
   expect(dec(brokenCells[2])).toBe(dec(fromUnits(ownAfter.get(asset).earned)));
   expect(brokenCells[5]).toBe("Break: the ledger's earned total and the venue's differ");
-
-  // Green only when at least one fill was compared: a period with no fills reads "nothing to compare", never matched.
-  const empty = await openRecon(page, new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-02T00:00:00.000Z'));
-  await expect(empty).toHaveAttribute('data-state', 'nothing-to-compare');
-  await expect(empty.getByTestId('builder-fee-verdict')).toContainText('Nothing to compare');
-  await expect(empty.getByTestId('builder-fee-compared')).toHaveAttribute('data-compared', '0');
-  const none = (await recon(new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-02T00:00:00.000Z'))).venues[0];
-  expect(none).toMatchObject({ verdict: 'nothing_to_compare', matched: false, compared: 0 });
 });
 
 test(`${J} #2 a builder fee is in one record but not the other: the break with its venue id and amount`, async ({ page, browser }) => {
