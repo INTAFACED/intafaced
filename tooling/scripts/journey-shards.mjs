@@ -30,6 +30,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stackFresh } from '../../apps/customer/tests/real-app/world-line.mjs';
 
 export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 export const JOURNEY_FILE = /\.pw\.mjs$/;
@@ -137,6 +138,14 @@ export function longestDurations(runs) {
 }
 
 /** Steps per journey file under `dir`. */
+/** The journey files under `dir` that need a fresh stack (world-line.mjs `stackFresh`, a `// Stack: fresh` line). */
+export function freshFiles(dir, files) {
+  return new Set(files.filter((f) => stackFresh(fs.readFileSync(path.join(dir, f), 'utf8'))));
+}
+
+/** Whether `a` runs before `b` in one shard: Playwright runs a shard's files in name order, the order `sort()` gives. */
+const runsFirst = (a, b) => [a, b].sort()[0] === a;
+
 export function stepCounts(dir, files) {
   return new Map(files.map((f) => [f, (fs.readFileSync(path.join(dir, f), 'utf8').match(STEP) ?? []).length]));
 }
@@ -174,8 +183,14 @@ export function shardTarget(durations) {
  * Problems with a plan against the journey files it must run: a file in no shard, a file in two shards or twice in one,
  * a name that is not one of the files, or an empty shard. An empty list means every file runs exactly once.
  */
-export function planCovers(plan, files) {
+export function planCovers(plan, files, fresh = new Set()) {
   const problems = [];
+  // A file that needs a fresh stack runs first in its shard, so no other file has used that stack before it.
+  plan.forEach((bin, i) => {
+    const first = [...bin.files].sort()[0];
+    for (const f of bin.files)
+      if (fresh.has(f) && f !== first) problems.push(`${f} needs a fresh stack but runs after ${first} in shard ${i + 1}`);
+  });
   const seen = new Map();
   plan.forEach((bin, i) => {
     if (!bin.files.length) problems.push(`shard ${i + 1} has no file`);
@@ -212,8 +227,10 @@ export function targetedShards(files, durations, targetMs, limitMs = (JOURNEY_LI
 /**
  * Longest file first onto the shard with the least time so far. Ties go to the lower shard and files of equal time
  * keep name order, so the same inputs always give the same split. Every shard gets a file when there are enough files.
+ * A file in `fresh` (it needs a fresh stack) gets a shard of its own to start, and only files that run after it in name
+ * order join it, so it runs first there; a plan that can't keep that throws, naming why.
  */
-export function planShards(files, durations, shards) {
+export function planShards(files, durations, shards, fresh = new Set()) {
   if (!Number.isInteger(shards) || shards < 1) throw new Error(`shards must be a whole number of 1 or more, got ${shards}`);
   if (files.length < shards) throw new Error(`${files.length} journey files cannot fill ${shards} shards`);
   const odd = files.find((f) => GLOB_CHARS.test(f));
@@ -227,10 +244,21 @@ export function planShards(files, durations, shards) {
     .sort()
     .map((file) => ({ file, ms: durations.get(file) > 0 ? durations.get(file) : middle }))
     .sort((a, b) => b.ms - a.ms);
-  const bins = Array.from({ length: shards }, () => ({ ms: 0, files: [] }));
+  const bins = Array.from({ length: shards }, () => ({ ms: 0, files: [], fresh: null }));
+  const needing = weighted.filter(({ file }) => fresh.has(file));
+  if (needing.length > shards) throw new Error(`${needing.length} journey files need a fresh stack and there are ${shards} shards`);
+  for (const { file, ms } of needing) {
+    let target = null;
+    for (const bin of bins) if (bin.fresh === null && (target === null || bin.ms < target.ms)) target = bin;
+    target.ms += ms;
+    target.files.push(file);
+    target.fresh = file;
+  }
   for (const { file, ms } of weighted) {
-    let target = bins[0];
-    for (const bin of bins) if (bin.ms < target.ms) target = bin;
+    if (fresh.has(file)) continue;
+    let target = null;
+    for (const bin of bins) if ((bin.fresh === null || runsFirst(bin.fresh, file)) && (target === null || bin.ms < target.ms)) target = bin;
+    if (target === null) throw new Error(`${file} runs before every file that needs a fresh stack, and every shard has one`);
     target.ms += ms;
     target.files.push(file);
   }
@@ -272,8 +300,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       : only === null
         ? Math.min(files.length, shardCount(totalMs, target))
         : targetedShards(files, durations, target);
-  const plan = planShards(files, durations, shards);
-  const problems = planCovers(plan, files);
+  const fresh = freshFiles(JOURNEY_DIR, files);
+  // A targeted run too small to give each file that needs a fresh stack a shard it runs first in takes one more shard.
+  let plan = null;
+  for (let n = shards; plan === null; n += 1) {
+    try {
+      plan = planShards(files, durations, n, fresh);
+    } catch (err) {
+      if (n >= files.length || n >= MAX_SHARDS || !/fresh stack/.test(err.message)) throw err;
+    }
+  }
+  const problems = planCovers(plan, files, fresh);
   if (problems.length) {
     for (const p of problems) console.error(`::error::the shard plan does not run every journey file once: ${p}`);
     process.exit(1);
