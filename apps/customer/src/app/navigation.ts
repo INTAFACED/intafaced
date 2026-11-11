@@ -1021,6 +1021,14 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   {
+    path: '/predict/settings',
+    title: 'Predict settings',
+    description: 'Browse and trade predictions',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
     path: '/predict/:marketId',
     title: 'Prediction market',
     description: 'Browse and trade predictions',
@@ -1056,6 +1064,7 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  { path: '/launch/mine', title: 'My Launch orders', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
   { path: '/launch/:projectId', title: 'Launch project', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
   { path: '/token/governance', title: 'Token governance', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
   { path: '/token/economy', title: 'Token economy', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
