@@ -25,12 +25,14 @@ const ROOMS = [
 /** Every section address of the set whose last segment is reserved, and the title its own page carries. */
 const SECTIONS = [
   ['/predict/positions', 'Predict positions'],
+  ['/predict/settings', 'Predict settings'],
   ['/market/purchases', 'Market purchases'],
   ['/market/mine', 'My listings'],
   ['/market/strategy', 'Strategy subscriptions'],
   ['/launch/new', 'New launch'],
   ['/launch/check', 'Launch check'],
   ['/launch/requirements', 'Launch requirements'],
+  ['/launch/mine', 'My Launch orders'],
   ['/token/governance', 'Token governance'],
   ['/token/economy', 'Token economy'],
   ['/token/burn', 'Token burn'],
@@ -40,6 +42,13 @@ const SECTIONS = [
   ['/mining/status', 'Mining status'],
   ['/blueprint/crew', 'Blueprint crew'],
 ];
+
+/**
+ * The reserved addresses that are no page of their own: /blueprint/shared is only the start of a shared card's address
+ * (/blueprint/shared/<card>), and under /token/governance/<proposal> a token section's name is no proposal. Each answers
+ * with the room-set's "no customer route" panel, never a record.
+ */
+const NOT_A_PAGE = ['/blueprint/shared', '/token/governance/economy', '/token/governance/burn'];
 
 /**
  * Every reserved first segment under each room (the app's own list, `RESERVED_SEGMENTS` in
@@ -129,8 +138,19 @@ test(`${J} #3 /predict/positions is the positions room, and every reserved secti
       for (const segment of segments) {
         if (prefix === '/token/governance' && segment === 'governance') continue;
         const path = `${prefix}/${segment}`;
+        const own = SECTIONS.find(([p]) => p === path)?.[1];
+        expect(own !== undefined || NOT_A_PAGE.includes(path), `${path} is a section with its own title, or named as no page`).toBe(true);
         await page.goto(path);
-        await expect(heading(page), path).toBeVisible();
+        if (own) {
+          // A section: the page it opens is that section, under its own title.
+          await expect(heading(page), path).toHaveText(own);
+          await expect(page.getByText('This destination has no customer route'), path).toHaveCount(0);
+        } else {
+          // No page of its own: the "no customer route" panel under the More title, with its link to /more.
+          await expect(heading(page), path).toHaveText('More');
+          await expect(page.getByText('This destination has no customer route'), path).toBeVisible();
+          await expect(page.getByRole('link', { name: 'Open More' }), path).toHaveAttribute('href', '/more');
+        }
         await expect(heading(page), `${path} is not a ${record}`).not.toHaveText(record);
         await expect(page.getByText('That address is not valid'), path).toHaveCount(0);
         await expect(page.getByText('No details are shown for this record'), path).toHaveCount(0);
