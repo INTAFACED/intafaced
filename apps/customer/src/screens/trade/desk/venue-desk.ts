@@ -23,10 +23,8 @@ export function shortAddress(address: string): string {
 }
 
 /**
- * A market order's worst price (its slippage limit), from the venue's own best prices and the owner's market price
- * protection (`bps`, TRADE_MARKET_SLIPPAGE_CAP_BPS as svc-trade answers it, never a default): a buy pays at most the best ask
- * plus `bps`, rounded up to the tick; a sell takes at least the best bid less `bps`, rounded down. Null when the venue's
- * book has no price on the side the order meets, so no market order is offered then.
+ * A market order's worst price from the venue's best prices and the owner's protection `bps` (never a default): a buy
+ * pays at most the best ask plus `bps`, up to the tick; a sell at least the best bid less `bps`, down. Null with no price.
  */
 export function slippageLimit(side: VenueSide, best: VenueBestPrices | null, bps: string, tick: string): string | null {
   const reference = side === 'buy' ? best?.ask : best?.bid;
@@ -54,10 +52,7 @@ export interface TicketFields {
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
 export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
 
-/**
- * `capSet` is false when the owner's market price protection is blank: a market order then has no bound, so it is refused
- * (`trade.slippage_cap_unset`), never sent unbounded or bounded by a figure the desk made up.
- */
+/** `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). */
 export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
@@ -76,10 +71,7 @@ function isDecimal(value: string): boolean {
   }
 }
 
-/**
- * The ticket as the venue's order intent: a limit good till cancelled at its price, a market IOC at its worst price.
- * `capSet` is the owner's market price protection as the desk read it: blank, no market intent is built (`no_cap`).
- */
+/** The ticket as the venue's intent: a limit GTC at its price, a market IOC at its worst price (none if `capSet` is false). */
 export function intentOf(
   fields: TicketFields,
   market: VenueMarket,
@@ -110,9 +102,8 @@ export function draftSignature(fields: TicketFields): string {
 }
 
 /**
- * The client order key held for retry while the order is unchanged and has no definite answer, so a reopened review, a
- * double press or a lost answer names the same venue order. A market order's worst price is held with its key, so a
- * retry sends the same intent; a changed side, type or amount mints a new key and worst price.
+ * The order key held while the order is unchanged and has no definite answer, so a retry names the same venue order. A
+ * market order's worst price is held with it; a changed side, type or amount mints a new key.
  */
 export class HeldDraft {
   private held: { signature: string; key: string; worst: string | null } | null = null;
@@ -146,11 +137,7 @@ export class HeldDraft {
   }
 }
 
-/**
- * The door refused the order before anything was prepared under its key because its held worst price is past the owner's
- * price protection (the book moved since the key was minted): the key is free, so the next try mints a new key at the
- * worst price of that moment rather than resending the same refused intent.
- */
+/** The door refused the held worst price as past the protection before preparing anything: the next try mints a new key. */
 export function refusedAtHeldWorst(result: { kind: string; code?: string | undefined }): boolean {
   return result.kind === 'refused' && result.code === 'trade.venue.price_outside_protection';
 }
@@ -164,11 +151,7 @@ export interface DepositRoute {
   asset: string;
 }
 
-/**
- * The person's own token transfer that funds the venue account: an ERC-20 `transfer` from their wallet to the venue's
- * deposit address, on the route's token. Null when the amount is not a positive amount within the token's decimals.
- * INTAFACED sends nothing; the ledger posts nothing.
- */
+/** The person's ERC-20 `transfer` to the venue's deposit address; null unless the amount is positive within the token's decimals. */
 export function depositTransfer(route: DepositRoute, amount: string): { to: string; data: string; units: bigint } | null {
   const units = toTokenUnits(amount, route.tokenDecimals);
   if (units === null) return null;

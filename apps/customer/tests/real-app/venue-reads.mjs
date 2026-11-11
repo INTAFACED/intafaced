@@ -136,10 +136,7 @@ export async function testVenueId() {
   return (await res.json()).venue.id;
 }
 
-/**
- * Another TEST trader on the venue: its own TEST key, funded through the venue's TEST deposit control (never through
- * the app or our ledger), which signs and sends its own orders straight to the venue as an outside participant does.
- */
+/** Another TEST trader, funded by the venue's TEST deposit control, sending its own signed orders straight to the venue. */
 export async function otherVenueTrader(funds) {
   const key = privateKeyToAccount(generatePrivateKey());
   const owner = key.address.toLowerCase();
@@ -181,10 +178,7 @@ export async function otherVenueTrader(funds) {
   };
 }
 
-/**
- * The venue's own best bid and ask on `symbol`: the TEST makers' resting ladder (packages/venue-sim http-server.ts
- * `seedTestVenue`, two TEST makers whose keys come from public names), read from the venue. Never our engine's book.
- */
+/** The venue's own best bid and ask on `symbol` (venue-sim `seedTestVenue`'s TEST makers), never our engine's book. */
 export async function venueBook(symbol) {
   const venueId = await testVenueId();
   const makers = ['bid', 'ask'].map((name) =>
