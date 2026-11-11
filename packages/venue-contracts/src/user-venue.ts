@@ -389,6 +389,11 @@ export type VenueRefusalCode =
    * that takes only reduce-only orders while stale refuses an opening one). The detail is the venue's rule.
    */
   | 'feed_stale'
+  /**
+   * The market's home market is closed and the venue's own off-hours rule refuses this order (a market order, a
+   * leverage above the off-hours cap, a price outside the off-hours band). The detail is the venue's rule.
+   */
+  | 'market_off_hours'
   /** No order with that client id exists on the venue. */
   | 'unknown_order'
   /** The order is already final (filled, cancelled, rejected). */
@@ -672,6 +677,27 @@ export interface UserVenueFeed {
   readonly staleRule: MaybeKnown<string>;
 }
 
+/**
+ * A market that tracks something traded on a home market with its own hours (a stock perpetual): whether that home
+ * market is open now, and the venue's own off-hours mode while it is closed, as the venue publishes them. Each rule is
+ * the venue's, `known: false` (or `null`) where it publishes none; never ours.
+ */
+export interface UserVenueSession {
+  readonly state: 'open' | 'off_hours';
+  /** The home market's name, as the venue publishes it. */
+  readonly homeMarket: string;
+  /** What the venue does with the market while its home market is closed, in its words. */
+  readonly offHoursMode: MaybeKnown<string>;
+  /** The price band the venue holds the market to while closed, in its words. */
+  readonly offHoursBand: MaybeKnown<string>;
+  /** The most leverage the venue allows on an open while closed, in bps (`20000` is 2x), or `null` when not published. */
+  readonly offHoursMaxLeverageBps: number | null;
+  /** While closed: when the venue says the home market reopens, or `null` when it publishes no time (and while open). */
+  readonly reopensAt: Date | null;
+  /** The venue's rule for what it refuses while closed, in its words. */
+  readonly offHoursRule: MaybeKnown<string>;
+}
+
 export interface UserVenueMarket {
   readonly symbol: string;
   readonly kind: 'spot' | 'perpetual';
@@ -712,6 +738,8 @@ export interface UserVenueMarket {
   readonly markRule: MaybeKnown<string>;
   readonly tradingHours: MaybeKnown<string>;
   readonly feed: MaybeKnown<UserVenueFeed>;
+  /** Its home market's session and the venue's off-hours mode (a stock perpetual), or `known: false` for a market with none. */
+  readonly session: MaybeKnown<UserVenueSession>;
 }
 
 /**

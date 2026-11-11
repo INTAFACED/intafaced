@@ -59,7 +59,7 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve', builder: Build
     },
     builder,
     now: () => new Date(),
-    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP'])),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP'])),
   });
 }
 
@@ -293,6 +293,64 @@ describe('/api/v1/venue/*', () => {
       });
     } finally {
       await feed('live');
+    }
+  });
+
+  it("J-derivatives-27: a stock perpetual carries the venue's home-market session; off hours an opening market order is trade.venue.market_off_hours in the venue's words", async () => {
+    await mount(door('approve', { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    const read = async () =>
+      (await app.inject({ method: 'GET', url: '/api/v1/venue/markets' }))
+        .json()
+        .value.find((m: { symbol: string }) => m.symbol === 'XSTK-PERP');
+    expect(await read()).toMatchObject({
+      listedBy: { known: true, value: { kind: 'hip3', name: 'TEST stock deployer' } },
+      session: { known: true, value: { state: 'open', homeMarket: 'TEST home exchange', offHoursMaxLeverageBps: 20_000, reopensAt: null } },
+    });
+    const intent = { kind: 'update_leverage', symbol: 'XSTK-PERP', leverageBps: 20_000, marginMode: 'isolated' };
+    const prep = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent, actionKey: `leverage:${USER.userId}:xstk-2` },
+    });
+    const prepared = prep.json().prepared;
+    const t = prepared.typedData as TestVenueTypedData;
+    const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/submit',
+      payload: { actionKey: `leverage:${USER.userId}:xstk-2`, signature: { digest: prepared.digest, signature, signedBy: owner } },
+    });
+    const session = (state: string) =>
+      fetch(`${url}/test/session`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ symbol: 'XSTK-PERP', state }),
+      });
+    expect((await session('off_hours')).status).toBe(200);
+    try {
+      const closed = await read();
+      expect(closed.session.value.state).toBe('off_hours');
+      expect(Number.isNaN(Date.parse(closed.session.value.reopensAt))).toBe(false);
+      const order = {
+        kind: 'place_order',
+        symbol: 'XSTK-PERP',
+        side: 'buy',
+        type: 'market',
+        amount: '1',
+        price: '210',
+        timeInForce: 'IOC',
+        reduceOnly: false,
+        clientOrderKey: `order:${USER.userId}:xstk:1`,
+        builderFee: null,
+      };
+      const refused = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: order } });
+      expect(refused.statusCode).toBe(422);
+      expect(refused.json()).toMatchObject({
+        intafacedCode: 'trade.venue.market_off_hours',
+        message: closed.session.value.offHoursRule.value,
+      });
+    } finally {
+      await session('open');
     }
   });
 

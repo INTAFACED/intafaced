@@ -50,7 +50,8 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
  *        /test/fills {since}                              every account's fills since a time, with its account
- *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP and XAU-PERP
+ *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, XAU-PERP
+ *                                                         and XSTK-PERP
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
  *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
@@ -59,6 +60,10 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
  *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
  *        /test/feed {symbol,state: 'live'|'stale'}        an oracle market's feed goes stale (the oracle stops) or live
+ *        /test/session {symbol,state: 'open'|'off_hours',published?}  a stock perpetual's home market closes (the
+ *                                                         venue's off-hours mode applies) or opens again; `published:
+ *                                                         false` publishes none of its off-hours words, `true` all again
+ *        /test/market-leverage {symbol,maxLeverageBps}    the most leverage the venue now allows on a perpetual
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
@@ -166,15 +171,59 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
       staleRule: 'While the oracle is stale the mark holds at the last oracle price and only reduce-only orders are taken.',
     },
   },
+  {
+    // J-derivatives-27: a TEST stock perpetual a TEST HIP-3 deployer lists, priced by the simulator's own TEST feed, with
+    // a TEST home market whose hours the simulator's TEST control sets. It tracks no real company's share.
+    symbol: 'XSTK-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XSTK',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1') },
+    takerFeeBps: { known: true, value: parseAmount('3') },
+    // TEST: the same perpetual builder-fee cap as BTC-PERP.
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('200'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: { kind: 'hip3', name: 'TEST stock deployer' },
+    oracleRule:
+      "TEST price feed: one XSTK/USD price for a TEST stock, set by the simulator's TEST control; it reads no outside share price.",
+    markRule: 'The mark price is the feed price; fills do not move it.',
+    tradingHours:
+      "24/7 on the venue. The TEST home market's hours are set by the simulator's TEST control; while it is closed the venue's off-hours mode applies.",
+    oracle: {
+      staleRule: 'While the feed is stale the mark holds at the last feed price and only reduce-only orders are taken.',
+    },
+    session: {
+      homeMarket: 'TEST home exchange',
+      offHoursMode: 'The mark holds at the last open-hours price; only limit orders inside the band are taken, at reduced leverage.',
+      offHoursBand: 'Limit prices within 5% of the mark when the home market closed.',
+      offHoursBandBps: 500,
+      offHoursMaxLeverageBps: 20_000,
+      offHoursRule:
+        'Off hours XSTK-PERP takes no market orders, and only limit orders within 5% of the closing mark at up to 2x; market orders wait for the home market to reopen.',
+      // TEST: the venue publishes a reopen time one hour after the TEST control closes the home market.
+      reopensAfterMs: 3_600_000,
+    },
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
-const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'XAU-PERP']);
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP']);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
 /**
  * The ladder `seed` rests on each market, five levels a side, around the market's own price: BTC around 60000, 10 apart,
- * 1 BTC each; XAU-PERP around its oracle price 2650, 0.5 apart, 1 XAU each. TEST.
+ * 1 BTC each; XAU-PERP around its oracle price 2650, 0.5 apart, 1 XAU each; XSTK-PERP around its feed price 200, 0.1
+ * apart, 1 XSTK each. TEST.
  */
 const SEED_LEVELS = 5;
 /** Each level's size, in the market's base asset, unless `seedTestVenue` is given its own `levelSize`. TEST. */
@@ -183,6 +232,7 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'BTC-USDC': { mid: parseAmount('60000'), step: parseAmount('10') },
   'BTC-PERP': { mid: parseAmount('60000'), step: parseAmount('10') },
   'XAU-PERP': { mid: parseAmount('2650'), step: parseAmount('0.5') },
+  'XSTK-PERP': { mid: parseAmount('200'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
@@ -501,6 +551,17 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { feed: market?.feed ?? { known: false }, label: 'TEST' };
     }
+    case '/test/session': {
+      const state = body.state;
+      if (state !== 'open' && state !== 'off_hours') throw new VenueWireError("state is required ('open' or 'off_hours')");
+      const symbol = str(body, 'symbol');
+      if (body.published !== undefined && typeof body.published !== 'boolean')
+        throw new VenueWireError('published is true or false when given');
+      sim.setSession(symbol, state);
+      if (typeof body.published === 'boolean') sim.setSessionPublished(symbol, body.published);
+      const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
+      return { session: market?.session ?? { known: false }, label: 'TEST' };
+    }
     case '/test/fills': {
       const since = body.since;
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
@@ -523,6 +584,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         throw new VenueWireError('status is trading, halted, cancel_only, delisted or null');
       sim.setMarketStatus(str(body, 'symbol'), status as UserVenueMarketStatus | null);
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/market-leverage': {
+      const cap = body.maxLeverageBps;
+      if (typeof cap !== 'number') throw new VenueWireError('maxLeverageBps is a number of bps');
+      const symbol = str(body, 'symbol');
+      sim.setMarketMaxLeverage(symbol, cap);
+      return { maxLeverageBps: cap, label: 'TEST' };
     }
     case '/test/market-fees': {
       const fee = (k: string): MaybeKnown<Amount> => {
