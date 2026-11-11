@@ -20,8 +20,10 @@
  *     stale map: full). Its journeys join the `files` list, and `reach` says why;
  *   - named (theo-01 part 1, project-state#2065, OWNER 295): a pull request whose title or branch names a journey
  *     (`J-<area>-<n>`, namedJourneyIds) that has a journey file at its head is judged on that journey. Its product paths
- *     go to neither the full run nor the map: it runs the journeys it names, every journey test file it changes, and the
- *     map's always-run list (the map's `full` journeys, which no recorded run speaks for). Every other full path above
+ *     outside money code (moneyPathOf) go to neither the full run nor the map: it runs the journeys it names, every
+ *     journey test file it changes, and the map's always-run list (the map's `full` journeys, which no recorded run
+ *     speaks for). Its money paths keep the map's rules (their journeys join the list, else the full run), until the
+ *     CI review's brief records the owner's words for narrowing a money check this way. Every other full path above
  *     still makes it full. Main runs every journey after every merge and is the backstop: a break of another journey is
  *     caught there and reverted (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main
  *     after a merge, a red main is reverted"). A product pull request that names no journey keeps the rules above;
@@ -47,7 +49,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
+import { JOURNEY_TEST, isSharedSetup, packageOf } from './journey-seal.mjs';
+import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
@@ -160,7 +163,7 @@ export function namedJourneyIds({ title = '', branch = '' } = {}) {
  * head (a Set), or null when they can't be read (then null: fail to the other rules, never fewer). `map`: the
  * touched-journeys map the run chose (journey-reach-map.mjs newerMap), whose `full` keys are the always-run list.
  */
-export function namedInputs({ ids, journeyFiles, map }) {
+export function namedInputs({ ids, journeyFiles, map, money = null }) {
   if (!ids?.length || !journeyFiles) return null;
   const want = new Set(ids);
   const files = [...journeyFiles].filter((f) => want.has(JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1])).sort();
@@ -168,8 +171,15 @@ export function namedInputs({ ids, journeyFiles, map }) {
   const always = Object.keys(map?.full ?? {})
     .filter((f) => journeyFiles.has(f))
     .sort();
-  return { ids: [...ids], files, always };
+  return { ids: [...ids], files, always, money };
 }
+
+/**
+ * Whether a product path is money code, as the merge seal reads it (journey-seal.mjs moneyCode; AGENTS.md "How work
+ * flows" 8): in a folder journey-verdict.mjs moneyCodeDirs names from the checkout's manifests, or any package.json (a
+ * dependency on ledger-client it adds or drops). Null manifests (unreadable): everything is money, so nothing narrows.
+ */
+export const moneyPathOf = (dirs) => (p) => !dirs || /(^|\/)package\.json$/.test(p) || dirs.has(packageOf(p));
 
 /** One path's kind: { kind: 'full', why } | { kind: 'file', file } | { kind: 'none' }. */
 export function pathKind(path) {
@@ -210,17 +220,20 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   }
   let because;
   let byName;
-  if (product.length && named) {
-    // Judged on the journeys it names (theo-01 part 1); another full path still makes the whole change full.
-    if (full.length) for (const p of product) full.push({ path: printable(p), why: PRODUCT });
-    else {
-      for (const f of [...named.files, ...named.always]) files.add(f);
-      byName = `it names ${named.ids.join(', ')}, so its ${product.length} product path(s) run ${named.files.join(', ')} and the ${named.always.length} always-run journey file(s), and main's full run judges the rest`;
-    }
-  } else if (product.length && !full.length && reach) {
+  // Judged on the journeys it names (theo-01 part 1): its product paths outside money code run the named journeys and
+  // the always-run list. Money code (named.money) keeps the map's rules below, its journeys added to the named ones:
+  // the CI review's brief records no owner words yet that narrow a money check this way (OWNER 277).
+  const money = named ? product.filter((p) => named.money?.(p) ?? true) : product;
+  if (product.length && named && !full.length && money.length < product.length) {
+    for (const f of [...named.files, ...named.always]) files.add(f);
+    byName = `it names ${named.ids.join(', ')}, so its ${product.length - money.length} product path(s) outside money code run ${named.files.join(', ')} and the ${named.always.length} always-run journey file(s), and main's full run judges the rest`;
+  }
+  if (!money.length) {
+    // every product path is narrowed by name (or there is none)
+  } else if (!full.length && reach) {
     const sel = reachSelect({
       map: reach.map,
-      paths: product,
+      paths: money,
       behind: reach.behind,
       atHead: reach.journeyFiles,
       subscribes: reach.subscribes,
@@ -229,13 +242,13 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
     if (sel.mode === 'files') {
       for (const f of sel.files) files.add(f);
       because = sel.because.map(printable);
-    } else for (const p of product) full.push({ path: printable(p), why: printable(sel.why) });
-  } else for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+    } else for (const p of money) full.push({ path: printable(p), why: printable(sel.why) });
+  } else for (const p of money) full.push({ path: printable(p), why: PRODUCT });
   full.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const list = [...files].sort();
   const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
-  if (byName && !full.length) return { ...out, named: printable(byName) };
-  return because && !full.length ? { ...out, reach: because } : out;
+  if (full.length) return out;
+  return { ...out, ...(because ? { reach: because } : {}), ...(byName ? { named: printable(byName) } : {}) };
 }
 
 /** The journey files in a checkout's real-app folder, or null when it can't be listed. */
@@ -334,8 +347,12 @@ async function main() {
     map = newerMap(built, loadMap());
     reach = { map, behind: behindFromApi(map), journeyFiles: checkoutJourneyFiles(), subscribes: subscribesIn() };
   }
-  const named = namedInputs({ ids, journeyFiles: checkoutJourneyFiles(), map: map ?? loadMap() });
-  const t = journeyTouch(paths, atHead, named ? null : reach, named);
+  let dirs = null;
+  try {
+    dirs = moneyCodeDirs(manifestsAt('.'));
+  } catch {}
+  const named = namedInputs({ ids, journeyFiles: checkoutJourneyFiles(), map: map ?? loadMap(), money: moneyPathOf(dirs) });
+  const t = journeyTouch(paths, atHead, reach, named);
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
   if (t.mode === 'full') {
