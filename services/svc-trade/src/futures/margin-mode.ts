@@ -56,6 +56,13 @@ export const CROSS_MARGIN_UNSUPPORTED = 'trade.cross_margin_unsupported';
 export const CASH_MARGIN_UNSUPPORTED = 'trade.cash_margin_unsupported';
 export const PORTFOLIO_MARGIN_UNSET = 'trade.portfolio_margin_unset';
 export const UNSUPPORTED_COLLATERAL_CLASS = 'trade.unsupported_collateral_class';
+
+/**
+ * The venue whose margin rule this desk applies (J-derivatives-02 #4: "Refused naming the venue"). Today's futures desk
+ * trades on INTAFACED's own book (svc-matching), so its venue is INTAFACED; a venue account's rules are the venue's own
+ * and are read through the user-venue door, never from here.
+ */
+export const FUTURES_VENUE = { id: 'intafaced', name: 'INTAFACED' } as const;
 export const MARGIN_MODE_SWITCH_REQUIRES_PREVIEW = 'trade.margin_mode_switch_requires_preview';
 export const MARGIN_MODE_INELIGIBLE = 'trade.margin_mode_ineligible';
 
@@ -193,8 +200,9 @@ export function checkCollateralClassForMargin(value: unknown): MarginModeCheck {
     ok: false,
     code: UNSUPPORTED_COLLATERAL_CLASS,
     reason:
-      `collateralClass "${value}" is a separate yield/stake/lend product — unsupported here; ` +
-      'refusing to post it as initial margin (no owner-set haircut, slash, unbond, or recall)',
+      `${FUTURES_VENUE.name} does not take ${value} balances as futures margin: collateralClass "${value}" is a separate ` +
+      'yield/stake/lend product — unsupported here; refusing to post it as initial margin (no owner-set haircut, slash, ' +
+      'unbond, or recall)',
   };
 }
 
