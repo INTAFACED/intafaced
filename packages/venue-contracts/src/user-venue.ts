@@ -570,6 +570,36 @@ export interface UserVenueDepositRoute {
   readonly address: string;
   /** The venue asset the transfer is credited as. */
   readonly asset: string;
+  /**
+   * The venue's published terms for this route (J-dex-protocol-05 #1), each `null` when the venue publishes none (shown
+   * as "not published", never a made-up value). `minimum` is a decimal string in `asset`: a transfer below it is never
+   * credited. `confirmations` is how many confirmations the venue waits for before it credits. `network` is the venue's
+   * own name for the chain, and `explorerTxUrl` the explorer link a transaction hash is appended to, `null` when the
+   * network has no explorer (the hash alone is shown).
+   */
+  readonly minimum?: string | null;
+  readonly confirmations?: number | null;
+  readonly network?: string | null;
+  readonly explorerTxUrl?: string | null;
+}
+
+/**
+ * One on-chain deposit the venue has seen for an account (J-dex-protocol-05 #2), as the venue reports it: confirming
+ * (`confirmations` of `required`), credited, or not credited (`reason` says why: below the venue's minimum). The venue's
+ * own record: INTAFACED keeps no copy and the ledger posts nothing.
+ */
+export interface UserVenueDeposit {
+  /** The transfer's id, `<chainId>:<txHash>:<logIndex>` (`venueDepositRef`). */
+  readonly depositRef: string;
+  readonly txHash: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly status: 'confirming' | 'credited' | 'not_credited';
+  readonly confirmations: number;
+  readonly required: number;
+  readonly reason: 'below_minimum' | null;
+  /** When the venue first saw the transfer on chain. */
+  readonly seenAt: Date;
 }
 
 /** The venue's id for one on-chain deposit: the same transfer always gives the same id, so a replay credits nothing. */
@@ -875,6 +905,11 @@ export interface UserVenue {
   positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>>;
   /** By the signed action's nonce, the only id the venue knows it by. `null` is a confirmed miss. */
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
+  /**
+   * The on-chain deposits the venue has seen for this account, newest first (J-dex-protocol-05 #2). Optional: a venue
+   * that publishes no deposit list leaves it out, and the door refuses the read `not_offered`.
+   */
+  deposits?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   /**

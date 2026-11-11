@@ -35,7 +35,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
- *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce},
+ *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *   TEST controls (never part of UserVenue):
@@ -443,6 +443,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/withdrawal':
       return sim.withdrawal(account(body), str(body, 'nonce'));
+    case '/deposits':
+      return sim.deposits(account(body));
     case '/builder-fee-approval':
       return sim.builderFeeApproval(account(body), str(body, 'builder'));
     case '/builder-totals':

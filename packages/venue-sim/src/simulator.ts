@@ -14,6 +14,7 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
   type UserVenueFill,
@@ -250,6 +251,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
   private readonly networkFeeCharged = new Map<string, Amount>();
   private readonly withdrawalSubmittedAt = new Map<string, Date>();
+  /** Every on-chain deposit the venue has seen, by its transfer id, with the main account it is for (J-dex-protocol-05 #2). */
+  private readonly chainDeposits = new Map<string, { readonly accountKey: string; record: UserVenueDeposit }>();
   private seqCounter = 0;
   private fillCounter = 0;
   /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
@@ -366,6 +369,38 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const balance = this.balance(state, asset);
     balance.free = add(balance.free, amount);
     return true;
+  }
+
+  /**
+   * Record what the venue has seen of one on-chain deposit (chain-deposits.ts): confirming, credited, or not credited.
+   * The first sighting's time is kept; a later call only moves its confirmations and status on. A credited deposit never
+   * goes back to confirming. Nothing here credits: `deposit` does, by the same transfer id.
+   */
+  trackChainDeposit(
+    account: UserVenueAccount,
+    seen: Omit<UserVenueDeposit, 'seenAt' | 'status'> & { readonly status: UserVenueDeposit['status'] },
+  ): void {
+    const state = this.account(account);
+    const before = this.chainDeposits.get(seen.depositRef);
+    const credited = state.deposits.has(seen.depositRef);
+    const status: UserVenueDeposit['status'] = credited ? 'credited' : before?.record.status === 'credited' ? 'credited' : seen.status;
+    this.chainDeposits.set(seen.depositRef, {
+      accountKey: state.key,
+      record: {
+        ...seen,
+        status,
+        confirmations: Math.max(seen.confirmations, before?.record.confirmations ?? 0),
+        seenAt: before?.record.seenAt ?? this.clock(),
+      },
+    });
+  }
+
+  /** The on-chain deposits the venue has seen for this account, newest first (J-dex-protocol-05 #2). */
+  async deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {
+    this.up();
+    const key = this.account(account).key;
+    const mine = [...this.chainDeposits.values()].filter((d) => d.accountKey === key).map((d) => d.record);
+    return this.asOf(mine.reverse());
   }
 
   /**

@@ -946,6 +946,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Your fills on the venue since a time, with the venue’s fee and our builder fee as separate lines',
   },
   {
+    name: 'venueDeposits',
+    method: 'GET',
+    path: '/api/v1/venue/deposits',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
+  },
+  {
     name: 'venueLeverage',
     method: 'GET',
     path: '/api/v1/venue/leverage',

@@ -1305,6 +1305,14 @@
           }
         },
         {
+          "name": "venueDeposits",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/deposits", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "deposits"] }
+          }
+        },
+        {
           "name": "venueLeverage",
           "request": {
             "method": "GET",

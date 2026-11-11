@@ -74,6 +74,13 @@ export const TEST_VENUE_DEPOSIT_ADDRESS = '0x00000000000000000000000000000000de9
 /** The venue asset a deposit of the TEST chain's TEST USD (6 decimals) is credited as. TEST. */
 export const TEST_VENUE_DEPOSIT_ASSET = 'USDC';
 const TEST_USD_DECIMALS = 6;
+/**
+ * The TEST venue's published deposit terms (J-dex-protocol-05 #1 and #2), all TEST: a transfer under 5 TEST USDC is never
+ * credited, and one is credited after 3 confirmations on the TEST chain. The TEST chain has no explorer, so a deposit
+ * shows its hash alone. The stack's anvil mines a block per transaction only, so a journey that waits for confirmations
+ * mines the blocks itself (`anvil_mine`, the TEST chain's own control).
+ */
+export const TEST_VENUE_DEPOSIT_TERMS = { minimum: '5', confirmations: 3, network: 'TEST chain', explorerTxUrl: null };
 
 /**
  * The deposit route for this venue, or null when the TEST chain or its token is not given. Its chain is the stack's TEST
@@ -90,6 +97,7 @@ export function testVenueDepositRoute({ rpcUrl, token }) {
     tokenDecimals: TEST_USD_DECIMALS,
     address: TEST_VENUE_DEPOSIT_ADDRESS,
     asset: TEST_VENUE_DEPOSIT_ASSET,
+    ...TEST_VENUE_DEPOSIT_TERMS,
   };
 }
 

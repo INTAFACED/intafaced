@@ -19,6 +19,11 @@ export const venueDepositRouteSchema = z.object({
   tokenDecimals: z.number().int().min(0).max(18),
   address,
   asset: z.string().min(1),
+  // The venue's published terms (J-dex-protocol-05 #1); null or absent when it publishes none.
+  minimum: decimal.nullable().optional(),
+  confirmations: z.number().int().positive().nullable().optional(),
+  network: z.string().min(1).nullable().optional(),
+  explorerTxUrl: z.string().url().nullable().optional(),
 });
 export type VenueDepositRoute = z.infer<typeof venueDepositRouteSchema>;
 
@@ -59,6 +64,21 @@ export const venueWithdrawalSchema = z.object({
 });
 export type VenueWithdrawal = z.infer<typeof venueWithdrawalSchema>;
 export const venueWithdrawalReadSchema = z.object({ venueId: z.string(), asOf: z.string(), value: venueWithdrawalSchema.nullable() });
+
+/** One on-chain deposit as the venue reports it (J-dex-protocol-05 #2): confirming, credited, or not credited and why. */
+export const venueDepositSchema = z.object({
+  depositRef: z.string(),
+  txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+  asset: z.string(),
+  amount: decimal,
+  status: z.enum(['confirming', 'credited', 'not_credited']),
+  confirmations: z.number().int().min(0),
+  required: z.number().int().positive(),
+  reason: z.enum(['below_minimum']).nullable(),
+  seenAt: z.string(),
+});
+export type VenueDeposit = z.infer<typeof venueDepositSchema>;
+export const venueDepositsSchema = z.object({ venueId: z.string(), asOf: z.string(), value: z.array(venueDepositSchema) });
 
 const typedDataSchema = z.object({
   domain: z.record(z.string(), z.unknown()),
@@ -114,6 +134,7 @@ export function createVenueAccountApi(api: ApiClient) {
   return {
     status: (signal?: AbortSignal) => api.rest('/venue/status', venueStatusSchema, { signal }),
     balances: (owner: string, signal?: AbortSignal) => api.rest('/venue/balances', venueBalancesSchema, { query: { owner }, signal }),
+    deposits: (owner: string, signal?: AbortSignal) => api.rest('/venue/deposits', venueDepositsSchema, { query: { owner }, signal }),
     withdrawal: (owner: string, nonce: string, signal?: AbortSignal) =>
       api.rest(`/venue/withdrawals/${encodeURIComponent(nonce)}`, venueWithdrawalReadSchema, { query: { owner }, signal }),
     prepareWithdrawal: (input: {

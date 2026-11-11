@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { WithdrawalView, readFailedState, venueRefusal } from './VenueWalletRoom';
+import { DepositTerms, DepositsOnTheirWay, WithdrawalView, depositStatusText, readFailedState, venueRefusal } from './VenueWalletRoom';
 import {
   canonicalAmount,
   outcomeUnknown,
   plainDecimal,
   scaledDecimal,
+  venueDepositRouteSchema,
+  venueDepositsSchema,
+  type VenueDeposit,
   toTokenUnits,
   venueWithdrawalKey,
   withDomainTypes,
@@ -182,5 +185,67 @@ describe('the connection check before a signed venue action', () => {
   it('an answer that is not live is not taken as live', async () => {
     const odd = { address: '0x' + 'a'.repeat(40), action: 'deposit', live: false, expiresAt: '2026-11-09T14:50:13.000Z' };
     expect((await createVenueWalletApi(answering(odd)).authorize(odd.address, 'deposit')).ok).toBe(false);
+  });
+});
+
+describe('the venue deposit terms and list (J-dex-protocol-05 #1, #2)', () => {
+  const route = venueDepositRouteSchema.parse({
+    chainId: 84532,
+    token: '0x000000000000000000000000000000000000d011',
+    tokenDecimals: 6,
+    address: '0x00000000000000000000000000000000de905170',
+    asset: 'USDC',
+    minimum: '5',
+    confirmations: 3,
+    network: 'TEST chain',
+    explorerTxUrl: null,
+  });
+  const row = (over: Partial<VenueDeposit>): VenueDeposit => ({
+    depositRef: '84532:0x1:0',
+    txHash: `0x${'a'.repeat(64)}`,
+    asset: 'USDC',
+    amount: '25',
+    status: 'confirming',
+    confirmations: 1,
+    required: 3,
+    reason: null,
+    seenAt: '2026-11-11T12:00:00.000Z',
+    ...over,
+  });
+
+  it('the terms are the venue’s own: its minimum and confirmations in words, or "publishes no" when it names none', () => {
+    const html = renderToStaticMarkup(<DepositTerms route={route} t={t} />);
+    expect(html).toContain('Deposits under 5 TEST USDC are not credited by the venue.');
+    expect(html).toContain('The venue credits a deposit after 3 confirmations on TEST chain.');
+    expect(html).toContain('Your wallet signs each deposit');
+    const bare = renderToStaticMarkup(<DepositTerms route={{ ...route, minimum: null, confirmations: null, network: null }} t={t} />);
+    expect(bare).toContain('The venue publishes no minimum.');
+    expect(bare).toContain('The venue publishes no confirmation count.');
+    expect(bare).toContain('chain 84532');
+    expect(bare).not.toMatch(/Deposits under|after \d+ confirmations/);
+  });
+
+  it('each row says the venue’s state: confirming k of N, credited, or below the minimum and not credited', () => {
+    expect(depositStatusText(row({}), t)).toBe('Confirming 1 of 3');
+    expect(depositStatusText(row({ status: 'credited', confirmations: 3 }), t)).toBe('Credited by the venue');
+    expect(depositStatusText(row({ status: 'not_credited', reason: 'below_minimum' }), t)).toBe('Below the minimum: not credited');
+  });
+
+  it('a network with no explorer shows the hash alone; one with an explorer links the transaction', () => {
+    const plain = renderToStaticMarkup(<DepositsOnTheirWay deposits={[row({})]} route={route} t={t} />);
+    expect(plain).toContain(`<code>0x${'a'.repeat(64)}</code>`);
+    expect(plain).not.toContain('View on explorer');
+    const linked = renderToStaticMarkup(
+      <DepositsOnTheirWay deposits={[row({})]} route={{ ...route, explorerTxUrl: 'https://explorer.test/tx/' }} t={t} />,
+    );
+    expect(linked).toContain(`href="https://explorer.test/tx/0x${'a'.repeat(64)}"`);
+    expect(linked).toContain('View on explorer');
+    expect(renderToStaticMarkup(<DepositsOnTheirWay deposits={[]} route={route} t={t} />)).toContain('The venue has seen no deposit');
+  });
+
+  it('a deposit read with an amount that is not a decimal string is refused, never read as money', () => {
+    const answer = { venueId: 'v', asOf: '2026-11-11T12:00:00.000Z', value: [row({})] };
+    expect(venueDepositsSchema.safeParse(answer).success).toBe(true);
+    expect(venueDepositsSchema.safeParse({ ...answer, value: [{ ...row({}), amount: 25 }] }).success).toBe(false);
   });
 });

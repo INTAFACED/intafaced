@@ -8,6 +8,7 @@
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
+ *   GET  /api/v1/venue/deposits?owner=                 the on-chain deposits the venue has seen: confirming, credited or not (J-dex-protocol-05 #2)
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
@@ -243,6 +244,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       return (await d.venue()).fills(a, since);
     },
+    // J-dex-protocol-05 #2: the venue's own list of the deposits it has seen; a venue that publishes none refuses not_offered.
+    '/api/v1/venue/deposits': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.deposits)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit list' });
+      return venue.deposits(a);
+    },
     '/api/v1/venue/leverage': async (d, q, a) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
@@ -266,6 +274,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/agents',
     '/api/v1/venue/orders/by-client-id',
     '/api/v1/venue/fills',
+    '/api/v1/venue/deposits',
     '/api/v1/venue/leverage',
     '/api/v1/venue/builder-fee-approval',
   ]) {

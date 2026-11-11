@@ -96,6 +96,8 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'validUntil',
   'since',
   'lastOracleUpdateAt',
+  // UserVenueDeposit (J-dex-protocol-05 #2)
+  'seenAt',
 ]);
 
 /**

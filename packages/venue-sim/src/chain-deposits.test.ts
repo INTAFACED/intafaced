@@ -131,11 +131,11 @@ describe('TEST venue deposits from the chain (J-wallet-09 #3)', () => {
   it('credits the sender by the transfer id, once: a replayed log credits nothing', async () => {
     const w = world();
     const first = creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
-    expect(first).toEqual({ credited: [venueDepositRef(84532, hash(1), 0)], replayed: [] });
+    expect(first).toEqual({ credited: [venueDepositRef(84532, hash(1), 0)], replayed: [], confirming: [], notCredited: [] });
     expect(await w.free()).toBe(a('25'));
     // The same log read again (a restarted watcher, an overlapping block range) is the same deposit.
     const again = creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
-    expect(again).toEqual({ credited: [], replayed: [venueDepositRef(84532, hash(1), 0)] });
+    expect(again).toEqual({ credited: [], replayed: [venueDepositRef(84532, hash(1), 0)], confirming: [], notCredited: [] });
     expect(await w.free()).toBe(a('25'));
     // A second log in the same transaction is its own deposit.
     creditDepositLogs(w.sim, ROUTE, [w.deposit(1_500_000n, 1, { logIndex: 1 })]);
@@ -150,8 +150,9 @@ describe('TEST venue deposits from the chain (J-wallet-09 #3)', () => {
       w.deposit(0n, 4),
       w.deposit(5_000_000n, 5, { from: ROUTE.address }),
     ]);
-    expect(result).toEqual({ credited: [], replayed: [] });
+    expect(result).toEqual({ credited: [], replayed: [], confirming: [], notCredited: [] });
     expect(await w.free()).toBe(0n);
+    expect((await w.sim.deposits(w.account)).value).toEqual([]);
   });
 
   it('turns token units into Amounts exactly, and back rounding down', () => {
@@ -159,6 +160,94 @@ describe('TEST venue deposits from the chain (J-wallet-09 #3)', () => {
     expect(amountToTokenUnits(a('23.7500009'), 6)).toBe(23_750_000n);
     expect(amountToTokenUnits(a('-1'), 6)).toBe(0n);
     expect(() => tokenUnitsToAmount(1n, 19)).toThrow(/0 to 18/);
+  });
+});
+
+describe("TEST venue deposits keep the venue's published terms (J-dex-protocol-05 #1, #2)", () => {
+  const TERMS: UserVenueDepositRoute = { ...ROUTE, minimum: '5', confirmations: 3, network: 'TEST chain', explorerTxUrl: null };
+
+  it('is confirming until its block has the published confirmations, then credited once, and listed throughout', async () => {
+    const w = world();
+    const ref = venueDepositRef(84532, hash(7), 0);
+    // Mined in block 10 with the head at 10: one confirmation of three.
+    expect(creditDepositLogs(w.sim, TERMS, [w.deposit(25_000_000n, 7, { blockNumber: 10n })], 10n)).toEqual({
+      credited: [],
+      replayed: [],
+      confirming: [ref],
+      notCredited: [],
+    });
+    expect(await w.free()).toBe(0n);
+    const seenAt = w.now();
+    expect((await w.sim.deposits(w.account)).value).toEqual([
+      {
+        depositRef: ref,
+        txHash: hash(7),
+        asset: 'USDC',
+        amount: a('25'),
+        status: 'confirming',
+        confirmations: 1,
+        required: 3,
+        reason: null,
+        seenAt,
+      },
+    ]);
+    // Head 11: two of three, still not credited.
+    w.advance(1000);
+    creditDepositLogs(w.sim, TERMS, [w.deposit(25_000_000n, 7, { blockNumber: 10n })], 11n);
+    expect(await w.free()).toBe(0n);
+    expect((await w.sim.deposits(w.account)).value[0]).toMatchObject({ status: 'confirming', confirmations: 2 });
+    // Head 12: three of three, credited; a later read credits nothing more, and the first sighting's time is kept.
+    expect(creditDepositLogs(w.sim, TERMS, [w.deposit(25_000_000n, 7, { blockNumber: 10n })], 12n).credited).toEqual([ref]);
+    expect(creditDepositLogs(w.sim, TERMS, [w.deposit(25_000_000n, 7, { blockNumber: 10n })], 40n).replayed).toEqual([ref]);
+    expect(await w.free()).toBe(a('25'));
+    expect((await w.sim.deposits(w.account)).value).toEqual([
+      {
+        depositRef: ref,
+        txHash: hash(7),
+        asset: 'USDC',
+        amount: a('25'),
+        status: 'credited',
+        confirmations: 3,
+        required: 3,
+        reason: null,
+        seenAt,
+      },
+    ]);
+  });
+
+  it('never credits a transfer below the minimum, however deep, and lists it as not credited; exactly the minimum is credited', async () => {
+    const w = world();
+    const below = creditDepositLogs(w.sim, TERMS, [w.deposit(4_999_999n, 8, { blockNumber: 1n })], 50n);
+    expect(below.notCredited).toEqual([venueDepositRef(84532, hash(8), 0)]);
+    expect(await w.free()).toBe(0n);
+    expect(creditDepositLogs(w.sim, TERMS, [w.deposit(5_000_000n, 9, { blockNumber: 1n })], 50n).credited).toHaveLength(1);
+    expect(await w.free()).toBe(a('5'));
+    // Newest first: the credited one, then the one below the minimum.
+    expect((await w.sim.deposits(w.account)).value.map((d) => [d.amount, d.status, d.reason])).toEqual([
+      [a('5'), 'credited', null],
+      [a('4.999999'), 'not_credited', 'below_minimum'],
+    ]);
+  });
+
+  it('lists only the asking account’s deposits, and travels on the wire with its amount as a decimal string', async () => {
+    const w = world();
+    creditDepositLogs(
+      w.sim,
+      TERMS,
+      [w.deposit(6_000_000n, 10, { blockNumber: 3n }), w.deposit(6_000_000n, 11, { from: '0x' + '1'.repeat(40) })],
+      3n,
+    );
+    const [status, body] = await answerTestVenue(w.sim, 'POST', '/deposits', JSON.stringify({ account: w.account }), TERMS);
+    expect(status).toBe(200);
+    const wire = body as { value: Array<Record<string, unknown>> };
+    expect(wire.value).toHaveLength(1);
+    expect(wire.value[0]).toMatchObject({ amount: '6', status: 'confirming', confirmations: 1, required: 3, txHash: hash(10) });
+  });
+
+  it('a route with no published terms credits at once, as before', async () => {
+    const w = world();
+    expect(creditDepositLogs(w.sim, ROUTE, [w.deposit(1n, 12, { blockNumber: 5n })], 5n).credited).toHaveLength(1);
+    expect(await w.free()).toBe(a('0.000001'));
   });
 });
 
