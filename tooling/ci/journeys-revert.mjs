@@ -12,9 +12,10 @@
  *            named steps failing outright on the bad commit, or nothing is reverted (a known-good state opens nothing).
  *            Only the commits whose changed files can reach a failing journey (journey-touch.mjs with the
  *            touched-journeys map: a full-suite path or a failing journey's file) stay, one commit in the range included.
- *            One left: the culprit; none: no commit is blamed; several: the probe job runs the failing journey files on
- *            them by binary search (journeys-revert-probe.mjs), which also clears a red that was the stack's: of 22 main
- *            runs read on 11 Nov 2026, 3 started this, 2 stayed red, and the third (run 3465) came from a range of many commits.
+ *            None left: no commit is blamed. Any left, even one: the probe job runs the failing journey files on them on a
+ *            fresh stack (journeys-revert-probe.mjs) and blames only a commit where they fail there. A first red can be
+ *            the stack's: of 23 main runs read on 11 Nov 2026 it fired on 4, and 2 cleared in the next run (3465, 3810).
+ *            Run 3810's only reaching commit was an innocent one (#7275), so a lone candidate is probed too.
  *   open     With an App token (FACTORY_APP_KEY, the `factory` environment: main only), so the revert's own CI and
  *            merge seal run: a branch `revert/auto-<sha10>` from the base holding `git revert <culprit>`, a pull request
  *            naming the red run, the failing steps and the culprit's pull request, squash auto-merge armed, and a
@@ -120,7 +121,7 @@ export function commitReaches(paths, failingFiles, reach, atHead) {
 }
 
 /**
- * The culprit from the commits (oldest first): { culprit } | { none: why } | { probe: [sha] }. `reachOf(sha)` says
+ * What the commits (oldest first) leave: { none: why } | { probe: [sha] }, never a culprit unproven. `reachOf(sha)` says
  * whether that commit can reach a failing journey.
  */
 export function narrow(commits, reachOf) {
@@ -133,7 +134,6 @@ export function narrow(commits, reachOf) {
     if (r.reaches) kept.push(sha);
   }
   if (!kept.length) return { none: 'no commit in the range can reach the failing journeys', lines };
-  if (kept.length === 1) return { culprit: kept[0], lines };
   return { probe: kept, lines };
 }
 
@@ -376,12 +376,8 @@ async function find(env) {
     '',
   ];
   if (result.none) return none(result.none, result.lines, true);
-  if (result.probe) {
-    summary([...head, `${result.probe.length} commits can reach them: the probe runs ${files.join(', ')} on them by binary search.`]);
-    return output({ culprit: '', probe: 'true', candidates: result.probe.join(' '), files: files.join(' '), steps: steps.join(',') });
-  }
-  summary([...head, `Culprit: \`${result.culprit.slice(0, 10)}\` ${git('log', '-1', '--format=%s', result.culprit)}`]);
-  output({ culprit: result.culprit, probe: 'false', steps: steps.join(',') });
+  summary([...head, `${result.probe.length} commit(s) can reach them: the probe runs ${files.join(', ')} on them.`]);
+  output({ culprit: '', probe: 'true', candidates: result.probe.join(' '), files: files.join(' '), steps: steps.join(',') });
 }
 
 // ── open ───────────────────────────────────────────────────────────────────
@@ -649,14 +645,14 @@ function selfTest() {
   const B = 'b'.repeat(40);
   const C = 'c'.repeat(40);
   eq(narrow([], () => ({})).none.startsWith('no commit'), true, 'no commit: nothing blamed');
-  eq(narrow([A], () => ({ reaches: true, why: 'x' })).culprit, A, 'one commit that can reach the journey is the culprit');
+  eq(narrow([A], () => ({ reaches: true, why: 'x' })).probe, [A], 'one commit that can reach the journey is probed, never blamed unproven');
   eq(
     narrow([A], () => ({ reaches: false, why: 'x' })).none?.startsWith('no commit in the range'),
     true,
     'one commit that cannot is blamed for nothing',
   );
   const reach = { [A]: { reaches: false, why: 'none' }, [B]: { reaches: true, why: 'x' }, [C]: { reaches: false, why: 'none' } };
-  eq(narrow([A, B, C], (s) => reach[s]).culprit, B, 'the one commit that can reach the journey');
+  eq(narrow([A, B, C], (s) => reach[s]).probe, [B], 'the one commit of several that can reach the journey is probed');
   eq(narrow([A, B, C], () => ({ reaches: false, why: '' })).none?.startsWith('no commit in the range'), true, 'none can reach');
   eq(narrow([A, B, C], () => ({ reaches: true, why: '' })).probe, [A, B, C], 'several can reach: probe');
   const atHead = () => true;
