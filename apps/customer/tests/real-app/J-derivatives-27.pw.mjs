@@ -35,6 +35,10 @@ const DESK = `/trade/futures?symbol=${SYMBOL}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** The TEST open of #2: a market long of TEST 2 XSTK at 5x, at most TEST 210 (the TEST ladder's asks start at 200.1). */
 const OPEN = { size: '2', worst: '210', times: 5 };
+/** The TEST venue's own leverage cap on the stock perpetual (packages/venue-sim/src/http-server.ts), put back after #3. */
+const CAP_BPS = 100_000;
+/** #3's TEST cap: the venue lowers its cap to 3x, below the 5x the person holds. */
+const LOWER_CAP_BPS = 30_000;
 /** The words that would claim a protection of ours (the journey's money line: the venue holds and settles). */
 const PROTECTION =
   /\b(?:protect\w*|guarantee\w*|safe\w*|insur\w*|no liquidation|never liquidat\w*|we (?:pause|halt|stop|hold|freeze)\w*|covered|secured?)\b/i;
@@ -45,7 +49,8 @@ test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 // The shared TEST venue's home market for the stock perpetual opens again after the file, whatever #4 or #5 left.
 test.afterAll(async () => {
-  await testVenue('/test/session', { symbol: SYMBOL, state: 'open' }).catch(() => undefined);
+  await testVenue('/test/session', { symbol: SYMBOL, state: 'open', published: true }).catch(() => undefined);
+  await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: CAP_BPS }).catch(() => undefined);
 });
 
 function state() {
@@ -73,9 +78,16 @@ const submitsOf = (page) => {
 };
 const rules = (page) => page.getByTestId('venue-market-rules');
 const sessionPanel = (page) => page.getByTestId('venue-session');
-/** Close the TEST home market (or open it), as the simulator's TEST control does, and answer the venue's session. */
-async function setSession(stateWanted) {
-  const switched = await testVenue('/test/session', { symbol: SYMBOL, state: stateWanted });
+/**
+ * Close the TEST home market (or open it), as the simulator's TEST control does, and answer the venue's session.
+ * `published: false` has the venue publish none of its off-hours words; `true` all of them again.
+ */
+async function setSession(stateWanted, published) {
+  const switched = await testVenue('/test/session', {
+    symbol: SYMBOL,
+    state: stateWanted,
+    ...(published === undefined ? {} : { published }),
+  });
   expect(switched.status, JSON.stringify(switched.body)).toBe(200);
   const m = await market();
   expect(m.session.known && m.session.value.state === stateWanted).toBe(true);
@@ -246,10 +258,11 @@ test(`${J} #2 opens a position within the cap while the stock's home market is o
 });
 
 test(`${J} #3 tries an open above the venue's leverage cap: refused with the cap named`, async ({ page }) => {
+  test.setTimeout(180_000);
   opened();
   const { owner, wallet } = await desk(page);
   const m = await market();
-  const cap = m.maxLeverageBps / 10_000;
+  expect(m.maxLeverageBps).toBe(CAP_BPS);
   const before = {
     balances: (await venueRecord(owner, '/balances')).value,
     positions: (await venueRecord(owner, '/positions')).value,
@@ -257,25 +270,37 @@ test(`${J} #3 tries an open above the venue's leverage cap: refused with the cap
     orders: (await venueRecord(owner, '/open-orders')).value,
   };
   const submits = submitsOf(page);
+  // On this venue an open's leverage is the account's signed setting for the market. Asking for twice the cap is
+  // refused by the venue, naming its cap, before the wallet is asked.
+  const cap = CAP_BPS / 10_000;
   const margin = page.getByTestId('venue-margin');
   await margin.getByRole('textbox', { name: 'Leverage (times)' }).fill(String(cap * 2));
   await margin.getByRole('button', { name: 'Sign this leverage setting' }).click();
-  // The venue's own refusal, naming its cap, before the wallet is asked.
   const outcome = margin.getByTestId('venue-outcome');
   await expect(outcome).toContainText('The venue refused it:', { timeout: 15_000 });
   await expect(outcome).toContainText(`${SYMBOL} allows at most ${cap}x`);
   await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
-  // The open itself: on this venue an order carries no leverage of its own (its leverage is the account's signed
-  // setting), so the long the person now reviews is at the leverage the venue holds, within the cap, never at the
-  // refused one. Nothing is confirmed.
-  await reviewLong(page);
-  const sheet = page.getByTestId('venue-review');
-  await expect(sheet).toBeVisible({ timeout: 15_000 });
-  const leverageLine = sheet.locator('[data-line="leverage"]');
-  await expect(leverageLine).toContainText(`${before.leverage.leverageBps / 10_000}x`);
-  await expect(leverageLine).not.toContainText(`${cap * 2}x`);
-  expect(before.leverage.leverageBps <= m.maxLeverageBps).toBe(true);
-  await page.waitForTimeout(1_000);
+
+  // The open itself above the cap: the venue lowers its cap (TEST control) below the 5x the person holds, and the long
+  // they then try is refused by the venue, naming its cap, before anything is signed or sent.
+  try {
+    const lowered = await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: LOWER_CAP_BPS });
+    expect(lowered.status, JSON.stringify(lowered.body)).toBe(200);
+    expect((await market()).maxLeverageBps).toBe(LOWER_CAP_BPS);
+    await expect(page.getByTestId('venue-contract-strip').getByTestId('venue-max-leverage')).toHaveText(`${LOWER_CAP_BPS / 10_000}x`, {
+      timeout: 20_000,
+    });
+    expect(before.leverage.leverageBps > LOWER_CAP_BPS).toBe(true);
+    const ticket = await reviewLong(page);
+    await expect(ticket.getByRole('alert')).toContainText(
+      `The venue refused it: ${SYMBOL} allows at most ${LOWER_CAP_BPS / 10_000}x; ${before.leverage.leverageBps / 10_000}x is above its cap`,
+      { timeout: 15_000 },
+    );
+    await expect(page.getByTestId('venue-review')).toHaveCount(0);
+    await page.waitForTimeout(1_000);
+  } finally {
+    await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: CAP_BPS });
+  }
   // Nothing moved: no signature, no submit, and the venue's leverage, position, orders and balances are as they were.
   expect(wallet.requests).toHaveLength(0);
   expect(submits).toHaveLength(0);
@@ -328,8 +353,23 @@ test(`${J} #4 watches the market after the stock's home market closes: the venue
     // No protection of ours anywhere on the desk.
     const shown = await page.getByTestId('if-futures').innerText();
     expect(shown.replace(words(session.offHoursRule), '').replace(words(session.offHoursMode), '')).not.toMatch(PROTECTION);
+
+    // Where the venue gives no rule: the venue publishes none of its off-hours words (TEST control), and each reads
+    // "not published by this venue", never filled with words of ours.
+    const bare = await setSession('off_hours', false);
+    expect(bare.offHoursMode.known || bare.offHoursBand.known || bare.offHoursRule.known).toBe(false);
+    expect(bare.offHoursMaxLeverageBps).toBeNull();
+    expect(bare.reopensAt).toBeNull();
+    const none = 'not published by this venue';
+    await expect(panel.getByTestId('venue-off-hours-rule')).toHaveText(none, { timeout: 20_000 });
+    for (const id of ['venue-off-hours-mode', 'venue-off-hours-band', 'venue-off-hours-leverage', 'venue-reopens'])
+      await expect(panel.getByTestId(id), id).toHaveText(none);
+    await expect(panel.getByTestId('venue-off-hours')).toHaveText(
+      `${displayName} reports ${bare.homeMarket} closed: ${SYMBOL} is in the venue’s off-hours mode. The venue’s own rule: ${none}`,
+    );
+    expect(await page.getByTestId('if-futures').innerText()).not.toMatch(PROTECTION);
   } finally {
-    await setSession('open');
+    await setSession('open', true);
   }
   await expect(panel).toHaveAttribute('data-state', 'open', { timeout: 20_000 });
   await expect(panel.getByTestId('venue-reopens')).toHaveText('Open now');

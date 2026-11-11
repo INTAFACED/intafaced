@@ -60,8 +60,10 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
  *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
  *        /test/feed {symbol,state: 'live'|'stale'}        an oracle market's feed goes stale (the oracle stops) or live
- *        /test/session {symbol,state: 'open'|'off_hours'}  a stock perpetual's home market closes (the venue's off-hours
- *                                                         mode applies) or opens again
+ *        /test/session {symbol,state: 'open'|'off_hours',published?}  a stock perpetual's home market closes (the
+ *                                                         venue's off-hours mode applies) or opens again; `published:
+ *                                                         false` publishes none of its off-hours words, `true` all again
+ *        /test/market-leverage {symbol,maxLeverageBps}    the most leverage the venue now allows on a perpetual
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
@@ -544,7 +546,10 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const state = body.state;
       if (state !== 'open' && state !== 'off_hours') throw new VenueWireError("state is required ('open' or 'off_hours')");
       const symbol = str(body, 'symbol');
+      if (body.published !== undefined && typeof body.published !== 'boolean')
+        throw new VenueWireError('published is true or false when given');
       sim.setSession(symbol, state);
+      if (typeof body.published === 'boolean') sim.setSessionPublished(symbol, body.published);
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { session: market?.session ?? { known: false }, label: 'TEST' };
     }
@@ -570,6 +575,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         throw new VenueWireError('status is trading, halted, cancel_only, delisted or null');
       sim.setMarketStatus(str(body, 'symbol'), status as UserVenueMarketStatus | null);
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/market-leverage': {
+      const cap = body.maxLeverageBps;
+      if (typeof cap !== 'number') throw new VenueWireError('maxLeverageBps is a number of bps');
+      const symbol = str(body, 'symbol');
+      sim.setMarketMaxLeverage(symbol, cap);
+      return { maxLeverageBps: cap, label: 'TEST' };
     }
     case '/test/market-fees': {
       const fee = (k: string): MaybeKnown<Amount> => {

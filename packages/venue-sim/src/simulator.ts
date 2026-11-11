@@ -265,6 +265,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly marks = new Map<string, Amount>();
   /** Oracle markets: the time the feed went stale, or absent while it is live (a live oracle updates as the clock runs). */
   private readonly staleSince = new Map<string, Date>();
+  /** Session markets whose off-hours words the venue publishes none of (`setSessionPublished`); it still follows its rule. */
+  private readonly sessionUnpublished = new Set<string>();
   /** Session markets whose home market is closed: the mark when it closed, and the reopen time the venue published. */
   private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
   private readonly accounts = new Map<string, AccountState>();
@@ -352,6 +354,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   setMarketFees(symbol: string, fees: { makerFeeBps: MaybeKnown<Amount>; takerFeeBps: MaybeKnown<Amount> }): void {
     const market = this.market(symbol);
     this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+  }
+
+  /**
+   * TEST control: the most leverage the venue now allows on a perpetual (bps; a deployer raising or lowering its cap).
+   * A held leverage setting stays as it was; an opening order at a setting above the new cap refuses `leverage_above_cap`.
+   */
+  setMarketMaxLeverage(symbol: string, maxLeverageBps: number): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage`);
+    if (!Number.isInteger(maxLeverageBps) || maxLeverageBps < 10_000 || maxLeverageBps % 10_000 !== 0)
+      refuse(this.venue.id, 'venue_rejected', `a leverage cap is a whole number of times, 1x or more (got ${maxLeverageBps} bps)`);
+    this.marketsBySymbol.set(symbol, { ...market, maxLeverageBps });
   }
 
   /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
@@ -455,6 +469,17 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       closedMark,
       reopensAt: after === undefined ? null : new Date(this.clock().getTime() + after),
     });
+  }
+
+  /**
+   * TEST control: whether the venue publishes a session market's off-hours words (its mode, band, leverage, reopen time
+   * and rule). Unpublished, each reads not published while the venue still follows the same rule.
+   */
+  setSessionPublished(symbol: string, published: boolean): void {
+    const market = this.market(symbol);
+    if (!market.session) refuse(this.venue.id, 'not_offered', `${symbol} has no home market on ${this.venue.displayName}`);
+    if (published) this.sessionUnpublished.delete(symbol);
+    else this.sessionUnpublished.add(symbol);
   }
 
   /**
@@ -1040,6 +1065,17 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private sessionOf(market: SimMarketConfig): UserVenueSession {
     const session = market.session!;
     const closed = this.offHours.get(market.symbol);
+    if (this.sessionUnpublished.has(market.symbol)) {
+      return {
+        state: closed ? 'off_hours' : 'open',
+        homeMarket: session.homeMarket,
+        offHoursMode: { known: false },
+        offHoursBand: { known: false },
+        offHoursMaxLeverageBps: null,
+        reopensAt: null,
+        offHoursRule: { known: false },
+      };
+    }
     return {
       state: closed ? 'off_hours' : 'open',
       homeMarket: session.homeMarket,
@@ -1059,7 +1095,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const closed = this.offHours.get(market.symbol);
     if (!closed || intent.reduceOnly || !market.session) return;
     const session = market.session;
-    const words = (why: string) => session.offHoursRule ?? `${market.symbol}'s home market is closed: ${why}`;
+    // The venue's published rule, or (when it publishes none) its plain reason.
+    const words = (why: string) =>
+      (!this.sessionUnpublished.has(market.symbol) && session.offHoursRule) || `${market.symbol}'s home market is closed: ${why}`;
     if (intent.type === 'market') refuse(this.venue.id, 'market_off_hours', words('no market orders until it reopens'));
     if (leverageBps > session.offHoursMaxLeverageBps)
       refuse(this.venue.id, 'market_off_hours', words(`at most ${session.offHoursMaxLeverageBps / 10_000}x off hours`));

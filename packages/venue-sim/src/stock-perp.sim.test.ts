@@ -197,6 +197,54 @@ describe('TEST venue simulator: the TEST stock perpetual (J-derivatives-27)', ()
     expect(await w.run(open)).toMatchObject({ definite: true, accepted: true });
   });
 
+  it('#3 the venue lowers its cap below the held setting: an open at the held leverage is refused with the cap named, a close still passes', async () => {
+    const w = await funded();
+    await w.run(leverage(5));
+    await w.run(order({}));
+    w.sim.setMarketMaxLeverage(XSTK, 30_000);
+    expect((await marketOf(w)).maxLeverageBps).toBe(30_000);
+    const open = order({ clientOrderKey: 'order:stock-trader:open:cap' });
+    const want = { venueId: w.sim.venue.id, code: 'leverage_above_cap', detail: 'XSTK-PERP allows at most 3x; 5x is above its cap' };
+    expect(await refusal(w.sim.preview(w.account, open))).toEqual(want);
+    expect(await refusal(w.sim.prepare(w.account, w.signer, open))).toEqual(want);
+    expect(await w.forged(open, '7')).toMatchObject({ definite: true, accepted: false, refusal: want });
+    expect((await w.sim.positions(w.account)).value[0]).toMatchObject({ size: a('2') });
+    // The setting held is the person's; a close is reduce-only and passes.
+    expect((await w.sim.leverage(w.account, XSTK)).value).toMatchObject({ leverageBps: 50_000 });
+    const close = await w.run(order({ side: 'sell', price: a('190'), reduceOnly: true, clientOrderKey: 'close:stock-trader:cap' }));
+    expect(close).toMatchObject({ definite: true, accepted: true });
+    expect(await refusal(Promise.resolve().then(() => w.sim.setMarketMaxLeverage(XSTK, 15_000)))).toMatchObject({ code: 'venue_rejected' });
+    expect(await refusal(Promise.resolve().then(() => w.sim.setMarketMaxLeverage('BTC-USDC', 20_000)))).toMatchObject({
+      code: 'not_offered',
+    });
+  });
+
+  it('#4 a venue that publishes no off-hours words: each reads not published, and the venue still follows its rule in its plain reason', async () => {
+    const w = await funded();
+    await w.run(leverage(5));
+    w.sim.setSession(XSTK, 'off_hours');
+    w.sim.setSessionPublished(XSTK, false);
+    expect((await marketOf(w)).session).toEqual({
+      known: true,
+      value: {
+        state: 'off_hours',
+        homeMarket: 'TEST home exchange',
+        offHoursMode: { known: false },
+        offHoursBand: { known: false },
+        offHoursMaxLeverageBps: null,
+        reopensAt: null,
+        offHoursRule: { known: false },
+      },
+    });
+    expect(await refusal(w.sim.prepare(w.account, w.signer, order({})))).toEqual({
+      venueId: w.sim.venue.id,
+      code: 'market_off_hours',
+      detail: "XSTK-PERP's home market is closed: no market orders until it reopens",
+    });
+    w.sim.setSessionPublished(XSTK, true);
+    expect((await marketOf(w)).session).toMatchObject({ value: { offHoursRule: { known: true, value: OFF_HOURS_RULE } } });
+  });
+
   it('a market with no home market has no session to switch', async () => {
     const w = world();
     expect(await refusal(Promise.resolve().then(() => w.sim.setSession('XAU-PERP', 'off_hours')))).toMatchObject({ code: 'not_offered' });
@@ -214,6 +262,18 @@ describe('TEST venue simulator: the TEST stock perpetual (J-derivatives-27)', ()
     expect(closed.out.session.value.reopensAt).toBeInstanceOf(Date);
     expect((await call('/test/session', { symbol: XSTK, state: 'paused' })).status).toBe(400);
     expect((await call('/test/session', { symbol: 'BTC-PERP', state: 'off_hours' })).status).toBe(422);
+    expect((await call('/test/session', { symbol: XSTK, state: 'off_hours', published: 'no' })).status).toBe(400);
+    const bare = await call('/test/session', { symbol: XSTK, state: 'off_hours', published: false });
+    expect(bare.out.session.value).toMatchObject({ offHoursRule: { known: false }, reopensAt: null });
+    expect((await call('/test/session', { symbol: XSTK, state: 'off_hours', published: true })).out.session.value.offHoursRule.known).toBe(
+      true,
+    );
+    expect((await call('/test/market-leverage', { symbol: XSTK, maxLeverageBps: 30_000 })).out).toEqual({
+      maxLeverageBps: 30_000,
+      label: 'TEST',
+    });
+    expect((await call('/test/market-leverage', { symbol: XSTK, maxLeverageBps: '3' })).status).toBe(400);
+    await call('/test/market-leverage', { symbol: XSTK, maxLeverageBps: 100_000 });
     const markets = await call('/markets', { account: null });
     // The venue's words travel as text, never read as money.
     const wire = markets.raw.value.find((m: { symbol: string }) => m.symbol === XSTK).session.value;
