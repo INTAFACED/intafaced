@@ -462,6 +462,11 @@ export function walkedMid(walk, { still, shift, tick }) {
   return shiftedMid(still ? walk.current() : walk.next(), shift, tick);
 }
 
+/** Whether test_taker crosses `symbol` this cycle: never on a still cycle; otherwise on its turn (`crossesOn`) when the market crosses and quotes rest (exported for tests). */
+export function takerCrosses({ still, cross, rested, cycle, symbol }) {
+  return !still && cross !== false && rested > 0 && crossesOn(cycle, symbol);
+}
+
 /** Whether a cycle record of the running maker shows `still` (true or false) in a cycle started after `askedAt` (exported for tests). */
 export function stillTaken(cycle, { still, askedAt, pid }) {
   return Boolean(cycle && cycle.pid === pid && cycle.startedAt > askedAt && Boolean(cycle.still) === still);
@@ -1026,7 +1031,8 @@ async function runLoop(opts, home) {
     const asked = readHolds(p);
     const cycleAt = Date.now();
     const holds = new Map([...asked].filter(([k]) => !quotesThisCycle(k, asked, cycleAt)));
-    const still = stillThisCycle(readStill(p), cycleAt);
+    // Named apart from the per-market `still` set of standing quotes below (CI review on #7969: one name shadowed the other).
+    const stillCycle = stillThisCycle(readStill(p), cycleAt);
     /** What this cycle did to each market, written once the cycle has gone through every market (`cycleFile`). */
     const done = {};
     if (holds.size > 0) {
@@ -1054,7 +1060,7 @@ async function runLoop(opts, home) {
           mid = (book?.status === 200 ? bookMid(book.json) : null) ?? mids.get(leader) ?? walks.get(m.symbol).next();
         } else {
           // A `move` shift applies to a walked market; a follower is quoted round its leader's book, so it moves with it.
-          mid = walkedMid(walks.get(m.symbol), { still, shift: shifts.get(m.symbol), tick: m.tick });
+          mid = walkedMid(walks.get(m.symbol), { still: stillCycle, shift: shifts.get(m.symbol), tick: m.tick });
         }
         mids.set(m.symbol, mid);
         const cfg = TEST_PRICES[m.symbol];
@@ -1165,11 +1171,11 @@ async function runLoop(opts, home) {
         standingQuotes.set(m.symbol, [...placed, ...standing.filter((q) => kept.has(q.id))]);
         const rested = resting.length;
         log(
-          `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}${still ? ' (still)' : ''}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
+          `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}${stillCycle ? ' (still)' : ''}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
         );
         if (newShift) log(`${m.symbol} TEST PRICE shift ${shift} bps quoted`);
         done[m.symbol] = { held: false, resting: rested, ladder: ladder.length, shiftBps: shift === undefined ? null : String(shift) };
-        if (!still && cfg.cross !== false && rested > 0 && crossesOn(cycle, m.symbol)) {
+        if (takerCrosses({ still: stillCycle, cross: cfg.cross, rested, cycle, symbol: m.symbol })) {
           // Alternate per market (failure it prevents: every symbol here has the same name length, so a
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
           // every crossing then failed with 400 ledger.insufficient_funds).
@@ -1198,7 +1204,7 @@ async function runLoop(opts, home) {
       }
       inactiveSince = null;
       try {
-        writeCycleRecord(p, { pid: process.pid, runId, cycle, startedAt: readAt, endedAt: Date.now(), still, markets: done });
+        writeCycleRecord(p, { pid: process.pid, runId, cycle, startedAt: readAt, endedAt: Date.now(), still: stillCycle, markets: done });
       } catch (err) {
         log(`cycle record not written (${err.message}); quoting goes on`);
       }

@@ -34,6 +34,7 @@ import {
   stillTaken,
   STILL_MAX_MS,
   walkedMid,
+  takerCrosses,
   stackNotActive,
   STACK_INACTIVE_LIMIT_MS,
   fromScaled,
@@ -741,6 +742,14 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   assert.ok(STILL_MAX_MS >= 3_600_000);
   assert.equal(stillThisCycle({ askedAt: 1_000 }, 1_000 + STILL_MAX_MS), true);
   assert.equal(stillThisCycle({ askedAt: 1_000 }, 1_000 + STILL_MAX_MS + 1), false);
+  // The taker crosses on its turn in a live cycle and never in a still one (CI review on #7969: a shadowed name made it
+  // read a set of quotes, always truthy, so it never crossed in either mode).
+  const turn = [1, 2, 3, 4, 5, 6, 7].find((c) => crossesOn(c, 'BTC/USDT'));
+  assert.ok(turn);
+  assert.equal(takerCrosses({ still: false, cross: undefined, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), true);
+  assert.equal(takerCrosses({ still: true, cross: undefined, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
+  assert.equal(takerCrosses({ still: false, cross: false, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
+  assert.equal(takerCrosses({ still: false, cross: undefined, rested: 0, cycle: turn, symbol: 'BTC/USDT' }), false);
   // `still` and `live` return only on a cycle of the running maker that started after the ask and runs that way.
   assert.equal(stillTaken(null, { still: true, askedAt: 1_000, pid: 7 }), false);
   assert.equal(stillTaken({ pid: 7, startedAt: 1_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);
