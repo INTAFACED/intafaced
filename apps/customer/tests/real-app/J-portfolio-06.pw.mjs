@@ -305,7 +305,9 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
   expect(later.USDT).toBeLessThan(then.USDT);
 
   // The bank's answer for the range from the edge: each coin then and now, the change, each end valued at its price.
-  const range = await me.query('portfolio.holdingsChange', { from: new Date(edge + 10_000).toISOString() });
+  // It asks from 1 second past the edge, already past for the bank (the test waited until 5 seconds after it): a start
+  // still ahead of the bank's now is refused as bank.value_range_invalid.
+  const range = await me.query('portfolio.holdingsChange', { from: new Date(edge + 1_000).toISOString() });
   expect(range.from).toBe(new Date(edge).toISOString());
   const rows = Object.fromEntries(range.rows.map((row) => [row.assetId, row]));
   expect(Object.keys(rows).sort()).toEqual(['BTC', 'USDT']);
@@ -335,7 +337,7 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
   });
 
   // The screen, on a browser whose clock reads a day after the edge: "24 hours ago" is the edge.
-  await page.clock.install({ time: new Date(edge + 24 * 3_600_000 + 10_000) });
+  await page.clock.install({ time: new Date(edge + 24 * 3_600_000 + 1_000) });
   await page.goto('/money');
   const day = page.getByRole('region', { name: 'What you hold, then and now' });
   await day.getByRole('group', { name: 'Compare with' }).getByRole('button', { name: '24 hours ago', exact: true }).click();
