@@ -1103,6 +1103,32 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Close the agent account; refused, naming it, while a position, an order, a balance or a move is open',
   },
   {
+    name: 'venueAgentConnections',
+    method: 'GET',
+    path: '/api/v1/venue/agent-accounts/connections',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Which of your agent API keys is connected to which agent account; a key trades only the account it is connected to',
+  },
+  {
+    name: 'venueAgentConnect',
+    method: 'POST',
+    path: '/api/v1/venue/agent-accounts/:id/connections',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Connect one of your agent API keys to this agent account, from your own sign-in after step-up, never from a key; a key already connected elsewhere is refused',
+  },
+  {
+    name: 'venueAgentOrder',
+    method: 'POST',
+    path: '/api/v1/venue/agent/orders',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Your assistant's spot order, from its agent key: placed only on the agent account the key is connected to, held to your cap first, and sent once per clientOrderId; an answer that is not definite is 202, retried with the same id",
+  },
+  {
     name: 'venueOrders',
     method: 'GET',
     path: '/api/v1/venue/orders',
