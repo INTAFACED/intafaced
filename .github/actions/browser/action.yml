@@ -60,13 +60,13 @@ runs:
       shell: bash
       run: |
         set -uo pipefail
-        out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1)
+        out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1) || true # exits 1 when a package is missing
         echo "$out"
         if grep -q "All system dependencies are installed" <<<"$out"; then
           echo "list=" >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        list=$(sed -n '/^Missing system dependencies/,$ s/^  \([^ ]\+\)$/\1/p' <<<"$out" | sort | tr '\n' ' ' | sed 's/ $//')
+        list=$(sed -n '/^Missing system dependencies/,$ s/^  \([^ ][^ ]*\)$/\1/p' <<<"$out" | sort | tr '\n' ' ' | sed 's/ $//')
         if [ -z "$list" ]; then echo "::error::could not read Playwright's list of missing system packages"; exit 1; fi
         echo "list=$list" >> "$GITHUB_OUTPUT"
         echo "key=$(sha256sum <<<"$list" | cut -c1-16)" >> "$GITHUB_OUTPUT"
@@ -123,12 +123,12 @@ runs:
       shell: bash
       run: |
         set -uo pipefail
-        out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1)
+        out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1) || true # exits 1 when a package is missing
         if grep -q "All system dependencies are installed" <<<"$out"; then echo "all system packages present"; exit 0; fi
         echo "$out"
         bins=$(find "$HOME/.cache/ms-playwright" -type f \( -name chrome -o -name chrome-headless-shell \) -perm -u+x)
         if [ -z "$bins" ]; then echo "::error::the browser is not in ~/.cache/ms-playwright"; exit 1; fi
-        lost=$(for b in $bins; do ldd "$b"; done | grep "not found" | sort -u)
+        lost=$(for b in $bins; do ldd "$b"; done | grep "not found" | sort -u) || true # grep finds nothing on a healthy image
         if [ -n "$lost" ]; then
           echo "::error::the browser lacks system libraries the runner image does not have and Ubuntu's mirror could not supply: $(tr -s ' \t\n' ' ' <<<"$lost")"
           exit 1
