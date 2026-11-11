@@ -6,11 +6,7 @@ import {
   barTimeText,
   centred,
   clickPlot,
-  drawn,
-  inPane,
   openWorkbench,
-  paneBoxes,
-  paneValueAt,
   pick,
   plot,
   pointerAt,
@@ -25,6 +21,48 @@ import {
 // per step, titled "J-charts-desk-05 #<n>", run in order in one browser context: drawings are kept on this device, so the
 // steps share the page. Drawings are placed by fractions of the chart's width and height, never by a bar index.
 const J = 'J-charts-desk-05';
+
+const chartHost = (page) => page.getByTestId('cw').getByTestId('wc-host');
+
+/** The chart's panes as the drawings read them: each pane's index, top and height in pixels from the chart's top. */
+const paneBoxes = (page) => chartHost(page).evaluate((el) => el.readPaneBoxes());
+
+/** What the chart has painted for each drawing: its pane, lines, handles and texts (font and colour), in chart pixels. */
+const drawn = (page) => chartHost(page).evaluate((el) => el.readDrawnLines());
+
+/**
+ * A point on one pane: across, on the loaded bar `fx` picks (as `plot` does); down, at `fy` of that pane's own height, from
+ * the pane's top as the chart lays it out.
+ */
+async function inPane(page, pane, fx, fy) {
+  const { x } = await plot(page, fx, 0.5);
+  const box = await chartHost(page).boundingBox();
+  const at = (await paneBoxes(page)).find((b) => b.index === pane);
+  if (!box || !at) throw new Error(`the chart has no pane ${pane}`);
+  return { x, y: box.y + at.top + at.height * fy };
+}
+
+/**
+ * What the chart reads under a pixel on an indicator pane: the pane's index and the value at that height on the pane's own
+ * scale, as the library reports them on the grid cell (`data-crosshair-pane`, `data-crosshair-pane-value`). The pointer
+ * is moved a pixel away and the marks cleared first, so what is read is what the chart wrote for this position.
+ */
+async function paneValueAt(page, point) {
+  const cell = page.locator('[data-crosshair]').first();
+  await page.mouse.move(point.x - 1, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane')) ?? '').not.toBe('');
+  await cell.evaluate((el) => {
+    el.setAttribute('data-crosshair-pane', '');
+    el.setAttribute('data-crosshair-pane-value', '');
+  });
+  await page.mouse.move(point.x, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane')) ?? '').not.toBe('');
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane-value')) ?? '').not.toBe('');
+  return {
+    pane: Number(await cell.getAttribute('data-crosshair-pane')),
+    value: Number(await cell.getAttribute('data-crosshair-pane-value')),
+  };
+}
 
 test.describe.configure({ mode: 'serial' });
 

@@ -132,32 +132,3 @@ export async function inPane(page, pane, fx, fy) {
   const index = Math.round(fx * (bars.length - 1));
   return { x: box.x + box.width * bars[index], y: box.y + at.top + at.height * fy };
 }
-
-/**
- * What the chart reads under a pixel on an indicator pane: the pane's index and the value at that height on the pane's own
- * scale, as the library reports them on the grid cell (`data-crosshair-pane`, `data-crosshair-pane-value`).
- */
-export async function paneValueAt(page, point) {
-  const cell = page.locator('[data-crosshair]').first();
-  await page.mouse.move(point.x - 1, point.y);
-  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane')) ?? '').not.toBe('');
-  await cell.evaluate((el) => {
-    el.setAttribute('data-crosshair-pane', '');
-    el.setAttribute('data-crosshair-pane-value', '');
-  });
-  await page.mouse.move(point.x, point.y);
-  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane')) ?? '').not.toBe('');
-  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane-value')) ?? '').not.toBe('');
-  return {
-    pane: Number(await cell.getAttribute('data-crosshair-pane')),
-    value: Number(await cell.getAttribute('data-crosshair-pane-value')),
-  };
-}
-
-/** What the chart has painted for each drawing: its pane, lines, handles and texts (font and colour), in chart pixels. */
-export async function drawn(page) {
-  return page
-    .getByTestId('cw')
-    .getByTestId('wc-host')
-    .evaluate((el) => el.readDrawnLines());
-}
