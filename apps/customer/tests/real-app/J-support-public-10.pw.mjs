@@ -1,9 +1,11 @@
-// World: restart
+// World: restart, stack
+import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
-import { api, restartWith, tool } from './stack.mjs';
+import { api, restartWith, ROOT, tool } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
@@ -119,6 +121,47 @@ async function sendReply(workspace, body) {
   await actions.getByRole('button', { name: 'Review reply' }).click();
   await actions.getByRole('button', { name: 'Yes, send the reply' }).click();
   return actions.getByTestId('reply-outcome');
+}
+
+/** Stops svc-identity without holding up this test's event loop; settles when it has exited. */
+const stopIdentity = () =>
+  new Promise((resolve, reject) =>
+    execFile(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-stack.mjs'), 'stop', 'identity'], { cwd: ROOT }, (error) =>
+      error ? reject(error) : resolve(),
+    ),
+  );
+
+/**
+ * What svc-support answers for this request's customer once it can't reach identity. Edge also asks identity about the
+ * caller and keeps a yes for at most 1 s (AUTHORITY_POSITIVE_CACHE_MAX_MS), so the desk can only be asked inside that second:
+ * after it, Edge itself refuses with edge.authority_unavailable and the call never reaches svc-support. The stop takes
+ * about that long, so this asks throughout the stop rather than after it, and if a stop lands where the second has already
+ * run out, identity comes back and the stop is tried again. Any other refusal fails at once.
+ */
+async function accountStateAsIdentityStops(ticketId) {
+  let refusal = '';
+  for (let stop = 1; stop <= 4; stop += 1) {
+    if (stop > 1) tool('local-test-stack.mjs', 'start', '--only', 'identity');
+    const stopped = stopIdentity();
+    stopped.catch(() => {}); // Read by the `await stopped` below; a failed stop must not surface as an unhandled rejection first.
+    for (;;) {
+      const res = await asDesk('lead', 'query', 'accountState', { ticketId });
+      const answer = res.json?.result?.data;
+      if (answer !== undefined && answer.status !== 'read') {
+        await stopped;
+        return answer;
+      }
+      if (answer === undefined) {
+        if (res.status !== 503 || res.json?.code !== 'edge.authority_unavailable')
+          throw new Error(`accountState refused (${res.status}): ${res.text.slice(0, 300)}`);
+        refusal = res.text.slice(0, 300);
+        await stopped;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error(`Edge refused every accountState read as identity stopped: ${refusal}`);
 }
 
 test(`${J} #1 /support lists unassigned open and pending requests by score, "not a promise", with no due time`, async ({ page }) => {
@@ -297,8 +340,7 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
   // With identity unreachable the card says "unread", never "active".
   test.setTimeout(240_000);
   try {
-    tool('local-test-stack.mjs', 'stop', 'identity');
-    const dark = await desk('lead', 'query', 'accountState', { ticketId: ticket.id });
+    const dark = await accountStateAsIdentityStops(ticket.id);
     expect(dark).toEqual({ status: 'unread', reason: 'plane_dark' });
     // The console checks its founder with svc-identity before it reads anything, so with identity down the console
     // itself refuses the read; the card shows that refusal's code, and "unread".
