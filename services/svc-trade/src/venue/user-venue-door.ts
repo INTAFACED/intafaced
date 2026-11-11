@@ -492,12 +492,7 @@ export class UserVenueDoor {
     return (await this.market(venue, symbol)).kind;
   }
 
-  /**
-   * The worst price a market order on `symbol` may carry under the owner's price protection: the bound
-   * `assertMarketProtection` holds every market order to, so a caller that builds a market order (Convert's sell quote)
-   * prices it inside. The same refusals: blank cap `trade.slippage_cap_unset`, no best price on that side
-   * `trade.no_reference_price`.
-   */
+  /** The worst price `assertMarketProtection` allows a market order on `symbol`, with its refusals (Convert's quote). */
   async marketWorstPrice(symbol: string, side: 'buy' | 'sell'): Promise<Amount> {
     const venue = await this.venue();
     const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
@@ -517,9 +512,7 @@ export class UserVenueDoor {
    * A market order is bounded by the owner's price protection, here and not only in the browser: blank refuses
    * `trade.slippage_cap_unset`; no best price on the side it meets refuses `trade.no_reference_price` (never an
    * unbounded order); a worst price past the bound refuses `trade.venue.price_outside_protection`. A limit order is
-   * not touched. It bounds spot market orders, whose worst price the spot desk and Convert take from this protection; a
-   * perpetual's market order carries the worst price the person typed on the futures ticket (its slippage limit), which
-   * the venue holds it to.
+   * not touched. Spot only: a perpetual's market order carries the futures ticket's own typed worst price.
    */
   private async assertMarketProtection(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
     if (intent.type !== 'market') return;
