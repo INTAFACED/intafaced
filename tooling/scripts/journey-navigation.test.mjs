@@ -41,17 +41,25 @@ export function waitsBeforeNavigation(src) {
 
 // The rule on its own words.
 assert.deepEqual(
-  waitsBeforeNavigation(['  const feed = page.waitForResponse((r) => r.url().includes("x"));', "  await page.goto('/notice');", '  await feed;'].join('\n')),
+  waitsBeforeNavigation(
+    ['  const feed = page.waitForResponse((r) => r.url().includes("x"));', "  await page.goto('/notice');", '  await feed;'].join('\n'),
+  ),
   [{ line: 1, name: 'feed' }],
   'a wait made before a goto and awaited after it is found',
 );
 assert.deepEqual(
-  waitsBeforeNavigation(['  const r = page.waitForResponse(m);', '  await page.reload();', '  const body = await (await r).json();'].join('\n')),
+  waitsBeforeNavigation(
+    ['  const r = page.waitForResponse(m);', '  await page.reload();', '  const body = await (await r).json();'].join('\n'),
+  ),
   [{ line: 1, name: 'r' }],
   'a reload is a navigation too',
 );
 assert.deepEqual(
-  waitsBeforeNavigation(['  const r = page.waitForResponse(m);', "  await page.getByRole('button').click();", '  await r;', "  await page.goto('/x');"].join('\n')),
+  waitsBeforeNavigation(
+    ['  const r = page.waitForResponse(m);', "  await page.getByRole('button').click();", '  await r;', "  await page.goto('/x');"].join(
+      '\n',
+    ),
+  ),
   [],
   'a wait awaited before the navigation is fine',
 );
@@ -61,7 +69,9 @@ assert.deepEqual(
   'an awaited wait is fine',
 );
 assert.deepEqual(
-  waitsBeforeNavigation(['  const r = page.waitForResponse(m);', '  const [a] = await Promise.all([r, other]);', "  await page.goto('/x');"].join('\n')),
+  waitsBeforeNavigation(
+    ['  const r = page.waitForResponse(m);', '  const [a] = await Promise.all([r, other]);', "  await page.goto('/x');"].join('\n'),
+  ),
   [],
   'a wait handed to Promise.all before the navigation is fine',
 );
