@@ -90,6 +90,8 @@ const bankDefaults = {
   'activity.list': (input) => (input?.cursor ? activityPage2() : activityPage1()),
   // The session asks for the person's business accounts on every page (HM-navigation-01); this person has none.
   'business.list': () => [],
+  // Activity asks for the person's dormancy fee notices on open (J-bank-16 #7); this person has none, as svc-bank answers.
+  'dormancy.notices': () => [],
 };
 
 /**
