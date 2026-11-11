@@ -39,6 +39,7 @@ const market = (symbol: string, cap: string | null, kind: 'spot' | 'perpetual' =
   markRule: { known: false },
   tradingHours: { known: false },
   feed: { known: false },
+  session: { known: false },
 });
 const venue = { venueId: VENUE, markets: [market('BTC-USDC', '100'), market('BTC-PERP', '10', 'perpetual')] };
 

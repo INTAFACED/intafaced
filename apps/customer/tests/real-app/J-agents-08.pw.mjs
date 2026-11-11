@@ -1,22 +1,30 @@
-// World: none
+// World: restart
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { free, held, signIn } from './desk.mjs';
 import { api } from './stack.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { testDeposit, testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-agents-08, in the running app (docs/roadmap/journeys.json): give an agent an allowance and access I can revoke, and
 // let it place an order I can see. One test per step, titled "J-agents-08 #<n>", run in order on one verified TEST
-// account funded with TEST USDT, an agent of its own and two sub-accounts. The allowance is a limit, never a balance the
-// service holds; two draws that together exceed it admit one; an agent order holds funds on the one ledger and fills like
-// the person's own order, and the agent never holds withdraw scope.
-// #1 is built: the Access page's allow and deny rules, decided by svc-agents (AG-spend-02). The other steps fail at their
-// first missing part, quickly (UNBUILT):
-// - there is no sub-account access, allowance or agent order preview yet (AG-spend-02, -03, RC-agents-06);
-// - the starting point's two sub-accounts are named in #2 only; a customer cannot make sub-accounts in the app yet.
+// account, a TEST wallet whose own venue account on the stack's TEST venue simulator holds TEST USDC and two venue
+// sub-accounts, and an agent of its own. Every figure the TEST venue reports is TEST. The allowance is a limit, never a
+// balance the service holds; two draws that together exceed it admit one; the agent order is a venue order on the
+// person's own venue account, and the agent permission never withdraws.
+// Built: #1 the Access page's allow and deny rules, decided by svc-agents (AG-spend-02); #2 the Access page's account
+// access, the sub-accounts the agent may act on until when (AG-spend-02), listed from the venue's own record through
+// svc-trade's user-venue door (on for this file, LOCAL_STACK_USER_VENUE=on). The other steps fail at their first missing
+// part, quickly (UNBUILT): there is no allowance, agent permission or agent order preview yet (AG-spend-03, RC-agents-06).
+// The start's two sub-accounts are opened by the person's own wallet signing the venue's create-sub-account action on the
+// TEST venue directly: a customer cannot open plain sub-accounts in the app yet, so this is the journey's starting state,
+// not a step.
 const J = 'J-agents-08';
 const agents = agentsRun(J);
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
 
 const main = (page) => page.getByRole('main');
 const access = (page) => main(page).getByRole('region', { name: 'Access', exact: true });
@@ -35,16 +43,61 @@ async function agentId(page) {
   return id;
 }
 
-/** svc-agents' own gate for an agent action on the main account, as the person: its status and refusal code. */
-async function policyCheck(id, action) {
-  const input = encodeURIComponent(JSON.stringify({ id, action, account: 'main' }));
+/** svc-agents' own gate for an agent action on an account (`main` or `sub:<venue id>`), as the person: its status, refusal code and decision. */
+async function policyCheck(id, action, account = 'main') {
+  const input = encodeURIComponent(JSON.stringify({ id, action, account }));
   const { status, body } = await (await api(agents.account())).get(`/api/agents/trpc/own.policy.check?input=${input}`);
-  return { status, code: body?.error?.message ?? null };
+  return { status, code: body?.error?.message ?? null, outcome: body?.result?.data?.outcome ?? null };
 }
 
-test(`${J} starts: a verified TEST account funded with TEST USDT, an agent of its own and two sub-accounts`, async ({ page }) => {
+/** The account access svc-agents stores for the agent, as the person reads it. */
+async function storedAccess(id) {
+  const input = encodeURIComponent(JSON.stringify({ id }));
+  const { status, body } = await (await api(agents.account())).get(`/api/agents/trpc/own.access.get?input=${input}`);
+  expect(status, JSON.stringify(body).slice(0, 400)).toBe(200);
+  return body.result.data.grants;
+}
+
+/** This run's TEST wallet: the person's own, kept in the run's state from the start. */
+function wallet() {
+  const { walletKey } = agents.run.read();
+  if (!walletKey) throw new Error(`${J} starts made no wallet, so this step has no one to sign as`);
+  return privateKeyToAccount(walletKey);
+}
+const owner = () => wallet().address.toLowerCase();
+
+/** The person's wallet signs one action on its own main venue account, on the TEST venue directly. */
+async function ownVenueAction(intent) {
+  const account = await venueAccount(owner());
+  const prepared = await testVenue('/prepare', { account, signer: { role: 'owner', address: owner() }, intent });
+  expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
+  const t = prepared.body.typedData;
+  const signature = await wallet().signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await testVenue('/submit', {
+    prepared: prepared.body,
+    signature: { digest: prepared.body.digest, signature, signedBy: owner() },
+  });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+  expect(sent.body.accepted, JSON.stringify(sent.body)).toBe(true);
+  return sent.body;
+}
+
+/** The venue's own list of the wallet's sub-accounts, by name. */
+async function subAccounts() {
+  const { value } = await venueRecord(owner(), '/sub-accounts');
+  return Object.fromEntries(value.map((s) => [s.name, s.subAccount]));
+}
+
+test(`${J} starts: a verified TEST account, a TEST wallet with TEST USDC in its own venue account and two venue sub-accounts, and an agent of its own`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
-  await agents.start(page, 'ag08', '100');
+  const who = await agents.start(page, 'ag08', '100');
+  agents.run.write({ walletKey: testWalletKey() });
+  expect(await testDeposit(owner(), 'USDC', '100', `j-agents-08:${who.handle}:usdc`)).toBe(true);
+  for (const [n, name] of ['Sub-account A', 'Sub-account B'].entries())
+    await ownVenueAction({ kind: 'create_sub_account', name, subAccountKey: `j-agents-08:${who.handle}:sub:${n}` });
+  expect(Object.keys(await subAccounts()).sort()).toEqual(['Sub-account A', 'Sub-account B']);
   await signIn(page, agents.account());
   await createOwnAgent(page);
 });
@@ -84,7 +137,7 @@ test(`${J} #1 writes an allow and a deny rule for one action at different scopes
     for (const [effect, scope] of order) await add(effect, scope);
     await expect(access(page).getByTestId('effective-place-order')).toHaveText('Refused: a deny rule wins');
     // The service's own gate refuses it, not only the page's words: the check every agent action is to pass first.
-    expect(await policyCheck(id, 'place_order')).toEqual({ status: 403, code: 'agents.policy_denied' });
+    expect(await policyCheck(id, 'place_order')).toEqual({ status: 403, code: 'agents.policy_denied', outcome: null });
   }
   // The decision is stored, not the page's: a fresh load reads the same.
   await page.reload();
@@ -94,21 +147,62 @@ test(`${J} #1 writes an allow and a deny rule for one action at different scopes
   await expect(access(page).getByTestId('effective-cancel-order')).toHaveText('No rule: the agent’s other limits decide');
   await access(page).getByRole('checkbox', { name: 'Only allow what a rule allows' }).check();
   await expect(access(page).getByTestId('effective-cancel-order')).toHaveText('Refused: no rule allows it');
-  expect(await policyCheck(id, 'cancel_order')).toEqual({ status: 403, code: 'agents.policy_no_match' });
+  expect(await policyCheck(id, 'cancel_order')).toEqual({ status: 403, code: 'agents.policy_no_match', outcome: null });
 });
 
 test(`${J} #2 gives the agent access to sub-account A only: a tool naming sub-account B is refused; access has an expiry and a blank expiry refuses`, async ({
   page,
 }) => {
+  const subs = await subAccounts();
+  const { chainId } = await venueInfo();
+  await installTestWallet(page, { chainId, privateKey: agents.run.read().walletKey });
   await openOwnAgent(page, agents, 'Access');
-  const grant = access(page).getByRole('form', { name: 'Account access' });
-  await grant.getByRole('checkbox', { name: 'Sub-account A' }).check(UNBUILT);
+  const id = await agentId(page);
+  const section = main(page).getByRole('region', { name: 'Account access', exact: true });
+  await section.getByRole('button', { name: 'Connect TEST Wallet' }).click();
+  await expect(section.getByTestId('venue-wallet-address')).toHaveText(owner());
+  // The sub-accounts offered are the venue's own two for this wallet.
+  const grant = section.getByRole('form', { name: 'Account access' });
+  await expect(grant.getByRole('checkbox')).toHaveCount(2);
+  await grant.getByRole('checkbox', { name: 'Sub-account A', exact: true }).check();
+  await expect(grant.getByRole('checkbox', { name: 'Sub-account B', exact: true })).not.toBeChecked();
+  // A blank expiry refuses, naming it, and grants nothing.
+  await grant.getByRole('textbox', { name: /^Ends/ }).fill('');
   await grant.getByRole('button', { name: 'Grant access' }).click();
   await expect(grant.getByRole('alert')).toContainText('Set when this access ends.');
+  await expect(grant.getByRole('alert')).toContainText('agents.access_expiry_unset');
+  expect(await storedAccess(id)).toEqual([]);
+  // With an expiry of 7 days: A, and only A, is granted until then.
+  const before = Date.now();
   await grant.getByRole('textbox', { name: /^Ends/ }).fill('7');
   await grant.getByRole('button', { name: 'Grant access' }).click();
-  await expect(tableIn(access(page), 'Granted access')).toContainText('Sub-account A');
-  await expect(tableIn(access(page), 'Granted access')).not.toContainText('Sub-account B');
+  const granted = tableIn(section, 'Granted access');
+  await expect(granted.getByRole('row')).toHaveCount(2);
+  await expect(granted).toContainText('Sub-account A');
+  await expect(granted).not.toContainText('Sub-account B');
+  const stored = await storedAccess(id);
+  expect(stored.map((g) => ({ subAccount: g.subAccount, name: g.name, owner: g.owner }))).toEqual([
+    { subAccount: subs['Sub-account A'], name: 'Sub-account A', owner: owner() },
+  ]);
+  const week = 7 * 86_400_000;
+  expect(Date.parse(stored[0].endsAt) - Date.parse(stored[0].grantedAt)).toBe(week);
+  expect(Date.parse(stored[0].endsAt)).toBeGreaterThanOrEqual(before + week - 60_000);
+  expect(Date.parse(stored[0].endsAt)).toBeLessThanOrEqual(Date.now() + week + 60_000);
+  await expect(granted.getByTestId('access-ends').locator('time')).toHaveAttribute('datetime', stored[0].endsAt);
+  // A tool naming sub-account B is refused by the service's own gate; one naming A gets past access to the rules (#1's
+  // allow on every account, with rules required), so only B is shut.
+  expect(await policyCheck(id, 'place_order', `sub:${subs['Sub-account B']}`)).toEqual({
+    status: 403,
+    code: 'agents.access_account_denied',
+    outcome: null,
+  });
+  expect(await policyCheck(id, 'place_order', `sub:${subs['Sub-account A']}`)).toEqual({ status: 200, code: null, outcome: 'allowed' });
+  // Stored, not the page's: a fresh load reads the same.
+  await page.reload();
+  await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Access', exact: true }).click();
+  await expect(tableIn(main(page).getByRole('region', { name: 'Account access', exact: true }), 'Granted access')).toContainText(
+    'Sub-account A',
+  );
 });
 
 test(`${J} #3 asks the agent to place an order before any allowance exists: refused, no hold, and the page says an allowance is needed`, async ({

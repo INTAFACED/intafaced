@@ -28,7 +28,7 @@ jobs:
   money:
     name: Money browser checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -43,8 +43,16 @@ jobs:
       - name: Build the packages the customer app imports
         run: pnpm exec turbo run build --filter=@intafaced/customer^...
 
+      # The system libraries come from Ubuntu's package mirror, which is an outside host (failure it prevents: on 11 Nov
+      # run 43034265923 went red on main because `apt-get` could not resolve the mirror for 10 minutes, before any test
+      # ran; #7997). The install gets 5 minutes; if the mirror is down, the browser alone is installed and runs on the
+      # libraries GitHub's runner image already has. A missing library still fails the next step, never this one quietly.
       - name: Install the browser
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 8
+        run: |
+          if timeout --kill-after=30 300 pnpm exec playwright install --with-deps chromium; then exit 0; fi
+          echo "::warning::system libraries could not be installed (the Ubuntu mirror); installing the browser alone"
+          pnpm exec playwright install chromium
 
       - name: Money screen in the harness
         run: pnpm exec playwright test --config apps/customer/src/screens/money/money.playwright.config.mjs

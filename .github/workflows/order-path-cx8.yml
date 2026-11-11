@@ -91,7 +91,10 @@ jobs:
           PGPASSWORD: intafaced
           PGHOST: 127.0.0.1
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          # The runner image ships psql (main CI's test-infra action uses it with no install). Installing it from apt
+          # every run turned an apt mirror DNS outage into a red main (#7992); apt is only the fallback now.
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+          psql --version
           PGPASSWORD=intafaced psql -h 127.0.0.1 -U intafaced -d intafaced \
             -f tooling/infra/postgres-init/01-service-schemas.sql
           PGPASSWORD=intafaced psql -h 127.0.0.1 -U intafaced -d intafaced -c \
