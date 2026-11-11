@@ -704,6 +704,8 @@ No money moves here; the funding tick still posts every leg. The computer only d
 
 `trade.spot` in the admin console, or `TRADE_SPOT_ENABLED=false`.
 
+**Follows the custody switch** (project-state OWNER.md item 288; `docs/adr/2026-11-10-launch-money-model.md`): our own order book settles every fill as customer money in our ledger, which INTAFACED does not hold with `LEDGER_CUSTODY_LAYER` off. So `TRADE_SPOT_ENABLED` unset is on only with `LEDGER_CUSTODY_LAYER=on`, and set on with custody off refuses boot (`resolveOwnOrderBook`, ledger-client). Set off always loads. `docker-compose.apps.yml` defaults it off; the local TEST stack and the CX-8 boot give svc-trade svc-ledger's custody value.
+
 **Effect when off:** new orders are refused with `trade.spot_disabled` before anything is read or held. Cancels,
 reads and listings keep working, and `/ready` returns 503 so the load balancer takes the instance out of the
 order-placement rotation. Halting an individual market (`setMarketStatus`) is the finer-grained version and

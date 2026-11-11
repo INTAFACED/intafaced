@@ -35,8 +35,8 @@ async function mount(asked: { feeRevenue: unknown[]; other: number }) {
       feeRevenue: async (range: unknown) => {
         asked.feeRevenue.push(range);
         return [
-          { assetId: 'USDT', collected: amt('12.5'), returned: amt('0.25') },
-          { assetId: 'BTC', collected: amt('0.001'), returned: amt('0') },
+          { venueId: null, assetId: 'USDT', earned: amt('12.5'), returned: amt('0.25'), collected: null },
+          { venueId: 'test-venue', assetId: 'USDC', earned: amt('3'), returned: amt('0'), collected: amt('1') },
         ];
       },
     },
@@ -79,7 +79,7 @@ describe('feeRevenue door', () => {
     }
   });
 
-  it('answers svc-ops per asset as decimal strings, with the signed net', async () => {
+  it('answers svc-ops per venue and asset as decimal strings: earned, the signed net, and collected apart', async () => {
     const asked = { feeRevenue: [] as unknown[], other: 0 };
     const m = await mount(asked);
     const res = await m.send('svc-ops', '/trpc/feeRevenue', WINDOW);
@@ -88,8 +88,8 @@ describe('feeRevenue door', () => {
       from: WINDOW.from,
       to: WINDOW.to,
       assets: [
-        { assetId: 'USDT', collected: '12.5', returned: '0.25', net: '12.25' },
-        { assetId: 'BTC', collected: '0.001', returned: '0', net: '0.001' },
+        { venueId: null, assetId: 'USDT', earned: '12.5', returned: '0.25', net: '12.25', collected: null },
+        { venueId: 'test-venue', assetId: 'USDC', earned: '3', returned: '0', net: '3', collected: '1' },
       ],
     });
     expect(asked.feeRevenue).toEqual([{ from: new Date(WINDOW.from), to: new Date(WINDOW.to) }]);
@@ -98,7 +98,7 @@ describe('feeRevenue door', () => {
 
   it('carries a negative net when more went out than came in', () => {
     const out = serializeFeeRevenue({ from: new Date(WINDOW.from), to: new Date(WINDOW.to) }, [
-      { assetId: 'USDT', collected: amt('1'), returned: amt('3.5') },
+      { venueId: null, assetId: 'USDT', earned: amt('1'), returned: amt('3.5'), collected: null },
     ]);
     expect(out.assets[0]!.net).toBe('-2.5');
   });

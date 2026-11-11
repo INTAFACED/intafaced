@@ -832,7 +832,7 @@ function main() {
     '',
     `### Money steps that passed only on their retry: ${verdict.moneyFlaky.length}`,
     '',
-    'A money step that fails, then passes on its retry, on main, stops only its own journeys (project-state OWNER 278): it stays red here, is never set aside and never counts as proven, Main trust opens a `flaky` issue for its area, and the seal holds only the pull requests in its area. Failing outright in two runs in a row still reverts.',
+    'A money step that fails, then passes on its retry, on main, stops only its own journeys (project-state OWNER 278): it stays red here, is never set aside and never counts as proven, Main trust opens a `flaky` issue for its area, and the seal holds only the pull requests in its area. Failing outright, on every try, still starts its revert.',
     '',
     ...(verdict.moneyFlaky.length
       ? verdict.moneyFlaky.map(

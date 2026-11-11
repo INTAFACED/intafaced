@@ -10,10 +10,10 @@ name: Main bisect
 # revert job as the journeys opens that commit's revert, so a red CI on main is undone within OWNER 180's 2 hours too.
 # It changes no test. See tooling/ci/bisect-main.mjs.
 #
-# Real-app journeys (`journeys`): when a journey step that passed on main failed outright in two runs in a row (Main
-# trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
-# and the first failing commit that broke it (one commit; else the commits whose files reach the failing journeys; else
-# a binary search that runs those journey files on a stack), and opens its revert with squash auto-merge, through the
+# Real-app journeys (`journeys`): when a journey step that passed in the run before failed outright in this one on main
+# (Main trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
+# and the first failing commit that broke it (the commits whose files reach the failing journeys, each proven by running
+# those journey files on a stack, by binary search when there are several), and opens its revert with squash auto-merge, through the
 # normal merge seal (OWNER 249 (3): "a red main is reverted"). Never more than one revert per red, never a revert of a
 # revert, never a push to main. The revert opens with a token of the App intafaced-mac-agents, minted from its key in
 # the `ci-review` environment (INTAFACED_APP_KEY, the key ci-review.yml mints with), whose deployment rule allows main
@@ -150,7 +150,7 @@ jobs:
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs find
 
-  # Several commits can reach the failing journeys: run those journey files on them by binary search, each probe on a
+  # Commits that can reach the failing journeys, even one: run those journey files on them by binary search, each probe on a
   # fresh stack set up as a Real-app journeys shard sets it up. Old commits run as code here, so no GitHub token.
   revert-probe:
     name: 'Journeys revert: probe the candidates'
