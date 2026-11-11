@@ -12,7 +12,6 @@ import {
   STACK_FILE,
   checkoutJourneyTexts,
   journeyTouch,
-  moneyPathOf,
   namedInputs,
   namedJourneyIds,
   pathKind,
@@ -326,32 +325,21 @@ test('planted 2: a product pull request whose run misses a journey it touches fa
   assert.equal(both.ok, true, both.lines.join('\n'));
 });
 
-// theo-01 part 1 (OWNER 295): a product pull request that names a journey is judged on that journey, its changed journey
+// theo-01 part 1 (OWNER 296): a product pull request that names a journey is judged on that journey, its changed journey
 // files and the map's always-run list, the same list its run is given (journey-touch.mjs --reach with TITLE and
 // GITHUB_HEAD_REF); main's full run after the merge judges the rest.
 const HEAD_FILES = new Set(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs', 'J-wallet-05.pw.mjs', 'J-agents-12.pw.mjs']);
 const ALWAYS_MAP = { mode: 'reach', full: { 'J-agents-12.pw.mjs': 'no run speaks for it', 'J-gone-01.pw.mjs': 'removed since' } };
-// svc-bank is money code here; apps/customer is not.
-const isMoney = (p) => p.startsWith('services/svc-bank/') || /(^|\/)package\.json$/.test(p);
-const namedIo = {
-  journeyFiles: async () => HEAD_FILES,
-  reachMap: async () => ALWAYS_MAP,
-  moneyCode: async (paths) => paths.some(isMoney),
-};
-const product = ['apps/customer/src/features/bank/Cards.tsx', 'apps/customer/src/features/bank/Limits.tsx'];
-const withMoney = [...product, 'services/svc-bank/src/cards.ts'];
+const namedIo = { journeyFiles: async () => HEAD_FILES, reachMap: async () => ALWAYS_MAP };
+const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
 
 test('journeyTouch, named: product code runs the named journey and the always-run list; another full path or no name stays full', () => {
   const named = namedInputs({
     ids: namedJourneyIds({ title: 'svc-bank: cards (J-bank-13 #1 #2)' }),
     journeyFiles: HEAD_FILES,
     map: ALWAYS_MAP,
-    money: isMoney,
   });
-  assert.deepEqual(
-    { ...named, money: undefined },
-    { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'], always: ['J-agents-12.pw.mjs'], money: undefined },
-  );
+  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'], always: ['J-agents-12.pw.mjs'] });
   const t = journeyTouch([...product, 'apps/customer/tests/real-app/J-bank-14.pw.mjs'], () => true, null, named);
   assert.equal(t.mode, 'files');
   assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
@@ -360,27 +348,6 @@ test('journeyTouch, named: product code runs the named journey and the always-ru
   assert.equal(journeyTouch([...product, 'tooling/scripts/local-stack-services/bank.mjs'], () => true, null, named).mode, 'full');
   assert.equal(journeyTouch(product, () => true, null, null).mode, 'full', 'no name: product code is full');
   assert.equal(journeyTouch(['docs/x.md'], () => true, null, named).mode, 'none', 'a name adds nothing to a change that reaches none');
-  // Money code keeps the map's rules: with no map it is full, so the whole change is; with a map that speaks for it,
-  // its journeys join the named list. Unknown money (no predicate) counts as money.
-  assert.equal(journeyTouch(withMoney, () => true, null, named).mode, 'full', 'money code with no map stays full');
-  assert.match(
-    journeyTouch(withMoney, () => true, null, named)
-      .full.map((x) => x.path)
-      .join(' '),
-    /svc-bank/,
-  );
-  assert.equal(journeyTouch(product, () => true, null, { ...named, money: null }).mode, 'full', 'no money rule: nothing narrows');
-  assert.equal(
-    journeyTouch(['services/svc-bank/package.json', ...product], () => true, null, { ...named, money: moneyPathOf(new Set()) }).mode,
-    'full',
-    'a package.json is money',
-  );
-  assert.equal(moneyPathOf(new Set(['services/svc-bank']))('services/svc-bank/src/a.ts'), true);
-  assert.equal(moneyPathOf(new Set(['services/svc-bank']))('apps/customer/src/a.tsx'), false);
-  assert.equal(moneyPathOf(null)('apps/customer/src/a.tsx'), true);
-  // Security code is never narrowed by name either.
-  assert.equal(moneyPathOf(new Set())('packages/auth/src/session.ts'), true);
-  assert.equal(moneyPathOf(new Set())('packages/db/src/pool.ts'), true);
   // Names read from the title or the branch, in the seal's case; a name with no file at the head, or unreadable files, is no name.
   assert.deepEqual(namedJourneyIds({ title: 'x', branch: 'agents-j-agents-19-sign' }), ['J-agents-19']);
   assert.deepEqual(namedJourneyIds({ title: 'test(customer): J-Portfolio-05 #1 (#7907)', branch: 'fix/7907' }), ['J-portfolio-05']);
@@ -452,19 +419,6 @@ test('planted 3 (theo-01): a named-journey product pull request merges on its ow
     io: namedIo,
   });
   assert.equal(lock.ok, false);
-  // Money code in the same change keeps the map's rules: no map here speaks for it, so the full run.
-  const moneyToo = await seal({ title, files: withMoney, runs: [run(1)], reports: { 1: { states, ran } }, io: namedIo });
-  assert.equal(moneyToo.ok, false, 'a named PR that changes money code is not narrowed by its name');
-  assert.match(moneyToo.lines.join('\n'), /svc-bank/);
-  // No money rule to read: nothing narrows.
-  const noRule = await seal({
-    title,
-    files: product,
-    runs: [run(1)],
-    reports: { 1: { states, ran } },
-    io: { ...namedIo, moneyCode: undefined },
-  });
-  assert.equal(noRule.ok, false);
   // The head's journey files can't be read: no narrowing.
   const blind = await seal({
     title,
@@ -524,7 +478,7 @@ test('stackImporters: by import, split path, comment or a helper, and only that 
 
 test('journeyTouch, stack (theo-01 part 2): a named change to a stack file runs the journeys importing it; anything else stays full', () => {
   const importers = (ps) => stackImporters(ps, IMPORTS);
-  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, money: () => false, importers });
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, importers });
   const t = journeyTouch([STACK, ...product], () => true, null, named);
   assert.equal(t.mode, 'files');
   assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']);
@@ -547,10 +501,8 @@ test('journeyTouch, stack (theo-01 part 2): a named change to a stack file runs 
       `${why}: the stack file is listed too`,
     );
   }
-  const money = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, money: () => true, importers });
-  assert.equal(journeyTouch([STACK, ...product], () => true, null, money).mode, 'full', 'money code the map cannot speak for');
   assert.equal(journeyTouch([STACK], () => true, null, null).mode, 'full', 'no name');
-  const blind = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, money: () => false });
+  const blind = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP });
   assert.equal(journeyTouch([STACK], () => true, null, blind).mode, 'full', 'journey files unreadable');
 });
 
@@ -563,7 +515,7 @@ test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the l
   const opts = { title, files, runs: [run(1)], io };
   const good = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => clean });
   assert.equal(good.ok, true, good.lines.join('\n'));
-  assert.match(good.lines.join('\n'), /journey file\(s\) importing them/);
+  assert.match(good.lines.join('\n'), /journey file\(s\) using them/);
   const short = await seal({ ...opts, reports: { 1: { states, ran: ran.slice(0, 2) } }, verdict: async () => clean });
   assert.equal(short.ok, false, 'a run without the importer is held');
   assert.match(short.lines.join('\n'), /ran J-wallet-05\.pw\.mjs/);

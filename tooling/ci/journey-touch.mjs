@@ -18,19 +18,18 @@
  *     own full runs recorded reaching it, when no full path above is in the change and the map can speak for every
  *     product path in it (shared setup, scripts, admin-app paths, packages it can't map, a switched-off, missing or
  *     stale map: full). Its journeys join the `files` list, and `reach` says why;
- *   - named (theo-01 part 1, project-state#2065, OWNER 295): a pull request whose title or branch names a journey
+ *   - named (theo-01 part 1, project-state#2065, OWNER 296): a pull request whose title or branch names a journey
  *     (`J-<area>-<n>`, namedJourneyIds) that has a journey file at its head is judged on that journey. Its product paths
- *     outside money code (moneyPathOf) go to neither the full run nor the map: it runs the journeys it names, every
- *     journey test file it changes, and the map's always-run list (the map's `full` journeys, which no recorded run
- *     speaks for). Its money paths keep the map's rules (their journeys join the list, else the full run), until the
- *     CI review's brief records the owner's words for narrowing a money check this way. Every other full path above
+ *     go to neither the full run nor the map: it runs the journeys it names, every journey test file it changes, and the
+ *     map's always-run list (the map's `full` journeys, which no recorded run speaks for). Every other full path above
  *     still makes it full. Main runs every journey after every merge and is the backstop: a break of another journey is
  *     caught there and reverted (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main
  *     after a merge, a red main is reverted"). A product pull request that names no journey keeps the rules above;
- *   - stack (theo-01 part 2, blueprint file 10 item 6): a named pull request's change to a service's own stack file
- *     (STACK_FILE: `local-stack-services/<service>.mjs`, `test-owner-values/<service>.json`) also runs the journeys whose
- *     tests import it (stackImporters), when nothing else makes it full. Without a name, or when the journey files can't
- *     be read, it stays full, and stack-wide files (local-test-stack.mjs and the rest of SHARED_SETUP) always are;
+ *   - stack (theo-01 part 2, OWNER 296: "A change to one service's own test-stack file runs the journeys that use that
+ *     file"): a named pull request's change to a service's own stack file (STACK_FILE: `local-stack-services/<service>.mjs`,
+ *     `test-owner-values/<service>.json`) also runs the journeys whose tests use it (stackImporters), when nothing else
+ *     makes it full. Without a name, or when the journey files can't be read, it stays full, and stack-wide files
+ *     (local-test-stack.mjs and the rest of SHARED_SETUP) always are;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -53,8 +52,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { JOURNEY_TEST, isSharedSetup, packageOf } from './journey-seal.mjs';
-import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
+import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
@@ -166,9 +164,8 @@ export function namedJourneyIds({ title = '', branch = '' } = {}) {
  * names no journey with a file at its head (then the other rules decide). `journeyFiles`: the journey file names at the
  * head (a Set), or null when they can't be read (then null: fail to the other rules, never fewer). `map`: the
  * touched-journeys map the run chose (journey-reach-map.mjs newerMap), whose `full` keys are the always-run list.
- * `importers(paths)`: the journey files importing those stack files, or null when they can't be read (then full).
  */
-export function namedInputs({ ids, journeyFiles, map, money = null, importers = null }) {
+export function namedInputs({ ids, journeyFiles, map, importers = null }) {
   if (!ids?.length || !journeyFiles) return null;
   const want = new Set(ids);
   const files = [...journeyFiles].filter((f) => want.has(JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1])).sort();
@@ -176,28 +173,8 @@ export function namedInputs({ ids, journeyFiles, map, money = null, importers = 
   const always = Object.keys(map?.full ?? {})
     .filter((f) => journeyFiles.has(f))
     .sort();
-  return { ids: [...ids], files, always, money, ...(importers ? { importers } : {}) };
+  return { ids: [...ids], files, always, ...(importers ? { importers } : {}) };
 }
-
-/**
- * Whether a product path is money code, as the merge seal reads it (journey-seal.mjs moneyCode; AGENTS.md "How work
- * flows" 8): in a folder journey-verdict.mjs moneyCodeDirs names from the checkout's manifests, or any package.json (a
- * dependency on ledger-client it adds or drops). Null manifests (unreadable): everything is money, so nothing narrows.
- */
-export const moneyPathOf = (dirs) => (p) =>
-  !dirs || /(^|\/)package\.json$/.test(p) || dirs.has(packageOf(p)) || SECURITY_DIRS.includes(packageOf(p));
-
-/** Security code (the CI review's brief, 2026-11-06 entry; OWNER 277 keeps checks on it the owner's): never narrowed by
- *  name either. svc-edge, svc-ops, svc-protocol and svc-fix are in moneyCodeDirs already. */
-export const SECURITY_DIRS = [
-  'services/svc-edge',
-  'services/svc-ops',
-  'services/svc-protocol',
-  'services/svc-fix',
-  'packages/auth',
-  'packages/config',
-  'packages/db',
-];
 
 /** A service's own stack file: what `local:stack` starts that one service with. A test file beside them, or any other
  *  name, isn't one. */
@@ -210,8 +187,8 @@ const joinedPaths = (t) =>
     .replace(/\/[ \t]*\r?\n[ \t]*(?:\/\/|\*)[ \t]*/g, '/');
 
 /**
- * The journey files whose tests import a changed stack file (blueprint file 10 item 6), from `texts`: the head's .mjs
- * files in the real-app folder, name to text. A file imports it when it names it by path anywhere, in code or in a
+ * The journey files whose tests use a changed stack file (OWNER 296; blueprint file 10 item 6), from `texts`: the head's
+ * .mjs files in the real-app folder, name to text. A file uses it when it names it by path anywhere, in code or in a
  * comment (most journeys that lean on a stack value say so in a comment and restart the service, and never `import` it;
  * running one too many is safe), or imports a helper in that folder that does.
  */
@@ -262,7 +239,7 @@ function kindOf(p) {
  * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
  * reach?: [lines] }. `named`: what namedInputs gives for a pull request that names a journey, or null; with it, product
  * paths run the named journeys and the always-run list instead of the full suite or the map, and `named` says why. With
- * it, a service's own stack file adds the journeys that import it, when nothing else is full (`stack` lists those paths,
+ * it, a service's own stack file adds the journeys that use it, when nothing else is full (`stack` lists those paths,
  * `importers` those journeys); otherwise it is full like any other.
  */
 export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
@@ -279,20 +256,17 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   }
   let because;
   let byName;
-  // Judged on the journeys it names (theo-01 part 1): its product paths outside money code run the named journeys and
-  // the always-run list. Money code (named.money) keeps the map's rules below, its journeys added to the named ones:
-  // the CI review's brief records no owner words yet that narrow a money check this way (OWNER 277).
-  const money = named ? product.filter((p) => named.money?.(p) ?? true) : product;
-  if (product.length && named && !full.length && money.length < product.length) {
-    for (const f of [...named.files, ...named.always]) files.add(f);
-    byName = `it names ${named.ids.join(', ')}, so its ${product.length - money.length} product path(s) outside money code run ${named.files.join(', ')} and the ${named.always.length} always-run journey file(s), and main's full run judges the rest`;
-  }
-  if (!money.length) {
-    // every product path is narrowed by name (or there is none)
-  } else if (!full.length && reach) {
+  if (product.length && named) {
+    // Judged on the journeys it names (theo-01 part 1); another full path still makes the whole change full.
+    if (full.length) for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+    else {
+      for (const f of [...named.files, ...named.always]) files.add(f);
+      byName = `it names ${named.ids.join(', ')}, so its ${product.length} product path(s) run ${named.files.join(', ')} and the ${named.always.length} always-run journey file(s), and main's full run judges the rest`;
+    }
+  } else if (product.length && !full.length && reach) {
     const sel = reachSelect({
       map: reach.map,
-      paths: money,
+      paths: product,
       behind: reach.behind,
       atHead: reach.journeyFiles,
       subscribes: reach.subscribes,
@@ -301,35 +275,20 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
     if (sel.mode === 'files') {
       for (const f of sel.files) files.add(f);
       because = sel.because.map(printable);
-    } else for (const p of money) full.push({ path: printable(p), why: printable(sel.why) });
-  } else for (const p of money) full.push({ path: printable(p), why: PRODUCT });
-  // Decided last: money paths the map can't speak for make the run full, and then the stack files are full with it.
+    } else for (const p of product) full.push({ path: printable(p), why: printable(sel.why) });
+  } else for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+  // Decided last, so any other full path, product code included, makes the stack files full with it.
   const importers = stack.length && !full.length ? (named?.importers?.(stack.map((x) => x.path)) ?? null) : null;
   if (importers) {
     for (const f of [...named.files, ...named.always, ...importers]) files.add(f);
-    byName = `${byName ? `${byName}; ` : ''}it names ${named.ids.join(', ')}, so its ${stack.length} stack file(s) run ${named.files.join(', ')}, the ${named.always.length} always-run journey file(s) and the ${importers.length} journey file(s) importing them`;
+    byName = `${byName ? `${byName}; ` : ''}it names ${named.ids.join(', ')}, so its ${stack.length} stack file(s) run ${named.files.join(', ')}, the ${named.always.length} always-run journey file(s) and the ${importers.length} journey file(s) using them`;
   } else full.push(...stack);
   full.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const list = [...files].sort();
   const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
-  if (full.length) return out;
-  return {
-    ...out,
-    ...(because ? { reach: because } : {}),
-    ...(byName ? { named: printable(byName) } : {}),
-    ...(importers ? { stack: stack.map((x) => x.path), importers } : {}),
-  };
-}
-
-/** The journey files in a checkout's real-app folder, or null when it can't be listed. */
-export function checkoutJourneyFiles(root = '.') {
-  try {
-    return new Set(
-      readdirSync(`${root}/apps/customer/tests/real-app`).filter((f) => JOURNEY_TEST.test(`apps/customer/tests/real-app/${f}`)),
-    );
-  } catch {
-    return null;
-  }
+  if (byName && !full.length)
+    return { ...out, named: printable(byName), ...(importers ? { stack: stack.map((x) => x.path), importers } : {}) };
+  return because && !full.length ? { ...out, reach: because } : out;
 }
 
 /** The .mjs files directly in a checkout's real-app folder, name to text, or null when they can't be read. */
@@ -340,6 +299,17 @@ export function checkoutJourneyTexts(root = '.') {
       readdirSync(dir)
         .filter((f) => f.endsWith('.mjs'))
         .map((f) => [f, readFileSync(`${dir}/${f}`, 'utf8')]),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** The journey files in a checkout's real-app folder, or null when it can't be listed. */
+export function checkoutJourneyFiles(root = '.') {
+  try {
+    return new Set(
+      readdirSync(`${root}/apps/customer/tests/real-app`).filter((f) => JOURNEY_TEST.test(`apps/customer/tests/real-app/${f}`)),
     );
   } catch {
     return null;
@@ -431,19 +401,14 @@ async function main() {
     map = newerMap(built, loadMap());
     reach = { map, behind: behindFromApi(map), journeyFiles: checkoutJourneyFiles(), subscribes: subscribesIn() };
   }
-  let dirs = null;
-  try {
-    dirs = moneyCodeDirs(manifestsAt('.'));
-  } catch {}
   const texts = paths.some((p) => STACK_FILE.test(p)) ? checkoutJourneyTexts() : null;
   const named = namedInputs({
     ids,
     journeyFiles: checkoutJourneyFiles(),
     map: map ?? loadMap(),
-    money: moneyPathOf(dirs),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
-  const t = journeyTouch(paths, atHead, reach, named);
+  const t = journeyTouch(paths, atHead, named ? null : reach, named);
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
   if (t.mode === 'full') {

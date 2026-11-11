@@ -17,8 +17,12 @@ import {
   opsCapitalBreachKey,
   opsCapitalThresholdFields,
   opsCapitalThresholdTargetId,
+  type BankPartnerReserves,
   type LedgerOwnFunds,
+  type LedgerOwnFundsPlace,
   type OpsCapitalBuffer,
+  type OpsCapitalPlaceOutside,
+  type OpsCapitalPlaces,
   type OpsCapitalOwnFunds,
   type OpsCapitalScenario,
   type OpsCapitalScenarioInput,
@@ -66,6 +70,64 @@ export function composeOwnFunds(read: SourceRead<LedgerOwnFunds>): OpsCapitalOwn
       .map(([assetId, s]) => ({ assetId, amount: formatAmount(s.amount), accounts: s.accounts })),
     accounts: read.value.accounts,
   };
+}
+
+/**
+ * Our own funds at each named place (project-state OWNER.md item 288; b2 change 3): the ledger's figure beside the
+ * outside figure it is checked against at this read, with that figure's own time. A builder account is checked against
+ * the venue's own record of it; a partner reserve against the partner's report of it. A place no reader reaches, a
+ * figure in another asset, or a read that failed says so in words: never a zero, and never our own read time as theirs.
+ */
+export function composePlaces(
+  read: SourceRead<LedgerOwnFunds>,
+  venues: OpsCapitalVenues,
+  reserves: SourceRead<BankPartnerReserves>,
+): OpsCapitalPlaces {
+  if (!read.ok) return { status: 'unknown', code: read.code, message: read.message };
+  return {
+    status: 'read',
+    asOf: read.value.asOf,
+    places: read.value.places.map((p) => ({ ...p, outside: outsideOf(p, venues, reserves) })),
+  };
+}
+
+function outsideOf(
+  place: LedgerOwnFundsPlace,
+  venues: OpsCapitalVenues,
+  reserves: SourceRead<BankPartnerReserves>,
+): OpsCapitalPlaceOutside {
+  if (place.kind === 'treasury_wallet') {
+    return { status: 'not_connected', message: 'No chain reader reports INTAFACED’s treasury wallets to this console yet.' };
+  }
+  if (place.kind === 'venue_builder_account') {
+    if (venues.status !== 'read') return { status: 'not_connected', message: venues.message };
+    const venue = venues.venues.find((v) => v.venueId === place.placeId);
+    if (!venue) return { status: 'not_connected', message: `No venue adapter reports a builder account at ${place.placeId}.` };
+    const source = `the venue’s own record for ${venue.builderAccount}${venue.test ? ' (TEST)' : ''}`;
+    if (venue.balance.status !== 'read') return { status: 'unknown', code: venue.balance.code, message: venue.balance.message };
+    if (venue.balance.assetId !== place.assetId) {
+      return {
+        status: 'not_connected',
+        message: `${venue.displayName} reports the builder account in ${venue.balance.assetId}, not ${place.assetId}.`,
+      };
+    }
+    return { status: 'read', source, amount: venue.balance.amount, asOf: venue.balance.asOf };
+  }
+  if (!reserves.ok) return { status: 'unknown', code: reserves.code, message: reserves.message };
+  const partner = reserves.value.partners.find((p) => p.partner === place.placeId);
+  if (!partner) return { status: 'not_connected', message: `No partner adapter reports a reserve at ${place.placeId}.` };
+  const source = `${partner.label}${partner.test ? ' (TEST)' : ''}`;
+  if (partner.reserve.status === 'none') return { status: 'none', source };
+  if (partner.reserve.status === 'not_known') {
+    return { status: 'unknown', code: OPS_CAPITAL_SOURCE_UNAVAILABLE, message: `${partner.label} does not say how much it holds of ours.` };
+  }
+  if (partner.reserve.assetId !== place.assetId) {
+    return {
+      status: 'not_connected',
+      message: `${partner.label} reports its reserve in ${partner.reserve.assetId}, not ${place.assetId}.`,
+    };
+  }
+  return { status: 'read', source, amount: partner.reserve.amount, asOf: partner.reserve.asOf };
 }
 
 function thresholdView(stored: StoredThreshold | undefined): OpsCapitalThreshold {
@@ -163,6 +225,7 @@ export class CapitalDesk {
       asOf: at.toISOString(),
       period: day,
       ownFunds,
+      places: composePlaces(funds, venues, reserves),
       venues,
       reserves: reserves.ok
         ? { status: 'read', asOf: reserves.value.asOf, partners: reserves.value.partners }

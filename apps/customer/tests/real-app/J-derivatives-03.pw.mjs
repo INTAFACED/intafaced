@@ -17,9 +17,23 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
 
-/** The TEST maker's perp quotes held where they rest, or quoted again (local-test-market.mjs hold, release). */
-const hold = () => tool('local-test-market.mjs', 'hold', SYMBOL);
-const release = () => tool('local-test-market.mjs', 'release', SYMBOL);
+/**
+ * The book that marks the perp and rates its margin tier: the stack pairs the perp with this spot book
+ * (TRADE_FUTURES_INDEX_SPOT_MARKETS in local-stack-services/trade.mjs; mark-from-spot-index.ts).
+ */
+const MARK_BOOK = 'BTC/USDT';
+/**
+ * The TEST maker's quotes on the mark's book and on the perp's own held where they rest, or quoted again
+ * (local-test-market.mjs hold, release).
+ */
+const hold = () => {
+  tool('local-test-market.mjs', 'hold', MARK_BOOK);
+  tool('local-test-market.mjs', 'hold', SYMBOL);
+};
+const release = () => {
+  tool('local-test-market.mjs', 'release', SYMBOL);
+  tool('local-test-market.mjs', 'release', MARK_BOOK);
+};
 
 function account() {
   const who = run.read().account;
@@ -197,11 +211,13 @@ test(`${J} #4 attaches a take profit and a stop loss to an opening order: the or
   page,
 }) => {
   test.setTimeout(120_000);
-  // The margin tier is rated against the book's depth, read again when the order is placed (risk-tier-confirm.ts). The
-  // TEST maker re-places its perp ladder every cycle, so a cycle between the confirm's last check and the placement can
-  // move the tier the trader just accepted, and the order is refused trade.risk_limit_confirm_required (Real-app
-  // journeys run 42440306635, shard 21). Held, the ladder rests as it is and nothing else crosses it; the order still
-  // fills against it. Released after this step.
+  // The margin tier is rated on the mark and the depth of the perp's mark book, BTC/USDT spot, read again when the order
+  // is placed (risk-tier-confirm.ts, mark-from-spot-index.ts). The TEST maker re-quotes that book every cycle, so a
+  // cycle between the confirm's last check and the placement can move the tier the trader just accepted, and the order
+  // is refused trade.risk_limit_confirm_required (Real-app journeys run 42440306635, shard 21). Holding only the perp's
+  // own ladder left the mark book walking: the confirm showed moved numbers, and the order placed after it was refused
+  // the same way (run 42542972906, shard 26, #7625). Both held, the mark, the depth and the perp ladder rest as they
+  // are and nothing else crosses them; the order still fills against the perp ladder. Released after this step.
   hold();
   const me = await api(account());
   const { positionId } = run.read();

@@ -6,12 +6,16 @@
  * no runner and queues no shard ahead of main's. Main's run, once its shards are queued (its `Let deferred runs go`
  * job, `--release`), re-runs the newest deferred run of each branch, whose jobs then queue behind main's. It never gives
  * up on main (a deferred run starts only when main's shards are queued), never waits on a runner, never fails a run and
- * never touches a main run; an unreadable API lets the run go on at once. A hand-dispatched full run off main
+ * never touches a main run; an unreadable API lets the run go on at once. A targeted run (TARGETED: the touch job gave it
+ * journey files, so the planner packs it into at most 10 shards, journey-shards.mjs TARGETED_MAX_SHARDS) never waits for
+ * main: only a full run off main does (theo-01 part 0, project-state#2065, 11 Nov 2026: 20 of the 100 newest pull
+ * request runs were deferred on their first attempt and re-run a median 39 minutes later, and the approved design had
+ * struck main-first priority; main's 32 shards lose at most 10 runners to one such run). A hand-dispatched full run off main
  * (DISPATCH_FULL) is also deferred while DISPATCH_CAP other hand-dispatched full runs run, and each of those, when it
  * ends, lets the deferred ones go too.
  *
  *   node tooling/ci/main-first.mjs --self-test
- *   GH_TOKEN=... REPO=owner/name [DISPATCH_FULL=true RUN_ID=…] node tooling/ci/main-first.mjs   (writes deferred=true|false)
+ *   GH_TOKEN=... REPO=owner/name [TARGETED=true] [DISPATCH_FULL=true RUN_ID=…] node tooling/ci/main-first.mjs   (writes deferred=true|false)
  *   GH_TOKEN=... REPO=owner/name node tooling/ci/main-first.mjs --release                          (re-runs deferred runs)
  *
  * Why it never gives up (project-state#1906, the guide's round 2, 9 Nov 2026): with a 30-minute limit, branch runs went
@@ -139,9 +143,10 @@ const get = (repo, path, token) => api(repo, path, token);
  * (dispatchBusy), or null when this is not a hand-dispatched full run. A re-run (`attempt` past 1) is one the release let
  * go once main's shards were queued, and main's shards are then exactly the jobs still waiting, so it doesn't wait for
  * main again (it would defer every time, and nothing would release it until the next main run). The cap still holds.
+ * A targeted run (`targeted`) never waits for main either: main's wait is for full runs only.
  */
-export async function deferWhy({ attempt = 1, main, cap = null }) {
-  const why = Number(attempt) > 1 ? null : await main();
+export async function deferWhy({ attempt = 1, main, cap = null, targeted = false }) {
+  const why = targeted || Number(attempt) > 1 ? null : await main();
   return why || (cap ? await cap() : null);
 }
 
@@ -251,6 +256,10 @@ async function selfTest() {
   if (!(await deferWhy({ attempt: '2', main: mainBusy, cap: async () => 'the cap is full' }))) fail('a released dispatch skipped the cap');
   if (!(await deferWhy({ attempt: '1', main: mainBusy }))) fail("a first attempt didn't wait for main");
   if (await deferWhy({ attempt: '1', main: async () => null })) fail('deferred with nothing waiting');
+  // A targeted run goes ahead while main waits, and doesn't even read main's runs; a full one still waits.
+  mainRead = 0;
+  if ((await deferWhy({ attempt: '1', main: mainBusy, targeted: true })) !== null || mainRead) fail('a targeted run waited for main');
+  if (!(await deferWhy({ attempt: '1', main: mainBusy, targeted: false }))) fail("a full run didn't wait for main");
   // The release: the newest deferred run per branch and event, completed, recent; never main, never a superseded one.
   const now = Date.parse('2026-11-09T11:00:00Z');
   const at = (m) => new Date(now - m * 60_000).toISOString();
@@ -290,7 +299,7 @@ async function selfTest() {
 
 async function main() {
   if (process.argv.includes('--self-test')) return selfTest();
-  const { GH_TOKEN, REPO, DISPATCH_FULL, RUN_ID, RUN_ATTEMPT, GITHUB_OUTPUT } = process.env;
+  const { GH_TOKEN, REPO, DISPATCH_FULL, RUN_ID, RUN_ATTEMPT, TARGETED, GITHUB_OUTPUT } = process.env;
   if (!GH_TOKEN || !REPO) return console.log('::notice::main-first has no GH_TOKEN or REPO; going on');
   const jobsOf = async (id) => (await get(REPO, `/actions/runs/${id}/jobs?filter=latest&per_page=100`, GH_TOKEN))?.jobs;
   if (process.argv.includes('--release')) {
@@ -302,6 +311,7 @@ async function main() {
   const read = () =>
     deferWhy({
       attempt: RUN_ATTEMPT,
+      targeted: TARGETED === 'true',
       main: async () => {
         const lists = await Promise.all(
           ['queued', 'in_progress'].map((s) =>

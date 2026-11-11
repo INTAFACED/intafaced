@@ -51,12 +51,11 @@
  * a journeys run executes or reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
  * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
  * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.) A pull request whose
- * title or branch names a journey with a file at its head is held, for its product code outside money code, to that journey, its changed
+ * title or branch names a journey with a file at its head is held, for its product code, to that journey, its changed
  * journey files and the map's always-run list (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1,
- * project-state#2065, OWNER 295), the same list its journeys run was given; main's full run after the merge judges the
- * rest and a red main is reverted (OWNER 249 (3)). Its money paths keep the map or the full run. A service's own stack
- * file in such a pull request adds the journeys that import it, to the run and to this list (theo-01 part 2, blueprint
- * file 10 item 6). Every other full path still needs the full run.
+ * project-state#2065, OWNER 296), the same list its journeys run was given; main's full run after the merge judges the
+ * rest and a red main is reverted (OWNER 249 (3)). A service's own stack file in such a pull request adds the journeys
+ * that use it, to the run and to this list (theo-01 part 2, OWNER 296). Every other full path still needs the full run.
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
  * decision 180, "only the broken area stops"): inherited means main's newest finished full run that the head contains is
@@ -87,16 +86,7 @@ import {
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
-import {
-  RUN_FILE,
-  SECURITY_DIRS,
-  journeyTouch,
-  namedInputs,
-  namedJourneyIds,
-  pathKind,
-  printable,
-  stackImporters,
-} from './journey-touch.mjs';
+import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
 
@@ -687,6 +677,9 @@ export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
+    // An automatic revert's commits (it must hold one) and the commit it reverts (autoRevertScope).
+    pullCommits: (n) => api(`/repos/${repo}/pulls/${n}/commits?per_page=2`, token),
+    commit: (sha) => api(`/repos/${repo}/commits/${sha}?per_page=300`, token),
     // A run whose last job (START_JOB) is what started this seal is read as finished (settledRun).
     runs: async (sha) =>
       settleRuns(
@@ -906,6 +899,71 @@ export function revertOf({ title, body, repo }) {
   const esc = String(repo).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const m = new RegExp(`^Reverts ${esc}#(\\d+)[ \\t]*$`, 'm').exec(String(body ?? '').replace(/\r/g, ''));
   return m ? Number(m[1]) : null;
+}
+
+// ---- The revert main-bisect opens runs narrow (project-state #1786 item 5, the programme lead's ruling D2) ----
+
+/** The branch and author of the revert main-bisect opens (journeys-revert.mjs revertBranch; the factory App). */
+export const AUTO_REVERT_BRANCH = /^revert\/auto-([0-9a-f]{10})$/;
+export const AUTO_REVERT_AUTHOR = 'intafaced-mac-agents[bot]';
+const REVERTS_COMMIT = /^This reverts commit ([0-9a-f]{40})\.$/m;
+const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(run \d+\)$/;
+
+/**
+ * The journey files the revert main-bisect opens runs: the journeys whose steps failed on main (its body's `- Failing:`
+ * line) and the reverted pull request's own (the journey tests the revert changes and the steps the culprit's title
+ * names), instead of everything the reverted code can reach. A revert restores code main's last green full run proved,
+ * and main's full journeys run after the merge is what guards main afterwards (it bisects and reverts again if red).
+ * Null when the pull request is not on a `revert/auto-<sha10>` branch; `{ ok: false, why }` when it is but any check
+ * fails, so it gets the ordinary scope: opened by the factory App from this repository, exactly one commit whose message
+ * says it reverts the commit the branch names, no file outside that commit's, no shared journey setup, and at least one
+ * journey file named. `commits`: GET /pulls/n/commits; `culprit`: GET /commits/<sha> (or null); `culpritTitle`: the
+ * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
+ */
+export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle = '', journeyFiles }) {
+  const branch = AUTO_REVERT_BRANCH.exec(String(pull?.head?.ref ?? ''));
+  if (!branch) return null;
+  const no = (why) => ({ ok: false, why: `an automatic revert's branch, but ${why}, so it runs the ordinary scope` });
+  if (pull?.head?.repo?.full_name !== repo) return no('its head is not in this repository');
+  if (pull?.user?.login !== AUTO_REVERT_AUTHOR || pull?.user?.type !== 'Bot') return no(`it was not opened by ${AUTO_REVERT_AUTHOR}`);
+  if (!Array.isArray(commits) || commits.length !== 1) return no('it does not hold exactly one commit');
+  const sha = REVERTS_COMMIT.exec(String(commits[0]?.commit?.message ?? ''))?.[1];
+  if (!sha || !sha.startsWith(branch[1])) return no(`its commit does not say it reverts ${branch[1]}`);
+  if (!Array.isArray(culprit?.files) || culprit.sha !== sha) return no(`the reverted commit ${branch[1]} could not be read`);
+  const own = new Set(pullFilePaths(culprit.files));
+  const outside = paths.filter((f) => !own.has(f));
+  if (outside.length) return no(`it changes ${outside.length} file(s) the reverted commit didn't`);
+  if (paths.some(isSharedSetup)) return no('it changes shared journey setup');
+  const failing = /^- Failing: (.+)$/m.exec(String(pull?.body ?? '').replace(/\r/g, ''))?.[1] ?? '';
+  const journeys = new Set([
+    ...[...failing.matchAll(/`(J-[a-z][a-z0-9-]*-\d+) #\d+`/g)].map((m) => m[1]),
+    ...paths.map((f) => JOURNEY_TEST.exec(f)?.[1]).filter(Boolean),
+    ...stepsIn(culpritTitle).map(journeyOf),
+  ]);
+  const dir = 'apps/customer/tests/real-app';
+  const files = [...journeyFiles].filter((f) => journeys.has(JOURNEY_TEST.exec(`${dir}/${f}`)?.[1])).sort();
+  if (!files.length) return no('it names no journey file');
+  return {
+    ok: true,
+    sha,
+    files,
+    why: `the automatic revert of ${sha.slice(0, 10)} runs the journeys that failed on main and the reverted change's own (${files.length}); main's full journeys run after the merge guards main`,
+  };
+}
+
+/** The culprit pull request number an automatic revert's title names, or null. */
+export const autoRevertCulprit = (title) => Number(CULPRIT_PULL.exec(String(title ?? ''))?.[1]) || null;
+
+/** Reads what autoRevertScope needs through `io` (pullCommits, commit, pull, journeyFiles), only for a revert/auto- branch. */
+export async function readAutoRevertScope({ io, repo, pull, number, paths }) {
+  if (!AUTO_REVERT_BRANCH.test(String(pull?.head?.ref ?? ''))) return null;
+  const commits = await io.pullCommits(number);
+  const sha = REVERTS_COMMIT.exec(String(commits?.[0]?.commit?.message ?? ''))?.[1];
+  const culprit = sha ? await io.commit(sha) : null;
+  const n = autoRevertCulprit(pull.title);
+  const culpritTitle = n ? String((await io.pull(n))?.title ?? '') : '';
+  const journeyFiles = await io.journeyFiles(pull.head.sha);
+  return autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle, journeyFiles });
 }
 
 /** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
@@ -1189,23 +1247,8 @@ export async function namedSealInputs({ io, pull, head }) {
   } catch {
     return null;
   }
-  // Money code by the seal's own rule (io.moneyCode, the base's manifests; any package.json), path by path; no rule or
-  // an unreadable one: every path is money, so nothing narrows.
-  const money = new Map();
-  for (const p of pull?.paths ?? []) {
-    let m = true;
-    try {
-      m =
-        /(^|\/)package\.json$/.test(p) ||
-        SECURITY_DIRS.includes(packageOf(p)) ||
-        (io.moneyCode ? (await io.moneyCode([p])) !== false : true);
-    } catch {
-      m = true;
-    }
-    money.set(p, m);
-  }
-  // The journeys importing a changed stack file, from the head's own text, as the run read them. Unreadable: no
-  // narrowing, so the stack file needs the full run.
+  // The journeys using a changed stack file, from the head's own text, as the run read them. Unreadable: no narrowing,
+  // so the stack file needs the full run.
   let texts = null;
   if (pull?.stack?.length && io.journeyTexts) {
     try {
@@ -1218,18 +1261,15 @@ export async function namedSealInputs({ io, pull, head }) {
     ids,
     journeyFiles,
     map: await runMap(io, head),
-    money: (p) => money.get(p) ?? true,
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
 }
 
-export async function reachInputs({ io, paths, head, text, named = null }) {
+export async function reachInputs({ io, paths, head, text }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
-  // A stack file a named pull request can narrow doesn't decide this; any other full path makes the whole change full,
-  // so nothing below would be used: read nothing.
-  const fullAnyway = ([, k]) => k.kind === 'full' && !k.product && !(k.stack && named?.importers);
-  if (!product.length || kinds.some(fullAnyway) || !io.mainRuns || !io.journeyFiles) return null;
+  // Any other full path makes the whole change full, so nothing below would be used: read nothing.
+  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
   const map = await runMap(io, head);
   let behind = null;
   try {
@@ -1294,7 +1334,12 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     return texts.get(k);
   };
   const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text });
-  const touched = judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
+  // The revert main-bisect opens (autoRevertScope): it undoes the culprit's journey tests with it, so it names no steps,
+  // and it runs the journeys that failed on main and the culprit's own. Anything else on its branch is ordinary.
+  const auto = await readAutoRevertScope({ io, repo, pull, number, paths });
+  const touched = auto?.ok
+    ? { ok: true, lines: [`${auto.why}: its journey tests need no steps named`] }
+    : judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
   // The journeys this pull request can reach (journey-touch.mjs): a journey test file the head removed runs nothing.
   const atHead = new Map();
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
@@ -1303,14 +1348,17 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   const reverting = revertOf({ title: pull.title, body: pull.body, repo });
   // A pull request that names a journey is judged on it, its changed journey files and the always-run list, as its run
   // was given them (namedSealInputs); else product code goes to the map or the full run.
-  const product = paths.filter((p) => pathKind(p).product);
   const stack = paths.filter((p) => pathKind(p).stack);
   const named =
-    reverting || !(product.length || stack.length) ? null : await namedSealInputs({ io, pull: { ...pull, paths: product, stack }, head });
+    reverting || !(stack.length || paths.some((p) => pathKind(p).product))
+      ? null
+      : await namedSealInputs({ io, pull: { ...pull, stack }, head });
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
-    : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text, named }), named);
-  // A stack file narrowed to the journeys importing it (theo-01 part 2) no longer needs the full run as shared setup.
+    : auto?.ok
+      ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
+      : journeyTouch(paths, (f) => atHead.get(f) ?? true, named ? null : await reachInputs({ io, paths, head, text }), named);
+  // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
   const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
@@ -2023,6 +2071,15 @@ async function main() {
   if (process.argv.includes('--seal-now')) return sealNowStep({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--clear-older')) return clearOlderStep({ repo: REPO, token: GH_TOKEN });
   const io = makeIo(REPO, GH_TOKEN);
+  // The journeys run's planner (real-app-journeys.yml) reads an automatic revert's narrow scope from the same rule.
+  const scopeAt = process.argv.indexOf('--auto-revert-scope');
+  if (scopeAt > 0) {
+    const n = Number(process.argv[scopeAt + 1]);
+    if (!Number.isSafeInteger(n) || n < 1) throw new Error('--auto-revert-scope needs a pull request number');
+    const pull = await io.pull(n);
+    const scope = await readAutoRevertScope({ io, repo: REPO, pull, number: n, paths: await io.files(n) });
+    return console.log(JSON.stringify(scope?.ok ? { files: scope.files, why: scope.why } : { files: null, why: scope?.why ?? '' }));
+  }
   const dry = process.argv.indexOf('--dry-run');
   if (dry > 0) {
     const [n, sha] = process.argv.slice(dry + 1);

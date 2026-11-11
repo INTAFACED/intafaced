@@ -199,6 +199,10 @@ const confirmSend = (page) => page.getByRole('button', { name: 'Confirm and send
 async function fillSend(page, amount, { base = false } = {}) {
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
+  // Named and bounded: without it a tab that lost its sign-in waits out the step's whole 900 s on selectOption (#7588).
+  await expect(pick(page, 'Asset'), 'Withdraw shows no Asset picker: the tab is signed out or the asset list was refused').toBeVisible({
+    timeout: 30_000,
+  });
   await pick(page, 'Asset').selectOption('USDT');
   await expect(pick(page, 'Network')).toHaveValue('ethereum');
   if (base) await pick(page, 'Network').selectOption('base');
