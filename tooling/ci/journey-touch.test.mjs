@@ -366,6 +366,9 @@ test('journeyTouch, named: product code runs the named journey and the always-ru
   assert.equal(moneyPathOf(new Set(['services/svc-bank']))('services/svc-bank/src/a.ts'), true);
   assert.equal(moneyPathOf(new Set(['services/svc-bank']))('apps/customer/src/a.tsx'), false);
   assert.equal(moneyPathOf(null)('apps/customer/src/a.tsx'), true);
+  // Security code is never narrowed by name either.
+  assert.equal(moneyPathOf(new Set())('packages/auth/src/session.ts'), true);
+  assert.equal(moneyPathOf(new Set())('packages/db/src/pool.ts'), true);
   // Names read from the title or the branch, in the seal's case; a name with no file at the head, or unreadable files, is no name.
   assert.deepEqual(namedJourneyIds({ title: 'x', branch: 'agents-j-agents-19-sign' }), ['J-agents-19']);
   assert.deepEqual(namedJourneyIds({ title: 'test(customer): J-Portfolio-05 #1 (#7907)', branch: 'fix/7907' }), ['J-portfolio-05']);
