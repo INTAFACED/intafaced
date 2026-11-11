@@ -1,8 +1,11 @@
 // World: restart
 import { readFileSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { asDesk, ensureDeskGroup } from './help-centre.mjs';
-import { journeyState, ORIGIN, restartWith, stackFile, tool } from './stack.mjs';
+import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { journeyState, ORIGIN, restartWith, ROOT, stackFile, tool } from './stack.mjs';
 
 // J-support-public-03, in the running app (docs/roadmap/journeys.json): someone with no account asks for help, confirms
 // their address by the emailed link, and reads and replies on that one request by link. svc-support stores the request and
@@ -59,6 +62,22 @@ async function deskRequests(text, filter) {
   const res = await asDesk('lead', 'query', 'listAll', { limit: 500, q: text, ...(filter ? { filter } : {}) });
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return res.json.result.data.filter((row) => row.subject.includes(text));
+}
+
+/** The guest requests svc-support stored whose subject starts with this text, read as svc-support's own database role. */
+async function storedGuestRequests(subject) {
+  const ctx = await makeContext({ log: () => undefined });
+  const postgres = createRequire(path.join(ROOT, 'services', 'svc-support', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  const sql = postgres(`postgres://svc_support:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await sql`SELECT id, subject, status, ticket_id FROM support.guest_requests WHERE subject LIKE ${`${subject}%`} ORDER BY created_at`;
+  } finally {
+    await sql.end();
+  }
 }
 
 /** Opens the emailed link and presses Open; the request page it lands on. */
@@ -161,6 +180,9 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   await expect(refused).toContainText('This address has sent too many requests.');
   await mailedLink(email, 3);
   expect(guestMail(email)).toHaveLength(3);
+  // No row stored for the refused one: svc-support holds the three it accepted and nothing for the fourth.
+  const busy = `TEST ${J} ${RUN} busy `;
+  expect((await storedGuestRequests(busy)).map((row) => row.subject)).toEqual([1, 2, 3].map((n) => `${busy}${n}`));
   // With the owner's limit blank, every guest request refuses and names the setting.
   restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', false);
   try {
@@ -170,6 +192,7 @@ test(`${J} #5 too many requests from one address are refused with no request sto
     await expect(unset).toHaveAttribute('data-code', 'support.guest_rate_limit_unset');
     await expect(unset).toContainText('SUPPORT_GUEST_RATE_LIMIT is not set');
     expect(guestMail(other)).toHaveLength(0);
+    expect(await storedGuestRequests(`TEST ${J} ${RUN} unset`)).toHaveLength(0);
   } finally {
     restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', true);
   }
@@ -220,7 +243,8 @@ test(`${J} #7 an expired link is refused as expired, with a way back to the form
   }
   try {
     const page = await guest(browser);
-    await sendRequest(page, { email, subject: `TEST ${J} ${RUN} expired` });
+    const subject = `TEST ${J} ${RUN} expired`;
+    await sendRequest(page, { email, subject });
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible();
     const link = await mailedLink(email);
     await page.waitForTimeout(65_000);
@@ -229,6 +253,12 @@ test(`${J} #7 an expired link is refused as expired, with a way back to the form
     const dead = page.getByTestId('support-guest-link-dead');
     await expect(page.getByRole('heading', { name: 'This link has expired' })).toBeVisible();
     await expect(dead).toHaveAttribute('data-code', 'support.guest_link_expired');
+    // A refusal: no request was opened from the expired link, and the stored guest request is still unverified.
+    expect(await deskRequests(subject)).toHaveLength(0);
+    const kept = await storedGuestRequests(subject);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].ticket_id).toBeNull();
+    expect(kept[0].status).not.toBe('verified');
     await page.getByTestId('support-guest-back').click();
     await expect(page).toHaveURL(/\/support\/new$/);
     await expect(page.getByTestId('support-guest-new')).toBeVisible();
