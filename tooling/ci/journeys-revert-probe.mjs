@@ -97,6 +97,17 @@ function main() {
     console.log(`probe ${sha.slice(0, 10)}: ${bad ? 'fails' : 'passes'}`);
     return bad;
   };
+  // Confirm (main-bisect.yml, after the automatic revert merged): the failing journeys alone on main's head. Back when
+  // the steps pass.
+  if (process.env.CONFIRM === 'true') {
+    if (commits.length !== 1) throw new Error("CONFIRM: exactly one commit, main's head");
+    const back = !isBad(commits[0]);
+    const text = `### Journeys revert: confirm\n\n${steps.join(', ')} ${back ? 'pass' : 'still fail'} on \`${commits[0].slice(0, 10)}\`, run alone.\n`;
+    process.stdout.write(text);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `back=${back}\n`);
+    return;
+  }
   const { culprit, probed } = firstBad(commits, isBad);
   const confirmed = probed.has(culprit) ? probed.get(culprit) : isBad(culprit);
   const lines = [...probed].map(([s, b]) => `- \`${s.slice(0, 10)}\`: ${b ? 'fails' : 'passes'}`);
