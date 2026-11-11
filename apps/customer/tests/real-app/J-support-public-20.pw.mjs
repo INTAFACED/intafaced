@@ -370,7 +370,11 @@ test(`${J} #3 the account state is read for the ticket's owner only, one append-
     expect(agent).not.toBe(leadId);
     const other = await asDesk('agent', 'query', 'accountState', { ticketId: ticket.id });
     expect(other.json?.result?.data, other.text.slice(0, 300)).toBeUndefined();
-    expect(other.text).toContain('support.not_found');
+    // Answered exactly as a request that doesn't exist (svc-support's support.not_found, shown as "not found").
+    expect(other.status, other.text.slice(0, 300)).toBe(404);
+    expect(other.json?.error?.data?.code).toBe('NOT_FOUND');
+    const missing = await asDesk('agent', 'query', 'accountState', { ticketId: '00000000-0000-4000-8000-00000000f00d' });
+    expect([missing.status, missing.json?.error?.message]).toEqual([other.status, other.json?.error?.message]);
 
     // Exactly one row, from the one answered read: it names the lead as the operator who looked, and holds no balance.
     const after = await rows();
