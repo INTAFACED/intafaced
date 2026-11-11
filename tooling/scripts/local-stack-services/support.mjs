@@ -86,8 +86,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     // LOCAL TEST only, labelled in the same file: an in-memory file store and a scanner that blocks only the EICAR test
     // string, so a customer can attach a file in the running app (J-support-public-04 #3, #4). svc-support refuses both
     // unless APP_ENV is exactly dev or test; production stays blank and every attach refuses naming the missing piece.
-    SUPPORT_ATTACHMENT_STORE: 'local-test-memory',
-    SUPPORT_MALWARE_SCANNER: 'local-test-eicar',
+    // `LOCAL_STACK_SUPPORT_ATTACHMENT_STORE=off` or `LOCAL_STACK_SUPPORT_MALWARE_SCANNER=off` on a restart of support
+    // leaves that piece blank, as production is, so a journey sees the attach refuse naming it (J-support-public-04 #3).
+    // `LOCAL_STACK_SUPPORT_SCAN_DELAY_MS` makes each check take that long, so a file is seen while it is being checked.
+    ...(process.env.LOCAL_STACK_SUPPORT_ATTACHMENT_STORE === 'off' ? {} : { SUPPORT_ATTACHMENT_STORE: 'local-test-memory' }),
+    ...(process.env.LOCAL_STACK_SUPPORT_MALWARE_SCANNER === 'off' ? {} : { SUPPORT_MALWARE_SCANNER: 'local-test-eicar' }),
+    ...(/^[1-9][0-9]{0,4}$/.test(process.env.LOCAL_STACK_SUPPORT_SCAN_DELAY_MS ?? '') &&
+    process.env.LOCAL_STACK_SUPPORT_MALWARE_SCANNER !== 'off'
+      ? { SUPPORT_LOCAL_TEST_SCAN_DELAY_MS: process.env.LOCAL_STACK_SUPPORT_SCAN_DELAY_MS }
+      : {}),
     // Guest requests (SP-tickets-01): the mail goes through svc-notify's guest verification door on svc-support's own
     // secret, to notify's LOCAL TEST outbox, with links that open this stack's customer app. `LOCAL_STACK_SUPPORT_GUEST_MAIL=off`
     // leaves the door unwired, so a guest request waits with vendor.email (J-support-public-03 #3).

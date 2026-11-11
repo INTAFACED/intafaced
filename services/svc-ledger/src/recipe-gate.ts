@@ -1075,6 +1075,29 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'partnerFeeEarn',
+      // Shape sample only, never posted: a TEST rate, because the owner's rate is unset and Earn refuses without one.
+      post: recipes.partnerFeeEarn({
+        partnerId: 'test-partner',
+        module: 'merchant',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'partnerFeeSettle',
+      post: recipes.partnerFeeSettle({
+        partnerId: 'test-partner',
+        module: 'merchant',
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        settlementLineId: 'line-test',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'tradeFillMakerRebate',
       post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },

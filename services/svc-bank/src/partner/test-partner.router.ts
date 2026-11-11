@@ -22,6 +22,7 @@ const switches = z
     custody: z.enum(['on', 'off']),
     nextReply: z.enum(['answered', 'lost']),
     cardHold: z.enum(['live', 'expired']),
+    cardDecline: z.enum(['none', 'unlisted']),
     accountDetails: z.enum(['none', 'issued']),
   })
   .strict();
