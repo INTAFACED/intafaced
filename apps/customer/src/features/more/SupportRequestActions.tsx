@@ -235,6 +235,7 @@ function RateControl({
 
 /** A page of the files on one request. A page size has to be asked for; this is only how many rows the list reads. */
 const FILES_PAGE = 100;
+type FileRows = Extract<Awaited<ReturnType<typeof readTicketFiles>>, { ok: true }>['data'];
 
 function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
   const copy = deskCopy.useCopy();
@@ -247,9 +248,9 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
       'attachNoFile' | 'attachEmpty' | 'attachUnreadable' | 'refuseAttachLarge' | 'refuseAttachType' | 'attachDownloadFailed' | null
     >(null),
     [busyFile, setBusyFile] = useState<string | null>(null);
-  // The file the service is checking right now: it records the file as being checked before it scans it, so until the
-  // service answers, the list shows it that way.
-  const [sending, setSending] = useState<{ contentType: string; byteLength: number } | null>(null);
+  // While an attach is in flight, the list is read from the service again every half second: the service records the
+  // file as being checked before it scans it, so the person sees it being checked, then checked or not accepted.
+  const [live, setLive] = useState<Resource<FileRows> | null>(null);
   const limits = useResource((signal) => readAttachLimits(api, signal), `support-attach-limits:${userId}`);
   const files = useResource((signal) => readTicketFiles(api, id, userId, FILES_PAGE, signal), `support-files:${userId}:${id}`);
   const view = limits.resource.status === 'ready' ? attachLimitsView(limits.resource.data) : null;
@@ -298,11 +299,18 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
               />
             ),
             run: async () => {
-              setSending({ contentType: read.contentType, byteLength: read.byteLength });
+              const stop = new AbortController();
+              const poll = setInterval(() => {
+                void readTicketFiles(api, id, userId, FILES_PAGE, stop.signal).then((got) => {
+                  if (!stop.signal.aborted && got.ok) setLive({ status: 'ready', data: got.data });
+                });
+              }, 500);
               try {
                 return await attachFile(api, { ticketId: id, userId, ...read, clientRequestId });
               } finally {
-                setSending(null);
+                clearInterval(poll);
+                stop.abort();
+                setLive(null);
               }
             },
             done: () => {
@@ -331,9 +339,9 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
       )}
       <div>
         <small>{copy.t('attachFilesHeading')}</small>
-        <Read resource={files.resource} retry={files.reload}>
+        <Read resource={live ?? files.resource} retry={files.reload}>
           {(rows) =>
-            rows.length === 0 && !sending ? (
+            rows.length === 0 ? (
               <p className="muted">{copy.t('attachNoFiles')}</p>
             ) : (
               <ul data-testid="attach-files">
@@ -367,12 +375,6 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
                     )}
                   </li>
                 ))}
-                {sending && (
-                  <li data-testid="attach-sending">
-                    <span lang="zxx">{copy.t('attachedRow', { type: sending.contentType, size: fileSizeLabel(sending.byteLength) })}</span>{' '}
-                    · <span data-scan-state="scanning">{copy.t(SCAN_STATE_KEY.scanning)}</span>
-                  </li>
-                )}
               </ul>
             )
           }
