@@ -155,15 +155,15 @@ jobs:
           # change) is the same call asked once more on it. With no second key set, nothing here changes.
           second="$CLAUDE_CODE_OAUTH_TOKEN_2"
           unset CLAUDE_CODE_OAUTH_TOKEN_2
-          key=first
+          answered_on=first
           other_key() {
-            [ -n "$second" ] && [ "$key" = first ] || return 1
+            [ -n "$second" ] && [ "$answered_on" = first ] || return 1
             [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" --key)" = other ] || return 1
             line="$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" | sed 's/^::[a-z]*:://')"
             echo "::warning::the first reviewer key failed, so this call is asked again on CLAUDE_CODE_OAUTH_TOKEN_2: $line"
             echo "first_line=$line" >> "$GITHUB_OUTPUT"
-            CLAUDE_CODE_OAUTH_TOKEN="$second"
-            key=second
+            CLAUDE_CODE_OAUTH_TOKEN="${second}"
+            answered_on=second
           }
           if [ -f "$dir/skip-reviewer" ]; then
             echo "the diff step already decided (too large to review whole)"
@@ -201,7 +201,7 @@ jobs:
             }
             ask || { rc=$?; other_key "$dir/answer.jsonl" "$rc" || failed "$dir/answer.jsonl" "$rc"; ask || failed "$dir/answer.jsonl" "$?"; }
             echo "called=true" >> "$GITHUB_OUTPUT"
-            [ -z "$second" ] || { echo "key=$key" >> "$GITHUB_OUTPUT" && echo "reviewer key: $key"; }
+            [ -z "$second" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           else
             ask() {
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
@@ -217,7 +217,7 @@ jobs:
             }
             ask || { rc=$?; other_key "$dir/answer.json" "$rc" || failed "$dir/answer.json" "$rc"; ask || failed "$dir/answer.json" "$?"; }
             echo "called=true" >> "$GITHUB_OUTPUT"
-            [ -z "$second" ] || { echo "key=$key" >> "$GITHUB_OUTPUT" && echo "reviewer key: $key"; }
+            [ -z "$second" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           fi
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
 
@@ -382,7 +382,7 @@ jobs:
             rc=$?
             [ -n "$second" ] && [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" --key)" = other ] || return "$rc"
             echo "::warning::the first reviewer key failed, so this read is asked again on CLAUDE_CODE_OAUTH_TOKEN_2: $(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" | sed 's/^::[a-z]*:://')"
-            CLAUDE_CODE_OAUTH_TOKEN="$second"
+            CLAUDE_CODE_OAUTH_TOKEN="${second}"
             : > "$1/answered-on-second-key"
             ask "$1"
           }

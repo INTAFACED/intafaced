@@ -235,6 +235,8 @@ const stepRun = (name) => {
     .map((l) => l.replace(/^ {10}/, ''))
     .join('\n');
 };
+// The CLI the steps run, by the name the workflow calls it.
+const CLI = /node_modules\/\.bin\/([\w-]+)"/.exec(WF_TEXT)[1];
 const LIMIT = {
   type: 'result',
   subtype: 'success',
@@ -255,7 +257,7 @@ function runStep(name, { keys, plan, edit = (s) => s }) {
   const log = join(root, 'calls.log');
   // The planted CLI: logs which key it holds and whether any second key reached it, then answers by the key.
   writeFileSync(
-    join(bin, 'claude'),
+    join(bin, CLI),
     `#!/usr/bin/env bash\ncat > /dev/null\necho "$CLAUDE_CODE_OAUTH_TOKEN second-in-env:\${CLAUDE_CODE_OAUTH_TOKEN_2:+yes}" >> ${JSON.stringify(log)}\n` +
       `case "$CLAUDE_CODE_OAUTH_TOKEN" in\n${Object.entries(plan)
         .map(([k, a]) => `  ${k}) echo '${JSON.stringify(a).replace(/'/g, "'\\''")}'; exit ${a.is_error ? 1 : 0};;`)
