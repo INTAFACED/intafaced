@@ -50,6 +50,8 @@ export interface ChartTradingProps {
   protectionWhy?: 'loading' | 'unavailable' | 'unset' | null;
   /** A bar replay is showing past bars: no order is placed or moved from a chart that doesn't show the market now. */
   replaying?: boolean;
+  /** The person's chart setting: the order button on the price scale. Off, the context menu still opens the ticket. */
+  orderButton?: boolean;
 }
 
 /** A pointer that moves less than this many pixels between down and up is a click on the line, not a drag. */
@@ -74,7 +76,15 @@ export function pricePane(host: ChartHost): { index: number; top: number; height
 /** The library draws one pixel between panes. */
 const PANE_SEPARATOR_PX = 1;
 
-export function ChartTrading({ host, market, refusal, protectionBps, protectionWhy = null, replaying = false }: ChartTradingProps) {
+export function ChartTrading({
+  host,
+  market,
+  refusal,
+  protectionBps,
+  protectionWhy = null,
+  replaying = false,
+  orderButton = true,
+}: ChartTradingProps) {
   const { t } = chartsCopy.useCopy();
   const { userId, api: client } = useSession();
   const env = useDataEnv();
@@ -452,7 +462,7 @@ export function ChartTrading({ host, market, refusal, protectionBps, protectionW
                 </button>
               );
             })}
-            {cursor && !locked && (
+            {cursor && !locked && orderButton && (
               <button
                 type="button"
                 className="ct-plus"
