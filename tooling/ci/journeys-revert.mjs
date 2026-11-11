@@ -171,13 +171,16 @@ export function revertTitle({ prNumber, sha, files, redRun, kind = 'journeys' })
   return evaluateGateFileRule('', files).gateFiles.length ? `ci: ${base.charAt(0).toLowerCase()}${base.slice(1)}` : base;
 }
 
-export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, failing }) {
+export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, failing, control = null }) {
   return [
     `Automatic revert by the revert on main (tooling/ci/journeys-revert.mjs, OWNER 249 (3): "a red main is reverted").`,
     '',
     `- Red run: https://github.com/${repo}/actions/runs/${redRun} on \`${base}\``,
     `- Failing: ${failing ?? steps.map((s) => `\`${s.replace('#', ' #')}\``).join(', ')}`,
     `- Culprit: ${prNumber ? `#${prNumber}` : 'no pull request found'}, commit \`${sha.slice(0, 10)}\` ${subject}`,
+    ...(control
+      ? [`- Control: \`${control.slice(0, 10)}\`, the last commit where these steps passed, passes again on the same kind of runner`]
+      : []),
     '',
     `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other. To keep the change instead, fix it forward and close this.`,
     '',
@@ -296,13 +299,20 @@ export function coveredSteps(titles, bad) {
 
 /** Start the journeys revert for the steps no earlier run started for `bad`. Returns the steps it started, [] when none
  *  were left, or null on a failed start. */
-async function startRevert(gh, repo, { good, bad, steps, redRun, confirm = false }) {
+async function startRevert(gh, repo, { good, bad, steps, redRun, confirm = false, revertPr = null }) {
   const { json } = await gh('GET', `/repos/${repo}/actions/workflows/main-bisect.yml/runs?per_page=50`);
   const titles = (json?.workflow_runs ?? []).map((r) => r.display_title ?? r.name);
   const covered = confirm ? new Set() : coveredSteps(titles, bad);
   const left = steps.filter((x) => !covered.has(x));
   if (!left.length) return [];
-  const inputs = { good, bad, journeys: left.join(','), red_run: String(redRun), base: 'main', ...(confirm ? { confirm: 'true' } : {}) };
+  const inputs = {
+    good,
+    bad,
+    journeys: left.join(','),
+    red_run: String(redRun),
+    base: 'main',
+    ...(confirm ? { confirm: 'true', revert_pr: String(revertPr) } : {}),
+  };
   const r = await gh('POST', `/repos/${repo}/actions/workflows/main-bisect.yml/dispatches`, { ref: 'main', inputs });
   return r.status === 204 || r.status === 0 ? left : null;
 }
@@ -515,16 +525,25 @@ async function noteBreakIssues(token, repo, notes) {
 }
 
 /** The red traced to no single merge (revert-find or the probe named none): note it on each journey's break issue. */
+/** Why no one is blamed. CONTROL_FAILED: the probe saw a candidate fail, but the control (the last passing commit, run
+ *  again beside it) failed or did not run too. Pure. */
+export function unknownReason({ REASON, PROBED, GOOD }) {
+  if (REASON !== 'CONTROL_FAILED') return String(REASON);
+  const at = (x) => (SHA.test(x ?? '') ? `\`${x.slice(0, 10)}\`` : 'an unnamed commit');
+  return `the steps fail on ${at(PROBED)}, but also fail (or did not run) on ${at(GOOD)}, the last commit where they passed, run again on the same kind of runner: the red is not that merge's, so no one is blamed`;
+}
+
 async function unknown(env) {
   need(env, 'GITHUB_REPOSITORY', 'STEPS', 'RED_RUN', 'REASON');
   if (!/^\d+$/.test(env.RED_RUN)) throw new Error('RED_RUN must be a run id');
   const repo = env.GITHUB_REPOSITORY;
+  const reason = unknownReason(env);
   const notes = breakIssueNotes({
     steps: parseSteps(env.STEPS),
-    reason: String(env.REASON).slice(0, 300),
+    reason: reason.slice(0, 300),
     redRunUrl: `https://github.com/${repo}/actions/runs/${env.RED_RUN}`,
   });
-  summary(['### Journeys revert: no single merge found', '', env.REASON, '', ...(await noteBreakIssues(env.GH_TOKEN, repo, notes))]);
+  summary(['### Journeys revert: no single merge found', '', reason, '', ...(await noteBreakIssues(env.GH_TOKEN, repo, notes))]);
 }
 
 async function open(env) {
@@ -624,7 +643,17 @@ async function open(env) {
       title,
       head: branch,
       base: env.BASE,
-      body: revertBody({ repo, sha, subject, prNumber: pr?.number, redRun: env.RED_RUN, steps, base: env.BASE, failing: stepText }),
+      body: revertBody({
+        repo,
+        sha,
+        subject,
+        prNumber: pr?.number,
+        redRun: env.RED_RUN,
+        steps,
+        base: env.BASE,
+        failing: stepText,
+        control: SHA.test(env.CONTROL ?? '') ? env.CONTROL : null,
+      }),
     });
     if (!dry && made.status !== 201) throw new Error(`could not open the revert pull request: HTTP ${made.status}`);
     const number = made.json?.number;
@@ -862,7 +891,45 @@ function selfTest() {
     ['J-home-ia-07#4'],
     "plant 1's revert body",
   );
-  console.log('✓ journeys-revert --self-test OK (58 fixtures)');
+  // The control and the recovery record.
+  const ctlBody = revertBody({
+    repo: 'o/r',
+    sha: A,
+    subject: 's (#7)',
+    prNumber: 7,
+    redRun: 9,
+    steps: ['J-a-01#2'],
+    base: 'main',
+    control: B,
+  });
+  eq(/^- Control: `bbbbbbbbbb`, the last commit/m.test(ctlBody), true, 'the control line');
+  eq(
+    /- Control:/.test(revertBody({ repo: 'o/r', sha: A, subject: 's', prNumber: 7, redRun: 9, steps: ['J-a-01#2'], base: 'main' })),
+    false,
+    'no control, no line',
+  );
+  const rec = recoveryRecord({ revertPr: 8, revertBody: ctlBody, steps: ['J-a-01#2'], repair: C, confirmRun: 'u', back: true, at: 't' });
+  eq(
+    [rec.red_run, rec.blamed, rec.control, rec.confirm.result],
+    [9, { pr: 7, sha: A.slice(0, 10) }, { sha: B.slice(0, 10), passed: true }, 'pass'],
+    'the record from the body',
+  );
+  eq(parseRecord(recoveryComment(rec)), rec, 'the record reads back');
+  eq([parseRecord('no mark'), parseRecord(`<!-- ${RECORD_MARK} {bad} -->`)], [null, null], 'no record, or a broken one, reads as none');
+  eq(
+    recoveryRecord({ revertPr: 8, revertBody: 'x', steps: [], repair: C, confirmRun: 'u', back: null, at: 't' }).confirm.result,
+    'unfinished',
+    'an unfinished confirm',
+  );
+  eq(
+    /fail on `aaaaaaaaaa`, but also fail .* on `bbbbbbbbbb`.*no one is blamed/.test(
+      unknownReason({ REASON: 'CONTROL_FAILED', PROBED: A, GOOD: B }),
+    ),
+    true,
+    'a failed control blames no one',
+  );
+  eq(unknownReason({ REASON: 'x' }), 'x', 'any other reason as given');
+  console.log('✓ journeys-revert --self-test OK (67 fixtures)');
 }
 
 async function selfTestRevoke() {
@@ -997,7 +1064,7 @@ async function confirm(env) {
   const steps = parseSteps(failingSteps(pr.body).join(','));
   const redRun = /actions\/runs\/(\d+)/.exec(String(pr.body ?? ''))?.[1];
   if (!steps.length || !redRun) return summary([`Journeys revert, confirm: #${n} names no failing step or red run; nothing to do.`]);
-  const started = await startRevert(gh, repo, { good: env.HEAD_SHA, bad: env.HEAD_SHA, steps, redRun, confirm: true });
+  const started = await startRevert(gh, repo, { good: env.HEAD_SHA, bad: env.HEAD_SHA, steps, redRun, confirm: true, revertPr: n });
   summary([
     `### Journeys revert, confirm`,
     '',
@@ -1033,15 +1100,62 @@ export function backNotes({ steps, back, sha, runUrl }) {
   });
 }
 
+/** The recovery record (v1): what the repair did, one JSON line in a marked comment on the automatic revert, which
+ *  project-state tooling/board/event.mjs reads. The full run's result is not in it: event.mjs reads that from the runs.
+ *  Pure. */
+export const RECORD_MARK = 'journeys-recovery v1';
+export function recoveryRecord({ revertPr, revertBody: body, steps, repair, confirmRun, back, at }) {
+  const text = String(body ?? '');
+  const blamed = /^- Culprit: (?:#(\d+)|no pull request found), commit `([0-9a-f]{7,40})`/m.exec(text);
+  const control = /^- Control: `([0-9a-f]{7,40})`/m.exec(text);
+  return {
+    v: 1,
+    revert_pr: revertPr,
+    steps,
+    red_run: Number(/actions\/runs\/(\d+)/.exec(text)?.[1]) || null,
+    blamed: blamed ? { pr: blamed[1] ? Number(blamed[1]) : null, sha: blamed[2] } : null,
+    control: control ? { sha: control[1], passed: true } : null,
+    repair,
+    confirm: { run: confirmRun, result: back === true ? 'pass' : back === false ? 'fail' : 'unfinished', at },
+  };
+}
+export const recoveryComment = (record) =>
+  `<!-- ${RECORD_MARK} ${JSON.stringify(record)} -->\nRecovery: ${record.steps.map((x) => `\`${x.replace('#', ' #')}\``).join(', ')} ${record.confirm.result === 'pass' ? 'pass' : record.confirm.result === 'fail' ? 'still fail' : 'were not shown either way'} alone on \`${String(record.repair).slice(0, 10)}\` ([confirm run](${record.confirm.run})). Main's full run decides the break issue.\n\n_Posted by tooling/ci/journeys-revert.mjs._`;
+export function parseRecord(body) {
+  const m = new RegExp(`<!-- ${RECORD_MARK} (\\{.*?\\}) -->`).exec(String(body ?? ''));
+  try {
+    return m ? JSON.parse(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function back(env) {
   need(env, 'GITHUB_REPOSITORY', 'STEPS', 'BAD', 'RUN_URL');
   if (!SHA.test(env.BAD)) throw new Error('BAD must be a full commit sha');
   const back = env.BACK === 'true' ? true : env.BACK === 'false' ? false : null;
   const notes = backNotes({ steps: parseSteps(env.STEPS), back, sha: env.BAD, runUrl: env.RUN_URL });
+  const record = [];
+  if (/^\d+$/.test(env.REVERT_PR ?? '')) {
+    const gh = client(env.GH_TOKEN);
+    const { json: pr } = await gh('GET', `/repos/${env.GITHUB_REPOSITORY}/pulls/${env.REVERT_PR}`);
+    const rec = recoveryRecord({
+      revertPr: Number(env.REVERT_PR),
+      revertBody: pr?.body,
+      steps: parseSteps(env.STEPS),
+      repair: env.BAD,
+      confirmRun: env.RUN_URL,
+      back,
+      at: new Date().toISOString(),
+    });
+    const r = await gh('POST', `/repos/${env.GITHUB_REPOSITORY}/issues/${env.REVERT_PR}/comments`, { body: recoveryComment(rec) });
+    record.push(`- recovery record on #${env.REVERT_PR}: ${r.status === 201 || r.status === 0 ? 'written' : `HTTP ${r.status}`}`);
+  }
   summary([
     `### Journeys revert, confirm: ${back === true ? 'back' : back === false ? 'still red' : 'did not finish'}`,
     '',
     ...(await noteBreakIssues(env.GH_TOKEN, env.GITHUB_REPOSITORY, notes)),
+    ...record,
   ]);
   if (back !== true) return 1;
 }
