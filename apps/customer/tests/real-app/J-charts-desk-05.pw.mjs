@@ -191,32 +191,51 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
     expect(Math.abs(y1 - (level.y - hostBox.y)), `line at ${y1}, clicked at ${level.y - hostBox.y}`).toBeLessThanOrEqual(1.5);
   }
 
-  // A ray on the Volume pane: both points stored at the values the pane reads under them.
-  await pick(page, 'Ray');
-  const r1 = await inPane(page, 1, 0.6, 0.3);
-  const v1 = await paneValueAt(page, r1);
-  await page.mouse.click(r1.x, r1.y);
-  const r2 = await inPane(page, 1, 0.8, 0.6);
-  const v2 = await paneValueAt(page, r2);
-  await page.mouse.click(r2.x, r2.y);
-  await expect(rows(page)).toHaveCount(6);
-  const rayOnVolume = rows(page).nth(0);
-  await expect(rayOnVolume).toHaveAttribute('data-kind', 'ray');
-  await expect(rayOnVolume).toHaveAttribute('data-pane', '1');
-  const rayValues = pricesOf(await pointText(rayOnVolume).textContent());
-  expect(rayValues).toHaveLength(2);
-  expect(atTick(rayValues[0], v1.value), `point 1: stored ${rayValues[0]}, pane value ${v1.value}`).toBe(true);
-  expect(atTick(rayValues[1], v2.value), `point 2: stored ${rayValues[1]}, pane value ${v2.value}`).toBe(true);
+  // A ray and an info line on the Volume pane: each point stored at the value the pane reads under it, and each painted
+  // inside the Volume pane through the points that were clicked.
+  const twoPointsOnVolume = async (tool, kind, a, b, count) => {
+    await pick(page, tool);
+    const p1 = await inPane(page, 1, a[0], a[1]);
+    const v1 = await paneValueAt(page, p1);
+    expect(v1.pane).toBe(1);
+    await page.mouse.click(p1.x, p1.y);
+    const p2 = await inPane(page, 1, b[0], b[1]);
+    const v2 = await paneValueAt(page, p2);
+    expect(v2.pane).toBe(1);
+    await page.mouse.click(p2.x, p2.y);
+    await expect(rows(page)).toHaveCount(count);
+    const row = rows(page).nth(0);
+    await expect(row).toHaveAttribute('data-kind', kind);
+    await expect(row).toHaveAttribute('data-pane', '1');
+    await expect(row.getByTestId('drawing-pane')).toHaveText('Indicator pane 1');
+    const values = pricesOf(await pointText(row).textContent());
+    expect(values).toHaveLength(2);
+    expect(atTick(values[0], v1.value), `${kind} point 1: stored ${values[0]}, pane value ${v1.value}`).toBe(true);
+    expect(atTick(values[1], v2.value), `${kind} point 2: stored ${values[1]}, pane value ${v2.value}`).toBe(true);
+    const id = await row.getAttribute('data-drawing-id');
+    await expect.poll(async () => (await drawn(page)).find((d) => d.id === id)?.pane ?? null).toBe(1);
+    const painted = (await drawn(page)).find((d) => d.id === id);
+    expect(painted.lines.length, `${kind} lines`).toBeGreaterThan(0);
+    for (const [, y1, , y2] of painted.lines) {
+      expect(inside(y1, volume) && inside(y2, volume), `${kind} line ${y1}..${y2} inside the Volume pane`).toBe(true);
+    }
+    // The first painted line starts at the height of the first point clicked, on the Volume pane.
+    const startY = painted.lines[0][1];
+    expect(Math.abs(startY - (p1.y - hostBox.y)), `${kind} starts at y ${startY}, clicked at ${p1.y - hostBox.y}`).toBeLessThanOrEqual(1.5);
+    return id;
+  };
+  const rayId = await twoPointsOnVolume('Ray', 'ray', [0.6, 0.3], [0.8, 0.6], 6);
+  const infoId = await twoPointsOnVolume('Info line', 'info', [0.2, 0.7], [0.4, 0.35], 7);
 
   // Where it is not allowed: a position reads a price, so on the Volume pane it is refused by name and nothing is placed.
   await pick(page, 'Long position');
   await clickIn(1, 0.5, 0.5);
   await expect(page.getByRole('alert').filter({ hasText: 'This tool draws on the price pane only.' })).toBeVisible();
-  await expect(rows(page)).toHaveCount(6);
+  await expect(rows(page)).toHaveCount(7);
   await pick(page, 'Select');
 
-  // The two Volume pane drawings are removed again, so the later steps list this journey's price pane drawings.
-  for (const id of [await rayOnVolume.getAttribute('data-drawing-id'), levelId]) {
+  // The three Volume pane drawings are removed again, so the later steps list this journey's price pane drawings.
+  for (const id of [infoId, rayId, levelId]) {
     await page.locator(`[data-drawing-id="${id}"]`).getByRole('button', { name: 'Delete', exact: true }).click();
   }
   await expect(rows(page)).toHaveCount(4);
