@@ -6,7 +6,10 @@ import { readTradePlanes } from './plane-capabilities.js';
 describe('GET /api/v1/capabilities plane switch', () => {
   it('reports the same futures flag a write refuses on, with no operator permission', async () => {
     const previous = process.env.TRADE_FUTURES_ENABLED;
+    const previousCustody = process.env.LEDGER_CUSTODY_LAYER;
     process.env.TRADE_FUTURES_ENABLED = 'false';
+    // A custody-on process (the TEST stack's custodial journeys), where unset spot is on (OWNER 288).
+    process.env.LEDGER_CUSTODY_LAYER = 'on';
     const app = Fastify();
     registerPublicRest(app, { now: () => 1 } as unknown as PublicRestDeps);
     await app.ready();
@@ -25,6 +28,8 @@ describe('GET /api/v1/capabilities plane switch', () => {
     } finally {
       if (previous === undefined) delete process.env.TRADE_FUTURES_ENABLED;
       else process.env.TRADE_FUTURES_ENABLED = previous;
+      if (previousCustody === undefined) delete process.env.LEDGER_CUSTODY_LAYER;
+      else process.env.LEDGER_CUSTODY_LAYER = previousCustody;
       await app.close();
     }
   });

@@ -1907,7 +1907,9 @@ export function createIdentityRouter(
             const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken), input?.idle === true ? { idle: true } : {});
             return sessionWire(ctx, session);
           } catch (err) {
+            // No cookie came in, so none is ours to clear: this reply can land after a sign-in's, and would erase its new cookie.
             if (
+              ctx.refreshCookie?.presented &&
               !input?.refreshToken &&
               err instanceof AuthError &&
               (err.code === 'auth.session_reused' || err.code === 'auth.session_invalid')

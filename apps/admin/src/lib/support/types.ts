@@ -115,6 +115,8 @@ export interface SupportKbView {
 export interface SupportCustomerView {
   readonly asOf: string;
   readonly account: Part<SupportAccountGrounding>;
+  /** The order ids the desk has linked to this request; empty means it names none. */
+  readonly orders: Part<readonly string[]>;
 }
 
 export interface SupportPropertiesView {

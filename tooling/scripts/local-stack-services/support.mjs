@@ -39,8 +39,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     // every batch refuses (support.bulk_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_BULK_CAP=off` on a start
     // or restart leaves it blank, so that refusal can be seen in the running app too (J-support-public-11 #7).
     ...(process.env.LOCAL_STACK_SUPPORT_BULK_CAP === 'off' ? {} : { SUPPORT_BULK_CAP: '25' }),
-    SUPPORT_VIEW_PERSONAL_CAP: '20',
-    SUPPORT_VIEW_SHARED_CAP: '20',
+    // `LOCAL_STACK_SUPPORT_VIEW_CAP=off` on a start or restart leaves both saved-view caps blank, so that refusal can be
+    // seen in the running app too (J-support-public-10 #2).
+    ...(process.env.LOCAL_STACK_SUPPORT_VIEW_CAP === 'off' ? {} : { SUPPORT_VIEW_PERSONAL_CAP: '20', SUPPORT_VIEW_SHARED_CAP: '20' }),
     // LOCAL TEST only, labelled in the same file: how many help-answer votes one account or browser may cast per window.
     // Production stays blank and every vote refuses (support.feedback_rate_limit_unset) until the owner sets both.
     SUPPORT_FEEDBACK_RATE_LIMIT: '5',

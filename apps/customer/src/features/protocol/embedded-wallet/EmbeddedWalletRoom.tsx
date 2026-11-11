@@ -25,7 +25,7 @@ import { TradingSession } from './TradingSession';
  * this device, and asks svc-protocol to have the provider make the person's one wallet; svc-protocol records only the
  * address and the provider's wallet id. Connecting to the venue reuses J-wallet-09's connection: the message is signed by
  * the wallet at the provider, after the person's passkey. Export and recovery are the provider's own, after the passkey;
- * the exported key is shown here and never sent to INTAFACED. The trading session (J-wallet-22 #8, TradingSession.tsx): one
+ * the exported key is shown here, once (the provider refuses a second export: J-dex-protocol-08 #9), and never sent to INTAFACED. The trading session (J-wallet-22 #8, TradingSession.tsx): one
  * approval by this wallet, after the passkey, for a fresh session key on this device that trades and never withdraws.
  */
 
@@ -84,6 +84,8 @@ export function clientRefusal(failure: ClientFailure, provider: ProtocolEmbedded
       return { variant: 'refused', title: t('refusedTitle'), body: t('refusedBody', { provider: name }), reference: 'provider_refused' };
     case 'unsupported':
       return { variant: 'refused', title: t('unsupportedTitle'), body: t('unsupportedBody'), reference: 'passkey_unsupported' };
+    case 'spent':
+      return { variant: 'refused', title: t('spentTitle'), body: t('spentBody', { provider: name }), reference: 'wallet.export_spent' };
     default:
       return { variant: 'refused', title: t('passkeyTitle'), body: t('passkeyBody'), reference: 'passkey_not_passed' };
   }
@@ -208,7 +210,10 @@ export function EmbeddedWalletRoom() {
     once(async () => {
       if (!wallet || !client) return;
       const result = await client.exportKey(wallet.providerWalletId);
-      if (!result.ok) return setRefusal(clientRefusal(result.failure, provider, t));
+      if (!result.ok) {
+        setExported(null);
+        return setRefusal(clientRefusal(result.failure, provider, t));
+      }
       setExported(result.data.privateKey);
     });
 
@@ -324,9 +329,12 @@ export function EmbeddedWalletRoom() {
                 <h2>{t('ownTitle')}</h2>
                 <p>{t('ownNote', { provider: name })}</p>
                 {provider?.capabilities.export ? (
-                  <Button disabled={busy || !client} onClick={() => void exportKey()}>
-                    {t('exportKey')}
-                  </Button>
+                  <>
+                    <p data-export-once>{t('exportOnce', { provider: name })}</p>
+                    <Button disabled={busy || !client} onClick={() => void exportKey()}>
+                      {t('exportKey')}
+                    </Button>
+                  </>
                 ) : (
                   <p>{t('exportNone', { provider: name })}</p>
                 )}{' '}

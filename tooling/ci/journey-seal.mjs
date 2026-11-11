@@ -83,7 +83,7 @@ import {
 } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls } from './review-marker.mjs';
+import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -127,16 +127,58 @@ export function stepsIn(text) {
 const REVERT_TITLE = /^Revert ".+"$/s;
 const isRevert = (title) => REVERT_TITLE.test(String(title ?? '').trim());
 
-/** The steps a pull request title names. */
-export const titleSteps = (title) => (isRevert(title) ? [] : stepsIn(title));
+const JOURNEY_ID = /\bJ-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/gi;
 
-/** Step ranges in a title that can't be read as steps (an end past STEP_MAX): each fails the seal closed. */
+/**
+ * Step numbers a title writes away from its journey id, after the journey's words (`J-cex-spot-14 a trader … (#1 #5)`):
+ * what is left of the title once every `J-x-NN #a #b` run is taken out, read with the same number rules (three digits or
+ * more is a pull request, `(#7738)`, never a step). Builders wrote steps this way and the seal, the journeys run and the
+ * step read all missed them (#7599 on 9 Nov, R0-5 on 10 Nov), so the run tested nothing the title claimed.
+ */
+function strayNumbers(title) {
+  const rest = String(title ?? '').replace(STEP_RUN, ' ');
+  return [...rest.matchAll(NUMBER)].map((n) => ({ text: n[0], a: Number(n[1]), b: n[2] === undefined ? Number(n[1]) : Number(n[2]) }));
+}
+const journeyIds = (title) => [
+  ...new Set([...String(title ?? '').matchAll(JOURNEY_ID)].map((m) => m[0].toLowerCase().replace(/^j-/, 'J-'))),
+];
+
+/**
+ * The steps a pull request title names: each `J-x-NN #a #b` run, and, when the title names exactly one journey, the step
+ * numbers it writes after that journey's words. With two or more journeys, such numbers can't be placed, and
+ * titleProblems names them so the seal fails closed.
+ */
+export function titleSteps(title) {
+  if (isRevert(title)) return [];
+  const out = new Set(stepsIn(title));
+  const ids = journeyIds(title);
+  if (ids.length === 1)
+    for (const { a, b } of strayNumbers(title)) {
+      if (a > STEP_MAX || b > STEP_MAX) continue;
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      for (let i = lo; i <= hi; i++) out.add(`${ids[0]}#${i}`);
+    }
+  return [...out].sort(byStep);
+}
+
+/**
+ * What in a title can't be read as steps, each failing the seal closed: a step range with an end past STEP_MAX, and step
+ * numbers written after the journeys' words when the title names two or more journeys (write each journey's steps right
+ * after its id: `J-a-01 #1 #2, J-b-02 #3`).
+ */
 export function titleProblems(title) {
   const out = [];
   if (isRevert(title)) return out;
   for (const m of String(title ?? '').matchAll(STEP_RUN))
     for (const n of m[2].matchAll(NUMBER))
       if (n[2] !== undefined && (Number(n[1]) > STEP_MAX || Number(n[2]) > STEP_MAX)) out.push(`${m[1]} ${n[0]}`.replace(/\s+/g, ' '));
+  const strays = strayNumbers(title).filter(({ a, b }) => a <= STEP_MAX && b <= STEP_MAX);
+  if (strays.length && journeyIds(title).length > 1)
+    out.push(
+      `${strays.map((n) => n.text.replace(/\s+/g, ' ')).join(' ')}: step numbers after the words of a title that names more than one journey; write each journey's steps right after its id`,
+    );
+  for (const { a, b, text } of strayNumbers(title))
+    if (journeyIds(title).length === 1 && a <= STEP_MAX !== b <= STEP_MAX) out.push(`${journeyIds(title)[0]} ${text}`.replace(/\s+/g, ' '));
   return out;
 }
 
@@ -221,6 +263,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     return {
       ok: false,
       state: 'fail',
+      kinds: ['yours'],
       lines: [`the title's ${unreadable.join(', ')} can't be read as steps (a step number past ${STEP_MAX}); name the steps it means`],
     };
   if (named.length === 0) return { ok: true, state: 'none', lines: ['the title names no journey step'] };
@@ -229,6 +272,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     return {
       ok: false,
       state: 'fail',
+      kinds: ['yours'],
       lines: left.problems.map(
         (l) =>
           `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
@@ -276,23 +320,29 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
   };
   let ok = true;
   const notGreen = [];
+  const kinds = new Set();
   for (const k of needed) {
     let decided = null;
     for (const r of finished) {
       const rep = await report(r);
       const where = `run ${r.id} (attempt ${r.run_attempt ?? 1})`;
       if (rep.error) {
-        decided = { green: false, why: `${where}'s report couldn't be read (${rep.error}), so a failure there can't be ruled out` };
+        decided = {
+          green: false,
+          kind: 'runner',
+          why: `${where}'s report couldn't be read (${rep.error}), so a failure there can't be ruled out`,
+        };
         break;
       }
       const st = rep.states?.[k];
       if (st === undefined) continue;
-      decided = st === 'passed' ? { green: true, why: `passed in ${where}` } : { green: false, why: `${st} in ${where}` };
+      decided = st === 'passed' ? { green: true, why: `passed in ${where}` } : { green: false, kind: 'yours', why: `${st} in ${where}` };
       break;
     }
     if (!decided)
       decided = {
         green: false,
+        kind: 'runner',
         why: finished.length
           ? `no finished Real-app journeys run on this head reports it (${finished.length} read)`
           : 'no finished Real-app journeys run on this head',
@@ -300,11 +350,12 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     if (!decided.green) {
       ok = false;
       notGreen.push(k);
+      kinds.add(decided.kind);
     }
     lines.push(`${k}: ${decided.why}`);
   }
   if (notGreen.length) lines.push(leaveLine(notGreen));
-  return { ok, state: ok ? 'pass' : 'fail', lines };
+  return { ok, state: ok ? 'pass' : 'fail', lines, kinds: [...kinds] };
 }
 
 /**
@@ -399,6 +450,7 @@ export async function judgeFullRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: ['runner'],
         lines: [`full run: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`],
       };
     let v;
@@ -408,6 +460,7 @@ export async function judgeFullRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: ['runner'],
         lines: [`full run: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
       };
     }
@@ -435,6 +488,7 @@ export async function judgeFullRun({
     return {
       ok: false,
       state: 'fail',
+      kinds: redKinds(red),
       lines: [
         `full run: ${why}; ${where}${v.missing?.length ? `, short of ${v.missing.length} journey file(s),` : ''} has ${red.length} step(s) outside the list or against its rules: ${red
           .slice(0, 10)
@@ -447,6 +501,7 @@ export async function judgeFullRun({
   return {
     ok: false,
     state: 'fail',
+    kinds: ['runner'],
     lines: [
       `full run: ${why}, so it needs a clean full Real-app journeys run on this exact head, and none has finished; ${how}`,
       ...passed.map((l) => `full run: ${l}`),
@@ -501,6 +556,7 @@ export async function judgeTouchedRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: ['runner'],
         lines: [`touched journeys: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`],
       };
     let v;
@@ -510,6 +566,7 @@ export async function judgeTouchedRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: ['runner'],
         lines: [`touched journeys: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
       };
     }
@@ -521,6 +578,7 @@ export async function judgeTouchedRun({
       return {
         ok: false,
         state: 'fail',
+        kinds: redKinds(red),
         lines: [
           `touched journeys: ${why}; ${where} has ${red.length} step(s) outside the list or against its rules: ${red
             .slice(0, 10)
@@ -537,6 +595,7 @@ export async function judgeTouchedRun({
   return {
     ok: false,
     state: 'fail',
+    kinds: ['runner'],
     lines: [
       `touched journeys: ${why}, and no finished Real-app journeys run on this exact head ran ${[...left].join(', ')}; ${how}`,
       ...read.map((l) => `touched journeys: ${l}`),
@@ -612,6 +671,9 @@ export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
+    // An automatic revert's commits (it must hold one) and the commit it reverts (autoRevertScope).
+    pullCommits: (n) => api(`/repos/${repo}/pulls/${n}/commits?per_page=2`, token),
+    commit: (sha) => api(`/repos/${repo}/commits/${sha}?per_page=300`, token),
     // A run whose last job (START_JOB) is what started this seal is read as finished (settledRun).
     runs: async (sha) =>
       settleRuns(
@@ -801,6 +863,71 @@ export function revertOf({ title, body, repo }) {
   return m ? Number(m[1]) : null;
 }
 
+// ---- The revert main-bisect opens runs narrow (project-state #1786 item 5, the programme lead's ruling D2) ----
+
+/** The branch and author of the revert main-bisect opens (journeys-revert.mjs revertBranch; the factory App). */
+export const AUTO_REVERT_BRANCH = /^revert\/auto-([0-9a-f]{10})$/;
+export const AUTO_REVERT_AUTHOR = 'intafaced-mac-agents[bot]';
+const REVERTS_COMMIT = /^This reverts commit ([0-9a-f]{40})\.$/m;
+const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(run \d+\)$/;
+
+/**
+ * The journey files the revert main-bisect opens runs: the journeys whose steps failed on main (its body's `- Failing:`
+ * line) and the reverted pull request's own (the journey tests the revert changes and the steps the culprit's title
+ * names), instead of everything the reverted code can reach. A revert restores code main's last green full run proved,
+ * and main's full journeys run after the merge is what guards main afterwards (it bisects and reverts again if red).
+ * Null when the pull request is not on a `revert/auto-<sha10>` branch; `{ ok: false, why }` when it is but any check
+ * fails, so it gets the ordinary scope: opened by the factory App from this repository, exactly one commit whose message
+ * says it reverts the commit the branch names, no file outside that commit's, no shared journey setup, and at least one
+ * journey file named. `commits`: GET /pulls/n/commits; `culprit`: GET /commits/<sha> (or null); `culpritTitle`: the
+ * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
+ */
+export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle = '', journeyFiles }) {
+  const branch = AUTO_REVERT_BRANCH.exec(String(pull?.head?.ref ?? ''));
+  if (!branch) return null;
+  const no = (why) => ({ ok: false, why: `an automatic revert's branch, but ${why}, so it runs the ordinary scope` });
+  if (pull?.head?.repo?.full_name !== repo) return no('its head is not in this repository');
+  if (pull?.user?.login !== AUTO_REVERT_AUTHOR || pull?.user?.type !== 'Bot') return no(`it was not opened by ${AUTO_REVERT_AUTHOR}`);
+  if (!Array.isArray(commits) || commits.length !== 1) return no('it does not hold exactly one commit');
+  const sha = REVERTS_COMMIT.exec(String(commits[0]?.commit?.message ?? ''))?.[1];
+  if (!sha || !sha.startsWith(branch[1])) return no(`its commit does not say it reverts ${branch[1]}`);
+  if (!Array.isArray(culprit?.files) || culprit.sha !== sha) return no(`the reverted commit ${branch[1]} could not be read`);
+  const own = new Set(pullFilePaths(culprit.files));
+  const outside = paths.filter((f) => !own.has(f));
+  if (outside.length) return no(`it changes ${outside.length} file(s) the reverted commit didn't`);
+  if (paths.some(isSharedSetup)) return no('it changes shared journey setup');
+  const failing = /^- Failing: (.+)$/m.exec(String(pull?.body ?? '').replace(/\r/g, ''))?.[1] ?? '';
+  const journeys = new Set([
+    ...[...failing.matchAll(/`(J-[a-z][a-z0-9-]*-\d+) #\d+`/g)].map((m) => m[1]),
+    ...paths.map((f) => JOURNEY_TEST.exec(f)?.[1]).filter(Boolean),
+    ...stepsIn(culpritTitle).map(journeyOf),
+  ]);
+  const dir = 'apps/customer/tests/real-app';
+  const files = [...journeyFiles].filter((f) => journeys.has(JOURNEY_TEST.exec(`${dir}/${f}`)?.[1])).sort();
+  if (!files.length) return no('it names no journey file');
+  return {
+    ok: true,
+    sha,
+    files,
+    why: `the automatic revert of ${sha.slice(0, 10)} runs the journeys that failed on main and the reverted change's own (${files.length}); main's full journeys run after the merge guards main`,
+  };
+}
+
+/** The culprit pull request number an automatic revert's title names, or null. */
+export const autoRevertCulprit = (title) => Number(CULPRIT_PULL.exec(String(title ?? ''))?.[1]) || null;
+
+/** Reads what autoRevertScope needs through `io` (pullCommits, commit, pull, journeyFiles), only for a revert/auto- branch. */
+export async function readAutoRevertScope({ io, repo, pull, number, paths }) {
+  if (!AUTO_REVERT_BRANCH.test(String(pull?.head?.ref ?? ''))) return null;
+  const commits = await io.pullCommits(number);
+  const sha = REVERTS_COMMIT.exec(String(commits?.[0]?.commit?.message ?? ''))?.[1];
+  const culprit = sha ? await io.commit(sha) : null;
+  const n = autoRevertCulprit(pull.title);
+  const culpritTitle = n ? String((await io.pull(n))?.title ?? '') : '';
+  const journeyFiles = await io.journeyFiles(pull.head.sha);
+  return autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle, journeyFiles });
+}
+
 /** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
  *  file). `text(path, ref)` is the file's text, or null when the ref has no such file. */
 export async function touchedSteps({ paths, head, base, text }) {
@@ -879,13 +1006,31 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) or money
  * code (`touches.money`: AGENTS.md "How work flows" 8, "a red in a package your PR changes always blocks the merge, even
  * when main shares it") is in every red's area, so nothing it inherited is passed over. A money step's red (the verdict's
- * money rule) is never passed over, for any pull request.
+ * money rule) is never passed over, for any pull request, except one that failed, then passed on its retry both on this
+ * head and in main's run (project-state OWNER 278: it "stops only its own journeys"), which stops only the pull
+ * requests in its area like any other inherited red.
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
  * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
  * passed on the commit it now fails on (a flake: no commit between) has its journey as its whole area. Every other red
  * (new on this head) stops it as before. Returns { blocking, passed, notes }.
  */
+/** Whether main's reference run is red on this step with the same verdict line (run numbers aside). */
+const sameOnMain = (main, x) => x.step !== '(input)' && main.red.has(x.step) && reasonOf(main.red.get(x.step)) === reasonOf(x.why);
+
+/**
+ * What kind of red a seal is, for its title (project-state OWNER 289; `10-D-one-verdict.md` item 8: "a builder can tell
+ * from the PR page alone"): "yours" (a step red on this head and not on main, or a named step that failed), "main's"
+ * (every blocking red is one main's reference run shares), "runner" (no result: no finished run, or a report or verdict
+ * that can't be read). The kind names the title only; what blocks is unchanged.
+ */
+export const redKinds = (red) => (red.length && red.every((x) => x.onMain) ? ["main's"] : ['yours']);
+export const KIND_ORDER = ['yours', "main's", 'runner'];
+export const kindTitle = (kinds, title) => {
+  const k = KIND_ORDER.filter((x) => (kinds ?? []).includes(x));
+  return k.length ? `${k.join(' + ')}: ${title}` : title;
+};
+
 export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   if (!main) return { blocking: red, passed: [], notes: [`no finished full run on main is in this head's history, so every red counts`] };
   const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
@@ -893,7 +1038,7 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
   if (touches.shared || touches.money)
     return {
-      blocking: red,
+      blocking: red.map((x) => (sameOnMain(main, x) ? { ...x, onMain: true } : x)),
       passed: [],
       notes: [
         `this pull request changes ${touches.shared ? "the journey stack's shared setup, which reaches every journey" : 'money code (AGENTS.md "How work flows" 8)'}, so every red counts, inherited or not`,
@@ -904,15 +1049,17 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   const passed = [];
   const ranges = new Map();
   for (const x of red) {
-    if (x.step === '(input)' || !main.red.has(x.step) || reasonOf(main.red.get(x.step)) !== reasonOf(x.why)) {
+    if (!sameOnMain(main, x)) {
       blocking.push(x);
       continue;
     }
     const journey = journeyOf(x.step);
-    const stop = (why) => blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, ${why}` });
+    const stop = (why) => blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, ${why}`, onMain: true });
     // A money step is never passed over (REVIEW.md item 3: setting a money step aside is a quarantine); a red the verdict
-    // didn't mark either way counts as money.
-    if (x.money !== false) {
+    // didn't mark either way counts as money. The one exception is OWNER 278: a money step that failed, then passed on
+    // its retry, here and in main's run (the same verdict line, so main's was a retry pass too), stops only the pull
+    // requests in its area, by the rules below; money code and shared setup still put a pull request in every area.
+    if (x.money !== false && x.retryFlaky !== true) {
       stop(`but it is a money step, so it stops every pull request`);
       continue;
     }
@@ -1112,7 +1259,12 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     return texts.get(k);
   };
   const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text });
-  const touched = judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
+  // The revert main-bisect opens (autoRevertScope): it undoes the culprit's journey tests with it, so it names no steps,
+  // and it runs the journeys that failed on main and the culprit's own. Anything else on its branch is ordinary.
+  const auto = await readAutoRevertScope({ io, repo, pull, number, paths });
+  const touched = auto?.ok
+    ? { ok: true, lines: [`${auto.why}: its journey tests need no steps named`] }
+    : judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
   // The journeys this pull request can reach (journey-touch.mjs): a journey test file the head removed runs nothing.
   const atHead = new Map();
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
@@ -1121,7 +1273,9 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   const reverting = revertOf({ title: pull.title, body: pull.body, repo });
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
-    : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }));
+    : auto?.ok
+      ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
+      : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }));
   const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
@@ -1197,6 +1351,9 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     ok: steps.ok && full.ok && touched.ok,
     stepsOk: steps.ok && touched.ok,
     fullOk: full.ok,
+    // The kind of each red, for its title (redKinds); a touched-step problem is the pull request's own.
+    stepsKinds: [...(steps.ok ? [] : (steps.kinds ?? ['yours'])), ...(touched.ok ? [] : (touched.kinds ?? ['yours']))],
+    fullKinds: full.ok ? [] : (full.kinds ?? []),
     lines: [...steps.lines, ...touched.lines, ...full.lines],
   };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
@@ -1244,7 +1401,7 @@ export const isWaitingSeal = (j) =>
 /** The workflows whose runs on a head are the seal's inputs, with the event their pull request runs carry. */
 export const SEAL_INPUTS = [
   { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
-  { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review' },
+  { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
 ];
 
@@ -1288,14 +1445,22 @@ export async function settleRuns(runs, jobsOf) {
 /**
  * The input runs still going on `sha` (`runsOf[workflow]`, each workflow's runs on the head), as lines; [] when every
  * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
- * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. Pure.
+ * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
+ * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
+ * still going when `needJudge` (readGoing sets it for every pull request), so its seal waits for the judge exactly as for a review
+ * still running, and is started when a review on the head next finishes (project-state OWNER 289 point 11: "A judge
+ * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). Pure.
  */
-export function inputsGoing({ sha, runsOf, needJourneys }) {
+export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false }) {
   const out = [];
-  for (const { workflow, event, what, journeys } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
-    for (const r of runsOf?.[workflow] ?? [])
-      if (r?.head_sha === sha && (!event || r?.event === event) && r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+    for (const r of runsOf?.[workflow] ?? []) {
+      if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+      if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+      else if (judge && needJudge && r?.judgeDown === true)
+        out.push(`${what} run ${r.id} (judge down: no verdict; it re-runs when the judge is back)`);
+    }
   }
   return out;
 }
@@ -1588,7 +1753,14 @@ export async function readVerdicts({ get, repo, sha }) {
  */
 export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green ? 'rerun-green' : 'leave');
 
-/** inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys). */
+/** The most CI review runs on one head whose jobs readGoing reads to find the newest that reviewed: one GET each. */
+export const REVIEW_RUNS_READ = 5;
+
+/**
+ * inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys), and a down
+ * judge for every pull request: the head's finished CI review runs' jobs are read, newest first, until one actually
+ * reviewed (review-marker.mjs reviewRan).
+ */
 export async function readGoing({ get, repo, sha, pulls }) {
   const runsOf = {};
   for (const { workflow, event } of SEAL_INPUTS) {
@@ -1606,8 +1778,30 @@ export async function readGoing({ get, repo, sha, pulls }) {
     );
   }
   let needJourneys = false;
-  for (const p of pulls ?? []) if (!needJourneys && needsJourneys(p, await pullFiles(get, repo, p.number))) needJourneys = true;
-  return inputsGoing({ sha, runsOf, needJourneys });
+  for (const p of pulls ?? []) {
+    if (needJourneys) break;
+    needJourneys ||= needsJourneys(p, await pullFiles(get, repo, p.number));
+  }
+  // No PR merges without its judge (project-state OWNER 289 point 11): a down judge holds every pull request it was asked
+  // to review, not only one whose change needs the review's verdict (CI review on 0cef53f9b, item 3).
+  const needJudge = true;
+  {
+    const { workflow, event } = SEAL_INPUTS.find((i) => i.judge);
+    // The newest finished run that actually reviewed: a title or body edit's run, whose job is skipped (reviewRan), is
+    // passed over, so it neither hides a down run nor stands for one. At most REVIEW_RUNS_READ runs' jobs are read.
+    const finished = runsOf[workflow]
+      .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
+      .sort((a, b) => b.id - a.id);
+    for (const run of finished.slice(0, REVIEW_RUNS_READ)) {
+      const jobs = (await get(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
+      const job = jobs.find(reviewRan);
+      if (!job) continue;
+      run.judgeDown = isJudgeDown(job);
+      break;
+    }
+  }
+  return inputsGoing({ sha, runsOf, needJourneys, needJudge });
 }
 
 /**
@@ -1742,12 +1936,12 @@ async function recheck({ repo, token }) {
   );
 }
 
-function report({ ok, lines, stepsOk = ok, fullOk = true }, how) {
+function report({ ok, lines, stepsOk = ok, fullOk = true, stepsKinds = [], fullKinds = [] }, how) {
   for (const l of lines) console.log(l);
   if (ok) return console.log(`journey steps: ${how}`);
   if (!fullOk)
     console.error(
-      `::error title=The journeys this pull request touches are not proven on this head::${lines
+      `::error title=${kindTitle(fullKinds, 'The journeys this pull request touches are not proven on this head')}::${lines
         .filter((l) => /: (full run|touched journeys): /.test(l))
         .join('; ')
         .slice(
@@ -1756,8 +1950,11 @@ function report({ ok, lines, stepsOk = ok, fullOk = true }, how) {
         )}. A pull request is held to the journeys it touches (tooling/ci/journey-touch.mjs): shared setup, product code and anything else that can reach any journey need the newest finished full Real-app journeys run on its exact head clean by the journeys verdict (dispatch real-app-journeys.yml on the branch with no journeys input); a change to journey test files only needs those files run clean (the journeys input naming them). Read with the default branch's baseline; the seal re-runs when the run finishes. \`node tooling/ci/journey-touch.mjs --base origin/main\` prints which.`,
     );
   if (stepsOk) process.exit(1);
+  // A review the judge left without a verdict (review-marker.mjs ciReviewVerdict) says so in the title: judge down, never
+  // a red that reads as the change's own (OWNER 289 point 11). A seal that runs at once (sealNow) can meet one.
+  const down = lines.some((l) => /the judge was down in run/.test(l));
   console.error(
-    `::error title=Named journey steps not green on this head::${lines
+    `::error title=${down ? 'judge down: CI review (no verdict yet; the review re-runs when the judge is back)' : kindTitle(stepsKinds, 'Named journey steps not green on this head')}::${lines
       .filter(
         (l) => !/on a Left-or-replaced line$/.test(l) && !/add this line to the body/.test(l) && !/: (full run|touched journeys): /.test(l),
       )
@@ -1786,6 +1983,15 @@ async function main() {
   if (process.argv.includes('--seal-now')) return sealNowStep({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--clear-older')) return clearOlderStep({ repo: REPO, token: GH_TOKEN });
   const io = makeIo(REPO, GH_TOKEN);
+  // The journeys run's planner (real-app-journeys.yml) reads an automatic revert's narrow scope from the same rule.
+  const scopeAt = process.argv.indexOf('--auto-revert-scope');
+  if (scopeAt > 0) {
+    const n = Number(process.argv[scopeAt + 1]);
+    if (!Number.isSafeInteger(n) || n < 1) throw new Error('--auto-revert-scope needs a pull request number');
+    const pull = await io.pull(n);
+    const scope = await readAutoRevertScope({ io, repo: REPO, pull, number: n, paths: await io.files(n) });
+    return console.log(JSON.stringify(scope?.ok ? { files: scope.files, why: scope.why } : { files: null, why: scope?.why ?? '' }));
+  }
   const dry = process.argv.indexOf('--dry-run');
   if (dry > 0) {
     const [n, sha] = process.argv.slice(dry + 1);
@@ -1807,13 +2013,15 @@ async function main() {
     const commits = (await io.compare(base, head))?.commits;
     const numbers = groupPulls(commits, headRef);
     if (!numbers) return report({ ok: false, lines: [`the merge group ${headRef} could not be read whole`] }, '');
-    const all = { ok: true, stepsOk: true, fullOk: true, lines: [] };
+    const all = { ok: true, stepsOk: true, fullOk: true, lines: [], stepsKinds: [], fullKinds: [] };
     for (const n of numbers) {
       const v = await sealPull({ repo: REPO, number: n, io, waitOnRunning: false });
       all.ok &&= v.ok;
       all.stepsOk &&= v.stepsOk ?? v.ok;
       all.fullOk &&= v.fullOk ?? true;
       all.lines.push(...v.lines);
+      all.stepsKinds.push(...(v.stepsKinds ?? []));
+      all.fullKinds.push(...(v.fullKinds ?? []));
     }
     return report(all, 'every queued pull request that names steps has them green or left on its own head');
   }

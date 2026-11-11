@@ -8,11 +8,12 @@ describe('ledger fee revenue contract', () => {
   });
 
   it('carries amounts as decimal strings and allows a negative net', () => {
-    expect(ledgerFeeRevenueAssetSchema.safeParse({ assetId: 'USDT', collected: '1.5', returned: '2', net: '-0.5' }).success).toBe(true);
-    expect(
-      ledgerFeeRevenueAssetSchema.safeParse({ assetId: 'USDT', collected: 1 as unknown as string, returned: '0', net: '1' }).success,
-    ).toBe(false);
-    expect(ledgerFeeRevenueAssetSchema.safeParse({ assetId: 'USDT', collected: '-1', returned: '0', net: '-1' }).success).toBe(false);
+    const row = { venueId: null, assetId: 'USDT', earned: '1.5', returned: '2', net: '-0.5', collected: null };
+    expect(ledgerFeeRevenueAssetSchema.safeParse(row).success).toBe(true);
+    expect(ledgerFeeRevenueAssetSchema.safeParse({ ...row, earned: 1 as unknown as string }).success).toBe(false);
+    expect(ledgerFeeRevenueAssetSchema.safeParse({ ...row, earned: '-1', returned: '0', net: '-1' }).success).toBe(false);
+    expect(ledgerFeeRevenueAssetSchema.safeParse({ ...row, venueId: 'test-venue', collected: 1 as unknown as string }).success).toBe(false);
+    expect(ledgerFeeRevenueAssetSchema.safeParse({ ...row, venueId: 'test-venue', collected: '-1' }).success).toBe(false);
   });
 
   it('answers an empty window with no assets, not a zero row', () => {

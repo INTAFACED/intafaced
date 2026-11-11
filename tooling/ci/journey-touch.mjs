@@ -90,6 +90,7 @@ export const DOCS_READ = [
   'docs/runbooks/',
   'docs/audits/',
   'docs/agents/',
+  'docs/adr/2026-11-10-launch-money-model.md',
   'docs/decisions/s2s-body-bind.md',
   'docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md',
   'docs/CODEOWNERS',

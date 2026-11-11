@@ -32,6 +32,9 @@
  *   retry, on main, and it is not money): open one "Set aside on main until <date>: <step>" issue naming its owner and
  *   end date, once per set-aside (never again once closed); its owner may close it with the fix, and it closes itself
  *   on the first run after its end date.
+ *   A money step that failed, then passed on its retry, on main (set-aside.json's `moneyFlaky`, project-state OWNER 278):
+ *   open one "Flaky money step on main: <step>" issue, labelled `flaky`, naming its area, unless one is open already.
+ *   Its owner closes it with the fix; the step never counts as proven meanwhile.
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -42,7 +45,7 @@
  *        node tooling/ci/post-merge-trust.mjs
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -166,6 +169,34 @@ export function setAsideIssueActions(rows, issues) {
       .map((r) => ({ row: r, issue: byTitle.get(setAsideIssueTitle(r)) })),
   };
 }
+export const moneyFlakyIssueTitle = (row) => `Flaky money step on main: ${row.step.replace('#', ' #')}`;
+
+/** The issue for a money step that failed, then passed on its retry, on main (a row of set-aside.json's moneyFlaky). */
+export function moneyFlakyIssueBody(row, runUrl) {
+  return [
+    `\`${row.step.replace('#', ' #')}\` is a money step. It failed, then passed on its retry, on main in [this run](${runUrl}) (tooling/ci/journey-verdict.mjs).`,
+    '',
+    `- Owner: ${row.owner ?? 'no area named: its journey names no module in docs/roadmap/journeys.json'}.`,
+    '- It stops only its own journeys (project-state OWNER 278): it stays red on main, never counts as proven and is never set aside, and the merge seal holds only the pull requests in its area.',
+    '- Failing outright on main, on every try, still bisects and reverts the commit that broke it.',
+    `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real money bug can look like this.`,
+    '',
+    `<!-- money-flaky: ${row.step} -->`,
+    '_Opened by tooling/ci/post-merge-trust.mjs._',
+  ].join('\n');
+}
+
+/** Which money-flaky rows get an issue: `rows` is set-aside.json's moneyFlaky, `issues` the open ones (by title). */
+export function moneyFlakyIssueActions(rows, issues) {
+  const open = new Set((issues ?? []).filter((i) => i.state === 'open').map((i) => i.title));
+  const seen = new Set();
+  return (rows ?? []).filter((r) => {
+    if (typeof r?.step !== 'string' || seen.has(r.step)) return false;
+    seen.add(r.step);
+    return !open.has(moneyFlakyIssueTitle(r));
+  });
+}
+
 const CHECK_RED = /failed twice on `([0-9a-f]{7,40})`/g;
 const STEPS_MARK = /<!-- steps: ([^>]*) -->/g;
 
@@ -347,13 +378,25 @@ async function issueTexts(repo, issue) {
   return [issue.body, ...(comments ?? []).map((c) => c.body)];
 }
 
-async function upsertIssue(repo, title, body) {
+/**
+ * The labels a builder's pick rule reads (project-state BUILDER.md, pick 1; OWNER 289 item 6): a journey's break issue
+ * is a `regression`, as is a whole check's or a time limit's (#7910 opened bare and no builder could see it), a step that failed then passed on its retry is `flaky`. The bisect adds `main-unknown-red` when it
+ * can trace a red to no single merge (journeys-revert.mjs). Every issue stays the one main trust opens: no second issue.
+ */
+export const ISSUE_LABELS = { break: ['regression'], setAside: ['flaky'] };
+
+/** The POST /issues payload: the title, the body and the issue's labels, when it has any. Pure. */
+export const newIssuePayload = (title, body, labels = []) => ({ title, body, ...(labels.length ? { labels } : {}) });
+
+async function upsertIssue(repo, title, body, labels = []) {
   const existing = await findOpenIssue(repo, title);
   if (existing) {
     await gh('POST', `/repos/${repo}/issues/${existing.number}/comments`, { body });
+    // An issue opened before the labels existed gets them on its next comment.
+    if (labels.length) await gh('POST', `/repos/${repo}/issues/${existing.number}/labels`, { labels });
     return `commented on #${existing.number}`;
   }
-  const { json } = await gh('POST', `/repos/${repo}/issues`, { title, body });
+  const { json } = await gh('POST', `/repos/${repo}/issues`, newIssuePayload(title, body, labels));
   return `opened #${json?.number}`;
 }
 
@@ -422,7 +465,7 @@ async function wholeRunCheck(ctx) {
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. Nothing is skipped or blocked; fix or revert the commit._',
     ].join('\n');
-    console.log(await upsertIssue(repo, checkIssueTitle(name), body));
+    console.log(await upsertIssue(repo, checkIssueTitle(name), body, ISSUE_LABELS.break));
     return;
   }
   if (action === 'still-red') {
@@ -431,7 +474,14 @@ async function wholeRunCheck(ctx) {
     if (open) return console.log(`#${open.number} already tracks it`);
     const lastGreen = (await earlierRuns(repo, ctx.workflowId, runId, ctx.createdAt, 100)).find((r) => r.conclusion === 'success');
     const range = lastGreen ? await between(repo, lastGreen.head_sha, sha) : null;
-    console.log(await upsertIssue(repo, checkIssueTitle(name), untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range })));
+    console.log(
+      await upsertIssue(
+        repo,
+        checkIssueTitle(name),
+        untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range }),
+        ISSUE_LABELS.break,
+      ),
+    );
   }
   if (action === 'green') {
     const issue = await findOpenIssue(repo, checkIssueTitle(name));
@@ -478,7 +528,7 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where no job hits its limit._',
     ].join('\n');
-    return `- Time limit: ${timedOut.join(', ')}: ${await upsertIssue(repo, title, body)}`;
+    return `- Time limit: ${timedOut.join(', ')}: ${await upsertIssue(repo, title, body, ISSUE_LABELS.break)}`;
   }
   const issue = await findOpenIssue(repo, title);
   if (!issue) return null;
@@ -499,7 +549,11 @@ async function setAsideCheck({ repo, runId, runUrl }) {
   const { open, close } = setAsideIssueActions(list.steps, found?.items ?? []);
   const lines = [];
   for (const row of open) {
-    const { json } = await gh('POST', `/repos/${repo}/issues`, { title: setAsideIssueTitle(row), body: setAsideIssueBody(row, runUrl) });
+    const { json } = await gh(
+      'POST',
+      `/repos/${repo}/issues`,
+      newIssuePayload(setAsideIssueTitle(row), setAsideIssueBody(row, runUrl), ISSUE_LABELS.setAside),
+    );
     lines.push(`- ${row.step} set aside until ${row.until} (owner: ${row.owner}): opened #${json?.number}`);
   }
   for (const { row, issue } of close) {
@@ -513,11 +567,31 @@ async function setAsideCheck({ repo, runId, runUrl }) {
   return lines;
 }
 
+/** One open `flaky` issue per money step that passed only on its retry in this run (OWNER 278). */
+async function moneyFlakyCheck({ repo, runId, runUrl }) {
+  const list = await journeyReport(repo, runId, 'set-aside.json');
+  if (!list?.moneyFlaky?.length) return null;
+  const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "Flaky money step on main"`);
+  const { json: found } = await gh('GET', `/search/issues?q=${q}&per_page=100`);
+  const lines = [];
+  for (const row of moneyFlakyIssueActions(list.moneyFlaky, found?.items ?? [])) {
+    const { json } = await gh('POST', `/repos/${repo}/issues`, {
+      title: moneyFlakyIssueTitle(row),
+      body: moneyFlakyIssueBody(row, runUrl),
+      labels: ['flaky'],
+    });
+    lines.push(`- ${row.step} (money) passed only on its retry (owner: ${row.owner ?? 'none named'}): opened #${json?.number}`);
+  }
+  return lines;
+}
+
 async function journeysCheck(ctx) {
   const timeLine = await timeLimitCheck(ctx);
   if (timeLine) summary(['### Journeys time limit', '', timeLine]);
   const asideLines = await setAsideCheck(ctx);
   if (asideLines?.length) summary(['### Set aside by the machine', '', ...asideLines]);
+  const flakyLines = await moneyFlakyCheck(ctx);
+  if (flakyLines?.length) summary(['### Money steps that passed only on their retry', '', ...flakyLines]);
   // A shard that sent no report: re-run its failed jobs once, after this attempt's own checks above, and judge the next
   // attempt instead (project-state #1786, 10 Nov). Never a shard that reported, and never the whole run.
   const { missing, jobs } = await missingShardReports(ctx.repo, ctx.runId);
@@ -593,7 +667,9 @@ async function journeysCheck(ctx) {
         `<!-- steps: ${steps.join(', ')} -->`,
         '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself when these steps pass again._',
       ].join('\n');
-      lines.push(`- Confirmed broken: ${steps.join(', ')}: ${await upsertIssue(repo, journeyIssueTitle(journey), body)}`);
+      lines.push(
+        `- Confirmed broken: ${steps.join(', ')}: ${await upsertIssue(repo, journeyIssueTitle(journey), body, ISSUE_LABELS.break)}`,
+      );
     }
   }
   summary(lines);
@@ -755,6 +831,20 @@ function selfTest() {
     file: 'J-a-01.pw.mjs',
   };
   eq(setAsideIssueTitle(row), 'Set aside on main until 2026-11-14: J-a-01 #3', 'set-aside issue title');
+  const mf = { step: 'J-a-05#1', file: 'J-a-05.pw.mjs', owner: 'the alpha area' };
+  eq(moneyFlakyIssueTitle(mf), 'Flaky money step on main: J-a-05 #1', 'money-flaky issue title');
+  eq(
+    moneyFlakyIssueActions(
+      [mf, mf, { ...mf, step: 'J-a-05#2' }, { ...mf, step: 'J-a-05#3' }, { file: 'x' }],
+      [
+        { title: moneyFlakyIssueTitle({ step: 'J-a-05#2' }), state: 'open' },
+        { title: moneyFlakyIssueTitle({ step: 'J-a-05#3' }), state: 'closed' },
+      ],
+    ).map((r) => r.step),
+    ['J-a-05#1', 'J-a-05#3'],
+    'a money-flaky step gets one issue while none is open: once per step, again after its last one closed',
+  );
+  if (!/never counts as proven/.test(moneyFlakyIssueBody(mf, 'u'))) throw new Error('the money-flaky issue says it is never proven');
   const shardJobs = [1, 2, 3, 4].map((n) => ({ name: `Journeys (shard ${n} of 4)` })).concat([{ name: 'Real-app journeys' }]);
   eq(
     shardsWithoutReport(shardJobs, ['real-app-journeys-shard-1', 'real-app-journeys-shard-3', 'real-app-journeys', 'x-shard-2']),
@@ -816,7 +906,25 @@ function selfTest() {
     true,
     'set-aside issue names owner, end date and file',
   );
-  console.log('✓ post-merge-trust --self-test OK (32 fixtures)');
+  // OWNER 289 item 6: the break issue is a regression and the set-aside issue is flaky, so a builder's pick finds them.
+  eq(
+    newIssuePayload('Journey broken on main: J-a-01', 'b', ISSUE_LABELS.break),
+    { title: 'Journey broken on main: J-a-01', body: 'b', labels: ['regression'] },
+    'a break issue opens labelled regression',
+  );
+  eq(
+    newIssuePayload('Set aside on main until x: J-a-01 #1', 'b', ISSUE_LABELS.setAside).labels,
+    ['flaky'],
+    'a set-aside issue opens labelled flaky',
+  );
+  eq(newIssuePayload('Broken on main: CI', 'b'), { title: 'Broken on main: CI', body: 'b' }, 'no labels asked, none sent');
+  // Every path that opens an issue for a red main passes its labels (RULING 7 item 1: no path opens one bare; #7910 did).
+  const src = readFileSync(new URL(import.meta.url), 'utf8');
+  const bare = [...src.matchAll(/upsertIssue\(repo, (?:[^()]|\([^()]*\)|\{[^}]*\})*\)/g)]
+    .map((m) => m[0])
+    .filter((c) => !c.includes('ISSUE_LABELS.') && !c.includes('labels = []'));
+  eq(bare, [], 'no caller opens an issue without labels');
+  console.log('✓ post-merge-trust --self-test OK (36 fixtures)');
 }
 
 async function main() {

@@ -102,6 +102,33 @@ describe('customer step-up binding', () => {
     ).toBe(false);
   });
 
+  it('binds an agent account to its id, venue account, asset, cap and first funding (J-agents-21 #3)', () => {
+    const fields = {
+      accountId: '5a5a5a5a-0000-4000-8000-000000000021',
+      owner: '0x' + 'ab'.repeat(20),
+      asset: 'USDC',
+      cap: '200',
+      fund: '150',
+    };
+    const scope = 'trade.step_up.venue.agentAccount';
+    const bound = bindCustomerStepUp(ACTOR, {
+      scope,
+      purpose: 'venue.agentAccount',
+      target: fields.accountId,
+      amount: fields.fund,
+      fields,
+    });
+    expect(bound).toMatchObject({ ok: true, scope, target: fields.accountId });
+    expect(bound.ok && bound.payloadHash).toBe(customerStepUpPayloadHash(scope, { ...fields, actor: ACTOR }));
+    for (const over of [{ accountId: 'not-a-uuid' }, { owner: '0xABC' }, { cap: '' }, { fund: '1.2.3' }]) {
+      const sent = { ...fields, ...over };
+      expect(
+        bindCustomerStepUp(ACTOR, { scope, purpose: 'venue.agentAccount', target: sent.accountId, amount: sent.fund, fields: sent }).ok,
+        JSON.stringify(over),
+      ).toBe(false);
+    }
+  });
+
   it('binds a P2P take to its ad, coin amount and method, with a held quote when the take names one', () => {
     const fields = {
       offerId: '5f0e8a1b-2c4a-4d7d-8c55-9d1e2f6f0b6f',

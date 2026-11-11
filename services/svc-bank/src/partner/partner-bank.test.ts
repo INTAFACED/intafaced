@@ -6,16 +6,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryLedger, formatAmount, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
 import {
+  assertPostingEnabled,
   bankCustodyLayer,
   custodyGuardedLedger,
   ledgerPostingFreeze,
+  PostingFrozenError,
   freezeGuardedCustody,
+  readFreeze,
   partnerAccountFor,
   partnerFigure,
   reportedAmount,
   type PartnerAccountRef,
 } from './partner-bank.js';
 import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, testPartnerCustody } from './test-partner.js';
+import { stopGuardedCustody } from './partner-stops.js';
 
 const ADA = 'ada-0001';
 const BOB = 'bob-0002';
@@ -180,6 +184,11 @@ describe("the partner's displayed figure (b2 change 6)", () => {
     partner.set(ADA, { custody: 'off' });
     const wrapped = freezeGuardedCustody(testPartnerCustody(partner), { postingEnabled: async () => true }).bankFor(ADA)!;
     expect(wrapped.staleAfterMs).toBe(TEST_PARTNER_STALE_AFTER_MS);
+    // The operator's partner stop wraps it again, and keeps the partner's declared limit too.
+    const stopped = stopGuardedCustody(freezeGuardedCustody(testPartnerCustody(partner), { postingEnabled: async () => true }), 'test', {
+      assertOpen: async () => undefined,
+    }).bankFor(ADA)!;
+    expect(stopped.staleAfterMs).toBe(TEST_PARTNER_STALE_AFTER_MS);
   });
 
   it("live: known, with the partner's own time and its figure as a decimal string", async () => {
@@ -284,5 +293,46 @@ describe("ledgerPostingFreeze: svc-ledger's /health as svc-bank reads it", () =>
   });
   it('throws when svc-ledger answers an error, so the guard refuses', async () => {
     await expect(ledgerPostingFreeze('http://ledger.test', answer(503, {})).postingEnabled()).rejects.toThrow('503');
+  });
+});
+
+describe("svc-ledger's posting freeze, read with its cause (project-state #1790)", () => {
+  const answering = (status: number, body: unknown) =>
+    (async () =>
+      new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+  it('reads posting enabled, and a freeze with the cause svc-ledger names', async () => {
+    await expect(ledgerPostingFreeze('http://ledger', answering(200, { postingEnabled: true })).read!()).resolves.toEqual({
+      postingEnabled: true,
+      cause: null,
+    });
+    for (const cause of ['person', 'mismatch', 'unfinished_proofs', 'startup_setting'] as const) {
+      const freeze = ledgerPostingFreeze('http://ledger', answering(200, { postingEnabled: false, frozenCause: cause }));
+      await expect(freeze.read!()).resolves.toEqual({ postingEnabled: false, cause });
+      await expect(freeze.postingEnabled()).resolves.toBe(false);
+    }
+  });
+
+  it('a freeze with no cause, or one it does not know, is frozen and `not_reported`, never open', async () => {
+    for (const body of [{ postingEnabled: false }, { postingEnabled: false, frozenCause: 'weather' }, { postingEnabled: 'yes' }]) {
+      await expect(readFreeze(ledgerPostingFreeze('http://ledger', answering(200, body)))).resolves.toEqual({
+        postingEnabled: false,
+        cause: 'not_reported',
+      });
+    }
+  });
+
+  it('a freeze that answers badly or not at all is frozen and `unreadable`; the refusal names its cause', async () => {
+    await expect(readFreeze(ledgerPostingFreeze('http://ledger', answering(503, {})))).resolves.toEqual({
+      postingEnabled: false,
+      cause: 'unreadable',
+    });
+    const down = { postingEnabled: async () => Promise.reject(new Error('ECONNREFUSED')) };
+    await expect(readFreeze(down)).resolves.toEqual({ postingEnabled: false, cause: 'unreadable' });
+    const noted: unknown[] = [];
+    const refused = await assertPostingEnabled(down, 'card_capture', async (r) => void noted.push(r)).catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(PostingFrozenError);
+    expect(refused).toMatchObject({ code: 'bank.posting_frozen', freezeCause: 'unreadable' });
+    expect(noted).toEqual([{ refusedBy: 'posting_freeze', cause: 'unreadable', kind: 'card_capture' }]);
   });
 });

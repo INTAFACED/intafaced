@@ -95,6 +95,9 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
+import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
+import type { AgentAccounts } from './venue/agent-account.js';
+import type { UserVenueDoor } from './venue/user-venue-door.js';
 import type { UserVenueRouter } from './venue/venue-router.js';
 import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import type { GridService } from './grid/grid-service.js';
@@ -203,8 +206,10 @@ export interface PrivateRestDeps {
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
   userVenue?: UserVenueRouter | null;
-  /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank): a venue market order's worst price. */
+  /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank), as `/venue/best-prices` answers it. */
   userVenueSlippageCapBps?: number | null;
+  /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
+  agentAccounts?: AgentAccounts | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
@@ -1361,6 +1366,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
   });
+  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {

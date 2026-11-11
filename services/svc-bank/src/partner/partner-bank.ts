@@ -47,6 +47,21 @@ export function partnerPayoutsAccount(assetId: string): PartnerAccountRef {
   return { userId: PARTNER_PAYOUTS_OWNER, assetId, spaceId: null };
 }
 
+/**
+ * Where money paid in from outside comes from on the partner's record. It holds nothing and is on no person's list of
+ * balances: a pay-in is a line the partner reports, not a move anyone instructed, so `moves` lists it only when asked.
+ */
+export const PARTNER_PAY_INS_OWNER = 'partner:incoming-payments';
+export function partnerPayInsAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_PAY_INS_OWNER, assetId, spaceId: null };
+}
+
+/** The partner's account a fee it takes for us goes to. It is the partner's, never a person's, like its payouts account. */
+export const PARTNER_FEES_OWNER = 'partner:fees';
+export function partnerFeesAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_FEES_OWNER, assetId, spaceId: null };
+}
+
 /** A space as svc-bank knows it, mapped to the partner's account: a primary space is the main balance. */
 export function partnerAccountFor(space: {
   readonly id: string;
@@ -93,6 +108,19 @@ export interface PartnerMovesQuery {
   /** Only moves older than this partner reference (newest first paging). */
   readonly before?: string;
   readonly assetId?: string;
+  /** Also list money paid in from outside (J-bank-16: the statement has every line the partner reports). */
+  readonly payIns?: boolean;
+}
+
+/** What the partner lets a person send today and what it charges, as it reports them. A figure it has not given is null. */
+export interface PartnerSendLimits {
+  readonly assetId: string;
+  readonly label: string;
+  readonly dailySend: Amount | null;
+  readonly usedToday: Amount | null;
+  readonly sendFee: Amount | null;
+  /** The partner's own time for these figures; null when it sent none. */
+  readonly asOf: Date | null;
 }
 
 export interface PartnerBank {
@@ -114,6 +142,8 @@ export interface PartnerBank {
   moveByKey(key: string): Promise<PartnerMove | null>;
   /** The person's moves (either side), newest first. */
   moves(userId: string, query: PartnerMovesQuery): Promise<PartnerMove[]>;
+  /** The partner's send limit and fee for the person in one currency (J-bank-16 #6). */
+  limits(userId: string, assetId: string): Promise<PartnerSendLimits>;
 }
 
 /** Which path holds a person's bank money: the partner, or (null) the custodial layer as before. */
@@ -128,36 +158,95 @@ export interface PartnerCustody {
 export interface PostingFreeze {
   /** True when posting is enabled. Throws when the freeze cannot be read. */
   postingEnabled(): Promise<boolean>;
+  /** Whether posting is enabled, and when it is not, why (svc-ledger's `frozenCause`). Throws when it cannot be read. */
+  read?(): Promise<FreezeReading>;
 }
+
+/**
+ * Why a partner instruction met the freeze (project-state #1790; the money model's change 4 item 4): svc-ledger's own
+ * cause (`person`, `mismatch`, `unfinished_proofs`, `startup_setting`), `not_reported` when svc-ledger answered frozen
+ * without one, `unreadable` when the freeze did not answer within 2 seconds or answered badly, `not_wired` when no
+ * freeze is wired at all.
+ */
+export const FREEZE_CAUSES = [
+  'person',
+  'mismatch',
+  'unfinished_proofs',
+  'startup_setting',
+  'not_reported',
+  'unreadable',
+  'not_wired',
+] as const;
+export type FreezeCause = (typeof FREEZE_CAUSES)[number];
+const LEDGER_CAUSES: ReadonlySet<string> = new Set(['person', 'mismatch', 'unfinished_proofs', 'startup_setting']);
+
+export interface FreezeReading {
+  readonly postingEnabled: boolean;
+  /** Null while posting is enabled. */
+  readonly cause: FreezeCause | null;
+}
+
+/** One refusal made before the partner was asked, as the operations desk counts it (`partner/partner-refusals.ts`). */
+export interface PartnerRefusal {
+  readonly refusedBy: 'posting_freeze' | 'partner_stop';
+  /** The freeze's cause, or for the stop `stopped` / `unreadable`. */
+  readonly cause: string;
+  /** The kind of instruction refused (`partner-stops.ts`, PARTNER_STOP_KINDS). */
+  readonly kind: string;
+}
+
+/** Counts a refusal. Never throws and never changes the refusal: a count that cannot be written is dropped. */
+export type NoteRefusal = (refusal: PartnerRefusal) => Promise<void>;
 
 /** The freeze read from svc-ledger's `/health`. Anything but an exact `postingEnabled: true` reads as frozen. */
 export function ledgerPostingFreeze(ledgerUrl: string, fetcher: typeof fetch = fetch): PostingFreeze {
-  return {
-    async postingEnabled() {
-      const res = await fetcher(new URL('/health', ledgerUrl), { signal: AbortSignal.timeout(2_000) });
-      if (!res.ok) throw new Error(`svc-ledger /health answered ${res.status}`);
-      const body = (await res.json()) as { postingEnabled?: unknown };
-      return body.postingEnabled === true;
-    },
+  const read = async (): Promise<FreezeReading> => {
+    const res = await fetcher(new URL('/health', ledgerUrl), { signal: AbortSignal.timeout(2_000) });
+    if (!res.ok) throw new Error(`svc-ledger /health answered ${res.status}`);
+    const body = (await res.json()) as { postingEnabled?: unknown; frozenCause?: unknown };
+    if (body.postingEnabled === true) return { postingEnabled: true, cause: null };
+    const cause =
+      typeof body.frozenCause === 'string' && LEDGER_CAUSES.has(body.frozenCause) ? (body.frozenCause as FreezeCause) : 'not_reported';
+    return { postingEnabled: false, cause };
   };
+  return { read, postingEnabled: async () => (await read()).postingEnabled };
 }
 
-/** svc-ledger's posting freeze refused a partner move before the partner was asked: nothing was sent. */
-export function postingFrozen(): BankError {
-  return new BankError('Money moves are paused across the platform right now. Nothing was sent or changed.', 'bank.posting_frozen');
+/** The freeze's reading, from `read` when it has one; one that cannot be read is frozen, `unreadable`. */
+export async function readFreeze(freeze: PostingFreeze): Promise<FreezeReading> {
+  try {
+    if (freeze.read) return await freeze.read();
+    return (await freeze.postingEnabled()) ? { postingEnabled: true, cause: null } : { postingEnabled: false, cause: 'not_reported' };
+  } catch {
+    return { postingEnabled: false, cause: 'unreadable' };
+  }
 }
 
-/** Frozen, or a freeze that cannot be read, refuses `bank.posting_frozen`. */
-export async function assertPostingEnabled(freeze: PostingFreeze): Promise<void> {
-  const enabled = await freeze.postingEnabled().catch(() => false);
-  if (!enabled) throw postingFrozen();
+/** svc-ledger's posting freeze refused a partner move before the partner was asked: nothing was sent. It names why. */
+export class PostingFrozenError extends BankError {
+  constructor(readonly freezeCause: FreezeCause) {
+    super('Money moves are paused across the platform right now. Nothing was sent or changed.', 'bank.posting_frozen');
+  }
+}
+
+export function postingFrozen(cause: FreezeCause = 'not_reported'): BankError {
+  return new PostingFrozenError(cause);
+}
+
+/** Frozen, or a freeze that cannot be read, refuses `bank.posting_frozen` naming why, and counts the refusal. */
+export async function assertPostingEnabled(freeze: PostingFreeze, kind = 'bank_move', note?: NoteRefusal): Promise<void> {
+  const reading = await readFreeze(freeze);
+  if (reading.postingEnabled) return;
+  const cause = reading.cause ?? 'not_reported';
+  await note?.({ refusedBy: 'posting_freeze', cause, kind });
+  throw postingFrozen(cause);
 }
 
 /**
  * Every partner move asks the posting freeze first: frozen, or a freeze that cannot be read, refuses
  * `bank.posting_frozen` before the partner is asked. Reads stay open, as they do on the ledger while it is frozen.
  */
-export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFreeze): PartnerCustody {
+export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFreeze, note?: NoteRefusal): PartnerCustody {
   const guarded = new WeakMap<PartnerBank, PartnerBank>();
   const guard = (bank: PartnerBank): PartnerBank => {
     let wrapped = guarded.get(bank);
@@ -170,8 +259,9 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
         balances: (userId: string) => bank.balances(userId),
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
+        limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
         move: async (request: PartnerMoveRequest) => {
-          await assertPostingEnabled(freeze);
+          await assertPostingEnabled(freeze, 'bank_move', note);
           return bank.move(request);
         },
       });

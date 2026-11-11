@@ -55,6 +55,7 @@ function failedReport(): ReconciliationReport {
     chain: { ok: false, brokenAt: 'chain_tip', length: 0 },
     totals: {},
     unbalancedAssets: [],
+    result: 'mismatch',
   };
 }
 

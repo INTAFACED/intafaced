@@ -1,4 +1,5 @@
 import { createHash, createHmac, hkdfSync } from 'node:crypto';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { ActivityItem } from '../activity/activity-service.js';
 
 /**
@@ -36,6 +37,32 @@ export const STATEMENT_CSV_HEADER = [
 
 export function signedAmount(item: Pick<ActivityItem, 'direction' | 'amount'>): string {
   return item.direction === 'out' && !/^0(\.0+)?$/.test(item.amount) ? `-${item.amount}` : item.amount;
+}
+
+/** The net of one asset's lines: money in minus money out, over exactly the lines listed. Not a balance. */
+export interface LineTotal {
+  readonly asset: string;
+  /** Signed decimal string. */
+  readonly net: string;
+  readonly lines: number;
+}
+
+/**
+ * Per asset, the sum of the signed amounts of exactly these lines (J-bank-16 #1): the same fold `activity.totals` makes
+ * over the same range, so a statement and the activity list show the same total. Sorted by asset code.
+ */
+export function lineTotals(items: readonly Pick<ActivityItem, 'asset' | 'direction' | 'amount'>[]): LineTotal[] {
+  const sums = new Map<string, { net: bigint; lines: number }>();
+  for (const item of items) {
+    const amount = parseAmount(item.amount);
+    const held = sums.get(item.asset) ?? { net: 0n, lines: 0 };
+    held.net += item.direction === 'out' ? -amount : amount;
+    held.lines += 1;
+    sums.set(item.asset, held);
+  }
+  return [...sums.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([asset, { net, lines }]) => ({ asset, net: formatAmount(net), lines }));
 }
 
 export function statementCsv(items: readonly ActivityItem[]): string {
@@ -151,6 +178,11 @@ export function statementLines(input: {
   for (const item of input.rows) {
     lines.push(`${item.postedAt} | ${item.kind} | ${item.direction} | ${item.asset} | ${signedAmount(item)} | ${item.txId}`);
   }
+  // The net of the lines above, per asset: what came in minus what went out over this period, not a balance.
+  lines.push('Total of the lines above (money in minus money out, per asset; not a balance):');
+  const totals = lineTotals(input.rows);
+  if (totals.length === 0) lines.push('No lines in this period.');
+  for (const total of totals) lines.push(`Total ${total.asset}: ${total.net} (${total.lines} lines)`);
   return lines;
 }
 

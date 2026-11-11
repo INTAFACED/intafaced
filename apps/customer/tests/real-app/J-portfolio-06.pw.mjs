@@ -156,10 +156,41 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   expect(toUnits(locked.valueUsd)).toBe(toUnits(SAVED));
   expect(toUnits(spendable.valueUsd)).toBe(total - toUnits(locked.valueUsd));
 
-  // The screen: by coin, by kind (naming what each kind holds), by place.
+  // By coin: each coin's value across every kind it is held in. The USDT is everything held of it (main, the space and
+  // the savings, at par), and the coins add up to the total exactly.
+  const coinValues = (answer) => {
+    const values = new Map();
+    for (const row of answer.classes) for (const a of row.assets) values.set(a.asset, (values.get(a.asset) ?? 0n) + toUnits(a.valueUsd));
+    return values;
+  };
+  const byCoin = coinValues(allocation);
+  expect([...byCoin.keys()].sort()).toEqual(['BTC', 'USDT']);
+  expect(byCoin.get('USDT')).toBe(usdtTotal);
+  expect(byCoin.get('BTC')).toBeGreaterThan(0n);
+  expect([...byCoin.values()].reduce((t, v) => t + v, 0n)).toBe(total);
+
+  // A percent on screen against the bank's share of the total, as shown (to its last printed place). Prices move, so the
+  // screen and a fresh read of the bank are compared until one price book serves both.
+  const agreesWith = (shownAt, shareOf) => async () => {
+    const shown = (await shownAt.innerText()).trim();
+    const share = shareOf(await me.query('portfolio.allocation')) * 100;
+    if (shown.startsWith('<')) return share < Number(shown.replace(/[^\d.]/g, '')) ? 'agree' : `${shown} vs ${share}`;
+    const digits = shown.replace(/[^\d.]/g, '');
+    const places = (digits.split('.')[1] ?? '').length;
+    return Math.abs(Number(digits) - share) <= 0.5 * 10 ** -places + 1e-9 ? 'agree' : `${shown} vs ${share}`;
+  };
+  const coinShare = (asset) => (answer) =>
+    Number(((coinValues(answer).get(asset) ?? 0n) * 10n ** 12n) / toUnits(answer.totalValueUsd)) / 1e12;
+
+  // The screen: by coin (each coin once, with its share of the total), by kind (naming what each kind holds), by place.
   const coin = await grouped(page, 'Coin');
-  await expect(coin.locator('li', { hasText: 'USDT' })).toHaveCount(1);
-  await expect(coin.locator('li', { hasText: 'BTC' })).toHaveCount(1);
+  await expect(coin.locator('li[data-group]')).toHaveCount(2);
+  for (const asset of ['BTC', 'USDT']) {
+    await expect(coin.locator(`li[data-group="${asset}"]`)).toContainText(asset);
+    await expect
+      .poll(agreesWith(coin.locator(`li[data-group="${asset}"] .money-alloc__pct`), coinShare(asset)), { timeout: 30_000 })
+      .toBe('agree');
+  }
   const kind = await grouped(page, 'Kind');
   await expect(kind.locator('li[data-group="stablecoin"]')).toContainText('Dollar coins');
   await expect(kind.locator('li[data-group="earn"]')).toContainText('Earn');
@@ -168,17 +199,16 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   const place = await grouped(page, 'Place');
   await expect(place.locator('li[data-group="available"]')).toContainText('Spendable');
   await expect(place.locator('li[data-group="locked"]')).toContainText('Locked');
-  // Each place's percent on screen is the bank's share of the total, as shown (to its last printed place). Prices move,
-  // so the screen and a fresh read of the bank are compared until one price book serves both.
-  const agrees = async (type) => {
-    const shown = (await place.locator(`li[data-group="${type}"] .money-alloc__pct`).innerText()).trim();
-    const share = Number((await me.query('portfolio.allocation')).types.find((row) => row.type === type).share) * 100;
-    if (shown.startsWith('<')) return share < Number(shown.replace(/[^\d.]/g, '')) ? 'agree' : `${shown} vs ${share}`;
-    const digits = shown.replace(/[^\d.]/g, '');
-    const places = (digits.split('.')[1] ?? '').length;
-    return Math.abs(Number(digits) - share) <= 0.5 * 10 ** -places + 1e-9 ? 'agree' : `${shown} vs ${share}`;
-  };
-  for (const type of ['available', 'locked']) await expect.poll(() => agrees(type), { timeout: 30_000 }).toBe('agree');
+  // Each place's percent on screen is the bank's share of the total.
+  for (const type of ['available', 'locked'])
+    await expect
+      .poll(
+        agreesWith(place.locator(`li[data-group="${type}"] .money-alloc__pct`), (answer) =>
+          Number(answer.types.find((row) => row.type === type).share),
+        ),
+        { timeout: 30_000 },
+      )
+      .toBe('agree');
 });
 
 test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and still adds to the total`, async ({ page }) => {
@@ -365,13 +395,34 @@ test(`${J} #5 chooses one account or all combined: the totals follow, and named 
   // It can still be chosen on its own: the picker offers every named account.
   await expect(page.getByLabel('Accounts shown').locator('option', { hasText: EMPTY_SPACE })).toHaveCount(1);
   const scope = page.getByLabel('Accounts shown');
+  const headline = page.getByTestId('money-total').locator('[role="img"]');
+  // The headline as the screen writes a USD total: "$" and the bank's cents, thousands grouped.
+  const dollars = (usd) => `$${usd.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ','))}`;
+  // The total shown follows the account chosen: it is the bank's own total for that choice, read again until the
+  // screen and a fresh read of the bank share one price book.
+  const follows = (input) => async () => {
+    const shown = await headline.getAttribute('aria-label');
+    const want = dollars((await me.query('portfolio.summary', input)).totalUsd);
+    return shown === want ? 'match' : `${shown} vs ${want}`;
+  };
   await scope.selectOption(spaceId);
-  await expect(page.getByTestId('money-total').locator('[role="img"]')).toHaveAttribute('aria-label', '$100.00');
+  await expect(headline).toHaveAttribute('aria-label', '$100.00');
+  await expect.poll(follows({ scope: spaceId }), { timeout: 30_000 }).toBe('match');
   await expect(page.locator('tr[data-testid="money-row"][data-asset="BTC"]')).toHaveCount(0);
   await scope.selectOption('main');
   await expect(page.locator('tr[data-testid="money-row"][data-asset="BTC"]')).toHaveCount(1);
+  await expect.poll(follows({ scope: 'main' }), { timeout: 30_000 }).toBe('match');
   await scope.selectOption('combined');
   await expect(page.locator('tr[data-testid="money-row"][data-asset="USDT"]')).toHaveCount(1);
+  await expect.poll(follows(undefined), { timeout: 30_000 }).toBe('match');
+  // So the choice changes the total: main alone is not the combined total, and the space alone is its TEST 100 USDT.
+  const [all, mainOnly, spaceOnly] = await Promise.all([
+    me.query('portfolio.summary'),
+    me.query('portfolio.summary', { scope: 'main' }),
+    me.query('portfolio.summary', { scope: spaceId }),
+  ]);
+  expect(toUnits(mainOnly.totalUsd)).not.toBe(toUnits(all.totalUsd));
+  expect(toUnits(spaceOnly.totalUsd)).toBe(toUnits(MOVED));
 });
 
 test(`${J} #6 reads cash by currency and presses Convert: each currency's balance, and Convert opens the convert page with that currency`, async ({

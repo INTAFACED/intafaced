@@ -12,9 +12,10 @@ import { houseFees, venueBuilderAccount, venueBuilderFeeReceivable } from '../ac
  *   account and the venue's own fill id (`builder-fee:<venueId>:<venueAccount>:<fillId>`), so a fill read twice posts once,
  *   and the two sides of one trade, each one of our accounts, are two facts under two keys (OWNER 288, change 1a). House
  *   builder-fee revenue goes up; what the venue owes us (`venueBuilderFeeReceivable`) goes down by the same amount.
- * - `builderFeeReceive`: the venue pays builder fees out to our builder account there, keyed on the venue's payout id
- *   (`builder-fee-payout:<venueId>:<payoutId>`). The receivable comes back up; our builder account (`venueBuilderAccount`)
- *   records the money now ours at the venue.
+ * - `builderFeeReceive` (Collect): one claim the venue records for our builder address, keyed on the venue's own id for
+ *   that claim (`builder-fee-payout:<venueId>:<claimId>`), so a claim read twice posts once. The receivable comes back
+ *   up; our builder account (`venueBuilderAccount`, an own-funds place) records the money now ours at the venue. Only a
+ *   claim the venue itself records is collected; "earned" and "collected" stay two figures.
  *
  * Neither touches a customer account, so neither is in the custody-layer inventory.
  */
@@ -44,8 +45,8 @@ export interface BuilderFeeEarnInput {
 
 export interface BuilderFeeReceiveInput {
   readonly venueId: string;
-  /** The venue's own id for the payout. */
-  readonly payoutId: string;
+  /** The venue's own id for the claim it records for our builder address. */
+  readonly claimId: string;
   readonly assetId: string;
   readonly amount: Amount;
 }
@@ -77,8 +78,8 @@ export function earnedBuilderFeeKey(venueId: string, venueAccount: string, fillI
   return `builder-fee:${venueId}:${venueAccount}:${fillId}`;
 }
 
-export function builderFeePayoutKey(venueId: string, payoutId: string): string {
-  return `builder-fee-payout:${venueId}:${payoutId}`;
+export function builderFeePayoutKey(venueId: string, claimId: string): string {
+  return `builder-fee-payout:${venueId}:${claimId}`;
 }
 
 export function builderFeeEarn(input: BuilderFeeEarnInput): PostRequest {
@@ -102,14 +103,14 @@ export function builderFeeEarn(input: BuilderFeeEarnInput): PostRequest {
 
 export function builderFeeReceive(input: BuilderFeeReceiveInput): PostRequest {
   requireVenue(input.venueId);
-  requireRef('payoutId', input.payoutId);
+  requireRef('claimId', input.claimId);
   requireAsset(input.assetId);
-  requireAmount('builder fee payout', input.amount);
+  requireAmount('builder fee claim', input.amount);
   return {
-    idempotencyKey: builderFeePayoutKey(input.venueId, input.payoutId),
+    idempotencyKey: builderFeePayoutKey(input.venueId, input.claimId),
     module: BUILDER_FEE_MODULE,
     reason: 'trade.builder_fee.received',
-    meta: { venueId: input.venueId, payoutId: input.payoutId },
+    meta: { venueId: input.venueId, claimId: input.claimId },
     entries: [
       debit(venueBuilderFeeReceivable(input.venueId, input.assetId), input.amount),
       credit(venueBuilderAccount(input.venueId, input.assetId), input.amount),

@@ -1,15 +1,26 @@
 import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
-import { bankCustodyLayer, custodyGuardedLedger, freezeGuardedCustody, type PostingFreeze } from './partner/partner-bank.js';
+import {
+  bankCustodyLayer,
+  custodyGuardedLedger,
+  freezeGuardedCustody,
+  type PartnerCustody,
+  type PostingFreeze,
+} from './partner/partner-bank.js';
 import { moneyHeldBy } from './partner/test-partner.js';
 import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
+import { PartnerStopService, stopGuardedCardHolds, stopGuardedCustody, TEST_PARTNER_ID } from './partner/partner-stops.js';
+import { PartnerRefusalCounts } from './partner/partner-refusals.js';
 import type { Sql } from 'postgres';
 import type { CustodyLayerState, LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
+import { BudgetService } from './analytics/budgets.js';
+import { parseFeeTable, parsePlans, type FeeLine, type PlanTable } from './plans/plans.js';
+import { DormancyService, parseDormancyRules } from './dormancy/dormancy.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
@@ -87,6 +98,8 @@ export interface BankServices {
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
   readonly testPartner: TestPartner | null;
+  /** Who holds each person's bank money: the partner, or (null) the custodial layer. */
+  readonly partnerCustody: PartnerCustody;
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
@@ -101,6 +114,8 @@ export interface BankServices {
   readonly recovery: RecoveryClaimService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
+  /** BK-acct-08: budgets by category (policy rows), left to spend and month comparison, every figure a fold of the person's lines. */
+  readonly budgets: BudgetService;
   readonly portfolio: PortfolioService;
   readonly activity: ActivityService;
   readonly activityRecords: ActivityRecordService;
@@ -110,6 +125,10 @@ export interface BankServices {
   readonly accountDetails: AccountDetailsService;
   /** The owner's base-tier account terms (BK-acct-01). Blank refuses `bank.account_terms_unset`. */
   readonly accountTerms: () => AccountTerms;
+  /** BK-acct-04: the owner's plan table (null is blank) and account fee table (null is none published). */
+  readonly accountTables: { readonly plans: PlanTable | null; readonly fees: FeeLine[] | null };
+  /** RC-bank-01: the dormancy notice and fee. */
+  readonly dormancy: DormancyService;
   /** The currencies on an account: labels over ledger accounts (BK-acct-01). */
   readonly currencies: CurrencyService;
   /** Which profile a bank call is for, proved against the caller's own business memberships (J-bank-01 #7). */
@@ -117,6 +136,12 @@ export interface BankServices {
   readonly loans: LoanService;
   /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
   readonly assetPauses: AssetPauseService;
+  /** The operator's partner stop (project-state #1790): one partner, or one kind of instruction, without the posting freeze. */
+  readonly partnerStops: PartnerStopService;
+  /** What the posting freeze and the partner stop refused, by day, cause and kind (project-state #1790). */
+  readonly partnerRefusals: PartnerRefusalCounts;
+  /** svc-ledger's posting freeze as svc-bank reads it, for the desk. */
+  readonly postingFreeze: PostingFreeze;
   readonly cards: CardService;
   /** J-bank-13: the card room's product list, terms, order and delivery. */
   readonly cardOrders: CardOrderService;
@@ -243,6 +268,11 @@ export interface BankServiceOptions {
   accountDetails?: AccountDetailsOptions;
   /** Owner-published base-tier account terms as JSON (`BANK_ACCOUNT_TERMS_JSON`). No default: blank refuses. */
   accountTerms?: string | undefined;
+  /** BK-acct-04: the owner's plan table and account fee table (raw JSON; blank refuses or says not set). */
+  plans?: string | undefined;
+  feeTable?: string | undefined;
+  /** RC-bank-01: the owner's dormancy fee rules (raw JSON; blank refuses). */
+  dormancyRules?: string | undefined;
   /** Owner-published staking risk wording as JSON (`BANK_EARN_RISK_WORDING_JSON`, BK-earn-04). No default: blank refuses. */
   earnRiskWording?: string | undefined;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -326,9 +356,8 @@ export interface BankServiceOptions {
 
 /** No posting freeze wired: every partner move refuses `bank.posting_frozen`. */
 const FREEZE_NOT_WIRED: PostingFreeze = Object.freeze({
-  postingEnabled: async (): Promise<boolean> => {
-    throw new Error('no posting freeze is wired');
-  },
+  postingEnabled: async (): Promise<boolean> => false,
+  read: async () => ({ postingEnabled: false, cause: 'not_wired' as const }),
 });
 
 export function createBankServices(
@@ -343,7 +372,16 @@ export function createBankServices(
   // Every partner move first asks svc-ledger's posting freeze (floor 4). No freeze wired reads as frozen: a partner move
   // is refused, never made unguarded.
   const postingFreeze = options.postingFreeze ?? FREEZE_NOT_WIRED;
-  const custody = freezeGuardedCustody(testPartnerCustody(options.testPartner), postingFreeze);
+  // The operator's partner stop is asked too (a stopped kind refuses `bank.partner_stopped`), and never instead of the freeze.
+  // Every refusal by either is counted for the desk, by cause and kind.
+  const partnerStops = new PartnerStopService(sql);
+  const partnerRefusals = new PartnerRefusalCounts(sql);
+  const custody = stopGuardedCustody(
+    freezeGuardedCustody(testPartnerCustody(options.testPartner), postingFreeze, partnerRefusals.note),
+    TEST_PARTNER_ID,
+    partnerStops,
+    partnerRefusals.note,
+  );
   const spaces = new SpaceService(sql, ledger, options.recipients, {
     spaceLimit: () => options.spaceLimit,
     unlockWaitHours: () => options.spaceUnlockWaitHours,
@@ -385,7 +423,8 @@ export function createBankServices(
     accounts: options.recipients,
     riskWording: options.earnRiskWording,
   });
-  const analytics = new SpendAnalytics(spaces, history);
+  const analytics = new SpendAnalytics(spaces, history, custody);
+  const budgets = new BudgetService(sql, analytics);
   const portfolio = new PortfolioService(ledger, spaces, {
     ...(options.portfolio ?? {}),
     transferFees: { feesFor: (userId, txIds) => personalPay.feesFor(userId, txIds) },
@@ -434,7 +473,14 @@ export function createBankServices(
           switches: (userId) => options.testPartner!.switches(userId),
         })
       : null);
-  const partnerHolds = unguardedHolds ? freezeGuardedCardHolds(unguardedHolds, postingFreeze) : null;
+  const partnerHolds = unguardedHolds
+    ? stopGuardedCardHolds(
+        freezeGuardedCardHolds(unguardedHolds, postingFreeze, partnerRefusals.note),
+        TEST_PARTNER_ID,
+        partnerStops,
+        partnerRefusals.note,
+      )
+    : null;
   const cards = new CardService(sql, ledger, {
     ...(options.cards ?? {}),
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
@@ -529,6 +575,8 @@ export function createBankServices(
     receivedHolds,
     earn,
     analytics,
+    budgets,
+    partnerCustody: custody,
     portfolio,
     activity,
     activityRecords,
@@ -536,9 +584,14 @@ export function createBankServices(
     statementJobs,
     accountDetails,
     accountTerms,
+    accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
+    dormancy: new DormancyService(sql, custody, parseDormancyRules(options.dormancyRules)),
     currencies,
     profiles,
     assetPauses,
+    partnerStops,
+    partnerRefusals,
+    postingFreeze,
     loans,
     cards,
     cardOrders,
