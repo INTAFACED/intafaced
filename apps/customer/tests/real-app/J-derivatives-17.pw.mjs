@@ -6,6 +6,7 @@ import { ADMIN } from './admin.mjs';
 import { api, fromUnits, toUnits, tool } from './stack.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
+import { otherTraderRun, testDeposit, otherTraderKey } from './venue.mjs';
 
 // J-derivatives-17 "I reconcile the builder fees the venues report against the ledger", in the founder console
 // (docs/roadmap/journeys.json). One test per step, titled "J-derivatives-17 #<n>", run in order. The person is the
@@ -235,6 +236,25 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     { kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: await venueCap('BTC-USDC') },
     `approve-builder:${owner}:${J}`,
   );
+  // A TEST buyer of this file's own rests a bid for every sell this file makes, at their price: four routed (#1 two, #2
+  // and #3 one each) and #4's direct one, 0.01 BTC each. The seeded ladder is shared by the whole shard, and
+  // J-cex-spot-01-venue #8 sells into every bid, so this file after it on one stack found no bid and its sells rested
+  // unfilled (run 42991377597, shard 28, twice).
+  const buyer = `${J}-buyer-${process.env.JOURNEY_RUN_ID ?? 'local'}`;
+  await testDeposit(otherTraderKey(buyer).address, 'USDC', '10000', `seed:${buyer}:USDC`);
+  const bid = await otherTraderRun(buyer, {
+    kind: 'place_order',
+    symbol: 'BTC-USDC',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.05',
+    price: '59990',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${buyer}:bid`,
+    builderFee: null,
+  });
+  expect(bid, JSON.stringify(bid).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   await sell();
   await sell();
   const fills = await venueFills(start);

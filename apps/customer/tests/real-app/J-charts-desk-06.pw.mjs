@@ -103,7 +103,10 @@ async function loadedBars(page, box) {
     seen.set(time, bar);
   }
   const first = Math.max(0, Math.ceil(from));
-  const inView = Math.min(loaded - 1, Math.floor(to)) - first + 1;
+  // At the right edge the pointer reads the bar whose half-spacing holds the edge, as the library maps a pixel to a bar
+  // (bar i spans i - 0.5 to i + 0.5): a bar cut by the edge is still in view. Once another journey on the stack has
+  // traded the market, a live bar sits there past the written history (run 42991377597, shard 16: 212 found of 211).
+  const inView = Math.min(loaded - 1, Math.ceil(to - 0.5)) - first + 1;
   const bars = [...seen.values()].sort((a, b) => a.time - b.time);
   // A bar narrower than a pixel can't be pointed at, and a skipped bar would shift every index after it.
   if (bars.length !== inView) throw new Error(`the sweep found ${bars.length} bars of the ${inView} in view`);
