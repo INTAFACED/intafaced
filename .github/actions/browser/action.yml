@@ -11,21 +11,11 @@ description: >-
 # font packages (run 43031557544). So the browser and those packages' .deb files are kept in GitHub's cache: a normal run
 # restores both and reaches neither the mirror nor the browser host. A cache miss fetches them once, time-boxed.
 # The browser stays the pinned one: Playwright looks only in its own revision's folder (chromium-<revision>) and
-# downloads that revision when it is missing, and the cache key carries the Playwright version.
+# downloads that revision when it is missing, and both cache keys carry the hash of pnpm-lock.yaml, which pins Playwright.
 
 runs:
   using: composite
   steps:
-    - name: Read the pinned Playwright version and the image
-      id: pin
-      shell: bash
-      run: |
-        set -euo pipefail
-        version=$(pnpm exec playwright --version | awk '{print $2}')
-        if [ -z "$version" ]; then echo "::error::could not read the pinned Playwright version"; exit 1; fi
-        echo "version=$version" >> "$GITHUB_OUTPUT"
-        echo "image=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
-
     - name: Restore the browser
       id: browser-cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -33,7 +23,7 @@ runs:
         SEGMENT_DOWNLOAD_TIMEOUT_MINS: '3'
       with:
         path: ~/.cache/ms-playwright
-        key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.pin.outputs.version }}
+        key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
 
     # A no-op when the cache held this revision. Otherwise a download from Playwright's own host, two tries of 4 minutes.
     - name: Install the browser
@@ -52,7 +42,7 @@ runs:
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/ms-playwright
-        key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.pin.outputs.version }}
+        key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
 
     # Playwright's own check (`install-deps --dry-run` simulates apt offline from the image's package lists).
     - name: List the system packages the image lacks
@@ -69,7 +59,6 @@ runs:
         list=$(sed -n '/^Missing system dependencies/,$ s/^  \([^ ][^ ]*\)$/\1/p' <<<"$out" | sort | tr '\n' ' ' | sed 's/ $//')
         if [ -z "$list" ]; then echo "::error::could not read Playwright's list of missing system packages"; exit 1; fi
         echo "list=$list" >> "$GITHUB_OUTPUT"
-        echo "key=$(sha256sum <<<"$list" | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
     - name: Restore those packages
       id: debs-cache
@@ -79,7 +68,7 @@ runs:
         SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
       with:
         path: ${{ runner.temp }}/playwright-debs
-        key: playwright-debs-${{ steps.pin.outputs.image }}-${{ steps.missing.outputs.key }}
+        key: playwright-debs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
 
     # From the cache when it holds them; otherwise from Ubuntu's mirror, once, with short network timeouts so an
     # unreachable mirror fails in seconds rather than hanging (each apt call at most 2.5 minutes). If that fails too, the
@@ -95,8 +84,9 @@ runs:
         set -uo pipefail
         dir="$RUNNER_TEMP/playwright-debs"
         read -ra pkgs <<<"$LIST"
-        if [ "$HIT" = true ] && sudo dpkg -i "$dir"/*.deb; then exit 0; fi
-        [ "$HIT" = true ] && echo "::warning::the cached packages did not install; fetching them from Ubuntu's mirror"
+        # The cache key cannot name the image, so the cache records which packages it holds and is used only for those.
+        if [ "$HIT" = true ] && [ "$(cat "$dir/list.txt" 2>/dev/null)" = "$LIST" ] && sudo dpkg -i "$dir"/*.deb; then exit 0; fi
+        [ "$HIT" = true ] && echo "::warning::the cached packages are not the ones missing here, or did not install; fetching them from Ubuntu's mirror"
         # One look-up of the mirror's names first: when none resolves, apt would wait 20 s on each package and list
         # (5 minutes on 11 Nov, run 43046948299) and still fail.
         hosts=$(sed -n 's|^[a-z]*://\([^/[:space:]]*\).*|\1|p' /etc/apt/apt-mirrors.txt 2>/dev/null | sort -u)
@@ -115,6 +105,7 @@ runs:
         if fetch || { "${apt[@]}" update && fetch; }; then
           sudo rm -rf "$dir/partial" "$dir/lock"
           sudo chown -R "$(id -u):$(id -g)" "$dir"
+          echo "$LIST" > "$dir/list.txt"
           if sudo dpkg -i "$dir"/*.deb; then echo "fetched=true" >> "$GITHUB_OUTPUT"; exit 0; fi
         fi
         echo "::warning::could not install $LIST from Ubuntu's mirror"
@@ -125,7 +116,7 @@ runs:
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/playwright-debs
-        key: playwright-debs-${{ steps.pin.outputs.image }}-${{ steps.missing.outputs.key }}
+        key: playwright-debs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
 
     # Every package present: done. Otherwise the browser's own binaries decide: a shared library they need that is not
     # found fails the job here, by name. When they find every library, what is missing is only Playwright's extra fonts
