@@ -225,10 +225,11 @@ jobs:
           exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
           EOF
           chmod +x "$LOCAL_STACK_ANVIL_BIN"
-      - name: Install, and the browser's system packages
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Install the browser
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
       - name: Probe
         id: probe
         env:
@@ -297,10 +298,11 @@ jobs:
           exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
           EOF
           chmod +x "$LOCAL_STACK_ANVIL_BIN"
-      - name: Install, and the browser's system packages
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Install the browser
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
       - name: Probe
         id: probe
         env:
@@ -369,10 +371,11 @@ jobs:
           exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
           EOF
           chmod +x "$LOCAL_STACK_ANVIL_BIN"
-      - name: Install, and the browser's system packages
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Install the browser
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
       - name: Run them
         id: probe
         env:
