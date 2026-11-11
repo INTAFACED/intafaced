@@ -441,19 +441,44 @@ export function isChargeReceivable(ref: Pick<AccountRef, 'ownerType' | 'ownerId'
 }
 
 /**
+ * WHAT A PARTNER OWES US IN FEES ON PAYMENTS IT PROCESSED (launch money model; project-state OWNER.md item 288, `b1` change 2:
+ * "Earn and collect our fee on a partner-processed payment"). A boundary like `chargeReceivable`: the customer's payment is the
+ * partner's to hold, never in our book; only our fee on it is ours, and until the partner settles it, its negative balance is
+ * exactly what that partner owes us (J-ops-console-26: "keep tracking what it owes").
+ *
+ * It may not go above zero (`balanceAllowed`): settling more than the partner owes us would record money that is not ours,
+ * so it is refused like any overdraft, with `ledger.insufficient_funds`.
+ */
+export const PARTNER_FEE_RECEIVABLE_PREFIX = 'partner-fee-receivable:';
+
+export function partnerFeeReceivable(partnerId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `${PARTNER_FEE_RECEIVABLE_PREFIX}${partnerId}`, assetId, kind: 'available' };
+}
+
+/** True for an account that records what a partner owes us in fees. */
+export function isPartnerFeeReceivable(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>): boolean {
+  return ref.ownerType === 'treasury' && ref.ownerId.startsWith(PARTNER_FEE_RECEIVABLE_PREFIX);
+}
+
+/** True for an account whose negative balance is ours (a place) or owed to us (a receivable), so it may not go above zero. */
+function heldAsNegative(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>): boolean {
+  return isOwnFundsPlace(ref) || isChargeReceivable(ref) || isPartnerFeeReceivable(ref);
+}
+
+/**
  * The balance rule every ledger applies to each entry: an account may not go below zero, except a `treasury` boundary; an
- * own-funds place, whose negative balance is our money there, may not go above zero; and a charge receivable, whose negative
- * balance is what a customer owes us, may not go above zero either.
+ * own-funds place, whose negative balance is our money there, may not go above zero; and a charge receivable or a partner
+ * fee receivable, whose negative balance is what a customer or a partner owes us, may not go above zero either.
  */
 export function balanceAllowed(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>, next: bigint): boolean {
-  if (isOwnFundsPlace(ref) || isChargeReceivable(ref)) return next <= 0n;
+  if (heldAsNegative(ref)) return next <= 0n;
   return next >= 0n || ref.ownerType === 'treasury';
 }
 
 /**
- * What an account holds, as an overdraft names it: an own-funds place holds the negative of its balance, and a charge
- * receivable the negative of its balance (what is owed).
+ * What an account holds, as an overdraft names it: an own-funds place holds the negative of its balance, and a charge or
+ * partner fee receivable the negative of its balance (what is owed).
  */
 export function heldForRefusal(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>, balance: bigint): bigint {
-  return isOwnFundsPlace(ref) || isChargeReceivable(ref) ? -balance : balance;
+  return heldAsNegative(ref) ? -balance : balance;
 }
