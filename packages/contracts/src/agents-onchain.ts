@@ -1,6 +1,6 @@
 /**
- * THE NAVIGATOR'S ON-CHAIN ACCESS (RC-agents-01) and its trade approvals (AG-approvals-01) — what svc-agents
- * `navigator.onchain.*`, `navigator.ask` and `navigator.approvals` take and answer. Browser-safe: zod only.
+ * THE NAVIGATOR'S ON-CHAIN ACCESS (RC-agents-01) and the trades it makes inside the cap the person signed — what
+ * svc-agents `navigator.onchain.*`, `navigator.ask`, `navigator.orders` and `navigator.trading` take and answer. Browser-safe: zod only.
  *
  * svc-agents never moves value and never claims chain state. A binding records only what the person prepared (the
  * session key's scope, cap and expiry, and the scope's hash) and whether they asked to revoke it; whether the key is
@@ -33,7 +33,18 @@ const chainId = z.number().int().positive();
 
 export const navigatorOnchainSignerInputSchema = z.object({ chainId });
 /** The Navigator's on-chain signer: a public address only. The key itself is never in this service or this answer. */
-export const navigatorOnchainSignerSchema = z.object({ signer: address, chainId, network: z.literal('testnet') });
+export const navigatorOnchainSignerSchema = z.object({
+  signer: address,
+  chainId,
+  network: z.literal('testnet'),
+  /**
+   * The pools the Navigator trades in (J-agents-19 #4): a grant names them with the router, since the account lets a
+   * session key reach only pools in its own targets. Empty when no market is set: the key can then trade nothing.
+   */
+  pools: z.array(address).max(16),
+  /** The router the Navigator trades through, which a grant names; null when no market is set. */
+  router: address.nullable(),
+});
 export type NavigatorOnchainSigner = z.infer<typeof navigatorOnchainSignerSchema>;
 
 /**
@@ -75,19 +86,54 @@ export const navigatorOnchainAccountInputSchema = z.object({ chainId, account: a
 export const navigatorOnchainBindingReadSchema = z.object({ binding: navigatorOnchainBindingSchema.nullable() });
 
 /**
- * The words that make an ask a trade (whole words, any case). The Navigator never trades unasked: any ask that names a
- * trade becomes an approval request for the person, and nothing runs. A session key is a ceiling, not consent.
+ * The words that make an ask a trade (whole words, any case). A person who signed a cap for the Navigator's session key
+ * has consented to trades inside it: inside the cap the Navigator does not ask, above it the trade is refused before
+ * anything is signed, and it never moves money out (J-agents-19 #4).
  * A question about trading ("where do I place a limit order?") asks for an answer, not a trade, so it goes to the
  * ordinary run, which only answers in words; a request put as a question ("can you buy ...?") is still a trade.
  */
 export const NAVIGATOR_TRADE_WORDS = ['swap', 'buy', 'sell', 'trade', 'order'] as const;
 const TRADE_RULE = new RegExp(`\\b(?:${NAVIGATOR_TRADE_WORDS.join('|')})\\b`, 'i');
+/**
+ * An ask to move money out of the person's account: a withdrawal, or a send, transfer or payment to an address. The
+ * Navigator never does: such an ask is refused by name before anything is signed, and the session key could not do it
+ * anyway (no transfer, approve or permit selector can be granted, and a trade's output always goes back to the account).
+ */
+const MONEY_OUT_RULE = /\bwithdraw(?:al)?\b|\b(?:send|transfer|pay)\b[^]*\b0x[0-9a-f]{40}\b/i;
 const QUESTION = /\?\s*$/;
 const REQUEST_AS_QUESTION = /^\s*(?:TEST:\s*)?(?:please\s+)?(?:can|could|would|will)\s+you\b/i;
+const isRequest = (text: string) => !QUESTION.test(text) || REQUEST_AS_QUESTION.test(text);
 export function navigatorAskIsTrade(text: string): boolean {
-  if (!TRADE_RULE.test(text)) return false;
-  return !QUESTION.test(text) || REQUEST_AS_QUESTION.test(text);
+  return TRADE_RULE.test(text) && isRequest(text);
 }
+export function navigatorAskMovesMoneyOut(text: string): boolean {
+  return MONEY_OUT_RULE.test(text) && isRequest(text);
+}
+
+/** The refusal codes of a trade ask, as the message of the typed error `navigator.ask` answers with. */
+export const NAVIGATOR_TRADE_REFUSALS = [
+  /** The ask moves money out of the account: the Navigator never does. */
+  'agents.navigator_money_out_forbidden',
+  /** The trade is above what is left of the cap the person signed. Nothing was signed. */
+  'agents.navigator_trade_over_cap',
+  /** The account's owner on the chain is not a wallet linked to the person's sign-in. Nothing was signed. */
+  'agents.navigator_account_not_yours',
+  /** The person's linked wallets could not be read, so the account cannot be shown to be theirs. Nothing was signed. */
+  'agents.navigator_account_unproven',
+  /** No live session key: none was granted, it expired, or it is revoked or being revoked. */
+  'agents.navigator_no_live_key',
+  /** The ask names no amount and pair the Navigator can trade: "swap <amount> <token> for <token>". */
+  'agents.navigator_trade_unparsed',
+  /** The trade spends a token the cap does not measure: the cap is in TEST ETH, so only wrapped TEST ETH is spent. */
+  'agents.navigator_trade_cap_unit',
+  /** The pool or the call is not in the scope the key was granted. */
+  'agents.navigator_trade_out_of_scope',
+  /** No market is configured for the Navigator (router, pools, the token it spends, the slippage bound). */
+  'agents.navigator_market_unset',
+  /** The pool quotes nothing for this trade, so no minimum out can be set. Nothing was signed. */
+  'agents.navigator_trade_unquoted',
+] as const;
+export type NavigatorTradeRefusal = (typeof NAVIGATOR_TRADE_REFUSALS)[number];
 
 export const navigatorAskInputSchema = z.object({
   sessionId: z.string().uuid(),
@@ -95,29 +141,59 @@ export const navigatorAskInputSchema = z.object({
   text: z.string().trim().min(1).max(200_000),
 });
 
-export const NAVIGATOR_APPROVAL_STATUSES = ['waiting', 'expired'] as const;
-export const navigatorApprovalRequestSchema = z.object({
+/**
+ * An order the Navigator sent through its session key: sending (held against the cap, not yet handed to the network),
+ * sent (handed over, the chain has not mined it), filled or reverted (as the chain's receipt says), or failed (the
+ * network refused it; nothing reached the chain). Sending, sent and filled count against the cap.
+ */
+export const NAVIGATOR_ORDER_STATUSES = ['sending', 'sent', 'filled', 'reverted', 'failed'] as const;
+const wei = z.string().regex(/^\d+$/);
+export const navigatorOrderSchema = z.object({
   id: z.string().uuid(),
   sessionId: z.string().uuid(),
-  requestKey: z.string(),
-  tool: z.literal('trade'),
+  orderKey: z.string(),
+  /** Always "assistant": the order was placed by the Navigator, never by the person's own hand. */
+  placedBy: z.literal('assistant'),
   text: z.string(),
-  status: z.enum(NAVIGATOR_APPROVAL_STATUSES),
+  chainId,
+  account: z.string(),
+  pool: z.string(),
+  tokenIn: z.string(),
+  tokenInSymbol: z.string(),
+  tokenOut: z.string(),
+  tokenOutSymbol: z.string(),
+  /** Wei of the spent token, as a decimal string. */
+  amountInWei: wei,
+  minOutWei: wei,
+  status: z.enum(NAVIGATOR_ORDER_STATUSES),
+  txHash: z.string().nullable(),
   createdAt: z.string(),
-  expiresAt: z.string(),
 });
-export type NavigatorApprovalRequest = z.infer<typeof navigatorApprovalRequestSchema>;
+export type NavigatorOrder = z.infer<typeof navigatorOrderSchema>;
 
 export const navigatorAskResultSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('approval'),
-    request: navigatorApprovalRequestSchema,
-    /** True when the person's Navigator holds a session key binding they have not asked to revoke: it still asks. */
-    ceiling: z.boolean(),
-  }),
+  z.object({ kind: z.literal('order'), order: navigatorOrderSchema }),
   z.object({ kind: z.literal('none') }),
 ]);
 export type NavigatorAskResult = z.infer<typeof navigatorAskResultSchema>;
 
-export const navigatorApprovalsInputSchema = z.object({ sessionId: z.string().uuid() });
-export const navigatorApprovalsSchema = z.object({ requests: z.array(navigatorApprovalRequestSchema) });
+export const navigatorOrdersInputSchema = z.object({ sessionId: z.string().uuid() });
+export const navigatorOrdersSchema = z.object({ orders: z.array(navigatorOrderSchema) });
+
+/**
+ * The Navigator's live key as the person's workspace shows it: the cap they signed, read from the chain, and what the
+ * Navigator's orders hold against it. Null when there is no live key.
+ */
+export const navigatorTradingSchema = z.object({
+  key: z
+    .object({
+      chainId,
+      account: z.string(),
+      capWei: wei,
+      spentWei: wei,
+      leftWei: wei,
+      validUntil: z.number().int(),
+    })
+    .nullable(),
+});
+export type NavigatorTrading = z.infer<typeof navigatorTradingSchema>;

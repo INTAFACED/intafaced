@@ -206,6 +206,8 @@ export interface PrivateRestDeps {
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
   userVenue?: UserVenueRouter | null;
+  /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank), as `/venue/best-prices` answers it. */
+  userVenueSlippageCapBps?: number | null;
   /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
   agentAccounts?: AgentAccounts | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
@@ -1359,6 +1361,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachUserVenueRoutes(app, deps.userVenue ?? null, {
     requirePrincipal,
     requireTradeJurisdiction,
+    slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
   });
   attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction });

@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DOCS_READ, JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
+import { DOCS_READ, JOURNEY_CI, RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -239,13 +239,15 @@ const seal = ({
   runs,
   reports,
   verdict = async (r) => (r.ran.length < FULL.length ? { ...clean, missing: FULL.filter((f) => !r.ran.includes(f)) } : clean),
+  branch = 'b',
+  io = {},
 }) =>
   sealPull({
     repo: REPO,
     number: 9,
     sha: HEAD,
     io: {
-      pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: OLD }, title, body }),
+      pull: async () => ({ state: 'open', head: { sha: HEAD, ref: branch }, base: { sha: OLD }, title, body }),
       runs: async () => runs,
       reportOf: async (r) => reports[r.id],
       files: async () => files,
@@ -255,6 +257,7 @@ const seal = ({
             null)
           : null,
       verdictOf: verdict,
+      ...io,
     },
   });
 const fullRun = { states: {}, ran: FULL };
@@ -271,7 +274,8 @@ test('planted 1: a shared-setup pull request with only a partial run fails the s
 });
 
 test('planted 2: a product pull request whose run misses a journey it touches fails the seal; with every one run it passes', async () => {
-  // Product code: no map says which journeys reach it, so it touches every journey and needs the full run.
+  // Product code: no map says which journeys reach it, and the head's journey files can't be read (this io has no
+  // journeyFiles), so even a title that names a journey can't narrow it: it touches every journey and needs the full run.
   const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
   const bad = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
@@ -308,6 +312,111 @@ test('planted 2: a product pull request whose run misses a journey it touches fa
     reports: { 1: { states, ran: ['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs'] } },
   });
   assert.equal(both.ok, true, both.lines.join('\n'));
+});
+
+// theo-01 part 1 (OWNER 296): a product pull request that names a journey is judged on that journey, its changed journey
+// files and the map's always-run list, the same list its run is given (journey-touch.mjs --reach with TITLE and
+// GITHUB_HEAD_REF); main's full run after the merge judges the rest.
+const HEAD_FILES = new Set(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs', 'J-wallet-05.pw.mjs', 'J-agents-12.pw.mjs']);
+const ALWAYS_MAP = { mode: 'reach', full: { 'J-agents-12.pw.mjs': 'no run speaks for it', 'J-gone-01.pw.mjs': 'removed since' } };
+const namedIo = { journeyFiles: async () => HEAD_FILES, reachMap: async () => ALWAYS_MAP };
+const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
+
+test('journeyTouch, named: product code runs the named journey and the always-run list; another full path or no name stays full', () => {
+  const named = namedInputs({
+    ids: namedJourneyIds({ title: 'svc-bank: cards (J-bank-13 #1 #2)' }),
+    journeyFiles: HEAD_FILES,
+    map: ALWAYS_MAP,
+  });
+  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'], always: ['J-agents-12.pw.mjs'] });
+  const t = journeyTouch([...product, 'apps/customer/tests/real-app/J-bank-14.pw.mjs'], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
+  assert.match(t.named, /it names J-bank-13/);
+  assert.equal(journeyTouch([...product, 'pnpm-lock.yaml'], () => true, null, named).mode, 'full', 'a root build file stays full');
+  assert.equal(journeyTouch([...product, 'tooling/scripts/local-stack-services/bank.mjs'], () => true, null, named).mode, 'full');
+  assert.equal(journeyTouch(product, () => true, null, null).mode, 'full', 'no name: product code is full');
+  assert.equal(journeyTouch(['docs/x.md'], () => true, null, named).mode, 'none', 'a name adds nothing to a change that reaches none');
+  // Names read from the title or the branch, in the seal's case; a name with no file at the head, or unreadable files, is no name.
+  assert.deepEqual(namedJourneyIds({ title: 'x', branch: 'agents-j-agents-19-sign' }), ['J-agents-19']);
+  assert.deepEqual(namedJourneyIds({ title: 'test(customer): J-Portfolio-05 #1 (#7907)', branch: 'fix/7907' }), ['J-portfolio-05']);
+  assert.equal(namedInputs({ ids: ['J-bank-99'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP }), null);
+  assert.equal(namedInputs({ ids: ['J-bank-13'], journeyFiles: null, map: ALWAYS_MAP }), null);
+});
+
+test('planted 3 (theo-01): a named-journey product pull request merges on its own journey and the always-run list, and is held when it breaks its own journey', async () => {
+  const title = 'svc-bank: cards (J-bank-13 #1 #2)';
+  const states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' };
+  const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs'];
+  const good = await seal({
+    title,
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states, ran } },
+    verdict: async () => clean,
+    io: namedIo,
+  });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  assert.match(good.lines.join('\n'), /because it names J-bank-13/);
+  // A breaks A: its own journey red on its run holds it.
+  const broke = await seal({
+    title,
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states: { 'J-bank-13#1': 'failed', 'J-bank-13#2': 'passed' }, ran } },
+    verdict: async () => red('J-bank-13#1'),
+    io: namedIo,
+  });
+  assert.equal(broke.ok, false, 'a named journey it breaks holds it');
+  // The run must hold the always-run list too.
+  const short = await seal({
+    title,
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states, ran: ['J-bank-13.pw.mjs'] } },
+    verdict: async () => clean,
+    io: namedIo,
+  });
+  assert.equal(short.ok, false);
+  assert.match(short.lines.join('\n'), /ran J-agents-12\.pw\.mjs/);
+  // Named by its branch only (no steps in the title): the same.
+  const byBranch = await seal({
+    title: 'svc-bank: cards',
+    branch: 'j/j-bank-13',
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states: {}, ran } },
+    verdict: async () => clean,
+    io: namedIo,
+  });
+  assert.equal(byBranch.ok, true, byBranch.lines.join('\n'));
+  // Naming no journey, or adding a root build file, still needs the full run.
+  const unnamed = await seal({
+    title: 'svc-bank: cards',
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states: {}, ran } },
+    io: namedIo,
+  });
+  assert.equal(unnamed.ok, false);
+  assert.match(unnamed.lines.join('\n'), /it changes what can reach any journey/);
+  const lock = await seal({
+    title,
+    files: [...product, 'pnpm-lock.yaml'],
+    runs: [run(1)],
+    reports: { 1: { states, ran } },
+    io: namedIo,
+  });
+  assert.equal(lock.ok, false);
+  // The head's journey files can't be read: no narrowing.
+  const blind = await seal({
+    title,
+    files: product,
+    runs: [run(1)],
+    reports: { 1: { states, ran } },
+    io: { ...namedIo, journeyFiles: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(blind.ok, false);
 });
 
 test('the seal still needs every titled step passing: a clean full run with a titled step red fails', async () => {

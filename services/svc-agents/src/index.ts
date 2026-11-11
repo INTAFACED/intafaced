@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { httpNavigatorSender, navigatorMarketSchema, viemNavigatorChain } from './navigator/onchain-trade.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -241,6 +242,12 @@ const appRouter = createAgentsRouter({
   ownAssistantModel: env.AGENTS_OWN_ASSISTANT_MODEL ?? null,
   ownApprovalTtlSeconds: env.AGENTS_APPROVAL_TTL_SECONDS ?? null,
   navigatorOnchainSigner: env.AGENTS_NAVIGATOR_ONCHAIN_SIGNER ?? null,
+  navigatorTrading: {
+    sender: env.AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL ? httpNavigatorSender(env.AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL) : null,
+    // Parsed at boot: a malformed market stops the service here.
+    market: env.AGENTS_NAVIGATOR_ONCHAIN_MARKET ? navigatorMarketSchema.parse(JSON.parse(env.AGENTS_NAVIGATOR_ONCHAIN_MARKET)) : null,
+    chain: env.AGENTS_NAVIGATOR_ONCHAIN_RPC_URL ? viemNavigatorChain(env.AGENTS_NAVIGATOR_ONCHAIN_RPC_URL) : null,
+  },
   ownReviewerModel: env.AGENTS_REVIEWER_MODEL ?? null,
   gateway,
   meter,
