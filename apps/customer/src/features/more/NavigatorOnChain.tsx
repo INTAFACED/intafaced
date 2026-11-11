@@ -161,6 +161,8 @@ function OnChainSigner({ owner, chainId }: { owner: string; chainId: number }) {
         chainId={chainId}
         account={account.resource.data.address}
         signer={signer.resource.data.signer}
+        pools={signer.resource.data.pools}
+        marketRouter={signer.resource.data.router}
         agents={agents}
         protocol={protocol}
       />
@@ -176,6 +178,8 @@ function OnChainControls({
   chainId,
   account,
   signer,
+  pools,
+  marketRouter,
   agents,
   protocol,
 }: {
@@ -183,6 +187,8 @@ function OnChainControls({
   chainId: number;
   account: string;
   signer: string;
+  pools: readonly string[];
+  marketRouter: string | null;
   agents: Agents;
   protocol: ProtocolApi;
 }) {
@@ -216,10 +222,12 @@ function OnChainControls({
   const [catchUp, setCatchUp] = useState(0);
   const [representation, setRepresentation] = useState<{ call: Call; status: RepresentationStatus } | null>(null);
 
+  // The router the Navigator trades through, when its market is set; otherwise the network's published router.
   const router =
-    deployments.resource.status === 'ready'
+    marketRouter ??
+    (deployments.resource.status === 'ready'
       ? (deployments.resource.data.routers.find((row) => row.name === 'SovereignRouter' && row.sunsetAt === null)?.address ?? null)
-      : null;
+      : null);
   const key = chain?.keys.find((entry) => entry.key.toLowerCase() === signer.toLowerCase()) ?? null;
   const status = binding ? keyStatus(binding, key) : null;
 
@@ -252,7 +260,8 @@ function OnChainControls({
     const selectors = [...new Set([NAVIGATOR_DEFAULT_SELECTOR, ...extra.map((entry) => entry.toLowerCase())])];
     const spec = {
       key: signer,
-      targets: [router],
+      // The router and the Navigator's pools: a session key reaches only the pools in its own targets.
+      targets: [router, ...pools],
       selectors,
       spendLimitWei: wei,
       validUntil: Math.floor(Date.now() / 1000) + EXPIRY_SECONDS[expiry],
