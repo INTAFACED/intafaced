@@ -45,7 +45,7 @@
  *        node tooling/ci/post-merge-trust.mjs
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -178,7 +178,7 @@ export function moneyFlakyIssueBody(row, runUrl) {
     '',
     `- Owner: ${row.owner ?? 'no area named: its journey names no module in docs/roadmap/journeys.json'}.`,
     '- It stops only its own journeys (project-state OWNER 278): it stays red on main, never counts as proven and is never set aside, and the merge seal holds only the pull requests in its area.',
-    '- Failing outright in two runs in a row on main still bisects and reverts the commit that broke it.',
+    '- Failing outright on main, on every try, still bisects and reverts the commit that broke it.',
     `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real money bug can look like this.`,
     '',
     `<!-- money-flaky: ${row.step} -->`,
@@ -380,7 +380,7 @@ async function issueTexts(repo, issue) {
 
 /**
  * The labels a builder's pick rule reads (project-state BUILDER.md, pick 1; OWNER 289 item 6): a journey's break issue
- * is a `regression`, a step that failed then passed on its retry is `flaky`. The bisect adds `main-unknown-red` when it
+ * is a `regression`, as is a whole check's or a time limit's (#7910 opened bare and no builder could see it), a step that failed then passed on its retry is `flaky`. The bisect adds `main-unknown-red` when it
  * can trace a red to no single merge (journeys-revert.mjs). Every issue stays the one main trust opens: no second issue.
  */
 export const ISSUE_LABELS = { break: ['regression'], setAside: ['flaky'] };
@@ -465,7 +465,7 @@ async function wholeRunCheck(ctx) {
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. Nothing is skipped or blocked; fix or revert the commit._',
     ].join('\n');
-    console.log(await upsertIssue(repo, checkIssueTitle(name), body));
+    console.log(await upsertIssue(repo, checkIssueTitle(name), body, ISSUE_LABELS.break));
     return;
   }
   if (action === 'still-red') {
@@ -474,7 +474,14 @@ async function wholeRunCheck(ctx) {
     if (open) return console.log(`#${open.number} already tracks it`);
     const lastGreen = (await earlierRuns(repo, ctx.workflowId, runId, ctx.createdAt, 100)).find((r) => r.conclusion === 'success');
     const range = lastGreen ? await between(repo, lastGreen.head_sha, sha) : null;
-    console.log(await upsertIssue(repo, checkIssueTitle(name), untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range })));
+    console.log(
+      await upsertIssue(
+        repo,
+        checkIssueTitle(name),
+        untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range }),
+        ISSUE_LABELS.break,
+      ),
+    );
   }
   if (action === 'green') {
     const issue = await findOpenIssue(repo, checkIssueTitle(name));
@@ -521,7 +528,7 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where no job hits its limit._',
     ].join('\n');
-    return `- Time limit: ${timedOut.join(', ')}: ${await upsertIssue(repo, title, body)}`;
+    return `- Time limit: ${timedOut.join(', ')}: ${await upsertIssue(repo, title, body, ISSUE_LABELS.break)}`;
   }
   const issue = await findOpenIssue(repo, title);
   if (!issue) return null;
@@ -910,8 +917,14 @@ function selfTest() {
     ['flaky'],
     'a set-aside issue opens labelled flaky',
   );
-  eq(newIssuePayload('Broken on main: CI', 'b'), { title: 'Broken on main: CI', body: 'b' }, 'a check issue carries no label');
-  console.log('✓ post-merge-trust --self-test OK (35 fixtures)');
+  eq(newIssuePayload('Broken on main: CI', 'b'), { title: 'Broken on main: CI', body: 'b' }, 'no labels asked, none sent');
+  // Every path that opens an issue for a red main passes its labels (RULING 7 item 1: no path opens one bare; #7910 did).
+  const src = readFileSync(new URL(import.meta.url), 'utf8');
+  const bare = [...src.matchAll(/upsertIssue\(repo, (?:[^()]|\([^()]*\)|\{[^}]*\})*\)/g)]
+    .map((m) => m[0])
+    .filter((c) => !c.includes('ISSUE_LABELS.') && !c.includes('labels = []'));
+  eq(bare, [], 'no caller opens an issue without labels');
+  console.log('✓ post-merge-trust --self-test OK (36 fixtures)');
 }
 
 async function main() {

@@ -7,6 +7,8 @@ import {
   assertIdempotencyKey,
   assertValidPost,
   balanceAllowed,
+  BUILDER_FEE_MODULE,
+  OWN_FUNDS_PLACE_PREFIXES,
   formatAmount,
   heldForRefusal,
   hashTx,
@@ -40,8 +42,8 @@ import {
   type HistoryRange,
 } from './history.js';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
-import type { FeeRevenueRow } from './fee-revenue.js';
-import { OWN_FUNDS_EXCLUDED_HOUSE, OWN_FUNDS_EXCLUDED_MODULE_PREFIXES, type OwnFundsRow } from './own-funds.js';
+import { BUILDER_FEE_COLLECT_REASON, VENUE_BUILDER_ACCOUNT_PREFIX, VENUE_BUILDER_FEE_PREFIX, type FeeRevenueRow } from './fee-revenue.js';
+import { OWN_FUNDS_EXCLUDED_HOUSE, OWN_FUNDS_EXCLUDED_MODULE_PREFIXES, type OwnFundsPlaceRow, type OwnFundsRow } from './own-funds.js';
 import { LEDGER_HOLDINGS_HISTORY_MAX_ROWS, LEDGER_HOLDINGS_HISTORY_TOO_LARGE } from '@intafaced/contracts';
 import type { HoldingsHistory, HoldingsHistoryInput } from './holdings-history.js';
 
@@ -491,46 +493,90 @@ export class PostgresLedger implements LedgerClient {
   }
 
   /**
-   * Fee revenue per asset over one window (see `fee-revenue.ts`). A READ: no lock,
-   * no write, no path into `post()`. Debits to `fees:*` house accounts are fees
-   * collected, credits out of them are fees returned. One row per asset that had
-   * a movement; an asset with none is absent. The sums run in the database, so
+   * Fee revenue per venue and asset over one window (see `fee-revenue.ts`). A READ: no lock, no write, no path into
+   * `post()`. Earned and returned are the debits to and credits out of `fees:*` house accounts, each fee put at the venue
+   * its transaction owes it from (its `venue-builder-fee:<venue>` leg), or at no venue. Collected is the Collect entries
+   * alone: credits to `venue-builder-account:<venue>` posted by `builderFeeReceive`. The sums run in the database, so
    * nothing is buffered and no row cap can clip the answer.
    */
   async feeRevenue(range: HistoryRange): Promise<FeeRevenueRow[]> {
-    const rows = await this.sql<Array<{ asset_id: string; collected: string; returned: string }>>`
-      SELECT a.asset_id,
-             COALESCE(SUM(e.amount) FILTER (WHERE e.direction = 'debit'), 0)::text  AS collected,
-             COALESCE(SUM(e.amount) FILTER (WHERE e.direction = 'credit'), 0)::text AS returned
-        FROM ledger_entries e
-        JOIN accounts a   ON a.id = e.account_id
-        JOIN ledger_tx t  ON t.id = e.tx_id
-       WHERE a.owner_type = 'house'::owner_type
-         AND a.kind       = 'available'::account_kind
-         AND a.purpose    = ''
-         AND a.owner_id LIKE 'fees:%'
-         AND t.posted_at >= ${range.from}
-         AND t.posted_at <  ${range.to}
-       GROUP BY a.asset_id
-       ORDER BY a.asset_id
+    const rows = await this.sql<
+      Array<{ venue_id: string | null; asset_id: string; earned: string; returned: string; collected: string | null }>
+    >`
+      WITH fee_legs AS (
+        SELECT e.tx_id, a.asset_id, e.direction, e.amount
+          FROM ledger_entries e
+          JOIN accounts a   ON a.id = e.account_id
+          JOIN ledger_tx t  ON t.id = e.tx_id
+         WHERE a.owner_type = 'house'::owner_type
+           AND a.kind       = 'available'::account_kind
+           AND a.purpose    = ''
+           AND a.owner_id LIKE 'fees:%'
+           AND t.posted_at >= ${range.from}
+           AND t.posted_at <  ${range.to}
+      ),
+      fee_venue AS (
+        SELECT e.tx_id, MIN(substr(a.owner_id, ${VENUE_BUILDER_FEE_PREFIX.length + 1})) AS venue_id
+          FROM ledger_entries e
+          JOIN accounts a ON a.id = e.account_id
+         WHERE e.tx_id IN (SELECT tx_id FROM fee_legs)
+           AND a.owner_type = 'treasury'::owner_type
+           AND starts_with(a.owner_id, ${VENUE_BUILDER_FEE_PREFIX})
+         GROUP BY e.tx_id
+      ),
+      earned AS (
+        SELECT v.venue_id, f.asset_id,
+               COALESCE(SUM(f.amount) FILTER (WHERE f.direction = 'debit'), 0)  AS earned,
+               COALESCE(SUM(f.amount) FILTER (WHERE f.direction = 'credit'), 0) AS returned
+          FROM fee_legs f
+          LEFT JOIN fee_venue v ON v.tx_id = f.tx_id
+         GROUP BY v.venue_id, f.asset_id
+      ),
+      collected AS (
+        SELECT substr(a.owner_id, ${VENUE_BUILDER_ACCOUNT_PREFIX.length + 1}) AS venue_id, a.asset_id, SUM(e.amount) AS collected
+          FROM ledger_entries e
+          JOIN accounts a  ON a.id = e.account_id
+          JOIN ledger_tx t ON t.id = e.tx_id
+         WHERE a.owner_type = 'treasury'::owner_type
+           AND starts_with(a.owner_id, ${VENUE_BUILDER_ACCOUNT_PREFIX})
+           AND e.direction = 'credit'
+           AND t.module    = ${BUILDER_FEE_MODULE}
+           AND t.reason    = ${BUILDER_FEE_COLLECT_REASON}
+           AND t.posted_at >= ${range.from}
+           AND t.posted_at <  ${range.to}
+         GROUP BY 1, 2
+      )
+      SELECT COALESCE(e.venue_id, c.venue_id) AS venue_id,
+             COALESCE(e.asset_id, c.asset_id) AS asset_id,
+             COALESCE(e.earned, 0)::text      AS earned,
+             COALESCE(e.returned, 0)::text    AS returned,
+             c.collected::text                AS collected
+        FROM earned e
+        FULL OUTER JOIN collected c ON c.venue_id = e.venue_id AND c.asset_id = e.asset_id
+       ORDER BY 2, 1 NULLS FIRST
     `;
     return rows.map((r) => ({
+      venueId: r.venue_id,
       assetId: r.asset_id,
-      collected: parseStoredAmount(r.collected, 'ledger_entries.amount'),
+      earned: parseStoredAmount(r.earned, 'ledger_entries.amount'),
       returned: parseStoredAmount(r.returned, 'ledger_entries.amount'),
+      // A venue's fee with no Collect in the window is "0", the ledger's answer; a fee of our own has no collected figure.
+      collected: r.venue_id === null ? null : parseStoredAmount(r.collected ?? '0', 'ledger_entries.amount'),
     }));
   }
 
   /**
    * INTAFACED's own funds now (see `own-funds.ts`): every house and module account with a balance above zero, merchant money
-   * and the burn account left out, with the database's clock at the same statement. A READ: no lock, no write, no path into
-   * `post()`. One statement, so the balances are one snapshot.
+   * and the burn account left out, and every own-funds place account (a `treasury` account named by one of
+   * `OWN_FUNDS_PLACE_PREFIXES`, at zero included), with the database's clock at the same statement. A READ: no lock, no
+   * write, no path into `post()`. One statement, so the balances and the places are one snapshot.
    */
-  async ownFunds(): Promise<{ asOf: Date; rows: OwnFundsRow[] }> {
+  async ownFunds(): Promise<{ asOf: Date; rows: OwnFundsRow[]; places: OwnFundsPlaceRow[] }> {
     const modulePatterns = OWN_FUNDS_EXCLUDED_MODULE_PREFIXES.map((p) => `${p}%`);
-    const rows = await this.sql<
+    const placePatterns = OWN_FUNDS_PLACE_PREFIXES.map((p) => `${p}%`);
+    const all = await this.sql<
       Array<{
-        owner_type: 'house' | 'module';
+        owner_type: 'house' | 'module' | 'treasury';
         owner_id: string;
         asset_id: string;
         kind: string;
@@ -542,16 +588,23 @@ export class PostgresLedger implements LedgerClient {
       SELECT a.owner_type::text AS owner_type, a.owner_id, a.asset_id, a.kind::text AS kind, a.purpose, a.balance::text AS balance,
              now() AS now
         FROM accounts a
-       WHERE a.balance > 0
-         AND (
-           (a.owner_type = 'house'::owner_type AND a.owner_id <> ALL(${[...OWN_FUNDS_EXCLUDED_HOUSE]}::text[]))
-           OR (a.owner_type = 'module'::owner_type AND NOT (a.owner_id LIKE ANY(${modulePatterns}::text[])))
-         )
+       WHERE (
+               a.balance > 0
+               AND (
+                 (a.owner_type = 'house'::owner_type AND a.owner_id <> ALL(${[...OWN_FUNDS_EXCLUDED_HOUSE]}::text[]))
+                 OR (a.owner_type = 'module'::owner_type AND NOT (a.owner_id LIKE ANY(${modulePatterns}::text[])))
+               )
+             )
+          OR (a.owner_type = 'treasury'::owner_type AND a.owner_id LIKE ANY(${placePatterns}::text[]))
        ORDER BY a.asset_id, a.owner_type::text, a.owner_id, a.kind::text, a.purpose
     `;
-    const clock = rows[0]?.now ?? (await this.sql<Array<{ now: Date }>>`SELECT now() AS now`)[0]!.now;
+    const clock = all[0]?.now ?? (await this.sql<Array<{ now: Date }>>`SELECT now() AS now`)[0]!.now;
+    const rows = all.filter((r): r is (typeof all)[number] & { owner_type: 'house' | 'module' } => r.owner_type !== 'treasury');
     return {
       asOf: new Date(clock),
+      places: all
+        .filter((r) => r.owner_type === 'treasury')
+        .map((r) => ({ ownerId: r.owner_id, assetId: r.asset_id, balance: parseStoredAmount(r.balance, 'accounts.balance') })),
       rows: rows.map((r) => ({
         ownerType: r.owner_type,
         ownerId: r.owner_id,

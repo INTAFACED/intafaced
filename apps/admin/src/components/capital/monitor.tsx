@@ -1,5 +1,5 @@
 import { formatWhen } from '@/lib/as-of';
-import type { OpsCapitalScenario, OpsCapitalSnapshot } from '@intafaced/contracts/ops-capital';
+import type { OpsCapitalPlace, OpsCapitalScenario, OpsCapitalSnapshot } from '@intafaced/contracts/ops-capital';
 import { CAPITAL_REFUSAL_WORDS, PARTNER_SOURCE, STATE_WORDS, accountName, reserveWords } from '@/lib/capital/model';
 import type { Part } from '@/lib/desk/part';
 import '../desk.css';
@@ -73,6 +73,63 @@ function OwnFunds({ part }: { part: OpsCapitalSnapshot['ownFunds'] }) {
           </table>
         </details>
       )}
+    </>
+  );
+}
+
+const PLACE_WORDS: Readonly<Record<OpsCapitalPlace['kind'], string>> = {
+  venue_builder_account: 'Builder account at',
+  partner_reserve: 'Reserve at partner',
+  treasury_wallet: 'Treasury wallet',
+};
+
+function outsideWords(o: OpsCapitalPlace['outside']): string {
+  if (o.status === 'read') return `${o.amount}, ${o.source}`;
+  if (o.status === 'none') return `none, ${o.source}`;
+  if (o.status === 'unknown') return `unknown (${o.code}): ${o.message}`;
+  return `not connected: ${o.message}`;
+}
+
+/** Each named place our own money sits at: what our book shows there beside the outside figure, with that figure's time. */
+function Places({ part }: { part: OpsCapitalSnapshot['places'] }) {
+  if (part.status === 'unknown')
+    return <Unknown testId="places-unknown" title="Our own funds at each place" code={part.code} message={part.message} />;
+  if (part.places.length === 0)
+    return <p data-testid="places-empty">The ledger has no place of ours outside our own book. That is the ledger’s answer.</p>;
+  return (
+    <>
+      <p className="dk-muted" data-testid="places-source">
+        Our book: the ledger (svc-ledger), read {formatWhen(part.asOf)}. Each is checked against the venue’s or partner’s own figure, at
+        their own time.
+      </p>
+      <table className="adm-table" aria-label="Our own funds at each place">
+        <thead>
+          <tr>
+            <th scope="col">Place</th>
+            <th scope="col">Asset</th>
+            <th scope="col">Our book shows</th>
+            <th scope="col">Checked against</th>
+            <th scope="col">As of</th>
+          </tr>
+        </thead>
+        <tbody>
+          {part.places.map((p) => (
+            <tr
+              key={`${p.kind}:${p.placeId}:${p.assetId}`}
+              data-testid={`place-${p.kind}-${p.placeId}-${p.assetId}`}
+              data-outside={p.outside.status}
+            >
+              <th scope="row">
+                {PLACE_WORDS[p.kind]} {p.placeId}
+              </th>
+              <td>{p.assetId}</td>
+              <td data-col="held">{p.held}</td>
+              <td data-col="outside">{outsideWords(p.outside)}</td>
+              <td>{p.outside.status === 'read' ? formatWhen(p.outside.asOf) : 'unknown'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </>
   );
 }
@@ -237,6 +294,10 @@ export function CapitalMonitor({ snapshot }: { snapshot: OpsCapitalSnapshot }) {
       <section aria-label="INTAFACED’s own funds" className="dk-stack">
         <h3>INTAFACED’s own funds</h3>
         <OwnFunds part={snapshot.ownFunds} />
+      </section>
+      <section aria-label="Our own funds at each place" className="dk-stack">
+        <h3>Our own funds at each place</h3>
+        <Places part={snapshot.places} />
       </section>
       <section aria-label="Builder account at each venue" className="dk-stack">
         <h3>Builder account at each venue</h3>
