@@ -1285,6 +1285,18 @@
           }
         },
         {
+          "name": "venueSubAccounts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/sub-accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "sub-accounts"]
+            }
+          }
+        },
+        {
           "name": "venueOrderByClientId",
           "request": {
             "method": "GET",
