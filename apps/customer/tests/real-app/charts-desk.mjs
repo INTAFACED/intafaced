@@ -121,7 +121,8 @@ export async function paneBoxes(page) {
 }
 
 /**
- * A point on one pane of the chart: `fx` picks a loaded bar as `plot` does, `fy` is a fraction of that pane's own height.
+ * A point on one pane of the chart: `fx` picks a loaded bar as `plot` does, `fy` is a fraction of that pane's own height,
+ * rounded to a whole pixel.
  */
 export async function inPane(page, pane, fx, fy) {
   const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
@@ -130,5 +131,7 @@ export async function inPane(page, pane, fx, fy) {
   const at = (await paneBoxes(page)).find((b) => b.index === pane);
   if (!at) throw new Error(`the chart has no pane ${pane}`);
   const index = Math.round(fx * (bars.length - 1));
-  return { x: box.x + box.width * bars[index], y: box.y + at.top + at.height * fy };
+  // A whole pixel down, as a mouse gives: the chart reads the pointer at whole pixels, so a fraction would make the price
+  // the chart reads under the pointer differ from the price at the exact height clicked.
+  return { x: box.x + box.width * bars[index], y: box.y + Math.round(at.top + at.height * fy) };
 }

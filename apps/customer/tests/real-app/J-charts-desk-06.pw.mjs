@@ -135,7 +135,7 @@ async function clickBar(page, index, fy) {
   if (!bar) throw new Error(`loaded bar ${index} is not in view`);
   const price = (await paneBoxes(page)).find((b) => b.index === 0);
   if (!price) throw new Error('the chart has no price pane');
-  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + price.top + price.height * fy);
+  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + Math.round(price.top + price.height * fy));
   return bar.time;
 }
 

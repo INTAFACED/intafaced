@@ -32,14 +32,14 @@ const drawn = (page) => chartHost(page).evaluate((el) => el.readDrawnLines());
 
 /**
  * A point on one pane: across, on the loaded bar `fx` picks (as `plot` does); down, at `fy` of that pane's own height, from
- * the pane's top as the chart lays it out.
+ * the pane's top as the chart lays it out, rounded to a whole pixel as a mouse gives (the chart reads whole pixels).
  */
 async function inPane(page, pane, fx, fy) {
   const { x } = await plot(page, fx, 0.5);
   const box = await chartHost(page).boundingBox();
   const at = (await paneBoxes(page)).find((b) => b.index === pane);
   if (!box || !at) throw new Error(`the chart has no pane ${pane}`);
-  return { x, y: box.y + at.top + at.height * fy };
+  return { x, y: box.y + Math.round(at.top + at.height * fy) };
 }
 
 /**
