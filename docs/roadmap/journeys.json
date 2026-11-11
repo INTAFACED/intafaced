@@ -768,7 +768,11 @@
       { "n": 12, "slices": ["AG-outside-02"], "noSlice": false },
       { "n": 13, "slices": ["AG-outside-01"], "noSlice": false },
       { "n": 14, "slices": ["AG-outside-01"], "noSlice": false },
-      { "n": 15, "slices": ["AG-outside-04", "AG-control-02"], "noSlice": false }
+      { "n": 15, "slices": ["AG-outside-04", "AG-control-02"], "noSlice": false },
+      { "n": 16, "slices": ["AG-outside-01"], "noSlice": false },
+      { "n": 17, "slices": ["AG-outside-03"], "noSlice": false },
+      { "n": 18, "slices": ["AG-outside-03"], "noSlice": false },
+      { "n": 19, "slices": ["AG-outside-02"], "noSlice": false }
     ]
   },
   {
@@ -1133,7 +1137,9 @@
       { "n": 3, "slices": ["BK-xfer-10"], "noSlice": false },
       { "n": 4, "slices": ["BK-xfer-11"], "noSlice": false },
       { "n": 5, "slices": ["BK-acct-10"], "noSlice": false },
-      { "n": 6, "slices": ["BK-acct-10"], "noSlice": false }
+      { "n": 6, "slices": ["BK-acct-10"], "noSlice": false },
+      { "n": 7, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 8, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -1250,7 +1256,8 @@
       { "n": 4, "slices": ["BK-cissue-03"], "noSlice": false },
       { "n": 5, "slices": ["BK-cissue-04"], "noSlice": false },
       { "n": 6, "slices": ["BK-cissue-04"], "noSlice": false },
-      { "n": 7, "slices": ["RC-bank-02"], "noSlice": false }
+      { "n": 7, "slices": ["RC-bank-02"], "noSlice": false },
+      { "n": 8, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -1406,7 +1413,7 @@
       { "n": 1, "slices": ["BK-bexp-03"], "noSlice": false },
       { "n": 2, "slices": ["BK-bexp-04"], "noSlice": false },
       { "n": 3, "slices": ["BK-bexp-05"], "noSlice": false },
-      { "n": 4, "slices": ["BK-pots-04"], "noSlice": false }
+      { "n": 4, "slices": ["BK-pots-04"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -1483,8 +1490,8 @@
     "tier": "advanced",
     "order": 3,
     "steps": [
-      { "n": 1, "slices": ["BK-earn-02"], "noSlice": false },
-      { "n": 2, "slices": ["BK-earn-04"], "noSlice": false },
+      { "n": 1, "slices": ["BK-earn-02"], "noSlice": false, "later": "custody" },
+      { "n": 2, "slices": ["BK-earn-04"], "noSlice": false, "later": "custody" },
       { "n": 3, "slices": ["BK-ord-01"], "noSlice": false },
       { "n": 4, "slices": ["BK-xfer-11"], "noSlice": false }
     ]
@@ -1523,6 +1530,23 @@
       { "n": 6, "slices": ["BK-salary-03"], "noSlice": false },
       { "n": 7, "slices": ["BK-salary-03"], "noSlice": false },
       { "n": 8, "slices": ["BK-salary-03"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-bank-31",
+    "title": "I pay myself from my trading",
+    "module": "bank",
+    "persona": "retail",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -1573,7 +1597,7 @@
       { "n": 3, "slices": ["CM-payouts-ledger-01"], "noSlice": false },
       { "n": 4, "slices": ["CM-payouts-ledger-01"], "noSlice": false },
       { "n": 5, "slices": ["CM-rewards-hub-02"], "noSlice": false },
-      { "n": 6, "slices": ["CM-rewards-hub-02"], "noSlice": false },
+      { "n": 6, "slices": ["CM-rewards-hub-02"], "noSlice": false, "later": "custody" },
       { "n": 7, "slices": ["CM-rewards-hub-01"], "noSlice": false }
     ]
   },
@@ -1669,7 +1693,7 @@
       { "n": 1, "slices": ["CM-vouchers-coupons-02"], "noSlice": false },
       { "n": 2, "slices": ["CM-vouchers-coupons-02"], "noSlice": false },
       { "n": 3, "slices": ["CM-vouchers-coupons-02"], "noSlice": false },
-      { "n": 4, "slices": ["CM-vouchers-coupons-02"], "noSlice": false },
+      { "n": 4, "slices": ["CM-vouchers-coupons-02"], "noSlice": false, "later": "custody" },
       { "n": 5, "slices": ["CM-vouchers-coupons-03"], "noSlice": false },
       { "n": 6, "slices": ["CM-vouchers-coupons-03"], "noSlice": false }
     ]
@@ -1716,7 +1740,7 @@
       { "n": 2, "slices": ["CM-promotions-events-02"], "noSlice": false },
       { "n": 3, "slices": ["CM-promotions-events-02"], "noSlice": false },
       { "n": 4, "slices": ["CM-promotions-events-02"], "noSlice": false },
-      { "n": 5, "slices": ["CM-promotions-events-02", "CM-payouts-ledger-02"], "noSlice": false }
+      { "n": 5, "slices": ["CM-promotions-events-02", "CM-payouts-ledger-02"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -1860,7 +1884,7 @@
       { "n": 1, "slices": ["I-kyc-compliance-06"], "noSlice": false },
       { "n": 2, "slices": ["SP-order-entry-01"], "noSlice": false },
       { "n": 3, "slices": ["I-kyc-compliance-08", "I-kyc-compliance-02"], "noSlice": false },
-      { "n": 4, "slices": ["W-deposit-05"], "noSlice": false },
+      { "n": 4, "slices": ["W-deposit-05", "D-venue-11"], "noSlice": false },
       { "n": 5, "slices": ["SP-order-01", "SP-markets-data-01", "SP-developer-status-01"], "noSlice": false },
       { "n": 6, "slices": ["SP-order-entry-03", "SP-order-entry-04", "SP-fees-vip-02"], "noSlice": false },
       { "n": 7, "slices": ["SP-order-entry-01", "SP-lifecycle-history-01"], "noSlice": false },
@@ -1958,7 +1982,9 @@
       { "n": 5, "slices": ["SP-fees-vip-02", "SP-lifecycle-history-02"], "noSlice": false },
       { "n": 6, "slices": ["SP-lifecycle-history-02", "SP-conditional-algo-01"], "noSlice": false },
       { "n": 7, "slices": ["SP-lifecycle-history-01"], "noSlice": false },
-      { "n": 8, "slices": ["SP-fees-vip-02"], "noSlice": false }
+      { "n": 8, "slices": ["SP-fees-vip-02"], "noSlice": false },
+      { "n": 9, "slices": ["SP-order-01", "SP-lifecycle-history-01"], "noSlice": false },
+      { "n": 10, "slices": ["SP-lifecycle-history-01"], "noSlice": false }
     ]
   },
   {
@@ -2052,10 +2078,11 @@
       { "n": 6, "slices": ["SP-convert-buy-01"], "noSlice": false },
       { "n": 7, "slices": ["SP-convert-buy-02"], "noSlice": false },
       { "n": 8, "slices": ["SP-convert-buy-01"], "noSlice": false },
-      { "n": 9, "slices": ["SP-convert-buy-01"], "noSlice": false },
+      { "n": 9, "slices": ["SP-convert-buy-01"], "noSlice": false, "later": "custody" },
       { "n": 10, "slices": ["SP-convert-buy-03"], "noSlice": false },
       { "n": 11, "slices": ["SP-convert-buy-03"], "noSlice": false },
-      { "n": 12, "slices": ["SP-convert-buy-03"], "noSlice": false }
+      { "n": 12, "slices": ["SP-convert-buy-03"], "noSlice": false },
+      { "n": 13, "slices": ["SP-convert-buy-03"], "noSlice": false }
     ]
   },
   {
@@ -2146,9 +2173,9 @@
       { "n": 2, "slices": ["SP-ops-01"], "noSlice": false },
       { "n": 3, "slices": ["SP-ops-01"], "noSlice": false },
       { "n": 4, "slices": ["SP-ops-01"], "noSlice": false },
-      { "n": 5, "slices": ["SP-ops-01"], "noSlice": false },
+      { "n": 5, "slices": ["SP-ops-01"], "noSlice": false, "later": "custody" },
       { "n": 6, "slices": ["SP-ops-02"], "noSlice": false },
-      { "n": 7, "slices": ["RC-cex-spot-01"], "noSlice": false },
+      { "n": 7, "slices": ["RC-cex-spot-01"], "noSlice": false, "later": "custody" },
       { "n": 8, "slices": ["SP-markets-data-02"], "noSlice": false }
     ]
   },
@@ -2180,8 +2207,8 @@
     "steps": [
       { "n": 1, "slices": ["SP-ops-03"], "noSlice": false },
       { "n": 2, "slices": ["SP-ops-03"], "noSlice": false },
-      { "n": 3, "slices": ["SP-ops-03"], "noSlice": false },
-      { "n": 4, "slices": ["SP-ops-03"], "noSlice": false },
+      { "n": 3, "slices": ["SP-ops-03"], "noSlice": false, "later": "custody" },
+      { "n": 4, "slices": ["SP-ops-03"], "noSlice": false, "later": "custody" },
       { "n": 5, "slices": ["SP-ops-03"], "noSlice": false }
     ]
   },
@@ -2384,7 +2411,8 @@
       { "n": 1, "slices": ["C-alerts-scan-04"], "noSlice": false },
       { "n": 2, "slices": ["C-alerts-scan-04"], "noSlice": false },
       { "n": 3, "slices": ["C-alerts-scan-04"], "noSlice": false },
-      { "n": 4, "slices": ["C-alerts-scan-04"], "noSlice": false }
+      { "n": 4, "slices": ["C-alerts-scan-04"], "noSlice": false },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -2778,7 +2806,7 @@
       { "n": 2, "slices": ["CB-bots-04"], "noSlice": false },
       { "n": 3, "slices": ["CB-bots-03"], "noSlice": false },
       { "n": 4, "slices": ["CB-bots-03"], "noSlice": false },
-      { "n": 5, "slices": ["CB-bots-06"], "noSlice": false },
+      { "n": 5, "slices": ["CB-bots-06"], "noSlice": false, "later": "custody" },
       { "n": 6, "slices": ["CB-bots-06"], "noSlice": false },
       { "n": 7, "slices": ["CB-bots-09", "CB-copy-20"], "noSlice": false },
       { "n": 8, "slices": ["CB-copy-20"], "noSlice": false }
@@ -2794,7 +2822,7 @@
     "steps": [
       { "n": 1, "slices": ["CB-bots-11"], "noSlice": false },
       { "n": 2, "slices": ["CB-bots-11"], "noSlice": false },
-      { "n": 3, "slices": ["CB-bots-11"], "noSlice": false },
+      { "n": 3, "slices": ["CB-bots-11"], "noSlice": false, "later": "custody" },
       { "n": 4, "slices": ["CB-bots-11"], "noSlice": false },
       { "n": 5, "slices": ["CB-bots-12"], "noSlice": false },
       { "n": 6, "slices": ["CB-bots-12"], "noSlice": false },
@@ -2916,7 +2944,9 @@
       { "n": 5, "slices": ["CB-execution-02"], "noSlice": false },
       { "n": 6, "slices": ["CB-execution-03"], "noSlice": false },
       { "n": 7, "slices": ["CB-execution-04"], "noSlice": false },
-      { "n": 8, "slices": ["CB-execution-05"], "noSlice": false }
+      { "n": 8, "slices": ["CB-execution-05"], "noSlice": false },
+      { "n": 9, "slices": [], "noSlice": true },
+      { "n": 10, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -3293,8 +3323,8 @@
       { "n": 6, "slices": ["D-data-06"], "noSlice": false },
       { "n": 7, "slices": ["D-orders-07"], "noSlice": false },
       { "n": 8, "slices": ["D-orders-08"], "noSlice": false },
-      { "n": 9, "slices": ["D-margin-11"], "noSlice": false },
-      { "n": 10, "slices": ["D-ops-08"], "noSlice": false }
+      { "n": 9, "slices": ["D-margin-11"], "noSlice": false, "later": "custody" },
+      { "n": 10, "slices": ["D-ops-08"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -3479,7 +3509,8 @@
       { "n": 9, "slices": ["D-cross-03"], "noSlice": false },
       { "n": 10, "slices": ["D-cross-01", "D-cross-03"], "noSlice": false },
       { "n": 11, "slices": ["D-cross-01"], "noSlice": false },
-      { "n": 12, "slices": ["D-cross-05"], "noSlice": false }
+      { "n": 12, "slices": ["D-cross-05"], "noSlice": false },
+      { "n": 13, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -3498,7 +3529,7 @@
       { "n": 6, "slices": ["D-cross-04", "D-margin-08"], "noSlice": false },
       { "n": 7, "slices": ["D-cross-05"], "noSlice": false },
       { "n": 8, "slices": ["D-cross-05"], "noSlice": false },
-      { "n": 9, "slices": ["D-cross-05"], "noSlice": false }
+      { "n": 9, "slices": ["D-cross-05"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -3510,11 +3541,15 @@
     "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-multiasset-02"], "noSlice": false },
-      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 2, "slices": ["D-venue-03", "D-venue-10"], "noSlice": false },
       { "n": 3, "slices": ["D-multiasset-02"], "noSlice": false },
       { "n": 4, "slices": ["D-multiasset-03"], "noSlice": false },
-      { "n": 5, "slices": [], "noSlice": true },
-      { "n": 6, "slices": [], "noSlice": true }
+      { "n": 5, "slices": ["D-venue-03"], "noSlice": false },
+      { "n": 6, "slices": ["D-venue-03", "D-venue-07"], "noSlice": false },
+      { "n": 7, "slices": ["D-venue-10"], "noSlice": false },
+      { "n": 8, "slices": ["D-venue-10"], "noSlice": false },
+      { "n": 9, "slices": ["D-venue-10"], "noSlice": false },
+      { "n": 10, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -3525,13 +3560,14 @@
     "tier": "core",
     "order": 1,
     "steps": [
-      { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true },
-      { "n": 5, "slices": [], "noSlice": true },
-      { "n": 6, "slices": [], "noSlice": true },
-      { "n": 7, "slices": [], "noSlice": true }
+      { "n": 1, "slices": ["D-venue-01"], "noSlice": false },
+      { "n": 2, "slices": ["D-venue-02"], "noSlice": false },
+      { "n": 3, "slices": ["D-venue-03", "D-venue-07"], "noSlice": false },
+      { "n": 4, "slices": ["D-venue-04"], "noSlice": false },
+      { "n": 5, "slices": ["D-venue-03"], "noSlice": false },
+      { "n": 6, "slices": ["D-venue-05", "D-venue-07"], "noSlice": false },
+      { "n": 7, "slices": ["D-venue-08"], "noSlice": false, "later": "custody" },
+      { "n": 8, "slices": ["D-venue-06"], "noSlice": false }
     ]
   },
   {
@@ -3765,7 +3801,8 @@
       { "n": 5, "slices": ["DV-fix-01"], "noSlice": false },
       { "n": 6, "slices": ["RC-developer-01"], "noSlice": false },
       { "n": 7, "slices": ["RC-developer-02"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-developer-15",
@@ -4149,9 +4186,9 @@
       { "n": 4, "slices": ["D-swap-06", "D-fees-governance-03"], "noSlice": false },
       { "n": 5, "slices": ["D-fees-governance-02"], "noSlice": false },
       { "n": 6, "slices": ["D-fees-governance-03"], "noSlice": false },
-      { "n": 7, "slices": ["RC-dex-protocol-20"], "noSlice": false },
+      { "n": 7, "slices": ["RC-dex-protocol-20"], "noSlice": false, "later": "custody" },
       { "n": 8, "slices": ["D-fees-governance-05"], "noSlice": false },
-      { "n": 9, "slices": ["RC-dex-protocol-13"], "noSlice": false }
+      { "n": 9, "slices": ["RC-dex-protocol-13"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -4460,7 +4497,7 @@
       { "n": 7, "slices": ["D-launch-listing-01"], "noSlice": false },
       { "n": 8, "slices": ["D-launch-listing-07"], "noSlice": false },
       { "n": 9, "slices": ["D-liquidity-07"], "noSlice": false },
-      { "n": 10, "slices": ["D-developer-compliance-03"], "noSlice": false, "deferred": true },
+      { "n": 10, "slices": ["D-developer-compliance-03"], "noSlice": false },
       { "n": 11, "slices": ["RC-dex-protocol-14"], "noSlice": false, "deferred": true },
       { "n": 12, "slices": ["D-developer-compliance-02"], "noSlice": false }
     ]
@@ -4473,9 +4510,9 @@
     "tier": "core",
     "order": 2,
     "steps": [
-      { "n": 1, "slices": ["D-perps-04"], "noSlice": false },
-      { "n": 2, "slices": ["D-perps-04"], "noSlice": false },
-      { "n": 3, "slices": ["D-perps-04"], "noSlice": false },
+      { "n": 1, "slices": ["D-perps-04"], "noSlice": false, "later": "custody" },
+      { "n": 2, "slices": ["D-perps-04"], "noSlice": false, "later": "custody" },
+      { "n": 3, "slices": ["D-perps-04"], "noSlice": false, "later": "custody" },
       { "n": 4, "slices": ["D-perps-06"], "noSlice": false },
       { "n": 5, "slices": ["D-lend-earn-04"], "noSlice": false },
       { "n": 6, "slices": ["D-lend-earn-03"], "noSlice": false },
@@ -4504,6 +4541,7 @@
         "n": 8,
         "slices": ["RC-dex-protocol-13"],
         "noSlice": false,
+        "later": "custody",
         "parked": true,
         "parkedUntil": "after launch (OWNER 183 (2): own-chain extras, buyback)"
       },
@@ -4523,7 +4561,10 @@
       { "n": 3, "slices": ["HM-dashboard-01"], "noSlice": false },
       { "n": 4, "slices": ["HM-dashboard-03"], "noSlice": false },
       { "n": 5, "slices": ["HM-dashboard-04"], "noSlice": false },
-      { "n": 6, "slices": ["HM-widgets-02"], "noSlice": false }
+      { "n": 6, "slices": ["HM-widgets-02"], "noSlice": false },
+      { "n": 7, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 8, "slices": [], "noSlice": true },
+      { "n": 9, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -4693,7 +4734,8 @@
       { "n": 5, "slices": ["I-signin-sessions-18", "I-signin-sessions-20"], "noSlice": false },
       { "n": 6, "slices": ["I-signin-sessions-32"], "noSlice": false },
       { "n": 7, "slices": ["I-kyc-compliance-18"], "noSlice": false },
-      { "n": 8, "slices": ["RC-identity-01"], "noSlice": false }
+      { "n": 8, "slices": ["RC-identity-01"], "noSlice": false },
+      { "n": 9, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -4999,11 +5041,12 @@
       { "n": 2, "slices": ["I-kyc-compliance-01", "I-kyc-compliance-02"], "noSlice": false },
       { "n": 3, "slices": ["I-kyc-compliance-03", "I-kyc-compliance-13"], "noSlice": false },
       { "n": 4, "slices": ["I-kyc-compliance-14"], "noSlice": false },
-      { "n": 5, "slices": ["I-kyc-compliance-19"], "noSlice": false, "deferred": true },
+      { "n": 5, "slices": ["I-kyc-compliance-19"], "noSlice": false },
       { "n": 6, "slices": ["I-kyc-compliance-07"], "noSlice": false },
       { "n": 7, "slices": ["I-kyc-compliance-05"], "noSlice": false },
       { "n": 8, "slices": ["I-kyc-compliance-02"], "noSlice": false },
-      { "n": 9, "slices": ["I-kyc-compliance-25"], "noSlice": false }
+      { "n": 9, "slices": ["I-kyc-compliance-25"], "noSlice": false },
+      { "n": 10, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -5021,6 +5064,18 @@
       { "n": 5, "slices": ["I-order-01"], "noSlice": false },
       { "n": 6, "slices": ["I-signin-sessions-32"], "noSlice": false },
       { "n": 7, "slices": ["I-order-01"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-identity-22",
+    "title": "The app lets nobody in until the country list is set",
+    "module": "identity",
+    "persona": "retail",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -5171,7 +5226,14 @@
       { "n": 3, "slices": ["M-money-out-05c"], "noSlice": false },
       { "n": 4, "slices": ["M-adv-money-out-05"], "noSlice": false },
       { "n": 5, "slices": ["M-adv-money-out-09"], "noSlice": false },
-      { "n": 6, "slices": ["M-adv-money-out-10"], "noSlice": false }
+      { "n": 6, "slices": ["M-adv-money-out-10"], "noSlice": false },
+      {
+        "n": 7,
+        "slices": ["M-adv-money-out-10"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183: a second processor, J-merchant-34; Fable run 2, OWNER 291)"
+      }
     ]
   },
   {
@@ -5202,7 +5264,14 @@
       { "n": 3, "slices": ["M-plat-org-03"], "noSlice": false },
       { "n": 4, "slices": ["M-plat-org-04"], "noSlice": false },
       { "n": 5, "slices": ["M-adv-org-access-01"], "noSlice": false },
-      { "n": 6, "slices": ["M-adv-org-access-01"], "noSlice": false }
+      { "n": 6, "slices": ["M-adv-org-access-01"], "noSlice": false },
+      {
+        "n": 7,
+        "slices": ["M-adv-org-access-01"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183: point of sale, J-merchant-31, -32; Fable run 2, OWNER 291)"
+      }
     ]
   },
   {
@@ -5279,7 +5348,14 @@
       { "n": 5, "slices": ["M-developer-05"], "noSlice": false },
       { "n": 6, "slices": ["M-developer-03"], "noSlice": false },
       { "n": 7, "slices": ["M-adv-developer-04", "M-adv-developer-05"], "noSlice": false },
-      { "n": 8, "slices": ["M-adv-developer-06"], "noSlice": false }
+      { "n": 8, "slices": ["M-adv-developer-06"], "noSlice": false },
+      {
+        "n": 9,
+        "slices": ["M-adv-developer-03"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183: platform accounts, J-merchant-35, -36; Fable run 2, OWNER 291)"
+      }
     ]
   },
   {
@@ -5424,7 +5500,14 @@
       { "n": 4, "slices": ["M-rep-02"], "noSlice": false },
       { "n": 5, "slices": ["M-adv-reporting-recon-01"], "noSlice": false },
       { "n": 6, "slices": ["M-adv-reporting-recon-02"], "noSlice": false },
-      { "n": 7, "slices": ["M-adv-reporting-recon-03"], "noSlice": false }
+      { "n": 7, "slices": ["M-adv-reporting-recon-03"], "noSlice": false },
+      {
+        "n": 8,
+        "slices": ["M-adv-reporting-recon-03"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183: retail stores, J-merchant-32; Fable run 2, OWNER 291)"
+      }
     ]
   },
   {
@@ -6119,13 +6202,13 @@
     "order": 2,
     "steps": [
       { "n": 1, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
-      { "n": 2, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
-      { "n": 3, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
-      { "n": 4, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
-      { "n": 5, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
+      { "n": 2, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
+      { "n": 3, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
+      { "n": 4, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
       { "n": 6, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 7, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
-      { "n": 8, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
+      { "n": 8, "slices": ["OPS-accounts-desk-01"], "noSlice": false, "later": "custody" },
       { "n": 9, "slices": ["OPS-accounts-desk-02"], "noSlice": false, "deferred": true },
       { "n": 10, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 11, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
@@ -6146,10 +6229,10 @@
       { "n": 4, "slices": ["OPS-ledger-desk-02"], "noSlice": false },
       { "n": 5, "slices": ["OPS-ledger-desk-02"], "noSlice": false },
       { "n": 6, "slices": ["OPS-ledger-desk-02"], "noSlice": false },
-      { "n": 7, "slices": ["OPS-ledger-desk-03"], "noSlice": false },
-      { "n": 8, "slices": ["OPS-ledger-desk-03"], "noSlice": false },
-      { "n": 9, "slices": ["OPS-ledger-desk-03"], "noSlice": false },
-      { "n": 10, "slices": ["OPS-ledger-desk-03"], "noSlice": false }
+      { "n": 7, "slices": ["OPS-ledger-desk-03"], "noSlice": false, "later": "custody" },
+      { "n": 8, "slices": ["OPS-ledger-desk-03"], "noSlice": false, "later": "custody" },
+      { "n": 9, "slices": ["OPS-ledger-desk-03"], "noSlice": false, "later": "custody" },
+      { "n": 10, "slices": ["OPS-ledger-desk-03"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -6525,6 +6608,7 @@
         "n": 4,
         "slices": ["RC-ops-console-08"],
         "noSlice": false,
+        "later": "custody",
         "parked": true,
         "parkedUntil": "after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)"
       },
@@ -6547,7 +6631,10 @@
       { "n": 3, "slices": ["RC-ops-console-22"], "noSlice": false },
       { "n": 4, "slices": ["RC-ops-console-19"], "noSlice": false },
       { "n": 5, "slices": ["RC-ops-console-19"], "noSlice": false },
-      { "n": 6, "slices": ["RC-ops-console-19"], "noSlice": false, "deferred": true }
+      { "n": 6, "slices": ["RC-ops-console-19"], "noSlice": false, "deferred": true },
+      { "n": 7, "slices": ["RC-ops-console-20"], "noSlice": false },
+      { "n": 8, "slices": ["RC-ops-console-20"], "noSlice": false },
+      { "n": 9, "slices": ["RC-ops-console-20"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -6824,7 +6911,7 @@
       { "n": 3, "slices": ["P-ads-merchant-17"], "noSlice": false },
       { "n": 4, "slices": ["P-disputes-security-15"], "noSlice": false },
       { "n": 5, "slices": ["P-disputes-security-16"], "noSlice": false },
-      { "n": 6, "slices": ["P-disputes-security-17"], "noSlice": false },
+      { "n": 6, "slices": ["P-disputes-security-17"], "noSlice": false, "later": "custody" },
       { "n": 7, "slices": ["P-disputes-security-18"], "noSlice": false }
     ]
   },
@@ -6838,8 +6925,8 @@
     "steps": [
       { "n": 1, "slices": ["P-disputes-security-11"], "noSlice": false },
       { "n": 2, "slices": ["P-disputes-security-11"], "noSlice": false },
-      { "n": 3, "slices": ["P-disputes-security-10"], "noSlice": false },
-      { "n": 4, "slices": ["P-disputes-security-10"], "noSlice": false },
+      { "n": 3, "slices": ["P-disputes-security-10"], "noSlice": false, "later": "custody" },
+      { "n": 4, "slices": ["P-disputes-security-10"], "noSlice": false, "later": "custody" },
       { "n": 5, "slices": ["P-disputes-security-12"], "noSlice": false },
       { "n": 6, "slices": ["P-disputes-security-08"], "noSlice": false }
     ]
@@ -6912,9 +6999,9 @@
       { "n": 1, "slices": ["P-ads-merchant-05"], "noSlice": false },
       { "n": 2, "slices": ["P-disputes-security-18"], "noSlice": false },
       { "n": 3, "slices": ["P-disputes-security-13", "P-ads-merchant-17"], "noSlice": false },
-      { "n": 4, "slices": ["P-disputes-security-12"], "noSlice": false },
+      { "n": 4, "slices": ["P-disputes-security-12"], "noSlice": false, "deferred": true },
       { "n": 5, "slices": ["P-disputes-security-16"], "noSlice": false },
-      { "n": 6, "slices": ["P-ads-merchant-14", "P-ads-merchant-16", "P-ads-merchant-15"], "noSlice": false }
+      { "n": 6, "slices": ["P-ads-merchant-14", "P-ads-merchant-16", "P-ads-merchant-15"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -6923,12 +7010,13 @@
     "module": "p2p",
     "persona": "p2p-user",
     "tier": "advanced",
-    "order": 3,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["RC-p2p-02"], "noSlice": false },
       { "n": 2, "slices": ["RC-p2p-02", "RC-p2p-01"], "noSlice": false },
       { "n": 3, "slices": ["RC-p2p-02", "RC-p2p-01"], "noSlice": false },
-      { "n": 4, "slices": ["RC-p2p-01", "RC-p2p-02"], "noSlice": false }
+      { "n": 4, "slices": ["RC-p2p-01", "RC-p2p-02"], "noSlice": false },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -7026,7 +7114,9 @@
       { "n": 2, "slices": ["PP-send-request-04"], "noSlice": false },
       { "n": 3, "slices": ["PP-send-request-04"], "noSlice": false },
       { "n": 4, "slices": ["PP-send-request-04"], "noSlice": false },
-      { "n": 5, "slices": ["PP-send-request-09"], "noSlice": false }
+      { "n": 5, "slices": ["PP-send-request-09"], "noSlice": false },
+      { "n": 6, "slices": ["PP-send-request-09"], "noSlice": false },
+      { "n": 7, "slices": ["PP-send-request-09"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -7072,7 +7162,7 @@
       { "n": 2, "slices": ["PP-send-request-11"], "noSlice": false },
       { "n": 3, "slices": ["PP-send-request-23"], "noSlice": false },
       { "n": 4, "slices": ["PP-send-request-23"], "noSlice": false },
-      { "n": 5, "slices": ["PP-send-request-23"], "noSlice": false }
+      { "n": 5, "slices": ["PP-send-request-23"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -7209,10 +7299,10 @@
     "order": 2,
     "steps": [
       { "n": 1, "slices": ["PP-disputes-safety-11"], "noSlice": false },
-      { "n": 2, "slices": ["PP-disputes-safety-07"], "noSlice": false },
+      { "n": 2, "slices": ["PP-disputes-safety-07"], "noSlice": false, "later": "custody" },
       { "n": 3, "slices": ["PP-disputes-safety-12"], "noSlice": false },
-      { "n": 4, "slices": ["PP-money-balance-02", "PP-disputes-safety-07"], "noSlice": false },
-      { "n": 5, "slices": ["PP-money-balance-02"], "noSlice": false }
+      { "n": 4, "slices": ["PP-money-balance-02", "PP-disputes-safety-07"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["PP-money-balance-02"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -7226,9 +7316,9 @@
       { "n": 1, "slices": ["PP-disputes-safety-08"], "noSlice": false },
       { "n": 2, "slices": ["PP-disputes-safety-08", "PP-disputes-safety-02"], "noSlice": false },
       { "n": 3, "slices": ["PP-disputes-safety-08", "PP-disputes-safety-04"], "noSlice": false },
-      { "n": 4, "slices": ["PP-disputes-safety-08"], "noSlice": false },
-      { "n": 5, "slices": ["PP-disputes-safety-05", "PP-disputes-safety-08"], "noSlice": false },
-      { "n": 6, "slices": ["PP-disputes-safety-07"], "noSlice": false }
+      { "n": 4, "slices": ["PP-disputes-safety-08"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["PP-disputes-safety-05", "PP-disputes-safety-08"], "noSlice": false, "later": "custody" },
+      { "n": 6, "slices": ["PP-disputes-safety-07"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -7457,7 +7547,8 @@
       { "n": 4, "slices": ["PF-recurring-buy-01"], "noSlice": false },
       { "n": 5, "slices": ["PF-recurring-buy-01"], "noSlice": false },
       { "n": 6, "slices": ["PF-recurring-buy-01"], "noSlice": false },
-      { "n": 7, "slices": ["PF-recurring-buy-01"], "noSlice": false }
+      { "n": 7, "slices": ["PF-recurring-buy-01"], "noSlice": false },
+      { "n": 8, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -7907,12 +7998,12 @@
     "tier": "core",
     "order": 3,
     "steps": [
-      { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true },
-      { "n": 5, "slices": [], "noSlice": true },
-      { "n": 6, "slices": [], "noSlice": true }
+      { "n": 1, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 2, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 3, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 4, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 5, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 6, "slices": [], "noSlice": true, "later": "custody" }
     ],
     "later": "custody"
   },
@@ -7926,8 +8017,8 @@
     "steps": [
       { "n": 1, "slices": [], "noSlice": true },
       { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true }
+      { "n": 3, "slices": [], "noSlice": true, "later": "custody" },
+      { "n": 4, "slices": [], "noSlice": true, "later": "custody" }
     ]
   },
   {
@@ -8063,7 +8154,8 @@
       { "n": 2, "slices": ["W-balances-06"], "noSlice": false },
       { "n": 3, "slices": ["W-balances-06"], "noSlice": false },
       { "n": 4, "slices": ["W-balances-02"], "noSlice": false },
-      { "n": 5, "slices": ["W-balances-02"], "noSlice": false }
+      { "n": 5, "slices": ["W-balances-02"], "noSlice": false },
+      { "n": 6, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -8152,8 +8244,8 @@
     "order": 3,
     "steps": [
       { "n": 1, "slices": ["W-balances-09"], "noSlice": false },
-      { "n": 2, "slices": ["W-balances-08"], "noSlice": false },
-      { "n": 3, "slices": ["W-balances-08"], "noSlice": false }
+      { "n": 2, "slices": ["W-balances-08"], "noSlice": false, "later": "custody" },
+      { "n": 3, "slices": ["W-balances-08"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -8254,9 +8346,10 @@
     "steps": [
       { "n": 1, "slices": ["W-compliance-notices-01"], "noSlice": false },
       { "n": 2, "slices": ["W-deposit-04"], "noSlice": false },
-      { "n": 3, "slices": ["W-deposit-08"], "noSlice": false },
+      { "n": 3, "slices": ["W-deposit-08"], "noSlice": false, "later": "custody" },
       { "n": 4, "slices": ["W-balances-05"], "noSlice": false },
-      { "n": 5, "slices": ["W-security-accounts-02"], "noSlice": false }
+      { "n": 5, "slices": ["W-security-accounts-02"], "noSlice": false },
+      { "n": 6, "slices": ["W-deposit-04"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -8273,5 +8366,38 @@
       { "n": 4, "slices": ["W-withdraw-13"], "noSlice": false }
     ],
     "later": "custody"
+  },
+  {
+    "id": "J-wallet-22",
+    "title": "I get my own wallet when I sign up, without a seed phrase",
+    "module": "wallet",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true },
+      { "n": 8, "slices": ["D-venue-09"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-wallet-23",
+    "title": "I approve a trading key once per session, so I do not sign every order with my wallet",
+    "module": "wallet",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
+    ]
   }
 ]

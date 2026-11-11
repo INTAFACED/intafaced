@@ -34,6 +34,10 @@
  *   - a money step is never set aside (setAsideGuard: the money rule above, a wallet, bank, pay or p2p journey,
  *     J-ops-console-27, or a step with no slices or a slice that touches nothing), and neither is a step whose set-aside
  *     ended: a pass only on the retry then counts as a failure, judged by the rules above;
+ *   - OWNER 278 (10 Nov 2026): on main, a money step the baseline doesn't list that failed, then passed on its retry,
+ *     stops only its own journeys: it stays red (marked retryFlaky), never proven (notProven), never set aside, and Main
+ *     trust opens a `flaky` issue for its area (moneyFlaky); the seal holds only the pull requests in its area
+ *     (journey-seal.mjs splitInherited). Two outright failures in a row on main still revert (journeys-revert.mjs);
  *   - a set-aside step still runs, and the summary shows its result; while it is set aside, a failure leaves the verdict
  *     green only when the run just before this one on main showed it passing (two failures in a row is broken, not
  *     flaky; a missing or incomplete record of that run excuses nothing). Skipped or missing is never excused;
@@ -74,6 +78,11 @@ export const HISTORY_MAX = 150;
 export const SET_ASIDE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
+/** A test title's journey step (`J-tax-01#3`), or null for a test that is not a numbered step (setup, `starts:`). */
+export const stepOf = (title) => {
+  const m = STEP_TITLE.exec(title ?? '');
+  return m ? `${m[1]}#${Number(m[2])}` : null;
+};
 const MEMBERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const REGRESSION_TITLE = /^(Journey broken on main|Broken on main): /;
 const STATE_LINE = /^Regression state: (fixed|reverted|parked)\b/;
@@ -99,23 +108,43 @@ export const passedAfterFailing = (t) => {
   const firstFail = r.findIndex((x) => FAILED_ATTEMPT.has(x));
   return firstFail !== -1 && r.slice(firstFail + 1).includes('passed');
 };
+/** Whether one Playwright test passed by this rule: it ended expected (a `test.fail()` that failed is expected), or
+ *  Playwright called it flaky and an attempt passed after a failing one. journey-reach-map.mjs reads tests by it too. */
+export const testPassed = (t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t));
+/** A journey test file, as the real-app folder names them. */
+const PARTIAL_JOURNEY_FILE = /^J-[a-z0-9-]+\.pw\.mjs$/;
 export function readReport(report) {
   const states = {};
   const files = {};
   const retried = new Set();
   const ran = new Set();
+  const partial = new Set();
+  const partialFailed = new Set();
   const walk = (suite, file) => {
     const here = suite.file ?? file;
     for (const spec of suite.specs ?? []) {
-      const m = STEP_TITLE.exec(spec.title ?? '');
-      if (!m) continue;
-      const key = `${m[1]}#${Number(m[2])}`;
+      const key = stepOf(spec.title);
+      if (!key) {
+        // A test that proves part of a step says so in its title ("J-identity-15, part of #1: …") and is no step's
+        // state. Its file still ran: listed only when every such test in it passed, so a failing one is never "ran"
+        // and the seal's touched-journeys check fails closed on it. Without this a file with no whole-step test was
+        // never listed, and every pull request the map sends to it was held for good (#7750's seal, run 42743957395).
+        // Journey files only: another spec in the report (the look sweep) stays off the list, as before.
+        const tests = spec.tests ?? [];
+        const f = String(spec.file ?? here ?? '')
+          .split('/')
+          .pop();
+        if (!PARTIAL_JOURNEY_FILE.test(f)) continue;
+        if (tests.length && tests.every(testPassed)) partial.add(f);
+        else partialFailed.add(f);
+        continue;
+      }
       const tests = spec.tests ?? [];
       if (tests.some((t) => t.status === 'flaky')) retried.add(key);
       const state =
         tests.length && tests.every((t) => t.status === 'skipped')
           ? 'skipped'
-          : tests.length && tests.every((t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t)))
+          : tests.length && tests.every(testPassed)
             ? tests.some((t) => t.status === 'flaky')
               ? 'flaky'
               : 'passed'
@@ -129,6 +158,7 @@ export function readReport(report) {
     for (const child of suite.suites ?? []) walk(child, here);
   };
   for (const suite of report?.suites ?? []) walk(suite, suite.file);
+  for (const f of partial) if (!partialFailed.has(f) && !ran.has(f)) ran.add(f);
   return { states, files, ran: [...ran].sort(), retried };
 }
 
@@ -287,9 +317,23 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
  * maps a step to the newest run on main after the named run that passed it; `issues` maps an issue number to its read;
  * `target` is the set of journey file names a targeted run ran, or null for a full run; `setAside` is setAsideSteps();
  * `guard` is setAsideGuard() (the money rule when not given): a guarded step is never set aside.
- * Returns { failing, red, setAside } (setAside: the steps a set-aside kept out of the red, with their state this run).
+ * `onMain` is runIsOnMain(): only there are the money steps that passed only on their retry listed for Main trust's
+ * `flaky` issue (project-state OWNER 278); they stay red, marked retryFlaky, as every flaky red row is.
+ * Returns { failing, red, setAside, moneyFlaky } (setAside: the steps a set-aside kept out of the red, with their state
+ * this run; moneyFlaky: on main, the money steps that failed, then passed on their retry, red and never proven).
  */
-export function judge({ newest, named, baseline, money, guard = money, passedSince = {}, issues = {}, target = null, setAside = {} }) {
+export function judge({
+  newest,
+  named,
+  baseline,
+  money,
+  guard = money,
+  passedSince = {},
+  issues = {},
+  target = null,
+  setAside = {},
+  onMain = false,
+}) {
   const inScope = (step, files) => !target || target.has(files[step]);
   // A pass only on the retry counts as a failure unless the step is set aside (a money step never is).
   const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
@@ -307,10 +351,15 @@ export function judge({ newest, named, baseline, money, guard = money, passedSin
   const runNo = baseline?.run?.number;
   const red = [];
   const kept = [];
+  const moneyFlaky = [];
   for (const step of [...failing].sort(byStep)) {
     const isMoney = money[step] ?? true; // a step missing from journeys.json counts as money
     const e = entries.get(step);
     const flaky = newest.states[step] === 'flaky';
+    // OWNER 278's retry pass: failed, then passed on its retry, with no baseline entry and not listed as notBaselined.
+    // Only this row is marked retryFlaky for the seal, and on main only this row goes to moneyFlaky for its `flaky`
+    // issue, so the seal never passes over a money red that no flaky issue tracks (CI review on #7779, a4360da62).
+    const retryPass = flaky && !e && !notBaselined.has(step);
     const no = (why) =>
       red.push({
         step,
@@ -318,6 +367,8 @@ export function judge({ newest, named, baseline, money, guard = money, passedSin
           ? `failed, then passed on its retry, and ${(guard[step] ?? true) ? 'a money step is never set aside' : 'it is not set aside now'}: ${why}`
           : why,
         money: isMoney,
+        // Failed, then passed on its retry: the seal may hold only the pull requests in its area (OWNER 278).
+        ...(retryPass ? { retryFlaky: true } : {}),
       });
     // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
     // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
@@ -332,6 +383,11 @@ export function judge({ newest, named, baseline, money, guard = money, passedSin
       kept.push(step);
       continue;
     }
+    // OWNER 278: on main, a money step that failed, then passed on its retry, stops only its own journeys. It stays red
+    // here, never set aside and never proven (notProven names it), and Main trust opens a `flaky` issue for its area
+    // (moneyFlaky). Which pull requests it stops is the seal's: only those in its area (journey-seal.mjs
+    // splitInherited). Two outright failures in a row still revert (journeys-revert.mjs counts outright failures only).
+    if (onMain && retryPass && (guard[step] ?? true)) moneyFlaky.push(step);
     if (!e) {
       if (notBaselined.has(step)) no(`listed as notBaselined in run ${runNo}'s baseline, so it counts as failing`);
       else
@@ -353,7 +409,7 @@ export function judge({ newest, named, baseline, money, guard = money, passedSin
       }
     } else no(`state "${e.state}" is not one the baseline allows`);
   }
-  return { failing: failing.size, red, setAside: kept };
+  return { failing: failing.size, red, setAside: kept, moneyFlaky };
 }
 
 /** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a
@@ -468,13 +524,43 @@ export function missingArtifact(stderr) {
 }
 /** A JSON file from a run's journeys artifact (report.json by default). When `optional`, a run with no such artifact, or an
  *  artifact without the file, gives null; a download that fails for any other reason, or a malformed file, throws. */
-export function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json') {
+/** A refusal (401, 403, 429 or a rate limit) is never retried: it is honoured. */
+export function refusedDownload(stderr) {
+  return /HTTP 40[13]|HTTP 429|rate limit/i.test(String(stderr ?? ''));
+}
+/** The last non-empty line gh wrote, so a failed read names gh's own error, not only "Command failed". */
+export function lastLine(stderr) {
+  return (
+    String(stderr ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .pop() ?? ''
+  );
+}
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** `gh run download` with up to `tries` attempts. A missing artifact or a refusal fails at once; any other failure (a
+ *  dropped connection to the artifact store, a 5xx) is tried again after a pause, and the last one throws with gh's own
+ *  last line in its first line. */
+export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, pauses = [5_000, 15_000] } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) {
+      if (missingArtifact(e.stderr) || refusedDownload(e.stderr) || attempt >= tries) {
+        const said = lastLine(e.stderr);
+        if (said) e.message = `${e.message.split('\n')[0]}: ${said} (attempt ${attempt} of ${tries})\n${e.message}`;
+        throw e;
+      }
+      wait(pauses[Math.min(attempt - 1, pauses.length - 1)]);
+    }
+  }
+}
+export function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json', opts = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   try {
     try {
-      execFileSync('gh', ['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], {
-        stdio: ['ignore', 'ignore', 'pipe'],
-      });
+      ghDownload(['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], opts);
     } catch (e) {
       if (optional && missingArtifact(e.stderr)) return null;
       throw e;
@@ -692,8 +778,9 @@ function main() {
           issues,
           target,
           setAside: excusedSetAside({ setAside, onMain, incomplete }),
+          onMain,
         })
-      : { failing: 0, red: [], setAside: [] };
+      : { failing: 0, red: [], setAside: [], moneyFlaky: [] };
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)
     .sort(([a], [b]) => byStep(a, b))
@@ -711,6 +798,14 @@ function main() {
       ...(incomplete || !newest ? { incomplete: true } : {}),
       steps: asideRows,
       notProven,
+      // OWNER 278: the money steps that passed only on their retry, each with its journey's owner, for Main trust's
+      // `flaky` issue. Each is in notProven too.
+      moneyFlaky: verdict.moneyFlaky.map((step) => ({
+        step,
+        file: newest?.files[step] ?? null,
+        owner: owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : null,
+        run: thisRun,
+      })),
     };
     writeFileSync(arg('--set-aside-out'), `${JSON.stringify(out, null, 2)}\n`);
   }
@@ -732,6 +827,17 @@ function main() {
       ? asideRows.map(
           (r) =>
             `- ${r.step}: ${r.state} in this run; ${r.active ? `set aside until ${r.until}` : `set-aside ended ${r.until}, so it blocks again`} (first flaky in run ${r.since}); owner: ${r.owner}${verdict.setAside.includes(r.step) ? '; its failure was kept out of the red' : ''}`,
+        )
+      : ['None.']),
+    '',
+    `### Money steps that passed only on their retry: ${verdict.moneyFlaky.length}`,
+    '',
+    'A money step that fails, then passes on its retry, on main, stops only its own journeys (project-state OWNER 278): it stays red here, is never set aside and never counts as proven, Main trust opens a `flaky` issue for its area, and the seal holds only the pull requests in its area. Failing outright, on every try, still starts its revert.',
+    '',
+    ...(verdict.moneyFlaky.length
+      ? verdict.moneyFlaky.map(
+          (step) =>
+            `- ${step} (money): red and not proven in this run; owner: ${owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : 'none named'}`,
         )
       : ['None.']),
   ];

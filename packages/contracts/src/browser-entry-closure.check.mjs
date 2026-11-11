@@ -61,6 +61,10 @@ const pureEntries = [
   ['contracts-identity-dist', 'packages/contracts/dist/identity.js'],
   ['contracts-account-controls-source', 'packages/contracts/src/account-controls.ts'],
   ['contracts-account-controls-dist', 'packages/contracts/dist/account-controls.js'],
+  // The customer app's support and safety rooms read it (J-bank-18): a signed door imported here took every public room
+  // down with `Buffer is not defined` (#7687).
+  ['contracts-support-safety-source', 'packages/contracts/src/support-safety.ts'],
+  ['contracts-support-safety-dist', 'packages/contracts/dist/support-safety.js'],
 ];
 
 const unsafeEntries = [

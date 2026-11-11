@@ -6,7 +6,12 @@
  * commit and the failing test files. This walks the first-parent commits between them with a binary search, running
  * only those test files at each probe, so it takes about log2(n) probes instead of one full suite per commit. A probe
  * counts as failed only if it fails twice (one re-run confirms, as everywhere else); nothing is skipped or changed.
- * The result is a comment on the culprit's pull request and on the "Main is red" issue. It reverts nothing.
+ * A red CI job that names no test file but has a probe here (JOB_PROBES: Doctrine gates runs `pnpm gates`) is
+ * searched the same way with that job's own command. The result is a comment on the culprit's pull request and on the
+ * "Main is red" issue, and the culprit as this job's output, which main-bisect.yml's revert job opens a revert for
+ * (journeys-revert.mjs open, the one revert on main for journeys and CI; OWNER 180: a red main is fixed or undone
+ * within 2 hours). (Failure it prevents: on 9 Nov 2026 main's Doctrine gates stayed red on #7602's
+ * journey-reach-map.test.mjs:555, and builders merged main three times to clear it.)
  *
  * It runs from a copy outside the checkout (the workflow copies it to RUNNER_TEMP first) because the search checks out
  * old commits, which would swap this file for an older one mid-run.
@@ -15,12 +20,31 @@
  *   (CI) GOOD BAD TESTS GH_TOKEN GITHUB_REPOSITORY node bisect-main.mjs
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SHA = /^[0-9a-f]{40}$/;
 const TEST_PATH = /^(apps|services|packages|tooling)\/[\w.-]+\/[\w./@-]+\.(test|spec)\.[cm]?[jt]sx?$/;
 export const MAX_COMMITS = 200;
+/** CI jobs on main whose failure names no test file, with the command that decides them: each probe runs it twice. */
+export const JOB_PROBES = { 'Doctrine gates': ['pnpm', 'gates'] };
+/**
+ * The pick 1 labels of the "Main is red" issue (project-state BUILDER.md; RULING 7, project-state #2065): it opens as
+ * `main-unknown-red` (main-trust.mjs) and switches to `regression` once this bisect names the merge that broke it.
+ * Defined here, not in main-trust.mjs, because this file runs alone from RUNNER_TEMP and may import nothing of ours.
+ */
+export const RED_LABELS = { untraced: 'main-unknown-red', traced: 'regression' };
+
+/** The probed job names in a comma- or line-separated list; anything else is refused. */
+export function parseJobs(text) {
+  const jobs = String(text || '')
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const bad = jobs.filter((j) => !Object.hasOwn(JOB_PROBES, j));
+  if (bad.length) throw new Error(`no probe for job: ${bad.join(', ')}`);
+  return [...new Set(jobs)];
+}
 
 /**
  * First bad index in `commits` (oldest first), given that `commits[last]` is bad and the commit before `commits[0]`
@@ -68,7 +92,25 @@ function git(...args) {
 }
 
 /** Run the failing test files at the checked-out commit. true = they fail (twice). */
-function failsHere(tests) {
+/**
+ * Installs at the probed commit, trying twice. An install that fails twice says nothing about the commit (a registry or
+ * network flake looks the same), so it stops the search with no culprit instead of counting the commit as failing: a
+ * wrong culprit would open a revert of an innocent pull request.
+ */
+export function installOrStop(run = sh) {
+  for (let attempt = 1; attempt <= 2; attempt++) if (run('pnpm', ['install', '--frozen-lockfile']).status === 0) return;
+  throw new Error("can't probe: pnpm install --frozen-lockfile failed twice at this commit; stopping with no culprit");
+}
+
+function failsHere(tests, jobs = []) {
+  if (jobs.length) {
+    installOrStop();
+    for (const job of jobs) {
+      const [cmd, ...args] = JOB_PROBES[job];
+      if (sh(cmd, args).status !== 0 && sh(cmd, args).status !== 0) return true;
+    }
+    if (!tests.length) return false;
+  }
   const byPkg = new Map();
   for (const t of tests) {
     const [dir, rel] = splitTestPath(t);
@@ -76,7 +118,7 @@ function failsHere(tests) {
     byPkg.set(dir, [...(byPkg.get(dir) ?? []), rel]);
   }
   if (!byPkg.size) return false;
-  if (sh('pnpm', ['install', '--frozen-lockfile']).status !== 0) return true; // a commit that cannot install is not good
+  installOrStop();
   for (const [dir, files] of byPkg) {
     const name = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).name;
     if (sh('pnpm', ['exec', 'turbo', 'run', 'build', `--filter=${name}^...`]).status !== 0) return true;
@@ -105,13 +147,13 @@ async function gh(method, path, body) {
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-async function report(repo, culprit, tests, probed, runUrl) {
+async function report(repo, culprit, tests, probed, runUrl, jobs = []) {
   const subject = git('log', '-1', '--format=%s', culprit);
   const pr = /\(#(\d+)\)\s*$/.exec(subject)?.[1];
   const lines = [
-    `Bisect of the red on main: the first commit where ${tests.length === 1 ? 'this test file fails' : 'these test files fail'} is \`${culprit.slice(0, 10)}\` (${subject}).`,
+    `Bisect of the red on main: the first commit where ${tests.length + jobs.length === 1 ? 'this fails' : 'these fail'} is \`${culprit.slice(0, 10)}\` (${subject}).`,
     '',
-    tests.map((t) => `- \`${t}\``).join('\n'),
+    [...tests.map((t) => `- \`${t}\``), ...jobs.map((j) => `- the ${j} job (\`${JOB_PROBES[j].join(' ')}\`)`)].join('\n'),
     '',
     `It narrowed ${probed.length} probe${probed.length === 1 ? '' : 's'} between the last green and the red commit; a probe fails only if it fails twice. A probable cause, not a proof: a test that depends on an earlier commit's state can point one commit late. [Bisect run](${runUrl}).`,
     '',
@@ -119,17 +161,43 @@ async function report(repo, culprit, tests, probed, runUrl) {
   ];
   const body = lines.join('\n');
   if (pr) await gh('POST', `/repos/${repo}/issues/${pr}/comments`, { body });
+  const issue = await noteTracedRed(repo, body);
+  console.log(`culprit ${culprit} (${subject}); commented on ${pr ? `#${pr}` : 'no PR'}${issue ? ` and issue #${issue}` : ''}`);
+}
+
+/**
+ * The bisect named a merge: comment on the open "Main is red" issue and switch its pick 1 label from
+ * `main-unknown-red` to `regression`. Returns the issue number, or null when none is open.
+ */
+export async function noteTracedRed(repo, body) {
   const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "Main is red"`);
   const found = await gh('GET', `/search/issues?q=${q}&per_page=5`);
   const issue = (found.json?.items ?? []).find((i) => i.title === 'Main is red');
-  if (issue) await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body });
-  console.log(`culprit ${culprit} (${subject}); commented on ${pr ? `#${pr}` : 'no PR'}${issue ? ` and issue #${issue.number}` : ''}`);
+  if (!issue) return null;
+  await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body });
+  // Add the new label before removing the old, so the issue is never without a pick 1 label.
+  await gh('POST', `/repos/${repo}/issues/${issue.number}/labels`, { labels: [RED_LABELS.traced] });
+  const off = await gh('DELETE', `/repos/${repo}/issues/${issue.number}/labels/${RED_LABELS.untraced}`);
+  if (off.status !== 200 && off.status !== 404) throw new Error(`could not remove ${RED_LABELS.untraced}: HTTP ${off.status}`);
+  return issue.number;
 }
 
 function selfTest() {
   const assert = (cond, msg) => {
     if (!cond) throw new Error(msg);
   };
+  // The install: one flake is retried, two stop the search, and nothing counts the commit as failing.
+  let calls = 0;
+  const flaky = () => ({ status: calls++ === 0 ? 1 : 0 });
+  installOrStop(flaky);
+  assert(calls === 2, 'a single install flake is retried');
+  let stopped = false;
+  try {
+    installOrStop(() => ({ status: 1 }));
+  } catch (e) {
+    stopped = /no culprit/.test(e.message);
+  }
+  assert(stopped, 'an install that fails twice stops the search with no culprit');
   const commits = Array.from({ length: 13 }, (_, i) => `c${i}`);
   for (let culpritIdx = 0; culpritIdx < commits.length; culpritIdx++) {
     let calls = 0;
@@ -158,30 +226,79 @@ function selfTest() {
   }
   assert(threw, 'a non-path is refused');
   assert(SHA.test('a'.repeat(40)) && !SHA.test('main'), 'only full shas are accepted');
+  assert(parseJobs('Doctrine gates').join() === 'Doctrine gates', 'a probed job is taken');
+  assert(parseJobs('').length === 0, 'no jobs is none');
+  threw = false;
+  try {
+    parseJobs('Doctrine gates,rm -rf /');
+  } catch {
+    threw = true;
+  }
+  assert(threw, 'a job with no probe is refused, so no input becomes a command');
+}
+
+/** The traced-red path against a stub GitHub: what the bisect writes on the "Main is red" issue. */
+async function selfTestTraced() {
+  const assert = (cond, msg) => {
+    if (!cond) throw new Error(msg);
+  };
+  const calls = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const path = String(url).replace('https://api.github.com', '');
+    calls.push({ method: init.method, path, body: init.body ? JSON.parse(init.body) : null });
+    const json = path.startsWith('/search/issues') ? { items: [{ number: 7881, title: 'Main is red' }] } : {};
+    return new Response(JSON.stringify(json), { status: init.method === 'DELETE' ? 200 : 201 });
+  };
+  try {
+    assert((await noteTracedRed('o/r', 'culprit body')) === 7881, 'the open "Main is red" issue is found');
+  } finally {
+    globalThis.fetch = real;
+  }
+  const writes = calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`);
+  assert(
+    JSON.stringify(writes) ===
+      JSON.stringify([
+        'POST /repos/o/r/issues/7881/comments {"body":"culprit body"}',
+        'POST /repos/o/r/issues/7881/labels {"labels":["regression"]}',
+        'DELETE /repos/o/r/issues/7881/labels/main-unknown-red null',
+      ]),
+    `a traced red comments, adds regression, then removes main-unknown-red; got ${JSON.stringify(writes)}`,
+  );
   console.log('✓ bisect-main --self-test OK');
 }
 
 async function main() {
-  const { GOOD, BAD, TESTS, GITHUB_REPOSITORY: repo, GITHUB_SERVER_URL, GITHUB_RUN_ID } = process.env;
+  const { GOOD, BAD, TESTS, JOBS, GITHUB_REPOSITORY: repo, GITHUB_SERVER_URL, GITHUB_RUN_ID, GITHUB_OUTPUT } = process.env;
   if (!SHA.test(GOOD ?? '') || !SHA.test(BAD ?? '')) throw new Error('GOOD and BAD must be full commit shas');
   const tests = parseTests(TESTS);
-  if (!tests.length) throw new Error('TESTS names no test file');
+  const jobs = parseJobs(JOBS);
+  if (!tests.length && !jobs.length) throw new Error('TESTS names no test file and JOBS no probed job');
   const commits = git('rev-list', '--first-parent', '--reverse', `${GOOD}..${BAD}`).split('\n').filter(Boolean);
   if (!commits.length) throw new Error(`no commits between ${GOOD} and ${BAD}`);
   if (commits.length > MAX_COMMITS) throw new Error(`${commits.length} commits since the last green; more than ${MAX_COMMITS}`);
-  console.log(`${commits.length} commit(s) between the last green and the red; probing with ${tests.length} test file(s)`);
+  console.log(
+    `${commits.length} commit(s) between the last green and the red; probing with ${tests.length} test file(s) and ${jobs.length} job(s)`,
+  );
   const { culprit, probed } = firstBad(commits, (sha) => {
     git('checkout', '--quiet', '--force', sha);
-    const bad = failsHere(tests);
+    const bad = failsHere(tests, jobs);
     console.log(`probe ${sha.slice(0, 10)}: ${bad ? 'FAILS' : 'passes'}`);
     return bad;
   });
-  await report(repo, culprit, tests, probed, `${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}`);
+  await report(repo, culprit, tests, probed, `${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}`, jobs);
+  // The revert job (main-bisect.yml revert-open) opens the culprit's revert through the normal seal.
+  if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `culprit=${culprit}\n`);
 }
 
-if (process.argv.includes('--self-test')) {
+const runAsScript = import.meta.url === `file://${process.argv[1]}`;
+if (runAsScript && process.argv.includes('--self-test')) {
   selfTest();
-} else if (import.meta.url === `file://${process.argv[1]}`) {
+  selfTestTraced().catch((e) => {
+    console.error(`✖ bisect-main --self-test: ${e.message}`);
+    process.exit(1);
+  });
+} else if (runAsScript) {
   main().catch((e) => {
     console.error(`✖ bisect-main: ${e.message}`);
     process.exit(1);

@@ -513,10 +513,14 @@ services:
       # Journal lives on matchingjournal:/data/matching. Host `.env` can pin;
       # default stays the volume path so replay still works after replace.
       MATCHING_JOURNAL_PATH: ${MATCHING_JOURNAL_PATH:-/data/matching/engine_journal.ndjson}
-      # Engine kill-switch (env.ts boolish default true). Host `.env` can halt
-      # submissions before the journal. `${VAR:-false}` here would refuse every
-      # order on a clean clone while env.ts still reads as on.
-      MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-true}
+      # Engine kill-switch. Host `.env` can halt submissions before the journal.
+      # Off unless the host says on: our own book settles fills as customer
+      # money in our ledger, which this file (staging's unit) does not hold with
+      # custody off; env.ts refuses boot on "engine on, custody off" (OWNER 288).
+      # A host that sets LEDGER_CUSTODY_LAYER=on sets this on too.
+      MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-false}
+      # The custody switch, the same variable and default as svc-ledger's (OWNER 226), for the boot guard above.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Owner-published snapshot cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 500 explicitly. Never invent 500. 0 disables.
       MATCHING_SNAPSHOT_EVERY: ${MATCHING_SNAPSHOT_EVERY:-}
@@ -628,10 +632,15 @@ services:
       JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
-      # Spot kill-switch (env.ts boolish default true). Host `.env` can halt
-      # new places; cancels still work. `${VAR:-false}` here would refuse every
-      # new spot order on a clean clone while env.ts still reads as on.
-      TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-true}
+      # Spot kill-switch for our own order book. Host `.env` can halt new
+      # places; cancels still work. Off unless the host says on: our own book
+      # settles fills as customer money in our ledger, which this file
+      # (staging's unit) does not hold with custody off; env.ts refuses boot on
+      # "spot on, custody off" (OWNER 288). A host that sets
+      # LEDGER_CUSTODY_LAYER=on sets this on too.
+      TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-false}
+      # The custody switch, the same variable and default as svc-ledger's (OWNER 226), for the boot guard above.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Worst price a market BUY may be funded at, above the best ask.
       # Empty = refuse market-buy hold (`trade.slippage_cap_unset`). Never invent 200.
       TRADE_MARKET_SLIPPAGE_CAP_BPS: ${TRADE_MARKET_SLIPPAGE_CAP_BPS:-}
@@ -745,6 +754,8 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
+      TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
@@ -1165,6 +1176,10 @@ services:
       HTTP_PORT: '4009'
       DATABASE_URL: postgres://svc_bank:${SVC_BANK_DB_PASSWORD:-svc_bank}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
+      # The custody switch, the same variable and default as svc-ledger's above (OWNER 226): off unless the environment says
+      # on. Off, svc-bank refuses a customer-balance post by name (bank.no_partner_bank) before svc-ledger would, and a card
+      # authorisation no partner holds refuses bank.partner_unset. One value for both services, so they never disagree.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Identity affiliate accrue/payout after loan house fees. env.ts is
       # optional with no localhost default; unset is a noop port. Fleet
       # identity only — not a rate, not JWT restamp, not #2194 quote/sweep keys.
@@ -1480,6 +1495,10 @@ services:
       # mountain moves no value (§0.6) and a refund is a request it files, not a
       # transaction it posts.
       IDENTITY_URL: http://svc-identity:4002
+      # Read-only, for a request's links to the customer's own records (J-support-public-20 #1): svc-trade's
+      # support order read and svc-pay's one-boolean ownership door. Neither moves value.
+      TRADE_URL: http://svc-trade:4004
+      PAY_URL: http://svc-pay:4006
       # Access-token life + iss/aud (edge/identity defaults). Host `.env` can
       # pin them; without these lines the desk keeps schema-only 900 /
       # intafaced / intafaced.api. No JWT_ACCESS_SECRET here — the desk
@@ -1847,6 +1866,7 @@ services:
       ACADEMY_LESSON_IMPORT_MAX_BYTES: ${ACADEMY_LESSON_IMPORT_MAX_BYTES:-}
       ACADEMY_UPLOAD_MAX_BYTES: ${ACADEMY_UPLOAD_MAX_BYTES:-}
       ACADEMY_TOPICS_LIST_LIMIT: ${ACADEMY_TOPICS_LIST_LIMIT:-}
+      ACADEMY_GRANT_AUDIT_PAGE_SIZE: ${ACADEMY_GRANT_AUDIT_PAGE_SIZE:-}
       ACADEMY_GRADER_LEASE_SECONDS: ${ACADEMY_GRADER_LEASE_SECONDS:-}
       ACADEMY_CERT_ISSUE_SWEEP_SECONDS: ${ACADEMY_CERT_ISSUE_SWEEP_SECONDS:-}
       ACADEMY_PROGRAMME_MAX_COURSES: ${ACADEMY_PROGRAMME_MAX_COURSES:-}
@@ -2081,6 +2101,7 @@ services:
       CUSTOMER_LIVEKIT_ORIGIN: ${CUSTOMER_LIVEKIT_ORIGIN:-}
       CUSTOMER_STORAGE_ORIGIN: ${CUSTOMER_STORAGE_ORIGIN:-}
       CUSTOMER_MEDIA_ORIGINS: ${CUSTOMER_MEDIA_ORIGINS:-}
+      CUSTOMER_SANDBOX_API_ORIGIN: ${CUSTOMER_SANDBOX_API_ORIGIN:-}
     # nginx proxies /api to the edge and /ws to the socket by SERVICE NAME, so
     # both must be resolvable on this network — the browser stays same-origin
     # and never learns a port.

@@ -77,6 +77,7 @@ import type {
   AcademyCourseListInput,
   AcademyCreateCourseInput,
   AcademySetCourseStateInput,
+  AcademyWithdrawCoursePriceInput,
   AcademySaveOutlineInput,
   AcademySaveLessonInput,
   AcademyRevertLessonInput,
@@ -2283,7 +2284,7 @@ export class AcademyService {
     return this.customer.sessionCalendar(input);
   }
 
-  grantAudit(input: { limit: number | null | undefined; cursor?: string | null; certificateId?: string | null }) {
+  grantAudit(input: { limit: number | null | undefined; cursor?: string | null; course?: string | null; certificate?: string | null }) {
     return this.customer.grantAudit(input);
   }
 
@@ -2380,6 +2381,10 @@ export class AcademyService {
 
   setCourseState(input: AcademySetCourseStateInput & { operatorId: string; now?: Date }) {
     return this.courseRecords.setState({ ...input, now: input.now ?? new Date() });
+  }
+
+  withdrawCoursePrice(input: AcademyWithdrawCoursePriceInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.withdrawPrice({ ...input, now: input.now ?? new Date() });
   }
 
   saveOutline(input: AcademySaveOutlineInput & { operatorId: string; now?: Date }) {

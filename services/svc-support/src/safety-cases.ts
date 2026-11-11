@@ -3,8 +3,13 @@ import type { Sql } from 'postgres';
 import {
   SUPPORT_BEREAVEMENT_DATE_INVALID,
   SUPPORT_SAFETY_KEY_REUSED,
+  SUPPORT_SCAM_TRANSFER_NOT_YOURS,
+  SUPPORT_SCAM_TRANSFER_UNCHECKED,
   supportSafetyAcknowledgementSchema,
+  type BankScamTransferPort,
   type SupportBereavementInput,
+  type SupportMulePolicy,
+  type SupportScamReportInput,
   type SupportComplaintInput,
   type SupportSafetyAcknowledgement,
   type SupportSafetyCaseKind,
@@ -43,6 +48,8 @@ export type StoredSafetyCase = {
   responseLimitDays: number | null;
   responseDueAt: string | null;
   acknowledgedAt: string;
+  /** A scam report's case note; null for every other kind. */
+  caseNote: string | null;
 };
 
 /** Where acknowledgements are kept. */
@@ -88,6 +95,7 @@ type PgSafetyCase = {
   response_limit_days: number | null;
   response_due_at: Date | null;
   acknowledged_at: Date;
+  case_note: string | null;
 };
 
 function fromRow(row: PgSafetyCase): StoredSafetyCase {
@@ -102,6 +110,7 @@ function fromRow(row: PgSafetyCase): StoredSafetyCase {
     responseLimitDays: row.response_limit_days,
     responseDueAt: row.response_due_at ? row.response_due_at.toISOString() : null,
     acknowledgedAt: row.acknowledged_at.toISOString(),
+    caseNote: row.case_note ?? null,
   };
 }
 
@@ -119,9 +128,9 @@ export class SqlSafetyBook implements SafetyBook {
     // Two sends of one key at once: the unique (person, kind, key) and (ticket) keys keep one row, and both read it back.
     await this.sql`
       INSERT INTO support.safety_cases (id, user_id, kind, request_key, ticket_id, reference, fingerprint,
-        response_limit_days, response_due_at, acknowledged_at)
+        response_limit_days, response_due_at, acknowledged_at, case_note)
       VALUES (${row.id}, ${row.userId}, ${row.kind}, ${row.requestKey}, ${row.ticketId}, ${row.reference}, ${row.fingerprint},
-        ${row.responseLimitDays}, ${row.responseDueAt}, ${row.acknowledgedAt})
+        ${row.responseLimitDays}, ${row.responseDueAt}, ${row.acknowledgedAt}, ${row.caseNote})
       ON CONFLICT DO NOTHING
     `;
     const rows = await this.sql<PgSafetyCase[]>`
@@ -145,7 +154,7 @@ export class SqlSafetyBook implements SafetyBook {
 export type SafetyDesk = {
   createTicket(input: {
     userId: string;
-    category: 'complaint' | 'bereavement';
+    category: SupportSafetyCaseKind;
     subject: string;
     body: string;
     clientRequestId: string;
@@ -156,7 +165,7 @@ const DAY_MS = 86_400_000;
 /** The most acknowledgements one read returns. */
 export const SAFETY_LIST_MAX = 50;
 
-const REFERENCE_PREFIX: Record<SupportSafetyCaseKind, string> = { complaint: 'CP', bereavement: 'BR' };
+const REFERENCE_PREFIX: Record<SupportSafetyCaseKind, string> = { complaint: 'CP', bereavement: 'BR', scam: 'SC' };
 
 /** sha256 over the kind and the words sent, so a key sent again with different words is caught. */
 function fingerprintOf(kind: SupportSafetyCaseKind, fields: Record<string, string | undefined>): string {
@@ -187,6 +196,7 @@ export function acknowledgementOf(row: StoredSafetyCase): SupportSafetyAcknowled
         : row.responseLimitDays !== null && row.responseDueAt !== null
           ? { status: 'set', dueAt: row.responseDueAt, limitDays: row.responseLimitDays }
           : { status: 'not_set' },
+    caseNote: row.kind === 'scam' ? row.caseNote : null,
   });
 }
 
@@ -199,6 +209,16 @@ const TOPIC_WORDS: Record<SupportComplaintInput['topic'], string> = {
   other: 'something else',
 };
 
+const SCAM_CONTACT_WORDS: Record<SupportScamReportInput['contactedBy'], string> = {
+  phone_call: 'a phone call',
+  text_message: 'a text message',
+  email: 'email',
+  social_media: 'social media',
+  messaging_app: 'a messaging app',
+  in_person: 'in person',
+  other: 'another way',
+};
+
 export class SafetyCases {
   constructor(
     private readonly book: SafetyBook,
@@ -206,7 +226,16 @@ export class SafetyCases {
     /** The owner's `SUPPORT_COMPLAINT_RESPONSE_DAYS`; null (blank) leaves every new complaint's deadline not set. */
     private readonly complaintResponseDays: number | null,
     private readonly now: () => Date = () => new Date(),
+    /** svc-bank's answer to "did this person send this transfer?" (`bank-scam-transfer.ts`). Absent, nothing is checked. */
+    private readonly transfers: BankScamTransferPort = { check: async () => ({ state: 'unavailable' }) },
+    /** The owner's `SUPPORT_MULE_POLICY`; null (blank) is unpublished. Never defaulted to words of ours. */
+    private readonly mulePolicyText: string | null = null,
   ) {}
+
+  mulePolicy(): SupportMulePolicy {
+    const text = this.mulePolicyText?.trim();
+    return text ? { published: true, text } : { published: false };
+  }
 
   async complain(userId: string, input: SupportComplaintInput): Promise<SupportSafetyAcknowledgement> {
     const outcome = input.outcome?.trim() || undefined;
@@ -249,6 +278,73 @@ export class SafetyCases {
     return this.acknowledge(userId, 'bereavement', input.requestKey, fingerprint, 'Bereavement report', body);
   }
 
+  /**
+   * A scam report (BK-safe-02, J-bank-18 #3): a request in the scam category, and a case note with the amount, the
+   * transfer and how the person was contacted. The transfer must be one the person sent: svc-bank says so, or the report
+   * is refused (not theirs) or not taken (the bank could not be asked). A replay of a key already taken answers with its
+   * acknowledgement without asking again.
+   */
+  async reportScam(userId: string, input: SupportScamReportInput): Promise<SupportSafetyAcknowledgement> {
+    const details = input.details?.trim() || undefined;
+    const fields = {
+      when: input.when,
+      amount: input.amount,
+      assetId: input.assetId,
+      transferId: input.transferId,
+      contactedBy: input.contactedBy,
+      details,
+    };
+    const fingerprint = fingerprintOf('scam', fields);
+    // One report per transfer (BK-safe-02's key `scam-report:<userId>:<transferId>`; the book keys by person already).
+    // Before any money moved there is no transfer: one report per set of words.
+    const transferId = input.when === 'after_sending' ? input.transferId : undefined;
+    const requestKey = transferId ? `scam-report:${transferId}` : `scam-report:before:${fingerprint.slice(0, 40)}`;
+    const first = async () => {
+      const prior = await this.book.find(userId, 'scam', requestKey);
+      return prior ? acknowledgementOf(prior) : null;
+    };
+    const prior = await first();
+    if (prior) return prior;
+    if (transferId) {
+      const answer = await this.transfers.check({ userId, transferId });
+      if (answer.state === 'unavailable')
+        throw new SupportError(
+          'the bank could not say whether this transfer is yours, so the report was not taken',
+          SUPPORT_SCAM_TRANSFER_UNCHECKED,
+        );
+      if (!answer.sent) throw new SupportError('this transfer is not one you sent', SUPPORT_SCAM_TRANSFER_NOT_YOURS);
+    }
+    const how = SCAM_CONTACT_WORDS[input.contactedBy];
+    const body = [
+      `A scam is reported, ${transferId ? 'after sending money' : 'before sending any money'}.`,
+      '',
+      `Amount: ${input.amount} ${input.assetId}`,
+      ...(transferId ? [`Transfer: ${transferId}`] : []),
+      `Contacted by: ${how}`,
+      ...(details ? ['', details] : []),
+    ].join('\n');
+    // The case note is read by the person as well as the desk: facts and what happens next, no internal handling.
+    const caseNote = [
+      transferId
+        ? `Scam report after sending money: ${input.amount} ${input.assetId} on transfer ${transferId}, which the bank confirms was sent from this account.`
+        : `Scam report before sending any money: ${input.amount} ${input.assetId} asked for, and no transfer made.`,
+      `Contacted by ${how}.`,
+      transferId
+        ? 'Next: the support team reviews the transfer and contacts you about asking for the money back.'
+        : 'Next: the support team reviews the report and contacts you.',
+    ].join(' ');
+    try {
+      return await this.acknowledge(userId, 'scam', requestKey, fingerprint, 'Scam report', body, caseNote);
+    } catch (err) {
+      // Two reports of one transfer at once, in other words: the first one written is the report.
+      if (err instanceof SupportError && err.code === SUPPORT_SAFETY_KEY_REUSED) {
+        const won = await first();
+        if (won) return won;
+      }
+      throw err;
+    }
+  }
+
   async mine(userId: string): Promise<SupportSafetyAcknowledgement[]> {
     return (await this.book.listByUser(userId, SAFETY_LIST_MAX)).map(acknowledgementOf);
   }
@@ -260,6 +356,7 @@ export class SafetyCases {
     fingerprint: string,
     subject: string,
     body: string,
+    caseNote: string | null = null,
   ): Promise<SupportSafetyAcknowledgement> {
     const prior = await this.book.find(userId, kind, requestKey);
     if (prior) return this.same(prior, fingerprint);
@@ -285,6 +382,7 @@ export class SafetyCases {
       responseLimitDays: days,
       responseDueAt: days === null ? null : new Date(at.getTime() + days * DAY_MS).toISOString(),
       acknowledgedAt: at.toISOString(),
+      caseNote: kind === 'scam' ? caseNote : null,
     });
     return this.same(written, fingerprint);
   }

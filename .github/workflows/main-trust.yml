@@ -17,7 +17,8 @@ name: Main trust
 # PR checks, whose Dependency audit holds main to the full advisory ratchet), it
 # opens one issue naming the breaking commit when a check that passed before is broken, and closes it when the check
 # passes again. It only reads runs and writes issues: no schedule, nothing blocks a merge. See
-# tooling/ci/post-merge-trust.mjs.
+# tooling/ci/post-merge-trust.mjs. After a Real-app journeys run, a step that passed in the run before and failed outright
+# in this one starts the journeys revert (main-bisect.yml, tooling/ci/journeys-revert.mjs), which opens the culprit's revert.
 #
 # Ends: with each run of the workflows it follows (workflow_run): one run per finished run of theirs on main, so it
 # stops only when they do, and they never end on their own. A stop disables it until the lift
@@ -67,7 +68,7 @@ jobs:
     timeout-minutes: 5 # healthy run: under a minute (three journey reports at most)
     permissions:
       contents: read # compare commits
-      actions: write # re-run failed jobs once, read runs and their journey reports
+      actions: write # re-run failed jobs once, read runs and their journey reports, start the journeys revert
       checks: read # a job's annotations: a cancel by the job time limit counts as red
       issues: write # open, comment on and close the break issues
     steps:
@@ -84,3 +85,13 @@ jobs:
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: node tooling/ci/post-merge-trust.mjs
+      # A journey step that passed in the run before and failed outright in this one on main: start the journeys revert
+      # (main-bisect.yml), which finds the pull request that broke it and opens its revert (tooling/ci/journeys-revert.mjs).
+      - name: Start the journeys revert on a confirmed break
+        if: github.event.workflow_run.name == 'Real-app journeys'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node tooling/ci/journeys-revert.mjs trigger

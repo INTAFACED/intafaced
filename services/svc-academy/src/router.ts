@@ -87,6 +87,7 @@ import {
   academyCreateCourseInputSchema,
   academyUpdateCourseInputSchema,
   academySetCourseStateInputSchema,
+  academyWithdrawCoursePriceInputSchema,
   academySaveOutlineInputSchema,
   academyLessonSchema,
   academySaveLessonInputSchema,
@@ -3328,6 +3329,12 @@ export function createAcademyRouter(
         .output(academyCourseSchema)
         .mutation(({ input, ctx }) => guard(() => academy.setCourseState({ ...input, operatorId: ctx.principal!.userId }))),
 
+      /** J-academy-01 #5: withdraw a published paid course's price with a reason; it stays published and shows with no price. */
+      withdrawCoursePrice: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyWithdrawCoursePriceInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.withdrawCoursePrice({ ...input, operatorId: ctx.principal!.userId }))),
+
       /** AC-course-structure-02: replace a draft's outline (sections of typed items) over the revision read, inside the owner's limits. */
       saveOutline: scopedProcedure('admin:write', { module: 'academy' })
         .input(academySaveOutlineInputSchema)
@@ -3887,37 +3894,61 @@ export function createAcademyRouter(
         )
         .query(() => ({ rows: [...settingsRegister(settings)] })),
 
+      /**
+       * AC-access-grants-02: the grant audit, newest first: course access grants, revokes, expiries and reinstatements,
+       * and certificates issued and revoked, each with who did it, when and why. The page size is the owner's
+       * (`ACADEMY_GRANT_AUDIT_PAGE_SIZE`); a caller may ask for fewer. Blank, it refuses `academy.grant_audit_list_limit_unset`.
+       */
       grantAudit: scopedProcedure('admin:read', { module: 'academy' })
         .input(
-          z.object({
-            limit: z.number().optional(),
-            cursor: z.string().min(1).max(512).optional(),
-            certificateId: z.string().min(1).max(64).optional(),
-          }),
+          z
+            .object({
+              limit: z.number().int().min(1).optional(),
+              cursor: z.string().min(1).max(512).optional(),
+              /** One course's lines (its slug) or one certificate's (its id); never both. */
+              course: z.string().min(1).max(120).optional(),
+              certificate: z.string().min(1).max(120).optional(),
+            })
+            .refine((v) => !(v.course && v.certificate), { message: 'name a course or a certificate, not both' })
+            .optional(),
         )
         .output(
           z.object({
             items: z.array(
               z.object({
                 accountId: z.string().guid(),
-                certificateId: z.string(),
-                grantedAt: z.date(),
-                status: z.literal('granted'),
+                kind: z.enum([
+                  'access_granted',
+                  'access_revoked',
+                  'access_expired',
+                  'access_reinstated',
+                  'certificate_granted',
+                  'certificate_revoked',
+                ]),
+                target: z.string(),
+                source: z.string().nullable(),
+                actorId: z.string().nullable(),
+                reason: z.string().nullable(),
+                at: z.date(),
                 reference: z.string(),
               }),
             ),
             nextCursor: z.string().nullable(),
           }),
         )
-        .query(({ input }) =>
-          guard(() =>
+        .query(({ input }) => {
+          const owner = settings.ACADEMY_GRANT_AUDIT_PAGE_SIZE;
+          // The owner's size, or fewer when the caller asks for fewer: never more than the owner set, and never a default.
+          const limit = owner === undefined ? undefined : Math.min(owner, input?.limit ?? owner);
+          return guard(() =>
             academy.grantAudit({
-              limit: input.limit,
-              cursor: input.cursor ?? null,
-              certificateId: input.certificateId ?? null,
+              limit,
+              cursor: input?.cursor ?? null,
+              course: input?.course ?? null,
+              certificate: input?.certificate ?? null,
             }),
-          ),
-        ),
+          );
+        }),
       opsMetrics: scopedProcedure('admin:read', { module: 'academy' })
         .input(z.object({ from: z.string(), to: z.string() }))
         .output(

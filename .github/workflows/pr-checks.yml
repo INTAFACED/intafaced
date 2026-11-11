@@ -85,8 +85,11 @@ jobs:
         run: |
           set -euo pipefail
           VER=8.24.3
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" \
-            | tar -xz gitleaks
+          # Download to a file first, failing on an HTTP error and retrying a dropped connection, so a failed download
+          # is a clear curl error and not a tar error on a cut-off stream (3 of 12 PR runs on 9 Nov 07:00-07:50 UTC).
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks version
       - name: Gitleaks (working tree)
         run: ./gitleaks detect --source . --no-git --config .gitleaks.toml --redact
@@ -110,7 +113,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version-file: .node-version
 
       # No `--frozen-lockfile` install: the audit reads the lockfile, and a full
       # workspace install would spend minutes to tell us nothing extra.

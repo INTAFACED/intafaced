@@ -1,6 +1,10 @@
-// World: book
+// World: book, stack
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, bestPrices, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { confirm, deskPath, fundedTrader, held, reviewLimit, signIn } from './desk.mjs';
 
 // J-portfolio-04, in the running app (docs/roadmap/journeys.json): "I control how my cost basis is worked out". One test
@@ -36,15 +40,16 @@ const total = (balances, asset) => toUnits(balances[asset]?.total ?? '0');
 const priceAt = (decimal, percent) => fromUnits(((toUnits(decimal) * BigInt(percent)) / 100n / 10n ** 16n) * 10n ** 16n);
 
 /** One limit buy over the best ask: it takes the maker's asks and fills at once. Returns what it cost and what arrived. */
-async function buyNow(page, who, amount) {
+async function buyNow(page, who, amount, symbol = 'BTC/USDT') {
+  const base = symbol.split('/')[0];
   const before = await (await api(who)).balances();
-  await page.goto(deskPath('BTC/USDT'));
-  const { ask } = await bestPrices('BTC/USDT');
-  await reviewLimit(page, 'buy', priceAt(ask, 101), amount);
+  await page.goto(deskPath(symbol));
+  const { ask } = await bestPrices(symbol);
+  await reviewLimit(page, 'buy', priceAt(ask, 101), amount, base);
   await confirm(page, 'buy');
   await expect.poll(async () => held(await (await api(who)).balances(), 'USDT'), { timeout: 20_000 }).toBe(0n);
   const after = await (await api(who)).balances();
-  return { cost: total(before, 'USDT') - total(after, 'USDT'), qty: total(after, 'BTC') - total(before, 'BTC') };
+  return { cost: total(before, 'USDT') - total(after, 'USDT'), qty: total(after, base) - total(before, base) };
 }
 
 async function lotsPage(page, asset = 'BTC') {
@@ -252,18 +257,128 @@ test(`${J} #5 picks the lot for one sale and sets a method for one day: that sal
   await expect(page.locator('tr[data-asset="BTC"] [data-col="cost"]')).toHaveText(usd(leftCost));
 });
 
+/** The close of the last one-minute candle that started at or before `t`, from the public candles of `symbol`. */
+async function closesAround(symbol, before, after) {
+  const res = await fetch(
+    `${EDGE}/api/v1/ohlcv/${encodeURIComponent(symbol)}?timeframe=1m&since=${Math.floor(before / 60_000) * 60_000 - 3_600_000}&limit=720`,
+    { headers: { origin: ORIGIN } },
+  );
+  expect(res.status).toBe(200);
+  const candles = await res.json();
+  const lastAt = (t) => candles.filter((c) => c[0] <= t).at(-1)?.[4];
+  return [...new Set([lastAt(before), lastAt(after)].filter(Boolean))];
+}
+
+/**
+ * Waits until the minute `t` falls in has ended and that minute's fills are in. An open candle's close moves with every
+ * trade, so the screen's read of it and the hand count's read a moment later need not agree; once it has ended, both
+ * read the same final close.
+ */
+async function minuteEnded(page, t) {
+  const final = (Math.floor(t / 60_000) + 1) * 60_000 + 2_000;
+  const left = final - Date.now();
+  if (left > 0) await page.waitForTimeout(left);
+}
+
+/** The screen's dollar text for `qty` coins at each candle close: what the arrival is worth at that price. */
+const valuesAt = (qty, closes) => closes.map((close) => usd((toUnits(qty) * toUnits(close) + ONE / 2n) / ONE));
+
+/** The person's svc-bank API through Edge, with a session of its own: earn savings are opened and taken back here. */
+async function bankApi(who) {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  }).then((r) => r.json());
+  const token = login?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
+  const answer = async (res) => {
+    const body = await res.json();
+    if (!res.ok) throw new Error(`bank refused: ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
+    return body.result.data;
+  };
+  return {
+    query: (procedure, input) =>
+      fetch(`${EDGE}/api/bank/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, { headers }).then(answer),
+    mutate: (procedure, input) =>
+      fetch(`${EDGE}/api/bank/trpc/${procedure}`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      }).then(answer),
+  };
+}
+
+let staffDoor;
+/** The stack's two TEST founders and its signed service context (`local-test-gates.mjs`), made once. */
+async function founders() {
+  staffDoor ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+  })();
+  return staffDoor;
+}
+
+/** One treasury door of the bank, approved by the stack's two TEST founders, bound to `fields` (the door's canonical strings). */
+async function treasury(actionType, procedure, input, fields) {
+  const { gates, ctx, sessions } = await founders();
+  const approval = await gates.twoPerson(ctx, sessions, {
+    actionType,
+    targetService: 'svc-bank',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash: gates.bankPayloadHash(actionType, fields),
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  const res = await ctx.edge.mutate('bank', procedure, { ...input, ...approval }, await sessions.a.treasuryToken());
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+  return res.json.result.data;
+}
+
+/** One day of earn interest for one pool, through the bank's own job procedure, signed as the bank's scheduler signs it. */
+async function accrue(poolId, at) {
+  const { ctx } = await founders();
+  const raw = JSON.stringify({ poolId, at: at.toISOString() });
+  const res = await fetch(`${ctx.url('bank')}/trpc/ops.accrueInterest`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-bank', ctx.secrets.internal, raw) },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const parsed = await res.json().catch(() => null);
+  expect(res.status, JSON.stringify(parsed).slice(0, 300)).toBe(200);
+  return parsed.result.data.results[0];
+}
+
+/** One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. */
+function seed(...args) {
+  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, LOCAL_TEST: '1' },
+    timeout: 60_000,
+  });
+}
+
 test(`${J} #3 reads a deposit: valued at the time it arrived, with the price source named, and no cost until one is entered`, async ({
   page,
 }) => {
+  // Up to two minutes of this are the waits for the deposit's and the reward's minutes to end.
+  test.setTimeout(360_000);
   const who = account();
   // TEST 0.004 BTC arrives by deposit through the real ledger, at a moment the BTC/USDT book has traded.
   const before = Date.now();
   expect(fund(who.email, 'BTC', '0.004').tx).toBeTruthy();
   const after = Date.now();
+  await minuteEnded(page, after);
   await signIn(page, who);
   const lots = await lotsPage(page);
   const row = lots.locator('tbody tr[data-source="deposit"]');
   await expect(row).toHaveCount(1);
+  await expect(row.locator('[data-col="source"]')).toHaveText('Deposit');
   await expect(row.locator('[data-col="qty"]')).toHaveText('0.004');
   // The TEST owner policy is "customer": a deposit's cost is unknown until the customer gives one, never zero.
   await expect(row.locator('[data-col="cost"]')).toHaveText('Cost unknown');
@@ -271,23 +386,87 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
 
   // Hand count from the public one-minute candles: 0.004 times the close of the last candle that started at or before the
   // arrival. The arrival is posted between `before` and `after`, so the price is the one for either moment.
-  const res = await fetch(
-    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${Math.floor(before / 60_000) * 60_000 - 3_600_000}&limit=720`,
-    { headers: { origin: ORIGIN } },
-  );
-  expect(res.status).toBe(200);
-  const candles = await res.json();
-  const lastAt = (t) => candles.filter((c) => c[0] <= t).at(-1)?.[4];
-  const values = [...new Set([lastAt(before), lastAt(after)].filter(Boolean))].map((close) =>
-    usd((toUnits('0.004') * toUnits(close) + ONE / 2n) / ONE),
-  );
-  expect(values.length).toBeGreaterThan(0);
+  const depositValues = valuesAt('0.004', await closesAround('BTC/USDT', before, after));
+  expect(depositValues.length).toBeGreaterThan(0);
   const shown = (await row.locator('[data-col="arrival"]').innerText()).split('\n')[0].trim();
-  expect(values).toContain(shown.split(' ')[0]);
+  expect(depositValues).toContain(shown.split(' ')[0]);
 
   // The bought lots keep their cost, and the asset's open cost is now unknown on Open positions: one lot has no cost.
   await expect(lots.locator('tbody tr[data-source="trade"] [data-col="cost"]').first()).not.toHaveText('Cost unknown');
   await expect(page.locator('tr[data-asset="BTC"] [data-col="cost"]')).toHaveText('Not known');
+
+  // A reward: one day of interest from a TEST ETH savings pool of this run's own, paid by the bank's own daily job. It is
+  // paid in ETH, not BTC, so the BTC lots the later steps sell from and move stay as they are. A TEST ETH buy first, so
+  // the person holds ETH to save (a little over the saving, for the fee) and the ETH/USDT book has a candle to value the
+  // reward by.
+  await buyNow(page, who, '0.012', 'ETH/USDT');
+  const RUN = process.env.JOURNEY_RUN_ID ?? `local-${Date.now()}`;
+  const pool = {
+    poolId: randomUUID(),
+    assetId: 'ETH',
+    kind: 'flexible',
+    name: `TEST ${J} reward ${RUN}`,
+    // A TEST rate of 365% a year: one day pays exactly 1% of the saving, so the reward is a figure a hand count can name.
+    aprBps: 36_500,
+    termDays: null,
+    minDeposit: '0.001',
+  };
+  await treasury('bank.ops.createEarnPool', 'ops.createEarnPool', pool, {
+    ...pool,
+    aprBps: String(pool.aprBps),
+    termDays: '',
+  });
+  try {
+    expect(seed('fund-earn-pool', pool.poolId, '0.01', `${J}-${RUN}`)).toContain('reserve funded 0.01 ETH');
+    const bank = await bankApi(who);
+    const PRINCIPAL = '0.01';
+    const { positionId } = await bank.mutate('earn.deposit', { poolId: pool.poolId, positionId: randomUUID(), amount: PRINCIPAL });
+    // The bank pays only a day that has begun: the saving's opening moves back two days, so its first day is yesterday.
+    expect(seed('age-earn-position', positionId, '2')).toContain(`saving ${positionId}: opened`);
+    const firstDay = Date.parse((await bank.query('earn.positions', { limit: 50 })).find((p) => p.id === positionId).accruesFrom);
+    const paidAt = Date.now();
+    const day = await accrue(pool.poolId, new Date(firstDay + 60_000));
+    const paidBy = Date.now();
+    expect(day).toMatchObject({ recipients: 1, alreadyAccrued: false });
+    const history = await bank.query('earn.interestHistory', { poolId: pool.poolId, limit: 31 });
+    const REWARD = fromUnits((toUnits(PRINCIPAL) * BigInt(pool.aprBps)) / 10_000n / 365n);
+    expect(REWARD).toBe('0.0001');
+    expect(history.days.map((d) => d.amount)).toEqual([REWARD]);
+    // The saving goes back whole; the interest stays with the person.
+    await bank.mutate('earn.withdraw', { positionId });
+    await minuteEnded(page, paidBy);
+
+    // The reward's lot: its own row, sourced "Reward", the amount paid, valued at the ETH/USDT candle of when it arrived.
+    const ethLots = await lotsPage(page, 'ETH');
+    const reward = ethLots.locator('tbody tr[data-source="reward"]');
+    await expect(reward).toHaveCount(1);
+    await expect(reward.locator('[data-col="source"]')).toHaveText('Reward');
+    await expect(reward.locator('[data-col="qty"]')).toHaveText(REWARD);
+    await expect(reward.locator('[data-col="price-source"]')).toContainText('at the ETH/USDT price, one-minute candle from');
+    const rewardCloses = await closesAround('ETH/USDT', paidAt, paidBy);
+    const rewardValues = valuesAt(REWARD, rewardCloses);
+    expect(rewardValues.length).toBeGreaterThan(0);
+    const rewardShown = (await reward.locator('[data-col="arrival"]').innerText()).split('\n')[0].trim();
+    expect(rewardValues).toContain(rewardShown.split(' ')[0]);
+
+    // Under the TEST owner policy ("customer") the reward, like the deposit, has no cost until the person gives one. The
+    // person enters the price it arrived at, so the BTC deposit is the one lot without a cost that steps 6 and 7 work on.
+    await expect(reward.locator('[data-col="cost"]')).toHaveText('Cost unknown');
+    const rewardLot = await reward.getAttribute('data-lot');
+    const item = page.getByRole('region', { name: 'Missing cost' }).locator(`li[data-missing-lot="${rewardLot}"]`);
+    await item.getByRole('button', { name: 'Enter a cost' }).click();
+    const form = item.getByRole('form', { name: 'Enter a cost for this lot' });
+    await form.getByLabel('Price you paid per ETH, in USD').fill(rewardCloses[rewardValues.indexOf(rewardShown.split(' ')[0])]);
+    await form.getByLabel('Where this price comes from').fill('TEST the ETH/USDT price when the reward arrived');
+    await form.getByRole('button', { name: 'Save price' }).click();
+    await expect(page.getByTestId('basis-notice')).toHaveText('Price saved. The figures use it, marked customer-entered.');
+    await expect(item).toHaveCount(0);
+  } finally {
+    // The run's pool closes to new savings, so pools of earlier runs never crowd the bank's list.
+    const reason = 'TEST closing the run pool';
+    const input = { poolId: pool.poolId, status: 'closed', reason, revision: 1 };
+    await treasury('bank.ops.setEarnPoolStatus', 'ops.setEarnPoolStatus', input, { ...input, revision: '1' });
+  }
 });
 
 test(`${J} #6 sells into the lot with no cost: the warning names that lot, and the sale shows its unknown share`, async ({ page }) => {

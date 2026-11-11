@@ -189,6 +189,22 @@ describe('session controller', () => {
     return { ...net, controller, logout };
   }
 
+  it('refreshes at most once a minute when this device’s clock runs ahead of the server’s', async () => {
+    // Every token identity hands back already looks due here: its expiry is the server's time, a month behind this clock.
+    const { controller, calls } = build(() => ok(session('rotated', -30 * 86_400_000)));
+    await controller.start();
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(calls).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(calls.length).toBeLessThanOrEqual(13);
+    expect(controller.getState().session?.accessToken).toBe('rotated');
+    controller.stop();
+  });
   it('starts restoring, and a valid cookie becomes an in-memory session', async () => {
     const { controller, calls } = build(() => ok(session('boot')));
     expect(controller.getState()).toEqual({ session: null, restoring: true, restoreFailed: false, notice: null });
@@ -304,6 +320,31 @@ describe('session controller', () => {
     expect(seen).toEqual([undefined]);
     controller.stop();
   });
+  it('logout drops the trading-session key this tab holds (J-wallet-22 #8): nothing on the device signs with it after', async () => {
+    const m = new Map<string, string>([
+      ['intafaced.venue-session-key:u-1', '{"address":"0x1"}'],
+      ['intafaced.other', 'kept'],
+    ]);
+    const sessionStorage = {
+      get length() {
+        return m.size;
+      },
+      key: (i: number) => [...m.keys()][i] ?? null,
+      removeItem: (k: string) => void m.delete(k),
+    };
+    vi.stubGlobal('window', { sessionStorage });
+    try {
+      const { controller } = build(() => ok(session('boot')));
+      await controller.start();
+      expect(m.has('intafaced.venue-session-key:u-1')).toBe(true);
+      await controller.logout();
+      expect([...m.keys()]).toEqual(['intafaced.other']);
+      controller.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('logout waits for a refresh already in flight, so a late Set-Cookie cannot undo the clear', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));

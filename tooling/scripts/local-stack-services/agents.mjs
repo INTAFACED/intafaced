@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
-import { TEST_CHAIN_ID } from '../local-test-chain.mjs';
+import { NAVIGATOR_SIGNER_URL, TEST_CHAIN_ID } from '../local-test-chain.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
@@ -76,6 +76,28 @@ function paymentToken(chain) {
   };
 }
 
+/**
+ * Where the Navigator trades inside the cap a person signed for its session key (J-agents-19 #4), on the stack's TEST
+ * chain: its node, its TEST signer (local-test-chain.mjs /navigator, the Navigator's TEST key address impersonated on
+ * anvil; svc-agents holds no key) and its market, the seeded router and the TEST WETH/B pool, spending wrapped TEST ETH,
+ * which the cap in TEST ETH measures one for one. With no chain, or with the signer off, all three stay blank, as in
+ * production, and a trade ask refuses by name.
+ */
+export function navigatorTrading(chain) {
+  if (process.env.LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER === 'off') return {};
+  if (!chain?.router || !chain.wrappedNative || !chain.navigatorPool) return {};
+  return {
+    AGENTS_NAVIGATOR_ONCHAIN_RPC_URL: chain.rpcUrl,
+    AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL: NAVIGATOR_SIGNER_URL,
+    AGENTS_NAVIGATOR_ONCHAIN_MARKET: JSON.stringify({
+      router: chain.router,
+      spendToken: chain.wrappedNative,
+      pools: [chain.navigatorPool],
+      slippageBps: Number(testValue('AGENTS_NAVIGATOR_ONCHAIN_SLIPPAGE_BPS')),
+    }),
+  };
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
   name: 'agents',
   env: () => ({
@@ -132,8 +154,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     // restart leaves it blank (holding refuses agents.approval.ttl_unset); `=short` uses the short TEST wait, so a journey
     // can watch a request expire.
     ...approvalTtl(),
+    // LOCAL TEST public address of the Navigator's on-chain signer (J-agents-19): the session key a person grants on the
+    // stack's TEST chain. An address only, never a key. `LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER=off` on a start or restart
+    // leaves it blank, so the on-chain panel shows the rail.crypto notice.
+    ...(process.env.LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER === 'off'
+      ? {}
+      : { AGENTS_NAVIGATOR_ONCHAIN_SIGNER: testValue('AGENTS_NAVIGATOR_ONCHAIN_SIGNER') }),
     ...engine(STATE),
     ...paymentToken(testChain?.() ?? null),
+    ...navigatorTrading(testChain?.() ?? null),
     // `LOCAL_STACK_AGENTS_IDENTITY=off` on a restart points this service's identity reads at a TEST address nothing
     // answers at, so identity is unavailable to it and a decision that needs the owner's account fails closed
     // (J-agents-05 #6). Sign-in and every other service keep the real identity service.

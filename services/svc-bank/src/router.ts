@@ -21,6 +21,7 @@ import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.router.js';
 import { createCashOutRouter } from './cash-out/cash-out.router.js';
 import { createRailSendsRouter } from './rail-sends/rail-sends.router.js';
+import { createSafetyRouter } from './safety/safety.router.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
@@ -35,6 +36,7 @@ import { createSpacesRouter } from './router/spaces.router.js';
 import { createTransfersRouter } from './router/transfers.router.js';
 import { createEarnRouter } from './router/earn.router.js';
 import { createAnalyticsRouter } from './router/analytics.router.js';
+import { createLimitsRouters } from './router/limits.router.js';
 import { createPortfolioRouter } from './router/portfolio.router.js';
 import { createLoansRouter } from './router/loans.router.js';
 import { createCardsRouter } from './router/cards.router.js';
@@ -94,6 +96,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const transfers = createTransfersRouter(c);
   const earn = createEarnRouter(c);
   const analytics = createAnalyticsRouter(c);
+  const limitsTables = createLimitsRouters(c);
   const portfolio = createPortfolioRouter(c);
   const loans = createLoansRouter(c);
   const cards = createCardsRouter(c);
@@ -126,6 +129,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * (the page says no schedule is published); a published zero is `free`, never inferred from blank.
      */
     fees: router({
+      /** BK-acct-04 (J-bank-16 #6): the owner's account fee table; none published says "not set". */
+      account: limitsTables.accountFees,
+      partner: limitsTables.partnerLimits,
       schedule: router({
         get: scopedProcedure('bank:read', { module: 'bank' })
           .output(
@@ -338,6 +344,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     autoInvest,
     business,
     analytics,
+    plans: limitsTables.plans,
+    dormancy: limitsTables.dormancy,
     portfolio,
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),
@@ -352,6 +360,12 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     cashOut: createCashOutRouter(bank, guard),
     /** BK-xfer-02: send to a bank account over a bank rail. Kept refused with `rail.bank`; nothing is held or posted. */
     railSends: createRailSendsRouter(bank, guard),
+    /** BK-safe-01: why a blocked region's transfer refuses, in the owner's wording. Public, outside the region gate. */
+    safety: createSafetyRouter({
+      blockedRegionNotice: () => bank.blockedRegionNotice,
+      transferSent: (userId, transferId) => bank.personalPay.sentBy(userId, transferId),
+      guard,
+    }),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),

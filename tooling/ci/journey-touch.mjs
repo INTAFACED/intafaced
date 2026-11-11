@@ -10,14 +10,21 @@
  *   - full: the pull request needs a clean full run on its exact head. The journey stack's shared setup (SHARED_SETUP in
  *     journey-seal.mjs), every script under tooling/scripts (the stack, the TEST market maker, the seed, world-restore,
  *     the shard planner and the scripts journeys import), the journeys workflow and its actions, the seal and this file,
- *     the journeys verdict and the baseline, build and environment files, every doc (journeys read docs/roadmap and
- *     docs/runbooks), and every product path (apps/, services/, packages/) other than a unit test, unless the next
+ *     the journeys verdict and the baseline, build and environment files, every doc the journeys run can read (DOCS_READ:
+ *     docs/roadmap, docs/runbooks and the docs code names), and every product path (apps/, services/, packages/) other than a unit test, unless the next
  *     kind takes it. A static guess at which journeys reach which code would miss journeys (a journey runs through the
  *     customer app, svc-edge and whatever services they call and the events those raise), so only evidence narrows it;
  *   - reach (the touched-journeys map, journey-reach-map.mjs, with --reach): a product path runs only the journeys main's
  *     own full runs recorded reaching it, when no full path above is in the change and the map can speak for every
  *     product path in it (shared setup, scripts, admin-app paths, packages it can't map, a switched-off, missing or
  *     stale map: full). Its journeys join the `files` list, and `reach` says why;
+ *   - named (theo-01 part 1, project-state#2065, OWNER 296): a pull request whose title or branch names a journey
+ *     (`J-<area>-<n>`, namedJourneyIds) that has a journey file at its head is judged on that journey. Its product paths
+ *     go to neither the full run nor the map: it runs the journeys it names, every journey test file it changes, and the
+ *     map's always-run list (the map's `full` journeys, which no recorded run speaks for). Every other full path above
+ *     still makes it full. Main runs every journey after every merge and is the backstop: a break of another journey is
+ *     caught there and reverted (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main
+ *     after a merge, a red main is reverted"). A product pull request that names no journey keeps the rules above;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -33,12 +40,15 @@
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
  *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
+ *   … --title <t> --branch <b>                                (the journeys the pull request names; with --reach, the
+ *                                                              env's TITLE and GITHUB_HEAD_REF when not given, which is
+ *                                                              how real-app-journeys.yml's touch step passes them)
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
-import { SUBSCRIBES, loadMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, loadMap, newerMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -61,12 +71,45 @@ export const JOURNEY_CI = [
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
   'tooling/ci/factory-switch.mjs',
+  // real-app-journeys.yml's `Main's journeys first` job runs it.
+  'tooling/ci/main-first.mjs',
+  // Main trust's post-merge job runs it after each journeys run on main, and main-bisect.yml's journeys revert jobs.
+  'tooling/ci/journeys-revert.mjs',
+  'tooling/ci/journeys-revert-probe.mjs',
+  'tooling/ci/journeys-revert-probe.sh',
+  // journeys-revert.mjs mints its App token with it.
+  'tooling/ci/factory-builder.mjs',
+  // journeys-revert.mjs reads its test and job lists (the revert on main for CI reds).
+  'tooling/ci/bisect-main.mjs',
   // Reached through the seal's imports (review-marker.mjs) and the test-infra action; journey-touch.test.mjs finds them.
   'tooling/ci/assert-test-db-env.mjs',
   'tooling/ci/look-baselines.mjs',
   'tooling/ci/test-judge.mjs',
   'tooling/ci/judged-paths.mjs',
   'tooling/ci/test-judge/JUDGE.md',
+];
+
+/**
+ * The docs a journeys run can read: the journeys index and the baseline (docs/roadmap, docs/runbooks), and every doc a
+ * product source, a journey file or a script the journeys run executes names by path. A file ends without `/`, a folder
+ * with it. Every other path under docs/ runs no journeys (the 9 Nov 09:41 UTC item on project-state#1574: a docs-only
+ * pull request paid for the whole suite). journey-touch.test.mjs fails when that code names a doc this list misses.
+ */
+export const DOCS_READ = [
+  'docs/roadmap/',
+  'docs/runbooks/',
+  'docs/audits/',
+  'docs/agents/',
+  'docs/adr/2026-11-10-launch-money-model.md',
+  'docs/decisions/s2s-body-bind.md',
+  'docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md',
+  'docs/CODEOWNERS',
+  'docs/OPS-KILL-SWITCH-RUNBOOK.md',
+  'docs/OWNER-OPS-CHECKLIST-2026-07-31.md',
+  'docs/OWNER-SETTINGS.md',
+  'docs/ROADMAP.md',
+  'docs/RUNNING.md',
+  'docs/THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md',
 ];
 
 const FULL_RULES = [
@@ -76,7 +119,10 @@ const FULL_RULES = [
   ],
   [/^\.github\/workflows\/real-app-journeys\.yml$/, 'the journeys workflow'],
   [/^\.github\/actions\//, 'an action the journeys workflow uses'],
-  [/^docs\//, 'a doc (journeys read docs/roadmap and docs/runbooks, and the verdict reads the baseline)'],
+  [
+    { test: (p) => DOCS_READ.some((d) => (d.endsWith('/') ? p.startsWith(d) : p === d)) },
+    'a doc the journeys run, the stack or a service reads or names (DOCS_READ)',
+  ],
   [/^tooling\/(profiles|infra)\//, 'the stack’s environment (tooling/profiles, tooling/infra)'],
   [
     /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|tsconfig[^/]*\.json|\.npmrc|\.nvmrc|\.node-version|\.env\.example|docker-compose[^/]*\.ya?ml)$/,
@@ -88,9 +134,42 @@ const NONE_RULES = [
   (p) => p.startsWith('.github/') && !/^\.github\/(workflows\/real-app-journeys\.yml|actions\/)/.test(p),
   (p) => p.startsWith('tooling/ci/') && !JOURNEY_CI.includes(p),
   (p) => /^(apps|services|packages)\//.test(p) && /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) && !p.startsWith('apps/customer/tests/real-app/'),
+  // Markdown at the repository root (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md): no journey, stack script or
+  // harness file reads it (U6 on project-state#1574: an AGENTS.md-only PR paid for a full run, 42547155694).
+  (p) => /^[^/]+\.md$/.test(p),
+  // A doc outside DOCS_READ (that list is full, and is checked first).
+  (p) => p.startsWith('docs/'),
 ];
 
 const PRODUCT = 'product code, and no map recorded from real runs says which journeys reach it yet';
+
+/** A journey id as the seal reads one in a title (journey-seal.mjs JOURNEY_ID). */
+const JOURNEY_ID = /\bJ-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/gi;
+
+/** The journey ids a pull request's title or branch names (`J-bank-13`, branch `j/j-bank-13` or `agents-j-agents-19`),
+ *  in the seal's case (`J-` then lower case), sorted. */
+export function namedJourneyIds({ title = '', branch = '' } = {}) {
+  const ids = new Set();
+  for (const t of [title, branch]) for (const m of String(t ?? '').matchAll(JOURNEY_ID)) ids.add(m[0].toLowerCase().replace(/^j-/, 'J-'));
+  return [...ids].sort();
+}
+
+/**
+ * What a named-journey pull request runs besides its changed journey files (journeyTouch's `named`), or null when it
+ * names no journey with a file at its head (then the other rules decide). `journeyFiles`: the journey file names at the
+ * head (a Set), or null when they can't be read (then null: fail to the other rules, never fewer). `map`: the
+ * touched-journeys map the run chose (journey-reach-map.mjs newerMap), whose `full` keys are the always-run list.
+ */
+export function namedInputs({ ids, journeyFiles, map }) {
+  if (!ids?.length || !journeyFiles) return null;
+  const want = new Set(ids);
+  const files = [...journeyFiles].filter((f) => want.has(JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1])).sort();
+  if (!files.length) return null;
+  const always = Object.keys(map?.full ?? {})
+    .filter((f) => journeyFiles.has(f))
+    .sort();
+  return { ids: [...ids], files, always };
+}
 
 /** One path's kind: { kind: 'full', why } | { kind: 'file', file } | { kind: 'none' }. */
 export function pathKind(path) {
@@ -116,9 +195,10 @@ export function pathKind(path) {
  * reachSelect: { map, behind, journeyFiles, subscribes }), or null: then every product path is full. With it, product
  * paths run only the journeys whose recorded reach touches them, when every other path allows it and the map can speak
  * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
- * reach?: [lines] }.
+ * reach?: [lines] }. `named`: what namedInputs gives for a pull request that names a journey, or null; with it, product
+ * paths run the named journeys and the always-run list instead of the full suite or the map, and `named` says why.
  */
-export function journeyTouch(paths, atHead = () => true, reach = null) {
+export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
   const full = [];
   const product = [];
   const files = new Set();
@@ -129,7 +209,15 @@ export function journeyTouch(paths, atHead = () => true, reach = null) {
     else if (k.kind === 'file' && atHead(p)) files.add(k.file);
   }
   let because;
-  if (product.length && !full.length && reach) {
+  let byName;
+  if (product.length && named) {
+    // Judged on the journeys it names (theo-01 part 1); another full path still makes the whole change full.
+    if (full.length) for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+    else {
+      for (const f of [...named.files, ...named.always]) files.add(f);
+      byName = `it names ${named.ids.join(', ')}, so its ${product.length} product path(s) run ${named.files.join(', ')} and the ${named.always.length} always-run journey file(s), and main's full run judges the rest`;
+    }
+  } else if (product.length && !full.length && reach) {
     const sel = reachSelect({
       map: reach.map,
       paths: product,
@@ -146,6 +234,7 @@ export function journeyTouch(paths, atHead = () => true, reach = null) {
   full.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const list = [...files].sort();
   const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
+  if (byName && !full.length) return { ...out, named: printable(byName) };
   return because && !full.length ? { ...out, reach: because } : out;
 }
 
@@ -169,13 +258,14 @@ export const subscribesIn =
   };
 
 /** How many of main's finished full runs came after the map's newest run, read with gh (GH_TOKEN), or null. The same
- *  list the seal reads (journey-seal.mjs makeIo mainRuns: the newest 30), so the two count the same age. */
+ *  list the seal reads (journey-seal.mjs makeIo mainRuns: the newest 100, so a burst of cancelled runs can't hide the
+ *  map's newest run and blank its age), so the two count the same age. */
 function behindFromApi(map) {
   try {
     const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
     const out = execFileSync(
       'gh',
-      ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=30`],
+      ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=100`],
       { encoding: 'utf8', maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] },
     );
     return runsBehind(map, JSON.parse(out).workflow_runs, repo);
@@ -184,7 +274,21 @@ function behindFromApi(map) {
   }
 }
 
-function main() {
+const ghApi = (path, encoding = 'utf8') =>
+  execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
+
+/** When this journeys run was created (GITHUB_RUN_ID, read with gh), so the seal can pick the same map build; now when
+ *  it can't be read (a run by hand). */
+function runCreated() {
+  try {
+    const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+    const at = Date.parse(JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(process.env.GITHUB_RUN_ID)}`)).created_at);
+    if (process.env.GITHUB_RUN_ID && Number.isFinite(at)) return at;
+  } catch {}
+  return Date.now();
+}
+
+async function main() {
   const args = process.argv.slice(2);
   let paths;
   let atHead = (p) => existsSync(p);
@@ -208,14 +312,31 @@ function main() {
     console.error('usage: journey-touch.mjs [--json] --base <ref> | --files <path>... | --files-from <file>');
     process.exit(2);
   }
-  // --reach: product paths run only the journeys main's touched-journeys map says reach them (this file's own map, the
-  // default branch's copy in the journeys workflow), judged against this checkout of the head.
+  // --reach: product paths run only the journeys main's touched-journeys map says reach them, judged against this
+  // checkout of the head. The map is the newest one main's map workflow built and verified before this run was created
+  // (journey-reach-map.mjs builtMap), or this file's own committed copy (the default branch's, in the journeys workflow)
+  // when that one is newer or the build can't be read.
+  const arg = (k) => (args.indexOf(k) >= 0 ? args[args.indexOf(k) + 1] : undefined);
+  const ids = namedJourneyIds({
+    title: arg('--title') ?? (args.includes('--reach') ? process.env.TITLE : ''),
+    branch: arg('--branch') ?? (args.includes('--reach') ? process.env.GITHUB_HEAD_REF : ''),
+  });
   let reach = null;
+  let map = null;
   if (args.includes('--reach')) {
-    const map = loadMap();
+    const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+    const built = await builtMap({
+      get: (path) => JSON.parse(ghApi(path.replace(/^\//, ''))),
+      raw: (path) => ghApi(path.replace(/^\//, ''), 'buffer'),
+      before: runCreated(),
+      repo,
+    });
+    map = newerMap(built, loadMap());
     reach = { map, behind: behindFromApi(map), journeyFiles: checkoutJourneyFiles(), subscribes: subscribesIn() };
   }
-  const t = journeyTouch(paths, atHead, reach);
+  const named = namedInputs({ ids, journeyFiles: checkoutJourneyFiles(), map: map ?? loadMap() });
+  const t = journeyTouch(paths, atHead, named ? null : reach, named);
+  if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
   if (t.mode === 'full') {
     console.log('full: this change needs a clean full Real-app journeys run on its exact head (no journeys input), because of:');
@@ -223,8 +344,9 @@ function main() {
     if (t.full.length > 20) console.log(`  … ${t.full.length - 20} more`);
   } else if (t.mode === 'files') {
     for (const l of t.reach ?? []) console.log(`  reach: ${l}`);
+    if (t.named) console.log(`  named: ${t.named}`);
     console.log(`files: gh workflow run real-app-journeys.yml -R INTAFACED/intafaced --ref <branch> -f journeys="${t.files.join(' ')}"`);
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();

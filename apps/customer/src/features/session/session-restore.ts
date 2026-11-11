@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createApiClient, type ApiResult } from '../../shared/api';
+import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -281,6 +282,13 @@ function refusedByIdentity(result: ApiResult<unknown>): boolean {
 /** Refresh this long before the access token expires. */
 const REFRESH_LEAD_MS = 30_000;
 const MAX_TIMER_MS = 2_147_483_647;
+/**
+ * The least time between two silent refreshes. A device whose clock runs ahead of the server's sees every fresh token as
+ * already due, and without this floor would refresh again at once, without end, until identity rate-limits the person
+ * and every read fails "Too many requests" (J-bank-16 #1, run 42191788272). The server judges a token by its own clock,
+ * so a token refreshed a minute ago is still good there.
+ */
+const MIN_REFRESH_GAP_MS = 60_000;
 
 /**
  * The sign-in, held in memory only: the access token lives in this closure and nowhere else (no storage, no cookie the
@@ -321,6 +329,8 @@ export function createSessionController(
     tell({ type: 'used', at });
   }
   let failures = 0;
+  /** When the last silent refresh was asked for, by this tab's clock: the next one waits at least MIN_REFRESH_GAP_MS. */
+  let lastSilentAt = Number.NEGATIVE_INFINITY;
   let boot: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let channel: ChannelLike | null = null;
@@ -356,11 +366,13 @@ export function createSessionController(
       signOut(null);
       return;
     }
-    const delay = retryDelay ?? Math.max(0, Math.min(MAX_TIMER_MS, deadline - now() - REFRESH_LEAD_MS));
+    const due = Math.max(0, Math.min(MAX_TIMER_MS, deadline - now() - REFRESH_LEAD_MS));
+    const delay = retryDelay ?? Math.max(due, lastSilentAt + MIN_REFRESH_GAP_MS - now());
     timer = setTimeout(() => void silent(session), delay);
   }
   async function silent(forSession: Session) {
     timer = undefined;
+    lastSilentAt = now();
     const started = epoch;
     const outcome = await refresher.refresh({ unused });
     if (outcome.kind === 'session') refreshedAt = now();
@@ -499,6 +511,8 @@ export function createSessionController(
     epoch += 1;
     failures = 0;
     disarm();
+    // A trading session's key on this device ends with the sign-out (J-wallet-22 #8): nothing here signs with it again.
+    forgetDeviceSessionKeys();
     set({ session: null, restoring: false, restoreFailed: false, notice });
   }
   function clear() {

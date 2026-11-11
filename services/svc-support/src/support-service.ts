@@ -1029,6 +1029,11 @@ export class SupportService implements SupportContract {
 
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       const result = await this.orders.read(input.orderId);
+      // No such order, and an order whose fees are in more than one asset (no one fee figure), read as unknown: nothing cancelled.
+      if (result.kind === 'missing' || result.kind === 'fee_mixed') {
+        span.setAttribute('intafaced.support.order_read', 'unknown');
+        return { outcome: 'unknown', orderId: input.orderId, reason: 'trade_silent', cancelled: false };
+      }
       if (result.kind === 'unknown') {
         span.setAttribute('intafaced.support.order_read', 'unknown');
         return { outcome: 'unknown', orderId: input.orderId, reason: result.reason, cancelled: false };
@@ -1341,6 +1346,13 @@ export class SupportService implements SupportContract {
     return toPublicKb(result.article);
   }
 
+  /** The requests linked to a `recovery_required` order (J-support-public-20 #1); none until links are wired. */
+  private recoveryLinks: () => Promise<ReadonlySet<string>> = async () => new Set();
+  /** Wires the queue to the ticket links, so a request with a recovery-required order ranks first. */
+  useRecoveryLinks(read: () => Promise<ReadonlySet<string>>): void {
+    this.recoveryLinks = read;
+  }
+
   /** Stage-2 — prioritised open/pending queue for operators. No money. */
   async listOperatorQueue(
     options: { limit?: number; viewerId?: string; label?: string; filter?: unknown; sort?: unknown; q?: string } = {},
@@ -1353,7 +1365,8 @@ export class SupportService implements SupportContract {
         const carrying = await this.properties.ticketsWithLabel(options.label);
         tickets = tickets.filter((t) => carrying.has(t.id));
       }
-      if (!this.deskQueryAsked(options)) return buildOperatorQueue(tickets, { limit });
+      const recovery = await this.recoveryLinks();
+      if (!this.deskQueryAsked(options)) return buildOperatorQueue(tickets, { limit, now: this.now(), recovery });
       const facts = await this.narrow(await this.deskFacts(options.viewerId), { ...options, label: undefined });
       const allowed = new Set(tickets.map((ticket) => ticket.id));
       const visible = facts.filter((fact) => allowed.has(fact.ticket.id));
@@ -1363,6 +1376,7 @@ export class SupportService implements SupportContract {
         const ranked = rankOperatorQueue(
           visible.map((fact) => fact.ticket),
           this.now(),
+          recovery,
         );
         const byId = new Map(visible.map((fact) => [fact.ticket.id, fact]));
         const ordered = orderFacts(
@@ -1377,7 +1391,7 @@ export class SupportService implements SupportContract {
       }
       return buildOperatorQueue(
         visible.map((fact) => fact.ticket),
-        { limit, now: this.now() },
+        { limit, now: this.now(), recovery },
       );
     });
   }
@@ -1386,7 +1400,7 @@ export class SupportService implements SupportContract {
   async peekNext(viewerId?: string): Promise<QueueEntry | null> {
     return withSupportSpan('support.peekNext', { op: 'peekNext' }, async () => {
       const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
-      return assignNext(tickets);
+      return assignNext(tickets, { recovery: await this.recoveryLinks() });
     });
   }
 
@@ -1422,9 +1436,10 @@ export class SupportService implements SupportContract {
   async claimNext(operatorId: string): Promise<SupportTicket> {
     return withSupportSpan('support.claimNext', { op: 'claimNext' }, async (span) => {
       const skipped = new Set<string>();
+      const recovery = await this.recoveryLinks();
       for (;;) {
         const tickets = await this.visibleTickets(operatorId, await this.store.listAll());
-        const next = assignNext(tickets, { now: this.now(), excludeTicketIds: skipped });
+        const next = assignNext(tickets, { now: this.now(), excludeTicketIds: skipped, recovery });
         if (next === null) throw new SupportError('the queue has no request to claim', 'support.claim.queue_empty');
         const result = await this.store.claimTicket({ ticketId: next.ticketId, operatorId });
         if (result.status === 'ok') {

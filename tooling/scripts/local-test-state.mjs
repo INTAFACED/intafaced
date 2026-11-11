@@ -14,18 +14,64 @@ export function localPgOsUser(env = process.env, uid = process.getuid?.()) {
   return uid === 0 ? env.LOCAL_STACK_PG_USER || 'postgres' : null;
 }
 
-/**
- * One state root for the stack and every helper. Never silently fall back after a typo. As root, set it outside root's
- * home (for example /var/lib/intafaced/local-test-stack): the database's OS user (localPgOsUser) cannot enter /root.
- */
-export function localStackState(home = os.homedir(), env = process.env) {
-  if (env.LOCAL_STACK_STATE === undefined) return path.join(home, '.intafaced', 'local-test-stack');
-  const state = env.LOCAL_STACK_STATE;
-  if (!state.trim() || !path.isAbsolute(state)) throw new Error('LOCAL_STACK_STATE must be an absolute folder path');
-  return path.resolve(state);
-}
+// The state folder rule lives in local-test-facts.mjs, so the journeys read it without this script.
+import { localStackState } from './local-test-facts.mjs';
+
+export { localStackState };
 
 const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
+
+/**
+ * The custody switch (OWNER 226, OWNER 288) the stack's running svc-ledger was started with: `on` or `off`. The stack
+ * records `LEDGER_CUSTODY_LAYER` on each process it starts with one (run/processes.json, local-test-stack.mjs
+ * startProc), so the TEST tools follow the ledger that is running, not the environment they happen to be called in.
+ * A ledger record without one was started before the switch was recorded, when every TEST stack ran it on.
+ * With it off INTAFACED's ledger holds no customer money: the TEST rig never posts to a person's account then
+ * (docs/LOCAL-TEST-STACK.md, "Custody off"). Throws when the stack has no ledger record.
+ */
+export function stackCustodyLayer(stateDir = localStackState()) {
+  let records;
+  try {
+    records = JSON.parse(fs.readFileSync(path.join(stateDir, 'run', 'processes.json'), 'utf8'));
+  } catch {
+    throw new Error(`refusing: no process records in ${stateDir}; start the stack first (pnpm local:stack)`);
+  }
+  if (!records?.ledger) throw new Error('refusing: the stack has no svc-ledger record; start the stack first (pnpm local:stack)');
+  return custodyLayerOf(records);
+}
+
+/**
+ * Whether the stack's running svc-ledger runs custody off. False when the stack has no process records yet: each tool's
+ * own checks then refuse, naming what is missing, as before. A recorded value that is neither on nor off still throws.
+ */
+export function stackCustodyOff(stateDir = localStackState()) {
+  if (!fs.existsSync(path.join(stateDir, 'run', 'processes.json'))) return false;
+  let records;
+  try {
+    records = JSON.parse(fs.readFileSync(path.join(stateDir, 'run', 'processes.json'), 'utf8'));
+  } catch {
+    return false;
+  }
+  return custodyLayerOf(records) === 'off';
+}
+
+/** stackCustodyLayer's reading of the process records alone (pure): svc-ledger's recorded switch, `on` when unrecorded. */
+export function custodyLayerOf(records) {
+  const value = records?.ledger?.custodyLayer ?? 'on';
+  if (value !== 'on' && value !== 'off') throw new Error(`refusing: svc-ledger's recorded custody switch is "${value}", not on or off`);
+  return value;
+}
+
+/** The typed refusal the TEST tools give for a person's money on a custody-off stack (`local:fund`, the seed, the world). */
+export const CUSTODY_OFF_CODE = 'local_test.custody_layer_off';
+export function custodyOffRefusal(what) {
+  return (
+    `${CUSTODY_OFF_CODE}: ${what} refused. This stack runs LEDGER_CUSTODY_LAYER off, as the launch build will, so ` +
+    "INTAFACED's ledger holds no customer money (OWNER 226, OWNER 288). A TEST person's money " +
+    'is where launch keeps it: at the TEST partner (testPartner.fund) or on their own TEST venue account. ' +
+    'Nothing was posted. Start the stack with LOCAL_STACK_CUSTODY_LAYER=on for the journeys marked Later: custody.'
+  );
+}
 
 /**
  * The kernel's own birth mark for a process on Linux: field 22 of /proc/<pid>/stat, clock ticks since boot. It never

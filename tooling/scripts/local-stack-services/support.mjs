@@ -22,6 +22,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     ...c('svc-support', PORTS.support),
     DATABASE_URL: supportCatalogueOff() ? onEmptyCatalogueDb(dbUrl('svc_support', secrets)) : dbUrl('svc_support', secrets),
     IDENTITY_URL: urlOf('identity'),
+    // A scam report names a transfer; svc-bank answers on its signed door whether this person sent it (J-bank-18 #3).
+    BANK_URL: urlOf('bank'),
+    // A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay
+    // whose a withdrawal or deposit is.
+    TRADE_URL: urlOf('trade'),
+    PAY_URL: urlOf('pay'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/support.json: how many comments a
     // requester may add to one request. Production stays blank and every requester comment refuses
     // (support.comment_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_COMMENT_CAP=off` on a start or restart
@@ -33,8 +39,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     // every batch refuses (support.bulk_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_BULK_CAP=off` on a start
     // or restart leaves it blank, so that refusal can be seen in the running app too (J-support-public-11 #7).
     ...(process.env.LOCAL_STACK_SUPPORT_BULK_CAP === 'off' ? {} : { SUPPORT_BULK_CAP: '25' }),
-    SUPPORT_VIEW_PERSONAL_CAP: '20',
-    SUPPORT_VIEW_SHARED_CAP: '20',
+    // `LOCAL_STACK_SUPPORT_VIEW_CAP=off` on a start or restart leaves both saved-view caps blank, so that refusal can be
+    // seen in the running app too (J-support-public-10 #2).
+    ...(process.env.LOCAL_STACK_SUPPORT_VIEW_CAP === 'off' ? {} : { SUPPORT_VIEW_PERSONAL_CAP: '20', SUPPORT_VIEW_SHARED_CAP: '20' }),
     // LOCAL TEST only, labelled in the same file: how many help-answer votes one account or browser may cast per window.
     // Production stays blank and every vote refuses (support.feedback_rate_limit_unset) until the owner sets both.
     SUPPORT_FEEDBACK_RATE_LIMIT: '5',
@@ -59,6 +66,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     // LOCAL TEST only, labelled in the same file: a complaint's final-response limit in calendar days (J-bank-18 #5).
     // Production stays blank: complaints are still acknowledged and every deadline reads "not set" until the owner sets it.
     SUPPORT_COMPLAINT_RESPONSE_DAYS: '14',
+    // LOCAL TEST only, labelled in the same file: a TEST money-mule policy (J-bank-18 #3). Production stays blank and the
+    // policy page says the owner has not published it. `LOCAL_STACK_SUPPORT_MULE_POLICY=off` on a restart leaves it blank.
+    ...(process.env.LOCAL_STACK_SUPPORT_MULE_POLICY === 'off'
+      ? {}
+      : { SUPPORT_MULE_POLICY: loadProfile().values.SUPPORT_MULE_POLICY.value }),
     // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
     // journey whose agent sees or works a request puts it in the agent's group first (J-support-public-10 #2, #3, #4, #8, #10).
     SUPPORT_ALL_GROUPS_ROLES: 'lead',

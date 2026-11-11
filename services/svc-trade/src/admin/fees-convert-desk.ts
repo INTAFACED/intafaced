@@ -6,6 +6,7 @@
  *   convertSettings Convert's state and its owner values: spread, quote hold time, the per-asset maximum and the desk-price
  *                   size ranges; a blank value is null, never a default (#7)
  *   convertQuotes   the convert quotes customers were given on one side, newest first, with their exact amounts (#8)
+ *   venueSellQuotes the sell quotes the venue priced on customers' own venue accounts, newest first, exactly as given (#8)
  *
  * Amounts leave as decimal strings from `formatAmount`, the same strings the customer's own reads give.
  */
@@ -16,6 +17,7 @@ import type { ConvertPairs } from '../convert/pairs.js';
 import { describeOtcConvertBounds, type OtcConvertBounds, type OtcConvertFlow } from '../otc/otc-convert-bounds.js';
 import { requireConvertQuoteTtlMs, requireConvertSpreadBps } from '../convert/quote.js';
 import { REGULAR_FEE_TIER } from '../spot/fee-schedule.js';
+import { presentVenueSellQuote, SqlVenueSellQuoteStore } from '../venue/venue-sell-quotes.js';
 import { requireOperator, TradeOpsError } from './common.js';
 
 /** At most this many rows in one read: the room shows recent history, not an export. */
@@ -161,6 +163,12 @@ export class FeesConvertDesk {
       quoteTtlRefusal: ttl.refusal,
       deskBounds: describeOtcConvertBounds(convert.deskBounds),
     };
+  }
+
+  /** The venue's sell prices customers were given on their own venue accounts, newest first (J-cex-spot-17 #8). */
+  async venueSellQuotes(principal: Principal, limit: number): Promise<Array<ReturnType<typeof presentVenueSellQuote>>> {
+    requireOperator(principal);
+    return (await new SqlVenueSellQuoteStore(this.deps.sql).latest(limitOf(limit))).map(presentVenueSellQuote);
   }
 
   async convertQuotes(principal: Principal, input: { side: 'buy' | 'sell'; limit: number }): Promise<ConvertQuoteRow[]> {

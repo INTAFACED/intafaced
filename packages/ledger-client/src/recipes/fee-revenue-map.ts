@@ -60,6 +60,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'trade',
     note: 'A maker rebate leaves houseFees(trade) in the asset the maker paid, below the same fill taker fee. The trade.fill stays.',
   },
+  'trade.venue.builder_fee_earned': {
+    kind: 'recipe',
+    recipe: 'builderFeeEarn',
+    feeModule: 'builder',
+    note: 'Our builder fee on a routed venue fill → houseFees(builder), against what the venue owes us. OWNER 226 and 237: the ledger posts only our builder fee per venue (D-venue-07).',
+  },
   'trade.spot.mm_maker_fill_fee': {
     kind: 'recipe',
     recipe: 'marketMakerMakerFill',
@@ -110,6 +116,12 @@ export const FEE_REVENUE_PATHS = {
     recipe: 'sweepFeesToRewards',
     feeModule: 'trade',
     note: 'Copy fee-share mechanism drains houseFees → rewardsEngine; rates refuse until §8.10.',
+  },
+  'trade.fee_share.budget_funded': {
+    kind: 'recipe',
+    recipe: 'feeShareBudgetFund',
+    feeModule: 'builder',
+    note: "Collected builder-fee revenue set aside for one venue's fee shares, keyed on the venue's claim; owed and paid from there, own accounts only (launch money model, OWNER 288).",
   },
   'trade.copy.fee_share_pay': {
     kind: 'recipe',
@@ -263,6 +275,8 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFill',
   'tradeFillFeeCorrection',
   'tradeFillMakerRebate',
+  'builderFeeEarn',
+  'feeShareBudgetFund',
   'marketMakerMakerFill',
   'futuresInsuranceTopup',
   'futuresMarginRelease',

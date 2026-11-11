@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { OpsCapitalSnapshot } from '@intafaced/contracts/ops-capital';
+import { formatWhen } from '@/lib/as-of';
 import { CapitalMonitor, ScenarioResult } from './monitor';
 import { thresholdProblem } from './threshold-form';
 
@@ -17,13 +18,38 @@ const base: OpsCapitalSnapshot = {
       { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available', purpose: '', balance: '0.5' },
     ],
   },
+  places: {
+    status: 'read',
+    asOf: AT,
+    places: [
+      {
+        kind: 'partner_reserve',
+        placeId: 'card',
+        assetId: 'USDC',
+        held: '24999.5',
+        outside: { status: 'read', source: 'TEST partner card (TEST)', amount: '25000', asOf: AT },
+      },
+      {
+        kind: 'treasury_wallet',
+        placeId: 'base:ops',
+        assetId: 'USDC',
+        held: '9',
+        outside: { status: 'not_connected', message: 'No chain reader reports INTAFACED’s treasury wallets to this console yet.' },
+      },
+    ],
+  },
   venues: { status: 'not_connected', code: 'ops.capital.venue_not_connected', message: 'No venue adapter reports it yet.' },
   reserves: {
     status: 'read',
     asOf: AT,
     partners: [
       { partner: 'bank', label: 'TEST partner bank', test: true, reserve: { status: 'not_known' } },
-      { partner: 'card', label: 'TEST partner card', test: true, reserve: { status: 'reported', assetId: 'USDC', amount: '25000' } },
+      {
+        partner: 'card',
+        label: 'TEST partner card',
+        test: true,
+        reserve: { status: 'reported', assetId: 'USDC', amount: '25000', asOf: AT },
+      },
     ],
   },
   buffers: [
@@ -39,12 +65,30 @@ describe('CapitalMonitor (J-ops-console-24 #1)', () => {
     expect(html).toContain('Ledger: 2 accounts');
     expect(html).toContain('house fees:trade');
     expect(html).toContain('data-status="not_known">not known<');
-    expect(html).toContain('25000 USDC, as the partner reports');
+    expect(html).toContain(`25000 USDC, as the partner reports, as of ${formatWhen(AT)}`);
     expect(html).toContain('svc-bank, the partner bank adapter');
     expect(html).toContain('data-not-connected="ops.capital.venue_not_connected"');
     expect(html).toContain('<strong>Not monitored</strong>');
     expect(html).toContain('<code>ops.capital.threshold_unset</code> No minimum buffer is set for this asset, so it is not monitored.');
     expect(html).not.toContain('At or above the minimum');
+  });
+
+  it('shows each place our book names beside the outside figure it is checked against and that figure’s time (OWNER 288)', () => {
+    const html = renderToStaticMarkup(<CapitalMonitor snapshot={base} />);
+    expect(html).toContain('Our own funds at each place');
+    expect(html).toContain('data-testid="place-partner_reserve-card-USDC" data-outside="read"');
+    expect(html).toContain('<td data-col="held">24999.5</td>');
+    expect(html).toContain('<td data-col="outside">25000, TEST partner card (TEST)</td>');
+    expect(html).toContain(`<td>${formatWhen(AT)}</td>`);
+    expect(html).toContain('data-testid="place-treasury_wallet-base:ops-USDC" data-outside="not_connected"');
+    expect(html).toContain('not connected: No chain reader reports INTAFACED’s treasury wallets to this console yet.');
+    const unread = renderToStaticMarkup(
+      <CapitalMonitor
+        snapshot={{ ...base, places: { status: 'unknown', code: 'ops.capital.source_unavailable', message: 'svc-ledger: down' } }}
+      />,
+    );
+    expect(unread).toContain('Our own funds at each place: unknown');
+    expect(unread).not.toContain('data-col="held"');
   });
 
   it('shows a venue’s balance with its as-of time beside its minimum, or not published', () => {

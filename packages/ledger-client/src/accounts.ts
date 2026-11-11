@@ -376,3 +376,61 @@ export function bridgeBoundary(chain: string, assetId: string): AccountRef {
 export function venueBoundary(venue: string, assetId: string): AccountRef {
   return { ownerType: 'treasury', ownerId: `venue:${venue}`, assetId, kind: 'available' };
 }
+
+/**
+ * What a venue owes us in builder fees (D-venue-07; CUSTODY-DELTA.md §3 item 1): a boundary, because the money is at the
+ * venue, not in the book. `builderFeeEarn` takes it below zero by each fee the venue charged on our users' fills;
+ * `builderFeeReceive` brings it back up when the venue pays them out. Its negative balance is exactly what that venue
+ * still owes, the number J-derivatives-17's recon shows as owed.
+ */
+export function venueBuilderFeeReceivable(venueId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `venue-builder-fee:${venueId}`, assetId, kind: 'available' };
+}
+
+/**
+ * Our own builder account at a venue (D-venue-07): builder fees the venue has paid out to us, still held there. A
+ * boundary like `venueBoundary`: its negative balance is our own money at that venue. Never a customer's.
+ */
+export function venueBuilderAccount(venueId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `venue-builder-account:${venueId}`, assetId, kind: 'available' };
+}
+
+/**
+ * OUR FUNDS AT AN OUTSIDE PLACE (launch money model, rule 1; project-state OWNER.md item 288). INTAFACED's own money that
+ * sits somewhere we do not run the book of: our builder account at a venue (`venueBuilderAccount`), our reserve at a
+ * partner, our treasury wallet on a chain. One named account per place. Each is a boundary, like `venueBuilderAccount`: its
+ * negative balance is exactly our own money there, so "how much of ours is at that partner" is a query. Never a customer's.
+ *
+ * A place can never show less than nothing of ours: its balance may not go above zero (`balanceAllowed`). Moving more out of
+ * a place than the book shows there is refused like any overdraft, with `ledger.insufficient_funds`.
+ */
+export function partnerReserve(partnerId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `partner-reserve:${partnerId}`, assetId, kind: 'available' };
+}
+
+/** Our own treasury wallet on a chain (see `partnerReserve`). `walletId` names the wallet, e.g. `base:ops`. */
+export function treasuryWallet(walletId: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `treasury-wallet:${walletId}`, assetId, kind: 'available' };
+}
+
+/** The `ownerId` prefixes of every own-funds place. A place is a `treasury` account whose `ownerId` starts with one. */
+export const OWN_FUNDS_PLACE_PREFIXES = ['venue-builder-account:', 'partner-reserve:', 'treasury-wallet:'] as const;
+
+/** True for an account that is one of our own-funds places. */
+export function isOwnFundsPlace(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>): boolean {
+  return ref.ownerType === 'treasury' && OWN_FUNDS_PLACE_PREFIXES.some((p) => ref.ownerId.startsWith(p));
+}
+
+/**
+ * The balance rule every ledger applies to each entry: an account may not go below zero, except a `treasury` boundary; and
+ * an own-funds place, whose negative balance is our money there, may not go above zero.
+ */
+export function balanceAllowed(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>, next: bigint): boolean {
+  if (isOwnFundsPlace(ref)) return next <= 0n;
+  return next >= 0n || ref.ownerType === 'treasury';
+}
+
+/** What an account holds, as an overdraft names it: an own-funds place holds the negative of its balance. */
+export function heldForRefusal(ref: Pick<AccountRef, 'ownerType' | 'ownerId'>, balance: bigint): bigint {
+  return isOwnFundsPlace(ref) ? -balance : balance;
+}
