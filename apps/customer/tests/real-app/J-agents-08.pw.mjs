@@ -137,7 +137,7 @@ test(`${J} #1 writes an allow and a deny rule for one action at different scopes
     for (const [effect, scope] of order) await add(effect, scope);
     await expect(access(page).getByTestId('effective-place-order')).toHaveText('Refused: a deny rule wins');
     // The service's own gate refuses it, not only the page's words: the check every agent action is to pass first.
-    expect(await policyCheck(id, 'place_order')).toEqual({ status: 403, code: 'agents.policy_denied' });
+    expect(await policyCheck(id, 'place_order')).toEqual({ status: 403, code: 'agents.policy_denied', outcome: null });
   }
   // The decision is stored, not the page's: a fresh load reads the same.
   await page.reload();
@@ -147,7 +147,7 @@ test(`${J} #1 writes an allow and a deny rule for one action at different scopes
   await expect(access(page).getByTestId('effective-cancel-order')).toHaveText('No rule: the agent’s other limits decide');
   await access(page).getByRole('checkbox', { name: 'Only allow what a rule allows' }).check();
   await expect(access(page).getByTestId('effective-cancel-order')).toHaveText('Refused: no rule allows it');
-  expect(await policyCheck(id, 'cancel_order')).toEqual({ status: 403, code: 'agents.policy_no_match' });
+  expect(await policyCheck(id, 'cancel_order')).toEqual({ status: 403, code: 'agents.policy_no_match', outcome: null });
 });
 
 test(`${J} #2 gives the agent access to sub-account A only: a tool naming sub-account B is refused; access has an expiry and a blank expiry refuses`, async ({
