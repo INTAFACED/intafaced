@@ -20,6 +20,7 @@ assignees: ''
 
 <!-- Be honest here — it changes the priority completely. -->
 
+- [ ] Touches money (ledger, orders, payments, escrow) — **drop everything**
 - [ ] Blocks `main`
 - [ ] Blocks a teammate
 - [ ] Cosmetic / can wait

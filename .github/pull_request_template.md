@@ -24,3 +24,12 @@ Rules: AGENTS.md.
 ## Risk
 
 <!-- What could break, for whom, and how you would notice. "None" only for docs. -->
+
+## Money paths
+
+<!-- Delete this section if the PR moves no value. -->
+
+- [ ] Value moves only through `packages/ledger-client` recipes, each with an invariant test
+- [ ] Failure branches tested: insufficient funds, retry, partial, cancel
+- [ ] Idempotency keys are business keys, not `randomUUID()`
+- [ ] Answered: _if this crashes exactly here, whose funds are stranded?_
