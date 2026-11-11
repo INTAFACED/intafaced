@@ -4,9 +4,15 @@ import { moreCopy } from './copy';
 import { doorLabel, roomTitle } from '../../app/navigation';
 import { usePreferences } from '../../shared/preferences';
 import { allServices, sectionId, visibleSections, type ServiceGroupId } from './tiles';
+import { ROOM_BLOCKERS, useRoomStates, type RoomState } from './room-state';
 
 /** More (UI-SPEC 5.11): the pages that don't have a tab of their own, as tiles. Only a hidden route is left out. */
 export default function MoreScreen(_props: ScreenProps) {
+  return <MoreHub states={useRoomStates()} />;
+}
+
+/** The hub itself, given each More room tile's state (`useRoomStates`). */
+export function MoreHub({ states }: { states: Record<string, RoomState> }) {
   const { t } = moreCopy.useCopy();
   const { language } = usePreferences();
   const groupLabel = (id: ServiceGroupId) => (id === 'Account' || id === 'Web3' || id === 'Information' ? t(id) : doorLabel(id, language));
@@ -34,6 +40,17 @@ export default function MoreScreen(_props: ScreenProps) {
                     <span data-testid="more-tile__line" className="more-tile__line">
                       {t(line)}
                     </span>
+                    {states[id] && (
+                      <span className="more-tile__state" data-state={states[id]} data-blocker={ROOM_BLOCKERS[id]}>
+                        {t(`Room ${states[id]}`)}
+                        {ROOM_BLOCKERS[id] && (
+                          <>
+                            {' · '}
+                            {t('Room waits on owner decision')} <code lang="zxx">{ROOM_BLOCKERS[id]}</code>
+                          </>
+                        )}
+                      </span>
+                    )}
                   </span>
                 </a>
               </li>
