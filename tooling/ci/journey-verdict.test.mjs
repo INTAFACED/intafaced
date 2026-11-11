@@ -23,6 +23,9 @@ import {
   assertFullHistory,
   excusedSetAside,
   runIsOnMain,
+  ranNoTest,
+  reportMissing,
+  TEST_STEP,
 } from './journey-verdict.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -245,6 +248,59 @@ test("history: only main's own finished runs between the named run and this one"
     historyRuns(runs, { repo, namedCreated: r(1, 1).created_at, thisCreated: r(7, 7).created_at, thisId: 7 }).map((x) => x.run_number),
     [2, 6],
   );
+});
+
+// A run on main with no report holds no pass only when its own jobs show no shard reached its tests (#8006, #8007).
+const shardJob = (n, test, extra = {}) => ({
+  name: `Journeys (shard ${n} of 32)`,
+  status: 'completed',
+  conclusion: 'failure',
+  steps: [
+    { name: 'Install the browser', status: 'completed', conclusion: 'failure' },
+    ...(test ? [{ name: TEST_STEP, status: 'completed', conclusion: test }] : []),
+  ],
+  ...extra,
+});
+test('a run whose shards all stopped before their tests, in every attempt, holds no pass', () => {
+  const build = {
+    name: 'build',
+    status: 'completed',
+    conclusion: 'success',
+    steps: [{ name: 'Install', status: 'completed', conclusion: 'success' }],
+  };
+  assert.equal(ranNoTest([build, shardJob(1, 'skipped'), shardJob(2, 'skipped'), shardJob(1, 'skipped')]), true);
+  // A shard that never started (cancelled with the run) ran no test either.
+  assert.equal(
+    ranNoTest([shardJob(1, 'skipped'), { name: 'Journeys (shard 2 of 32)', status: 'completed', conclusion: 'cancelled', steps: [] }]),
+    true,
+  );
+});
+test("a run where any shard reached its tests, or that can't show it, may hold a pass", () => {
+  // One shard in one attempt ran its tests (failed or passed): a pass there can't be ruled out.
+  assert.equal(ranNoTest([shardJob(1, 'skipped'), shardJob(2, 'failure')]), false);
+  assert.equal(ranNoTest([shardJob(1, 'skipped'), shardJob(1, 'success')]), false);
+  // Started and not finished, or cut off mid-step.
+  assert.equal(
+    ranNoTest([
+      shardJob(1, 'skipped'),
+      { ...shardJob(2, 'skipped'), steps: [{ name: TEST_STEP, status: 'in_progress', conclusion: null }] },
+    ]),
+    false,
+  );
+  assert.equal(ranNoTest([shardJob(1, 'cancelled')]), false);
+  // A step list that doesn't name the test step (it was renamed), a job still running with no steps, or no shard at all.
+  assert.equal(ranNoTest([shardJob(1, null)]), false);
+  assert.equal(ranNoTest([{ name: 'Journeys (shard 1 of 32)', status: 'in_progress', conclusion: null, steps: [] }]), false);
+  assert.equal(ranNoTest([{ name: 'build', status: 'completed', conclusion: 'failure', steps: [] }]), false);
+  assert.equal(ranNoTest([]), false);
+  assert.equal(ranNoTest(undefined), false);
+});
+test('only a report that is not there counts as missing, never one that could not be fetched', () => {
+  assert.equal(reportMissing(new Error("run 43037279979's real-app-journeys artifact has no report.json")), true);
+  assert.equal(reportMissing(Object.assign(new Error('Command failed'), { stderr: 'no valid artifacts found to download' })), true);
+  assert.equal(reportMissing(Object.assign(new Error('Command failed'), { stderr: 'HTTP 502: Server Error' })), false);
+  assert.equal(reportMissing(Object.assign(new Error('Command failed'), { stderr: 'HTTP 403: rate limit exceeded' })), false);
+  assert.equal(reportMissing(new SyntaxError('Unexpected token } in JSON')), false);
 });
 
 // The set-aside (OWNER 225, 227): a step that failed, then passed on its retry, on main, is set aside by the machine for

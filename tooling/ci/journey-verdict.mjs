@@ -498,6 +498,29 @@ export function historyRuns(runs, { repo, namedCreated, thisCreated, thisId }) {
     .sort((a, b) => a.run_number - b.run_number);
 }
 
+/** The shard job's name and the one step in it that runs the journeys (real-app-journeys.yml). */
+export const SHARD_JOB = /^Journeys \(shard \d+ of \d+\)$/;
+export const TEST_STEP = 'Journeys in the running app (this shard)';
+/**
+ * Whether a run on main with no report can hold no pass: `jobs` is every job of every attempt of the run (the jobs API
+ * with filter=all). True only when the run has shard jobs and none of them reached its test step: each either never
+ * started (no steps, ended skipped or cancelled) or shows the test step skipped because an earlier step failed (an
+ * outside host down while installing the browser, #8006). A shard whose test step started, a step list that doesn't
+ * name the test step, or no shard job at all is false: a pass there can't be ruled out, and the history stays unreadable.
+ */
+export function ranNoTest(jobs) {
+  const shards = (jobs ?? []).filter((j) => SHARD_JOB.test(j?.name ?? ''));
+  if (!shards.length) return false;
+  return shards.every((j) => {
+    const steps = j.steps ?? [];
+    if (!steps.length) return j.status === 'completed' && ['skipped', 'cancelled'].includes(j.conclusion);
+    const t = steps.find((s) => s.name === TEST_STEP);
+    return Boolean(t) && t.status === 'completed' && t.conclusion === 'skipped';
+  });
+}
+/** A report that is not there (no artifact, or an artifact without report.json), as opposed to one that couldn't be read. */
+export const reportMissing = (e) => missingArtifact(e?.stderr) || /artifact has no report\.json/.test(String(e?.message ?? ''));
+
 // ── CLI ────────────────────────────────────────────────────────────────────
 const arg = (name) => {
   const i = process.argv.indexOf(name);
@@ -505,12 +528,15 @@ const arg = (name) => {
 };
 const json = (f) => JSON.parse(readFileSync(f, 'utf8'));
 /** GET only. A refusal (403, 429) is thrown, never retried: the verdict is then red. */
-const ghApi = (path) =>
-  JSON.parse(execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', path], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }));
-const ghPages = (path, key) => {
+/** `timeout` (ms) ends a call GitHub leaves hanging; the call then throws, which is red. */
+const ghApi = (path, { timeout } = {}) =>
+  JSON.parse(
+    execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', path], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20, timeout }),
+  );
+const ghPages = (path, key, opts) => {
   const out = [];
   for (let page = 1; page <= 20; page++) {
-    const body = ghApi(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
+    const body = ghApi(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`, opts);
     const items = key ? body[key] : body;
     out.push(...items);
     if (items.length < 100) return out;
@@ -644,7 +670,22 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       try {
         read.push([r.run_number, reportOf(r.id)]);
       } catch (e) {
-        throw new Error(`run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}), so a pass in it can't be ruled out`);
+        // A run with no report whose shards never reached their tests (every attempt) holds no pass: read from its own
+        // jobs, never assumed. Any other unreadable report, or jobs that can't be read, stays a problem.
+        let none = false;
+        let jobsSaid = '';
+        if (reportMissing(e)) {
+          try {
+            none = ranNoTest(ghPages(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=all`, 'jobs', { timeout: 90_000 }));
+          } catch (j) {
+            jobsSaid = `; its jobs couldn't be read either: ${j.message.split('\n')[0]}`;
+          }
+        }
+        if (!none)
+          throw new Error(
+            `run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}${jobsSaid}), so a pass in it can't be ruled out`,
+          );
+        log(`pass history: run ${r.run_number} (${r.id}) has no report and no shard reached its tests in any attempt, so it holds no pass`);
       }
     }
     log(`pass history: ${read.length} finished run(s) on main after run ${baseline.run.number}`);
