@@ -1,18 +1,10 @@
 /**
- * The trading checks (J-cex-spot-01 #3; OWNER 258 (4): "trading-only users get country and sanctions checks. The full ID
- * vendor comes with the bank."). A person gives their legal name and confirms the country they live in; the check
- * screens that name, the date of birth they gave at sign-up and the country against the owner's sanctions list
- * (`IDENTITY_SANCTIONS_PERSONS_LIST`, NO DEFAULT). No ID document, selfie or ID vendor is asked for.
- *
- *   - clear: a level-basic record for trading alone, approved by the check (`reviewed_by` 'trading-checks'), decided in
- *     one transaction with its case, the trading capability only, and this check's row.
- *   - hit: held. A pending record goes to compliance, nothing is granted, and the person reads a neutral "under review".
- *   - list blank: refuses `kyc.screening_list_unset` and writes nothing. A list is never invented.
- *
- * The business key is `kyc:trading-checks:<user id>`: a repeat answers the first outcome and never screens again, so a
- * held person cannot clear themselves by sending the check once more. The legal name and the date of birth are sealed
- * under the KYC document key; with the key unset every door refuses `kyc.trading_checks_unconfigured`. Personal fields
- * are never logged.
+ * The trading checks (J-cex-spot-01 #3; OWNER 258 (4)): legal name, sign-up date of birth and country screened against
+ * the owner's sanctions list (`IDENTITY_SANCTIONS_PERSONS_LIST`, NO DEFAULT). No ID document, selfie or vendor.
+ * Clear: a basic record for trading alone (`reviewed_by` 'trading-checks'), in one transaction. Hit: held for
+ * compliance, nothing granted. Blank list: refuses `kyc.screening_list_unset`, writes nothing.
+ * Business key `kyc:trading-checks:<user id>`: a repeat answers the first outcome, never screens again. Personal fields
+ * are sealed under the KYC document key (unset refuses `kyc.trading_checks_unconfigured`) and never logged.
  */
 import { checkAccess, type KycTier } from '@intafaced/config';
 import { transaction } from '@intafaced/db';

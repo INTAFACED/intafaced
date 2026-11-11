@@ -101,10 +101,7 @@ export function draftSignature(fields: TicketFields): string {
   return [fields.side, fields.type, fields.type === 'limit' ? tidy(fields.price) : '', tidy(fields.amount)].join('|');
 }
 
-/**
- * The order key held while the order is unchanged and has no definite answer, so a retry names the same venue order. A
- * market order's worst price is held with it; a changed side, type or amount mints a new key.
- */
+/** The order key (and a market order's worst price) held until the order changes or gets a definite answer. */
 export class HeldDraft {
   private held: { signature: string; key: string; worst: string | null } | null = null;
   private counter = 0;

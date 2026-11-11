@@ -13,8 +13,7 @@ export const TEST_VENUE = 'http://127.0.0.1:14560';
 export const VENUE_SPOT = 'BTC-USDC';
 export const VENUE_PERP = 'BTC-PERP';
 
-/** Trade restarted with LOCAL_STACK_USER_VENUE set to `value` (or unset): `restartWith` can only blank a switch that
- * is on by default, and this one is off by default. */
+/** Trade restarted with LOCAL_STACK_USER_VENUE set to `value`, or unset. */
 function restartTrade(value) {
   const before = process.env.LOCAL_STACK_USER_VENUE;
   if (value === null) delete process.env.LOCAL_STACK_USER_VENUE;
@@ -133,7 +132,7 @@ export async function testVenueId() {
   return (await res.json()).venue.id;
 }
 
-/** Another TEST trader, funded by the venue's TEST deposit control, sending its own signed orders straight to the venue. */
+/** Another TEST trader, sending its own signed orders straight to the venue. */
 export async function otherVenueTrader(funds) {
   const key = privateKeyToAccount(generatePrivateKey());
   const owner = key.address.toLowerCase();
@@ -175,7 +174,7 @@ export async function otherVenueTrader(funds) {
   };
 }
 
-/** The venue's own best bid and ask on `symbol` (venue-sim `seedTestVenue`'s TEST makers), never our engine's book. */
+/** The venue's own best bid and ask on `symbol`, never our engine's book. */
 export async function venueBook(symbol) {
   const venueId = await testVenueId();
   const makers = ['bid', 'ask'].map((name) =>

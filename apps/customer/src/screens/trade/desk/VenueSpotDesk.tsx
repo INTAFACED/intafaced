@@ -88,9 +88,8 @@ const KYC_REQUIRED = 'denied.kyc_required';
 export const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
 
 /**
- * The spot page in venue mode: reading while the markets load (never today's desk, which could take an order then);
- * today's desk when the venue lists no such spot pair; the Verify desk when the person is not verified; the venue's
- * notice when its markets can't be read; otherwise the venue desk.
+ * The spot page in venue mode: loading, today's desk for a pair the venue doesn't list, the Verify desk, the venue's
+ * notice when its markets can't be read, else the venue desk.
  */
 export function spotGateChoice(
   available: boolean,
@@ -323,7 +322,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   );
 }
 
-/** The person's venue account, the venue's figures only: its wallet, free and used balances as of the venue's time, Deposit and Withdraw. */
+/** The person's venue account, the venue's figures only. */
 function VenueAccountPanel({
   status,
   market,
@@ -450,10 +449,7 @@ type Live =
 /** How long the ticket waits after the last keystroke before it asks the venue for its preview. */
 const PREVIEW_DEBOUNCE_MS = 250;
 
-/**
- * One side's ticket: Price, Amount, the venue's preview as it is typed, Buy or Sell with its reason, and the Review
- * sheet. The order key is held while the order is unchanged, so a reopened review names the same venue order.
- */
+/** One side's ticket; its order key is held while the order is unchanged, so a reopened review names the same order. */
 function VenueSideForm({
   side,
   type,
@@ -723,10 +719,7 @@ function VerifyNote() {
   );
 }
 
-/**
- * The spot desk for a person not verified for trading: every control, no venue figure (fees Not known), the wallet's
- * Connect, Deposit and Withdraw off, and each order button off with the way to Verify. Nothing reads or sends to the venue.
- */
+/** The spot desk for a person not verified for trading: every control, no venue figure, each order button off with Verify. */
 export function VenueVerifyDesk({ status, symbol }: { status: VenueUp; symbol: string }) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
@@ -819,11 +812,7 @@ function VerifySideForm({ side, type, base, quote }: { side: VenueSide; type: Ve
 /** Places a typed figure keeps on the unverified desk, where the venue's own steps were not read. */
 const VERIFY_PLACES = 8;
 
-/**
- * The review's lines, all from the venue's preview: the lock, the venue's fee, our builder fee (none on a known zero, with
- * no approval asked), the fee role, time in force, a market order's worst price and the client id. A builder fee with no
- * approval says so.
- */
+/** The review's lines, all from the venue's preview (a builder fee with no approval says so). */
 export function VenueReviewRows({
   intent,
   preview,
@@ -904,10 +893,7 @@ export function VenueReviewRows({
   );
 }
 
-/**
- * Deposit: the person's own token transfer from their wallet to the venue's deposit address, signed in their wallet.
- * The venue credits it when it sees the transfer; INTAFACED moves nothing and the ledger posts nothing.
- */
+/** Deposit: the person's own wallet transfer to the venue's deposit address; the ledger posts nothing. */
 function DepositDialog({ route, test, onClose }: { route: DepositRoute | null; test: boolean; onClose: () => void }) {
   const { t } = spotVenueCopy.useCopy();
   const wallet = useWallet();
@@ -980,7 +966,7 @@ function DepositDialog({ route, test, onClose }: { route: DepositRoute | null; t
   );
 }
 
-/** Withdraw to the connected wallet: "Confirm it’s you" first (`trade.step_up.venue.withdraw`), then the door prepares and the wallet signs. */
+/** Withdraw to the connected wallet: the step-up first, then the wallet signs. */
 function WithdrawDialog({
   owner,
   asset,
