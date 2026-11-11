@@ -372,6 +372,10 @@ export const NOT_GATES = {
     "merge-seal step: for a gate-file or look-baseline change, needs the `CI review` job (ci-review.yml, a pull_request_target run of the default branch's copy) to have passed its `Verdict` step on the PR's exact head, read from the Actions API; a FAIL on that head stands, and no comment or status counts. Needs a GitHub token and a head sha, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` and `tooling/ci/ci-review.test.mjs` check the verdict reader and which changes need the review.",
   'ci-jobs-seal.mjs':
     'merge-seal step: CI’s jobs on the pull request’s exact head (ci.yml’s Affected tests, Doctrine gates, Format, Typecheck & build and every Tests shard), read through the Actions API, held to `sealNeeded` with the default branch classifying the changed files (`classify`). It runs in merge-seal.yml on pull_request_target, so the seal is the default branch’s whatever a pull request changes (R3 C3 piece 2). Needs a GitHub token and a head, so a laptop verify has no input; `ci-jobs-seal.test.mjs` holds its planted cases.',
+  'open-flaky.mjs':
+    'the one command an agent opens a flaky item with (`gh issue create --label`, so it never exists bare: RULING 7, project-state #2065). It writes a GitHub issue, so a laptop verify has no input; `open-flaky.test.mjs` holds its cases.',
+  'open-flaky.test.mjs':
+    'node:test cases for open-flaky.mjs (which label each kind of flaky item opens with, and what it refuses); run by the tooling-tests gate, which runs every *.test.mjs under tooling/.',
   'ci-jobs-seal.test.mjs':
     'not a gate: the node:test file of ci-jobs-seal.mjs, its planted cases (a red or missing job, a test job the change needs but the pull request’s own ci.yml skipped, one red shard, unreadable files, a run still going, another workflow’s run never deciding). tooling-tests.mjs runs it with every other tooling test.',
   'journey-seal.mjs':
