@@ -117,6 +117,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'trade',
     note: 'Copy fee-share mechanism drains houseFees → rewardsEngine; rates refuse until §8.10.',
   },
+  'trade.fee_share.budget_funded': {
+    kind: 'recipe',
+    recipe: 'feeShareBudgetFund',
+    feeModule: 'builder',
+    note: "Collected builder-fee revenue set aside for one venue's fee shares, keyed on the venue's claim; owed and paid from there, own accounts only (launch money model, OWNER 288).",
+  },
   'trade.copy.fee_share_pay': {
     kind: 'recipe',
     recipe: 'rewardPay',
@@ -270,6 +276,7 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFillFeeCorrection',
   'tradeFillMakerRebate',
   'builderFeeEarn',
+  'feeShareBudgetFund',
   'marketMakerMakerFill',
   'futuresInsuranceTopup',
   'futuresMarginRelease',
