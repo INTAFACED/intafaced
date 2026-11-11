@@ -349,16 +349,25 @@ async function lastCents() {
   return BigInt(whole) * 100n + BigInt((frac + '00').slice(0, 2));
 }
 
-/** A price alert on BTC/USDT at half the last price, set on the alerts page: it never fires during the step. */
-async function setFarAlert(page) {
-  const cents = (await lastCents()) / 2n;
-  const level = `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
+/**
+ * A price alert on BTC/USDT at a level the chart shows: the price the order button names a third of the way down the
+ * price pane, so its handle is on the pane. It crosses towards the level from the other side of the market, so it does
+ * not fire during the step (as J-charts-desk-09 #5 sets its own). Set on the alerts page.
+ */
+async function setAlertOnChart(page) {
+  await hoverPricePane(page, 0.3);
+  const plus = page.getByTestId('chart-axis-plus');
+  await expect(plus).toBeVisible();
+  const level = await plus.getAttribute('data-price');
+  expect(level).toMatch(/^\d+\.\d{2}$/);
+  const [whole, frac] = level.split('.');
+  const condition = BigInt(whole + frac) > (await lastCents()) ? 'Crossing down through' : 'Crossing up through';
   await page.goto('/notifications?view=alerts');
   const form = page.getByTestId('alerts-form');
   const market = form.getByRole('combobox', { name: /^Market/ });
   await expect(market, 'the alert form opens once its data has loaded').toBeEnabled();
   await market.selectOption({ label: 'BTC/USDT' });
-  await form.getByLabel('Notify me when the price is').selectOption({ label: 'At or below' });
+  await form.getByLabel('Notify me when the price is').selectOption({ label: condition });
   await form.getByLabel('Price (USDT)').fill(level);
   await form.getByLabel('Name (optional)').fill('TEST chart settings');
   await form.getByRole('button', { name: 'Review alert' }).click();
@@ -368,10 +377,10 @@ async function setFarAlert(page) {
 }
 
 /** Moves the pointer onto the middle of the price pane, as a person does before ordering from the price scale. */
-async function hoverPricePane(page) {
+async function hoverPricePane(page, fy = 0.4) {
   const box = await host(page).boundingBox();
-  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.4 - 1);
-  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.4);
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * fy - 1);
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * fy);
 }
 
 test('J-charts-desk-03 #7 opens chart settings: symbol, status line, scales, canvas, trading and alert options are saved for this device and read back after a reload', async ({
@@ -379,7 +388,8 @@ test('J-charts-desk-03 #7 opens chart settings: symbol, status line, scales, can
 }) => {
   // A signed-in person with a price alert on this market: the chart draws its level and offers the order button.
   await signUp(page, 'jcd03');
-  const level = await setFarAlert(page);
+  await openChart(page);
+  const level = await setAlertOnChart(page);
   await openChart(page);
   const alertLine = page.getByTestId('chart-alert-line').filter({ hasText: `${level} USDT` });
   const alertRow = page.getByTestId('chart-alert-row').filter({ hasText: `${level} USDT` });
