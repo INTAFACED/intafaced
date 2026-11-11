@@ -10,8 +10,8 @@ name: Main bisect
 # revert job as the journeys opens that commit's revert, so a red CI on main is undone within OWNER 180's 2 hours too.
 # It changes no test. See tooling/ci/bisect-main.mjs.
 #
-# Real-app journeys (`journeys`): when a journey step that passed on main failed outright in two runs in a row (Main
-# trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
+# Real-app journeys (`journeys`): when a journey step that passed in the run before failed outright in this one on main
+# (Main trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
 # and the first failing commit that broke it (one commit; else the commits whose files reach the failing journeys; else
 # a binary search that runs those journey files on a stack), and opens its revert with squash auto-merge, through the
 # normal merge seal (OWNER 249 (3): "a red main is reverted"). Never more than one revert per red, never a revert of a
