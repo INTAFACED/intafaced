@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fund, journeyState, toUnits } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { confirm, signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import {
@@ -287,16 +287,17 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
   await page.goto(DESK);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
   await connectWhenAsked(page, page.getByTestId('venue-wallet-address').filter({ hasText: new RegExp(owner, 'i') }));
-  const ticket = page.getByTestId('venue-ticket');
-  await ticket.getByRole('button', { name: 'Buy', exact: true }).click();
-  await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
-  await ticket.getByRole('textbox', { name: 'Price' }).fill(SECOND.price);
-  await ticket.getByRole('textbox', { name: 'Amount (BTC)' }).fill(SECOND.amount);
-  await ticket.getByRole('button', { name: 'Review buy' }).click();
-  const sheet = page.getByTestId('venue-review');
-  await sheet.getByRole('button', { name: 'Confirm and sign' }).click();
+  // The desk's Limit buy form (the first of the buy and sell forms), reviewed once the venue's own preview answers.
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  await page.getByRole('textbox', { name: 'Price' }).first().fill(SECOND.price);
+  const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview');
+  await page.getByRole('textbox', { name: 'Amount' }).first().fill(SECOND.amount);
+  expect((await preview).status()).toBe(200);
+  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await confirm(page, 'buy');
   await continueInWallet(page);
-  await expect(sheet.getByTestId('venue-outcome').last()).toContainText('Open on the venue.');
+  const outcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');
+  await expect(outcome).toContainText('Open on the venue.');
   const second = (await openOrders(owner)).find((o) => o.venueClientOrderId !== resting);
   expect(second?.status).toBe('open');
 
@@ -317,9 +318,7 @@ test(`${J} #2 places an order, then looks again: the venue's lock shows as locke
   const orderRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${second.venueClientOrderId}"]`);
   await orderRow.getByRole('button', { name: 'Cancel', exact: true }).click();
   await continueInWallet(page);
-  await expect(page.getByTestId('venue-ticket').getByTestId('venue-outcome')).toContainText(
-    'Cancelled on the venue; its lock is released.',
-  );
+  await expect(outcome).toContainText('Cancelled on the venue; its lock is released.');
   await expect.poll(async () => (await openOrders(owner)).map((o) => o.venueClientOrderId)).toEqual([resting]);
   await openAssets(page, { fresh: false });
   const after = await venueRowAgrees(page, owner, 'USDC');

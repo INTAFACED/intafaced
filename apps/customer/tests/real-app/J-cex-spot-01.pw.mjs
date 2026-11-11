@@ -342,11 +342,11 @@ async function connectWallet(page, wallet) {
   const panel = venuePanel(page);
   await expect(panel).toBeVisible();
   const connect = panel.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  const short = `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`;
+  const shown = wallet.address.toLowerCase();
   // The wallet announces itself after the panel paints: wait for either the Connect button or the connected address.
-  await expect(connect.or(panel.getByText(short))).toBeVisible();
+  await expect(connect.or(panel.getByText(shown))).toBeVisible();
   if (await connect.isVisible()) await connect.click();
-  await expect(panel).toContainText(short);
+  await expect(panel).toContainText(shown);
   return panel;
 }
 
@@ -589,8 +589,8 @@ test(`${J} #6 types a limit buy of TEST 0.1 BTC and reviews: the venue's lock, t
   expect(toUnits(sent.intent.amount)).toBe(toUnits(VENUE_BUY));
   expect(toUnits(sent.intent.price)).toBe(toUnits(price));
   // The same order asked of the TEST venue itself, not through our door.
-  const account = { venueId: await testVenueId(), owner: owner.toLowerCase(), subAccount: null };
-  const { status, body: preview } = await testVenue('/preview', { account, intent: sent.intent });
+  const venue = { venueId: await testVenueId(), owner: owner.toLowerCase(), subAccount: null };
+  const { status, body: preview } = await testVenue('/preview', { account: venue, intent: sent.intent });
   expect(status, JSON.stringify(preview).slice(0, 300)).toBe(200);
   const lock = listed(review, /lock/i);
   await expect(lock).toContainText(preview.value.lock.asset);
