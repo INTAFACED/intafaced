@@ -57,48 +57,6 @@ export async function clickPlot(page, fx, fy) {
   await page.mouse.click(p.x, p.y);
 }
 
-// Every bar in view, one pointer position per pixel, read like `barCentres` from the crosshair. Keeps each bar's own time
-// and its index among the loaded bars (the chart's data-view-from is the logical index at the left edge).
-const indexed = new WeakMap();
-
-async function loadedBars(page, box) {
-  if (indexed.has(page)) return indexed.get(page);
-  const host = page.getByTestId('cw').getByTestId('wc-host');
-  // Bars 50 and 80 of the chart need its history in (the stack writes 210 bars at 15m); a thin chart fails here, by name.
-  await expect.poll(async () => Number(await host.getAttribute('data-bars')), { message: 'the chart has its history' }).toBeGreaterThan(80);
-  await expect(host).toHaveAttribute('data-view-from', /\d/);
-  const from = Number(await host.getAttribute('data-view-from'));
-  const to = Number(await host.getAttribute('data-view-to'));
-  const loaded = Number(await host.getAttribute('data-bars'));
-  const seen = new Map();
-  for (let x = 0; x <= Math.floor(box.width); x++) {
-    await page.mouse.move(box.x + x, box.y + box.height * 0.5);
-    const time = await page.locator('[data-crosshair]').first().getAttribute('data-crosshair');
-    if (!time) continue;
-    const bar = seen.get(time) ?? { time: Number(time), min: x, max: x };
-    bar.max = x;
-    seen.set(time, bar);
-  }
-  const first = Math.max(0, Math.ceil(from));
-  const inView = Math.min(loaded - 1, Math.floor(to)) - first + 1;
-  const bars = [...seen.values()].sort((a, b) => a.time - b.time);
-  // A bar narrower than a pixel can't be pointed at, and a skipped bar would shift every index after it.
-  if (bars.length !== inView) throw new Error(`the sweep found ${bars.length} bars of the ${inView} in view`);
-  const byIndex = new Map(bars.map((bar, i) => [first + i, bar]));
-  indexed.set(page, byIndex);
-  return byIndex;
-}
-
-/** Clicks loaded bar `index` (0 is the first loaded bar) at height `fy`, and answers that bar's own time in seconds. */
-export async function clickBar(page, index, fy) {
-  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
-  if (!box) throw new Error('the chart has no box on the page');
-  const bar = (await loadedBars(page, box)).get(index);
-  if (!bar) throw new Error(`loaded bar ${index} is not in view`);
-  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + box.height * fy);
-  return bar.time;
-}
-
 /** Pick a tool, a toolbar action or a toggle by its name (exact). */
 export async function pick(page, name) {
   await page.getByRole('button', { name, exact: true }).click();

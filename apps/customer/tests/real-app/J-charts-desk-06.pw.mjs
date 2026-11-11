@@ -1,18 +1,6 @@
 // World: none
 import { test, expect } from './journey.mjs';
-import {
-  clickBar,
-  clickPlot,
-  figureLines,
-  openWorkbench,
-  pick,
-  plot,
-  pointText,
-  pricesOf,
-  rowNamed,
-  rows,
-  timesOf,
-} from './charts-desk.mjs';
+import { clickPlot, figureLines, openWorkbench, pick, plot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
 import { openOrders, signUp } from './desk.mjs';
 
 // J-charts-desk-06 "I mark up a trade idea with Fibonacci, channels, patterns and position boxes", in the running app. One
@@ -91,6 +79,48 @@ async function handleAt(row, index) {
 
 /** Test arithmetic only: the expected figure at two decimals, for the fixture's own points. */
 const cents = (value) => (Math.round(value * 100) / 100).toFixed(2);
+
+// Every bar in view, one pointer position per pixel, read like `barCentres` from the crosshair. Keeps each bar's own time
+// and its index among the loaded bars (the chart's data-view-from is the logical index at the left edge).
+const indexed = new WeakMap();
+
+async function loadedBars(page, box) {
+  if (indexed.has(page)) return indexed.get(page);
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  // Bars 50 and 80 of the chart need its history in (the stack writes 210 bars at 15m); a thin chart fails here, by name.
+  await expect.poll(async () => Number(await host.getAttribute('data-bars')), { message: 'the chart has its history' }).toBeGreaterThan(80);
+  await expect(host).toHaveAttribute('data-view-from', /\d/);
+  const from = Number(await host.getAttribute('data-view-from'));
+  const to = Number(await host.getAttribute('data-view-to'));
+  const loaded = Number(await host.getAttribute('data-bars'));
+  const seen = new Map();
+  for (let x = 0; x <= Math.floor(box.width); x++) {
+    await page.mouse.move(box.x + x, box.y + box.height * 0.5);
+    const time = await page.locator('[data-crosshair]').first().getAttribute('data-crosshair');
+    if (!time) continue;
+    const bar = seen.get(time) ?? { time: Number(time), min: x, max: x };
+    bar.max = x;
+    seen.set(time, bar);
+  }
+  const first = Math.max(0, Math.ceil(from));
+  const inView = Math.min(loaded - 1, Math.floor(to)) - first + 1;
+  const bars = [...seen.values()].sort((a, b) => a.time - b.time);
+  // A bar narrower than a pixel can't be pointed at, and a skipped bar would shift every index after it.
+  if (bars.length !== inView) throw new Error(`the sweep found ${bars.length} bars of the ${inView} in view`);
+  const byIndex = new Map(bars.map((bar, i) => [first + i, bar]));
+  indexed.set(page, byIndex);
+  return byIndex;
+}
+
+/** Clicks loaded bar `index` (0 is the first loaded bar) at height `fy`, and answers that bar's own time in seconds. */
+async function clickBar(page, index, fy) {
+  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
+  if (!box) throw new Error('the chart has no box on the page');
+  const bar = (await loadedBars(page, box)).get(index);
+  if (!bar) throw new Error(`loaded bar ${index} is not in view`);
+  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + box.height * fy);
+  return bar.time;
+}
 
 /** A shown decimal as a whole number of 10^-places units. */
 function units(text, places) {
