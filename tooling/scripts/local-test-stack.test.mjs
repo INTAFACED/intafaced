@@ -640,6 +640,31 @@ try {
     r = fundWith(home, ['someone@example.invalid', 'USDT', bad]);
     assert.equal(r.status, 2, `${bad}: ${r.stderr}`);
   }
+
+  // 6. Custody off (OWNER 226, OWNER 288): when the stack's svc-ledger was started with LEDGER_CUSTODY_LAYER off (its
+  //    process record), a deposit to a person's account refuses typed, exit 3, before anything is read or posted, not
+  //    as the ledger's raw 412. `house` is INTAFACED's own inventory and goes on to the next check. `custody` says off.
+  mkdirSync(join(state, 'run'), { recursive: true });
+  writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1, custodyLayer: 'off' } }));
+  r = fundWith(home);
+  assert.equal(r.status, 3, r.stderr);
+  assert.match(r.stderr, /local_test\.custody_layer_off: local:fund USDT to someone@example\.invalid refused/);
+  assert.match(r.stderr, /Nothing was posted/);
+  r = fundWith(home, ['house', 'BTC', '1']);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /local stack Postgres is not running/);
+  r = spawnSync(process.execPath, [script, 'custody'], { env: homeEnv(home), encoding: 'utf8' });
+  assert.equal(r.stdout, 'off\n', r.stderr);
+  // A ledger record with the switch on, or with none (started before the stack recorded it), funds as before.
+  for (const ledger of [{ pid: 1, custodyLayer: 'on' }, { pid: 1 }]) {
+    writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ ledger }));
+    r = fundWith(home);
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /local stack Postgres is not running/);
+    r = spawnSync(process.execPath, [script, 'custody'], { env: homeEnv(home), encoding: 'utf8' });
+    assert.equal(r.stdout, 'on\n', r.stderr);
+  }
+  console.log('local-test-stack: with custody off, local:fund to a person refuses typed before anything is posted');
 } finally {
   rmSync(home, { recursive: true, force: true });
 }
