@@ -110,13 +110,9 @@ export function draftSignature(fields: TicketFields): string {
 }
 
 /**
- * The client order key held for retry: minted once for a ticket's order and kept while that order is unchanged and has
- * no definite answer, so a closed and reopened review, a double press or a lost answer names the same venue order. A
- * changed order, or one the venue answered definitely, gets a new key.
- *
- * A market order's worst price is held with its key: the best prices are polled and its live worst price moves, but the
- * intent sent under one key never changes, so a retry never meets `trade.venue_action_key_reused`. A changed side, type
- * or amount mints a new key, and with it the worst price of that moment.
+ * The client order key held for retry while the order is unchanged and has no definite answer, so a reopened review, a
+ * double press or a lost answer names the same venue order. A market order's worst price is held with its key, so a
+ * retry sends the same intent; a changed side, type or amount mints a new key and worst price.
  */
 export class HeldDraft {
   private held: { signature: string; key: string; worst: string | null } | null = null;

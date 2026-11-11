@@ -61,7 +61,7 @@ export async function venueStatus(who) {
   return body;
 }
 
-/** The TEST venue's own route for each account read, straight on loopback: never svc-trade's door, which the desk uses. */
+/** The TEST venue's own route for each read, on loopback: never svc-trade's door, which the desk uses. */
 const SIM_READS = {
   balances: '/balances',
   'orders/open': '/open-orders',
@@ -70,10 +70,7 @@ const SIM_READS = {
   positions: '/positions',
 };
 
-/**
- * One of the venue's own reads for the account `owner` owns, with its as-of time, read from the TEST venue itself, so a
- * door that misreported a lock, a fill or a balance would show against it. `who` is kept for the callers' shape.
- */
+/** One read of `owner`'s venue account from the TEST venue itself, so a door that misreports one shows. */
 export async function venueRead(who, route, owner, query = {}) {
   const path = SIM_READS[route];
   expect(path, `${route} is a venue read`).toBeTruthy();
