@@ -648,3 +648,67 @@ test('DOCS_READ drift, planted: a doc named in code and not listed is caught by 
   for (const n of ['docs/new-thing.md', 'docs/ci', 'docs']) assert.equal(covered(n), false, n);
   for (const n of ['docs/roadmap', 'docs/runbooks/journey-baseline.json', 'docs/RUNNING.md']) assert.equal(covered(n), true, n);
 });
+
+// RULING 8 (project-state#2065): a pull request's journeys run really runs only what it touches. The map below is the
+// shape journey-reach-map.mjs builds: svc-agents subscribes to bus events and is on the money list.
+{
+  const journeys = ['J-a-01.pw.mjs', 'J-b-01.pw.mjs', 'J-c-01.pw.mjs', 'J-d-01.pw.mjs'];
+  const map = {
+    v: 1,
+    mode: 'reach',
+    runs: [1, 2, 3].map((id) => ({ id, head: 'x', created: '2026-11-10T00:00:00Z' })),
+    journeys,
+    full: {},
+    services: { 'services/svc-agents': [0, 1], 'services/svc-ledger': [1, 2], 'services/svc-edge': [0, 1, 2, 3] },
+    packages: { 'packages/ledger-client': [0, 1, 2, 3], 'packages/venue-contracts': [1, 2] },
+    customer: {},
+    consumers: { 'packages/ledger-client': ['services/svc-ledger'], 'packages/venue-contracts': ['services/svc-agents'] },
+    dependents: {},
+    harness: ['packages/ledger-client'],
+    subscribers: ['services/svc-agents'],
+    money: ['packages/ledger-client', 'packages/venue-contracts', 'services/svc-agents', 'services/svc-ledger'],
+  };
+  const touch = (paths, subscribes = () => false) =>
+    journeyTouch(paths, () => true, { map, behind: 0, journeyFiles: new Set(journeys), subscribes, mode: 'reach' });
+
+  test('RULING 8: a change only to services/svc-agents, which subscribes to bus events, is targeted (#7876 ran all 32 shards)', () => {
+    const t = touch(['services/svc-agents/src/oplog/routes.ts', 'services/svc-agents/src/oplog/store.ts']);
+    assert.equal(t.mode, 'files');
+    assert.deepEqual(t.files, ['J-a-01.pw.mjs', 'J-b-01.pw.mjs']);
+  });
+
+  test('RULING 8: the changed file that holds a bus handler stays full', () => {
+    const t = touch(['services/svc-agents/src/crew-events.ts'], (p) => p.endsWith('crew-events.ts'));
+    assert.equal(t.mode, 'full');
+    assert.match(t.full[0].why, /it subscribes to bus events/);
+  });
+
+  test('RULING 8: a money path still runs every journey it reaches today', () => {
+    // A money service: exactly its recorded journeys.
+    assert.deepEqual(touch(['services/svc-ledger/src/x.ts']).files, ['J-b-01.pw.mjs', 'J-c-01.pw.mjs']);
+    // Every journey recorded reaching a money service that subscribes still runs.
+    assert.deepEqual(touch(['services/svc-agents/src/x.ts']).files, ['J-a-01.pw.mjs', 'J-b-01.pw.mjs']);
+    // A money package used by a subscribing service stays full, as it was.
+    const pkg = touch(['packages/venue-contracts/src/x.ts']);
+    assert.equal(pkg.mode, 'full');
+    assert.match(pkg.full[0].why, /depends on packages\/venue-contracts and subscribes/);
+    // A money package the journey harness imports stays full, as it was.
+    assert.equal(touch(['packages/ledger-client/src/x.ts']).mode, 'full');
+  });
+
+  test('RULING 8: what truly reaches every journey stays full', () => {
+    for (const p of [
+      'tooling/scripts/local-test-stack.mjs',
+      'tooling/scripts/local-stack-services/bank.mjs',
+      'apps/customer/tests/real-app/journey.mjs',
+      'tooling/profiles/test-owner-values/bank.json',
+      '.github/workflows/real-app-journeys.yml',
+      'tooling/ci/journey-seal.mjs',
+      'pnpm-lock.yaml',
+      'package.json',
+    ])
+      assert.equal(touch([p]).mode, 'full', p);
+    // A service every journey was recorded reaching: the selection holds every journey, which is the full run.
+    assert.equal(touch(['services/svc-edge/src/x.ts']).mode, 'full');
+  });
+}

@@ -566,7 +566,8 @@ test('planted: each full fallback', () => {
   full(select(['packages/events/src/catalog.ts']), /the journey harness imports it/);
   full(select(['apps/customer/deployment/host-dispatch.mjs']), /the journey harness imports it/);
   full(select(['packages/telemetry/src/x.ts']), /svc-notify depends on packages\/telemetry and subscribes/);
-  full(select(['services/svc-notify/src/send.ts']), /subscribes to bus events/);
+  // RULING 8 (project-state#2065): only a changed file that holds a handler is full; journey-touch.test.mjs proves the rest.
+  full(select(['services/svc-notify/src/handler.ts'], { subscribes: () => true }), /it subscribes to bus events/);
   full(select(['services/svc-tax/src/consumer.ts'], { subscribes: () => true }), /it subscribes to bus events/);
   full(select(['services/svc-fix/src/x.ts']), /no journey was recorded reaching services\/svc-fix/);
   full(select(['services/svc-edge/src/x.ts']), /holds every journey/);

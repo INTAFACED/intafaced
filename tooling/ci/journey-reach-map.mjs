@@ -22,7 +22,7 @@
  * copy, so `verify` on main rebuilds it from the same baseline. Open edge, not covered: a service that publishes an
  * event from background work without logging while a journey runs is not tied to the journey that sees the
  * subscriber's effect (review 7561-R1 #3;
- * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
+ * a changed file that subscribes is full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
  * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
  * map names and compares it byte for byte, so a hand-edited map, or one built from hand-picked runs, fails (review
  * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml) builds it in CI with the workflow's own
@@ -30,8 +30,8 @@
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
- *     reached it, when svc-x subscribes to bus events (a handler that logs nothing is recorded nowhere), or when the
- *     changed file itself subscribes;
+ *     reached it, or when the changed file itself subscribes to bus events (a handler that logs nothing is recorded
+ *     nowhere);
  *   - apps/customer/src/…: the journeys whose pages ran a function of that file or loaded a built script holding it.
  *     Full when no journey reached it (a new file, a style sheet, a file the build doesn't map);
  *   - packages/x/…: the journeys whose pages ran its built code (the customer bundles `packages/x/dist`, read back to
@@ -639,9 +639,10 @@ export function pathReach(map, path, subscribesHere = false) {
   // "How work flows" 8 is unchanged: a red in money code a pull request changes still blocks its merge; only which
   // journeys run is narrowed.
   if (svc) {
+    // Only a changed file that itself subscribes is full. Any other file of a service that subscribes elsewhere runs the
+    // journeys recorded reaching that service (RULING 8 on project-state#2065: #7876 changed two svc-agents files and ran
+    // all 32 shards). The handlers it did not change behave as before, and main's full run is the backstop.
     if (subscribesHere) return { full: 'it subscribes to bus events, and a handler that logs nothing is recorded nowhere' };
-    if (map.subscribers?.includes(svc))
-      return { full: `${svc} subscribes to bus events, and a handler that logs nothing is recorded nowhere` };
     const js = map.services?.[svc];
     return js?.length ? { journeys: js } : { full: `no journey was recorded reaching ${svc}` };
   }
