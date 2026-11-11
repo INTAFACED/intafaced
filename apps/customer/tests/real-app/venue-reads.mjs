@@ -3,11 +3,8 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
 import { api, toUnits, tool } from './stack.mjs';
 
-// The person's own venue account, read from the TEST venue itself, never from our ledger, engine or door: the venue journeys
-// (J-cex-spot-01, J-derivatives-01) assert every balance, lock, fill and position against these reads.
-//
-// The venue is the stack's LOCAL TEST venue (packages/venue-sim). svc-trade's door to it is off unless the stack runs
-// with LOCAL_STACK_USER_VENUE=on: `venueOn` restarts trade with it on, `venueOff` puts it back. Every figure is TEST.
+// The person's venue account, read from the stack's LOCAL TEST venue (packages/venue-sim) itself, never our ledger,
+// engine or door. svc-trade's door is off unless LOCAL_STACK_USER_VENUE=on: `venueOn` and `venueOff` switch it. All TEST.
 
 /** The LOCAL TEST venue's own loopback address (local-test-stack.mjs PORTS['test-venue']). */
 export const TEST_VENUE = 'http://127.0.0.1:14560';
@@ -40,10 +37,7 @@ export function venueOff() {
   restartTrade(null);
 }
 
-/**
- * The person's own API session: `who.client` when the step already signed in with its second factor (an account with an
- * authenticator cannot sign in without a code), or a fresh sign-in.
- */
+/** The person's API session: `who.client` when the step signed in with its second factor, or a fresh sign-in. */
 const clientOf = (who) => who.client ?? api(who);
 
 /** The door's status for this person: on, the venue up, and a TEST venue, labelled TEST. */
