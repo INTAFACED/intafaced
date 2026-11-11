@@ -178,7 +178,6 @@ describe('the door bounds every venue market order by the owner protection', () 
   });
 
   it("an alert's order carries its own worst price: the signal desk's prepare skips the protection, and only it", async () => {
-    // No ask and a blank protection: the plain prepare refuses, the alert's (ownWorstPrice) goes to the venue.
     const { d, asked } = door(null, { bid: null, ask: null });
     expect(await refusal(() => d.prepare(principal, { owner, signer, intent: order() }))).toBe('trade.slippage_cap_unset');
     expect(asked.prepares).toBe(0);

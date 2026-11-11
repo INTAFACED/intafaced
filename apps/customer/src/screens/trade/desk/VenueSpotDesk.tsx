@@ -408,7 +408,7 @@ function VenueWalletRow() {
       {wallet.status === 'connected' && wallet.address ? (
         <div>
           <p>
-            {t('Connected')}: {/* The whole address, as the venue kit's wallet bar shows it: the person checks it against their wallet. */}
+            {t('Connected')}:{' '}
             <span className="numeric" data-testid="venue-wallet-address">
               {wallet.address.toLowerCase()}
             </span>{' '}

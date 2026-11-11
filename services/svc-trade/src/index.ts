@@ -712,7 +712,6 @@ const signalDesk = new SignalDesk({
   prepareOrder: async (principal, input) => {
     if (!userVenue) return { ok: false, code: 'trade.user_venue_off' };
     try {
-      // The alert names its own worst price: the venue holds the order to it, not the owner's spot protection.
       const answer = await userVenue.prepare(
         principal,
         { owner: input.owner, signer: { role: 'owner', address: input.owner }, intent: input.intent },

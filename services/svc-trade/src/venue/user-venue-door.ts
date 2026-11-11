@@ -156,11 +156,7 @@ const RESERVED_KEY_PREFIXES = [SESSION_KEY_PREFIX, SESSION_KEY_END_PREFIX] as co
 export interface PrepareOptions extends DoorCaller {
   /** Set only by the session routes (session-key.ts): lets the action be stored under a reserved session key. */
   readonly sessionKey?: boolean;
-  /**
-   * Set only by the signal desk (signals/signal-desk.ts): the order carries the worst price the person's own alert
-   * names, as the futures ticket's typed slippage limit does, so the owner's price protection (which bounds the worst
-   * price the spot desk and Convert take from it) is not applied. The venue holds the order to the alert's price.
-   */
+  /** Set only by the signal desk: the alert names its own worst price, so the owner's protection is not applied. */
   readonly ownWorstPrice?: boolean;
 }
 
