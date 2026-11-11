@@ -80,6 +80,28 @@ async function handleAt(row, index) {
 /** Test arithmetic only: the expected figure at two decimals, for the fixture's own points. */
 const cents = (value) => (Math.round(value * 100) / 100).toFixed(2);
 
+/** A shown decimal as a whole number of 10^-places units. */
+function units(text, places) {
+  const negative = text.startsWith('-');
+  const [whole, fraction = ''] = text.replace('-', '').split('.');
+  const value = BigInt(whole + fraction.padEnd(places, '0'));
+  return negative ? -value : value;
+}
+
+/**
+ * Test arithmetic only: `base + (from - to) * level` at two decimals, half away from zero, worked in whole units as the
+ * step's "at the tick size" means. A float sum can land just under an exact half-cent and round a cent low (#7587).
+ */
+function levelCents(base, from, to, level) {
+  const [PRICE, LEVEL] = [8, 3];
+  const exact = units(base, PRICE) * 10n ** BigInt(LEVEL) + (units(from, PRICE) - units(to, PRICE)) * units(level, LEVEL);
+  const cent = 10n ** BigInt(PRICE + LEVEL - 2);
+  const magnitude = exact < 0n ? -exact : exact;
+  const count = (magnitude + cent / 2n) / cent;
+  const text = `${count / 100n}.${String(count % 100n).padStart(2, '0')}`;
+  return exact < 0n && count > 0n ? `-${text}` : text;
+}
+
 test.describe.configure({ mode: 'serial' });
 
 let page;
@@ -99,8 +121,8 @@ test(`${J} #1 draws a Fibonacci retracement, and its levels are the figures of t
   await clickPlot(page, 0.3, 0.3);
   await clickPlot(page, 0.6, 0.6);
   const row = rowNamed(page, /^Fib retracement \d+$/);
-  const [a, b] = pricesOf(await pointText(row).textContent()).map(Number);
-  const expected = LEVELS.map((level) => `${level} at ${cents(b + (a - b) * Number(level))}`);
+  const [a, b] = pricesOf(await pointText(row).textContent());
+  const expected = LEVELS.map((level) => `${level} at ${levelCents(b, a, b, level)}`);
   const shown = await figureLines(row).allTextContents();
   expect(shown).toEqual(expected);
 });
@@ -167,8 +189,8 @@ test(`${J} #3 adds a Gann fan and a Fibonacci extension, each from its stated ru
   await clickPlot(page, 0.4, 0.5);
   await clickPlot(page, 0.5, 0.6);
   const extension = rowNamed(page, /^Fib extension \d+$/);
-  const [a, b, c] = pricesOf(await pointText(extension).textContent()).map(Number);
-  const expected = EXTENSION.map((level) => `${level} at ${cents(c + (b - a) * Number(level))}`);
+  const [a, b, c] = pricesOf(await pointText(extension).textContent());
+  const expected = EXTENSION.map((level) => `${level} at ${levelCents(c, b, a, level)}`);
   expect(await figureLines(extension).allTextContents()).toEqual(expected);
 });
 
