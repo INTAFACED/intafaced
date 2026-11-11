@@ -2,6 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { journeyState } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
+import { createEvent, moveEvent, onboardedIssuer } from './launch.mjs';
 
 // J-more-catalogue-01, in the running app (docs/roadmap/journeys.json): find my way around the six More rooms. One test
 // per step, titled "J-more-catalogue-01 #<n>", run in order. Step 1 signs up a fresh TEST account; the later steps sign it
@@ -39,6 +40,20 @@ const SECTIONS = [
   ['/mining/status', 'Mining status'],
   ['/blueprint/crew', 'Blueprint crew'],
 ];
+
+/**
+ * Every reserved first segment under each room (the app's own list, `RESERVED_SEGMENTS` in
+ * apps/customer/src/features/more/more-room-routes.ts), and the title of that room's record page, which a reserved
+ * segment must never open.
+ */
+const RESERVED = {
+  predict: { segments: ['positions', 'settings'], record: 'Prediction market' },
+  market: { segments: ['mine', 'strategy', 'purchases'], record: 'Market listing' },
+  launch: { segments: ['new', 'check', 'requirements', 'mine'], record: 'Launch project' },
+  token: { segments: ['governance', 'economy', 'burn'], record: 'Governance proposal' },
+  mining: { segments: ['workers', 'shares', 'rewards', 'status'], record: 'Mining worker' },
+  blueprint: { segments: ['shared', 'crew'], record: 'Shared card' },
+};
 
 /**
  * A write to the stack: any request to /api/ other than a read (GET, HEAD, OPTIONS), tRPC or REST. The session's own
@@ -105,6 +120,22 @@ test(`${J} #3 /predict/positions is the positions room, and every reserved secti
     await expect(page.getByText('No details are shown for this record'), path).toHaveCount(0);
     await expect(page.getByText('That address is not valid'), path).toHaveCount(0);
   }
+  // The same holds for every reserved segment of every room: it is never taken for a record id, so it never opens the
+  // room's record page (titled as a record, or refusing the segment as a bad record id). /token's reserved segments are
+  // checked under /token/governance/<segment> too, its record route.
+  for (const [room, { segments, record }] of Object.entries(RESERVED)) {
+    const base = room === 'token' ? ['/token', '/token/governance'] : [`/${room}`];
+    for (const prefix of base)
+      for (const segment of segments) {
+        if (prefix === '/token/governance' && segment === 'governance') continue;
+        const path = `${prefix}/${segment}`;
+        await page.goto(path);
+        await expect(heading(page), path).toBeVisible();
+        await expect(heading(page), `${path} is not a ${record}`).not.toHaveText(record);
+        await expect(page.getByText('That address is not valid'), path).toHaveCount(0);
+        await expect(page.getByText('No details are shown for this record'), path).toHaveCount(0);
+      }
+  }
 });
 
 test(`${J} #4 an unknown address under a room shows the "no customer route" panel with a link to /more`, async ({ page }) => {
@@ -161,9 +192,55 @@ test(`${J} #5 ?simulated=true labels every room simulated, and an action there i
   await expect(page.locator('[data-paper]')).toHaveCount(0);
 });
 
-test(`${J} #6 signed out, every room shows the sign-in panel the other More rooms use`, async ({ page }) => {
-  for (const room of ROOMS) {
+/** The one sign-in panel the More rooms use: its title, and a Sign in link back to `returnTo`. */
+async function expectSignInPanel(scope, returnTo, label) {
+  await expect(scope.getByText('Sign in to continue', { exact: true }), label).toBeVisible();
+  await expect(scope.getByRole('link', { name: 'Sign in', exact: true }).first(), label).toHaveAttribute(
+    'href',
+    `/login?redirect=${encodeURIComponent(returnTo)}`,
+  );
+}
+
+test(`${J} #6 signed out, every room shows the sign-in panel the other More rooms use; /launch is the public catalogue with it on its gated parts`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  for (const room of ROOMS.filter((r) => r.tile !== 'launch')) {
     await page.goto(room.path);
-    await expect(page.getByText('Sign in to continue'), room.path).toBeVisible();
+    await expectSignInPanel(page.locator('main'), room.path, room.path);
   }
+
+  // /launch signed out: the public catalogue, with an open TEST launch listed, and the panel on its sign-in-gated
+  // parts: a launch's eligibility, and subscribing (the participation section).
+  const tag = Date.now().toString(36);
+  const issuer = await onboardedIssuer(`tst-issuer-mc01-${tag}`, `TEST Issuer ${tag}`);
+  const now = Date.now();
+  const at = (ms) => new Date(ms).toISOString();
+  const open = {
+    id: `tst-mc01-${tag}`,
+    issuerId: issuer.id,
+    type: 'token_sale',
+    projectName: `TEST More Launch ${tag}`,
+    symbol: 'TSTM',
+    periods: {
+      announceAt: at(now - 60_000),
+      snapshotAt: at(now - 60_000),
+      openAt: at(now - 60_000),
+      closeAt: at(now + 30 * 86_400_000),
+      distributionAt: at(now + 31 * 86_400_000),
+    },
+    allocation: { method: 'pro_rata', perUserCap: '250', ticketSize: null, tierWeights: null },
+    terms: { price: '0.5', paymentAsset: 'USDT', rateSource: null },
+  };
+  let revision = await createEvent(open);
+  for (const to of ['announced', 'snapshot', 'open']) revision = (await moveEvent(open.id, to, revision)).revision;
+
+  await page.goto('/launch');
+  await expect(heading(page)).toHaveText('Launch');
+  const card = page.getByRole('list', { name: 'Launch events' }).getByRole('listitem').filter({ hasText: open.projectName });
+  await expect(card).toHaveCount(1);
+  await page.goto(`/launch/${open.id}`);
+  await expectSignInPanel(page.getByRole('region', { name: 'Who may take part' }), `/launch/${open.id}`, 'eligibility');
+  await page.goto('/uc/innovation/myorders');
+  await expectSignInPanel(page.locator('main'), '/uc/innovation/myorders', 'subscribe (participation)');
 });
