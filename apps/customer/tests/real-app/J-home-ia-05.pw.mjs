@@ -43,9 +43,12 @@ const TITLES = {
   'ledger.freeze.set': 'Postings paused',
   'ledger.freeze.cleared': 'Postings resumed',
 };
-// svc-notify's audience-all notices (services/svc-notify/src/freeze-notice.ts): every account holds them, so a journey
-// that set the platform posting freeze earlier on the same stack leaves them in this inbox too.
-const PLATFORM_KINDS = ['ledger.freeze.set', 'ledger.freeze.cleared'];
+// svc-notify's audience-all notices (services/svc-notify/src/freeze-notice.ts, venue-delisting-notice.ts): every account
+// holds them, so a journey that set the platform posting freeze, or scheduled a venue market's delisting (J-cex-spot-16),
+// earlier on the same stack leaves them in this inbox too (#7924: 5 own notices instead of 4 when one shared the shard).
+const PLATFORM_KINDS = ['ledger.freeze.set', 'ledger.freeze.cleared', 'trade.venue_delisting'];
+/** A notice's title in plain words, as the bell and the page draw it (packages/i18n catalog). */
+const titleOf = (item) => (item.kind === 'trade.venue_delisting' ? `${item.params?.symbol} is being delisted` : TITLES[item.kind]);
 
 let who;
 let cancelled;
@@ -55,6 +58,8 @@ let fills;
 let total;
 /** Those notices' kinds, newest first, as svc-notify lists them: the order every screen shows them in. */
 let kinds;
+/** Their titles, in the same order. */
+let titles;
 
 /** The inbox as svc-notify tells it, never as the bell draws it: which kinds it holds as read, and its unread count. */
 async function told(session) {
@@ -162,6 +167,7 @@ test.beforeAll(async ({ browser }) => {
   expect(items.filter((item) => item.readAt === null)).toHaveLength(total);
   expect((await (await api(who)).get('/api/notify/trpc/notify.unreadCount')).body?.result?.data?.count).toBe(total);
   kinds = items.map((item) => item.kind);
+  titles = items.map(titleOf);
   await page.close();
 });
 
@@ -176,8 +182,8 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
   const shown = Math.min(total, POPOVER_ITEMS);
   await expect(popup(page).getByTestId('nf-row')).toHaveCount(shown);
   await expect(popup(page).locator('[data-testid="nf-row"][data-unread]')).toHaveCount(shown);
-  const titles = await popup(page).getByTestId('nf-title').allInnerTexts();
-  expect(titles).toEqual(kinds.slice(0, shown).map((kind) => TITLES[kind]));
+  const drawn = await popup(page).getByTestId('nf-title').allInnerTexts();
+  expect(drawn).toEqual(titles.slice(0, shown));
   const words = await popup(page).innerText();
   expect(words).not.toMatch(uuidText);
   expect(words).not.toMatch(rawKey);
@@ -296,9 +302,12 @@ test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots an
   // Unread: the fills #2 did not open, and the verification.
   await page.getByRole('tab', { name: 'Unread' }).click();
   await expect(page.getByTestId('nf-row')).toHaveCount(Math.min(total - 2, PAGE_ITEMS));
-  const unread = kinds.filter((kind) => kind !== 'trade.order.terminal');
-  unread.splice(unread.indexOf('trade.fill'), 1);
-  await expect(page.getByTestId('nf-title')).toHaveText(unread.slice(0, PAGE_ITEMS).map((kind) => TITLES[kind]));
+  const unread = kinds.map((kind, i) => [kind, titles[i]]).filter(([kind]) => kind !== 'trade.order.terminal');
+  unread.splice(
+    unread.findIndex(([kind]) => kind === 'trade.fill'),
+    1,
+  );
+  await expect(page.getByTestId('nf-title')).toHaveText(unread.slice(0, PAGE_ITEMS).map(([, title]) => title));
   await page.getByRole('button', { name: 'Mark all as read' }).click();
   await expect(page.getByText("You're all caught up.")).toBeVisible();
   await expect(bell(page).getByTestId('tb-badge')).toHaveCount(0);
