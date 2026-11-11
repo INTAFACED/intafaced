@@ -236,7 +236,7 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     { kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: await venueCap('BTC-USDC') },
     `approve-builder:${owner}:${J}`,
   );
-  // A TEST buyer of this file's own rests a bid for every sell this file makes, at their price: four routed (#1 two, #2
+  // A TEST buyer of this file's own rests a bid for every sell this file makes, at their price: five routed (#1 three, #2
   // and #3 one each) and #4's direct one, 0.01 BTC each. The seeded ladder is shared by the whole shard, and
   // J-cex-spot-01-venue #8 sells into every bid, so this file after it on one stack found no bid and its sells rested
   // unfilled (run 42991377597, shard 28, twice).
@@ -247,7 +247,7 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     symbol: 'BTC-USDC',
     side: 'buy',
     type: 'limit',
-    amount: '0.05',
+    amount: '0.06',
     price: '59990',
     timeInForce: 'GTC',
     reduceOnly: false,
@@ -313,6 +313,28 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   expect(dec(ownCells[1])).toBe(dec(fromUnits(earnedByLedger)));
   expect(dec(ownCells[2])).toBe(dec(fromUnits(own.get(asset).earned)));
   expect(ownCells[5]).toBe('Matched');
+
+  // Green only when they match: with the poster stopped, one more fill's fee is in the venue's earned total and not yet
+  // in the ledger's, and the same row reads a break with the venue's figure above the ledger's. (#2 starts with the
+  // poster stopped too; it puts it back.)
+  tradeWith({ venue: true, poster: false });
+  const unposted = new Date(Date.now() - 1000);
+  await sell();
+  const [extra] = await venueFills(unposted);
+  expect(extra, 'the extra fill carries our builder fee').toBeTruthy();
+  const ownAfter = await venueBuilderTotals(builder.builder.address);
+  const ledgerAfter = ((await ledgerOwed(id)).get(asset) ?? 0n) + ((await ledgerPaidOut(id)).get(asset) ?? 0n);
+  expect(ownAfter.get(asset)?.earned, "the venue's own earned total is above the ledger's by the unposted fee").toBe(
+    ledgerAfter + toUnits(extra.builderFee),
+  );
+  const brokenTotals = (await openRecon(page, start, to)).getByTestId('builder-fee-venue-totals');
+  await expect(brokenTotals).toHaveAttribute('data-state', 'break');
+  const brokenRow = brokenTotals.locator(`tr[data-asset="${asset}"]`);
+  await expect(brokenRow).toHaveAttribute('data-state', 'break');
+  const brokenCells = await brokenRow.locator('td').allInnerTexts();
+  expect(dec(brokenCells[1])).toBe(dec(fromUnits(ledgerAfter)));
+  expect(dec(brokenCells[2])).toBe(dec(fromUnits(ownAfter.get(asset).earned)));
+  expect(brokenCells[5]).toBe("Break: the ledger's earned total and the venue's differ");
 
   // Green only when at least one fill was compared: a period with no fills reads "nothing to compare", never matched.
   const empty = await openRecon(page, new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-02T00:00:00.000Z'));
