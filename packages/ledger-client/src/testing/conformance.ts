@@ -15,7 +15,14 @@ import {
   userStake,
 } from '../accounts.js';
 import { InsufficientFundsError, InvalidEntryError, type AccountKind, type LedgerTx } from '../types.js';
-import { campaignLockAccount, feeShareBudgetAccount, feeShareOwedAccount, recipes, rewardOwedAccount } from '../recipes/index.js';
+import {
+  campaignLockAccount,
+  chargeReceivableAccount,
+  feeShareBudgetAccount,
+  feeShareOwedAccount,
+  recipes,
+  rewardOwedAccount,
+} from '../recipes/index.js';
 import type { LedgerClient } from '../client.js';
 
 /**
@@ -339,6 +346,26 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         await ledger.post(pay('0xpaid', '6', 'conf'));
         expect(formatAmount((await ledger.balance(feeShareOwedAccount(recipient, 'USDC'))).amount)).toBe('0');
         expect(formatAmount((await ledger.balance(venueBuilderAccount('conf', 'USDC'))).amount)).toBe('-4');
+      });
+
+      it('never collects a charge past what the customer owes, and lands it only at our own place', async () => {
+        const owed = chargeReceivableAccount('agents', USER_A, 'USDC');
+        const wallet = { kind: 'treasury-wallet' as const, walletId: 'conf' };
+        const collect = (paymentId: string, amount: string) =>
+          recipes.chargeCollect({ module: 'agents', userId: USER_A, to: wallet, paymentId, assetId: 'USDC', amount: amt(amount) });
+        // Nothing earned: nothing is owed, so Collect is refused.
+        await expect(ledger.post(collect('0xnone', '1'))).rejects.toThrow(InsufficientFundsError);
+        // TEST price: the owner's price is unset, and Earn refuses without one.
+        await ledger.post(
+          recipes.chargeEarn({ module: 'agents', saleId: 's1', userId: USER_A, assetId: 'USDC', price: { perUnit: amt('2') }, units: 3n }),
+        );
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-6');
+        await expect(ledger.post(collect('0xover', '7'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-6');
+        await ledger.post(collect('0xpaid', '6'));
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf', 'USDC'))).amount)).toBe('-6');
+        expect(formatAmount((await ledger.balance(houseFees('agents', 'USDC'))).amount)).toBe('6');
       });
     });
 
