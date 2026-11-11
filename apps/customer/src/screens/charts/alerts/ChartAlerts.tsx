@@ -9,6 +9,7 @@
  *   shows what the service answered, never the pointer's guess. A click, a drop on the same price, a drop while another
  *   edit is on its way and a drop during a bar replay send nothing.
  * - Alerts are created and managed on the alerts page; the chart shows their levels and moves them, nothing else.
+ * - The person's chart setting can take the levels off the chart (Chart settings, Alerts); the list under it stays.
  */
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -38,7 +39,18 @@ const CONDITION_KEY = {
   less_than: 'Chart alert below',
 } as const satisfies Record<AlertCondition, string>;
 
-export function ChartAlerts({ host, market, replaying = false }: { host: ChartHost | null; market: DeskMarket; replaying?: boolean }) {
+export function ChartAlerts({
+  host,
+  market,
+  replaying = false,
+  levels = true,
+}: {
+  host: ChartHost | null;
+  market: DeskMarket;
+  replaying?: boolean;
+  /** The person's chart setting: the alert levels drawn on the chart. Off, the alerts stay listed under it. */
+  levels?: boolean;
+}) {
   const { t } = chartsCopy.useCopy();
   const { api, userId } = useSession();
   const alerts = useAlerts();
@@ -89,7 +101,7 @@ export function ChartAlerts({ host, market, replaying = false }: { host: ChartHo
   // The levels on the library's own canvas, dotted, so they read apart from orders (solid) and the order preview (dashed).
   const lineKey = shown.map((alert) => `${alert.id}:${alert.targetPrice}:${alert.status}`).join(',');
   useEffect(() => {
-    if (!host) return;
+    if (!host || !levels) return;
     const colour = getComputedStyle(document.documentElement).getPropertyValue('--if-fg').trim();
     const lines = shown.map((alert) =>
       host.main.createPriceLine({
@@ -106,7 +118,7 @@ export function ChartAlerts({ host, market, replaying = false }: { host: ChartHo
     };
     // The key carries every value the lines draw.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host, lineKey]);
+  }, [host, lineKey, levels]);
 
   /** A dropped handle: one edit at the snapped price. Nothing is sent for the same price or while another edit is out. */
   const dropped = async (alert: PriceAlert, y: number) => {
@@ -159,7 +171,7 @@ export function ChartAlerts({ host, market, replaying = false }: { host: ChartHo
   };
 
   const overlay =
-    stage && host
+    stage && host && levels
       ? createPortal(
           <div className="ct-overlay" data-testid="chart-alerts-overlay">
             {shown.map((alert) => {

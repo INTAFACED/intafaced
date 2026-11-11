@@ -280,8 +280,9 @@ export const MarketChartWidget = memo(function MarketChartWidget({
               protectionBps={protection}
               protectionWhy={protectionRead.ok ? null : protectionRead.why}
               replaying={replay.replay !== null}
+              orderButton={settings.orderButton}
             />
-            <ChartAlerts host={host} market={market} replaying={replay.replay !== null} />
+            <ChartAlerts host={host} market={market} replaying={replay.replay !== null} levels={settings.alertLevels} />
           </>
         )}
       </WorkbenchChart>
