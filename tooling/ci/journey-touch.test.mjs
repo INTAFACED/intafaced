@@ -314,7 +314,7 @@ test('planted 2: a product pull request whose run misses a journey it touches fa
   assert.equal(both.ok, true, both.lines.join('\n'));
 });
 
-// theo-01 part 1 (OWNER 295): a product pull request that names a journey is judged on that journey, its changed journey
+// theo-01 part 1 (OWNER 296): a product pull request that names a journey is judged on that journey, its changed journey
 // files and the map's always-run list, the same list its run is given (journey-touch.mjs --reach with TITLE and
 // GITHUB_HEAD_REF); main's full run after the merge judges the rest.
 const HEAD_FILES = new Set(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs', 'J-wallet-05.pw.mjs', 'J-agents-12.pw.mjs']);

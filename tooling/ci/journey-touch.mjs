@@ -18,7 +18,7 @@
  *     own full runs recorded reaching it, when no full path above is in the change and the map can speak for every
  *     product path in it (shared setup, scripts, admin-app paths, packages it can't map, a switched-off, missing or
  *     stale map: full). Its journeys join the `files` list, and `reach` says why;
- *   - named (theo-01 part 1, project-state#2065, OWNER 295): a pull request whose title or branch names a journey
+ *   - named (theo-01 part 1, project-state#2065, OWNER 296): a pull request whose title or branch names a journey
  *     (`J-<area>-<n>`, namedJourneyIds) that has a journey file at its head is judged on that journey. Its product paths
  *     go to neither the full run nor the map: it runs the journeys it names, every journey test file it changes, and the
  *     map's always-run list (the map's `full` journeys, which no recorded run speaks for). Every other full path above

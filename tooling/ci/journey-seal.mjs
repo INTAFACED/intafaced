@@ -53,7 +53,7 @@
  * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.) A pull request whose
  * title or branch names a journey with a file at its head is held, for its product code, to that journey, its changed
  * journey files and the map's always-run list (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1,
- * project-state#2065, OWNER 295), the same list its journeys run was given; main's full run after the merge judges the
+ * project-state#2065, OWNER 296), the same list its journeys run was given; main's full run after the merge judges the
  * rest and a red main is reverted (OWNER 249 (3)). Every other full path still needs the full run.
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
