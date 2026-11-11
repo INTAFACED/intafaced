@@ -1,6 +1,13 @@
 import { formatAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import { PARTNER_PAYOUTS_OWNER, type PartnerAccountRef, type PartnerBank, type PartnerMove } from '../partner/partner-bank.js';
+import {
+  PARTNER_FEES_OWNER,
+  PARTNER_PAY_INS_OWNER,
+  PARTNER_PAYOUTS_OWNER,
+  type PartnerAccountRef,
+  type PartnerBank,
+  type PartnerMove,
+} from '../partner/partner-bank.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import type { ActivityItem, ActivityPage, ActivityQuery } from './activity-service.js';
 import { ActivityLookupBoundedError, ActivityNotFoundError, ActivityRangeError } from './activity-service.js';
@@ -34,7 +41,6 @@ function unsupported(name: string): BankError {
 function assertSupported(input: ActivityQuery): void {
   if (input.sort === 'asc') throw unsupported('oldest first');
   const names: Array<[keyof ActivityQuery, string]> = [
-    ['q', 'search'],
     ['minAmount', 'amount'],
     ['maxAmount', 'amount'],
     ['address', 'address'],
@@ -61,10 +67,12 @@ function sameUser(a: PartnerAccountRef, b: PartnerAccountRef): boolean {
 export function partnerLines(userId: string, move: PartnerMove, names: ReadonlyMap<string, string>): ActivityItem[] {
   const own = sameUser(move.from, move.to);
   const payout = move.from.userId === PARTNER_PAYOUTS_OWNER || move.to.userId === PARTNER_PAYOUTS_OWNER;
+  const payIn = move.from.userId === PARTNER_PAY_INS_OWNER;
+  const fee = move.to.userId === PARTNER_FEES_OWNER;
   const lines: ActivityItem[] = [];
   const line = (side: 'out' | 'in', account: PartnerAccountRef): ActivityItem => ({
     id: lineId(move, side),
-    kind: own ? 'space_move' : payout ? 'withdrawal' : side === 'out' ? 'transfer_out' : 'transfer_in',
+    kind: own ? 'space_move' : payIn ? 'deposit' : fee ? 'fee' : payout ? 'withdrawal' : side === 'out' ? 'transfer_out' : 'transfer_in',
     direction: side,
     asset: account.assetId,
     amount: formatAmount(move.amount),
@@ -81,6 +89,13 @@ export function partnerLines(userId: string, move: PartnerMove, names: ReadonlyM
 
 function keeps(item: ActivityItem, account: PartnerAccountRef, input: ActivityQuery): boolean {
   if (input.kind && !input.kind.includes(item.kind)) return false;
+  if (input.q) {
+    // What the partner's record can answer: the words and figures of the line itself.
+    const haystack = [item.kind, item.direction, item.asset, item.amount, item.txId, item.id, item.spaceName ?? '']
+      .join('\n')
+      .toLowerCase();
+    if (!haystack.includes(input.q.trim().toLowerCase())) return false;
+  }
   if (input.direction && item.direction !== input.direction) return false;
   if (input.from && item.postedAt < new Date(input.from).toISOString()) return false;
   if (input.to && item.postedAt > new Date(input.to).toISOString()) return false;
@@ -110,6 +125,7 @@ export async function partnerActivityPage(
       limit: SCAN_WINDOW,
       ...(before ? { before } : {}),
       ...(input.assetId ? { assetId: input.assetId } : {}),
+      payIns: true,
     });
     for (const move of window) {
       // Newest first: once a move is older than the range's start, nothing after it can match.
@@ -139,7 +155,7 @@ export async function partnerActivityItem(
   const names = new Map((await spaces.allNamedSpaces(userId)).map((s) => [s.id, s.name]));
   let before: string | undefined;
   for (let scanned = 0; scanned < SCAN_MAX; scanned += SCAN_WINDOW) {
-    const window = await partner.moves(userId, { limit: SCAN_WINDOW, ...(before ? { before } : {}) });
+    const window = await partner.moves(userId, { limit: SCAN_WINDOW, ...(before ? { before } : {}), payIns: true });
     for (const move of window) {
       const lines = partnerLines(userId, move, names);
       const item = lines.find((line) => line.id === id);
