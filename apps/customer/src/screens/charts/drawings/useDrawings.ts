@@ -76,16 +76,18 @@ interface PaneBox {
 /** The panes of a host, top to bottom. Without the library's pane list (a test host), the whole element is the price pane. */
 function paneBoxes(host: ChartHost): PaneBox[] {
   const panes = typeof host.chart.panes === 'function' ? host.chart.panes() : [];
-  const origin = host.element.getBoundingClientRect().top;
-  const boxes: PaneBox[] = [];
+  const rects: Array<{ index: number; rect: DOMRect; series: ChartSeries | null }> = [];
   for (const pane of panes) {
     const index = pane.paneIndex();
     const el = typeof pane.getHTMLElement === 'function' ? pane.getHTMLElement() : null;
     if (!el) continue;
-    const rect = el.getBoundingClientRect();
     const series = index === 0 ? host.main : ((typeof pane.getSeries === 'function' ? pane.getSeries() : [])[0] ?? null);
-    boxes.push({ index, top: rect.top - origin, height: rect.height, series });
+    rects.push({ index, rect: el.getBoundingClientRect(), series });
   }
+  // Heights are measured from the price pane's own top, which the chart element's pixels start at (the library reads the
+  // price pane in the element's own pixels); an indicator pane's top is its distance below that.
+  const origin = rects.find((r) => r.index === 0)?.rect.top ?? host.element.getBoundingClientRect().top;
+  const boxes: PaneBox[] = rects.map(({ index, rect, series }) => ({ index, top: rect.top - origin, height: rect.height, series }));
   if (boxes.length === 0) boxes.push({ index: 0, top: 0, height: Number.POSITIVE_INFINITY, series: host.main });
   return boxes;
 }
@@ -261,6 +263,9 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
   const barTimes = useMemo(() => bars.map((b) => Math.floor(b.t / 1000)), [bars]);
   const draftRef = useRef<Pt[]>([]);
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  /** The pixel a brush stroke last sampled a point at (the next is taken a few pixels on). Its own: the pointer's latest
+   * position (`cursorRef`) is written on every move, before the stroke's own handler reads it. */
+  const brushPxRef = useRef<{ x: number; y: number } | null>(null);
   const suppressClickRef = useRef(false);
   const magnet = magnetOn && sensitivity !== null;
 
@@ -551,9 +556,9 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         const last = draftRef.current[draftRef.current.length - 1];
         const at = pointAt(x, y, 0);
         if (isPointRefusal(at) || (last && last.time === at.time && last.price === at.price)) return;
-        const lastPx = cursorRef.current;
+        const lastPx = brushPxRef.current;
         if (lastPx && Math.hypot(lastPx.x - x, lastPx.y - y) < BRUSH_STEP_PX) return;
-        cursorRef.current = { x, y };
+        brushPxRef.current = { x, y };
         draftRef.current = [...draftRef.current, at];
         if (draftRef.current.length >= cap) {
           setNotice(latest.current.t('Refused brush-cap-reached'));
@@ -674,7 +679,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         if (isPointRefusal(at)) return;
         suppressClickRef.current = true;
         draftRef.current = [at];
-        cursorRef.current = { x, y };
+        brushPxRef.current = { x, y };
         drag = { mode: 'brush' };
         freeze(true);
         refreshPrimitive();
