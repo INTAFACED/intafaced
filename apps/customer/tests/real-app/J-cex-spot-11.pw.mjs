@@ -423,6 +423,12 @@ test(`${J} #12 a developer asks for a quote and trades through the convert API: 
   const key = await makeKey(page, { name: 'convert-bot', preset: 'Trade' });
   const me = await api(who);
   const before = await me.balances();
+  // The quote walks the BTC/USDT asks as they rest now. A TEST `move` is a jump: the maker takes its old ladder down
+  // before the new one goes up (tooling/scripts/local-test-market.mjs); #8 puts its move back, and a journey sharing the
+  // stack may move it too, so for a moment the book holds no ask and the quote is refused with
+  // trade.convert_no_liquidity (#7546, run 42460986049). Asked only once the book has both sides again, as J-cex-spot-08
+  // waits before it reads its prices.
+  await bestPrices('BTC/USDT', 50, 60_000);
   const quote = await withKey(key, { method: 'POST', path: '/api/v1/convert/quote', body: { from: 'USDT', to: 'BTC', amount: '10' } });
   expect(quote.status, JSON.stringify(quote.body).slice(0, 300)).toBe(200);
   expect(quote.body).toMatchObject({ fromAsset: 'USDT', toAsset: 'BTC' });
