@@ -28,16 +28,24 @@ describe('More room-set routes (MC-order-01)', () => {
     expect(matchMoreRoute('/market/purchases')?.route.kind).toBe('part');
     expect(matchMoreRoute('/mining/workers')?.route.pattern).toBe('/mining/workers');
     expect(matchMoreRoute('/mining/workers/w-1')).toMatchObject({ route: { pattern: '/mining/workers/:workerId' }, id: 'w-1' });
-    // Every reserved segment, under its own room, is either a section or refused as an id.
+    // Every reserved segment, under its own room, is a section or no address at all, never a record (J-more-catalogue-01 #3).
     for (const [room, segments] of Object.entries(RESERVED_SEGMENTS)) {
       for (const segment of segments) {
         const hit = matchMoreRoute(`/${room}/${segment}`);
-        if (hit?.route.kind === 'detail') expect(hit.invalid, `/${room}/${segment}`).toBe(true);
+        expect(hit?.route.kind, `/${room}/${segment}`).not.toBe('detail');
         // The app's own room list answers a section that has a row with that row, not with the room's parameter row.
         const row = rooms.find((candidate) => candidate.path === `/${room}/${segment}`);
         if (row) expect(findRoom(row.path)).toBe(row);
       }
     }
+  });
+
+  it('opens /predict/settings and /launch/mine as sections, and takes no section name for a record under a deeper record route', () => {
+    expect(matchMoreRoute('/predict/settings')?.route).toMatchObject({ kind: 'part', title: 'predictSettings' });
+    expect(matchMoreRoute('/launch/mine')?.route).toMatchObject({ kind: 'part', title: 'myLaunches' });
+    // /token/governance/:proposalId: a token section's name there is no proposal and no address.
+    for (const segment of RESERVED_SEGMENTS.token) expect(matchMoreRoute(`/token/governance/${segment}`), segment).toBeUndefined();
+    expect(matchMoreRoute('/token/governance/prop-1')).toMatchObject({ route: { kind: 'detail' }, id: 'prop-1' });
   });
 
   it('flags a malformed id instead of looking it up', () => {
