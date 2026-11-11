@@ -23,6 +23,14 @@
   margin: var(--if-space-2) 0 0;
   color: var(--color-muted);
 }
+/* An own gap reads in the shared empty state, kept to one compact row beside its disabled action. */
+.protocol-room .protocol-actions__gap .empty-state {
+  min-height: 0;
+  padding: var(--if-space-3);
+  flex-direction: row;
+  justify-content: flex-start;
+  text-align: start;
+}
 .protocol-room .protocol-quote {
   display: grid;
   gap: var(--if-space-4);

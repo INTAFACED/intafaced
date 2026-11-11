@@ -19,6 +19,7 @@ import type {
   AcademyCourseList,
   AcademyCourseState,
   AcademyCreateCourseInput,
+  AcademyDuplicateCourseInput,
   AcademyOutlineSection,
   AcademySaveOutlineInput,
   AcademySetCourseStateInput,
@@ -141,6 +142,114 @@ export class CourseRecords {
       if (existing && existing.revision === 1 && existing.created_by === input.operatorId && sameDetails(existing, input))
         return courseOf(existing);
       throw new AcademyError(`slug "${input.slug}" is already the address of a course`, 'academy.course_slug_taken');
+    });
+  }
+
+  /**
+   * AC-course-structure-03 (course-structure-006): a new draft course at its own address, copied from any course, draft
+   * or published. Details, topics, sections and items are copied; each item that holds a lesson gets the source's newest
+   * revision as its revision 1 (not live), and an assignment its brief. A quiz item is copied without its questions, as
+   * an item duplicate is. Nothing about learners is read or written: an enrolment, start, completion, attempt, hand-in,
+   * extension or progress row stays with the source. The created event's reason names the source.
+   *
+   * Idempotency: keyed by the new slug. The same founder's repeat from the same course (a lost reply) finds the copy at
+   * revision 1 whose items were all copied from that course and answers with it; anything else is a taken slug.
+   */
+  async duplicate(input: AcademyDuplicateCourseInput & { operatorId: string; now: Date }): Promise<AcademyCourse> {
+    assertSlugFree(input.slug);
+    return this.sql.begin(async (tx) => {
+      const source = await this.lock(tx, input.courseId);
+      const reason = `duplicated from ${source.slug}: ${input.reason}`;
+      const inserted = await tx<CourseRow[]>`
+        INSERT INTO academy.courses
+          (slug, title, summary, thumbnail_url, pricing, price, price_asset, state, revision, created_by, created_at, updated_at)
+        VALUES (${input.slug}, ${input.title}, ${source.summary}, ${source.thumbnail_url}, ${source.pricing}, ${source.price},
+                ${source.price_asset}, 'draft', 1, ${input.operatorId}, ${input.now}, ${input.now})
+        ON CONFLICT (slug) DO NOTHING
+        RETURNING *, 0 AS items
+      `;
+      const copy = inserted[0];
+      if (!copy) {
+        const [existing] = await tx<Array<CourseRow & { event_reason: string | null; foreign: number }>>`
+          SELECT c.*, 0 AS items, e.reason AS event_reason,
+            (SELECT count(*)::int FROM academy.course_items i LEFT JOIN academy.course_items s ON s.id = i.copied_from
+             WHERE i.course_id = c.id AND (s.course_id IS DISTINCT FROM ${source.id})) AS foreign
+          FROM academy.courses c JOIN academy.course_events e ON e.course_id = c.id AND e.revision = 1
+          WHERE c.slug = ${input.slug}
+        `;
+        if (
+          existing &&
+          existing.revision === 1 &&
+          existing.created_by === input.operatorId &&
+          existing.title === input.title &&
+          existing.event_reason === reason &&
+          existing.foreign === 0
+        )
+          return this.get(existing.id, tx).then((d) => d.course);
+        throw new AcademyError(`slug "${input.slug}" is already the address of a course`, 'academy.course_slug_taken');
+      }
+      await tx`
+        INSERT INTO academy.course_events (course_id, revision, kind, from_state, to_state, actor, reason, at)
+        VALUES (${copy.id}, 1, 'created', NULL, 'draft', ${input.operatorId}, ${reason}, ${input.now})
+      `;
+      await tx`
+        INSERT INTO academy.course_topics (course_id, topic_id)
+        SELECT ${copy.id}, topic_id FROM academy.course_topics WHERE course_id = ${source.id}
+      `;
+      const sections = await tx<Array<{ id: string; position: number; title: string }>>`
+        SELECT id, position, title FROM academy.course_sections WHERE course_id = ${source.id} ORDER BY position
+      `;
+      const sectionIds = new Map(sections.map((s) => [s.id, randomUUID()]));
+      if (sections.length > 0)
+        await tx`
+          INSERT INTO academy.course_sections ${tx(
+            sections.map((s) => ({ id: sectionIds.get(s.id)!, course_id: copy.id, position: s.position, title: s.title })),
+          )}
+        `;
+      const items = await tx<
+        Array<{ id: string; section_id: string; position: number; kind: string; title: string; indent: number; url: string | null }>
+      >`
+        SELECT id, section_id, position, kind, title, indent, url FROM academy.course_items WHERE course_id = ${source.id}
+      `;
+      const itemIds = new Map(items.map((i) => [i.id, randomUUID()]));
+      if (items.length > 0)
+        await tx`
+          INSERT INTO academy.course_items ${tx(
+            items.map((i) => ({
+              id: itemIds.get(i.id)!,
+              course_id: copy.id,
+              section_id: sectionIds.get(i.section_id)!,
+              position: i.position,
+              kind: i.kind,
+              title: i.title,
+              indent: i.indent,
+              url: i.url,
+              copied_from: i.id,
+              copied_at_revision: 1,
+            })),
+          )}
+        `;
+      // Each item's newest lesson becomes the copy's revision 1, and an open assignment's brief its revision 1.
+      await tx`
+        INSERT INTO academy.lesson_revisions (item_id, revision, source, from_revision, from_item_id, blocks, actor, at)
+        SELECT i.id, 1, 'duplicated', NULL, i.copied_from, r.blocks, ${input.operatorId}, ${input.now}
+        FROM academy.course_items i
+        JOIN LATERAL (
+          SELECT blocks FROM academy.lesson_revisions WHERE item_id = i.copied_from ORDER BY revision DESC LIMIT 1
+        ) r ON true
+        WHERE i.course_id = ${copy.id}
+      `;
+      await tx`
+        INSERT INTO academy.course_assignments (item_id, revision, instructions, points, due_at, text_mode, file_mode, saved_by, saved_at)
+        SELECT i.id, 1, a.instructions, a.points, a.due_at, a.text_mode, a.file_mode, ${input.operatorId}, ${input.now}
+        FROM academy.course_items i
+        JOIN LATERAL (
+          SELECT * FROM academy.course_assignments
+          WHERE item_id = i.copied_from AND withdrawn_at IS NULL ORDER BY revision DESC LIMIT 1
+        ) a ON true
+        WHERE i.course_id = ${copy.id}
+      `;
+      return (await this.get(copy.id, tx)).course;
     });
   }
 

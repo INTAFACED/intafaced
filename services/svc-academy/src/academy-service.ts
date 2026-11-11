@@ -82,6 +82,7 @@ import type {
   AcademySaveLessonInput,
   AcademyRevertLessonInput,
   AcademyPublishLessonInput,
+  AcademyDuplicateCourseInput,
   AcademyDuplicateItemInput,
   AcademySaveAssignmentInput,
   AcademySaveReviewStepsInput,
@@ -2406,6 +2407,10 @@ export class AcademyService {
 
   publishLesson(input: AcademyPublishLessonInput & { operatorId: string; now?: Date }) {
     return this.lessonRecords.publish({ ...input, now: input.now ?? new Date() });
+  }
+
+  duplicateCourse(input: AcademyDuplicateCourseInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.duplicate({ ...input, now: input.now ?? new Date() });
   }
 
   duplicateItem(input: AcademyDuplicateItemInput & { operatorId: string; now?: Date }) {

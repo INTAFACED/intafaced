@@ -151,13 +151,27 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
     await expect(row.getByRole('button', { name: label })).toBeDisabled();
     await expectServiceOff(row.locator('[data-not-connected]'), 'chain.go', label);
   }
-  // Swapping is blocked by our own Protocol service not answering on this stack: it says so, with no allowlist code.
+  // Swapping is blocked by a gap of our own on this stack: the shared empty-state component names it, with no code at all.
   await page.goto('/dex');
   await expectWeb3(page);
   const swap = page.locator('[data-action="swap"]');
-  await expect(swap.getByRole('button', { name: 'Swap' })).toBeDisabled();
-  await expect(swap.getByRole('note')).toHaveText(/^Blocked: .+/);
+  const button = swap.getByRole('button', { name: 'Swap' });
+  await expect(button).toBeDisabled();
+  const note = swap.getByRole('note');
+  await expect(note).toHaveCount(1);
+  const gap = note.locator(':scope > .empty-state');
+  await expect(gap).toHaveCount(1);
+  await expect(gap.getByRole('heading')).toHaveText(/^Blocked: .+/);
+  // The blocker it names is the one the disabled Swap names.
+  const title = await button.getAttribute('title');
+  const said = (await gap.getByRole('heading').innerText()).replace(/\s+/g, ' ').trim();
+  expect(said.toLowerCase()).toBe(`Blocked: ${title}`.replace(/\s+/g, ' ').trim().toLowerCase());
+  // No code: no service-off notice, no allowlist code and no dotted refusal code in its words.
   await expect(page.locator('[data-not-connected]')).toHaveCount(0);
+  await expect(note.locator('[data-code], .service-off')).toHaveCount(0);
+  const words = (await note.innerText()).replace(/\s+/g, ' ');
+  for (const code of ['rail.crypto', 'chain.go', 'audit.external', 'owner.decision']) expect(words).not.toContain(code);
+  expect(words).not.toMatch(/\b[a-z][a-z_]*\.[a-z][a-z_.]*\b/);
   await page.context().close();
 });
 
