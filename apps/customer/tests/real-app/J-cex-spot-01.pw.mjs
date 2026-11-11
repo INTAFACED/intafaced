@@ -83,10 +83,7 @@ function asShownUsd(value) {
   return units < 0n ? -rounded : rounded;
 }
 
-/**
- * A rate the service sends as a ratio ("0.0008"), as the percent the desk shows to two places ("0.08"), in units: rounded
- * half away from zero, so a rebate (a negative rate) rounds as its size does.
- */
+/** A ratio ("0.0008") as the desk's two-place percent ("0.08") in units, rounded half away from zero. */
 function asPercent(ratio) {
   const cent = toUnits('0.01');
   const percent = wireUnits(ratio) * 100n;
@@ -158,10 +155,7 @@ test(`${J} #2 tries a TEST limit buy before verifying and is refused in plain wo
 /** The stack's TEST sanctions list entry a trading check must hold (a TEST name only; never a real person). */
 const LISTED = { legalName: 'TEST Listed Person', dateOfBirth: '1970-01-01', country: 'DE' };
 
-/**
- * The trading checks on /verification, as a person passes them: their legal name, and the country they live in
- * confirmed. Nothing asks for an ID document, a selfie or an ID vendor. Returns the request the page sent.
- */
+/** The trading checks on /verification: legal name and country confirmed, no ID asked. Returns the request sent. */
 async function tradingChecks(page, { legalName, country }) {
   await page.goto('/verification');
   const checks = page.getByRole('form', { name: /trading checks/i });
@@ -384,10 +378,7 @@ const venuePanel = (page) => page.getByRole('region', { name: /venue account/i }
 /** The figure the panel lists next to `label` (its dt/dd pair). */
 const listed = (scope, label) => scope.locator('dt', { hasText: label }).first().locator('xpath=following-sibling::dd[1]');
 
-/**
- * The panel shows the venue's own USDC figures for `owner`, unit for unit, with the venue's as-of time. Read again
- * until it does (the panel refreshes on its own); returns the venue's read.
- */
+/** Waits until the panel shows the venue's own USDC figures for `owner`, unit for unit; returns the venue's read. */
 async function panelEqualsVenue(page, who, owner) {
   const panel = venuePanel(page);
   let venue;
@@ -541,10 +532,7 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
 /** #6's buy, in the row's own words: TEST 0.1 BTC. */
 const VENUE_BUY = '0.1';
 
-/**
- * A TEST top-up of the person's venue account through the venue's own TEST deposit control (never our ledger): a
- * 0.1 BTC buy at the TEST venue's price (about 60,000) locks about 6,000 USDC, more than #4's 1,000.
- */
+/** A TEST top-up by the venue's TEST deposit control (never our ledger): a 0.1 BTC buy locks more than #4's 1,000. */
 const VENUE_TOP_UP = '6000';
 
 /** One tick above the venue's best bid: a buy there rests, and is first in line for a crossing sell. */
@@ -876,11 +864,7 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
 /** A venue fill's quote leg (price × amount), as scaled units, as #8 works it out. */
 const quoteOf = (fill) => (wireUnits(fill.price) * wireUnits(fill.amount)) / toUnits('1');
 
-/**
- * The person's BTC lots as the venue's own fills make them, oldest first: each spot buy fill is one lot holding what it
- * delivered (its amount, less a fee the venue took in BTC) at what it cost (its quote leg, plus a fee the venue took in
- * USDC). The TEST USDC the venue settles in counts one for one as a TEST dollar, as the desk shows it.
- */
+/** The BTC lots the venue's buy fills make, oldest first: amount less a BTC fee, at its quote leg plus a USDC fee. */
 function venueLots(fills) {
   return fills
     .filter((f) => f.symbol === VENUE_SPOT && f.side === 'buy')
@@ -892,9 +876,8 @@ function venueLots(fills) {
 }
 
 /**
- * The realised result of `sells` against `lots`, first in first out (svc-tax's DEFAULT_LOT_BOOK_METHOD): what the sales
- * brought in (their quote legs, less every USDC fee the venue charged on them), less the cost of the lots they used up, a part lot at its
- * share of the cost.
+ * The realised result of `sells` against `lots`, FIFO (svc-tax's DEFAULT_LOT_BOOK_METHOD): their quote legs less every
+ * USDC fee charged on them, less the cost of the lots used up, a part lot at its share.
  */
 function realisedFifo(lots, sells) {
   let left = sells.reduce((s, f) => s + wireUnits(f.amount), 0n);
