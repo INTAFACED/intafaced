@@ -6,10 +6,8 @@ import { api, toUnits, tool } from './stack.mjs';
 // The person's own venue account, read from the TEST venue itself, never from our ledger, engine or door: the venue journeys
 // (J-cex-spot-01, J-derivatives-01) assert every balance, lock, fill and position against these reads.
 //
-// The venue is the stack's LOCAL TEST venue (tooling/scripts/local-test-venue.mjs, packages/venue-sim) behind svc-trade's
-// user-venue door (services/svc-trade/src/venue/user-venue-rest.ts, /api/v1/venue/*). The door is off unless the stack
-// runs with LOCAL_STACK_USER_VENUE=on; `venueOn` restarts trade with it on, and `venueOff` puts it back. Every figure it
-// reports is TEST.
+// The venue is the stack's LOCAL TEST venue (packages/venue-sim). svc-trade's door to it is off unless the stack runs
+// with LOCAL_STACK_USER_VENUE=on: `venueOn` restarts trade with it on, `venueOff` puts it back. Every figure is TEST.
 
 /** The LOCAL TEST venue's own loopback address (local-test-stack.mjs PORTS['test-venue']). */
 export const TEST_VENUE = 'http://127.0.0.1:14560';

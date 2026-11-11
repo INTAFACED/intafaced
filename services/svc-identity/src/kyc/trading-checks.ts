@@ -4,10 +4,9 @@
  * screens that name, the date of birth they gave at sign-up and the country against the owner's sanctions list
  * (`IDENTITY_SANCTIONS_PERSONS_LIST`, NO DEFAULT). No ID document, selfie or ID vendor is asked for.
  *
- *   - clear: a level-basic record for trading, approved by the check itself (`reviewed_by` 'trading-checks'), opened and
- *     decided in one transaction with its case, the capabilities the owner maps to the level, and this check's row.
- *   - hit: the account is held. A pending level-basic record goes to a person in compliance, nothing is granted, and the
- *     person reads a neutral "under review" that never says why.
+ *   - clear: a level-basic record for trading alone, approved by the check (`reviewed_by` 'trading-checks'), decided in
+ *     one transaction with its case, the trading capability only, and this check's row.
+ *   - hit: held. A pending record goes to compliance, nothing is granted, and the person reads a neutral "under review".
  *   - list blank: refuses `kyc.screening_list_unset` and writes nothing. A list is never invented.
  *
  * The business key is `kyc:trading-checks:<user id>`: a repeat answers the first outcome and never screens again, so a

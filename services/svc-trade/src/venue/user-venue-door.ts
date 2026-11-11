@@ -294,10 +294,8 @@ export interface UserVenueDoorDeps {
 }
 
 /**
- * The furthest a market order's worst price may be from the venue's best price under the owner's protection: a buy pays
- * at most the best ask plus `capBps`, rounded up to the tick; a sell takes at least the best bid less `capBps`, rounded
- * down. The same rounding as the desk's `slippageLimit` (apps/customer venue-desk.ts), so the desk's own worst price is
- * always inside. Null when the side the order meets has no price, or the bound is not a positive price.
+ * A market order's furthest worst price under the protection: a buy at most the best ask plus `capBps` (rounded up to
+ * the tick), a sell at least the best bid less it (rounded down), as the desk's `slippageLimit`. Null with no price.
  */
 export function marketProtectionBound(
   side: 'buy' | 'sell',
