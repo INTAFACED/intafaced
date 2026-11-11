@@ -201,7 +201,7 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
 
   // A market with no volume says so. Volume is the sum of the market's executed trades (Edge's candles are built from
   // fills), so a listed spot market that the public candle route serves no bar for has no volume at all: its chart says
-  // there were no trades, and draws no volume, no bar and no study value to read as one.
+  // there were no trades and no volume, and draws no volume, no bar and no study value to read as one.
   const listed = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
   let quiet = null;
   for (const m of listed.filter((x) => x.spot === true && x.active === true && x.symbol !== 'BTC/USDT')) {
@@ -214,7 +214,9 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   expect(quiet, 'the stack lists a spot market with no trades (no volume)').not.toBeNull();
   await page.goto(`/charts/${quiet.replace('/', '-')}`);
   await expect(page.getByRole('heading', { name: 'Charts' })).toBeVisible();
-  await expect(page.getByTestId('cw').first()).toContainText('No trades in this period.');
+  const chart = page.getByTestId('cw').first();
+  await expect(chart).toContainText('No trades in this period.');
+  await expect(chart).toContainText('This market has no volume in the loaded bars.');
   await expect(host(page)).toHaveCount(0);
   await expect(page.getByTestId('study-legend')).toHaveCount(0);
 });

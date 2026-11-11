@@ -246,7 +246,10 @@ export const MarketChartWidget = memo(function MarketChartWidget({
 
   let body: React.ReactNode;
   if (polled.status === 'loading') body = <Skeleton className="cw-skeleton bg-field" />;
-  else if (polled.status === 'empty') body = <StateBlock kind="empty" title={t('No trades in this period')} />;
+  else if (polled.status === 'empty')
+    // Volume is the sum of the market's trades, so a market with no trades has none: the chart says so, as the volume
+    // study does on loaded bars with no volume.
+    body = <StateBlock kind="empty" title={t('No trades in this period')} body={t('No volume in this period')} />;
   else if (polled.status === 'error')
     body = <StateBlock kind="error" title={t('Couldn’t load the chart')} onRetry={polled.retry} retryLabel={t('Try again')} />;
   else if (polled.status === 'refused') {

@@ -81,6 +81,7 @@ const messages = {
   C: 'C',
   Change: 'Change',
   'No trades in this period': 'No trades in this period.',
+  'No volume in this period': 'This market has no volume in the loaded bars.',
   'Couldn’t load the chart': 'Couldn’t load the chart.',
   'Couldn’t load this market': 'Couldn’t load this market.',
   'Try again': 'Try again',
