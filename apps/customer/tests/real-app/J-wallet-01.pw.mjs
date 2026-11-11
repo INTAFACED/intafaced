@@ -492,6 +492,9 @@ test(`${J} #3 buys with a card and with a bank pull through the partner, then op
     await expect(sheet.getByTestId('venue-outcome').last()).toContainText('Open on the venue.');
     const placed = (await openOrders(owner)).find((o) => o.venueClientOrderId !== resting);
     expect(placed?.status).toBe('open');
+    // Close the review, as a person does, before cancelling on the desk.
+    await sheet.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(sheet).toBeHidden();
     const orderRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${placed.venueClientOrderId}"]`);
     await orderRow.getByRole('button', { name: 'Cancel', exact: true }).click();
     await continueInWallet(page);
