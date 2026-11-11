@@ -161,13 +161,24 @@ export async function approveKyb(merchantId) {
   return decided;
 }
 
-/** Every pay call the page makes that the service refuses, as "status procedure". */
+/**
+ * Every pay call the page makes that the service refuses, as "status procedure". Each refusal's own words (the service's
+ * message and code, and its request id) go on the test as a `refused-pay-call` annotation, so a refusal that happens once
+ * in a while names its cause in the report (#7962: a lone 401 on merchant.starterFee).
+ */
 export function refusedPayCalls(page) {
   const refused = [];
-  page.on('response', (res) => {
+  const info = test.info();
+  page.on('response', async (res) => {
     const url = new URL(res.url());
-    if (url.pathname.startsWith('/api/pay/') && res.status() >= 400)
-      refused.push(`${res.status()} ${url.pathname.replace('/api/pay/trpc/', '')}`);
+    if (!url.pathname.startsWith('/api/pay/') || res.status() < 400) return;
+    const call = `${res.status()} ${url.pathname.replace('/api/pay/trpc/', '')}`;
+    refused.push(call);
+    const body = await res.json().catch(() => null);
+    const error = (Array.isArray(body) ? body[0] : body)?.error;
+    const words = [error?.message, error?.data?.code, error?.data?.intafacedCode, res.headers()['x-request-id']];
+    const description = `${call}: ${words.map((word) => word ?? '-').join(' | ')}`;
+    info.annotations.push({ type: 'refused-pay-call', description });
   });
   return refused;
 }
