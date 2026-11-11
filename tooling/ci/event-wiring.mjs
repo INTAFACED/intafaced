@@ -176,9 +176,9 @@ import { createHash } from 'node:crypto';
 const fingerprint = (text) => createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 12);
 
 const ROOT = process.cwd();
-// `.tools` and `target` are sbe-codec's JDK, Maven repo and build output: no source lives there, and a
-// Maven download renames its temp files while the walk runs (issue #7703).
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', '.next', 'coverage', 'vendor', '.git', 'drizzle', '.tools', 'target']);
+// `.tools` is sbe-codec's JDK and Maven repo (git-ignored, no source lives there), and a Maven download
+// renames its temp files there while the walk runs (issue #7703).
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', '.next', 'coverage', 'vendor', '.git', 'drizzle', '.tools']);
 const ROOTS = ['services', 'apps', 'packages'];
 
 /** Under 40 characters is a placeholder, not a reason. "TODO" is 4. */
