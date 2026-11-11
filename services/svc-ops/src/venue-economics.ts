@@ -76,6 +76,13 @@ export function subtractCosts(revenue: string, costs: string): string {
   return `-${subtractNonNegative(costs, revenue)}`;
 }
 
+/** Exact sum of two signed decimal strings (a fee net may be negative). A zero result carries no sign. */
+export function addSignedDecimals(a: string, b: string): string {
+  if (b.startsWith('-')) return subtractCosts(a, b.slice(1));
+  if (a.startsWith('-')) return subtractCosts(b, a.slice(1));
+  return addDecimalStrings(a, b);
+}
+
 /** The calendar month in UTC as the half-open window the ledger is asked about: first of the month, first of the next. */
 export function periodWindow(period: string): { from: Date; to: Date } {
   const [year, month] = period.split('-').map(Number) as [number, number];
@@ -189,7 +196,9 @@ function composeNet(fees: FeeRevenueRead | undefined, missing: number, costs: Re
   if (!fees) return { status: 'unavailable', reason: 'revenue_asset_unknown' };
   if (!fees.ok) return { status: 'unavailable', reason: 'revenue_unavailable' };
   if (missing > 0) return { status: 'unavailable', reason: 'costs_incomplete' };
-  const revenue = new Map(fees.value.assets.map((a) => [a.assetId, a.net]));
+  // The ledger answers per venue and asset; the month's revenue in an asset is the kept fee over every venue's row and ours.
+  const revenue = new Map<string, string>();
+  for (const a of fees.value.assets) revenue.set(a.assetId, addSignedDecimals(revenue.get(a.assetId) ?? '0', a.net));
   const assets = [...new Set([...revenue.keys(), ...costs.keys()])].sort((a, b) => a.localeCompare(b));
   return {
     status: 'ok',

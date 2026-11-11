@@ -1,5 +1,7 @@
 # ADR: Fee + revenue recipe map — closed matrix, no invent (D26-P0-09)
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The fee paths this matrix lists are taken inside recipes that move a customer balance, so they apply when the custodial layer is switched on. At launch, fee and revenue posts are the ones in 2026-11-10-launch-money-model.md. The rule that a new recipe needs an owner carve-out holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-15 (D26-P0-09 law seal).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-09 — fee + revenue recipe map.  

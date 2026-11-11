@@ -1,8 +1,8 @@
 // World: book, restart, gates
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { fundedTrader } from './desk.mjs';
-import { api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { fundedTrader, openOrders } from './desk.mjs';
+import { api, fund, journeyState, otherTrader, toUnits, tool } from './stack.mjs';
 
 // J-cex-spot-20 "I see the venue's health: matching, FIX, seeded liquidity and the published rulebook", in the founder
 // console (apps/admin) against the running stack. One test per step, titled "J-cex-spot-20 #<n>". The founder is founder A;
@@ -12,6 +12,9 @@ import { api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from '.
 const J = 'J-cex-spot-20';
 const SYMBOL = 'BTC/USDT';
 const MATCHING = 'http://127.0.0.1:14505';
+/** The TEST market the market maker never quotes (seed-spot-test-listing.mjs `UNQUOTED_TEST_SPOT`): only a journey trades it. */
+const FEE_MARKET = 'IFC/USDC';
+const FEE_ASSET = 'IFC';
 const RUN = Date.now().toString(36);
 const run = journeyState(J);
 
@@ -412,8 +415,56 @@ test(`${J} #6 opens the published trading rulebook: versioned rulebook text cust
   await customer.context().close();
 });
 
-test(`${J} #7 opens the venue unit economics report: revenue and cost lines from real postings or named blockers`, async ({ page }) => {
-  test.setTimeout(240_000);
+/** The seven cost lines of the venue report, with the TEST figure #7 enters for each, in the asset #7's fee is paid in. */
+const COST_ASSET = FEE_ASSET;
+const COST_LINES = [
+  { category: 'liquidity', label: 'Liquidity', amount: '0.1' },
+  { category: 'insurance_default_capital', label: 'Insurance and default capital', amount: '0.2' },
+  { category: 'custody', label: 'Custody', amount: '0.3' },
+  { category: 'data', label: 'Data', amount: '0.4' },
+  { category: 'support', label: 'Support', amount: '0.5' },
+  { category: 'compliance', label: 'Compliance', amount: '0.6' },
+  { category: 'infrastructure', label: 'Infrastructure', amount: '0.7' },
+];
+/** A month no journey enters a cost for: #7 enters only in the current month. */
+const BLANK_MONTH = '2001-01';
+const costNote = (category) => `TEST invoice ${category} ${RUN}`;
+
+/** Founder A asks for one cost line, founder B approves exactly that packet, founder A runs it. */
+async function enterCost(a, b, period, { category, amount }) {
+  const url = `${ADMIN}/more-ops/venue-economics?period=${period}`;
+  const phrase = `RECORD COST ${category} ${period}`;
+  await a.goto(url);
+  const entry = a.getByTestId('venue-cost-entry');
+  await entry.getByLabel('Cost line').selectOption(category);
+  await entry.getByLabel('Amount for the month').fill(amount);
+  await entry.getByLabel('Currency or asset').fill(COST_ASSET);
+  await entry.getByLabel(/^Source note/).fill(costNote(category));
+  await entry.getByLabel(/to confirm$/).fill(phrase);
+  await entry.getByRole('button', { name: 'Ask a second founder to approve this cost' }).click();
+  await expect(entry.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+  const packet = (await entry.getByLabel('Request packet').inputValue()).trim();
+
+  await b.goto(url);
+  const theirs = b.getByTestId('venue-cost-entry');
+  await theirs.getByLabel('Request packet').fill(packet);
+  await expect(theirs.getByTestId('packet-summary')).toContainText(
+    `Record a venue cost for ${period}: ${category.replace(/_/g, ' ')} is ${amount} ${COST_ASSET}`,
+  );
+  await theirs.getByLabel(/to approve or run it$/).fill(phrase);
+  await theirs.getByRole('button', { name: 'Approve this request' }).click();
+  await expect(theirs.getByTestId('step-reply')).toContainText('Approved.');
+
+  await entry.getByLabel(/to approve or run it$/).fill(phrase);
+  await entry.getByRole('button', { name: 'Run the approved request' }).click();
+  await expect(entry.getByTestId('step-reply')).toContainText(`of ${category.replace(/_/g, ' ')} for ${period}.`, { timeout: 60_000 });
+}
+
+test(`${J} #7 opens the venue unit economics report: revenue and cost lines from real postings or named blockers`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(480_000);
   const { customer } = run.read();
   await founderSignIn(page, 'a');
   await page.goto(`${ADMIN}/trade-ops`);
@@ -422,89 +473,139 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
   const report = page.getByTestId('venue-report');
   await expect(report).toBeVisible();
 
-  // One customer buy through the best ask pays a fee; the ledger's fee accounts for this month grow by exactly that fee.
-  const collected = async (asset) => {
-    const cell = page.locator(`[data-testid=fees-table] tr[data-asset="${asset}"] [data-col=collected]`);
+  // One customer buy through a resting ask pays a fee; the ledger's fee accounts for this month grow by exactly that fee.
+  // The total is the whole venue's, and the stack's own taker buys and sells BTC/USDT on a timer, so its fee can land in
+  // BTC inside the same minute (#7868). The buy is made on the unquoted market, where nothing else takes IFC as a fee.
+  // The ledger answers per venue and asset, earned and collected apart (OWNER 288): a fee on our own book is earned, on
+  // our own row (no venue), so the fee is read from the earned column of that row.
+  const earned = async (asset) => {
+    const cell = page.locator(`[data-testid=fees-table] tr[data-asset="${asset}"][data-venue=""] [data-col=earned]`);
     return (await cell.count()) === 0 ? 0n : toUnits((await cell.textContent()).trim());
   };
-  const { ask } = await bestPrices(SYMBOL);
-  const one = toUnits('1');
-  const through = fromUnits(((toUnits(ask) * 105n) / 100n / one) * one);
-  const before = { USDT: await collected('USDT'), BTC: await collected('BTC') };
-  const order = await place(customer, { type: 'limit', side: 'buy', amount: '0.001', price: through, clientOrderId: `${J}-7-${RUN}` });
-  let fills = [];
-  await expect.poll(async () => (fills = await customerFills(customer, order.id)).length, { timeout: 30_000 }).toBeGreaterThan(0);
-  const fees = {};
-  for (const f of fills) fees[f.fee.currency] = (fees[f.fee.currency] ?? 0n) + toUnits(f.fee.cost);
-  // Fees are taken in the asset each side receives, so the buyer's fee asset moves by this fill alone: exactly its fee.
-  for (const [asset, fee] of Object.entries(fees)) {
-    expect(fee).toBeGreaterThan(0n);
+  const seller = otherTrader();
+  const theirs = await api(seller);
+  expect(fund(seller.email, 'IFC', '10').tx).toBeTruthy();
+  expect(fund(seller.email, 'USDC', '10').tx).toBeTruthy();
+  expect(fund(customer.email, 'USDC', '5').tx).toBeTruthy();
+  const rest = async (side, price, amount) => {
+    const res = await theirs.post('/api/v1/orders', {
+      symbol: FEE_MARKET,
+      type: 'limit',
+      side,
+      amount,
+      price,
+      timeInForce: 'GTC',
+      clientOrderId: `${J}-7-${side}-${RUN}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
+  };
+  try {
+    // A bid as well as the ask, so the market has a two-sided mark for the buy's price band.
+    await rest('buy', '0.99', '1');
+    await rest('sell', '1.01', '2');
+    const before = { IFC: await earned('IFC'), USDC: await earned('USDC') };
+    const order = await place(customer, {
+      symbol: FEE_MARKET,
+      type: 'limit',
+      side: 'buy',
+      amount: '1',
+      price: '1.01',
+      clientOrderId: `${J}-7-${RUN}`,
+    });
+    let fills = [];
     await expect
-      .poll(
-        async () => {
-          await page.reload();
-          return (await collected(asset)) - (before[asset] ?? 0n);
-        },
-        { timeout: 60_000 },
-      )
-      .toBe(fee);
+      .poll(async () => (fills = await customerFills(customer, order.id)).reduce((sum, f) => sum + toUnits(f.amount), 0n), {
+        timeout: 30_000,
+      })
+      .toBe(toUnits('1'));
+    const fees = {};
+    for (const f of fills) fees[f.fee.currency] = (fees[f.fee.currency] ?? 0n) + toUnits(f.fee.cost);
+    // Fees are taken in the asset each side receives, so the buyer's fee asset moves by this fill alone: exactly its fee.
+    expect(Object.keys(fees)).toEqual(['IFC']);
+    for (const [asset, fee] of Object.entries(fees)) {
+      expect(fee).toBeGreaterThan(0n);
+      await expect
+        .poll(
+          async () => {
+            await page.reload();
+            return (await earned(asset)) - (before[asset] ?? 0n);
+          },
+          { timeout: 60_000 },
+        )
+        .toBe(fee);
+    }
+  } finally {
+    // The seller's bid and what is left of its ask come off, so later steps find this market's book as it was.
+    for (const open of await openOrders(seller, FEE_MARKET)) {
+      const res = await theirs.delete(`/api/v1/orders/${open.id}`);
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+    }
   }
-  // Each fee line is the ledger's own: what it kept is what it collected less what it returned, as decimal strings.
+  // Each fee line is the ledger's own: what it kept is what it earned less what it returned, as decimal strings.
   const feeRows = page.locator('[data-testid=fees-table] tbody tr');
   expect(await feeRows.count()).toBeGreaterThan(0);
   for (const row of await feeRows.all()) {
     const cell = async (col) => (await row.locator(`[data-col=${col}]`).textContent()).trim();
-    const [c, r, k] = [await cell('collected'), await cell('returned'), await cell('kept')];
-    for (const v of [c, r, k]) expect(v).toMatch(/^-?\d+(\.\d+)?$/);
-    expect(toUnits(k), `${await row.getAttribute('data-asset')}: kept = collected - returned`).toBe(toUnits(c) - toUnits(r));
+    const [e, r, k] = [await cell('earned'), await cell('returned'), await cell('kept')];
+    for (const v of [e, r, k]) expect(v).toMatch(/^-?\d+(\.\d+)?$/);
+    expect(toUnits(k), `${await row.getAttribute('data-asset')}: kept = earned - returned`).toBe(toUnits(e) - toUnits(r));
   }
 
-  // The warehouse revenue: exactly one answer, and it is a figure or a named blocker, never a blank.
-  const revenue = page.locator('[data-testid=revenue-table], [data-testid=revenue-empty], [data-testid=revenue-unavailable]');
-  await expect(revenue).toHaveCount(1);
-  if ((await page.getByTestId('revenue-unavailable').count()) > 0) {
-    await expect(page.getByTestId('revenue-unavailable')).toContainText('Revenue not available');
-    await expect(page.getByTestId('revenue-unavailable')).toContainText(/Code: [a-z][a-z0-9_.]*\. /);
-  } else if ((await page.getByTestId('revenue-table').count()) > 0) {
-    for (const value of await page.locator('[data-testid=revenue-table] tbody tr td:nth-child(3)').allTextContents())
-      expect(value.trim()).toMatch(/^-?\d+(\.\d+)?$/);
-  } else {
-    await expect(page.getByTestId('revenue-empty')).toHaveText(
-      'The analytics warehouse has no revenue to report. That is shown as empty, not as zero.',
-    );
-  }
+  // The warehouse read: the stack wires no analytics replica, so this is the named blocker, and no figure stands in for it.
+  const blocked = page.getByTestId('revenue-unavailable');
+  await expect(blocked).toContainText('Revenue not available');
+  await expect(blocked).toContainText('Code: ops.warehouse_unwired.');
+  await expect(page.getByTestId('revenue-table')).toHaveCount(0);
+  await expect(page.getByTestId('revenue-empty')).toHaveCount(0);
 
-  // Each of the seven cost lines: an entered figure with its asset, or exactly "Not entered", which the incomplete
-  // notice then names; a line nobody entered is never a zero.
-  const labels = {
-    liquidity: 'Liquidity',
-    insurance_default_capital: 'Insurance and default capital',
-    custody: 'Custody',
-    data: 'Data',
-    support: 'Support',
-    compliance: 'Compliance',
-    infrastructure: 'Infrastructure',
-  };
-  const missing = [];
-  for (const [category, label] of Object.entries(labels)) {
-    const cells = (await page.getByTestId(`cost-${category}`).locator('td').allTextContents()).map((t) => t.trim());
-    expect(cells[0]).toBe(label);
-    if (cells[1] === 'Not entered') missing.push(label);
-    else expect(cells[1], `${label} is an entered figure`).toMatch(/^\d+(\.\d+)? [A-Z0-9]{2,12}$/);
+  // A month nobody enters costs for: each of the seven lines is exactly "Not entered", which the incomplete notice names,
+  // and net is the named blocker. A line nobody entered is never a zero.
+  const period = await page.getByLabel('Month', { exact: true }).inputValue();
+  await page.goto(`${ADMIN}/more-ops/venue-economics?period=${BLANK_MONTH}`);
+  for (const { category, label } of COST_LINES) {
+    await expect(page.getByTestId(`cost-${category}`).locator('td')).toHaveText([label, 'Not entered']);
   }
-  // Net: a figure only when every line is entered; otherwise the named blocker for exactly that.
-  if (missing.length > 0) {
-    await expect(page.getByTestId('incomplete')).toContainText(`Not entered: ${missing.join(', ')}.`);
-    await expect(page.getByTestId('net-table')).toHaveCount(0);
-    await expect(page.getByTestId('net-unavailable')).toHaveAttribute('data-reason', 'costs_incomplete');
-    await expect(page.getByTestId('net-unavailable')).toContainText('Code: costs_incomplete.');
-  } else {
-    await expect(page.getByTestId('incomplete')).toHaveCount(0);
-    const net = page.locator('[data-testid=net-table], [data-testid=net-unavailable]');
-    await expect(net).toHaveCount(1);
-    if ((await page.getByTestId('net-unavailable').count()) > 0)
-      await expect(page.getByTestId('net-unavailable')).toHaveAttribute('data-reason', /^(revenue_unavailable|revenue_asset_unknown)$/);
+  await expect(page.getByTestId('incomplete')).toContainText(`Not entered: ${COST_LINES.map((l) => l.label).join(', ')}.`);
+  await expect(page.getByTestId('net-table')).toHaveCount(0);
+  await expect(page.getByTestId('net-unavailable')).toHaveAttribute('data-reason', 'costs_incomplete');
+  await expect(page.getByTestId('net-unavailable')).toContainText('Code: costs_incomplete.');
+
+  // This month: all seven lines entered through the two-founder form, each shown as exactly the figure and note entered.
+  const b = await (await browser.newContext()).newPage();
+  await founderSignIn(b, 'b');
+  try {
+    for (const line of COST_LINES) await enterCost(page, b, period, line);
+  } finally {
+    await b.context().close();
   }
+  await page.goto(`${ADMIN}/more-ops/venue-economics?period=${period}`);
+  for (const { category, label, amount } of COST_LINES) {
+    const cells = page.getByTestId(`cost-${category}`).locator('td');
+    await expect(cells.nth(0)).toHaveText(label);
+    await expect(cells.nth(1)).toHaveText(`${amount} ${COST_ASSET}`);
+    await expect(cells.nth(2)).toHaveText(costNote(category));
+  }
+  await expect(page.getByTestId('incomplete')).toHaveCount(0);
+  await expect(page.getByTestId('net-unavailable')).toHaveCount(0);
+
+  // Net, per asset: the ledger's kept fee less the costs entered in that asset. Fee table and net table are one read.
+  const entered = COST_LINES.reduce((sum, l) => sum + toUnits(l.amount), 0n);
+  const kept = new Map();
+  // One asset can have a row per venue and our own row; the month's revenue in it is what every row kept.
+  for (const row of await page.locator('[data-testid=fees-table] tbody tr').all()) {
+    const asset = await row.getAttribute('data-asset');
+    kept.set(asset, (kept.get(asset) ?? 0n) + toUnits((await row.locator('[data-col=kept]').textContent()).trim()));
+  }
+  expect(kept.has(FEE_ASSET)).toBe(true);
+  const netted = [];
+  for (const row of await page.locator('[data-testid=net-table] tbody tr').all()) {
+    const [asset, revenue, costs, net] = (await row.locator('td').allTextContents()).map((t) => t.trim());
+    netted.push(asset);
+    expect(toUnits(revenue), `${asset}: revenue is the ledger's kept fee`).toBe(kept.get(asset) ?? 0n);
+    expect(toUnits(costs), `${asset}: costs are the entered lines`).toBe(asset === COST_ASSET ? entered : 0n);
+    expect(toUnits(net), `${asset}: net = revenue - costs`).toBe(toUnits(revenue) - toUnits(costs));
+  }
+  expect(netted.sort()).toEqual([...new Set([...kept.keys(), COST_ASSET])].sort());
 });
 
 /** The market the #8 plan is written for: the unquoted TEST spot market, so no owner market's plan is touched. */

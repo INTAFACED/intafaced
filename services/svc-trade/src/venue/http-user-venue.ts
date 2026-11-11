@@ -4,21 +4,29 @@ import {
   decodeVenueWire,
   encodeVenueWire,
   type AsOf,
+  type MaybeKnown,
+  type VenueBuilderTotals,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueDepositRoute,
   type UserVenueDescriptor,
   type UserVenueFill,
   type UserVenueLeverage,
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenuePosition,
+  type UserVenueSubAccount,
+  type UserVenueSubAccountReads,
+  type UserVenueTransfer,
   type UserVenueWithdrawal,
   type VenueIntent,
+  type VenueBook,
   type VenueOrderPreview,
+  type VenueBestPrices,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -50,6 +58,33 @@ export interface HttpUserVenueOptions {
 export interface HttpVenueInfo {
   readonly venue: UserVenueDescriptor;
   readonly chainId: number;
+  /** Where a wallet sends a token to fund its account on this venue; `null` when the venue names none. */
+  readonly depositRoute: UserVenueDepositRoute | null;
+}
+
+const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
+
+/** The venue's deposit route as `GET /venue` names it, or null; one that is named but malformed is not used. */
+export function readDepositRoute(raw: unknown): UserVenueDepositRoute | null {
+  if (raw === null || raw === undefined || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const token = typeof r.token === 'string' ? r.token.toLowerCase() : '';
+  const address = typeof r.address === 'string' ? r.address.toLowerCase() : '';
+  if (
+    typeof r.chainId !== 'number' ||
+    !Number.isSafeInteger(r.chainId) ||
+    r.chainId <= 0 ||
+    !ADDRESS_RE.test(token) ||
+    !ADDRESS_RE.test(address) ||
+    typeof r.tokenDecimals !== 'number' ||
+    !Number.isInteger(r.tokenDecimals) ||
+    r.tokenDecimals < 0 ||
+    r.tokenDecimals > 18 ||
+    typeof r.asset !== 'string' ||
+    r.asset.trim() === ''
+  )
+    return null;
+  return { chainId: r.chainId, token, tokenDecimals: r.tokenDecimals, address, asset: r.asset };
 }
 
 type Failure = { readonly kind: 'not_sent' | 'timeout' | 'connection_lost' | 'error_after_send'; readonly detail: string };
@@ -75,17 +110,18 @@ export function classifyFetchFailure(err: unknown): Failure {
   return { kind: 'connection_lost', detail: `the connection was lost (${code ?? (err as Error)?.message ?? 'unknown'})` };
 }
 
-export class HttpUserVenue implements UserVenue {
+export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   private constructor(
     readonly venue: UserVenueDescriptor,
     readonly chainId: number,
     private readonly opts: HttpUserVenueOptions,
+    readonly depositRoute: UserVenueDepositRoute | null = null,
   ) {}
 
   /** Read the venue's descriptor (`GET /venue`) and build the client. Throws `VenueRefusalError('venue_down')` when unreachable. */
   static async connect(opts: HttpUserVenueOptions): Promise<HttpUserVenue> {
     const info = await HttpUserVenue.info(opts);
-    return new HttpUserVenue(info.venue, info.chainId, opts);
+    return new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute);
   }
 
   static async info(opts: HttpUserVenueOptions): Promise<HttpVenueInfo> {
@@ -97,7 +133,7 @@ export class HttpUserVenue implements UserVenue {
     } catch (err) {
       throw new VenueRefusalError({ ...unknownVenue, detail: `the venue did not answer: ${classifyFetchFailure(err).detail}` });
     }
-    let body: { venue?: UserVenueDescriptor; chainId?: unknown };
+    let body: { venue?: UserVenueDescriptor; chainId?: unknown; deposit?: unknown };
     try {
       body = (await res.json()) as typeof body;
     } catch {
@@ -115,7 +151,7 @@ export class HttpUserVenue implements UserVenue {
     ) {
       throw new VenueRefusalError({ ...unknownVenue, detail: `the venue's descriptor is not usable (HTTP ${res.status})` });
     }
-    return { venue: v, chainId: body.chainId };
+    return { venue: v, chainId: body.chainId, depositRoute: readDepositRoute(body.deposit) };
   }
 
   private down(detail: string): VenueRefusalError {
@@ -170,8 +206,16 @@ export class HttpUserVenue implements UserVenue {
     return this.read('/markets', { account });
   }
 
+  book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    return this.read('/book', { symbol, depth });
+  }
+
   preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
     return this.read('/preview', { account, intent });
+  }
+
+  bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
+    return this.read('/best-prices', { symbol });
   }
 
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
@@ -228,11 +272,26 @@ export class HttpUserVenue implements UserVenue {
     return this.read('/builder-fee-approval', { account, builder });
   }
 
+  /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
+  builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
+    return this.read('/builder-totals', { builder });
+  }
+
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
     return this.read('/agents', { account });
   }
 
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     return this.read('/leverage', { account, symbol });
+  }
+
+  // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──
+
+  subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>> {
+    return this.read('/sub-accounts', { account });
+  }
+
+  transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>> {
+    return this.read('/transfer', { account, nonce });
   }
 }

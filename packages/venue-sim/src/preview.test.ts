@@ -206,10 +206,19 @@ describe('HTTP answers', () => {
       const [status, out] = await answerTestVenue(sim, 'POST', path, JSON.stringify(encodeVenueWire(body)));
       return { status, out: decodeVenueWire<any>(JSON.parse(JSON.stringify(out))), raw: out as any };
     };
-    expect((await call('/test/seed', {})).out.orders).toBe(20);
+    // Five levels a side on each of the three TEST markets (BTC-USDC, BTC-PERP, XAU-PERP).
+    expect((await call('/test/seed', {})).out.orders).toBe(30);
     expect((await call('/test/seed', {})).out.orders).toBe(0);
     expect((await call('/test/deposit', { account, asset: 'USDC', amount: a('70000'), depositRef: 'dep:http' })).out.credited).toBe(true);
     expect((await call('/test/deposit', { account, asset: 'USDC', amount: a('70000'), depositRef: 'dep:http' })).out.credited).toBe(false);
+
+    // The best prices are the seeded book's own: the highest bid under the lowest ask, as decimal strings on the wire.
+    const best = await call('/best-prices', { symbol: 'BTC-USDC' });
+    expect(best.status).toBe(200);
+    expect(typeof best.raw.value.bid).toBe('string');
+    expect(typeof best.raw.value.ask).toBe('string');
+    expect(best.out.value.bid < best.out.value.ask).toBe(true);
+    expect((await call('/best-prices', { symbol: 'XRP-USDC' })).raw.refusal.code).toBe('unknown_market');
 
     const intent = order({ amount: a('1'), price: a('60010'), clientOrderKey: 'order:preview-trader:http' });
     const preview = await call('/preview', { account, intent });
@@ -256,7 +265,7 @@ describe('HTTP answers', () => {
     const markets = await call('/markets', { account: null });
     const eth = markets.raw.value.find((m: any) => m.symbol === 'ETH-USDC');
     expect(eth).toMatchObject({ status: 'trading', maxOrderQty: '500', maxOrderNotional: '2000000' });
-    expect(markets.raw.value.map((m: any) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC']);
+    expect(markets.raw.value.map((m: any) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC', 'XAU-PERP']);
 
     // A resting order placed while trading stays as it is through every state change.
     const resting = await run(order({ price: a('59000'), amount: a('0.1'), clientOrderKey: 'order:preview-trader:rest' }));

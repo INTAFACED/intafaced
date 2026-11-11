@@ -217,6 +217,53 @@ test('over HTTP: health, the server routes, and the client routes', async () => 
   }
 });
 
+test('export answers the key once (J-dex-protocol-08 #9): a later request, or a second challenge issued before it, gets no key', async () => {
+  const { provider, pk, wallet } = setup();
+  const exportWith = (ch) =>
+    provider.act('export', { walletId: wallet.walletId, challenge: ch.body.challenge, assertion: assertion(pk, ch.body.challenge) });
+  // Two challenges issued before any export: the race a second tab makes.
+  const first = provider.challenge({ walletId: wallet.walletId, action: 'export' });
+  const raced = provider.challenge({ walletId: wallet.walletId, action: 'export' });
+  assert.equal(raced.status, 200);
+  const shown = await exportWith(first);
+  assert.equal(shown.status, 200);
+  assert.equal(accounts.privateKeyToAccount(shown.body.privateKey).address, wallet.address);
+  // The raced challenge, answered by a valid passkey assertion, is refused with no key.
+  const late = await exportWith(raced);
+  assert.equal(late.status, 410);
+  assert.equal(late.body.error, 'export_spent');
+  assert.equal(late.body.privateKey, undefined);
+  assert.match(late.body.exportedAt, /^\d{4}-\d{2}-\d{2}T/);
+  // A new request is refused at the challenge: no passkey prompt, no key.
+  const again = provider.challenge({ walletId: wallet.walletId, action: 'export' });
+  assert.equal(again.status, 410);
+  assert.equal(again.body.error, 'export_spent');
+  assert.equal(again.body.challenge, undefined);
+  assert.equal(JSON.stringify(again.body).includes(shown.body.privateKey.slice(2)), false);
+  // The wallet still signs: only the export is spent.
+  assert.equal((await signWithPasskey(provider, wallet, pk, 'still mine')).status, 200);
+});
+
+test('a refused export does not spend it: a failed passkey check leaves the one export for the person', async () => {
+  const { provider, pk, wallet } = setup();
+  const stranger = passkey('cred-z');
+  const ch = provider.challenge({ walletId: wallet.walletId, action: 'export' });
+  const refused = await provider.act('export', {
+    walletId: wallet.walletId,
+    challenge: ch.body.challenge,
+    assertion: assertion(stranger, ch.body.challenge),
+  });
+  assert.equal(refused.status, 403);
+  const next = provider.challenge({ walletId: wallet.walletId, action: 'export' });
+  assert.equal(next.status, 200);
+  const shown = await provider.act('export', {
+    walletId: wallet.walletId,
+    challenge: next.body.challenge,
+    assertion: assertion(pk, next.body.challenge),
+  });
+  assert.equal(shown.status, 200);
+});
+
 test('its state survives a restart through its own file, and unanswered challenges never pile up', async () => {
   const { mkdtempSync, readFileSync, statSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -237,10 +284,85 @@ test('its state survives a restart through its own file, and unanswered challeng
       assert.equal((await signWithPasskey(again.provider, made, pk, 'after restart')).status, 200);
       for (let i = 0; i < 50; i++) again.provider.challenge({ walletId: made.walletId, action: 'export' });
       assert.ok(again.provider.challenges.size <= 8);
+      // An export given out before a restart stays given out after it.
+      const ch = again.provider.challenge({ walletId: made.walletId, action: 'export' });
+      const shown = await again.provider.act('export', {
+        walletId: made.walletId,
+        challenge: ch.body.challenge,
+        assertion: assertion(pk, ch.body.challenge),
+      });
+      assert.equal(shown.status, 200);
+      const third = await serveTestWalletProvider({ host: '127.0.0.1', port: 0, appEnv: 'test', origins: [ORIGIN], accounts, stateFile });
+      try {
+        assert.equal(third.provider.challenge({ walletId: made.walletId, action: 'export' }).body.error, 'export_spent');
+      } finally {
+        third.server.close();
+      }
     } finally {
       again.server.close();
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('signs a venue action’s EIP-712 typed data only after a passkey assertion for that exact payload (J-wallet-22 #8)', async () => {
+  const { provider, pk, wallet } = setup();
+  const req = createRequire(new URL('../../services/svc-protocol/package.json', import.meta.url));
+  const { recoverTypedDataAddress } = await import(pathToFileURL(req.resolve('viem')).href);
+  const typedData = {
+    domain: { name: 'INTAFACED TEST venue simulator', version: '1', chainId: 1337000 },
+    types: {
+      Action: [
+        { name: 'kind', type: 'string' },
+        { name: 'payload', type: 'string' },
+      ],
+    },
+    primaryType: 'Action',
+    message: { kind: 'approve_agent', payload: '{"agentAddress":"0x00000000000000000000000000000000000000a1"}' },
+  };
+  const ch = provider.challenge({ walletId: wallet.walletId, action: 'signtyped', payload: { typedData } });
+  assert.equal(ch.status, 200);
+  const signed = await provider.act('signtyped', {
+    walletId: wallet.walletId,
+    payload: { typedData },
+    challenge: ch.body.challenge,
+    assertion: assertion(pk, ch.body.challenge),
+  });
+  assert.equal(signed.status, 200);
+  assert.equal(
+    (await recoverTypedDataAddress({ ...typedData, signature: signed.body.signature })).toLowerCase(),
+    wallet.address.toLowerCase(),
+  );
+
+  // Planted faults: an assertion for one payload never signs another, and a message challenge never signs typed data.
+  const other = {
+    ...typedData,
+    message: { ...typedData.message, payload: '{"agentAddress":"0x00000000000000000000000000000000000000b2"}' },
+  };
+  const ch2 = provider.challenge({ walletId: wallet.walletId, action: 'signtyped', payload: { typedData } });
+  const swapped = await provider.act('signtyped', {
+    walletId: wallet.walletId,
+    payload: { typedData: other },
+    challenge: ch2.body.challenge,
+    assertion: assertion(pk, ch2.body.challenge),
+  });
+  assert.equal(swapped.body.error, 'challenge_invalid');
+  const ch3 = provider.challenge({ walletId: wallet.walletId, action: 'sign', payload: { typedData } });
+  const crossed = await provider.act('signtyped', {
+    walletId: wallet.walletId,
+    payload: { typedData },
+    challenge: ch3.body.challenge,
+    assertion: assertion(pk, ch3.body.challenge),
+  });
+  assert.equal(crossed.body.error, 'challenge_invalid');
+  // Without the passkey's own check (user verified), nothing is signed.
+  const ch4 = provider.challenge({ walletId: wallet.walletId, action: 'signtyped', payload: { typedData } });
+  const unverified = await provider.act('signtyped', {
+    walletId: wallet.walletId,
+    payload: { typedData },
+    challenge: ch4.body.challenge,
+    assertion: assertion(pk, ch4.body.challenge, { flags: 0x01 }),
+  });
+  assert.equal(unverified.status, 403);
 });

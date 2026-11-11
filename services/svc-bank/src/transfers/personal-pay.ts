@@ -83,6 +83,8 @@ export interface TransferQuote {
   readonly perTransferLimit: string;
   readonly dailyLimit: string;
   readonly spentToday: string;
+  /** The daily limit less what was sent today, never below zero (BK-acct-04). */
+  readonly remainingToday: string;
   readonly fee: string;
   readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
   readonly withinPerTransfer: boolean;
@@ -659,6 +661,19 @@ export class PersonalPayService {
     return results;
   }
 
+  /**
+   * Whether `userId` sent the transfer `transferId`, posted or still in flight (reserved, or held for review) (J-bank-18 #3, asked by svc-support for a scam report). One
+   * boolean: missing, someone else's and received-only all read false the same way.
+   */
+  async sentBy(userId: string, transferId: string): Promise<boolean> {
+    const rows = await this.sql<{ one: number }[]>`
+      SELECT 1 AS one FROM bank.personal_transfers
+       WHERE transfer_id = ${transferId} AND from_user_id = ${userId} AND status IN ('posted', 'reserved')
+       LIMIT 1
+    `;
+    return rows.length > 0;
+  }
+
   async get(actorUserId: string, ledgerTxId: string): Promise<PersonalTransferView> {
     const rows = await this.sql<TransferRow[]>`
       SELECT ${this.sql.unsafe(TRANSFER_COLS)}
@@ -692,6 +707,7 @@ export class PersonalPayService {
       perTransferLimit: formatAmount(per),
       dailyLimit: formatAmount(daily),
       spentToday: formatAmount(spent),
+      remainingToday: formatAmount(daily > spent ? daily - spent : 0n),
       fee: formatAmount(fee),
       feeBlocker: fee > 0n ? 'bank.personal_transfer_fee_unwired' : null,
       withinPerTransfer: amount <= per,

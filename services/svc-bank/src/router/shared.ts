@@ -258,8 +258,27 @@ export const spaceOutput = z.object({
    * (OWNER 226): no ledger account holds it, and `heldAt` says whose figure the balance is.
    */
   ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }).nullable(),
-  /** Set when the partner bank holds this money: its label (TEST on the TEST partner) and when it reported the balance. */
-  heldAt: z.object({ label: z.string(), asOf: z.string().datetime() }).nullable(),
+  /**
+   * Set when the partner bank holds this money: its label (TEST on the TEST partner), the partner's own time for the
+   * balance, and the displayed figure (b2 change 6): `known`, or `stale` when older than the partner's declared limit.
+   * An unknown figure is never sent: the read refuses `bank.partner_balance_not_known`.
+   */
+  heldAt: z
+    .object({
+      label: z.string(),
+      asOf: z.string().datetime(),
+      figure: z
+        .object({
+          state: z.enum(['known', 'stale']),
+          source: z.string(),
+          amount: amountString,
+          asOf: z.string().datetime(),
+          staleAfterMs: z.number().int().positive(),
+          reason: z.null(),
+        })
+        .strict(),
+    })
+    .nullable(),
 });
 
 /**

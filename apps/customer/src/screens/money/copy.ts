@@ -154,6 +154,12 @@ const messages = {
   'Carried rule':
     'Moving coins between your main account and your spaces is not a sale. The coins keep the date and cost they had, and their lots move with them.',
   'Spaces not followed': 'Moves to and from your spaces are not shown here right now',
+  'Venue account {owner}': 'Your venue account {owner}',
+  'In your venue account': '(in your venue account)',
+  'Venue as of': 'Your venue account’s trades and coins, as the venue reported them at {time}.',
+  'Venue as of TEST':
+    'TEST venue: your venue account’s trades and coins, as the venue reported them at {time}. Every venue figure here is TEST.',
+  'Venue not read': 'Your venue account could not be read just now, so its trades are not shown and the realised total is not known',
   'Lots rule':
     'Each time coins reached you is a lot: bought on the exchange, deposited, paid as a reward or moved in. A sale uses lots by the method you pick.',
   Acquired: 'Acquired',

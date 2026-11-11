@@ -496,6 +496,23 @@ const schema = serviceEnvSchema
        * panel refuses `bank.account_terms_unset` and never claims a fee-free account. Boot stays up; the read is the refuse.
        */
       BANK_ACCOUNT_TERMS_JSON: z.string().optional(),
+      /**
+       * The owner's plan table as JSON (BK-acct-04, J-bank-16 #6): `{ "defaultPlanId", "plans": [{ "id", "name", "tier",
+       * "price", "assetId", "period": "month" }] }`. NO DEFAULT. Blank / unset / not in shape → `plans.list` refuses
+       * `bank.plans_unset`.
+       */
+      BANK_PLANS_JSON: z.string().optional(),
+      /**
+       * The owner's dormancy fee rules as JSON (RC-bank-01, J-bank-16 #7): `[{ "assetId", "fee", "inactiveDays",
+       * "noticeLeadDays", "version" }]`. NO DEFAULT. Blank / unset / not in shape → `ops.runDormancy` and the rule read
+       * refuse `bank.dormancy_rule_unset`, and no notice is given and no fee taken.
+       */
+      BANK_DORMANCY_RULES_JSON: z.string().optional(),
+      /**
+       * The owner's account fee table as JSON (BK-acct-04, J-bank-16 #6): `{ "lines": [{ "id", "label", "fee", "assetId" }] }`.
+       * Blank means none is published: the fee schedule says "not set" and nothing is charged from it.
+       */
+      BANK_FEE_SCHEDULE_JSON: z.string().optional(),
 
       /**
        * Owner-published card programme terms as JSON (BK-cissue-01 to -03, J-bank-13): `{ network, countries: [ISO2],
@@ -560,6 +577,13 @@ const schema = serviceEnvSchema
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
        */
       BANK_EARN_RISK_WORDING_JSON: z.string().optional(),
+
+      /**
+       * The owner's notice for a person in a blocked region who opens a transfer (BK-safe-01, J-bank-18 #1): plain text.
+       * NO DEFAULT. Blank / unset → the notice names the restriction and says the wording is not published; the bank's
+       * doors refuse there either way (`denied.region_blocked`), so the wording never decides who is blocked.
+       */
+      BANK_BLOCKED_REGION_NOTICE: z.string().optional(),
 
       /**
        * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /

@@ -127,6 +127,8 @@ export const LEDGER_POST_ALLOWLIST = {
     unstake: g('token', 'services/svc-token/src/token-service.ts'),
   },
   'svc-trade': {
+    builderFeeEarn: g('trade', 'services/svc-trade/src/builder-fee/builder-fee-poster.ts'),
+    builderFeeReceive: g('trade', 'services/svc-trade/src/builder-fee/builder-fee-collect.ts'),
     buybackOrderHold: g('trade', 'services/svc-trade/src/spot/trade-service/buyback.ts'),
     buybackOrderHoldRelease: g('trade', 'services/svc-trade/src/spot/buyback-order.ts'),
     buybackTakerFill: g('trade', 'services/svc-trade/src/spot/trade-service/fills.ts'),

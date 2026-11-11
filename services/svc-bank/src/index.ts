@@ -363,8 +363,12 @@ const bank = createBankServices(sql, ledger, history, {
   proofLimits: env.BANK_PROOF_LIMITS_JSON,
   /** Base-tier account terms, the currencies an account may hold and the space limit: the owner's, blank refuses. */
   accountTerms: env.BANK_ACCOUNT_TERMS_JSON,
+  plans: env.BANK_PLANS_JSON,
+  feeTable: env.BANK_FEE_SCHEDULE_JSON,
+  dormancyRules: env.BANK_DORMANCY_RULES_JSON,
   /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
   earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
+  blockedRegionNotice: env.BANK_BLOCKED_REGION_NOTICE,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,

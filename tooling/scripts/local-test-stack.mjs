@@ -74,7 +74,7 @@ import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedS
 import { reduceMaps } from './journey-reach.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
-import { serveTestVenue, testVenueChainId, userVenueSwitchOn } from './local-test-venue.mjs';
+import { serveTestVenue, testVenueChainId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
 import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
@@ -128,6 +128,9 @@ import {
   readProcessIdentity,
   postgresProcessMatches,
   localPgOsUser,
+  stackCustodyLayer,
+  stackCustodyOff,
+  custodyOffRefusal,
 } from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
@@ -205,6 +208,8 @@ const PORTS = {
   // The LOCAL TEST venue simulator behind svc-trade's user-venue door (local-test-venue.mjs). Started only with
   // LOCAL_STACK_USER_VENUE=on (userVenueOn).
   'test-venue': 14560,
+  // The second LOCAL TEST venue (J-derivatives-28, routing over two venues). Started only with LOCAL_STACK_USER_VENUE=two.
+  'test-venue-b': 14562,
   // The LOCAL TEST embedded-wallet provider (local-test-wallet-provider.mjs, J-wallet-22): svc-protocol's provider on
   // this stack. It holds its TEST keys in its own state file, never in a svc-* database. Always started with protocol.
   'test-wallet-provider': 14561,
@@ -564,6 +569,8 @@ function startProc(name, argv, env, cwd, extra = {}) {
     startedAt: new Date().toISOString(),
     kernelStart,
     ...(off.length ? { offOverrides: off } : {}),
+    // The custody switch it runs (svc-ledger, svc-bank), so the TEST tools follow the running ledger (stackCustodyLayer).
+    ...(env?.LEDGER_CUSTODY_LAYER ? { custodyLayer: env.LEDGER_CUSTODY_LAYER } : {}),
     ...extra,
   };
   writeProcs(procs);
@@ -1579,9 +1586,13 @@ function testChain() {
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
+    liquidityRouter: record.liquidityRouter ?? null,
     // The smart account factory and implementation (J-dex-protocol-08's session keys).
     accountFactory: record.accountFactory ?? null,
     accountImplementation: record.accountImplementation ?? null,
+    // The wrapped TEST ETH and its pool with TEST Token B: where the Navigator trades inside its key's cap (J-agents-19).
+    wrappedNative: record.wrappedNative ?? null,
+    navigatorPool: record.v2Pools?.find((p) => p.label === 'TEST WETH/B 0.30%')?.pool ?? null,
   };
 }
 
@@ -1915,15 +1926,25 @@ export function userVenueOn(env = process.env) {
 }
 
 /** The LOCAL TEST venue simulator (local-test-venue.mjs), for svc-trade's user-venue door. TEST figures only. */
-async function startTestVenue() {
+async function startTestVenue(name = 'test-venue') {
   const procs = readProcs();
-  const url = `${urlOf('test-venue')}/health`;
-  if (ownedAlive(procs['test-venue']) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(PORTS['test-venue']))
-    fail(`port ${PORTS['test-venue']} (test-venue) is in use by a process this script did not start`);
-  const env = { ...baseEnv(), APP_ENV: 'dev', TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)) };
-  const pid = startProc('test-venue', [process.execPath, SCRIPT, '__serve-test-venue'], env, REPO);
-  await waitHealthy('test-venue', url, pid, 20_000);
+  const url = `${urlOf(name)}/health`;
+  if (ownedAlive(procs[name]) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS[name])) fail(`port ${PORTS[name]} (${name}) is in use by a process this script did not start`);
+  // With the TEST chain running, the first venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09
+  // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
+  // alone. The second TEST venue (J-derivatives-28) takes no chain deposits: its journeys fund it with TEST deposits.
+  const chain = name === 'test-venue' ? testChain() : null;
+  const env = {
+    ...baseEnv(),
+    APP_ENV: 'dev',
+    TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)),
+    TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
+    TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
+  };
+  const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
+  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
+  await waitHealthy(name, url, pid, 20_000);
 }
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
@@ -2326,7 +2347,11 @@ async function cmdStart(flags) {
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
   if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
   // Trade's env points at the TEST venue only while the setting is on, so `--only trade` starts it too.
-  if (userVenueOn() && (!only || only.includes('trade'))) await startTestVenue();
+  if (userVenueOn() && (!only || only.includes('trade'))) {
+    await startTestVenue();
+    // J-derivatives-28: the second TEST venue, only with LOCAL_STACK_USER_VENUE=two.
+    if (userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2) await startTestVenue('test-venue-b');
+  }
   // Protocol's env points at the TEST wallet provider, so `--only protocol` starts it too.
   if (!only || only.includes('test-wallet-provider') || only.includes('protocol')) await startTestWalletProvider();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
@@ -2410,6 +2435,7 @@ async function cmdStop(names = []) {
     'video-store',
     'rail-statements',
     'test-venue',
+    'test-venue-b',
     'test-wallet-provider',
     'nats',
   ];
@@ -2609,7 +2635,13 @@ const CSP_REPORT_PATH = '/__csp-report';
  * therefore run under the policy the deployed app has, and `csp-report --fail` turns any violation red.
  */
 export function customerSecurityHeaders() {
-  return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
+  // connect-src: the TEST sandbox address (IDENTITY_SANDBOX_BASE_URL, the edge's sandbox host) stands in for
+  // CUSTOMER_SANDBOX_API_ORIGIN, so the API explorer can send a sandbox key's request there (J-developer-15 #7).
+  return securityHeaders({
+    mediaSrc: `'self' blob: ${urlOf('video-store')}`,
+    connectSrc: `'self' http://localhost:${PORTS.edge}`,
+    reportUri: CSP_REPORT_PATH,
+  });
 }
 
 /**
@@ -3356,6 +3388,10 @@ async function cmdFund(rawArgs) {
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
   if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  // Custody off (OWNER 226, OWNER 288): a deposit to a person's account would be customer money in our ledger, which
+  // svc-ledger refuses (ledger.custody_layer_off). Refused here, typed, before anything is read or posted; exit 3 says so
+  // to a caller. `house` (INTAFACED's own Convert inventory) is our own money and still posts.
+  if (who !== 'house' && stackCustodyOff(STATE)) fail(custodyOffRefusal(`local:fund ${asset} to ${who}`), 3);
   const secrets = readJson(P.secrets);
   const dbUrlParsed = new URL(dbUrl('svc_identity', secrets));
   if (
@@ -3432,6 +3468,8 @@ async function cmdFund(rawArgs) {
     };
     const res = await fetch(`${ledgerUrl}/trpc/${route}`, { redirect: 'error', method: 'POST', headers, body: raw });
     const text = await res.text();
+    // A ledger whose switch this stack did not record (started before it was) still refuses typed, not as a raw 412.
+    if (!res.ok && text.includes('ledger.custody_layer_off')) fail(custodyOffRefusal(`local:fund ${asset} to ${who}`), 3);
     if (!res.ok) fail(`ledger ${route} refused (${res.status}): ${text.slice(0, 400)}`);
     return JSON.parse(text);
   };
@@ -4156,6 +4194,16 @@ async function runCli() {
       port: PORTS['test-venue'],
       appEnv: process.env.APP_ENV,
       chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+      rpcUrl: process.env.TEST_VENUE_RPC_URL,
+      depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
+    });
+  else if (cmd === '__serve-test-venue-b')
+    await serveTestVenue({
+      host: HOST,
+      port: PORTS['test-venue-b'],
+      appEnv: process.env.APP_ENV,
+      chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
+      second: true,
     });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
@@ -4167,6 +4215,8 @@ async function runCli() {
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'second-worker') await cmdSecondWorker(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  // `custody`: on or off, the switch the running svc-ledger was started with (the journeys workflow's setup reads it).
+  else if (cmd === 'custody') process.stdout.write(`${stackCustodyLayer(STATE)}\n`);
   else if (cmd === 'mining-share') await cmdMiningShare(rest);
   else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);

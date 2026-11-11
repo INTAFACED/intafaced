@@ -265,8 +265,8 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
-// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1): svc-protocol holds a TEST business block for the TEST region
-// AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
+// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1): svc-protocol and svc-bank hold a TEST business
+// block for the TEST region AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
 {
   const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
   const prior = process.env.LOCAL_STACK_TEST_REGION_SERVED;
@@ -276,15 +276,18 @@ const script = resolve(here, 'local-test-stack.mjs');
     delete process.env.LOCAL_STACK_TEST_REGION_SERVED;
     const served = envs();
     assert.equal(envOf(served, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST block by default');
+    assert.equal(envOf(served, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST bank block by default');
     assert.equal(envOf(served, 'edge').DEFAULT_REGION, undefined, 'edge keeps its own default region');
     process.env.LOCAL_STACK_TEST_REGION_SERVED = 'off';
     const blocked = envs();
     assert.equal(envOf(blocked, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
+    assert.equal(envOf(blocked, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'edge').DEFAULT_REGION, 'AA');
     for (const { name, env } of blocked) {
       const before = envOf(served, name);
       assert.equal(env.INTAFACED_SANCTIONS_REGIONS, before.INTAFACED_SANCTIONS_REGIONS, `${name}'s sanctions list is unchanged`);
-      if (name !== 'protocol') assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
+      if (name !== 'protocol' && name !== 'bank')
+        assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
       if (name !== 'edge') assert.equal(env.DEFAULT_REGION, before.DEFAULT_REGION, `${name}'s region is unchanged`);
     }
   } finally {
@@ -292,6 +295,26 @@ const script = resolve(here, 'local-test-stack.mjs');
     else process.env.LOCAL_STACK_TEST_REGION_SERVED = prior;
   }
   console.log('local-test-stack: the TEST blocked region switch');
+}
+
+// The blocked-region notice (J-bank-18 #1): the bank profile's TEST wording by default, blank with
+// `LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE=off`, and any other value is a typo that refuses.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const prior = process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+  const bankEnv = () => localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'bank').env;
+  try {
+    delete process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+    assert.match(bankEnv().BANK_BLOCKED_REGION_NOTICE, /^TEST wording, not the owner's: /);
+    process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = 'off';
+    assert.equal(bankEnv().BANK_BLOCKED_REGION_NOTICE, undefined);
+    process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = 'on';
+    assert.throws(bankEnv, /LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE is "on"/);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE;
+    else process.env.LOCAL_STACK_BANK_BLOCKED_REGION_NOTICE = prior;
+  }
+  console.log('local-test-stack: the blocked-region notice wording switch');
 }
 
 // Every service file in local-stack-services/ is started, once, under its own name.
@@ -402,6 +425,27 @@ const script = resolve(here, 'local-test-stack.mjs');
     else process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = before;
   }
   console.log('local-test-stack: the mining pool can start with nothing published');
+}
+
+// Our own order book follows the custody switch (OWNER 288): svc-trade and svc-matching boot their own book only with
+// LEDGER_CUSTODY_LAYER on, and refuse "own book on, custody off". So every process of this stack that carries the switch
+// carries svc-ledger's value, trade and matching among them, and neither pins its own-book switch on by itself.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const envs = localTestServiceEnvs();
+  const ledgerCustody = envs.find((service) => service.name === 'ledger').env.LEDGER_CUSTODY_LAYER;
+  const carriers = envs.filter((service) => 'LEDGER_CUSTODY_LAYER' in service.env).map((service) => service.name);
+  for (const name of ['trade', 'matching']) assert.ok(carriers.includes(name), `${name} must carry LEDGER_CUSTODY_LAYER`);
+  for (const service of envs.filter((s) => 'LEDGER_CUSTODY_LAYER' in s.env)) {
+    assert.equal(service.env.LEDGER_CUSTODY_LAYER, ledgerCustody, `${service.name} carries a custody switch unlike svc-ledger's`);
+  }
+  assert.equal('TRADE_SPOT_ENABLED' in envs.find((s) => s.name === 'trade').env, false, 'trade must leave spot to the custody switch');
+  assert.equal(
+    'MATCHING_ENGINE_ENABLED' in envs.find((s) => s.name === 'matching').env,
+    false,
+    'matching must leave its engine to the custody switch',
+  );
+  console.log("local-test-stack: trade and matching carry svc-ledger's custody switch, so the own book runs only with custody on");
 }
 
 // The bank carries the one LOCAL TEST sanctioned destination (J-wallet-05 #2), never a real list and never blank here.
@@ -596,6 +640,31 @@ try {
     r = fundWith(home, ['someone@example.invalid', 'USDT', bad]);
     assert.equal(r.status, 2, `${bad}: ${r.stderr}`);
   }
+
+  // 6. Custody off (OWNER 226, OWNER 288): when the stack's svc-ledger was started with LEDGER_CUSTODY_LAYER off (its
+  //    process record), a deposit to a person's account refuses typed, exit 3, before anything is read or posted, not
+  //    as the ledger's raw 412. `house` is INTAFACED's own inventory and goes on to the next check. `custody` says off.
+  mkdirSync(join(state, 'run'), { recursive: true });
+  writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1, custodyLayer: 'off' } }));
+  r = fundWith(home);
+  assert.equal(r.status, 3, r.stderr);
+  assert.match(r.stderr, /local_test\.custody_layer_off: local:fund USDT to someone@example\.invalid refused/);
+  assert.match(r.stderr, /Nothing was posted/);
+  r = fundWith(home, ['house', 'BTC', '1']);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /local stack Postgres is not running/);
+  r = spawnSync(process.execPath, [script, 'custody'], { env: homeEnv(home), encoding: 'utf8' });
+  assert.equal(r.stdout, 'off\n', r.stderr);
+  // A ledger record with the switch on, or with none (started before the stack recorded it), funds as before.
+  for (const ledger of [{ pid: 1, custodyLayer: 'on' }, { pid: 1 }]) {
+    writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ ledger }));
+    r = fundWith(home);
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /local stack Postgres is not running/);
+    r = spawnSync(process.execPath, [script, 'custody'], { env: homeEnv(home), encoding: 'utf8' });
+    assert.equal(r.stdout, 'on\n', r.stderr);
+  }
+  console.log('local-test-stack: with custody off, local:fund to a person refuses typed before anything is posted');
 } finally {
   rmSync(home, { recursive: true, force: true });
 }
@@ -937,7 +1006,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against.
   assert.match(
     source,
-    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
+    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
@@ -1110,6 +1179,11 @@ console.log('local-test-stack: customer folder override checks passed');
     headers['Content-Security-Policy'],
     /media-src 'self' blob: http:\/\/127\.0\.0\.1:\d+;/,
     'the TEST video store stands in for the storage origin',
+  );
+  assert.match(
+    headers['Content-Security-Policy'],
+    /connect-src 'self' http:\/\/localhost:14500;/,
+    'the TEST sandbox address stands in for the sandbox API origin',
   );
   assert.match(headers['Content-Security-Policy'], /; report-uri \/__csp-report$/);
   assert.equal(headers['X-Frame-Options'], 'DENY');
@@ -1466,20 +1540,24 @@ console.log('local-test-stack: customer folder override checks passed');
   const { userVenueSwitchOn } = await import('./local-test-venue.mjs');
   const saved = process.env.LOCAL_STACK_USER_VENUE;
   try {
-    for (const [raw, on] of [
-      [undefined, false],
-      ['', false],
-      [' off ', false],
-      ['on', true],
-      [' on ', true],
+    for (const [raw, on, second] of [
+      [undefined, false, false],
+      ['', false, false],
+      [' off ', false, false],
+      ['on', true, false],
+      [' on ', true, false],
+      // J-derivatives-28: `two` is the first venue and the second TEST venue beside it.
+      ['two', true, true],
     ]) {
       if (raw === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
       else process.env.LOCAL_STACK_USER_VENUE = raw;
       assert.equal(userVenueOn(), on, `stack: ${JSON.stringify(raw)}`);
       const trade = localTestServiceEnvs().find((d) => d.name === 'trade').env;
       assert.equal('TRADE_USER_VENUE_URL' in trade, on, `trade env: ${JSON.stringify(raw)}`);
+      assert.equal('TRADE_USER_VENUE_URLS' in trade, second, `trade env, second venue: ${JSON.stringify(raw)}`);
+      if (second) assert.match(trade.TRADE_USER_VENUE_URLS, /:14562$/);
     }
-    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off or on/);
+    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on or two/);
   } finally {
     if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = saved;

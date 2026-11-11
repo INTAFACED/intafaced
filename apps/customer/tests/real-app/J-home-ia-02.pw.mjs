@@ -43,11 +43,13 @@ async function dropdown(page, door) {
   await item.hover();
   const menu = item.getByRole('group', { name: door });
   await expect(menu).toBeVisible();
-  return menu
-    .locator('a')
-    .evaluateAll((links) =>
-      links.map((link) => ({ href: link.getAttribute('href'), advanced: Boolean(link.closest('ul[aria-label="Advanced"]')) })),
-    );
+  return menu.locator('a').evaluateAll((links) =>
+    links.map((link) => ({
+      href: link.getAttribute('href'),
+      title: link.querySelector('strong')?.textContent?.trim() ?? '',
+      advanced: Boolean(link.closest('ul[aria-label="Advanced"]')),
+    })),
+  );
 }
 
 /**
@@ -95,50 +97,117 @@ async function chooseLayout(page, mode) {
 test(`${J} #1 the top bar has five doors with full dropdowns, the same five on the phone bar; /bank is its own room; Simple groups Advanced, Pro lists every row`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
+  // Every row of each door's dropdown for a signed-in person, in order (the app's menu table, apps/customer/src/app/menus.ts);
+  // `true` marks a row that sits under the Advanced heading in Simple.
+  const MENUS = {
+    Money: [
+      ['/money'],
+      ['/uc/recharge'],
+      ['/uc/withdraw'],
+      ['/bank/transfers'],
+      ['/bank/spaces'],
+      ['/bank/cards'],
+      ['/bank/earn'],
+      ['/bank/loans'],
+      ['/money/activity'],
+      ['/money/pnl', true],
+      ['/uc/withdraw/address', true],
+      ['/bank/ramps', true],
+      ['/bank/analytics', true],
+      ['/bank/business', true],
+    ],
+    Trade: [
+      ['/trade'],
+      ['/trade/spot/BTC-USDT'],
+      ['/trade/buy'],
+      ['/trade/convert'],
+      ['/trade/margin', true],
+      ['/trade/futures', true],
+      ['/trade/options', true],
+      ['/trade/copy', true],
+      ['/trade/bots', true],
+      ['/otc', true],
+      ['/execution', true],
+      ['/quant', true],
+      ['/quant/editor', true],
+      ['/money/activity?tab=orders', true],
+    ],
+    Pay: [['/pay/send'], ['/pay/receive'], ['/pay/request'], ['/pay/bills'], ['/pay/global'], ['/p2p'], ['/pay/merchant']],
+    More: [['/academy'], ['/more'], ['/support'], ['/view']],
+  };
+  const hrefs = (door) => MENUS[door].map(([href]) => href);
+  const advancedOf = (door) => MENUS[door].filter(([, advanced]) => advanced).map(([href]) => href);
   await signIn(page, who);
   await chooseLayout(page, 'Pro');
   // Five doors (owner decision 2026-10-26, "One Money door"): Assets and Bank are one Money door.
-  await expect(mainNav(page).getByTestId('tb-tab')).toHaveText(['Home', 'Money', 'Trade', 'Pay', 'More']);
+  const DOORS = ['Home', 'Money', 'Trade', 'Pay', 'More'];
+  await expect(mainNav(page).getByTestId('tb-tab')).toHaveText(DOORS);
 
-  // Every door's rows open live rooms; Money holds the holdings and the bank's rooms alike.
-  const money = await dropdown(page, 'Money');
-  expect(money[0].href).toBe('/money');
-  expect(money.map((row) => row.href)).toEqual(
+  // Pro: every door lists every one of its rows, in order, flat (no Advanced group); Home is a plain link.
+  const pro = {};
+  for (const door of Object.keys(MENUS)) {
+    pro[door] = await dropdown(page, door);
+    expect(
+      pro[door].map((row) => row.href),
+      `${door} in Pro`,
+    ).toEqual(hrefs(door));
+    expect(
+      pro[door].some((row) => row.advanced),
+      `${door} in Pro has an Advanced group`,
+    ).toBe(false);
+  }
+  // Money holds the holdings and the bank's rooms alike, the portfolio first.
+  expect(pro.Money[0].href).toBe('/money');
+  expect(pro.Money.map((row) => row.href)).toEqual(
     expect.arrayContaining(['/uc/recharge', '/uc/withdraw', '/bank/spaces', '/bank/earn', '/bank/loans', '/bank/cards']),
   );
-  for (const door of ['Pay', 'More']) expect((await dropdown(page, door)).length).toBeGreaterThan(2);
 
-  // Pro: every Trade row is listed flat.
-  const pro = await dropdown(page, 'Trade');
-  expect(pro.some((row) => row.advanced)).toBe(false);
-  expect(pro.map((row) => row.href)).toEqual(expect.arrayContaining(['/trade/futures', '/trade/options', '/quant']));
-
-  // /bank opens the Bank's own overview and stays there.
+  // /bank opens the Bank's own overview and stays there: not the Money page.
   await page.goto('/bank');
   await expect(page).toHaveURL(/\/bank$/);
   await expect(page.locator('main h1').first()).toHaveText('Bank');
+  await page.goto('/money');
+  await expect(page).toHaveURL(/\/money$/);
+  await expect(page.locator('main h1').first()).not.toHaveText('Bank');
 
-  // Simple: the same rows, the advanced ones under their own heading; each is still reachable by address and by search.
+  // Simple: the same rows in every door, the advanced ones under their own Advanced heading.
   await chooseLayout(page, 'Simple');
-  const simple = await dropdown(page, 'Trade');
-  expect(simple.map((row) => row.href).sort()).toEqual(pro.map((row) => row.href).sort());
-  const advanced = simple.filter((row) => row.advanced).map((row) => row.href);
-  expect(advanced).toEqual(expect.arrayContaining(['/trade/futures', '/trade/options']));
-  await page.goto('/trade/futures');
-  await expect(page).toHaveURL(/\/trade\/futures/);
-  await expect(page.locator('main')).not.toBeEmpty();
-  await page.goto('/home');
-  const panel = await search(page, 'futures');
-  await expect(panel.getByRole('option', { name: /Futures/ }).first()).toBeVisible();
-  // Simple: Money's rarely used rows sit under Advanced too.
-  const moneySimple = await dropdown(page, 'Money');
-  expect(moneySimple.filter((row) => row.advanced).map((row) => row.href)).toEqual(expect.arrayContaining(['/money/pnl', '/bank/ramps']));
+  const advanced = [];
+  for (const door of Object.keys(MENUS)) {
+    const simple = await dropdown(page, door);
+    expect(simple.map((row) => row.href).sort(), `${door} in Simple`).toEqual([...hrefs(door)].sort());
+    expect(
+      simple.filter((row) => row.advanced).map((row) => row.href),
+      `${door}'s Advanced group`,
+    ).toEqual(advancedOf(door));
+    advanced.push(...simple.filter((row) => row.advanced));
+  }
+
+  // Every room in Simple is still reachable by its address and by the header search, the advanced ones included. A
+  // Business-only room (Business approvals, /bank/business) is the exception for search in Personal mode, as #7 says; it
+  // is still reached by its address here.
+  const BUSINESS_ONLY = new Set(['/bank/business']);
+  // Search lists a room by its name in the route table (apps/customer/src/app/navigation.ts). Two rows carry a menu label of
+  // their own: the room they open is named here.
+  const ROOM_NAME = { '/quant/editor': 'Code editor', '/money/activity?tab=orders': 'Activity' };
+  const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (const { href, title } of advanced) {
+    expect(title, `${href} has a title in its row`).not.toBe('');
+    await page.goto(href);
+    await expect(page, `${href} by address`).toHaveURL(new RegExp(`${escape(href.split('?')[0])}(\\?|$)`));
+    await expect(page.locator('main'), `${href} by address`).not.toBeEmpty();
+    if (BUSINESS_ONLY.has(href)) continue;
+    await page.goto('/home');
+    const name = ROOM_NAME[href] ?? title;
+    const panel = await search(page, name);
+    await expect(panel.getByRole('option', { name: new RegExp(escape(name)) }).first(), `${name} (${href}) by search`).toBeVisible();
+  }
 
   // On a phone the same five doors sit in the bottom bar, in the same order, More included.
   await page.setViewportSize({ width: 390, height: 844 });
   const phoneBar = page.getByRole('navigation', { name: 'Customer doors on phone' });
-  await expect(phoneBar.getByRole('link')).toHaveText(['Home', 'Money', 'Trade', 'Pay', 'More']);
+  await expect(phoneBar.getByRole('link')).toHaveText(DOORS);
   await phoneBar.getByRole('link', { name: 'More' }).click();
   await expect(page).toHaveURL(/\/more$/);
 });

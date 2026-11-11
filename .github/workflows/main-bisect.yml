@@ -10,10 +10,10 @@ name: Main bisect
 # revert job as the journeys opens that commit's revert, so a red CI on main is undone within OWNER 180's 2 hours too.
 # It changes no test. See tooling/ci/bisect-main.mjs.
 #
-# Real-app journeys (`journeys`): when a journey step that passed on main failed outright in two runs in a row (Main
-# trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
-# and the first failing commit that broke it (one commit; else the commits whose files reach the failing journeys; else
-# a binary search that runs those journey files on a stack), and opens its revert with squash auto-merge, through the
+# Real-app journeys (`journeys`): when a journey step that passed in the run before failed outright in this one on main
+# (Main trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
+# and the first failing commit that broke it (the commits whose files reach the failing journeys, each proven by running
+# those journey files on a stack, by binary search when there are several), and opens its revert with squash auto-merge, through the
 # normal merge seal (OWNER 249 (3): "a red main is reverted"). Never more than one revert per red, never a revert of a
 # revert, never a push to main. The revert opens with a token of the App intafaced-mac-agents, minted from its key in
 # the `ci-review` environment (INTAFACED_APP_KEY, the key ci-review.yml mints with), whose deployment rule allows main
@@ -60,7 +60,8 @@ jobs:
   bisect:
     name: Bisect main
     if: inputs.journeys == '' && (inputs.tests != '' || inputs.jobs != '')
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
       culprit: ${{ steps.bisect.outputs.culprit }}
@@ -98,7 +99,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/test-infra
@@ -129,6 +130,7 @@ jobs:
       candidates: ${{ steps.find.outputs.candidates }}
       files: ${{ steps.find.outputs.files }}
       steps: ${{ steps.find.outputs.steps }}
+      unknown: ${{ steps.find.outputs.unknown }}
     steps:
       # This workflow's own commit, never the red one: the red commit is only read through git.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,7 +139,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
       - name: Find the culprit
         id: find
         env:
@@ -149,7 +151,7 @@ jobs:
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs find
 
-  # Several commits can reach the failing journeys: run those journey files on them by binary search, each probe on a
+  # Commits that can reach the failing journeys, even one: run those journey files on them by binary search, each probe on a
   # fresh stack set up as a Real-app journeys shard sets it up. Old commits run as code here, so no GitHub token.
   revert-probe:
     name: 'Journeys revert: probe the candidates'
@@ -188,7 +190,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
       - name: Put pnpm next to node
         run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
       - name: Get a nats-server binary
@@ -233,6 +235,7 @@ jobs:
     environment: ci-review
     permissions:
       contents: read
+      issues: write # the revert's link on the journey's break issue (OWNER 289 item 6); the App token keeps its own scope
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -240,10 +243,11 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
       - name: Open the revert
         env:
           FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
+          ISSUES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CULPRIT: ${{ needs.revert-find.outputs.culprit || needs.revert-probe.outputs.culprit || needs.bisect.outputs.culprit }}
           KIND: ${{ inputs.journeys != '' && 'journeys' || 'ci' }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
@@ -252,3 +256,29 @@ jobs:
           RED_RUN: ${{ inputs.red_run }}
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs open
+
+  # A confirmed journeys red that traces to no single merge (revert-find names none, or the probe names no culprit):
+  # the journey's one break issue gets `main-unknown-red` and why (OWNER 289 item 6, OWNER 180). Never a new issue.
+  revert-unknown:
+    name: 'Journeys revert: no single merge found'
+    needs: [revert-find, revert-probe]
+    if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && (needs.revert-find.outputs.unknown != '' || (needs.revert-find.outputs.probe == 'true' && needs.revert-probe.outputs.culprit == '')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      contents: read
+      issues: write # comment on and label the journey's break issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Note it on the break issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEPS: ${{ needs.revert-find.outputs.steps }}
+          RED_RUN: ${{ inputs.red_run }}
+          REASON: ${{ needs.revert-find.outputs.unknown || 'the probe ran the failing journeys on each candidate commit and named no single one' }}
+        run: node tooling/ci/journeys-revert.mjs unknown

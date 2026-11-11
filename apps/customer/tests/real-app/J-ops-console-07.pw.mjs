@@ -707,10 +707,11 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), who);
     const session = await api(who);
     expect(fund(who.email, 'USDT', '2.5').tx, 'the USDT credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
-    // The past instant is the next whole minute after the USDT credit and before the USDC one.
+    expect(fund(who.email, 'USDC', '1').tx, 'the first USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+    // The past instant is the next whole minute after the USDT and first USDC credits, and before the second USDC one.
     const instant = new Date(Math.ceil((Date.now() + 1_000) / 60_000) * 60_000);
     await a.waitForTimeout(Math.max(0, instant.getTime() - Date.now()) + 2_000);
-    expect(fund(who.email, 'USDC', '3').tx, 'the USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+    expect(fund(who.email, 'USDC', '2').tx, 'the second USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
     const balances = await session.balances();
     expect(scaled(balances.USDT?.total ?? 'unset'), 'the customer holds the USDT credited').toBe(scaled('2.5'));
     expect(scaled(balances.USDC?.total ?? 'unset'), 'the customer holds the USDC credited').toBe(scaled('3'));
@@ -730,16 +731,28 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       },
     });
     try {
-      // At the past instant (margin 0) the ledger held the USDT credit and not yet the USDC one.
+      // At the past instant (margin 0) the ledger held the USDT credit and the first USDC credit, not yet the second: both
+      // assets are compared from decimal figures, and USDC is its balance then, not now. A missing side is step #7's FAIL.
       const past = await twoFounderRun(ownId, { instant: instant.toISOString().slice(0, 16), margin: '0' });
       expect(past).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       expect(past).toContain(`balances read at ${instant.toISOString()} (margin 0 s)`);
-      expect(scaled(evidence(past, 'USDT').observed)).toBe(scaled('2.5'));
-      expect(scaled(evidence(past, 'USDC').observed)).toBe(0n);
+      expect(past).toContain('2 records compared');
+      expect(past).not.toContain('missing on the');
+      for (const [asset, total] of [
+        ['USDT', '2.5'],
+        ['USDC', '1'],
+      ]) {
+        const shown = evidence(past, asset);
+        expect(scaled(shown.observed), `${asset} observed is the customer's ledger balance at the instant`).toBe(scaled(total));
+        expect(shown.expected).toBe('0');
+        expect(scaled(shown.difference)).toBe(0n);
+        expect(shown.tolerance).toBe('0');
+      }
 
       // Now: both credits, each equal to the customer's balance as the ledger answers it.
       const now = await twoFounderRun(ownId);
       expect(now).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+      expect(now).toContain('2 records compared');
       for (const [asset, total] of [
         ['USDT', '2.5'],
         ['USDC', '3'],
@@ -765,8 +778,13 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         const stored = runs.locator(`[data-testid="rc-run-row"][data-run-id="${runId(answer)}"]`);
         await expect(stored).toHaveAttribute('data-status', 'PASS');
         const text = (await stored.innerText()).replace(/\s+/g, ' ');
-        for (const asset of assets)
-          expect(evidence(text, asset), `${asset} evidence is stored as the run showed it`).toEqual(evidence(answer, asset));
+        for (const asset of assets) {
+          const kept = evidence(text, asset);
+          expect(kept, `${asset} evidence is stored as the run showed it`).toEqual(evidence(answer, asset));
+          // Stored as decimal figures, never an unset one: a stored row that lost its figures is not the run shown.
+          for (const field of ['observed', 'expected', 'difference', 'tolerance'])
+            expect(kept[field], `${asset} stored ${field} is a decimal figure`).toMatch(/^-?\d+(?:\.\d+)?$/);
+        }
       }
     } finally {
       await lifecycle(ownId, 'retire', 'Retired');
@@ -955,7 +973,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const { a } = await founders(browser);
     const section = await openLedger(a);
     await requireTreasury(section);
-    // Two floors no TEST book reaches, over the USDT account set: USDT fails on its total, USDC on a total of 0.
+    // Two floors no TEST book reaches, over the USDT account set: USDT fails on its total; the set holds no USDC account, so
+    // USDC fails as a missing ledger side, never as a total of 0 (OWNER 288).
     state.pairId = await define(section, {
       template: 'threshold',
       explanation: `LOCAL TEST two-asset floor ${tag}`,
@@ -974,7 +993,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       if (leftToday < 300_000) await a.waitForTimeout(leftToday + 5_000);
       const first = await twoFounderRun(state.pairId);
       expect(first).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-      expect(scaled(evidence(first, 'USDC').difference) < 0n).toBe(true);
+      expect(evidence(first, 'USDC')).toEqual({ observed: 'unset', expected: HIGH_FLOOR, difference: 'unset', tolerance: '0' });
+      expect(first).toContain('USDC is missing on the ledger side: a break, never read as a zero.');
       expect(scaled(evidence(first, 'USDT').difference) < 0n).toBe(true);
 
       // Two alerts, one per asset, in the same period, each counted once.
@@ -1050,19 +1070,33 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(reread.locator('[data-testid="timeline-entry"][data-kind="acknowledged"]')).toContainText(winnerNote);
       await expect(reread).toHaveAttribute('data-version', String(Number(version) + 1));
 
-      // The period is still not green while an alert in it is acknowledged; a control whose every run passed is green.
+      // The period is still not green while an alert in it is acknowledged; a period with no open alert shows green.
       const room = await openAlerts(a);
       const pairPeriod = room.locator(
         `[data-testid="period-row"][data-control-id="${state.pairId}"][data-period-start="${usdt.periodStart}"]`,
       );
       await expect(pairPeriod).toHaveCount(1);
       await expect(pairPeriod).toHaveAttribute('data-green', 'false');
+      // The threshold control's newest period was last run by step #5's passing run. Step #4's run at an hour ago can land in
+      // the day before (in the first hour after midnight UTC) and read a stack that held no USDT account yet: an honest FAIL
+      // with its own open alert, so not every period of this control passed. Each period is judged on what it holds.
       const passing = room.locator(`[data-testid="period-row"][data-control-id="${state.thresholdId}"]`);
       expect(await passing.count(), 'the passing control has evaluated periods').toBeGreaterThan(0);
+      await expect(passing.first()).toHaveAttribute('data-status', 'PASS');
+      let quiet = 0;
       for (const p of await passing.all()) {
-        await expect(p).toHaveAttribute('data-status', 'PASS');
+        const cells = p.locator('td');
+        const [open, acknowledged] = [(await cells.nth(3).innerText()).trim(), (await cells.nth(4).innerText()).trim()];
+        if (open !== '0' || acknowledged !== '0') {
+          await expect(p).toHaveAttribute('data-green', 'false');
+          continue;
+        }
+        quiet += 1;
         await expect(p).toHaveAttribute('data-green', 'true');
+        await expect(cells.nth(5)).toHaveText('Green');
       }
+      expect(quiet, 'the newest period, with no open alert, is among them').toBeGreaterThan(0);
+      await expect(passing.first().locator('td').nth(5)).toHaveText('Green');
 
       // Snooze for an hour, then the same failure again: the alert counts it, its notice is "snoozed" and none is sent.
       const snoozing = await openAlert(a, usdt.id);
@@ -1173,7 +1207,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       // A resolved alert offers no second resolution and no acceptance.
       await expect(resolved.getByTestId('alert-resolve-why')).toBeVisible();
 
-      // Accept: a USDC floor over the USDT account set fails on a total of 0 at every run, the same figures each time.
+      // Accept: a USDC floor over the USDT account set fails at every run on a missing USDC side (no account holds it), the
+      // same figures each time.
       const desk = await openLedger(a);
       state.acceptId = await define(desk, {
         template: 'threshold',

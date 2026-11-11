@@ -17,8 +17,11 @@
 //   node tooling/scripts/local-test-chain.mjs fund <address>    TEST ETH for gas + TEST Token A and B (stack.mjs tool())
 //   node tooling/scripts/local-test-chain.mjs fund <address> stable   TEST USD only and no TEST ETH (J-dex-protocol-02 #11)
 //   node tooling/scripts/local-test-chain.mjs fund <address> spam     TEST Airdrop sent unasked (J-dex-protocol-04 #7)
+//   node tooling/scripts/local-test-chain.mjs fund <address> venue    TEST ETH for gas + TEST USD to deposit (J-wallet-09 #3)
 //   node tooling/scripts/local-test-chain.mjs fund <address> plain    TEST Token C, the token with no permit (J-dex-protocol-03)
 //
+// `serve` also runs, on the same port, the Navigator's TEST signer at /navigator (J-agents-19 #4): one SmartAccount
+// executeWithSession call, sent from the Navigator's TEST session key address, impersonated on this anvil.
 // `serve` also runs the TEST network-fee relayer (RC-dex-protocol-02) on RELAY_URL: a stand-in for the relay a person's
 // signed fee-token swap is handed to. It takes one call for the seeded FeeTokenRelay's swap(), sends it from the seeded
 // TEST relayer (an impersonated address on this anvil, holding TEST ETH), and answers the hash. It signs nothing itself
@@ -38,6 +41,14 @@ const PROTOCOL_DIR = path.join(REPO, 'services', 'svc-protocol');
 export { CHAIN_PORTS, GATE_URL, TEST_CHAIN_ID, chainRecordPath };
 /** The TEST network-fee relayer's submit URL (svc-protocol's PROTOCOL_FEE_RELAY_URL on the stack). */
 export const RELAY_URL = `http://${HOST}:${CHAIN_PORTS.relay}/relay`;
+/**
+ * The Navigator's TEST signer (J-agents-19 #4): POST {chainId, from, to, data} here sends one SmartAccount
+ * executeWithSession call from the Navigator's TEST session key address, impersonated on this anvil. It is the stand-in
+ * for the signer a production Navigator would hold its session key in; svc-agents holds no key.
+ */
+export const NAVIGATOR_SIGNER_URL = `http://${HOST}:${CHAIN_PORTS.relay}/navigator`;
+/** SmartAccount.executeWithSession's selector: the one call a session key can make, and the only call this signer sends. */
+export const EXECUTE_WITH_SESSION_SELECTOR = '0xbd210fed';
 /** FeeTokenRelay.swap's selector: the one call the TEST relayer sends. */
 export const RELAY_SWAP_SELECTOR = '0xff292559';
 /**
@@ -157,7 +168,11 @@ function serve() {
       );
     })
     .listen(CHAIN_PORTS.control, HOST);
-  http.createServer((req, res) => void relay(req, res)).listen(CHAIN_PORTS.relay, HOST);
+  http
+    .createServer(
+      (req, res) => void (new URL(req.url, `http://${HOST}`).pathname === '/navigator' ? navigatorSign(req, res) : relay(req, res)),
+    )
+    .listen(CHAIN_PORTS.relay, HOST);
   // A gate that cannot listen (its port taken after the stack's check) stops the chains with its error, never unhandled.
   Promise.all([gate.open(), second.open()]).catch((err) => {
     console.error(`a TEST chain gate could not open: ${err.message}`);
@@ -253,6 +268,54 @@ async function relay(req, res) {
   }
 }
 
+/** The Navigator's TEST session key address, from the stack's labelled TEST owner values. */
+function navigatorSignerAddress() {
+  const file = path.join(REPO, 'tooling', 'profiles', 'test-owner-values', 'agents.json');
+  return JSON.parse(fs.readFileSync(file, 'utf8')).values.AGENTS_NAVIGATOR_ONCHAIN_SIGNER.value.toLowerCase();
+}
+
+/**
+ * POST /navigator {chainId, from, to, data} (hex): sent from the Navigator's TEST session key address when `from` is that
+ * address and `data` calls a smart account's executeWithSession; anything else is refused by name. The account contract
+ * itself checks that the key is live and that the call is in its scope, cap and expiry; this signer checks nothing more
+ * and signs nothing. Answers {hash} or {error}.
+ */
+async function navigatorSign(req, res) {
+  const answer = (status, body) => {
+    res.statusCode = status;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(body));
+  };
+  if (req.method !== 'POST') return answer(404, { error: 'navigator.not_found: POST /navigator only' });
+  let raw = '';
+  for await (const chunk of req) {
+    raw += chunk;
+    if (raw.length > 64_000) return answer(413, { error: 'navigator.too_large' });
+  }
+  let call;
+  try {
+    call = JSON.parse(raw);
+  } catch {
+    return answer(400, { error: 'navigator.bad_json' });
+  }
+  if (call?.chainId !== TEST_CHAIN_ID) return answer(400, { error: 'navigator.wrong_chain: the TEST chain only' });
+  const signer = navigatorSignerAddress();
+  if (typeof call.from !== 'string' || call.from.toLowerCase() !== signer)
+    return answer(400, { error: "navigator.wrong_signer: only the Navigator's TEST session key sends" });
+  if (typeof call.to !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(call.to)) return answer(400, { error: 'navigator.bad_to' });
+  if (typeof call.data !== 'string' || !HEX.test(call.data) || !call.data.toLowerCase().startsWith(EXECUTE_WITH_SESSION_SELECTOR))
+    return answer(400, { error: 'navigator.wrong_call: only a smart account executeWithSession is sent' });
+  try {
+    await anvilRpc('anvil_impersonateAccount', [signer]);
+    // TEST ETH for gas only; the call itself carries no value.
+    await anvilRpc('anvil_setBalance', [signer, '0x56bc75e2d63100000']);
+    const hash = await anvilRpc('eth_sendTransaction', [{ from: signer, to: call.to, data: call.data, value: '0x0' }]);
+    return answer(200, { hash });
+  } catch (err) {
+    return answer(502, { error: `navigator.send_failed: ${err.message}` });
+  }
+}
+
 async function cmdGate(state, network) {
   if (!['open', 'closed'].includes(state) || ![undefined, 'second'].includes(network)) throw new Error('usage: gate open|closed [second]');
   const answer = await control(`?gate=${state}${network ? `&network=${network}` : ''}`);
@@ -261,8 +324,8 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'plain'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable|spam|plain]');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain'].includes(kind))
+    throw new Error('usage: fund <0x address> [stable|spam|venue|plain]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');
@@ -285,7 +348,7 @@ if (runningAsCli) {
   else if (command === 'gate') await cmdGate(arg, extra);
   else if (command === 'fund') await cmdFund(arg, extra);
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|plain]');
+    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|venue|plain]');
     process.exit(2);
   }
 }

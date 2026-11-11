@@ -1,3 +1,4 @@
+import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
 import type { GridService } from './grid/grid-service.js';
@@ -46,6 +47,8 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import { signalsRouter } from './signals/router.js';
+import type { SignalDesk } from './signals/signal-desk.js';
 import type { PlatformPauseDesk } from './copy/platform-pauses.js';
 import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
@@ -70,6 +73,7 @@ import { TradingControlError, type TradingControls } from './controls/trading-co
 import { tradeOpsAdminRouter } from './admin/router.js';
 import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { supportTradeSummaryRouter } from './support/router.js';
+import { ownVenueActivityRouter, type OwnVenueActivityDeps } from './venue/own-activity-router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
 import { ALGO_STOP_REASONS, type AlgoStopReasonCode } from './algo/stop-reason.js';
@@ -895,6 +899,9 @@ export function createTradeRouter(
   leadDesk?: LeadDesk,
   grid?: GridService,
   platformPauses?: PlatformPauseDesk,
+  builderFees?: BuilderFeeReconReader,
+  venueActivity?: OwnVenueActivityDeps,
+  signals?: SignalDesk,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -940,9 +947,13 @@ export function createTradeRouter(
   const pauseScope = z.object({ kind: z.enum(['lead', 'bot_type', 'symbol']), value: z.string().trim().min(1).max(80) }).strict();
   return router({
     accountControls: tradingControlsRouter(controls),
-    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
+    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups), builderFeeAdminRouter(builderFees)),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
+    /** `venue.ownActivity`: a person's own venue spot trading, svc-tax only (J-cex-spot-01 #11). Read-only. */
+    venue: ownVenueActivityRouter(venueActivity),
+    /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
+    signals: signalsRouter(signals),
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
     bots: router({ grid: gridRouter(grid) }),
     health: publicProcedure
