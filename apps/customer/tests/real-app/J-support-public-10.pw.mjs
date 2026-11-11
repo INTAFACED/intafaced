@@ -248,11 +248,17 @@ test(`${J} #2 a filter by field saves as a view and is shared: list and count ag
   // A field the queue does not have is refused by name, and the list stays as it was.
   await page.goto(`${ADMIN}/support`);
   await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' }).first()).toBeVisible();
-  const before = await queue.getByRole('row').filter({ hasNotText: 'Subject' }).count();
+  // The subject is the row's second cell, after the tick box.
+  const subjects = () =>
+    queue
+      .getByRole('row')
+      .filter({ hasNotText: 'Subject' })
+      .evaluateAll((all) => all.map((row) => row.cells[1]?.textContent ?? ''));
+  const before = await subjects();
   await page.goto(`${ADMIN}/support?filter=${encodeURIComponent('nosuchfield:x')}`);
-  // Scoped to the page body: Next's route announcer is a second, empty alert outside it.
-  await expect(page.getByRole('main').getByRole('alert')).toContainText('nosuchfield');
-  await expect(queue.getByRole('row').filter({ hasNotText: 'Subject' })).toHaveCount(before);
+  // svc-support's own typed refusal, naming the field, and the very same requests listed below it.
+  await expect(page.getByTestId('queue-filter-refused')).toContainText('"nosuchfield" (support.filter_invalid)');
+  await expect.poll(subjects).toEqual(before);
 
   // With the owner's view cap blank, saving a view refuses and names the setting; nothing is saved.
   restartWith('support', 'LOCAL_STACK_SUPPORT_VIEW_CAP', false);
