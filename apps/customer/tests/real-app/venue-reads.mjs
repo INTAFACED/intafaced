@@ -3,7 +3,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
 import { api, toUnits, tool } from './stack.mjs';
 
-// The person's own venue account, read from the venue, never from our ledger or our engine: the venue journeys
+// The person's own venue account, read from the TEST venue itself, never from our ledger, engine or door: the venue journeys
 // (J-cex-spot-01, J-derivatives-01) assert every balance, lock, fill and position against these reads.
 //
 // The venue is the stack's LOCAL TEST venue (tooling/scripts/local-test-venue.mjs, packages/venue-sim) behind svc-trade's
@@ -61,10 +61,28 @@ export async function venueStatus(who) {
   return body;
 }
 
-/** One of the venue's own reads through the door, for the venue account `owner` owns, with its as-of time. */
+/** The TEST venue's own route for each account read, straight on loopback: never svc-trade's door, which the desk uses. */
+const SIM_READS = {
+  balances: '/balances',
+  'orders/open': '/open-orders',
+  'orders/by-client-id': '/order-by-client-id',
+  fills: '/fills',
+  positions: '/positions',
+};
+
+/**
+ * One of the venue's own reads for the account `owner` owns, with its as-of time, read from the TEST venue itself, so a
+ * door that misreported a lock, a fill or a balance would show against it. `who` is kept for the callers' shape.
+ */
 export async function venueRead(who, route, owner, query = {}) {
-  const qs = new URLSearchParams({ owner, ...query }).toString();
-  const { status, body } = await (await clientOf(who)).get(`/api/v1/venue/${route}?${qs}`);
+  const path = SIM_READS[route];
+  expect(path, `${route} is a venue read`).toBeTruthy();
+  const account = { venueId: await testVenueId(), owner: owner.trim().toLowerCase(), subAccount: null };
+  const extra = {
+    ...(query.clientOrderId === undefined ? {} : { venueClientOrderId: query.clientOrderId }),
+    ...(query.since === undefined ? {} : { since: query.since }),
+  };
+  const { status, body } = await testVenue(path, { account, ...extra });
   expect(status, `${route}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
   expect(typeof body.asOf, `${route} carries the venue's as-of time`).toBe('string');
   expect(Number.isNaN(Date.parse(body.asOf)), body.asOf).toBe(false);

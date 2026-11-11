@@ -588,7 +588,9 @@ test(`${J} #6 types a limit buy of TEST 0.1 BTC and reviews: the venue's lock, t
   expect(sent.intent).toMatchObject({ kind: 'place_order', symbol: VENUE_SPOT, side: 'buy', type: 'limit', timeInForce: 'GTC' });
   expect(toUnits(sent.intent.amount)).toBe(toUnits(VENUE_BUY));
   expect(toUnits(sent.intent.price)).toBe(toUnits(price));
-  const { status, body: preview } = await (await api(who)).post('/api/v1/venue/preview', sent);
+  // The same order asked of the TEST venue itself, not through our door, so a door that bent a figure would show.
+  const account = { venueId: await testVenueId(), owner: owner.toLowerCase(), subAccount: null };
+  const { status, body: preview } = await testVenue('/preview', { account, intent: sent.intent });
   expect(status, JSON.stringify(preview).slice(0, 300)).toBe(200);
   const lock = listed(review, /lock/i);
   await expect(lock).toContainText(preview.value.lock.asset);
