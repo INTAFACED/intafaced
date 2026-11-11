@@ -583,8 +583,15 @@ test(`${J} #10 attaches a close to a buy (OTO): shown linked, cancelled with the
   await review(page, 'buy', 'OTO', { 'Entry price': entryPrice, 'Close price': closePrice, Amount: AMOUNT });
   const entry = await place(page, 'buy');
   expect(entry).toMatchObject({ status: 'open', linked: { role: 'entry', closeOrderId: null } });
+  // Held, as in #7: the seller is sized from the maker's bids ahead of this buy. Unheld, the maker's 8 s cycle places its
+  // new ladder before it cancels the old one, so a sale sized from one read can be used up on bids that read never saw,
+  // and the buy stays open (main run 42810453233; #7860's run 42880730653).
+  await bestPrices(SYMBOL, 50, 60_000);
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', SYMBOL);
   await sellInto(entryPrice, AMOUNT, AMOUNT, '10');
   await expect.poll(async () => (await orderById(who, entry.id)).status, { timeout: 30_000 }).toBe('closed');
+  expect(Date.now() - heldAt, 'the BTC/USDT hold lapsed before the seller met the OTO buy').toBeLessThan(HOLD_MAX_MS);
   let close;
   await expect
     .poll(
@@ -616,7 +623,8 @@ test(`${J} #10 attaches a close to a buy (OTO): shown linked, cancelled with the
   await expect.poll(async () => held(await balances(who), 'BTC'), { timeout: 20_000 }).toBe(0n);
 });
 
-// Held for #7 only, passed or not: the next step's BTC/USDT book is quoted again.
+// Held for #7 and #10 only, passed or not: the next step's BTC/USDT book is quoted again.
 test.afterEach(() => {
-  if (test.info().title.startsWith(`${J} #7 `)) tool('local-test-market.mjs', 'release', SYMBOL);
+  if (test.info().title.startsWith(`${J} #7 `) || test.info().title.startsWith(`${J} #10 `))
+    tool('local-test-market.mjs', 'release', SYMBOL);
 });
