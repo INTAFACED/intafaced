@@ -5,6 +5,7 @@ import { ORIGIN } from './stack.mjs';
 
 // J-home-ia-03, in the running app (docs/roadmap/journeys.json): I make Home mine. Tests titled "J-home-ia-03 #<n>" prove
 // a whole step. One TEST person on two devices (two browser contexts with nothing shared but the account).
+// No step here moves money: the layout is the account's own setting.
 const J = 'J-home-ia-03';
 
 test.describe.configure({ mode: 'serial' });
