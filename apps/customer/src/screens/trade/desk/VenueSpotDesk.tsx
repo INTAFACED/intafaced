@@ -398,7 +398,7 @@ function VenueAccountPanel({
   );
 }
 
-/** The wallet that owns the venue account: Connect until connected, then its short address, Disconnect and the network guard. */
+/** The wallet that owns the venue account: Connect until connected, then its address, Disconnect and the network guard. */
 function VenueWalletRow() {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
@@ -408,9 +408,9 @@ function VenueWalletRow() {
       {wallet.status === 'connected' && wallet.address ? (
         <div>
           <p>
-            {t('Connected')}:{' '}
-            <span className="numeric" data-testid="venue-wallet-address" title={wallet.address.toLowerCase()}>
-              {shortAddress(wallet.address.toLowerCase())}
+            {t('Connected')}: {/* The whole address, as the venue kit's wallet bar shows it: the person checks it against their wallet. */}
+            <span className="numeric" data-testid="venue-wallet-address">
+              {wallet.address.toLowerCase()}
             </span>{' '}
             <KitButton variant="secondary" onClick={wallet.disconnect}>
               {v('Disconnect')}
