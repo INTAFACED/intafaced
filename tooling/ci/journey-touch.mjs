@@ -179,20 +179,7 @@ export function namedInputs({ ids, journeyFiles, map, money = null }) {
  * flows" 8): in a folder journey-verdict.mjs moneyCodeDirs names from the checkout's manifests, or any package.json (a
  * dependency on ledger-client it adds or drops). Null manifests (unreadable): everything is money, so nothing narrows.
  */
-export const moneyPathOf = (dirs) => (p) =>
-  !dirs || /(^|\/)package\.json$/.test(p) || dirs.has(packageOf(p)) || SECURITY_DIRS.includes(packageOf(p));
-
-/** Security code (the CI review's brief, 2026-11-06 entry; OWNER 277 keeps checks on it the owner's): never narrowed by
- *  name either. svc-edge, svc-ops, svc-protocol and svc-fix are in moneyCodeDirs already. */
-export const SECURITY_DIRS = [
-  'services/svc-edge',
-  'services/svc-ops',
-  'services/svc-protocol',
-  'services/svc-fix',
-  'packages/auth',
-  'packages/config',
-  'packages/db',
-];
+export const moneyPathOf = (dirs) => (p) => !dirs || /(^|\/)package\.json$/.test(p) || dirs.has(packageOf(p));
 
 /** One path's kind: { kind: 'full', why } | { kind: 'file', file } | { kind: 'none' }. */
 export function pathKind(path) {

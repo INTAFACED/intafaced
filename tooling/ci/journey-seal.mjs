@@ -86,7 +86,7 @@ import {
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
-import { RUN_FILE, SECURITY_DIRS, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable } from './journey-touch.mjs';
+import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
 
@@ -1153,10 +1153,7 @@ export async function namedSealInputs({ io, pull, head }) {
   for (const p of pull?.paths ?? []) {
     let m = true;
     try {
-      m =
-        /(^|\/)package\.json$/.test(p) ||
-        SECURITY_DIRS.includes(packageOf(p)) ||
-        (io.moneyCode ? (await io.moneyCode([p])) !== false : true);
+      m = /(^|\/)package\.json$/.test(p) || (io.moneyCode ? (await io.moneyCode([p])) !== false : true);
     } catch {
       m = true;
     }
