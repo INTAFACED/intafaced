@@ -64,6 +64,24 @@ async function paneValueAt(page, point) {
   };
 }
 
+/**
+ * How far, in pixels, a painted height `y` (chart pixels) sits from where the pane now reads `value`. The Volume pane
+ * rescales as the live bar's volume grows, so a line at a fixed value moves on screen after it is placed; this reads the
+ * pane's own scale at the painted height (the whole pixel there and one either side) rather than trusting the scale at
+ * the click.
+ */
+async function pixelsFromValue(page, x, y, value) {
+  const box = await chartHost(page).boundingBox();
+  if (!box) throw new Error('the chart has no box');
+  const cy = Math.round(y);
+  const above = await paneValueAt(page, { x, y: box.y + cy - 1 });
+  const below = await paneValueAt(page, { x, y: box.y + cy + 1 });
+  const at = await paneValueAt(page, { x, y: box.y + cy });
+  const perPixel = Math.abs(above.value - below.value) / 2;
+  if (!(perPixel > 0)) throw new Error(`the pane reads no scale at y ${cy}`);
+  return Math.abs(at.value - value) / perPixel + Math.abs(y - cy);
+}
+
 test.describe.configure({ mode: 'serial' });
 
 let page;
@@ -122,7 +140,6 @@ test(`${J} #1 opens the drawing toolbar and picks the trend line, then two click
 
 test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price pane, and on an indicator pane where allowed`, async () => {
   const host = page.getByTestId('cw').getByTestId('wc-host');
-  const hostBox = await host.boundingBox();
   // The chart opens with its default Volume study in its own indicator pane, pane 1 under the price pane.
   const panes = await paneBoxes(page);
   const price = panes.find((b) => b.index === 0);
@@ -184,12 +201,17 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
   // Painted on the Volume pane, at the height that was clicked.
   const levelId = await onVolume.getAttribute('data-drawing-id');
   await expect.poll(async () => (await drawn(page)).find((d) => d.id === levelId)?.pane ?? null).toBe(1);
-  const levelDrawn = (await drawn(page)).find((d) => d.id === levelId);
-  expect(levelDrawn.lines.length).toBeGreaterThan(0);
-  for (const [, y1, , y2] of levelDrawn.lines) {
-    expect(inside(y1, volume) && inside(y2, volume), `line ${y1}..${y2} inside the Volume pane`).toBe(true);
-    expect(Math.abs(y1 - (level.y - hostBox.y)), `line at ${y1}, clicked at ${level.y - hostBox.y}`).toBeLessThanOrEqual(1.5);
-  }
+  // The stored value is the one the pane read under the click (above), so the line is at the clicked height when it is
+  // painted where the pane reads that value, on the pane's scale as it is when the paint is read.
+  await expect(async () => {
+    const levelDrawn = (await drawn(page)).find((d) => d.id === levelId);
+    expect(levelDrawn.lines.length).toBeGreaterThan(0);
+    for (const [, y1, , y2] of levelDrawn.lines) {
+      expect(inside(y1, volume) && inside(y2, volume), `line ${y1}..${y2} inside the Volume pane`).toBe(true);
+      const off = await pixelsFromValue(page, level.x, y1, Number(storedLevel[0]));
+      expect(off, `line at ${y1}, ${off} px from where the pane reads the stored ${storedLevel[0]}`).toBeLessThanOrEqual(1.5);
+    }
+  }).toPass({ timeout: 15_000 });
 
   // A ray and an info line on the Volume pane: each point stored at the value the pane reads under it, and each painted
   // inside the Volume pane through the points that were clicked.
@@ -214,14 +236,18 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
     expect(atTick(values[1], v2.value), `${kind} point 2: stored ${values[1]}, pane value ${v2.value}`).toBe(true);
     const id = await row.getAttribute('data-drawing-id');
     await expect.poll(async () => (await drawn(page)).find((d) => d.id === id)?.pane ?? null).toBe(1);
-    const painted = (await drawn(page)).find((d) => d.id === id);
-    expect(painted.lines.length, `${kind} lines`).toBeGreaterThan(0);
-    for (const [, y1, , y2] of painted.lines) {
-      expect(inside(y1, volume) && inside(y2, volume), `${kind} line ${y1}..${y2} inside the Volume pane`).toBe(true);
-    }
-    // The first painted line starts at the height of the first point clicked, on the Volume pane.
-    const startY = painted.lines[0][1];
-    expect(Math.abs(startY - (p1.y - hostBox.y)), `${kind} starts at y ${startY}, clicked at ${p1.y - hostBox.y}`).toBeLessThanOrEqual(1.5);
+    // The first painted line starts at the height of the first point clicked: where the pane reads the first stored
+    // value, on the pane's scale as it is when the paint is read.
+    await expect(async () => {
+      const painted = (await drawn(page)).find((d) => d.id === id);
+      expect(painted.lines.length, `${kind} lines`).toBeGreaterThan(0);
+      for (const [, y1, , y2] of painted.lines) {
+        expect(inside(y1, volume) && inside(y2, volume), `${kind} line ${y1}..${y2} inside the Volume pane`).toBe(true);
+      }
+      const startY = painted.lines[0][1];
+      const off = await pixelsFromValue(page, p1.x, startY, Number(values[0]));
+      expect(off, `${kind} starts at y ${startY}, ${off} px from where the pane reads the stored ${values[0]}`).toBeLessThanOrEqual(1.5);
+    }).toPass({ timeout: 15_000 });
     return id;
   };
   const rayId = await twoPointsOnVolume('Ray', 'ray', [0.6, 0.3], [0.8, 0.6], 6);
