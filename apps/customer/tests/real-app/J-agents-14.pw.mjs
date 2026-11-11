@@ -356,13 +356,17 @@ test(`${J} #5 kills a whole kind: every agent of the kind disabled in one audite
       0,
     );
   } finally {
-    // Put the kind back with both founders, so the stack's other journeys meet it as before.
+    // Put the kind back with both founders, so the stack's other journeys meet it as before. Each click is followed by the
+    // desk's own answer, so the request has landed before the next founder reads it or the browser closes (run
+    // 42933547963: the second founder's browser closed before its confirm reached the service, and the kind stayed off).
     await page.getByRole('button', { name: 'Restore a kind' }).click();
+    await expect(page.getByRole('status')).toHaveText('Restore of Customer-built waiting for a second founder.');
     const other = await browser.newContext();
     try {
       const b = await other.newPage();
       await openFleet(b, 'b');
       await b.getByRole('button', { name: 'Confirm restore of Customer-built' }).click();
+      await expect(b.getByRole('status')).toHaveText('Customer-built agents restored.');
     } finally {
       await other.close();
     }
