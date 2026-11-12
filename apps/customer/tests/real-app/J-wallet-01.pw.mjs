@@ -32,7 +32,7 @@ import {
 // #3 puts this person's bank money at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`, funded there
 // with TEST 50 USDT), buys TEST 10 USDT by card and TEST 20 USDT by a bank pull through the partner's TEST pay-in page, and reads what the partner
 // holds back of it on Withdraw, through its switches for "not reported" and for the release; then puts it back.
-// #5 reads the asset registry, as before. #6 reads the membership panel with the tiers blank, then with identity restarted
+// #5 reads the asset registry and holds Deposit's and Withdraw's own pickers to it. #6 reads the membership panel with the tiers blank, then with identity restarted
 // with one TEST tier (`LOCAL_STACK_IDENTITY_MEMBERSHIP=test`), then blank again.
 const J = 'J-wallet-01';
 const DESK = '/trade/spot/BTC-USDC';
@@ -598,6 +598,21 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await signIn(page, who);
   await page.goto('/uc/recharge');
   await page.mouse.move(0, 600);
+  // Deposit's own pickers use those rows: its coins are the ones the list lets in (and any whose pairs are switched off,
+  // shown with their reason), and each coin's open networks are the list's networks for it.
+  const optionValues = (select, extra = '') =>
+    select.locator(`option${extra}`).evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
+  const depositAsset = page.getByLabel('Asset', { exact: true });
+  const depositNetwork = page.getByLabel('Network', { exact: true });
+  const depositOffered = [...new Set([...deposits.assets, ...(deposits.halted ?? [])].map((asset) => asset.assetId))];
+  await expect.poll(() => optionValues(depositAsset).then((v) => [...v].sort())).toEqual([...depositOffered].sort());
+  for (const id of depositOffered) expect(row(id), `Deposit offers ${id}, which the list does not have`).toBeTruthy();
+  for (const asset of deposits.assets) {
+    await depositAsset.selectOption(asset.assetId);
+    const open = asset.networks.map((n) => n.id);
+    await expect.poll(() => optionValues(depositNetwork, ':not([data-halted])').then((v) => [...v].sort())).toEqual([...open].sort());
+    for (const id of open) expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(id);
+  }
   await page.getByRole('link', { name: 'Supported assets and networks' }).click();
   await expect(page).toHaveURL(/\/uc\/assets$/);
   await expect(page.getByRole('heading', { name: 'Supported assets and networks', level: 1 })).toBeVisible();
@@ -626,6 +641,20 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
   await expect(page.getByRole('link', { name: 'Supported assets and networks' })).toHaveAttribute('href', '/uc/assets');
+  // Withdraw's own pickers use the same rows: for every coin the person holds, the networks it offers are exactly the
+  // list's withdrawal networks for that coin, and the retired coin they still hold is offered none.
+  const withdrawAsset = page.getByLabel('Asset', { exact: true });
+  const withdrawNetwork = page.getByLabel('Network', { exact: true });
+  await expect.poll(() => optionValues(withdrawAsset)).toContain(RETIRED);
+  for (const id of await optionValues(withdrawAsset)) {
+    await withdrawAsset.selectOption(id);
+    const open = (withdrawable.find((asset) => asset.assetId === id)?.networks ?? []).map((n) => n.networkId);
+    await expect
+      .poll(() => optionValues(withdrawNetwork).then((v) => [...v].sort()), `Withdraw's networks for ${id}`)
+      .toEqual([...open].sort());
+  }
+  await withdrawAsset.selectOption(RETIRED);
+  await expect(withdrawNetwork).toContainText('No network is open for this asset');
 });
 
 test(`${J} #6 opens membership tier on Account: with config blank, a refused state; with config set, the tier`, async ({ page }) => {
