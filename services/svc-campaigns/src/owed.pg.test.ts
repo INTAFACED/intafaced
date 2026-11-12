@@ -166,7 +166,8 @@ async function reconcileLater() {
   return saga.reconcile();
 }
 
-const owedOnBook = async (key: string) => (await book.balance(rewardOwedAccount(ledgerRewardId(key)))).amount;
+const campaignOf = (key: string) => key.split(':')[1]!;
+const owedOnBook = async (key: string) => (await book.balance(rewardOwedAccount(ledgerRewardId(campaignOf(key), key)))).amount;
 
 /** The invariant: owed intents equal the ledger's owed pots, one Owe key each; budgets are spent to zero; no customer holds anything. */
 async function reconciles() {
@@ -186,7 +187,7 @@ async function reconciles() {
   expect(oweKeys.sort()).toEqual(
     rows
       .filter((r) => r.state === 'owed')
-      .map((r) => `campaigns:owe:${ledgerRewardId(r.reward_key)}`)
+      .map((r) => `campaigns:owe:${ledgerRewardId(r.campaign_id, r.reward_key)}`)
       .sort(),
   );
   expect(book.reconcile()).toEqual({ ok: true });
@@ -326,7 +327,7 @@ if (!db) {
       await reconcileLater();
       const reward = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
       expect(reward.state).toBe('owed');
-      expect(reward.owed?.txId).toBe((await book.getTxByKey(`campaigns:owe:${ledgerRewardId(rewardKeyOf(c.id, ME, 'once'))}`))?.id);
+      expect(reward.owed?.txId).toBe((await book.getTxByKey(`campaigns:owe:${ledgerRewardId(c.id, rewardKeyOf(c.id, ME, 'once'))}`))?.id);
       expect(await owedOnBook(reward.rewardKey)).toBe(parseAmount('10'));
       expect(await reconciles()).toBe(parseAmount('10'));
     });

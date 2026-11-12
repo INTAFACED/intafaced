@@ -16,7 +16,8 @@ import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFil
 // svc-trade's settled fill on the bus: the customer buys BTC/USDT against the stack's market maker. The USDC reward pot is
 // funded by the founders from builder fees the TEST venue credited us on this file's own routed sells (the venue door is
 // on for this file). The hold times, the lock and the TEST reward ceiling are this run's TEST values
-// (tooling/profiles/test-owner-values/campaigns.json). #6 is Later (OWNER 226: a bonus we hold) and is not here.
+// (tooling/profiles/test-owner-values/campaigns.json). #5's Later clause and #6 (OWNER 226: a bonus we hold) are the
+// custodial layer's, with TEST USDT from the trade-fee pot, and run while the stack has custody on.
 const J = 'J-campaigns-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -270,6 +271,23 @@ async function earnBuilderFees(who, sells) {
   return sumDecimal(fees);
 }
 
+/** Founder A asks to sweep earned trade fees into the USDT reward pot (the custodial layer's bonus); B approves. */
+const BONUS_COVER = '0.1';
+async function fundTradePot(reference, amount) {
+  const { ctx, pair } = await operators();
+  const a = await pair.a.campaignsOpsToken();
+  const b = await pair.b.campaignsOpsToken();
+  data(
+    await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'trade', asset: 'USDT', amount }, a),
+    'ops.pot.request',
+  );
+  const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b), 'ops.pot.approve');
+  expect(funded.state, JSON.stringify(funded)).toBe('posted');
+}
+
+/** Adds two decimal strings exactly (no float). */
+const addDecimal = (a, b) => sumDecimal([a, b]);
+
 /** Funds the pot with builder fees once svc-trade has posted them to the ledger (it posts on its own cadence). */
 async function fundPotFromFees(reference, amount) {
   await expect
@@ -342,8 +360,9 @@ test(`${J} #1 opens /uc/promotion with no activity: an honest empty state, no in
   const me = person(`jc03me${tag}`.slice(0, 20));
   await signUpInBrowser(page, me);
   await signOutBrowser(page.context());
-  // Basic is what trading and the claims need.
+  // Basic is what trading and the claims need; the withdraw form #5 opens needs Full.
   await verifyAs(page, me, 'Basic');
+  await verifyAs(page, me, 'Full');
   expect(fund(me.email, 'USDT', '500').tx).toBeTruthy();
   run.write({ me });
 
@@ -418,12 +437,27 @@ test(`${J} #2 opens it with rewards in each state: owed, on hold and still open,
   await expect(hub.getByTestId('rewards-total')).toHaveCount(3);
   await expect(hub.getByTestId('rewards-totals')).not.toContainText(/balance|available|spendable/i);
 
-  // Paid: a reward paid to the connected wallet carries its chain transaction link. Nothing pays an owed reward to a
-  // wallet yet, so no row here is paid (the step is left: see the PR).
-  await expect(hub.locator('[data-testid="reward-row"][data-status="paid"] [data-testid="reward-chain-tx"]')).toHaveCount(1, {
-    timeout: 5_000,
-  });
+  // Paid: a reward with no hold is paid to the connected wallet, and its row carries that payment's chain transaction,
+  // the same one its record names. Nothing pays an owed reward to a wallet yet (the step is left: see the PR).
+  await expect.poll(async () => (await progressOf(me, owed.id)).reward.state, { timeout: 30_000 }).toBe('paid');
+  const payout = (await progressOf(me, owed.id)).reward.payout;
+  expect(payout?.chainTx, JSON.stringify(payout)).toMatch(/^0x[0-9a-f]{64}$/);
+  const paid = row(await openHub(page), owed.id);
+  await expect(paid).toHaveAttribute('data-status', 'paid');
+  await expect(paid.getByTestId('reward-chain-tx')).toHaveAttribute('data-tx', payout.chainTx);
+  await expect(paid.getByTestId('reward-chain-tx')).toHaveAttribute('href', new RegExp(`/tx/${payout.chainTx}$`));
 });
+
+/** Paid exactly once: owed once, paid once, one row, and the row's chain transaction is the record's. */
+async function paidOnce(me, campaignId) {
+  const reward = (await progressOf(me, campaignId)).reward;
+  expect(reward.attempts.filter((a) => a.outcome === 'owed')).toHaveLength(1);
+  expect(reward.attempts.filter((a) => a.outcome === 'paid')).toHaveLength(1);
+  const rows = (await mine(me)).rewards.filter((r) => r.campaignId === campaignId);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].payout?.chainTx).toBe(reward.payout?.chainTx);
+  expect(reward.payout?.chainTx).toMatch(/^0x[0-9a-f]{64}$/);
+}
 
 test(`${J} #3 watches a held reward when its release time passes: paid once to the connected wallet; under a posting freeze it stays owed and is paid once after it lifts`, async ({
   page,
@@ -439,6 +473,8 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   await page.waitForTimeout(Math.max(0, until - Date.now()));
   // Paid once to the connected wallet, with its chain transaction. Nothing pays an owed reward to a wallet yet.
   await expect.poll(async () => (await progressOf(me, hold.id)).reward.state, { timeout: 30_000 }).toBe('paid');
+  await page.waitForTimeout(12_000);
+  await paidOnce(me, hold.id);
 
   // With the platform posting freeze on when a hold ends, the reward stays owed, and is paid once after it lifts.
   const frozenHold = await liveCampaign(`TEST hold under freeze ${tag}`, { holdSeconds: 45 });
@@ -456,9 +492,10 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   } finally {
     await setPostingFreeze(browser, false);
   }
+  // Paid once after the freeze: later reconciler passes add nothing, to either reward.
   await page.waitForTimeout(12_000);
-  const reward = (await progressOf(me, frozenHold.id)).reward;
-  expect(reward.attempts.filter((a) => a.outcome === 'paid')).toHaveLength(1);
+  await paidOnce(me, frozenHold.id);
+  await paidOnce(me, hold.id);
 });
 
 const LOCK_STEP = { title: 'TEST sell BTC', event: 'trade.fill', market: SYMBOL, side: 'sell', count: 1 };
@@ -534,6 +571,76 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   const after = (await progressOf(me, owedId)).reward;
   expect(after).toMatchObject({ state: 'owed', ledgerTxId: null });
   expect(after.attempts).toEqual(before.attempts);
+
+  // Later (OWNER 226): the withdraw path refuses a bonus and the screen explains the restriction. A bonus is the
+  // custodial layer's (TEST USDT from the trade-fee pot), so this part runs only while custody is on.
+  const bonus = await liveCampaign(`TEST bonus ${tag}`, {
+    holdSeconds: 0,
+    asset: 'USDT',
+    lock: { kind: 'bonus', expirySeconds: 120, appliesTo: ['derivatives'] },
+  });
+  await completeAll(me, [bonus.id]);
+  await fundTradePot(`TEST-${J}-5-${tag}`, BONUS_COVER);
+  await call(me, 'POST', 'tasks.claim', { campaignId: bonus.id });
+  await expect.poll(async () => (await progressOf(me, bonus.id)).reward.state, { timeout: 60_000 }).toBe('locked');
+  const reward = (await progressOf(me, bonus.id)).reward;
+  expect(reward).toMatchObject({ form: 'bonus' });
+  expect(reward.lock).toMatchObject({ condition: null, appliesTo: ['derivatives'] });
+
+  const bonusHub = await openHub(page);
+  await expect(row(bonusHub, bonus.id)).toHaveAttribute('data-status', 'locked');
+  await expect(row(bonusHub, bonus.id).getByTestId('reward-why')).toContainText(
+    'A bonus for derivatives. It is not in your balance and cannot be withdrawn.',
+  );
+  const locked = bonusHub.locator('[data-testid="rewards-total"][data-status="locked"][data-asset="USDT"]');
+  await expect(locked.getByTestId('rewards-total-amount')).toHaveText(`${REWARD} USDT`);
+
+  // The withdraw form names the bonus as not withdrawable and refuses an amount that would need it.
+  await page.goto('/uc/withdraw');
+  const form = page.getByTestId('withdraw-form');
+  await expect(form).toBeVisible({ timeout: 30_000 });
+  await form.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  const note2 = form.getByTestId('withdraw-locked-rewards');
+  await expect(note2).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+  await expect(note2).toHaveAttribute('data-amount', REWARD);
+  await expect(note2).toContainText(
+    `${REWARD} USDT of campaign rewards is locked or a bonus: it is not in your available balance and cannot be withdrawn.`,
+  );
+  await expect(note2.getByRole('link', { name: 'See why in My rewards' })).toHaveAttribute('href', '/uc/promotion');
+  await form.getByRole('button', { name: 'Use all available' }).click();
+  const available = await form.locator('input[aria-describedby="withdraw-amount-help"]').inputValue();
+  await form.locator('input[aria-describedby="withdraw-amount-help"]').fill(addDecimal(available, REWARD));
+  await expect(form.locator('#withdraw-amount-help')).toHaveText('That is more than you have available.');
+  await expect(page.getByTestId('withdraw-review').getByText(addDecimal(available, REWARD))).toHaveCount(0);
+  run.write({ bonusId: bonus.id });
+});
+
+test(`${J} #6 waits for a bonus to expire: a forfeit shows once and the restricted balance is zero`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const { me, bonusId } = state('me', 'bonusId');
+  const reward = (await progressOf(me, bonusId)).reward;
+  await page.waitForTimeout(Math.max(0, new Date(reward.lock.until).getTime() - Date.now()));
+  await expect.poll(async () => (await progressOf(me, bonusId)).reward.state, { timeout: 60_000 }).toBe('forfeited');
+  await signIn(page, me);
+  const hub = await openHub(page);
+  await expect(row(hub, bonusId)).toHaveAttribute('data-status', 'closed');
+  await expect(row(hub, bonusId).getByTestId('reward-why')).toHaveAttribute('data-reason', 'campaigns.bonus_expired');
+  await expect(row(hub, bonusId).getByTestId('reward-why')).toContainText('Forfeited: the bonus expired on');
+  // The restricted balance is zero: no locked total remains, here or on the withdraw form.
+  await expect(hub.locator('[data-testid="rewards-total"][data-status="locked"]')).toHaveCount(0);
+  expect((await mine(me)).totals.filter((t) => t.status === 'locked')).toEqual([]);
+  await page.goto('/uc/withdraw');
+  await page
+    .getByTestId('withdraw-form')
+    .getByRole('combobox', { name: /^Asset/ })
+    .selectOption('USDT');
+  await page.waitForTimeout(3_000);
+  await expect(page.getByTestId('withdraw-locked-rewards')).toHaveCount(0);
+  // Once: one forfeit in the log, and later reconciler passes add nothing.
+  await page.waitForTimeout(12_000);
+  const after = (await progressOf(me, bonusId)).reward;
+  expect(after.attempts.filter((a) => a.outcome === 'forfeited')).toHaveLength(1);
+  expect(after.ledgerTxId).toBeTruthy();
 });
 
 test(`${J} #7 opens the hub while the campaigns service is down: the error state, no stale number shown as current`, async ({ page }) => {

@@ -60,14 +60,18 @@ export const PAYOUT_UNAVAILABLE = 'campaigns.reward_payout_unavailable';
 /** True for a reward on the launch path: paid in full, in USDC. Every other reward keeps the custodial recipes. */
 export const owesReward = (row: { form: string; asset: string }) => row.form === 'paid' && row.asset === REWARD_ASSET;
 
-/**
- * The reward key as the ledger's decision-record key: the reward key's own segments, with any character the ledger
- * refuses in one (`.`, `%`) written as `_`. Reward keys differ in their account and period, so two never share one.
- */
-export const ledgerRewardId = (rewardKey: string) => rewardKey.replace(/[^A-Za-z0-9_:-]/g, '_');
+/** The reward key as one reference: its segments joined by `-`, any character the ledger refuses in one written `_`. */
+const referenceOf = (rewardKey: string) => rewardKey.replace(/[^A-Za-z0-9_:-]/g, '_').replaceAll(':', '-');
 
-/** The claim decision a budget funding is keyed by: the reward's account and period, as one reference. */
-const fundingDecisionOf = (rewardKey: string) => `claim-${ledgerRewardId(rewardKey).split(':').slice(2).join('-')}`;
+/**
+ * The reward's id as the ledger's decision record: `campaign:<campaign id>:<the whole reward key>`, so it names its own
+ * campaign as `rewardOwe` requires (a voucher's key names the voucher, not the campaign) and keeps every segment of the
+ * reward key, so two rewards never share one.
+ */
+export const ledgerRewardId = (campaignId: string, rewardKey: string) => `campaign:${campaignId}:${referenceOf(rewardKey)}`;
+
+/** The claim decision a budget funding is keyed by: the whole reward key, as one reference. */
+export const fundingDecisionOf = (rewardKey: string) => `claim-${referenceOf(rewardKey)}`;
 
 /** A `posting` row is taken again only once its attempt can no longer be waiting on the ledger. */
 const inFlightAfter = (reconcileAfterSeconds: number | null) => Math.max(reconcileAfterSeconds ?? 0, POST_DEADLINE_SECONDS);
@@ -171,7 +175,7 @@ export class PayoutSaga {
    */
   private async owe(row: IntentRow): Promise<PostAnswer> {
     const amount = parseAmount(row.amount);
-    const rewardId = ledgerRewardId(row.reward_key);
+    const rewardId = ledgerRewardId(row.campaign_id, row.reward_key);
     try {
       const [sums] = await this.sql<{ campaign: string; total: string }[]>`
         SELECT coalesce(sum(amount) FILTER (WHERE campaign_id = ${row.campaign_id}), 0)::text AS campaign,
