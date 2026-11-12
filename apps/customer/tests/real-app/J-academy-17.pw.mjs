@@ -328,11 +328,17 @@ test(`${J} #3 editing an active design with issued certificates warns, and the i
     expect(mine.design).toMatchObject({ revision: issuedUnder, title: firstTitle });
   } finally {
     await learnerTab.context().close();
-    // Put the shared design back out of use, so no other journey's certificate prints it.
-    await staff('admin.deactivateCertDesign', { certId: CERT, reason: `TEST ${J}: put back after the step` });
+    // Put the shared design back out of use, so no other journey's certificate prints it. Compliance does it in the
+    // console, as it activated it: the founders' service door holds no `admin:compliance`.
+    await page.goto(`${ADMIN}/academy-ops/certificates/designs`);
+    await expect(card).toBeVisible({ timeout: 60_000 });
+    if ((await card.getAttribute('data-state')) === 'active') {
+      await card.getByLabel('Deactivation reason').fill(`TEST ${J}: put back after the step`);
+      await card.getByRole('button', { name: 'Deactivate', exact: true }).click();
+      await expect(card).toHaveAttribute('data-state', 'draft');
+    }
   }
-  await page.reload();
-  await expect(card).toHaveAttribute('data-state', 'draft');
+  expect((await staffRead('admin.certDesign', { certId: CERT })).design.activeRevision).toBeNull();
 });
 
 test(`${J} #4 the issued list and its export agree, with zero counts and an empty state when none`, async ({ page, browser }) => {
