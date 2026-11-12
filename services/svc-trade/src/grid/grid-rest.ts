@@ -6,14 +6,16 @@
  *   GET  /api/v1/bots/grid/:id            scope: trade:read + jurisdiction
  *   POST /api/v1/bots/grid                scope: trade:write + jurisdiction(module=trade)  (idempotent on clientId)
  *   POST /api/v1/bots/grid/:id/stop       scope: trade:write + jurisdiction  (settlement `keep`: the base bought stays)
- *   POST /api/v1/bots/grid/:id/withdraw   scope: trade:write + jurisdiction  (identity's step-up first, as in the web)
+ *   POST /api/v1/bots/grid/:id/withdraw   any key: refused 403 `trade.api_withdraw_not_allowed`, and nothing moves
  *
  * The spot grid is neutral: `direction` may be left out or be `neutral`; long and short refuse
  * `trade.grid_direction_not_built`. A stop keeps what the bot bought (`settlement: keep`, the default); selling it back
  * refuses `trade.grid_settlement_not_built`. Refusals carry the service's own code as `intafacedCode`, with the web's
  * status: a field 400, verification and step-up 403, a missing bot 404, a reused key with another body 409, and
- * the refusal's data (the profit available, what today's cap leaves) as `data`. A scope, auth or trade refusal answers as
- * every other private route does.
+ * the refusal's data as `data`. A scope, auth or trade refusal answers as every other private route does.
+ *
+ * No API key and no bot can withdraw (J-copy-bots-otc-19 #4): a withdrawal is the person's own wallet signature at the
+ * venue. The withdraw door answers every signed-in key, whatever its scopes, with that refusal and reaches no service.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -22,7 +24,7 @@ import { TRPCError } from '@intafaced/contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { GridError } from './errors.js';
-import type { GridBotView, GridService, GridWithdrawalView } from './grid-service.js';
+import type { GridBotView, GridService } from './grid-service.js';
 import { gridTrpcError } from './router.js';
 
 export interface GridRestDeps {
@@ -44,13 +46,6 @@ const createBody = z.object({
 
 const stopBody = z.object({ settlement: z.string().max(16).optional() }).optional();
 
-const withdrawBody = z.object({
-  requestId: z.string(),
-  asset: z.string().min(2).max(16),
-  amount: decimal,
-  stepUpApprovalId: z.string().max(128).optional().nullable(),
-});
-
 const HTTP_STATUS: Record<string, [number, string]> = {
   NOT_FOUND: [404, 'NotFound'],
   CONFLICT: [409, 'BadRequest'],
@@ -62,10 +57,6 @@ const HTTP_STATUS: Record<string, [number, string]> = {
 /** A bot as the API reads it: `id` and `state` first, then every field the web's view carries. */
 export function presentGridBot(view: GridBotView) {
   return { id: view.botId, state: view.status, ...view };
-}
-
-export function presentGridWithdrawal(view: GridWithdrawalView) {
-  return { id: view.withdrawalId, ...view };
 }
 
 /**
@@ -167,10 +158,15 @@ export function attachGridRestRoutes(app: FastifyInstance, grid: GridService | u
   });
 
   app.post<{ Params: { id: string } }>('/api/v1/bots/grid/:id/withdraw', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
-    if (!principal) return;
-    const body = withdrawBody.safeParse(req.body);
-    if (!body.success) return invalid(reply, `The withdrawal request is malformed: ${body.error.issues[0]?.message ?? 'invalid body'}`);
-    return answer(reply, async (g) => presentGridWithdrawal(await g.withdrawProfit(principal, { botId: req.params.id, ...body.data })));
+    // Signed in is all this asks: every key, whatever its scopes, gets the same refusal, and no service is called.
+    if (!deps.requirePrincipal(req, reply)) return;
+    return refuse(
+      reply,
+      new GridError(
+        'No API key or bot can withdraw. Withdraw from the venue with your own wallet: you sign it there. Nothing was moved.',
+        'trade.api_withdraw_not_allowed',
+        { withdrawBy: 'own_wallet_signature', botId: req.params.id },
+      ),
+    );
   });
 }

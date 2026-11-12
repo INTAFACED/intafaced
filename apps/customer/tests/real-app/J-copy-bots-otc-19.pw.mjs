@@ -8,6 +8,7 @@ import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
 // and TEST 2000 USDT makes a live trade key; every call goes to Edge with that key.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #2, #3, #5 and #6: there is no public grid copy, grid stream, DCA or recurring buy API.
+// #4: no API key or bot can withdraw; the person withdraws at the venue with their own wallet.
 const J = 'J-copy-bots-otc-19';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ONE = toUnits('1');
@@ -129,16 +130,31 @@ test(`${J} #3 subscribes to the grid stream: one fill event per fill id`, async 
   expect(res.status).toBe(200);
 });
 
-test(`${J} #4 withdraws grid funds by API without step-up: refused for step-up`, async () => {
+test(`${J} #4 asks to withdraw grid funds by API: refused, no key or bot can withdraw; the person's own wallet at the venue; nothing moves`, async () => {
   const id = state('gridId');
   const before = await call('GET', `/api/v1/bots/grid/${id}`);
   expect(before.status, JSON.stringify(before.body).slice(0, 300)).toBe(200);
-  const res = await call('POST', `/api/v1/bots/grid/${id}/withdraw`, { requestId: `${J}-4`, asset: 'USDT', amount: '1' });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(403);
-  expect(res.body.intafacedCode).toBe('identity.step_up_required');
-  // Nothing was withdrawn: the bot reads back as it was.
+  const usdt = await balance('USDT');
+  const btc = await balance('BTC');
+  // The trade key and the read-only key both ask; each is refused by name, and the answer sends the person to the
+  // venue with their own wallet.
+  for (const key of [state('key'), state('readKey')]) {
+    const res = await withKey(key, {
+      method: 'POST',
+      path: `/api/v1/bots/grid/${id}/withdraw`,
+      body: { requestId: `${J}-4`, asset: 'USDT', amount: '1' },
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(403);
+    expect(res.body.intafacedCode).toBe('trade.api_withdraw_not_allowed');
+    expect(res.body.message).toMatch(/No API key or bot can withdraw/);
+    expect(res.body.message).toMatch(/from the venue with your own wallet/);
+    expect(res.body.data?.withdrawBy).toBe('own_wallet_signature');
+  }
+  // Nothing moves: the bot reads back as it was, and the person's balances are unchanged.
   const after = await call('GET', `/api/v1/bots/grid/${id}`);
   expect(after.body).toEqual(before.body);
+  expect(await balance('USDT')).toBe(usdt);
+  expect(await balance('BTC')).toBe(btc);
 });
 
 test(`${J} #5 creates a spot DCA bot by API and sends a manual buy to a stopped one: immutable; refused as not running`, async () => {
@@ -166,8 +182,8 @@ test(`${J} #6 creates a recurring buy rule twice with one key and tops up past t
   expect(codeOf(topUp.body), 'the cap code').toMatch(/cap/);
 });
 
-test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: one parent; amend refused; trigger kind refused`, async () => {
-  test.setTimeout(120_000);
+test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: one parent; amend refused as immutable; a trigger price waits; a key without trade write refused`, async () => {
+  test.setTimeout(180_000);
   // A buy limit at or over the ask (the slice price band), a whole number 1% over it; small and slow, cancelled below.
   const { ask } = await bestPrices();
   const body = {
@@ -200,18 +216,33 @@ test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: on
     const read = await call('GET', `/api/v1/algo/${id}`);
     expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
     expect(read.body).toMatchObject({ id, totalQty: body.totalQty, limitPrice: body.limitPrice });
-    // A trigger kind is refused as not built, and a key without trade:write is refused; neither makes a parent.
-    const trigger = await call('POST', '/api/v1/algo', { ...body, kind: 'trigger', clientAlgoId: `${body.clientAlgoId}-t` });
-    expect(trigger.status, JSON.stringify(trigger.body).slice(0, 300)).toBe(400);
-    expect(trigger.body.intafacedCode).toBe('trade.algo_kind_not_built');
+    // A TWAP with a trigger price waits for the trigger, as on the screen: a buy trigger far above the book places
+    // nothing; after more than one slice interval it is still active and waiting, with no slice placed or missed.
+    const triggerPrice = String((toUnits(ask) * 2n) / ONE);
+    const waiting = await call('POST', '/api/v1/algo', {
+      ...body,
+      durationMs: 300_000,
+      sliceIntervalMs: 30_000,
+      triggerPrice,
+      clientAlgoId: `${body.clientAlgoId}-t`,
+    });
+    expect(waiting.status, JSON.stringify(waiting.body).slice(0, 300)).toBe(200);
+    run.write({ triggeredAlgo: waiting.body.id });
+    expect(waiting.body).toMatchObject({ kind: 'twap', triggerPrice, awaitingTrigger: true, triggeredAt: null, childrenEmitted: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 31_000));
+    const still = await call('GET', `/api/v1/algo/${waiting.body.id}`);
+    expect(still.status, JSON.stringify(still.body).slice(0, 300)).toBe(200);
+    expect(still.body).toMatchObject({ status: 'active', awaitingTrigger: true, triggeredAt: null, childrenEmitted: 0, missesRecorded: 0 });
+    expect(still.body.filledQty).toMatch(/^0(\.0+)?$/);
     const readOnly = await withKey(state('readKey'), {
       method: 'POST',
       path: '/api/v1/algo',
       body: { ...body, clientAlgoId: `${body.clientAlgoId}-r` },
     });
     expect(readOnly.status, JSON.stringify(readOnly.body).slice(0, 300)).toBe(403);
+    // The read-only key made no parent: the list holds what it held, plus the waiting TWAP.
     const after = await call('GET', '/api/v1/algo?limit=500');
-    expect(after.body.rows.map((row) => row.id).sort()).toEqual(list.body.rows.map((row) => row.id).sort());
+    expect(after.body.rows.map((row) => row.id).sort()).toEqual([...list.body.rows.map((row) => row.id), waiting.body.id].sort());
     // Cancel reads back as cancelled.
     const cancelled = await call('POST', `/api/v1/algo/${id}/cancel`);
     expect(cancelled.status, JSON.stringify(cancelled.body).slice(0, 300)).toBe(200);
@@ -219,5 +250,7 @@ test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: on
   } finally {
     // Pass or fail, no schedule is left buying; a second cancel of a cancelled parent changes nothing.
     await call('POST', `/api/v1/algo/${id}/cancel`).catch(() => {});
+    const triggered = run.read().triggeredAlgo;
+    if (triggered) await call('POST', `/api/v1/algo/${triggered}/cancel`).catch(() => {});
   }
 });
