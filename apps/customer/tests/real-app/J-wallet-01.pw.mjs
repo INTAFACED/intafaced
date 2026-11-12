@@ -565,7 +565,7 @@ const RETIRED = 'TESTRETIRED';
 const picker = (scope, caption) =>
   scope
     .locator('label')
-    .filter({ has: scope.getByText(caption, { exact: true }) })
+    .filter({ has: scope.page().getByText(caption, { exact: true }) })
     .getByRole('combobox');
 /** The places after the point a decimal string is written with, trailing zeros not counted. */
 const places = (value) => (String(value).split('.')[1] ?? '').replace(/0+$/, '').length;
