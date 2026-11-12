@@ -33,6 +33,7 @@ import { campaignBudgetFund, rewardOwe, rewardPayOut } from './reward-owed.js';
 import { feeShareBudgetFund, feeShareOwe, feeSharePayOut } from './fee-share-owed.js';
 import { chargeCollect, chargeEarn } from './charge.js';
 import { partnerFeeEarn, partnerFeeSettle } from './partner-fee.js';
+import { feeGiveBackOwe, feeGiveBackPayOut } from './fee-giveback.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -1402,6 +1403,7 @@ export * from './reward-owed.js';
 export * from './fee-share-owed.js';
 export * from './charge.js';
 export * from './partner-fee.js';
+export * from './fee-giveback.js';
 export * from './market-escrow.js';
 export * from './buyback.js';
 export {
@@ -1451,6 +1453,9 @@ export const recipes = {
   // Our fee on a payment a licensed partner processed, earned and settled by the partner into our own funds, own accounts only (launch money model). See ./partner-fee.ts.
   partnerFeeEarn,
   partnerFeeSettle,
+  // A fee a customer paid on a fill, given back from our own funds to their own wallet with two approvers, own accounts only (launch money model). See ./fee-giveback.ts.
+  feeGiveBackOwe,
+  feeGiveBackPayOut,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,
