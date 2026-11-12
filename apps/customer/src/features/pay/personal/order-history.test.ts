@@ -25,6 +25,12 @@ describe('order history refusals', () => {
     const perOrder = refused('p2p.receipt_quota_reached: 5 downloads of this receipt used; does not reset');
     expect(historyRefusal(perOrder, t, (iso) => iso)).toBe('You have downloaded this receipt as many times as allowed.');
   });
+  it('says when a used-up daily export quota resets', () => {
+    const daily = refused('p2p.export_quota_reached: daily quota 5 used; resets at 2026-10-24T00:00:00.000Z', 'TOO_MANY_REQUESTS');
+    expect(historyRefusal(daily, t, (iso) => iso)).toBe(
+      'You have used today’s exports. You can export again from 2026-10-24T00:00:00.000Z.',
+    );
+  });
   it('names an unset owner value and leaves any other refusal to the shared failure', () => {
     expect(historyRefusal(refused('p2p.config_unset: P2P_EXPORT_MAX_ROWS'), t, (iso) => iso)).toBe(
       'This needs a setting the operator has left blank: P2P_EXPORT_MAX_ROWS.',
