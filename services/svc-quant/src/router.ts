@@ -42,6 +42,9 @@ import {
   quantQuotaSchema,
   quantQuotaSetInputSchema,
   quantQuotaSetOutputSchema,
+  quantTierListSchema,
+  quantTierSetInputSchema,
+  quantTierSetOutputSchema,
   QUANT_QUOTA_RESOURCES,
   QUANT_PAPER_FEEDS,
   QUANT_PAPER_LIST_MAX,
@@ -124,7 +127,7 @@ import {
 import { paperKey, paperSettingsOf, paperView } from './paper/view.js';
 import type { StoredPaperRun } from './runs/types.js';
 import { createMemoryQuota } from './quota/memory.js';
-import { parseLimit, type QuotaRepository } from './quota/quota.js';
+import { parseLimit, parseWhole, type QuotaRepository } from './quota/quota.js';
 import type { DisclosureRepository } from './disclosure/repository.js';
 import { openDisclosureRepository } from './disclosure/open.js';
 import type { TemplateRepository } from './templates/repository.js';
@@ -1003,6 +1006,40 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               }),
               asOf: new Date().toISOString(),
             };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    tier: router({
+      /**
+       * The published compute tiers (RC-algo-dev-05): each tier's data freshness, priority class and the limits of its
+       * profile, blank values null ("not set"), and the profile that applies to the caller. None published: an empty list.
+       */
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantTierListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const [applied, published] = await Promise.all([quota.applied(accountId), quota.tiers()]);
+            const tiers = await Promise.all(
+              published.map(async (tier) => {
+                const rows = await quota.limits(tier.profile);
+                return {
+                  profile: tier.profile,
+                  dataFreshnessSeconds: tier.dataFreshnessSeconds?.toString() ?? null,
+                  priorityClass: tier.priorityClass?.toString() ?? null,
+                  limits: QUANT_QUOTA_RESOURCES.map((resource) => {
+                    const limit = rows.find((row) => row.resource === resource)?.limit ?? null;
+                    return { resource, limit: limit === null ? null : limit.toString() };
+                  }),
+                  setAt: tier.setAt,
+                };
+              }),
+            );
+            return { current: applied ? { profile: applied.name, source: applied.source } : null, tiers };
           } catch (err) {
             toTrpc(err);
           }
@@ -1953,6 +1990,32 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 actor: ctx.principal.userId,
                 idempotencyKey: input.idempotencyKey,
               });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /** Publishes or withdraws the compute tier on one profile (RC-algo-dev-05). A reason is required and kept with the actor. */
+        tier: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTierSetInputSchema)
+          .output(quantTierSetOutputSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = quotaReason(input.reason);
+              const saved = await quota.setTier({
+                profile: input.profile,
+                dataFreshnessSeconds: parseWhole('dataFreshnessSeconds', input.dataFreshnessSeconds),
+                priorityClass: parseWhole('priorityClass', input.priorityClass),
+                published: input.published,
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+              return {
+                ...saved,
+                dataFreshnessSeconds: saved.dataFreshnessSeconds?.toString() ?? null,
+                priorityClass: saved.priorityClass?.toString() ?? null,
+              };
             } catch (err) {
               toTrpc(err);
             }

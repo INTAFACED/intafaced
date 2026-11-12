@@ -99,6 +99,7 @@ describe('quotas on Postgres (AL-limits-01)', () => {
       'drizzle/20261030134631_quant_strategy_heads.sql',
       'drizzle/20261030142944_quant_release_notes.sql',
       'drizzle/20261107080000_quant_quotas.sql',
+      'drizzle/20261112110000_quant_compute_tiers.sql',
     ]) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);
@@ -176,5 +177,24 @@ describe('quotas on Postgres (AL-limits-01)', () => {
       writer.ops.quota.set({ profile: 'TEST seeded', resource: 'strategies', limit: '9', reason: '', idempotencyKey: 'raise-2' }),
     ).rejects.toThrow(/^quant\.quota_reason_unset/);
     expect((await quota.repository.limits('TEST seeded')).find((row) => row.resource === 'strategies')?.limit).toBe(3n);
+  });
+
+  it('stores a published tier with its audit row, replays its key, and lists it no more once withdrawn (RC-algo-dev-05)', async () => {
+    const input = {
+      profile: 'TEST tier pg',
+      dataFreshnessSeconds: '30',
+      priorityClass: null,
+      published: true,
+      reason: 'LOCAL TEST tier',
+      idempotencyKey: 'quant.tier:pg:1',
+    };
+    const saved = await writer.ops.quota.tier(input);
+    expect(await writer.ops.quota.tier(input)).toEqual(saved);
+    const listed = (await a.tier.list()).tiers.find((t) => t.profile === 'TEST tier pg');
+    expect([listed?.dataFreshnessSeconds, listed?.priorityClass]).toEqual(['30', null]);
+    const audit = await sql.unsafe(`SELECT action, actor FROM "${SCHEMA}"."quota_audit" WHERE idempotency_key = 'quant.tier:pg:1'`);
+    expect(audit).toEqual([{ action: 'tier', actor: OPERATOR }]);
+    await writer.ops.quota.tier({ ...input, published: false, idempotencyKey: 'quant.tier:pg:2' });
+    expect((await a.tier.list()).tiers.find((t) => t.profile === 'TEST tier pg')).toBeUndefined();
   });
 });
