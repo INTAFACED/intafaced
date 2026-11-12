@@ -43,8 +43,9 @@ export async function readLeadDesk(ctx: TradeCtx): Promise<Outcome<LeadDeskRead>
   if (queue.kind !== 'ok') return queue;
   if (leads.kind !== 'ok') return leads;
   if (audit.kind !== 'ok') return audit;
-  if (pooled.kind !== 'ok') return pooled;
-  return ok({ queue: queue.data, leads: leads.data, audit: audit.data, pooled: pooled.data }, queue.asOf);
+  // The pooled tabs read on their own: a refused pooled read shows its refusal there and never hides the lead queue.
+  const pooledRead = pooled.kind === 'ok' ? pooled.data : { refused: pooled };
+  return ok({ queue: queue.data, leads: leads.data, audit: audit.data, pooled: pooledRead }, queue.asOf);
 }
 
 export function setLeadCriteria(

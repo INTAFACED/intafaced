@@ -1,3 +1,5 @@
+import type { Outcome } from './outcome';
+
 /**
  * The copy-trading desk's data, as svc-trade sends it (`copy.ops.leadDesk.*`, services/svc-trade/src/copy/lead-applications.ts).
  * Plain data and parsers, safe in server and browser code: a body of any other shape is refused, never guessed at.
@@ -92,7 +94,8 @@ export interface LeadDeskRead {
   readonly queue: LeadQueue;
   readonly leads: readonly LeadListing[];
   readonly audit: readonly LeadAuditRow[];
-  readonly pooled: PooledDesk;
+  /** svc-trade's pooled desk, or the refusal of that one read (the rest of the desk still reads). */
+  readonly pooled: PooledDesk | { readonly refused: Exclude<Outcome<unknown>, { kind: 'ok' }> };
 }
 
 export const LEAD_STATUS_TEXT: Record<LeadApplicationStatus, string> = {

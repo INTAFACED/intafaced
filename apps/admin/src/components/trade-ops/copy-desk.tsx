@@ -59,6 +59,8 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
   const daysId = useId();
 
   const desk = read.kind === 'ok' ? read.data : null;
+  const pooled = desk && !('refused' in desk.pooled) ? desk.pooled : null;
+  const pooledRefusal = desk && 'refused' in desk.pooled ? <OutcomeNotice outcome={desk.pooled.refused} /> : null;
 
   async function load() {
     const n = ++reads.current;
@@ -327,13 +329,14 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
             A pooled master runs one pool that followers put money into. INTAFACED holds no customer money, so no pool can be created:
             applications from the master center wait here, and none can be approved.
           </p>
-          {desk ? (
+          {pooledRefusal}
+          {pooled ? (
             <section aria-label="Master applications">
               <Table<PoolMasterApplication>
                 label="Master applications"
                 density="dense"
                 columns={masterColumns}
-                rows={desk.pooled.masterApplications}
+                rows={pooled.masterApplications}
                 getRowId={(r) => r.applicationId}
                 emptyState={<p className="p-4 text-sm text-fg-2">No master applications.</p>}
               />
@@ -342,7 +345,8 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
         </TabsPanel>
 
         <TabsPanel value="whitelists" className="flex flex-col gap-3 pt-4">
-          {desk ? (
+          {pooledRefusal}
+          {pooled ? (
             <>
               <KeyValue
                 density="dense"
@@ -350,11 +354,11 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
                   {
                     label: 'Batch limit',
                     value:
-                      desk.pooled.whitelists.batchLimit === null
+                      pooled.whitelists.batchLimit === null
                         ? 'Not set by the owner: no whitelist import is accepted.'
-                        : `${desk.pooled.whitelists.batchLimit} people per import`,
+                        : `${pooled.whitelists.batchLimit} people per import`,
                   },
-                  { label: 'Pools', value: `${desk.pooled.pools.count}: a pool holds customer money, which INTAFACED does not.` },
+                  { label: 'Pools', value: `${pooled.pools.count}: a pool holds customer money, which INTAFACED does not.` },
                 ]}
               />
               <section aria-label="Pool whitelists">
@@ -362,7 +366,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
                   label="Pool whitelists"
                   density="dense"
                   columns={whitelistColumns}
-                  rows={desk.pooled.whitelists.rows}
+                  rows={pooled.whitelists.rows}
                   getRowId={(r) => `${r.poolId}:${r.userId}`}
                   emptyState={<p className="p-4 text-sm text-fg-2">No whitelists: no pool exists.</p>}
                 />
@@ -373,13 +377,14 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
 
         <TabsPanel value="takeovers" className="flex flex-col gap-3 pt-4">
           <p className="text-sm text-fg-2">One row per pool and day, under the key pool.takeover:&lt;pool&gt;:&lt;day&gt;.</p>
-          {desk ? (
+          {pooledRefusal}
+          {pooled ? (
             <section aria-label="Takeovers">
               <Table<PoolTakeoverRow>
                 label="Takeovers"
                 density="dense"
                 columns={takeoverColumns}
-                rows={desk.pooled.takeovers.rows}
+                rows={pooled.takeovers.rows}
                 getRowId={(r) => r.key}
                 emptyState={<p className="p-4 text-sm text-fg-2">No takeovers: no pool exists.</p>}
               />
@@ -388,14 +393,15 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
         </TabsPanel>
 
         <TabsPanel value="levels" className="flex flex-col gap-3 pt-4">
-          {desk ? (
+          {pooledRefusal}
+          {pooled ? (
             <>
               <KeyValue
                 density="dense"
                 items={[
                   {
                     label: 'Ratio',
-                    value: desk.pooled.levels.maxRatio === null ? 'Maximum ratio: not set by the platform' : desk.pooled.levels.maxRatio,
+                    value: pooled.levels.maxRatio === null ? 'Maximum ratio: not set by the platform' : pooled.levels.maxRatio,
                   },
                   { label: 'Measured by the platform', value: "No: a lead's record is self-reported, so no level is computed." },
                 ]}
@@ -405,7 +411,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
                   label="Lead levels"
                   density="dense"
                   columns={levelColumns}
-                  rows={desk.pooled.levels.rows}
+                  rows={pooled.levels.rows}
                   getRowId={(r) => r.leaderRef}
                   emptyState={<p className="p-4 text-sm text-fg-2">No leads.</p>}
                 />
