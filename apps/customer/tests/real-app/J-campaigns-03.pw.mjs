@@ -6,6 +6,9 @@ import { signIn } from './desk.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { api, fund, journeyState, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
+import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
+import { CHAIN_ID } from './dex.mjs';
+import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-campaigns-03, in the running app (docs/roadmap/journeys.json): see what I have earned, what is on hold, and why.
@@ -271,6 +274,38 @@ async function earnBuilderFees(who, sells) {
   return sumDecimal(fees);
 }
 
+/** Connects the person's own TEST wallet to their account (svc-protocol's record, as J-wallet-09 #2 does it). */
+async function connectOwnWallet(page, who, privateKey) {
+  await installTestWallet(page, { chainId: CHAIN_ID, privateKey });
+  await signIn(page, who);
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await page.getByRole('button', { name: 'Connect to my account' }).click();
+  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
+}
+
+const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+/** The TEST chain's own receipt of `txHash`: the token transfers it made, as { to, value } (read from the chain, not from us). */
+async function chainTransfers(txHash) {
+  const res = await fetch(GATE_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [txHash] }),
+  });
+  const receipt = (await res.json()).result;
+  expect(receipt, `the TEST chain has a receipt for ${txHash}`).toBeTruthy();
+  expect(receipt.status).toBe('0x1');
+  return receipt.logs.filter((l) => l.topics[0] === TRANSFER).map((l) => ({ to: `0x${l.topics[2].slice(26)}`, value: BigInt(l.data) }));
+}
+
+/** The person's ledger balance of one asset (free and held), as the account API reads it: an owed reward is never in it. */
+async function ledgerBalance(who, asset) {
+  const b = (await (await api(who)).balances())[asset];
+  return { free: b?.free ?? '0', used: b?.used ?? '0' };
+}
+
 /** Founder A asks to sweep earned trade fees into the USDT reward pot (the custodial layer's bonus); B approves. */
 const BONUS_COVER = '0.1';
 async function fundTradePot(reference, amount) {
@@ -364,7 +399,11 @@ test(`${J} #1 opens /uc/promotion with no activity: an honest empty state, no in
   await verifyAs(page, me, 'Basic');
   await verifyAs(page, me, 'Full');
   expect(fund(me.email, 'USDT', '500').tx).toBeTruthy();
-  run.write({ me });
+  // Starts: a wallet connected. The person's own TEST wallet (a key kept in this run's state, holding nothing real).
+  const walletKey = keccak256(toHex(`intafaced TEST rewards wallet ${J} ${RUN} ${tag}`));
+  await connectOwnWallet(page, me, walletKey);
+  await signOutBrowser(page.context());
+  run.write({ me, wallet: privateKeyToAccount(walletKey).address.toLowerCase() });
 
   expect(await mine(me)).toEqual({ rewards: [], totals: [], more: false });
   await signIn(page, me);
@@ -386,6 +425,7 @@ test(`${J} #2 opens it with rewards in each state: owed, on hold and still open,
   await fundPotFromFees(`TEST-${J}-2-${tag}`, fees);
   run.write({ fees });
 
+  const before = await ledgerBalance(me, ASSET);
   const owed = await liveCampaign(`TEST owed at once ${tag}`, { holdSeconds: 0 });
   const held = await liveCampaign(`TEST held for review ${tag}`, { holdSeconds: 3600 });
   // Past the TEST ceiling: INTAFACED may not owe it, so it is still open and tried again on each pass.
@@ -436,6 +476,8 @@ test(`${J} #2 opens it with rewards in each state: owed, on hold and still open,
   await expect(total(hub, 'still_open').getByTestId('rewards-total-amount')).toHaveText(`${OVER_CEILING} ${ASSET}`);
   await expect(hub.getByTestId('rewards-total')).toHaveCount(3);
   await expect(hub.getByTestId('rewards-totals')).not.toContainText(/balance|available|spendable/i);
+  // Never added into a balance: the person's ledger balance of the reward asset is what it was before any claim.
+  expect(await ledgerBalance(me, ASSET)).toEqual(before);
 
   // Paid: a reward with no hold is paid to the connected wallet, and its row carries that payment's chain transaction,
   // the same one its record names. Nothing pays an owed reward to a wallet yet (the step is left: see the PR).
@@ -446,6 +488,12 @@ test(`${J} #2 opens it with rewards in each state: owed, on hold and still open,
   await expect(paid).toHaveAttribute('data-status', 'paid');
   await expect(paid.getByTestId('reward-chain-tx')).toHaveAttribute('data-tx', payout.chainTx);
   await expect(paid.getByTestId('reward-chain-tx')).toHaveAttribute('href', new RegExp(`/tx/${payout.chainTx}$`));
+  // The earned total counts it, and it went to the connected wallet on the chain, never into a balance of ours.
+  await expect(total(await openHub(page), 'paid').getByTestId('rewards-total-amount')).toHaveText(`${REWARD} ${ASSET}`);
+  const { wallet } = state('wallet');
+  expect(payout.toWallet).toBe(wallet);
+  expect((await chainTransfers(payout.chainTx)).filter((t) => t.to === wallet)).toHaveLength(1);
+  expect(await ledgerBalance(me, ASSET)).toEqual(before);
 });
 
 /** Paid exactly once: owed once, paid once, one row, and the row's chain transaction is the record's. */
@@ -457,6 +505,11 @@ async function paidOnce(me, campaignId) {
   expect(rows).toHaveLength(1);
   expect(rows[0].payout?.chainTx).toBe(reward.payout?.chainTx);
   expect(reward.payout?.chainTx).toMatch(/^0x[0-9a-f]{64}$/);
+  // To the connected wallet, once, as the TEST chain itself records it.
+  const { wallet } = state('wallet');
+  expect(reward.payout.toWallet).toBe(wallet);
+  expect((await chainTransfers(reward.payout.chainTx)).filter((t) => t.to === wallet)).toHaveLength(1);
+  return reward;
 }
 
 test(`${J} #3 watches a held reward when its release time passes: paid once to the connected wallet; under a posting freeze it stays owed and is paid once after it lifts`, async ({
@@ -464,7 +517,7 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   browser,
 }) => {
   test.setTimeout(300_000);
-  const { me } = state('me', 'fees');
+  const { me } = state('me', 'fees', 'wallet');
   const hold = await liveCampaign(`TEST short hold ${tag}`, { holdSeconds: 45 });
   await completeAll(me, [hold.id]);
   const claimed = await call(me, 'POST', 'tasks.claim', { campaignId: hold.id });
@@ -477,16 +530,24 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   await paidOnce(me, hold.id);
 
   // With the platform posting freeze on when a hold ends, the reward stays owed, and is paid once after it lifts.
-  const frozenHold = await liveCampaign(`TEST hold under freeze ${tag}`, { holdSeconds: 45 });
+  const frozenHold = await liveCampaign(`TEST hold under freeze ${tag}`, { holdSeconds: 75 });
   await completeAll(me, [frozenHold.id]);
   const second = await call(me, 'POST', 'tasks.claim', { campaignId: frozenHold.id });
   try {
     await setPostingFreeze(browser, true);
-    await page.waitForTimeout(Math.max(0, new Date(second.reward.holdUntil).getTime() - Date.now()) + 12_000);
-    expect((await progressOf(me, frozenHold.id)).reward.state).toBe('owed');
+    const frozenUntil = new Date(second.reward.holdUntil).getTime();
+    expect(Date.now(), 'the freeze must be on before the hold ends').toBeLessThan(frozenUntil);
+    await page.waitForTimeout(Math.max(0, frozenUntil - Date.now()) + 12_000);
+    // The hold ended with posting frozen: its payment was refused by the freeze, so it stays owed, nothing paid.
+    const heldBack = (await progressOf(me, frozenHold.id)).reward;
+    expect(heldBack).toMatchObject({ state: 'owed', reason: 'ledger.frozen', payout: null });
+    const refused = heldBack.attempts.filter((a) => a.outcome === 'refused');
+    expect(refused.length).toBeGreaterThanOrEqual(1);
+    expect(refused.every((a) => a.reason === 'ledger.frozen')).toBe(true);
     await signIn(page, me);
     const hub = await openHub(page);
     await expect(row(hub, frozenHold.id)).toHaveAttribute('data-status', 'owed');
+    await expect(row(hub, frozenHold.id).getByTestId('reward-why')).toHaveAttribute('data-reason', 'ledger.frozen');
     await setPostingFreeze(browser, false);
     await expect.poll(async () => (await progressOf(me, frozenHold.id)).reward.state, { timeout: 60_000 }).toBe('paid');
   } finally {
@@ -494,7 +555,8 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   }
   // Paid once after the freeze: later reconciler passes add nothing, to either reward.
   await page.waitForTimeout(12_000);
-  await paidOnce(me, frozenHold.id);
+  const after = await paidOnce(me, frozenHold.id);
+  expect(after.attempts.filter((a) => a.outcome === 'refused').every((a) => a.reason === 'ledger.frozen')).toBe(true);
   await paidOnce(me, hold.id);
 });
 
@@ -580,12 +642,15 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
     lock: { kind: 'bonus', expirySeconds: 120, appliesTo: ['derivatives'] },
   });
   await completeAll(me, [bonus.id]);
+  const usdtBefore = await ledgerBalance(me, 'USDT');
   await fundTradePot(`TEST-${J}-5-${tag}`, BONUS_COVER);
   await call(me, 'POST', 'tasks.claim', { campaignId: bonus.id });
   await expect.poll(async () => (await progressOf(me, bonus.id)).reward.state, { timeout: 60_000 }).toBe('locked');
   const reward = (await progressOf(me, bonus.id)).reward;
   expect(reward).toMatchObject({ form: 'bonus' });
   expect(reward.lock).toMatchObject({ condition: null, appliesTo: ['derivatives'] });
+  // The ledger itself keeps the bonus out of what can be withdrawn: the person's USDT is what it was before the claim.
+  expect(await ledgerBalance(me, 'USDT')).toEqual(usdtBefore);
 
   const bonusHub = await openHub(page);
   await expect(row(bonusHub, bonus.id)).toHaveAttribute('data-status', 'locked');
