@@ -45,6 +45,9 @@ async function trader(page, prefix) {
       blocks: [{ side: 'buy', symbol: SYMBOL, qty: BLOCK }],
       risk: { maxDrawdown: '100', maxNotional: '500', kill: '50' },
       cash: '1000',
+      // As the studio saves every draft (StudioSave.tsx): the save itself is never live.
+      environment: 'paper',
+      presentedAs: 'paper',
       clientStrategyId: `${J}:${prefix}:strategy`,
       idempotencyKey: `${J}:${prefix}:save`,
     }),
