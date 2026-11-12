@@ -103,7 +103,7 @@ describe('TEST venue simulator: the TEST stock perpetual (J-derivatives-27)', ()
   it("#1 lists XSTK-PERP with the venue's listing, feed and mark rules, cap, hours, and its home market open; other markets have no session", async () => {
     const w = world();
     const markets = (await w.sim.markets(null)).value;
-    expect(markets.map((m) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC', 'XAU-PERP', XSTK]);
+    expect(markets.map((m) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC', 'XAU-PERP', XSTK, 'XSTD-PERP']);
     const m = markets.find((x) => x.symbol === XSTK)!;
     expect(m).toMatchObject({
       kind: 'perpetual',

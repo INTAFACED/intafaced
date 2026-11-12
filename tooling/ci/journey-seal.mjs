@@ -79,7 +79,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
+import { groupPulls, isJudgeDown, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
@@ -1518,7 +1518,7 @@ export async function settleRuns(runs, jobsOf) {
  * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
  * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
  * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
- * still going when `needJudge` (readGoing sets it for every pull request), so its seal waits for the judge exactly as for a review
+ * still going when `needJudge` (readGoing sets it when a pull request's change needs the review's verdict), so its seal waits for the judge exactly as for a review
  * still running, and is started when a review on the head next finishes (project-state OWNER 289 point 11: "A judge
  * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). Pure.
  */
@@ -1868,13 +1868,19 @@ export async function readGoing({ get, repo, sha, pulls, settle = true }) {
     }
   }
   let needJourneys = false;
+  // A down judge holds only a pull request whose change needs its verdict (review-marker.mjs requiredChecks: a gate
+  // file, a look baseline, a journey test or shared test code). Any other merges on its tests and its journeys, and the
+  // judge reads it when it is back (judge-down.mjs catchUpTargets; project-state OWNER 302, 12 Nov 2026: "While the
+  // reviewer is down, a product pull request that it can only advise on merges on its tests and its journey; the
+  // reviewer reads it when it is back and anything it finds becomes a fix. Pull requests it can stop (factory files,
+  // journey tests) still wait."). A list of files that can't be read is empty, and requiredChecks fails it closed.
+  let needJudge = false;
   for (const p of pulls ?? []) {
-    if (needJourneys) break;
-    needJourneys ||= needsJourneys(p, await pullFiles(get, repo, p.number));
+    if (needJourneys && needJudge) break;
+    const files = await pullFiles(get, repo, p.number);
+    needJourneys ||= needsJourneys(p, files);
+    needJudge ||= requiredChecks(files).length > 0;
   }
-  // No PR merges without its judge (project-state OWNER 289 point 11): a down judge holds every pull request it was asked
-  // to review, not only one whose change needs the review's verdict (CI review on 0cef53f9b, item 3).
-  const needJudge = true;
   {
     const { workflow, event } = SEAL_INPUTS.find((i) => i.judge);
     // The newest finished run that actually reviewed: a title or body edit's run, whose job is skipped (reviewRan), is

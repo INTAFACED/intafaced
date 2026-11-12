@@ -1,7 +1,7 @@
 // World: restart
 import fs from 'node:fs';
 import path from 'node:path';
-import { encodeFunctionData, parseAbi } from 'viem';
+import { createPublicClient, decodeFunctionData, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
@@ -29,8 +29,7 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // - the bank ramps have no "Buy to wallet" route (D-bridge-chain-02);
 // - /protocol/rails has no route table, burn, attestation or mint tracking (D-bridge-chain-03), and no cross-chain
 //   review sheet (RC-dex-protocol-04);
-// - /dex/venue has no deposit or withdraw of base, and there is no asset link review or contract-read docs
-//   (D-bridge-chain-04);
+// - there is no asset link review or contract-read docs (D-bridge-chain-04);
 // - #1's "no banned partner wording" clause reads the names from the brand scan's own list (tooling/ci/brand-scan.mjs
 //   FORBIDDEN) and checks the room's text against each; the test does not spell them out, since the scan refuses them
 //   anywhere under apps/;
@@ -53,6 +52,13 @@ const CONFIRMATIONS = 3;
 const TEST_VENUE = 'http://127.0.0.1:14560';
 /** The TEST chain's explorer, as the TEST venue links a deposit (tooling/scripts/local-test-venue.mjs). */
 const EXPLORER = '/chain/tx/';
+/** The trading venue's calls and public balances (services/svc-protocol/contracts/venue/SovereignVenue.sol). */
+const VENUE_ABI = parseAbi([
+  'function deposit(uint256 baseAmount, uint256 quoteAmount)',
+  'function baseToken() view returns (address)',
+  'function baseBal(address) view returns (uint256)',
+  'function reservedBase(address) view returns (uint256)',
+]);
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
 test.describe.configure({ mode: 'default' });
@@ -598,23 +604,48 @@ test(`${J} #8 opens the review sheet before a cross-chain swap: provider, slippa
   await expect(sheet.getByRole('alert')).toContainText('This quote expired. Get a fresh one.');
 });
 
-test(`${J} #9 deposits 10 TEST base to the trading venue and withdraws more than is free: the unsigned call is shown and nothing is sent; above the free amount refused naming it`, async ({
+test(`${J} #9 deposits 10 TEST base to the trading venue and withdraws more than is free: the unsigned call is shown with amounts and network and nothing is sent; above the free amount refused naming it`, async ({
   page,
 }) => {
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await page.goto('/dex/venue');
   const funds = page.getByRole('form', { name: 'Venue funds' });
-  await funds.getByRole('radio', { name: 'Deposit' }).check(UNBUILT);
+  await funds.getByRole('radio', { name: 'Deposit' }).check();
+  await funds.getByRole('radio', { name: 'TESTA' }).check();
   await funds.getByRole('textbox', { name: /^Amount/ }).fill('10');
   await funds.getByRole('button', { name: 'Build the call' }).click();
   const call = page.getByRole('region', { name: 'Unsigned call' });
-  await expect(call).toContainText('10');
-  await expect(call).toContainText('Base Sepolia');
+  // The amounts and the network, as the call carries them.
+  await expect(call).toContainText('Deposit 10 TESTA on Base Sepolia');
+  await expect(call).toContainText('deposit(10 TESTA) into the venue');
+  // The call itself: the venue contract's own deposit(base, quote), 10 TEST base in the venue's 18 decimals, read from the
+  // call data the page shows, and the venue is the stack's TEST SovereignVenue (code on the TEST chain, base TEST Token A).
+  const steps = call.getByRole('listitem');
+  const last = steps.last();
+  // Each step lists its contract, then its call data, as a term and its definition.
+  await expect(last.getByRole('term')).toHaveText(['Contract', 'Call data']);
+  const [venue, data] = (await last.getByRole('definition').allInnerTexts()).map((text) => text.trim());
+  const decoded = decodeFunctionData({ abi: VENUE_ABI, data });
+  expect(decoded.functionName).toBe('deposit');
+  expect(decoded.args).toEqual([10n * 10n ** 18n, 0n]);
+  const chain = createPublicClient({ transport: http(testChain().gateUrl), cacheTime: 0 });
+  expect(await chain.getCode({ address: venue }), 'the venue is a contract on the TEST chain').toMatch(/^0x[0-9a-f]{2,}/);
+  expect((await chain.readContract({ address: venue, abi: VENUE_ABI, functionName: 'baseToken' })).toLowerCase()).toBe(TOKEN_A.address);
+  // Nothing is sent: the wallet was never asked to send, and the venue holds nothing for this wallet.
   expect(wallet.sends).toHaveLength(0);
+  expect(await chain.readContract({ address: venue, abi: VENUE_ABI, functionName: 'baseBal', args: [wallet.address] })).toBe(0n);
+  // A withdrawal above the free amount is refused, naming the free amount as the venue contract itself reports it.
+  const [held, reserved] = await Promise.all([
+    chain.readContract({ address: venue, abi: VENUE_ABI, functionName: 'baseBal', args: [wallet.address] }),
+    chain.readContract({ address: venue, abi: VENUE_ABI, functionName: 'reservedBase', args: [wallet.address] }),
+  ]);
+  const free = formatUnits(held - reserved, 18);
   await funds.getByRole('radio', { name: 'Withdraw' }).check();
   await funds.getByRole('textbox', { name: /^Amount/ }).fill('1000000');
   await funds.getByRole('button', { name: 'Build the call' }).click();
-  await expect(funds.getByRole('alert')).toContainText(/more than is free \([\d.]+ free\)/);
+  await expect(funds.getByRole('alert')).toContainText(`more than is free (${free} free)`);
+  await expect(call).toHaveCount(0);
+  expect(wallet.sends).toHaveLength(0);
 });
 
 test(`${J} #10 requests an asset link review and opens the contract-read docs: the review states decimals and the verdict; the docs list read-only calls with examples`, async ({

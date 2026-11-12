@@ -1,4 +1,4 @@
-// World: gates, restart
+// World: book, gates, restart
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
@@ -22,17 +22,34 @@ import {
 // per step, titled "J-derivatives-27 #<n>". Every figure and word the desk shows is compared with the venue's own record,
 // never typed here.
 // World: the door switched on for this file (restart), and #4's and #5's closed home market on the shared TEST venue (a
-// runtime fault, gates). The venue's own books are not the stack's shared books.
+// runtime fault, gates). The venue's own books are not the stack's shared books, but #9 and #10 open positions through the
+// desk's "Open long" button, which the world scan reads as a book write, so the file declares book too (journey-world.mjs).
 // #4 and #5 each close the market's home market on the shared TEST venue and open it again in the same step (and again
 // after the file), so no other file sees it closed. #6's ledger half (our ledger posts only our builder fee, once per
 // fill) is J-derivatives-17's poster, read here as an operator reads it: the builder-fee recon for each fill, and the
 // person's own ledger accounts, which the venue trade never moves.
-// Left for a later piece of this journey: #7 (the market's own margin account), #8 (its open-interest cap), #9 (the
-// deployer's halt) and #10 (a TEST split).
+// #7 and #8 trade the TEST venue's second TEST stock perpetual, XSTD-PERP: its TEST HIP-3 deployer keeps its own margin
+// account for it, apart from the main account (as a HIP-3 deployer's market is margined), and caps its open interest.
+// #8 lowers that cap on the shared TEST venue for the step and puts it back (and again after the file).
+// #9 has the TEST deployer halt XSTD-PERP and #10 has the venue split it (TEST controls): each cancels every order on the
+// market, the TEST makers' ladder included, and settles every position at the mark. Each step puts the market back
+// trading on its TEST mark with its ladder rested again (and again after the file); no other file trades XSTD-PERP.
 const J = 'J-derivatives-27';
 const SYMBOL = 'XSTK-PERP';
 const DESK = `/trade/futures?symbol=${SYMBOL}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+/** The TEST stock perpetual on its HIP-3 deployer's own margin account (#7, #8). */
+const MARGINED = 'XSTD-PERP';
+const MARGINED_DESK = `/trade/futures?symbol=${MARGINED}`;
+/** The deployer's TEST open-interest cap on XSTD-PERP (packages/venue-sim/src/http-server.ts), put back after #8. */
+const OI_CAP = '500';
+/** #7's TEST move into the market's margin account, from the person's main account. */
+const MOVE_IN = '300';
+/** XSTD-PERP's TEST mark as the stack starts it, and the TEST mark #9 and #10 settle at (packages/venue-sim). */
+const MARGINED_MARK = '100';
+const SETTLE_MARK = '101';
+/** The TEST split of #10: two for one. */
+const SPLIT_RATIO = '2';
 /** The TEST open of #2: a market long of TEST 2 XSTK at 5x, at most TEST 210 (the TEST ladder's asks start at 200.1). */
 const OPEN = { size: '2', worst: '210', times: 5 };
 /** The TEST venue's own leverage cap on the stock perpetual (packages/venue-sim/src/http-server.ts), put back after #3. */
@@ -51,7 +68,15 @@ venueForThisFile(test);
 test.afterAll(async () => {
   await testVenue('/test/session', { symbol: SYMBOL, state: 'open', published: true }).catch(() => undefined);
   await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: CAP_BPS }).catch(() => undefined);
+  await testVenue('/test/open-interest-cap', { symbol: MARGINED, capSize: OI_CAP }).catch(() => undefined);
+  await restoreMargined().catch(() => undefined);
 });
+/** XSTD-PERP back as the stack starts it: trading, its TEST mark, and the TEST makers' ladder resting. */
+async function restoreMargined() {
+  await testVenue('/test/market-status', { symbol: MARGINED, status: 'trading' });
+  await testVenue('/test/set-mark', { symbol: MARGINED, price: MARGINED_MARK });
+  await testVenue('/test/seed', {});
+}
 
 function state() {
   const s = run.read();
@@ -458,4 +483,353 @@ test(`${J} #6 closes the position: the venue's realised result; the ledger posts
   });
   expect(await ledgerOf(userId)).toEqual(before);
   run.write({ closed: { fillIds: fills.map((f) => f.fillId), builderFees } });
+});
+
+/** The desk opened on the stock perpetual whose deployer keeps its own margin account (#7, #8). */
+const marginedDesk = async (page) => {
+  const s = state();
+  const wallet = await openVenueDesk(page, s.account, MARGINED_DESK, s.walletKey);
+  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(MARGINED, { timeout: 20_000 });
+  return { ...s, wallet, owner: wallet.address };
+};
+const marginedMarket = async () => (await testVenue('/markets', {})).body.value.find((m) => m.symbol === MARGINED);
+const marketMargin = async (owner) => (await venueRecord(owner, '/market-margin', { symbol: MARGINED })).value;
+const mainBalance = async (owner, asset) =>
+  (await venueRecord(owner, '/balances')).value.find((b) => b.asset === asset) ?? { asset, free: '0', locked: '0', total: '0' };
+/** The kind and owner of the action a wallet signature request asked for (the TEST venue's typed data, signing.ts). */
+const signedAction = (request) => {
+  const typed = JSON.parse(request.params[1]);
+  return { kind: typed.message.kind, owner: typed.message.owner, payload: JSON.parse(typed.message.payload) };
+};
+
+test(`${J} #7 opens the market's margin before trading on a HIP-3 market: that market's own margin account on the venue, its collateral asset and margin mode as the deployer set them, kept apart from the main account; moving collateral in is the person's own signed transfer`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const { owner, wallet } = await marginedDesk(page);
+  const m = await marginedMarket();
+  expect(m, `${MARGINED} is not listed on the TEST venue`).toBeTruthy();
+  // A HIP-3 market, read from the venue.
+  expect(m.listedBy).toMatchObject({ known: true, value: { kind: 'hip3' } });
+  await expect(rules(page).getByTestId('venue-listing')).toHaveAttribute('data-listing', 'hip3');
+  // Its own margin account on the venue, with the collateral asset and margin mode its deployer set.
+  expect(m.marginAccount.known).toBe(true);
+  const rule = m.marginAccount.value;
+  const panel = page.getByTestId('venue-market-margin');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
+  await expect(panel.getByTestId('venue-market-margin-name')).toHaveText(rule.name);
+  await expect(panel.getByTestId('venue-market-margin-collateral')).toHaveText(rule.collateralAsset);
+  await expect(panel.getByTestId('venue-market-margin-mode')).toHaveAttribute('data-mode', rule.marginMode);
+  await expect(panel.getByTestId('venue-market-margin-note')).toHaveText(
+    `${rule.name} is kept by the deployer of ${MARGINED}, apart from your main account. Orders on ${MARGINED} take their margin from it alone. Only you move collateral in or out, with your own signature.`,
+  );
+
+  // Kept apart from the main account: the venue keeps two balances, and the panel shows the market's own, not the main.
+  const mainBefore = await mainBalance(owner, rule.collateralAsset);
+  const before = await marketMargin(owner);
+  expect(before).toMatchObject({ symbol: MARGINED, name: rule.name, collateralAsset: rule.collateralAsset, marginMode: rule.marginMode });
+  expect(sameDecimal(before.total, '0')).toBe(true);
+  expect(sameDecimal(mainBefore.free, '0')).toBe(false);
+  await expect(panel.getByTestId('venue-market-margin-free')).toHaveText(before.free);
+  await expect(panel.getByTestId('venue-market-margin-total')).toHaveText(before.total);
+  // A market margined on the main account shows no such account.
+  await page
+    .getByTestId('venue-contract-list')
+    .getByRole('button', { name: new RegExp(`^${SYMBOL} · `) })
+    .click();
+  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL);
+  await expect(page.getByTestId('venue-market-margin')).toHaveCount(0);
+  await page
+    .getByTestId('venue-contract-list')
+    .getByRole('button', { name: new RegExp(`^${MARGINED} · `) })
+    .click();
+  await expect(panel).toBeVisible();
+
+  // Nothing moves without the person's signature: declined in the wallet, both balances are as they were.
+  await panel.getByRole('textbox', { name: `Amount to move (${rule.collateralAsset})` }).fill(MOVE_IN);
+  wallet.rejectNext();
+  await panel.getByRole('button', { name: 'Sign a move into this market’s margin' }).click();
+  await continueInWallet(page);
+  await expect(panel.getByTestId('venue-outcome')).toContainText('You cancelled in your wallet. Nothing was signed or sent.', {
+    timeout: 15_000,
+  });
+  expect(await marketMargin(owner)).toEqual(before);
+  expect(await mainBalance(owner, rule.collateralAsset)).toEqual(mainBefore);
+
+  // The person's own signed transfer moves the collateral in, once.
+  const signedBefore = wallet.requests.length;
+  await panel.getByRole('button', { name: 'Sign a move into this market’s margin' }).click();
+  await continueInWallet(page);
+  await expect(panel.getByTestId('venue-outcome')).toContainText('The venue accepted it.', { timeout: 15_000 });
+  expect(wallet.requests.length - signedBefore).toBe(1);
+  const action = signedAction(wallet.requests.at(-1));
+  expect(action).toMatchObject({
+    kind: 'market_margin_transfer',
+    owner,
+    payload: { symbol: MARGINED, direction: 'into_market', asset: rule.collateralAsset, amount: MOVE_IN },
+  });
+  const after = await marketMargin(owner);
+  expect(fromUnits(toUnits(after.free) - toUnits(before.free))).toBe(fromUnits(toUnits(MOVE_IN)));
+  const mainAfter = await mainBalance(owner, rule.collateralAsset);
+  expect(fromUnits(toUnits(mainBefore.free) - toUnits(mainAfter.free))).toBe(fromUnits(toUnits(MOVE_IN)));
+  await expect(panel.getByTestId('venue-market-margin-free')).toHaveText(after.free, { timeout: 20_000 });
+  await expect(panel.getByTestId('venue-market-margin-total')).toHaveText(after.total);
+  run.write({ margined: { moved: MOVE_IN } });
+});
+
+test(`${J} #8 tries an open that would pass the market's open-interest cap: refused with the venue's cap named; nothing signed`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const s = state();
+  if (!s.margined) throw new Error(`${J} #7 moved no collateral into ${MARGINED}'s margin, so this step has none to trade with`);
+  const { owner, wallet } = await marginedDesk(page);
+  // The person's leverage on the market, signed, within its cap.
+  const margin = page.getByTestId('venue-margin');
+  await margin.getByRole('textbox', { name: 'Leverage (times)' }).fill('5');
+  await margin.getByRole('button', { name: 'Sign this leverage setting' }).click();
+  await continueInWallet(page);
+  await expect(margin.getByTestId('venue-outcome')).toContainText('The venue accepted it.', { timeout: 15_000 });
+
+  const before = {
+    margin: await marketMargin(owner),
+    positions: (await venueRecord(owner, '/positions')).value,
+    orders: (await venueRecord(owner, '/open-orders')).value,
+    balances: (await venueRecord(owner, '/balances')).value,
+  };
+  const signedBefore = wallet.requests.length;
+  const submits = submitsOf(page);
+  const size = '2';
+  try {
+    // The deployer's cap, one unit above what is open now: an open of two would pass it.
+    const open = (await marginedMarket()).openInterest.value.size;
+    const cap = fromUnits(toUnits(open) + toUnits('1'));
+    const set = await testVenue('/test/open-interest-cap', { symbol: MARGINED, capSize: cap });
+    expect(set.status, JSON.stringify(set.body)).toBe(200);
+    const m = await marginedMarket();
+    expect(m.openInterest).toEqual({ known: true, value: { size: open, capSize: cap } });
+    // The desk shows the market's open interest and its deployer's cap, as the venue reports them.
+    await expect(rules(page).getByTestId('venue-open-interest-cap')).toHaveText(`At most ${cap} ${m.baseAsset} open, set by its deployer`, {
+      timeout: 20_000,
+    });
+    await expect(rules(page).getByTestId('venue-open-interest')).toHaveText(`${open} ${m.baseAsset} open, as the venue reports it`);
+
+    const ticket = page.getByTestId('venue-ticket');
+    await ticket.getByRole('button', { name: 'Long', exact: true }).click();
+    await ticket.getByRole('button', { name: 'Market', exact: true }).click();
+    await ticket.getByRole('textbox', { name: `Size (${m.baseAsset})` }).fill(size);
+    await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill('105');
+    await ticket.getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
+    await ticket.getByRole('button', { name: 'Review long' }).click();
+    // Refused by the venue, its cap named, before the wallet is asked.
+    await expect(ticket.getByRole('alert')).toContainText(
+      `The venue refused it: ${MARGINED}'s deployer caps its open interest at ${cap} ${m.baseAsset}; ${open} ${m.baseAsset} is open, so ${size} ${m.baseAsset} more would pass the cap`,
+      { timeout: 15_000 },
+    );
+    await expect(page.getByTestId('venue-review')).toHaveCount(0);
+    await page.waitForTimeout(1_000);
+  } finally {
+    await testVenue('/test/open-interest-cap', { symbol: MARGINED, capSize: OI_CAP });
+  }
+  // Nothing signed and nothing sent: the margin account, positions, orders and balances are as they were.
+  expect(wallet.requests.length).toBe(signedBefore);
+  await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
+  expect(submits).toHaveLength(0);
+  expect(await marketMargin(owner)).toEqual(before.margin);
+  expect((await venueRecord(owner, '/positions')).value).toEqual(before.positions);
+  expect((await venueRecord(owner, '/open-orders')).value).toEqual(before.orders);
+  expect((await venueRecord(owner, '/balances')).value).toEqual(before.balances);
+});
+
+/** On the margined market's ticket: a long of `size` at market (worst price 105) or a resting limit at `price`, signed once. */
+async function placeLong(page, { size, limit = null }) {
+  const ticket = page.getByTestId('venue-ticket');
+  await ticket.getByRole('button', { name: 'Long', exact: true }).click();
+  await ticket.getByRole('button', { name: limit ? 'Limit' : 'Market', exact: true }).click();
+  await ticket.getByRole('textbox', { name: 'Size (XSTD)' }).fill(size);
+  await ticket.getByRole('textbox', { name: limit ? 'Price' : 'Worst price (slippage limit)', exact: true }).fill(limit ?? '105');
+  await ticket.getByRole('combobox', { name: 'Margin asset' }).selectOption('USDC');
+  await ticket.getByRole('button', { name: 'Review long' }).click();
+  const sheet = page.getByTestId('venue-review');
+  await expect(sheet).toBeVisible({ timeout: 15_000 });
+  await sheet.getByRole('button', { name: 'Open long' }).click();
+  await continueInWallet(page);
+  await expect(sheet.getByTestId('venue-outcome').last()).toContainText(limit ? 'Open on the venue.' : 'Filled on the venue.', {
+    timeout: 15_000,
+  });
+  await sheet.getByRole('button', { name: 'Back', exact: true }).click();
+}
+
+/** A position open and an order resting on XSTD-PERP, both the person's own, as the venue records them. */
+async function holdAndRest(page, owner) {
+  await placeLong(page, { size: '2' });
+  await placeLong(page, { size: '1', limit: '90' });
+  const positions = (await venueRecord(owner, '/positions')).value.filter((p) => p.symbol === MARGINED);
+  expect(positions).toHaveLength(1);
+  expect(sameDecimal(positions[0].size, '2')).toBe(true);
+  const resting = (await venueRecord(owner, '/open-orders')).value.filter((o) => o.symbol === MARGINED);
+  expect(resting).toHaveLength(1);
+  const row = page.getByTestId('venue-positions').locator(`tr[data-symbol="${MARGINED}"]`);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  return { position: positions[0], order: resting[0] };
+}
+
+/** The person's settlement in the event, the venue's record of it, and the desk's History row for it. */
+async function settlementOf(page, owner, event) {
+  const all = (await venueRecord(owner, '/settlements', { since: since() })).value.filter((x) => x.symbol === MARGINED);
+  const mine = all.filter((x) => x.settledAt === event.eventAt);
+  expect(mine).toHaveLength(1);
+  await page.getByTestId('venue-blotter').getByRole('button', { name: 'History' }).click();
+  const row = page.getByTestId('venue-settlements').locator(`tr[data-settled="${MARGINED}"][data-at="${event.eventAt}"]`);
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  return { settled: mine[0], row };
+}
+
+test(`${J} #9 the market's deployer halts it while the position is open: orders cancelled and the position settled at the venue's mark price, both as the venue reports them, with the time; no new open until the venue resumes the market`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  if (!state().margined) throw new Error(`${J} #7 moved no collateral into ${MARGINED}'s margin, so this step has none to trade with`);
+  const { owner, wallet, account } = await marginedDesk(page);
+  const { userId } = await api(account);
+  const { position, order } = await holdAndRest(page, owner);
+  const ledgerBefore = await ledgerOf(userId);
+  const marginBefore = await marketMargin(owner);
+  const { displayName } = await venueInfo();
+  try {
+    expect((await testVenue('/test/set-mark', { symbol: MARGINED, price: SETTLE_MARK })).status).toBe(200);
+    const halted = await testVenue('/test/deployer-halt', { symbol: MARGINED });
+    expect(halted.status, JSON.stringify(halted.body)).toBe(200);
+    const event = halted.body.event;
+    expect(event).toMatchObject({ kind: 'deployer_halt', settlementPrice: SETTLE_MARK, reopenedAt: null });
+    const m = await marginedMarket();
+    expect(m.status).toBe('halted');
+    expect(m.lastEvent).toEqual({ known: true, value: event });
+
+    // The desk shows the venue's report: the halt, its time, the mark every position settled at, and no new open.
+    const shown = rules(page).getByTestId('venue-market-event');
+    await expect(shown).toHaveAttribute('data-kind', 'deployer_halt', { timeout: 20_000 });
+    await expect(shown).toHaveAttribute('data-at', event.eventAt);
+    await expect(shown.getByTestId('venue-market-event-words')).toHaveText(
+      `${displayName} reports ${MARGINED} halted by its deployer at ${event.eventAt}: every order on it was cancelled and every position settled at the mark price ${event.settlementPrice}.`,
+    );
+    await expect(shown.getByTestId('venue-market-event-state')).toHaveText(`No new open on ${MARGINED} until the venue resumes it.`);
+
+    // The position settled at the venue's mark, and the order cancelled, as the venue records them.
+    expect((await venueRecord(owner, '/positions')).value.filter((p) => p.symbol === MARGINED)).toEqual([]);
+    expect((await venueRecord(owner, '/open-orders')).value.filter((o) => o.symbol === MARGINED)).toEqual([]);
+    expect((await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: order.venueClientOrderId })).value).toMatchObject({
+      status: 'canceled',
+    });
+    const { settled, row } = await settlementOf(page, owner, event);
+    expect(settled).toMatchObject({ kind: 'deployer_halt', side: 'long', price: event.settlementPrice });
+    expect(sameDecimal(settled.size, position.size)).toBe(true);
+    expect(settled.cancelledOrders).toEqual([order.venueClientOrderId]);
+    // Its result is the venue's: (mark - entry) x size on the long it settled.
+    expect(
+      sameDecimal(
+        settled.realisedPnl,
+        fromUnits(((toUnits(SETTLE_MARK) - toUnits(position.entryPrice)) * toUnits(position.size)) / toUnits('1')),
+      ),
+    ).toBe(true);
+    await expect(row).toHaveAttribute('data-kind', 'deployer_halt');
+    await expect(row.locator('[data-cell="why"]')).toHaveText('Its deployer halted it');
+    await expect(row.locator('[data-cell="position"]')).toHaveText(`Long ${settled.size}`);
+    await expect(row.locator('[data-cell="price"]')).toHaveText(settled.price);
+    await expect(row.locator('[data-cell="realised"]')).toHaveText(settled.realisedPnl);
+    await expect(row.locator('[data-cell="cancelled"]')).toHaveText('1');
+    await expect(row.locator('[data-cell="time"] time')).toHaveAttribute('datetime', event.eventAt);
+    await page.getByTestId('venue-blotter').getByRole('button', { name: 'Positions' }).click();
+    await expect(page.getByTestId('venue-positions').locator(`tr[data-symbol="${MARGINED}"]`)).toHaveCount(0, { timeout: 20_000 });
+    // The margin and the result came back to the market's own account; our ledger posted nothing of the person's.
+    const marginAfter = await marketMargin(owner);
+    expect(sameDecimal(marginAfter.locked, '0')).toBe(true);
+    expect(fromUnits(toUnits(marginAfter.free))).toBe(
+      fromUnits(toUnits(marginBefore.free) + toUnits(marginBefore.locked) + toUnits(settled.realisedPnl)),
+    );
+    expect(await ledgerOf(userId)).toEqual(ledgerBefore);
+
+    // No new open until the venue resumes the market: refused in the venue's words before anything is signed.
+    const signedBefore = wallet.requests.length;
+    const submits = submitsOf(page);
+    const ticket = page.getByTestId('venue-ticket');
+    await ticket.getByRole('button', { name: 'Long', exact: true }).click();
+    await ticket.getByRole('button', { name: 'Market', exact: true }).click();
+    await ticket.getByRole('textbox', { name: 'Size (XSTD)' }).fill('1');
+    await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill('105');
+    await ticket.getByRole('button', { name: 'Review long' }).click();
+    await expect(ticket.getByRole('alert')).toContainText(`The venue refused it: ${MARGINED} is halted on ${displayName}`, {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId('venue-review')).toHaveCount(0);
+    await page.waitForTimeout(1_000);
+    expect(wallet.requests.length).toBe(signedBefore);
+    expect(submits).toHaveLength(0);
+
+    // The venue resumes it, and the desk shows when, as the venue reports it.
+    expect((await testVenue('/test/market-status', { symbol: MARGINED, status: 'trading' })).status).toBe(200);
+    const resumed = (await marginedMarket()).lastEvent.value;
+    expect(resumed.reopenedAt).not.toBeNull();
+    await expect(shown.getByTestId('venue-market-event-state')).toHaveText(`The venue resumed ${MARGINED} at ${resumed.reopenedAt}.`, {
+      timeout: 20_000,
+    });
+  } finally {
+    await restoreMargined();
+  }
+});
+
+test(`${J} #10 holds a stock perpetual through a TEST split: the position settled and the market reopened as the venue reports them, with the time; my orders cancelled; the result of the settlement in my history`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  if (!state().margined) throw new Error(`${J} #7 moved no collateral into ${MARGINED}'s margin, so this step has none to trade with`);
+  const { owner, account } = await marginedDesk(page);
+  const { userId } = await api(account);
+  const { position, order } = await holdAndRest(page, owner);
+  const ledgerBefore = await ledgerOf(userId);
+  const { displayName } = await venueInfo();
+  try {
+    expect((await testVenue('/test/set-mark', { symbol: MARGINED, price: SETTLE_MARK })).status).toBe(200);
+    const split = await testVenue('/test/split', { symbol: MARGINED, ratio: SPLIT_RATIO });
+    expect(split.status, JSON.stringify(split.body)).toBe(200);
+    const event = split.body.event;
+    expect(event).toMatchObject({ kind: 'split', settlementPrice: SETTLE_MARK, splitRatio: SPLIT_RATIO });
+    expect(event.reopenedAt).not.toBeNull();
+    // The market reopened, as the venue reports it.
+    const m = await marginedMarket();
+    expect(m.status).toBe('trading');
+    expect(m.lastEvent).toEqual({ known: true, value: event });
+    const shown = rules(page).getByTestId('venue-market-event');
+    await expect(shown).toHaveAttribute('data-kind', 'split', { timeout: 20_000 });
+    await expect(shown).toHaveAttribute('data-reopened', event.reopenedAt);
+    await expect(shown.getByTestId('venue-market-event-words')).toHaveText(
+      `${displayName} reports a TEST ${SPLIT_RATIO} for 1 split on ${MARGINED} at ${event.eventAt}: every order on it was cancelled and every position settled at the mark price ${event.settlementPrice}. The venue reopened it at ${event.reopenedAt}.`,
+    );
+
+    // My orders cancelled, and the position settled, as the venue records them.
+    expect((await venueRecord(owner, '/open-orders')).value.filter((o) => o.symbol === MARGINED)).toEqual([]);
+    expect((await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: order.venueClientOrderId })).value).toMatchObject({
+      status: 'canceled',
+    });
+    expect((await venueRecord(owner, '/positions')).value.filter((p) => p.symbol === MARGINED)).toEqual([]);
+    await page.getByTestId('venue-blotter').getByRole('button', { name: 'Orders' }).click();
+    await expect(page.getByTestId('venue-blotter').getByText(order.venueClientOrderId)).toHaveCount(0);
+
+    // The result of the settlement in my history: the venue's own figures, with the time.
+    const { settled, row } = await settlementOf(page, owner, event);
+    expect(settled).toMatchObject({ kind: 'split', side: 'long', price: event.settlementPrice });
+    expect(sameDecimal(settled.size, position.size)).toBe(true);
+    expect(settled.cancelledOrders).toEqual([order.venueClientOrderId]);
+    await expect(row.locator('[data-cell="why"]')).toHaveText('A split');
+    await expect(row.locator('[data-cell="position"]')).toHaveText(`Long ${settled.size}`);
+    await expect(row.locator('[data-cell="price"]')).toHaveText(settled.price);
+    await expect(row.locator('[data-cell="realised"]')).toHaveText(settled.realisedPnl);
+    await expect(row.locator('[data-cell="cancelled"]')).toHaveText('1');
+    await expect(row.locator('[data-cell="time"] time')).toHaveAttribute('datetime', event.eventAt);
+    // The venue settles; our ledger posts nothing of the person's.
+    expect(await ledgerOf(userId)).toEqual(ledgerBefore);
+  } finally {
+    await restoreMargined();
+  }
 });
