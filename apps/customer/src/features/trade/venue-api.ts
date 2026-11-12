@@ -395,6 +395,16 @@ export type VenueIntent =
   | { kind: 'update_leverage'; symbol: string; leverageBps: number; marginMode: VenueMarginMode }
   | { kind: 'approve_builder_fee'; builder: string; maxFeeBps: string }
   | { kind: 'withdraw'; asset: string; amount: string; destination: string; withdrawalKey: string }
+  // The person's own sub-account (J-portfolio-04 #2): opened and moved into, each signed on the main account.
+  | { kind: 'create_sub_account'; name: string; subAccountKey: string }
+  | {
+      kind: 'sub_account_transfer';
+      subAccount: string;
+      direction: 'into_sub_account' | 'out_of_sub_account';
+      asset: string;
+      amount: string;
+      moveKey: string;
+    }
   | {
       kind: 'market_margin_transfer';
       symbol: string;
@@ -421,6 +431,10 @@ export const keys = {
   order: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:${draft}`,
   close: (owner: string, symbol: string, draft: string) => `close:${part(owner)}:${part(symbol)}:${draft}`,
   cancel: (clientOrderKey: string) => `cancel:${clientOrderKey}`,
+  /** The person's own sub-account, by its name: a second press opens the same one (user-venue-door.ts OWN_SUB_ACCOUNT_PREFIX). */
+  ownSubAccount: (owner: string, name: string) => `own:sub-account:${part(owner)}:${part(name.trim())}`,
+  /** One move between the main account and an own sub-account, by its reviewed draft (OWN_MOVE_PREFIX). */
+  ownMove: (owner: string, draft: string) => `own:move:${part(owner)}:${draft}`,
   leverage: (owner: string, symbol: string, mode: VenueMarginMode, leverageBps: number, draft: string) =>
     `leverage:${part(owner)}:${part(symbol)}:${mode}:${leverageBps}:${draft}`,
   builderApproval: (owner: string, builder: string, maxFeeBps: string, venueId?: string) =>
@@ -509,7 +523,8 @@ export function venueApi(api: ApiClient) {
   return {
     status: (signal?: AbortSignal) => api.rest('/venue/status', venueStatusSchema, { signal }),
     markets: (signal?: AbortSignal) => read('/markets', asOf(z.array(venueMarketSchema)), {}, signal),
-    balances: (owner: string, signal?: AbortSignal) => read('/balances', asOf(z.array(venueBalanceSchema)), { owner }, signal),
+    balances: (owner: string, signal?: AbortSignal, subAccount?: string) =>
+      read('/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount }, signal),
     openOrders: (owner: string, signal?: AbortSignal) => read('/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),
     orderByClientId: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
