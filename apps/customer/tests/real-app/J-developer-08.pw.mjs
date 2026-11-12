@@ -198,18 +198,23 @@ test(`${J} #5 reads used and remaining limits: usage with an as-of time`, async 
   await page.goto(`/uc/safe/api-keys/${keyId}`);
   const limits = page.getByRole('region', { name: 'Limits' });
   await expect(limits).toBeVisible(UNBUILT);
-  const number = async (testId) => Number((await limits.getByTestId(testId).textContent(UNBUILT))?.replace(/[^\d]/g, ''));
+  // Each figure is shown as digits (grouping marks aside); an empty or non-numeric figure fails here, never reads as 0.
+  const number = async (testId) => {
+    const shown = ((await limits.getByTestId(testId).textContent(UNBUILT)) ?? '').trim();
+    expect(shown, `${testId} shows a whole number`).toMatch(/^\d[\d,.\s\u00a0\u202f]*$/);
+    return Number(shown.replace(/[^\d]/g, ''));
+  };
   const used = await number('api-keys__limit-used');
   const remaining = await number('api-keys__limit-remaining');
   expect(Number.isInteger(used) && used >= 0, `used is a whole number (${used})`).toBe(true);
   expect(Number.isInteger(remaining) && remaining >= 0, `remaining is a whole number (${remaining})`).toBe(true);
   expect(used, 'the key has made calls, so some of its limit is used').toBeGreaterThan(0);
-  // The same limit Edge answers the key's calls with, when Edge names one. The limit is a token bucket that refills
+  // The same limit Edge answers the key's calls with. The limit is a token bucket that refills
   // (J-developer-06), so remaining is at most the limit and used counts every token spent since the count began.
-  if (limit) {
-    expect(remaining).toBeLessThanOrEqual(Number(limit));
-    await expect(limits).toContainText(`of ${Number(limit)} tokens`);
-  }
+  // Edge names the key's limit on every metered answer, so the answered call carried it.
+  expect(Number(limit), `Edge answered the key's call with x-ratelimit-limit (${limit})`).toBeGreaterThan(0);
+  expect(remaining).toBeLessThanOrEqual(Number(limit));
+  await expect(limits).toContainText(`of ${Number(limit)} tokens`);
   // As of a time after the key's calls, and not in the future.
   const at = Date.parse((await limits.getByTestId('api-keys__limits-as-of').locator('time').getAttribute('datetime', UNBUILT)) ?? '');
   expect(at).toBeGreaterThanOrEqual(Date.parse(started));
