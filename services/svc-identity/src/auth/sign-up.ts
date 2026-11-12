@@ -3,6 +3,7 @@ import { checkAccess, checkCitizenship, hasSubdivisionRows, isSubdivisionCode, r
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
+import { sealBirthDate } from '../kyc/birth-date.js';
 import { assertPasswordNotBreached, assertPasswordNotIdentity, assertPasswordShape, hashPassword, WeakPasswordError } from './passwords.js';
 
 /**
@@ -21,8 +22,9 @@ import { assertPasswordNotBreached, assertPasswordNotIdentity, assertPasswordSha
  * the flow consumed and the draft (and its password hash) deleted.
  *
  * Blank owner numbers refuse every caller the same way (`identity.signup_unwired`, `identity.age_rule_unset`);
- * nothing here invents a lifetime, a cap or an age. The date of birth is used for the age check and is not
- * stored: verification collects it with the document.
+ * nothing here invents a lifetime, a cap or an age. The date of birth is used for the age check and, with the KYC
+ * document key set (`birthDateKey`), kept sealed for the trading checks' sanctions screen (`birth_dates`, J-cex-spot-01
+ * #3); never in plaintext, and with the key unset it is not kept at all.
  */
 
 export const ACCOUNT_TYPES = ['individual', 'business'] as const;
@@ -81,6 +83,8 @@ export interface SignUpPolicy {
   readonly requestWindowSeconds?: number | undefined;
   /** The owner's per-country off switch for sign-up. Blank closes none: sign-up is open where screening allows. */
   readonly closedCountries?: readonly string[] | undefined;
+  /** The KYC document key: the date of birth is kept sealed under it. Null keeps none. */
+  readonly birthDateKey?: Buffer | null | undefined;
 }
 
 export interface SignUpDeps extends SignUpPolicy {
@@ -107,7 +111,7 @@ export interface SignUpStart {
   readonly subdivision?: string | undefined;
   /** Country of citizenship (ISO 3166-1 alpha-2), or an ISO 3166-2 subdivision. Screened against the sanctions list only. */
   readonly nationality?: string | undefined;
-  /** `YYYY-MM-DD`. Checked against the owner's minimum age, never stored. */
+  /** `YYYY-MM-DD`. Checked against the owner's minimum age; kept only sealed (`birthDateKey`). */
   readonly dateOfBirth: string;
   readonly accountType: AccountType;
   readonly referrerId?: string | undefined;
@@ -293,6 +297,7 @@ export async function startSignUp(deps: SignUpDeps, input: SignUpStart): Promise
   if (taken[0]) throw new SignUpError('That handle is taken', 'auth.handle_taken');
 
   const passwordHash = await hashPassword(input.password);
+  const birth = deps.birthDateKey ? sealBirthDate(deps.birthDateKey, input.dateOfBirth.trim()) : null;
   const subjectHash = flowSubjectHash(budget.subjectKey, email);
   const code = newCode();
   const expiresAt = new Date(now.getTime() + budget.ttlSeconds * 1000);
@@ -328,8 +333,9 @@ export async function startSignUp(deps: SignUpDeps, input: SignUpStart): Promise
         WHERE id = ${id}
       `;
       await tx`
-        INSERT INTO signup_drafts (flow_id, handle, email, password_hash, country, account_type, referrer_id, last_sent_at)
-        VALUES (${id}, ${input.handle}, ${email}, ${passwordHash}, ${country}, ${input.accountType}, ${input.referrerId ?? null}, ${now})
+        INSERT INTO signup_drafts (flow_id, handle, email, password_hash, country, account_type, referrer_id, last_sent_at, birth_ciphertext, birth_nonce)
+        VALUES (${id}, ${input.handle}, ${email}, ${passwordHash}, ${country}, ${input.accountType}, ${input.referrerId ?? null}, ${now},
+          ${birth?.ciphertext ?? null}, ${birth?.nonce ?? null})
       `;
       await tx`
         INSERT INTO mail_outbox (flow_id, purpose, recipient, code, handle, expires_at, status)
@@ -482,8 +488,10 @@ export async function confirmSignUp(
           country: string;
           account_type: AccountType;
           referrer_id: string | null;
+          birth_ciphertext: Buffer | null;
+          birth_nonce: Buffer | null;
         }>
-      >`SELECT handle, email, password_hash, country, account_type, referrer_id FROM signup_drafts WHERE flow_id = ${flow.id}`;
+      >`SELECT handle, email, password_hash, country, account_type, referrer_id, birth_ciphertext, birth_nonce FROM signup_drafts WHERE flow_id = ${flow.id}`;
       const row = rows[0];
       if (!row) return new SignUpError(EXPIRED, 'identity.signup_expired');
       const draft: SignUpDraft = {
@@ -497,6 +505,8 @@ export async function confirmSignUp(
       };
       const userId = await create(tx, draft);
       await tx`UPDATE users SET email_verified_at = ${now} WHERE id = ${userId}`;
+      if (row.birth_ciphertext && row.birth_nonce)
+        await tx`INSERT INTO birth_dates (user_id, ciphertext, nonce, created_at) VALUES (${userId}, ${row.birth_ciphertext}, ${row.birth_nonce}, ${now})`;
       await tx`UPDATE profiles SET account_type = ${draft.accountType} WHERE user_id = ${userId}`;
       await tx`UPDATE auth_flows SET status = 'consumed', consumed_at = ${now}, user_id = ${userId} WHERE id = ${flow.id}`;
       await tx`DELETE FROM signup_drafts WHERE flow_id = ${flow.id}`;

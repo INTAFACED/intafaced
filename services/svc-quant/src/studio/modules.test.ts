@@ -180,3 +180,28 @@ describe('studio with signal rules', () => {
     );
   });
 });
+
+describe('pyramiding in the signal rules (J-algo-dev-05 #4)', () => {
+  it('keeps a whole-number pyramiding, writes it into the source and declares it as optional', () => {
+    const out = compileSignalRules(with_((r) => ({ ...r, pyramiding: ' 2 ' })));
+    expect(out.rules.pyramiding).toBe('2');
+    expect(out.source).toContain('oms.setPyramiding(2);');
+    expect(out.inputs.find((i) => i.name === 'pyramiding')).toMatchObject({ type: 'integer', required: false, min: '1', max: '100' });
+  });
+
+  it('a blank pyramiding adds nothing, so a strategy saved before it existed compiles to the same source', () => {
+    expect(compileSignalRules(with_((r) => ({ ...r, pyramiding: '' }))).rules).toEqual(RULES);
+    expect(compileSignalRules(RULES).source).toBe(signalSource(RULES));
+  });
+
+  it('refuses a pyramiding outside 1 to 100 by name', () => {
+    expect(() => compileSignalRules(with_((r) => ({ ...r, pyramiding: '0' })))).toThrow('pyramiding');
+    expect(() => compileSignalRules(with_((r) => ({ ...r, pyramiding: '101' })))).toThrow('quant.param_out_of_range');
+  });
+
+  it('with pyramiding set, a blank size still refuses naming the sizing rule', () => {
+    expect(() => compileSignalRules(with_((r) => ({ ...r, pyramiding: '2', sizing: { ...r.sizing, value: '' } })))).toThrow(
+      'quant.sizing_rule_unset',
+    );
+  });
+});

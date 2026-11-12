@@ -62,12 +62,13 @@ function sameUser(a: PartnerAccountRef, b: PartnerAccountRef): boolean {
 /**
  * The person's lines for one move: out of the account it left, into the account it reached, theirs only. A move to or
  * from the partner's outbound-payments account is a cash-out leaving to a bank account, or its amount coming back
- * (failed, cancelled or returned), never a transfer with another person: it reads as a withdrawal.
+ * (failed, cancelled or returned), never a transfer with another person: it reads as a withdrawal. A pay-in, and a pay-in
+ * the partner sent back to where it came from (J-bank-02 #7), read as a deposit, in and out.
  */
 export function partnerLines(userId: string, move: PartnerMove, names: ReadonlyMap<string, string>): ActivityItem[] {
   const own = sameUser(move.from, move.to);
   const payout = move.from.userId === PARTNER_PAYOUTS_OWNER || move.to.userId === PARTNER_PAYOUTS_OWNER;
-  const payIn = move.from.userId === PARTNER_PAY_INS_OWNER;
+  const payIn = move.from.userId === PARTNER_PAY_INS_OWNER || move.to.userId === PARTNER_PAY_INS_OWNER;
   const fee = move.to.userId === PARTNER_FEES_OWNER;
   const lines: ActivityItem[] = [];
   const line = (side: 'out' | 'in', account: PartnerAccountRef): ActivityItem => ({
