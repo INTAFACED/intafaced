@@ -8,8 +8,9 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-bank-05, in the running app (docs/roadmap/journeys.json): I send money abroad from Pay's global send. The local stack
 // chooses the TEST global-send stand-in (BANK_GLOBAL_PARTNER=global-sim): its catalogue is the bank profile's TEST values
-// (three made-up corridors, rates of 2 and 3, no fee, a 300-second quote lock; NL is listed and quoted but has no payout,
-// the way a corridor with no partner behaves), it pays nobody, and it is refused under live posture. Every number here is a
+// (four made-up corridors, rates of 2, 3 and 4, no fee, a 300-second quote lock but 20 seconds for USD; NL is listed and
+// quoted but has no payout, the way a corridor with no partner behaves; US is paid over SWIFT with shared charges, SHA), it
+// pays nobody, and it is refused under live posture. Every number here is a
 // TEST number on the local stack. A send converts at the rail: the bank posts the amount once to the rail boundary and the
 // rail pays the locked receive amount. Receive details come from the bank's account details: no banking partner is
 // connected, so each currency names rail.bank and shows no number.
@@ -83,7 +84,27 @@ async function toGermany(page) {
   return card;
 }
 
-test(`${J} #1 opens global send and picks the corridor: its limits show, and a corridor the catalogue lacks is not offered`, async ({
+/** Pay's global send with the US, dollars over SWIFT chosen, and a US recipient saved for it once. */
+async function toUs(page) {
+  await page.goto('/pay/global');
+  const card = page.getByTestId('global-card');
+  const where = card.getByLabel('Where it goes');
+  await expect(where.locator('option', { hasText: 'US · USD · swift' })).toHaveCount(1, { timeout: 30_000 });
+  await where.selectOption({ label: 'US · USD · swift' });
+  const recipient = card.getByLabel('Recipient', { exact: true });
+  const grace = recipient.locator('option', { hasText: 'Grace TEST' });
+  await expect(recipient.locator('option').first()).not.toHaveText('Loading…', { timeout: 30_000 });
+  if ((await grace.count()) === 0) {
+    await card.getByLabel('Recipient’s full name').fill('Grace TEST');
+    await card.getByLabel('Account number or IBAN').fill('000123456789');
+    await card.getByTestId('global-recipient-save').click();
+    await expect(grace).toHaveCount(1, { timeout: 30_000 });
+  }
+  await recipient.selectOption({ label: await grace.innerText() });
+  return card;
+}
+
+test(`${J} #1 opens global send and picks the corridor: its limits and recipient fields show, and an unsupported corridor says so`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -95,14 +116,30 @@ test(`${J} #1 opens global send and picks the corridor: its limits show, and a c
   await expect(card.getByTestId('global-stand-in')).toContainText('TEST');
   await expect(card.getByTestId('global-stand-in')).toContainText('Nobody receives the money');
   const where = card.getByLabel('Where it goes');
-  // Exactly the stand-in's three TEST corridors: nothing typed in the app, nothing more.
+  // Exactly the stand-in's four TEST corridors: nothing typed in the app, nothing more.
   await expect(where.locator('option')).toHaveText([
     'Choose a country and currency',
     'DE · EUR · sepa',
     'GB · GBP · bank_account',
     'NL · EUR · sepa',
+    'US · USD · swift',
   ]);
   await expect(card.getByTestId('global-limits')).toHaveText('The smallest send is 1. The largest send is 1000.');
+  // The corridor's requirement fields: who receives it, their account or IBAN, and their bank's code.
+  await expect(card.getByLabel('Recipient’s full name')).toBeEditable();
+  await expect(card.getByLabel('Account number or IBAN')).toBeEditable();
+  await expect(card.getByLabel('Bank code (SWIFT/BIC)')).toBeEditable();
+  // A destination the catalogue has no corridor for says so; one it has says to pick it.
+  const check = card.getByLabel('Not in the list? Enter a country code');
+  await check.fill('jp');
+  await card.getByTestId('global-country-check').click();
+  await expect(card.getByTestId('global-country-unsupported')).toHaveText(
+    'Sending to JP is not supported: there is no corridor there. Only the destinations in the list can be sent to.',
+  );
+  await check.fill('de');
+  await card.getByTestId('global-country-check').click();
+  await expect(card.getByTestId('global-country-supported')).toHaveText('Sending to DE is supported: choose it in the list above.');
+  await expect(card.getByTestId('global-country-unsupported')).toHaveCount(0);
   // The recipient form for the corridor: name and IBAN, checked for format before it is saved.
   await card.getByLabel('Recipient’s full name').fill('Ada TEST');
   await card.getByLabel('Account number or IBAN').fill('DE89 3704 0044 0532 0130 00');
@@ -112,7 +149,9 @@ test(`${J} #1 opens global send and picks the corridor: its limits show, and a c
   });
 });
 
-test(`${J} #2 reads the quote: rate, fee, receive amount and valid-until from the provider's answer`, async ({ page }) => {
+test(`${J} #2 reads the quote: rate, fee, receive amount and valid-until from the provider's answer, and SWIFT charge handling`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   await signIn(page);
   const card = await toGermany(page);
@@ -131,6 +170,27 @@ test(`${J} #2 reads the quote: rate, fee, receive amount and valid-until from th
   await expect(cell('They receive')).toHaveText('80 EUR');
   await expect(card.getByText(/^Valid until \d{4}-\d{2}-\d{2}T/)).toBeVisible();
   await expect(card.getByTestId('global-stand-in')).toContainText('TEST');
+  // SEPA is not SWIFT: no SWIFT charge line.
+  await expect(card.getByTestId('global-swift-charges')).toHaveCount(0);
+  // A SWIFT corridor: another TEST rate (4), so the figures follow the provider's answer per currency, and the charge
+  // handling it gives for the corridor (SHA, shared) is shown with the quote.
+  const us = await toUs(page);
+  await us.getByLabel('You send').fill('5');
+  await us.getByRole('button', { name: 'Get a quote' }).click();
+  const usQuote = us.getByTestId('global-quote');
+  const usCell = (term) =>
+    usQuote
+      .locator('div')
+      .filter({ has: page.getByText(term, { exact: true }) })
+      .locator('dd');
+  await expect(usCell('Exchange rate')).toHaveText('4', { timeout: 30_000 });
+  await expect(usCell('Fee')).toHaveText('0 USDT');
+  await expect(usCell('They receive')).toHaveText('20 USD');
+  await expect(us.getByTestId('global-swift-charges').locator('dd')).toHaveText(
+    'Shared (SHA): you pay the sending charge, and the banks along the way and the receiving bank may take theirs from what arrives.',
+  );
+  // The USD lock is the provider's own 20 seconds, not the 300 of the other currencies.
+  await expect(us.getByTestId('global-lock')).toHaveText(/^Rate locked for 0:[012]\d\. Confirm inside it/);
 });
 
 test(`${J} #3 locks the rate and confirms: the send is paid at exactly the locked quote, once`, async ({ page }) => {
@@ -159,8 +219,43 @@ test(`${J} #3 locks the rate and confirms: the send is paid at exactly the locke
   expect(receipt).toContain('Sent: 40 USDT');
   expect(receipt).toContain('They receive: 80 EUR');
   expect(receipt).toContain('Rate: 2');
-  // Exactly the amount left, once.
+  // Exactly the amount left, once: one send, converted once at the lock.
   expect(toUnits(await usdt())).toBe(toUnits(before) - toUnits('40'));
+  await expect(card.getByTestId('global-history').locator('li', { hasText: '40 USDT to EUR' })).toHaveCount(1);
+});
+
+test(`${J} #3 a lock that ran out is refused by the service itself, nothing leaves, and only a new quote goes on`, async ({ page }) => {
+  test.setTimeout(300_000);
+  await signIn(page);
+  const before = await usdt();
+  const card = await toUs(page);
+  await card.getByLabel('You send').fill('5');
+  await card.getByRole('button', { name: 'Get a quote' }).click();
+  await expect(card.getByTestId('global-lock')).toContainText('Rate locked for', { timeout: 30_000 });
+  // This browser's clock stops here, so the screen keeps showing the lock as live and lets the send go to the service; the
+  // service keeps its own time, and its 20-second TEST lock for USD runs out in real time meanwhile.
+  await page.clock.setFixedTime(new Date(await page.evaluate(() => Date.now())));
+  await new Promise((resolve) => setTimeout(resolve, 25_000));
+  await expect(card.getByTestId('global-lock')).toContainText('Rate locked for');
+  await card.getByRole('button', { name: 'Review and send' }).click();
+  const confirm = card.getByTestId('global-confirm');
+  await confirm.getByLabel('Authenticator code').fill(await code());
+  await confirm.getByRole('button', { name: 'Confirm with a code' }).click();
+  // The service's refusal, in its words for an expired lock (the screen's own check words it differently).
+  await expect(card.getByTestId('global-failure')).toHaveText('That price has expired Get a fresh price and confirm again.', {
+    timeout: 30_000,
+  });
+  await expect(card.getByTestId('global-sent')).toHaveCount(0);
+  // The refused lock is dropped, the send is kept refused, and nothing left the balance.
+  await expect(card.getByTestId('global-lock')).toHaveCount(0);
+  const row = card.getByTestId('global-history').locator('li[data-status="failed"]', { hasText: '5 USDT to USD' });
+  await expect(row).toContainText('It was not sent and nothing remains taken from your balance.', { timeout: 30_000 });
+  expect(toUnits(await usdt())).toBe(toUnits(before));
+  // A new quote is a new lock, and the send can go on from there.
+  await card.getByRole('button', { name: 'Get a quote' }).click();
+  await expect(card.getByTestId('global-lock')).toContainText('Rate locked for', { timeout: 30_000 });
+  await card.getByRole('button', { name: 'Review and send' }).click();
+  await expect(card.getByTestId('global-confirm')).toBeVisible();
 });
 
 test(`${J} #3 after the lock runs out, the quote must be taken again before anything is sent`, async ({ page }) => {
@@ -185,7 +280,9 @@ test(`${J} #3 after the lock runs out, the quote must be taken again before anyt
   await expect(card.getByTestId('global-confirm')).toBeVisible();
 });
 
-test(`${J} #4 with no partner for the destination, pressing send names it, nothing leaves, and the send is kept`, async ({ page }) => {
+test(`${J} #4 with no partner for the destination, pressing send names rail.bank, nothing leaves, and the send is kept`, async ({
+  page,
+}) => {
   test.setTimeout(300_000);
   await signIn(page);
   const before = await usdt();
@@ -213,11 +310,13 @@ test(`${J} #4 with no partner for the destination, pressing send names it, nothi
   await confirm.getByLabel('Authenticator code').fill(await code());
   await confirm.getByRole('button', { name: 'Confirm with a code' }).click();
   await expect(card.getByTestId('global-failure')).toContainText('No payout partner for this destination', { timeout: 30_000 });
+  // The notice names the outside piece that is missing: the banking partner, rail.bank.
+  await expect(card.getByTestId('global-failure')).toContainText('Needs: rail.bank', { timeout: 30_000 });
   await expect(card.getByTestId('global-sent')).toHaveCount(0);
   // The intent row is kept, refused with nothing taken.
   const row = card.getByTestId('global-history').locator('li[data-status="failed"]', { hasText: '41 USDT to EUR' });
   await expect(row).toContainText('41 USDT to EUR', { timeout: 30_000 });
-  await expect(row).toContainText('It was not sent and nothing remains taken from your balance.');
+  await expect(row).toContainText('It was not sent and nothing remains taken from your balance. Needs: rail.bank');
   expect(toUnits(await usdt())).toBe(toUnits(before));
 });
 

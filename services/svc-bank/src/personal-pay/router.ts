@@ -317,6 +317,8 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
               minAmount: z.string().nullable(),
               maxAmount: z.string().nullable(),
               cutOffTime: z.string().nullable(),
+              /** On a SWIFT corridor, who bears the banks' charges as the partner answers it (SHA, OUR, BEN); null when it gave none. */
+              swiftCharges: z.enum(['SHA', 'OUR', 'BEN']).nullable(),
               /** The delivery methods a payout partner pays out on; a send on any other is refused before anything is posted. */
               payoutMethods: z.array(z.string()),
             }),

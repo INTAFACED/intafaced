@@ -57,7 +57,16 @@ export interface Corridor {
   readonly minAmount: string | null;
   readonly maxAmount: string | null;
   readonly cutOffTime: string | null;
+  /**
+   * On a corridor paid over SWIFT, who bears the banks' charges, as the partner answers it: `SHA` shared (the sender pays
+   * the sending bank, the banks along the way and the receiving bank may take theirs from what arrives), `OUR` the sender
+   * pays every bank, `BEN` the recipient pays every bank. Null or absent: the partner gave none.
+   */
+  readonly swiftCharges?: SwiftCharges | null;
 }
+
+export const SWIFT_CHARGES = ['SHA', 'OUR', 'BEN'] as const;
+export type SwiftCharges = (typeof SWIFT_CHARGES)[number];
 
 export interface CorridorPort {
   status(): PortStatus;
