@@ -4,13 +4,17 @@ import { forgetSession } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 
 // J-merchant-01 step 6 in the running app: notification preferences with their change history, and Support from the
-// portal. A preference change is a write, which needs a verified business, so the founder pair approves this one.
+// portal. A preference change is a write, which needs a verified business, so the founder pair approves this one. A
+// Viewer team member of that business holds notifications.read but not notifications.manage (svc-pay
+// merchant-ops/roles.ts), so every preference is greyed for them with the reason.
 const J = 'J-merchant-01';
 
 test(`${J} #6 the owner changes a notification preference, sees who changed it and when, and reaches Support from the portal`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(480_000);
+  const viewer = await businessReadyPerson(page, 'mview', '/pay/merchant');
+  await forgetSession(page);
   const owner = await businessReadyPerson(page, 'mset', '/pay/onboarding');
   const merchantId = await openBusiness(page, owner, 'TEST Alerts Ltd');
   await verifiedBusiness(page, owner, merchantId);
@@ -64,4 +68,46 @@ test(`${J} #6 the owner changes a notification preference, sees who changed it a
   await expect(page).toHaveURL(/\/support$/);
   await expect(page.getByLabel('Search help')).toBeVisible();
   expect(refused).toEqual([]);
+
+  // A person without the permission: the owner adds a Viewer by account ID (email invitations are off on this stack).
+  await page.goto('/pay/team');
+  expect(viewer.userId).toMatch(/^[0-9a-f-]{36}$/);
+  await page.getByRole('button', { name: 'Invite by account ID instead' }).click();
+  await page.getByLabel('Account ID *').fill(viewer.userId);
+  await page.getByRole('combobox', { name: /^Role \*/ }).selectOption({ label: 'Viewer' });
+  await page.getByRole('button', { name: 'Send invitation' }).click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
+  await expect(
+    page
+      .getByRole('row')
+      .filter({ hasText: 'Viewer' })
+      .filter({ hasText: /Invited/ }),
+  ).toHaveCount(1);
+  await forgetSession(page);
+  await signInWithCode(page, viewer, '/pay/team');
+  const accept = page.locator('li').filter({ hasText: 'Viewer' }).getByRole('button', { name: 'Accept' }).first();
+  await expect(async () => {
+    await page.reload();
+    await expect(accept).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 30_000 });
+  await accept.click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
+  await expect(accept).toHaveCount(0);
+
+  // The Viewer reads the same preferences, each greyed: its switch and Save cannot be used, and the row says why, naming
+  // the permission they lack.
+  await page.goto('/pay/settings/notifications');
+  const viewerRows = page.locator('li[data-testid="pp-pref"]');
+  await expect(viewerRows.first()).toBeVisible();
+  const count = await viewerRows.count();
+  expect(count, 'the preferences the Viewer reads').toBeGreaterThan(0);
+  for (let i = 0; i < count; i++) {
+    const pref = viewerRows.nth(i);
+    await expect(pref.getByRole('checkbox')).toBeDisabled();
+    await expect(pref.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await expect(pref).toContainText(/notifications\.manage|manage notification/i);
+  }
+  // The owner's saved change still shows, and not as the Viewer's own.
+  await expect(viewerRows.filter({ hasText: 'Export ready' }).getByRole('checkbox')).not.toBeChecked();
+  await expect(viewerRows.filter({ hasText: 'Export ready' })).not.toContainText('Last saved by You');
 });
