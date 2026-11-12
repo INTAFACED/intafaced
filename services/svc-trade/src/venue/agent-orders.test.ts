@@ -161,6 +161,8 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
       store: actions,
       stepUp,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      // Blank: its orders are limits, which the protection never bounds.
+      slippageCapBps: null,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });

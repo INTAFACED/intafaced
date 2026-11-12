@@ -18,6 +18,7 @@ import { sqlCasConsume, sqlGetApprovalForUpdate, type StoredApproval } from '../
 import { lockFounderControls } from './founder-control-lock.js';
 import type { KycRejectReasons } from '../kyc/cases.js';
 import { blankTierTerms } from './account-tiers.js';
+import { TRADING_CHECKS_REVIEWER } from '../kyc/trading-checks.js';
 import { assertRestrictedListReader, listRestrictedAccounts, type RestrictedAccountPage } from './restricted-accounts.js';
 import {
   identityAccountControlInputSchema,
@@ -1909,7 +1910,7 @@ export class FounderControls {
         }
         const [kyc] = await tx<
           Array<{ tier: 'none' | 'basic' | 'full' | 'institutional' }>
-        >`SELECT tier FROM kyc_records WHERE user_id = ${input.userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > ${checkedAt}) ORDER BY CASE tier WHEN 'institutional' THEN 3 WHEN 'full' THEN 2 WHEN 'basic' THEN 1 ELSE 0 END DESC LIMIT 1`;
+        >`SELECT tier FROM kyc_records WHERE user_id = ${input.userId} AND status = 'approved' AND reviewed_by IS DISTINCT FROM ${TRADING_CHECKS_REVIEWER} AND (expires_at IS NULL OR expires_at > ${checkedAt}) ORDER BY CASE tier WHEN 'institutional' THEN 3 WHEN 'full' THEN 2 WHEN 'basic' THEN 1 ELSE 0 END DESC LIMIT 1`;
         return currentAuthorityResultSchema.parse({
           ...common,
           status: 'eligible',

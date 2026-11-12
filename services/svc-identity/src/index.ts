@@ -161,6 +161,7 @@ import { installApiKeyProductExchange, requestProductAls } from './auth/auth-ser
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
 import { parseKycDocKey } from './kyc/document-crypto.js';
+import { TradingChecksDesk, parseSanctionsPersonsList } from './kyc/trading-checks.js';
 import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
@@ -469,6 +470,8 @@ auth.useSignUpPolicy({
   requestMax: env.IDENTITY_SIGNUP_REQUEST_MAX,
   requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
   closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
+  // The date of birth is kept sealed under the KYC document key for the trading checks; unset, it is not kept.
+  birthDateKey: parseKycDocKey(env.IDENTITY_KYC_DOC_KEY),
 });
 // Sign-in by a mailed code uses the same outbox and relay. Any blank number refuses every code sign-in the same way.
 auth.useLoginCodePolicy({
@@ -547,6 +550,13 @@ const kycProfile = new KycProfileDesk(sql, parseKycDocKey(env.IDENTITY_KYC_DOC_K
   uploadCaps: kycUploadCaps,
   vault: vault?.kycDocs,
   submit: (input) => auth.submitKyc(input),
+});
+// The trading checks (J-cex-spot-01 #3, OWNER 258 (4)): legal name, country and the sanctions screen; no ID document.
+const tradingChecks = new TradingChecksDesk(sql, {
+  key: parseKycDocKey(env.IDENTITY_KYC_DOC_KEY),
+  list: parseSanctionsPersonsList(env.IDENTITY_SANCTIONS_PERSONS_LIST, process.env.APP_ENV),
+  capabilities: kycCapabilityMap,
+  kycTier: (userId, tx) => auth.kycTier(userId, tx),
 });
 // Proof of address (I-kyc-compliance-11): the owner's rule and lists; the file goes to the vault under the same caps.
 const kycPoa = new KycPoaDesk(sql, {
@@ -720,6 +730,7 @@ export const appRouter = mergeRouters(
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
     kycCapabilityReasons,
     kycProfile,
+    tradingChecks,
     kycPoa,
     kycSelfie,
     social,

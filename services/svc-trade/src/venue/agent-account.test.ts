@@ -116,6 +116,8 @@ describe('the agent account on the TEST venue', () => {
       stepUp: su.check,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      // Blank: its one market order is on a perpetual, which the owner's price protection does not bound.
+      slippageCapBps: null,
       now: () => new Date(),
     });
     accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values, now: () => new Date() });
