@@ -452,6 +452,9 @@ test(`${J} #7 opens the safety education and the audit room: each step opens its
     ['Tokens', '/dex/tokens', () => page.getByRole('searchbox', { name: 'Search tokens' })],
     ['Audit room', '/chain/audit', () => page.getByRole('region', { name: 'Audits', exact: true })],
   ];
+  // One lesson per control, each with exactly one link: a lesson with no link, or with two, fails.
+  await expect(lessons.getByRole('listitem')).toHaveCount(CONTROLS.length);
+  for (const item of await lessons.getByRole('listitem').all()) await expect(item.getByRole('link')).toHaveCount(1);
   await expect(lessons.getByRole('link')).toHaveText(CONTROLS.map(([name]) => name));
   for (const [name, href] of CONTROLS) await expect(lessons.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
   for (const [name, href, control] of CONTROLS) {
