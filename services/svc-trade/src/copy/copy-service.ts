@@ -13,6 +13,7 @@
  * laws refuse at the door. Pause/stop/detach never call flatten.
  */
 
+import { listSettlements, reconcileSettlements, sqlSettlementOversight } from './settlement-oversight.js';
 import { NO_PAUSES, mirrorPausedReason, type PauseSnapshot } from './platform-pauses.js';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
@@ -953,6 +954,41 @@ export class CopyService {
     return {
       items: rows.map((row) => ({ leaderFillId: row.leaderFillId, reason: asCopySkipReason(row.code), at: row.at.toISOString() })),
     };
+  }
+
+  /** Finance's settlement oversight (CB-ops-02): the newest lead fee shares, each judged against the ledger and the venue. */
+  async opsSettlements() {
+    return listSettlements(this.settlementDeps(), this.now());
+  }
+
+  /** Reconcile one window (CB-ops-02). A blank window refuses. Read only. */
+  async opsReconcileSettlements(window: string | null | undefined) {
+    return reconcileSettlements(this.settlementDeps(), this.now(), window);
+  }
+
+  /** One follow's position accounting for finance (CB-copy-pro-share-01): its fee shares, judged, and its copied positions. */
+  async opsFollowAccounting(followId: string) {
+    const id = requireCopyFollowId(followId);
+    const follow = await this.store.getFollow(id);
+    if (!follow) throw new CopyError('Follow not found', 'trade.copy_not_following');
+    const [shares, positions] = await Promise.all([
+      listSettlements(this.settlementDeps(), this.now(), id),
+      this.readCopiedPositions(follow),
+    ]);
+    return {
+      followId: follow.followId,
+      leaderId: follow.leaderId,
+      followerId: follow.followerId,
+      createdAt: follow.createdAt.toISOString(),
+      feeShares: shares.rows,
+      positions: positions.map(copiedPositionWire),
+      asOf: shares.asOf,
+    };
+  }
+
+  private settlementDeps() {
+    if (!this.sql) throw new CopyError('Settlement oversight needs the copy tables', 'trade.copy_unavailable');
+    return sqlSettlementOversight(this.sql, this.ledger);
   }
 
   /** The caller's copied positions on one follow, newest first (CB-copy-09/10). */
