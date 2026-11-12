@@ -79,6 +79,7 @@ describe('quotas on Postgres (AL-limits-01)', () => {
   const app = createQuantRouter({
     wired: true,
     venueVaultSet: false,
+    paperFeeBps: '0',
     limits: { maxOps: 5_000, maxSource: 8_000 },
     strategies: createPostgresStrategyRepository(sql, SCHEMA, quota.gate),
     runs: createPostgresRunRepository(sql, SCHEMA, RUN_RESULT_MAX_BYTES, quota.gate),

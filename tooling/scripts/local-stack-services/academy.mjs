@@ -112,6 +112,10 @@ const reportsCentre = () => ({
   ...centreRetention(),
 });
 
+// LOCAL TEST custom role limit (a TEST owner value): 50 custom roles, room for the journey's one role per run on a kept
+// stack (J-academy-18 #6). `LOCAL_STACK_ACADEMY_ROLE_LIMIT=off` leaves it blank, so the "limit not set" refusal can be seen.
+const roleLimit = () => (process.env.LOCAL_STACK_ACADEMY_ROLE_LIMIT === 'off' ? {} : { ACADEMY_CUSTOM_ROLE_LIMIT: '50' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -138,5 +142,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...verifyRate(),
     ...analyticsPages(),
     ...reportsCentre(),
+    ...roleLimit(),
   }),
 });

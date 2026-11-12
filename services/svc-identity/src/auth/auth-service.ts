@@ -23,6 +23,7 @@ import {
 } from '../kyc/capabilities.js';
 import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/identity-kyc-capabilities';
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
+import { TRADING_CAPABILITIES, TRADING_CHECKS_REVIEWER, tradingOnly } from '../kyc/trading-checks.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
 import type { SelfFreezeState } from '@intafaced/contracts/identity';
@@ -1817,10 +1818,20 @@ export class AuthService {
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
       this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
     });
-    const tier = await this.kycTier(userId);
+    const { tier, tradingCleared } = await this.sessionTier(userId);
     const { scopes, staff } = await this.sessionGrant(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes, tier, mfa: options.mfa, familyId, trustedDeviceId: options.trustedDeviceId ?? null, ...staff },
+      {
+        userId,
+        sessionId,
+        scopes,
+        tier,
+        tradingCleared,
+        mfa: options.mfa,
+        familyId,
+        trustedDeviceId: options.trustedDeviceId ?? null,
+        ...staff,
+      },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -1946,7 +1957,7 @@ export class AuthService {
       >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id, active_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, ${session.trusted_device_id}, ${options.idle === true ? session.active_since : null}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
-      const tier = await this.kycTier(session.user_id, tx);
+      const { tier, tradingCleared } = await this.sessionTier(session.user_id, tx);
       // Pay was resolved before the row lock. Do not call svc-pay again inside this transaction.
       const payScopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
       const decided = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx, {});
@@ -1958,6 +1969,7 @@ export class AuthService {
           sessionId,
           scopes,
           tier,
+          tradingCleared,
           mfa: session.mfa,
           familyId: session.family_id,
           trustedDeviceId: session.trusted_device_id,
@@ -2061,7 +2073,7 @@ export class AuthService {
     `;
     const successor = rows[0];
     if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
-    const tier = await this.kycTier(successor.user_id, tx);
+    const { tier, tradingCleared } = await this.sessionTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       {
@@ -2069,6 +2081,7 @@ export class AuthService {
         sessionId: successor.id,
         scopes,
         tier,
+        tradingCleared,
         mfa: successor.mfa,
         familyId: successor.family_id,
         trustedDeviceId: successor.trusted_device_id,
@@ -2144,7 +2157,7 @@ export class AuthService {
       await tx`UPDATE sessions SET revoked = true WHERE id = ${successor.id}`;
       return 'idle';
     }
-    const tier = await this.kycTier(successor.user_id, tx);
+    const { tier, tradingCleared } = await this.sessionTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       {
@@ -2152,6 +2165,7 @@ export class AuthService {
         sessionId: successor.id,
         scopes,
         tier,
+        tradingCleared,
         mfa: successor.mfa,
         familyId: successor.family_id,
         trustedDeviceId: successor.trusted_device_id,
@@ -2933,13 +2947,14 @@ export class AuthService {
       const bound = await this.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sub_accounts WHERE id = ${verified.accountId}`;
       if (!bound[0] || bound[0].revoked) throw new AuthError('API key is revoked', 'auth.api_key_revoked');
     }
-    const tier = await this.kycTier(verified.userId);
+    const { tier, tradingCleared } = await this.sessionTier(verified.userId);
     const { token: accessToken, expiresAt } = await issueAccessToken(
       {
         userId: verified.userId,
         sessionId: verified.keyId,
         scopes: verified.scopes,
         tier,
+        tradingCleared,
         mfa: false,
         apiKeyId: verified.keyId,
         keyEnv: verified.mode,
@@ -3028,16 +3043,34 @@ export class AuthService {
     }
   }
 
-  async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {
-    const rows = await sql<
-      Array<{ tier: 'basic' | 'full' | 'institutional' }>
-    >`SELECT tier FROM kyc_records WHERE user_id = ${userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > now())`;
-    const order = { basic: 1, full: 2, institutional: 3 } as const;
-    let best: 'none' | 'basic' | 'full' | 'institutional' = 'none';
+  /**
+   * What a token carries: the highest level an operator approved (a trading-checks clear is never one), and whether the
+   * trading checks cleared the person for trading (`trd`, read only by trading gates through `tradeTier`). So a trading
+   * clear opens trading and never the custody, transfer or withdrawal gates that read `tier` (OWNER 258 (4)).
+   */
+  async sessionTier(
+    userId: string,
+    sql: Sql = this.sql,
+  ): Promise<{ tier: 'none' | 'basic' | 'full' | 'institutional'; tradingCleared: boolean }> {
+    const rows = await sql<Array<{ tier: 'basic' | 'full' | 'institutional'; reviewed_by: string | null }>>`
+      SELECT tier, reviewed_by FROM kyc_records
+      WHERE user_id = ${userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > now())`;
+    const order = { none: 0, basic: 1, full: 2, institutional: 3 } as const;
+    let tier: 'none' | 'basic' | 'full' | 'institutional' = 'none';
+    let tradingCleared = false;
     for (const row of rows) {
-      if (best === 'none' || order[row.tier] > order[best as 'basic' | 'full' | 'institutional']) best = row.tier;
+      if (row.reviewed_by === TRADING_CHECKS_REVIEWER) tradingCleared = true;
+      else if (order[row.tier] > order[tier]) tier = row.tier;
     }
-    return best;
+    return { tier, tradingCleared };
+  }
+
+  /**
+   * The highest level an operator approved, unlapsed. A trading-checks clear is never one: it opens trading alone, read
+   * through the token's `trd` (`sessionTier`), so every gate and lookup that reads the level sees none (OWNER 258 (4)).
+   */
+  async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {
+    return (await this.sessionTier(userId, sql)).tier;
   }
 
   async accountState(userId: string): Promise<AccountState | null> {
@@ -3279,9 +3312,12 @@ export class AuthService {
       const existing = await tx<
         KycRow[]
       >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE user_id = ${input.userId} AND ((status = 'approved' AND (expires_at IS NULL OR expires_at > now())) OR (status = 'pending' AND tier = ${input.tier})) ORDER BY created_at DESC`;
-      const approved = existing.find((r) => r.status === 'approved' && TIER_ORDER[r.tier] >= TIER_ORDER[input.tier]);
+      // A trading-checks clear is never an approved level (OWNER 258 (4)): it never answers a request for the bank's own
+      // verification, and never counts as the level held.
+      const levels = existing.filter((r) => r.status !== 'approved' || r.reviewed_by !== TRADING_CHECKS_REVIEWER);
+      const approved = levels.find((r) => r.status === 'approved' && TIER_ORDER[r.tier] >= TIER_ORDER[input.tier]);
       if (approved) return toKycRecord(approved);
-      const pending = existing.find((r) => r.status === 'pending');
+      const pending = levels.find((r) => r.status === 'pending');
       if (pending) return toKycRecord(pending);
       // Inactive is a compliance decision: a request whose level would grant it again is refused (I-kyc-compliance-07).
       await assertRequestable(tx, this.kycCapabilities, input.userId, input.tier);
@@ -3293,7 +3329,7 @@ export class AuthService {
       const record = toKycRecord(inserted[0]!);
       // The case opens with the record, in this transaction (I-kyc-compliance-01).
       const caseId = await openKycCase(tx, record);
-      const heldTier = existing
+      const heldTier = levels
         .filter((r) => r.status === 'approved')
         .reduce<KycTier>((best, r) => (TIER_ORDER[r.tier] > TIER_ORDER[best] ? r.tier : best), 'none');
       await markRequested(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, heldTier, caseId, at: record.createdAt });
@@ -3327,7 +3363,9 @@ export class AuthService {
   async listKycCapabilities(userId: string, reasons: KycRejectReasons): Promise<KycCapabilitiesOutput> {
     const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
-    return listCapabilities(this.sql, this.kycCapabilities, userId, await this.kycTier(userId), reasons);
+    // A trading-checks clear holds trading alone, never the custody or transfer the level `basic` maps to.
+    const { tier, tradingCleared } = await this.sessionTier(userId);
+    return listCapabilities(this.sql, this.kycCapabilities, userId, tier, reasons, tradingCleared ? TRADING_CAPABILITIES : []);
   }
 
   /** Refuses (`kyc.capability_state`) what the decision would refuse, before the four-eyes approval is spent. */
@@ -3467,6 +3505,11 @@ export class AuthService {
       await releaseOnReject(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, caseId, by: input.reviewerId, at });
       return record;
     });
+  }
+
+  /** True when the level held was cleared by the trading checks alone (J-cex-spot-01 #3): it reads "for trading". */
+  async kycTradingOnly(userId: string): Promise<boolean> {
+    return tradingOnly(this.sql, userId);
   }
 
   private async announceKycApproval(record: { userId: string; tier: KycTier; jurisdiction: string }): Promise<void> {
@@ -3645,10 +3688,10 @@ export class AuthService {
     const pay = await this.scopesForNewAccessToken(input.userId);
     const scopes = [...pay];
     for (const scope of STEP_UP_SCOPES) if (!scopes.includes(scope)) scopes.push(scope);
-    const tier = await this.kycTier(input.userId);
+    const { tier, tradingCleared } = await this.sessionTier(input.userId);
     const claims = await this.sessionClaimsOf(input.userId, input.sessionId);
     const { token, expiresAt } = await issueAccessToken(
-      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true, ...claims },
+      { userId: input.userId, sessionId: input.sessionId, scopes, tier, tradingCleared, mfa: true, ...claims },
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, STEP_UP_TTL_SECONDS) },
     );
     return { accessToken: token, expiresAt, scopes };
@@ -3681,13 +3724,14 @@ export class AuthService {
       INSERT INTO pay_step_up_mints (audit_id, user_id, session_id, merchant_id, scopes, factor)
       VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.merchantId}, ${[...requested]}, ${factor})
     `;
-    const tier = await this.kycTier(input.userId);
+    const { tier, tradingCleared } = await this.sessionTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       {
         userId: input.userId,
         sessionId: input.sessionId,
         scopes,
         tier,
+        tradingCleared,
         mfa: true,
         ...claims,
         stepUpScopes: requested,
@@ -4019,13 +4063,14 @@ export class AuthService {
     }
     if (sub.revoked) throw new AuthError('Sub-account is revoked', 'auth.sub_account_revoked');
     if (Number(sub.frozen) !== 0) throw new AuthError('Sub-account is frozen', 'auth.sub_account_denied');
-    const tier = await this.kycTier(input.userId);
+    const { tier, tradingCleared } = await this.sessionTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       {
         userId: input.userId,
         sessionId: input.sessionId,
         scopes: this.defaultScopes(),
         tier,
+        tradingCleared,
         mfa: session.mfa,
         familyId: session.family_id,
         trustedDeviceId: session.trusted_device_id,

@@ -82,11 +82,12 @@ export type AgentAccountCode =
   | 'agents.account_close_move_pending'
   | 'agents.account_request_invalid'
   | 'agents.account_venue_no_sub_accounts'
-  // The person's own per-order, leverage and daily-loss caps (#16 #17).
+  // The person's own per-order, leverage and daily-loss caps (#16 #17 #18).
   | 'agents.limit_ceiling_unset'
   | 'agents.limit_above_ceiling'
   | 'agents.order_size_cap_exceeded'
   | 'agents.leverage_cap_exceeded'
+  | 'agents.daily_loss_cap_reached'
   // The assistant's connection and orders (agent-orders.ts, J-agents-21 #6 #7 #10).
   | 'agents.key_unknown'
   | 'agents.key_revoked'

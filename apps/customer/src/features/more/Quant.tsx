@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
+import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Read, Select, TextArea, useAction } from './common';
 import { preservePaperHref } from './trade-context';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
@@ -35,6 +35,7 @@ import type { QuantSignalRules } from '@intafaced/contracts/quant-algo';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
 import { QuantRooms } from '../quant/QuantRooms';
+import { PaperOrders } from '../quant/PaperOrders';
 import './quant-analysis.css';
 /** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
@@ -55,9 +56,62 @@ const runSchema = stamp.extend({
     z.object({ side: z.enum(['buy', 'sell']), symbol: z.string(), qty: decimalSchema, price: decimalSchema, venue: z.literal('internal') }),
   ),
   positions: z.array(z.object({ symbol: z.string(), qty: signedDecimalSchema })),
+  events: z.array(
+    z.object({
+      seq: z.number().int(),
+      order: z.string(),
+      kind: z.enum(['new', 'accepted', 'filled', 'rejected', 'cancel_pending', 'cancelled']),
+      type: z.enum(['market', 'limit']),
+      side: z.enum(['buy', 'sell']),
+      symbol: z.string(),
+      qty: z.string(),
+      tif: z.enum(['gtc', 'ioc']),
+      market: z.string(),
+      limit: z.string().optional(),
+      price: z.string().optional(),
+      reason: z.string().optional(),
+      notional: z.string().optional(),
+      fee: z.string().optional(),
+      cash: z.string().optional(),
+      position: z.string().optional(),
+      reserved: z.string().optional(),
+    }),
+  ),
+  legs: z.array(
+    z.object({
+      leg: z.enum(['close', 'open']),
+      side: z.enum(['buy', 'sell']),
+      symbol: z.string(),
+      qty: z.string(),
+      checked: z.literal(true),
+      outcome: z.enum(['filled', 'refused']),
+      order: z.string(),
+      reason: z.string().nullable(),
+    }),
+  ),
+  ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
   venue: z.literal('internal'),
   venueVault: z.enum(['unset', 'set']),
 });
+/** A result table that carries its own name, so the fills and positions read as named tables. */
+function NamedTable({ headers, label, children }: { headers: readonly ReactNode[]; label: string; children: ReactNode }) {
+  return (
+    <div className="table-scroll" tabIndex={0}>
+      <table aria-label={label}>
+        <thead>
+          <tr>
+            {headers.map((head, index) => (
+              <th key={index} scope="col">
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
 /** The plain-English name of a cost model; an unknown model from the service is shown as received. */
 function modelLabel(t: (key: (typeof MODEL_COPY)[keyof typeof MODEL_COPY]) => string, kind: string) {
   return kind in MODEL_COPY ? t(MODEL_COPY[kind as keyof typeof MODEL_COPY]) : kind;
@@ -270,7 +324,12 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <p lang="und">{result.claimLabel}</p>
                 <Details
                   items={[
-                    [copyText('quant.cash'), copyText('quant.simulated.units', { amount: displayAmount(result.cash) })],
+                    [
+                      copyText('quant.cash'),
+                      <span data-testid="quant-paper-cash" data-value={result.cash}>
+                        {copyText('quant.simulated.units', { amount: displayAmount(result.cash) })}
+                      </span>,
+                    ],
                     [copyText('quant.p.l'), copyText('quant.simulated.units', { amount: displayAmount(result.pnl) })],
                     [copyText('quant.venue'), <span lang="zxx">{result.venue}</span>],
                   ]}
@@ -278,7 +337,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <pre data-testid="more-body" className="more-body" lang="und">
                   {result.logs.join('\n')}
                 </pre>
-                <DataTable
+                <NamedTable
                   headers={[copyText('quant.side'), copyText('quant.symbol'), copyText('quant.quantity'), copyText('quant.price')]}
                   label={copyText('quant.simulated.fills')}
                 >
@@ -290,9 +349,9 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                       <td lang="zxx">{f.price}</td>
                     </tr>
                   ))}
-                </DataTable>
+                </NamedTable>
                 {result.positions.length > 0 && (
-                  <DataTable
+                  <NamedTable
                     headers={[copyText('quant.position'), copyText('quant.quantity')]}
                     label={copyText('quant.simulated.positions')}
                   >
@@ -302,8 +361,9 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                         <td lang="zxx">{p.qty}</td>
                       </tr>
                     ))}
-                  </DataTable>
+                  </NamedTable>
                 )}
+                <PaperOrders events={result.events} legs={result.legs} ticks={result.ticks} />
               </>
             ) : (
               <p className="muted">

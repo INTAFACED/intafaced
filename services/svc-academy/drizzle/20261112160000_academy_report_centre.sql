@@ -1,5 +1,5 @@
 -- svc-academy · learning analytics and the reports centre (AC-analytics-01, AC-analytics-02; J-academy-16)
--- Reversal: 20261112150000_academy_report_centre.down.sql
+-- Reversal: 20261112160000_academy_report_centre.down.sql
 --
 -- metrics_recording holds the first moment the service recorded learning activity: when this migration ran, or the
 -- oldest lesson read, completion or grant already stored if that is earlier. The daily activity table says "not

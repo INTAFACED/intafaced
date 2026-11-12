@@ -63,6 +63,7 @@ export interface SettingsEnv {
   readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
   readonly ACADEMY_POST_MAX_CHARS?: number | undefined;
+  readonly ACADEMY_CUSTOM_ROLE_LIMIT?: number | undefined;
   readonly ACADEMY_POST_IMAGE_MAX_BYTES?: number | undefined;
   readonly ACADEMY_MESSAGE_MAX_CHARS?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
@@ -327,6 +328,14 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.programme_limit_unset',
+    },
+    {
+      // Blank: creating a custom role refuses; the built-in roles are not affected.
+      key: 'custom_role_limit',
+      state: state(positiveInt(env.ACADEMY_CUSTOM_ROLE_LIMIT)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.role_limit_unset',
     },
     {
       // Blank: every discussion post and reply refuses.
