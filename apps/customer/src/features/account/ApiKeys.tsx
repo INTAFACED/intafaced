@@ -5,7 +5,7 @@ import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
-import { changeRefusal, readAgentApprovals, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
+import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
 import { OrgKeys } from './OrgKeys';
 import './security.css';
 import './api-keys.css';
@@ -119,53 +119,6 @@ export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClos
  * service returns. A revoked key says why. Each live key can be revoked here, and its name opens its detail page.
  * It never holds or shows a secret.
  */
-/**
- * The agent keys' held attempts (DV-keys-05, J-developer-15 #6): a payout or a refund an agent key tried did not run and
- * waits here for the owner. Each row says nothing was sent.
- */
-function AgentApprovals({ at }: { at: (iso: string) => ReactNode }) {
-  const { t } = copy.useCopy();
-  const { api, userId } = useSession();
-  const { resource, reload } = useResource((signal) => readAgentApprovals(api, signal), `agent-key-approvals:${userId}`);
-  return (
-    <section data-testid="security__card" className="api-keys__approvals security__card" aria-labelledby="api-keys-approvals">
-      <h2 id="api-keys-approvals">{t('approvalsTitle')}</h2>
-      <p className="muted">{t('approvalsIntro')}</p>
-      {resource.status === 'loading' && <Loading label={t('approvalsLoading')} />}
-      {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {resource.status === 'ready' &&
-        (resource.data.approvals.length === 0 ? (
-          <p role="status">{t('approvalsEmpty')}</p>
-        ) : (
-          <div className="api-keys__table-wrap">
-            <table data-testid="api-keys__approvals" className="api-keys__table">
-              <thead>
-                <tr>
-                  <th scope="col">{t('colApprovalKey')}</th>
-                  <th scope="col">{t('colApprovalAction')}</th>
-                  <th scope="col">{t('colApprovalAsked')}</th>
-                  <th scope="col">{t('colApprovalState')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resource.data.approvals.map((row) => (
-                  <tr key={row.id} data-approval-id={row.id}>
-                    <th scope="row">
-                      <bdi lang="und">{row.keyName}</bdi>
-                    </th>
-                    <td>{t(`approvalAction.${row.action}`)}</td>
-                    <td>{at(row.createdAt)}</td>
-                    <td>{t('approvalWaiting')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-    </section>
-  );
-}
-
 export function ApiKeys() {
   const { t, languageFor, requestedLocale } = copy.useCopy();
   const { api, userId } = useSession();
@@ -330,7 +283,6 @@ export function ApiKeys() {
         </>
       )}
       <OrgKeys at={at} />
-      <AgentApprovals at={at} />
       <ConnectedApps />
       {sheet && <RevokeSheet sheet={sheet} onClose={() => !sheet.busy && setSheet(null)} onSubmit={(reason) => void revoke(reason)} />}
     </div>
