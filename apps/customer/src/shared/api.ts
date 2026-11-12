@@ -161,8 +161,11 @@ export function createApiClient(
     token?: () => string | undefined;
     canWrite?: () => boolean;
     fetch?: typeof fetch;
-    /** `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore). */
-    credentials?: 'same-origin' | 'include';
+    /**
+     * `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore), or must
+     * send nothing that names the person (`omit`: the address tracker's public reads carry no cookie).
+     */
+    credentials?: 'same-origin' | 'include' | 'omit';
     /** Per-request timeout. Default 15 s; session refresh uses a shorter one (see session-restore.ts). */
     timeoutMs?: number;
     onUnauthorized?: (requestToken: string | undefined) => void;

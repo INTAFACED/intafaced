@@ -66,6 +66,7 @@ import {
   protocolReplacementOutputSchema,
   type ProtocolReplacementInput,
 } from '@intafaced/contracts/protocol-wallet-tx';
+import { protocolPortfolioOutputSchema } from '@intafaced/contracts/protocol-portfolio';
 import type { ApiClient } from '../../shared/api';
 
 /**
@@ -193,6 +194,9 @@ export function createProtocolApi(api: ApiClient) {
     /** Every pool the network's factory lists and the tokens they trade, read from the chain. */
     ammPairs: (signal?: AbortSignal) => api.query('protocol', 'amm.pairs', undefined, protocolSwapPairsOutputSchema, { signal }),
     /** Every listed token's USD price from the pools at one block, or why it has none. */
+    /** One address's holdings, value, profit and loss and transfers, read from the chain (D-portfolio-wallet-04). */
+    portfolio: (address: string, signal?: AbortSignal) =>
+      api.query('protocol', 'portfolio.read', { address }, protocolPortfolioOutputSchema, { signal }),
     tokenPrices: (signal?: AbortSignal) => api.query('protocol', 'amm.prices', undefined, protocolTokenPricesOutputSchema, { signal }),
     /** Every token in the factory's pools with its price, growth and volume for one window, read at one block. */
     tokensList: (window: TokenWindowId, signal?: AbortSignal) =>
