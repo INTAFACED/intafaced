@@ -299,7 +299,7 @@ const messages = {
   'No markets are open for copying right now.': 'No markets are open for copying right now.',
   'No new slices are placed while it is paused. Slices already placed stay as they are.':
     'No new slices are placed while it is paused. Slices already placed stay as they are.',
-  'No one copies you yet': 'No one copies you yet',
+  'No one copies you': 'No one copies you',
   'No paper strategies': 'No paper strategies',
   'No price available right now': 'No price available right now',
   'No recurring-order service exists. Use Convert for a single trade.':

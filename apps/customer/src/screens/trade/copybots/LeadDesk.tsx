@@ -197,7 +197,7 @@ export function LeadDesk({ api, tab: requested, setTab }: { api: ApiClient; tab:
       id: 'state',
       header: t('State'),
       cell: (r) => (
-        <Badge tone={r.state === 'ACTIVE' ? 'positive' : 'neutral'}>
+        <Badge tone={r.state === 'ACTIVE' ? 'up' : 'neutral'}>
           {r.removedAt ? t('Removed') : t((STATE_WORD[r.state] ?? r.state) as 'Active')}
         </Badge>
       ),
@@ -271,7 +271,7 @@ export function LeadDesk({ api, tab: requested, setTab }: { api: ApiClient; tab:
             emptyState={
               <EmptyState
                 size="inline"
-                title={t('No one copies you yet')}
+                title={t('No one copies you')}
                 reason={t('When someone follows you, they appear here with what they set aside and their open copied positions.')}
               />
             }

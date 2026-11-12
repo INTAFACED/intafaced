@@ -249,7 +249,7 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'The waiting period after a rejection is still running. Nothing was sent.',
   },
   'trade.copy_lead_not_leading': {
-    title: 'You don’t lead yet',
+    title: 'You aren’t a listed lead',
     body: 'This desk is for listed leaders. Apply to lead first; founders decide each application.',
   },
   'trade.copy_lead_not_listed': {
@@ -272,7 +272,7 @@ const COPY: Readonly<Record<string, Words>> = {
   },
   'trade.copy_removal_limit_unset': {
     title: 'Removing copiers is closed',
-    body: 'The daily limit on removing copiers hasn’t been set by the platform, so no one can be removed yet.',
+    body: 'The daily limit on removing copiers hasn’t been set by the platform, so no one can be removed.',
   },
   'trade.copy_removal_limit_reached': {
     title: 'You’ve reached today’s removal limit',
