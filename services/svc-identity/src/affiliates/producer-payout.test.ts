@@ -71,6 +71,7 @@ async function app(
     ledger?: MemoryLedger | undefined;
     frozen?: ReadonlySet<string>;
     seed?: boolean;
+    depth?: number | undefined;
   } = {},
 ) {
   const store = new MemoryAccrualStore();
@@ -82,6 +83,7 @@ async function app(
     freeze: { frozenIds: async () => opts.frozen ?? new Set<string>() },
     accruals: store,
     accrualTierLaw: opts.law,
+    programmeDepth: 'depth' in opts ? opts.depth : 5,
     ledger,
   });
   await f.ready();
@@ -115,12 +117,14 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
       freeze: { frozenIds: async () => new Set<string>() },
       accruals: store,
       accrualTierLaw: PUBLISHED,
+      programmeDepth: 5,
     });
     registerAffiliateProducerPayout(f, {
       internalSecret: SECRET,
       freeze: { frozenIds: async () => new Set<string>() },
       accruals: store,
       accrualTierLaw: PUBLISHED,
+      programmeDepth: 5,
       ledger: undefined,
       installRawBody: false,
     });
@@ -158,6 +162,16 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
     await f.close();
   });
 
+  it('412 blank programme depth (RC-campaigns-07) — nothing posted, even with published rates', async () => {
+    const { f, ledger } = await app({ law: PUBLISHED, depth: undefined });
+    const journalBefore = ledger!.journal().map((tx) => tx.idempotencyKey);
+    const res = await f.inject(post({ feeEventId: FEE }));
+    expect(res.statusCode).toBe(412);
+    expect(res.json()).toMatchObject({ code: 'affiliate.programme_depth_unset' });
+    expect(ledger!.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
+    await f.close();
+  });
+
   it('412 unpublished hop — nothing posted', async () => {
     const law: AccrualTierLaw = { published: true, tiers: [{ hop: 1, rate: '0.07' }] };
     const { f, ledger } = await app({ law });
@@ -189,6 +203,7 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
       freeze: { frozenIds: async () => new Set<string>() },
       accruals: store,
       accrualTierLaw: PUBLISHED,
+      programmeDepth: 5,
       ledger,
     });
     await f.ready();

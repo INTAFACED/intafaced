@@ -330,6 +330,21 @@
       "service": "identity",
       "value": "{\"tiers\":[{\"id\":\"base\",\"burst\":60,\"refillPerMinute\":1200},{\"id\":\"sandbox\",\"burst\":30,\"refillPerMinute\":600}],\"grantCeilingPerMinute\":6000}",
       "note": "TEST: live keys spend from a bucket of 60 that refills 1,200 a minute, sandbox keys 30 and 600, and a reviewer may grant one key up to 6,000 a minute, so J-developer-06 can spend a burst, see the 429 and have a request granted in part. `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a restart leaves it blank, so the not-set banner and refusals can be seen (J-developer-06 #1 #5)."
+    },
+    "IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES": {
+      "service": "identity",
+      "value": "2",
+      "note": "TEST: two qualified invitees (introduced directly, verification approved) let a person apply as a partner (J-campaigns-07 #1)."
+    },
+    "IDENTITY_PARTNER_REAPPLY_DAYS": {
+      "service": "identity",
+      "value": "30",
+      "note": "TEST: a rejected partner applicant may apply again thirty days after the decision (J-campaigns-07 #3)."
+    },
+    "IDENTITY_PARTNER_PROGRAMME_DEPTH": {
+      "service": "identity",
+      "value": "2",
+      "note": "TEST: the partner programme reaches two levels of a sub-tree, so a third-level invitee is counted and not shown (J-campaigns-07 #4)."
     }
   }
 }
