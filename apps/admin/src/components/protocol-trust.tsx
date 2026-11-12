@@ -149,7 +149,7 @@ function ScamReports({ read, reload }: { read: TrustRead['reports']; reload: () 
       {asking && (
         <form
           className="dk-stack"
-          aria-label="Publish a label"
+          aria-label="Second review request"
           onSubmit={(e) => {
             e.preventDefault();
             void send({ op: 'ask', reportId: asking.id, kind, reason });
