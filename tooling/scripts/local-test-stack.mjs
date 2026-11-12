@@ -42,7 +42,6 @@
  *   pnpm local:stack customer-dist --clear   go back to this checkout's own build
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
- *   node tooling/scripts/local-test-stack.mjs expire-academy-report <taskId>   TEST fixture: a finished Academy report's retention ends
  *   node tooling/scripts/local-test-stack.mjs expire-email-confirmations <email>   TEST fixture: open email confirmation links run out
  *   node tooling/scripts/local-test-stack.mjs end-security-lock-wait <email>   TEST fixture: an asked-for unlock's wait is over
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
@@ -3236,31 +3235,6 @@ function cmdAgeTaskProgress(args) {
 }
 
 /**
- * `expire-academy-report <taskId>`: a finished Academy report (AC-analytics-02) reaches the end of its retention now, so a
- * journey can show, as J-academy-16 #4 does, that an expired file says expired, without waiting the stack's TEST retention
- * out. Its finish and expiry times move back by the same amount, so the file was kept exactly as long as it was made to be.
- * It changes no file and moves no value; the report sweep then drops the bytes as it would at the real expiry.
- */
-function cmdExpireAcademyReport(args) {
-  const [taskId] = args;
-  if (!taskId || !/^[0-9a-f-]{36}$/i.test(taskId))
-    fail('usage: node tooling/scripts/local-test-stack.mjs expire-academy-report <taskId>', 2);
-  const secrets = localFixtureSecrets();
-  const moved = psql(
-    secrets,
-    `UPDATE academy.report_centre_tasks
-        SET finished_at = finished_at - (expires_at - now()) - interval '1 minute',
-            expires_at = now() - interval '1 minute'
-      WHERE id = :'tid' AND state = 'done' AND deleted_at IS NULL AND expires_at > now() RETURNING id`,
-    { db: DB_NAME, user: 'svc_academy', password: secrets.pgService, vars: { tid: taskId }, tuples: true },
-  )
-    .trim()
-    .split('\n')
-    .filter((line) => /^[0-9a-f-]{36}$/.test(line));
-  say(`  ${moved.length} Academy report(s) now past their retention (LOCAL TEST fixture)`);
-}
-
-/**
  * `expire-address-approvals <email-or-userId>`: the TEST person's open withdrawal-address approval links (W-withdraw-09)
  * run out now, so a journey can show, as J-wallet-04 #5 does, that an expired link is refused and a new one is needed,
  * without waiting the TEST lifetime out. Both times move back by the same amount, so a link stays as long as it was
@@ -4318,7 +4292,6 @@ async function runCli() {
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
-  else if (cmd === 'expire-academy-report') cmdExpireAcademyReport(rest);
   else if (cmd === 'expire-email-confirmations') cmdExpireEmailConfirmations(rest);
   else if (cmd === 'end-security-lock-wait') cmdEndSecurityLockWait(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);

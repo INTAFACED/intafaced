@@ -1,9 +1,11 @@
 // World: stack, restart
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, api, restartWithSetting, tool } from './stack.mjs';
+import { ORIGIN, ROOT, api, restartWithSetting } from './stack.mjs';
 import { signUp } from './desk.mjs';
 import { userIdOf } from './copy.mjs';
 
@@ -43,6 +45,38 @@ async function staff(kind, procedure, input) {
     kind === 'query' ? await ctx.edge.query('academy', procedure, input, token) : await ctx.edge.mutate('academy', procedure, input, token);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return JSON.parse(res.text).result.data;
+}
+
+/** svc-academy's own database role on the stack (loopback, the marker's postgres port, the stack's secret), as J-academy-12 opens it. */
+async function academyDb() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const postgres = createRequire(path.join(ROOT, 'services', 'svc-academy', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  return postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+}
+
+/**
+ * LOCAL TEST fixture: a finished report reaches the end of its retention now, without waiting the stack's 24 hours out.
+ * Its finish and expiry times move back by the same amount, so the file was kept exactly as long as it was made to be. It
+ * changes no file and no state; svc-academy then answers expired on its own reads, and its sweep drops the bytes.
+ */
+async function expireReport(taskId) {
+  const sql = await academyDb();
+  try {
+    const moved = await sql`
+      UPDATE academy.report_centre_tasks
+         SET finished_at = finished_at - (expires_at - now()) - interval '1 minute',
+             expires_at = now() - interval '1 minute'
+       WHERE id = ${taskId} AND state = 'done' AND deleted_at IS NULL AND expires_at > now()
+      RETURNING id`;
+    return moved.length;
+  } finally {
+    await sql.end();
+  }
 }
 
 const DAY_MS = 86_400_000;
@@ -271,7 +305,7 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
   // Later: the retention ends (a LOCAL TEST fixture moves its times back). The list says Expired and the file is refused.
   expect(Date.parse(held.expiresAt) - Date.parse(held.finishedAt)).toBe(24 * 3_600_000);
   expect(held.expired).toBe(false);
-  expect(tool('local-test-stack.mjs', 'expire-academy-report', tasks.done)).toContain('1 Academy report(s) now past their retention');
+  expect(await expireReport(tasks.done)).toBe(1);
   // svc-academy's own answer: the file's retention has ended, kept exactly as long as it was made to be.
   const lapsed = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.find((t) => t.id === tasks.done);
   expect(lapsed).toMatchObject({ state: 'done', expired: true, sha256: held.sha256 });
