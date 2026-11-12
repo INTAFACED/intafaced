@@ -93,6 +93,16 @@ function assertDoorMay(kind: VenueIntent['kind'], caller: DoorCaller | undefined
   }
 }
 
+/** The key prefix of an order the person's assistant placed through its agent key (agent-orders.ts, J-agents-21 #7). */
+export const AGENT_ORDER_PREFIX = 'agent:order:';
+
+/** The origin an order stored under `businessKey` carries: `agent:<keyId>` for the assistant's, else `null` (the person's own). */
+export function orderOriginOf(businessKey: string): string | null {
+  if (!businessKey.startsWith(AGENT_ORDER_PREFIX)) return null;
+  const keyId = businessKey.slice(AGENT_ORDER_PREFIX.length).split(':')[0] ?? '';
+  return UUID_RE.test(keyId) ? `agent:${keyId.toLowerCase()}` : null;
+}
+
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
 
 /** Identity's step-up request id is at most 128 characters. */
@@ -187,6 +197,8 @@ export function orderKeyOfIdempotencyKey(header: string | null | undefined): str
 export interface VenueOrderByKey {
   readonly actionKey: string;
   readonly venueClientOrderId: string | null;
+  /** `agent:<keyId>` when the person's assistant placed it through its agent key (shown "by your assistant"), else `null`. */
+  readonly origin: string | null;
   readonly state: 'accepted' | 'unknown' | 'refused' | 'not_sent';
   /** Why the state is unknown: the venue did not answer this read, or it has no record of the order yet. */
   readonly reason?: 'venue_down' | 'not_on_venue_yet';
@@ -860,7 +872,7 @@ export class UserVenueDoor {
 
   private async orderState(userId: string, row: StoredVenueAction): Promise<VenueOrderByKey> {
     const p = row.prepared;
-    const base = { actionKey: row.businessKey, venueClientOrderId: p.venueClientOrderId };
+    const base = { actionKey: row.businessKey, venueClientOrderId: p.venueClientOrderId, origin: orderOriginOf(row.businessKey) };
     const recorded = row.lastOutcome;
     if (!row.signature) return { ...base, state: 'not_sent', order: null, asOf: null };
     if (recorded?.definite && !recorded.accepted)

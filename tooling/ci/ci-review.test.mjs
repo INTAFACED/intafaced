@@ -1548,7 +1548,16 @@ test('the Review step streams the call only when input.jsonl exists, and runs as
   assert.match(streamed, /< "\$dir\/input\.jsonl" > "\$dir\/answer\.jsonl"/);
   assert.doesNotMatch(streamed, /Review the pull request in the input/, 'no prompt argument with a stream input');
   assert.match(plain, /--output-format json --json-schema "\$schema"/);
-  assert.match(plain, /< "\$dir\/prompt\.txt" > "\$dir\/answer\.json"/);
+  // Each part's prompt into its own answer: the first in "$dir", the others in "$dir/parts/<n>" (splitDiff), and every
+  // call's exit read, so a part that fails ends the step like the one call did.
+  assert.match(plain, /for part in "\$dir" "\$dir"\/parts\/\*; do\n\s+\[ -f "\$part\/prompt\.txt" \] \|\| continue\n\s+ask "\$part" &\n/);
+  assert.match(plain, /ask\(\) \{\n\s+schema="\$\(cat "\$1\/schema\.json"\)"\n/);
+  assert.match(plain, /< "\$1\/prompt\.txt" > "\$1\/answer\.json" 2> "\$1\/answer\.json\.stderr"\n/);
+  assert.match(plain, /wait "\$\{pids\[\$i\]\}" \|\| rc=\$\?\n\s+\[ "\$rc" = 0 \] && continue\n/);
+  // A failed part: the second key only for a key failure, once, and any other failure ends the step as one call did.
+  assert.match(plain, /other_key "\$p\/answer\.json" "\$rc" \|\| failed "\$p\/answer\.json" "\$rc"\n/);
+  assert.match(plain, /--key\)" = other \] \|\| failed "\$p\/answer\.json" "\$rc"\n/);
+  assert.match(plain, /ask "\$p" \|\| failed "\$p\/answer\.json" "\$\?"\n/);
   // The same pinned model and effort either way.
   const pinned = (part) => /--model \S+ --effort \S+/.exec(part)?.[0];
   assert.ok(pinned(streamed) && pinned(streamed) === pinned(plain));

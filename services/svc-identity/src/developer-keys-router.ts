@@ -59,7 +59,7 @@ export const DEVELOPER_KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['
   'identity.key_org_denied': 'FORBIDDEN',
   'identity.portfolio_key_cap_unset': 'PRECONDITION_FAILED',
   'identity.portfolio_key_cap_reached': 'PRECONDITION_FAILED',
-  'identity.agent_scope_forbidden': 'FORBIDDEN',
+  'auth.agent_scope_forbidden': 'FORBIDDEN',
   'identity.developer_roles_unset': 'PRECONDITION_FAILED',
   'identity.developer_role_read_only': 'FORBIDDEN',
   'identity.developer_role_none': 'FORBIDDEN',

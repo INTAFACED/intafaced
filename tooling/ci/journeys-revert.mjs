@@ -14,7 +14,9 @@
  *            shard ended 7 minutes before its run). `trigger` at the run's end starts nothing a run already started.
  *   confirm  After a revert this opened merges (journeys-back.yml, on the push): starts main-bisect.yml's `confirm` job,
  *            which runs the failing journeys alone on main's head in their own group, so the break shows as back in one
- *            journey's time instead of behind main's queue and a full run. Main's full run still runs to its end.
+ *            journey's time instead of behind main's queue and a full run. Main's full run still runs to its end. A
+ *            main journeys run still going on a commit that holds the culprit and not the revert is cancelled, so the
+ *            full run on the revert's head starts at once (plant 2: it waited 39 minutes behind such a run).
  *   back     The `confirm` job's result on each journey's break issue. It closes nothing: main trust closes the issue
  *            when main's full run passes the steps.
  *   find     The commits between the good and the bad commit (first parent, oldest first). The red run must show the
@@ -929,7 +931,27 @@ function selfTest() {
     'a failed control blames no one',
   );
   eq(unknownReason({ REASON: 'x' }), 'x', 'any other reason as given');
-  console.log('✓ journeys-revert --self-test OK (67 fixtures)');
+  eq(
+    culpritOf(revertBody({ repo: 'o/r', sha: A, subject: 's', prNumber: 7, redRun: 9, steps: ['J-a-01#2'], base: B, failing: [] })),
+    A.slice(0, 10),
+    'the culprit commit is read back from the revert body',
+  );
+  eq(culpritOf('no culprit line'), null, 'a body without a culprit line names none, so nothing is cancelled');
+  eq(
+    goingElsewhere(
+      [
+        { id: 1, head_branch: 'main', event: 'push', status: 'in_progress', head_sha: B },
+        { id: 2, head_branch: 'main', event: 'push', status: 'queued', head_sha: A },
+        { id: 3, head_branch: 'main', event: 'push', status: 'completed', head_sha: B },
+        { id: 4, head_branch: 'x', event: 'pull_request', status: 'in_progress', head_sha: B },
+        { id: 5, head_branch: 'main', event: 'workflow_dispatch', status: 'queued', head_sha: B },
+      ],
+      A,
+    ).map((r) => r.id),
+    [1, 5],
+    "only main's runs still going on another commit than the revert's are weighed",
+  );
+  console.log('✓ journeys-revert --self-test OK (70 fixtures)');
 }
 
 async function selfTestRevoke() {
@@ -1048,6 +1070,51 @@ export function journeyFilesOf(steps, files) {
 
 const APP_LOGIN = 'intafaced-mac-agents[bot]';
 
+/** The culprit's commit a revert's body names on its `- Culprit:` line (revertBody), short or full, or null. Pure. */
+export function culpritOf(body) {
+  return /^- Culprit: .*?commit `([0-9a-f]{7,40})`/m.exec(String(body ?? '').replace(/\r/g, ''))?.[1] ?? null;
+}
+
+/** Main's journeys runs still going on another commit than the revert's: the ones that may hold the culprit. Pure. */
+export function goingElsewhere(runs, headSha) {
+  return (runs ?? []).filter(
+    (r) => r.head_branch === 'main' && r.event !== 'pull_request' && r.status !== 'completed' && r.head_sha !== headSha,
+  );
+}
+
+/**
+ * When the automatic revert merges, main's journeys run still going on a commit that holds the culprit and not the
+ * revert can only end red on the reverted steps, and the run on the revert's head waits behind it in main's one group.
+ * Plant 2 (#7957, 11 Nov 2026): #7980 merged 13:39:12 UTC and its head's full run waited until 14:18 behind run 3970 on
+ * `671421a0f`. Those runs are cancelled; a cancelled run says nothing (post-merge-trust.mjs, journey-verdict.mjs), and
+ * the run on the revert's head (or a newer one) runs every journey. A run whose head the compare can't place is left.
+ */
+export async function cancelDoomed(gh, repo, { headSha, culprit }) {
+  const lines = [];
+  const going = [];
+  for (const status of ['in_progress', 'queued']) {
+    const { json } = await gh(
+      'GET',
+      `/repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=${status}&per_page=50`,
+    );
+    going.push(...goingElsewhere(json?.workflow_runs, headSha));
+  }
+  for (const run of going) {
+    const holds = (await gh('GET', `/repos/${repo}/compare/${culprit}...${run.head_sha}`)).json?.status;
+    const before = (await gh('GET', `/repos/${repo}/compare/${run.head_sha}...${headSha}`)).json?.status;
+    const name = `run ${run.run_number} on \`${run.head_sha.slice(0, 10)}\``;
+    if (!['ahead', 'identical'].includes(holds) || before !== 'ahead') {
+      lines.push(`${name}: left (holds the culprit: ${holds ?? 'unknown'}; before the revert: ${before ?? 'unknown'})`);
+      continue;
+    }
+    const r = await gh('POST', `/repos/${repo}/actions/runs/${run.id}/cancel`);
+    lines.push(
+      `${name}: holds the culprit and not the revert, ${r.status === 202 || r.status === 0 ? 'cancelled' : `cancel not taken (${r.status})`}`,
+    );
+  }
+  return lines;
+}
+
 async function confirm(env) {
   need(env, 'GITHUB_REPOSITORY', 'HEAD_SHA', 'SUBJECT');
   const repo = env.GITHUB_REPOSITORY;
@@ -1065,12 +1132,18 @@ async function confirm(env) {
   const redRun = /actions\/runs\/(\d+)/.exec(String(pr.body ?? ''))?.[1];
   if (!steps.length || !redRun) return summary([`Journeys revert, confirm: #${n} names no failing step or red run; nothing to do.`]);
   const started = await startRevert(gh, repo, { good: env.HEAD_SHA, bad: env.HEAD_SHA, steps, redRun, confirm: true, revertPr: n });
+  const culprit = culpritOf(pr.body);
+  const cancelled = culprit
+    ? await cancelDoomed(gh, repo, { headSha: env.HEAD_SHA, culprit })
+    : ['no culprit commit in the body; no run cancelled'];
   summary([
     `### Journeys revert, confirm`,
     '',
     started?.length
       ? `#${n} merged as \`${env.HEAD_SHA.slice(0, 10)}\`: main-bisect.yml runs ${steps.join(', ')} alone on it.`
       : 'Dispatch failed.',
+    '',
+    `Main's journeys runs still going: ${cancelled.length ? cancelled.join('; ') : 'none on another commit'}.`,
   ]);
   if (!started?.length) return 1;
 }
