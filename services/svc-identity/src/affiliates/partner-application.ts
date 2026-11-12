@@ -232,7 +232,7 @@ export class PartnerApplicationService {
     applicationId: string,
     decision: 'approve' | 'reject',
     reason: string,
-    category: PartnerRejectCategory | undefined,
+    category?: PartnerRejectCategory,
     now: Date = new Date(),
   ): Promise<PartnerApplication> {
     const why = reasonOf(reason);

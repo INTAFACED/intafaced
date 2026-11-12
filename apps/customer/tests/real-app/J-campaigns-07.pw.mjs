@@ -313,6 +313,27 @@ test(`${J} #4 my sub-tree shows only my own downline to the programme depth; a b
       await ctx2.edge.mutate('identity', 'affiliates.payout', { feeEventId: fee.feeEventId, dryRun: true }, await ops2.a.tradeOpsToken()),
     );
     expect(payout).toMatchObject({ status: 412, code: 'affiliate.programme_depth_unset' });
+
+    // The real paths too: a durable accrual (the one that writes owed rows) and a payout that would post are refused by
+    // the same code, and nothing is recorded owed to anyone above the payer.
+    const real = {
+      feeEventId: `jc7:${e.userId}:real`,
+      userId: fee.userId,
+      feeAmount: fee.feeAmount,
+      asset: fee.asset,
+      sourceModule: fee.sourceModule,
+    };
+    const durable = result(await ctx2.edge.mutate('identity', 'affiliates.accrue', real, await ops2.a.tradeOpsToken()));
+    expect(durable).toMatchObject({ status: 412, code: 'affiliate.programme_depth_unset' });
+    const posted = result(
+      await ctx2.edge.mutate('identity', 'affiliates.payout', { feeEventId: real.feeEventId }, await ops2.a.tradeOpsToken()),
+    );
+    expect(posted).toMatchObject({ status: 412, code: 'affiliate.programme_depth_unset' });
+    for (const above of [d, a, partner]) {
+      const owed = await identity(above, 'affiliates.myAccruals', { limit: 500 });
+      expect(owed.status, JSON.stringify(owed)).toBe(200);
+      expect(owed.data.rows.filter((r) => r.feeEventId === real.feeEventId)).toEqual([]);
+    }
   } finally {
     restartWith('identity', 'LOCAL_STACK_IDENTITY_PARTNER_DEPTH', true);
   }
