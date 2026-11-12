@@ -109,6 +109,19 @@ const schema = serviceEnvSchema
        * sub-accounts they gave the agent access to). Blank: every grant and agent order refuses agents.policy_unavailable.
        */
       AGENTS_URL: z.string().default(''),
+      /**
+       * svc-quant's address, for the strategy version a live run trades (J-algo-dev-07; src/quant/live-run/). Read as the
+       * person, with their own edge-signed principal passed on. Blank: every live start refuses quant.live_plan_unavailable.
+       */
+      QUANT_URL: z.string().default(''),
+      /** `on` lets a live strategy run start (a test stack today). Anything else: every start refuses quant.live_disabled. */
+      TRADE_QUANT_LIVE: z.string().default(''),
+      /**
+       * Owner value: the heartbeat interval a live run's process is watched by, in milliseconds (at least 200). A run with
+       * no heartbeat for this long reads unknown and goes to the reconciler. Blank refuses every start
+       * quant.heartbeat_interval_unset.
+       */
+      TRADE_QUANT_LIVE_HEARTBEAT_MS: z.string().default(''),
       /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
       IDENTITY_ADMISSION_SECRET: z.string().default(''),
 
