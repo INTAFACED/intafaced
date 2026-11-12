@@ -473,6 +473,7 @@ describe('customer ramps and deposits', () => {
       assets: [
         {
           assetId: 'USDT',
+          precision: 6,
           networks: [
             {
               id: 'testnet',
@@ -595,7 +596,7 @@ describe('customer ramps and deposits', () => {
 
     halted = true;
     expect(await user.deposits.assets()).toEqual({
-      assets: [{ assetId: 'USDC', networks: [network] }],
+      assets: [{ assetId: 'USDC', precision: 6, networks: [network] }],
       halted: [{ assetId: 'USDT', networkId: 'testnet', label: 'Test network', haltNote: 'TEST maintenance until Monday' }],
     });
     await expect(user.deposits.address({ assetId: 'USDT', networkId: 'testnet' })).rejects.toMatchObject({
@@ -676,7 +677,7 @@ describe('customer ramps and deposits', () => {
     };
     let rows = [
       registryRow('USDT', ['testnet']),
-      registryRow('USDC', ['testnet', 'othernet']),
+      registryRow('USDC', ['testnet', 'othernet'], { precision: 2 }),
       registryRow('DAI', ['testnet', 'othernet'], { state: 'retired', allowedActions: [] }),
       registryRow('EURC', ['testnet'], { state: 'halted' }),
       registryRow('PYUSD', ['testnet'], { allowedActions: ['withdraw', 'trade'] }),
@@ -693,8 +694,9 @@ describe('customer ramps and deposits', () => {
     });
     expect(await user.deposits.assets()).toEqual({
       assets: [
-        { assetId: 'USDT', networks: [network('testnet')] },
-        { assetId: 'USDC', networks: [network('testnet')] },
+        // Each open asset carries the list's own precision for it, not a default.
+        { assetId: 'USDT', precision: 6, networks: [network('testnet')] },
+        { assetId: 'USDC', precision: 2, networks: [network('testnet')] },
       ],
       halted: [
         { assetId: 'USDC', networkId: 'othernet', label: 'Test othernet', haltNote: null },
