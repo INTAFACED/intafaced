@@ -55,6 +55,7 @@ import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
 import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
+import { refusePnlLinkedCopyFee } from './copy/fee-share.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { isPremarket } from './futures/premarket.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
@@ -1908,6 +1909,42 @@ export function createTradeRouter(
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
             return copy.copiedPositions(ctx.principal, input);
+          }),
+        ),
+
+      /** The caller's own lead earnings: settled fee-share rows and their sum per asset; never a profit figure (J-copy-bots-otc-06 #3). */
+      leadEarnings: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ limit: z.number() }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('lead earnings are not mounted', 'trade.copy_unavailable');
+            return copy.leadEarnings(ctx.principal, input);
+          }),
+        ),
+
+      /** The caller's own lead level: not set while the owner's thresholds are blank; the maximum ratio is never set (J-copy-bots-otc-06 #5). */
+      leadLevel: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
+        guard(async () => {
+          if (!copy) throw new CopyError('lead level is not mounted', 'trade.copy_unavailable');
+          return copy.leadLevel(ctx.principal);
+        }),
+      ),
+
+      /** A profit pre-deduction or profit-share ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #4). */
+      setProfitShare: scopedProcedure('trade:write', { module: 'trade' })
+        .input(z.unknown())
+        .mutation(() =>
+          guard(async () => {
+            refusePnlLinkedCopyFee();
+          }),
+        ),
+
+      /** A maximum ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #5). */
+      setMaxRatio: scopedProcedure('trade:write', { module: 'trade' })
+        .input(z.unknown())
+        .mutation(() =>
+          guard(async () => {
+            refusePnlLinkedCopyFee();
           }),
         ),
 

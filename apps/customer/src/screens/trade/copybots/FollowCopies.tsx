@@ -22,7 +22,7 @@ import {
 } from '@intafaced/ui';
 import { displayAmount } from '../../../shared/money';
 import { useResource } from '../../../shared/resource';
-import type { CopiedPosition, CopySkip, RoomApi } from './api';
+import type { CopiedMarket, CopiedPosition, CopySkip, RoomApi } from './api';
 import { roomCopy } from './copy';
 import type { Follow } from './FollowDetail';
 import type { WriteGuard } from './guard';
@@ -50,8 +50,13 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   const [tooMuch, setTooMuch] = useState(false);
   // A re-read keeps the last list on screen instead of blanking it while it loads.
   const last = useRef<CopiedPosition[] | null>(null);
-  if (resource.status === 'ready') last.current = resource.data.positions;
+  const lastMarkets = useRef<CopiedMarket[] | null>(null);
+  if (resource.status === 'ready') {
+    last.current = resource.data.positions;
+    lastMarkets.current = resource.data.markets;
+  }
   const rows = last.current;
+  const marketRows = lastMarkets.current;
   const settling = resource.status === 'ready' && resource.data.positions.some((p) => p.status === 'buying' || p.status === 'closing');
   // A close whose outcome stays unknown stops the re-reads after a while; its Close sends the same order again.
   const rereads = useRef(0);
@@ -126,9 +131,35 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
       },
     },
   ];
+  // One market's position by average entry: what all its copied buys' fills paid over what they filled (sells never move it).
+  const marketColumns: TableColumn<CopiedMarket>[] = [
+    { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
+    { id: 'fills', header: t('Fills'), numeric: true, value: (r) => String(r.fills) },
+    { id: 'filled', header: t('Bought'), numeric: true, value: (r) => r.filled, cell: (r) => displayAmount(r.filled) },
+    { id: 'open', header: t('Open'), numeric: true, value: (r) => r.open, cell: (r) => displayAmount(r.open) },
+    {
+      id: 'entry',
+      header: t('Average entry'),
+      numeric: true,
+      value: (r) => r.averageEntry ?? '',
+      cell: (r) => (r.averageEntry === null ? t('Not set') : displayAmount(r.averageEntry)),
+    },
+    { id: 'funding', header: t('Funding'), value: (r) => (r.funding === null ? t('Not set') : displayAmount(r.funding)) },
+  ];
   if (resource.status === 'failed') return <RefusalNote failure={resource.failure} retry={reload} />;
   return (
     <>
+      <Table
+        label={t('Copied position by market')}
+        columns={marketColumns}
+        rows={marketRows ?? []}
+        getRowId={(r) => r.market}
+        status={marketRows === null ? 'loading' : 'ready'}
+        minWidth={640}
+        emptyState={
+          <EmptyState size="inline" title={t('No copied positions')} reason={t('A position appears here when a copied buy fills.')} />
+        }
+      />
       {tooMuch ? <InfoNote tone="warn">{t('That is more than is open.')}</InfoNote> : null}
       <Table
         label={t('Copied positions')}
