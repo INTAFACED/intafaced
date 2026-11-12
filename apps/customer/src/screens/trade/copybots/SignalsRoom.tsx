@@ -22,12 +22,15 @@ const DAY = 86_400;
 const EARNINGS_FROM = '2000-01-01T00:00:00.000Z';
 
 type FeeChoice = SignalPublishRequest['feeModel'];
-const FEE_CHOICES: Array<{ id: FeeChoice; label: string; hint: string }> = [
-  { id: 'free', label: 'Free', hint: 'Anyone can subscribe at no charge.' },
-  { id: 'monthly', label: 'Monthly fee', hint: 'A buyer pays one period at a time, in one asset.' },
-  { id: 'profit_share', label: 'Profit share', hint: 'A share of subscribers’ profit. Not allowed on this platform.' },
-  { id: 'recurring', label: 'Recurring subscription', hint: 'Charged again automatically each period. Not built.' },
-];
+type T = ReturnType<typeof roomCopy.useCopy>['t'];
+const FEE_CHOICES: FeeChoice[] = ['free', 'monthly', 'profit_share', 'recurring'];
+/** Each fee model's name and what it means; the service refuses the last two, the screen never hides them. */
+function feeChoiceWords(id: FeeChoice, t: T): { label: string; hint: string } {
+  if (id === 'free') return { label: t('Free'), hint: t('Anyone can subscribe at no charge.') };
+  if (id === 'monthly') return { label: t('Monthly fee'), hint: t('A buyer pays one period at a time, in one asset.') };
+  if (id === 'profit_share') return { label: t('Profit share'), hint: t('A share of subscribers’ profit. Not allowed on this platform.') };
+  return { label: t('Recurring subscription'), hint: t('Charged again automatically each period. Not built.') };
+}
 
 const TIER_WORDS: Record<string, string> = { none: 'Not verified', basic: 'Basic', full: 'Full', institutional: 'Institutional' };
 const tierWords = (tier: string | null) => (tier ? (TIER_WORDS[tier] ?? tier) : '—');
@@ -160,25 +163,28 @@ function PublishSignal() {
               <Input kind="text" value={assetId} onValueChange={(v) => setAssetId(v.toUpperCase())} maxLength={32} autoComplete="off" />
             </Field>
             <Field label={t('Recommended amount')} hint={t('Optional. What you suggest a subscriber trades with.')}>
-              <Input kind="decimal" value={recommended} onValueChange={setRecommended} />
+              <Input kind="decimal" value={recommended} onValueChange={setRecommended} precision={18} />
             </Field>
             <fieldset className="cb-fieldset">
               <legend className="cb-label">{t('Fee model')}</legend>
-              {FEE_CHOICES.map((choice) => (
-                <label key={choice.id} className="cb-choice">
-                  <input type="radio" name="fee-model" value={choice.id} checked={fee === choice.id} onChange={() => setFee(choice.id)} />
-                  <span>{t(choice.label)}</span>
-                  <span className="cb-hint">{t(choice.hint)}</span>
-                </label>
-              ))}
+              {FEE_CHOICES.map((id) => {
+                const words = feeChoiceWords(id, t);
+                return (
+                  <label key={id} className="cb-choice">
+                    <input type="radio" name="fee-model" value={id} checked={fee === id} onChange={() => setFee(id)} />
+                    <span>{words.label}</span>
+                    <span className="cb-hint">{words.hint}</span>
+                  </label>
+                );
+              })}
             </fieldset>
             {fee === 'monthly' ? (
               <>
                 <Field label={t('Price')} hint={t('Paid once per period, in the asset above.')}>
-                  <Input kind="decimal" value={price} onValueChange={setPrice} />
+                  <Input kind="decimal" value={price} onValueChange={setPrice} precision={18} />
                 </Field>
                 <Field label={t('Period, days')} hint={t('How long one payment gives access.')}>
-                  <Input kind="text" inputMode="numeric" value={periodDays} onValueChange={setPeriodDays} maxLength={4} />
+                  <Input kind="decimal" value={periodDays} onValueChange={setPeriodDays} precision={0} />
                 </Field>
               </>
             ) : null}
@@ -223,7 +229,7 @@ function SignalsHub({ view }: { view: 'list' | 'mine' | 'earnings' }) {
   );
 }
 
-function feeWords(s: ProviderSignal, t: (k: string, p?: Record<string, string>) => string) {
+function feeWords(s: ProviderSignal, t: T) {
   if (s.feeModel === 'free') return t('Free');
   return t('{price} {asset} every {days} days', {
     price: s.price ?? '—',
@@ -305,7 +311,7 @@ function MySignals() {
       cell: (s) =>
         s.state === 'published' ? (
           <Button
-            size="sm"
+            size={28}
             variant="secondary"
             disabled={busy === s.id}
             onClick={() => void archive(s.id)}
@@ -343,7 +349,7 @@ function MySignals() {
             size="inline"
             title={t('You have no signals')}
             reason={t('Publish one to list it.')}
-            action={<a href={PUBLISH}>{t('Publish a signal')}</a>}
+            action={{ label: t('Publish a signal'), href: PUBLISH }}
           />
         }
         minWidth={880}
