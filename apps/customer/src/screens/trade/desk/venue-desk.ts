@@ -4,6 +4,7 @@ import {
   draftId,
   keys,
   onStep,
+  type KeptSignature,
   type OrderIntent,
   type VenueBalance,
   type VenueBestPrices,
@@ -191,6 +192,11 @@ export interface PendingOrder {
   clientOrderId: string;
   key: string;
   intent: OrderIntent;
+  /**
+   * The signed bytes sent under the key, when this tab signed it: "Send the same order again" re-sends them, so a lost
+   * answer never asks the wallet a second time, even after a reload. A signed order, never a key.
+   */
+  signature?: KeptSignature;
 }
 
 /**

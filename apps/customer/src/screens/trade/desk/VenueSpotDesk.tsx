@@ -207,7 +207,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const owner = useOwner();
   const venue = useVenueApi();
   const account = useVenueAccount(owner);
-  const { run } = useVenueActions(owner);
+  const { run, resend, keptSignature } = useVenueActions(owner);
   const access = useTradeAccess();
   const [type, setType] = useState<VenueOrderType>('limit');
   const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
@@ -265,7 +265,8 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
       placedKeys?.set(answer.clientOrderId, intent.clientOrderKey);
     if (answer.kind === 'unknown' && answer.clientOrderId && pendingStore) {
       // No definite answer: the order is looked up on the venue by its client id, and nothing new is sent meanwhile.
-      pendingStore.add({ clientOrderId: answer.clientOrderId, key: intent.clientOrderKey, intent });
+      const signature = keptSignature(intent.clientOrderKey) ?? pendingStore.list().find((p) => p.key === intent.clientOrderKey)?.signature;
+      pendingStore.add({ clientOrderId: answer.clientOrderId, key: intent.clientOrderKey, intent, ...(signature ? { signature } : {}) });
       setPending(pendingStore.list());
       setFound(null);
     } else {
@@ -286,7 +287,9 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
     setFound(t('Pending found', { id: entry.clientOrderId, status: word(v, 'status', order.status) }));
     account.reload();
   };
-  const sendAgain = async (entry: PendingOrder) => placed(entry.intent, await run(entry.intent));
+  // The same order again under the same key: the same signed bytes when this tab kept them, so the wallet is not asked.
+  const sendAgain = async (entry: PendingOrder) =>
+    placed(entry.intent, await resend(entry.intent, entry.signature ? { signature: entry.signature } : {}));
 
   const offeredTypes = market.orderTypes.filter((x): x is VenueOrderType => x === 'limit' || x === 'market');
   const route: DepositRoute | null = status.deposit ?? null;

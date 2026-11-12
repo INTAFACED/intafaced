@@ -360,9 +360,10 @@ export function useVenueActions(owner: string | null) {
    * signature: with no signature kept on this page, it is `run` again, which reads the stored answer.
    */
   const resend = useCallback(
-    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string } = {}): Promise<ActionResult> => {
+    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string; signature?: KeptSignature } = {}): Promise<ActionResult> => {
       const key = keyOf(intent, opts.actionKey);
-      const kept = signatures.current.get(key);
+      // The signature this page made, or one the page kept for the key across a reload (J-cex-spot-02 #4): the same bytes.
+      const kept = signatures.current.get(key) ?? opts.signature;
       if (!kept) return run(intent, opts);
       const prepared = await venue.prepare({
         owner: owner ?? '',
@@ -375,7 +376,9 @@ export function useVenueActions(owner: string | null) {
     },
     [owner, venue, run, submitSigned],
   );
-  return { run, resend };
+  /** The signed bytes this page holds for a key, if any: what a resend after a reload sends again. */
+  const keptSignature = useCallback((key: string): KeptSignature | undefined => signatures.current.get(key), []);
+  return { run, resend, keptSignature };
 }
 
 /** The words for one action's result. An order's outcome names its status on the venue. */

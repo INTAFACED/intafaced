@@ -144,8 +144,12 @@ test(`${J} #1 reviews and places a limit buy: one open venue order carrying the 
   const price = await awayBid(90);
   const { id } = await reviewLimitBuy(page, price);
   const asked = signatures(wallet);
+  const prepareAnswer = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'Confirm buy' }).click();
   await continueInWallet(page);
+  const prepared = (await (await prepareAnswer).json()).prepared;
   await expect(page.getByTestId('venue-bottom').getByTestId('venue-outcome')).toContainText('Open on the venue.', { timeout: 20_000 });
   // One signature, one prepare and one submit, under the business key whose end the review showed as the client id.
   expect(signatures(wallet)).toBe(asked + 1);
@@ -161,7 +165,15 @@ test(`${J} #1 reviews and places a limit buy: one open venue order carrying the 
   expect(order).toMatchObject({ symbol: SYMBOL, side: 'buy', type: 'limit', status: 'open' });
   expect(sameDecimal(order.price, price)).toBe(true);
   expect(sameDecimal(order.amount, AMOUNT)).toBe(true);
-  const placed = await venueByClientId(owner, order.venueClientOrderId);
+  // The venue's order carries the client order id prepared for that reviewed draft's key, and the wallet signed that draft.
+  expect(prepared.intent.clientOrderKey).toBe(key);
+  expect(prepared.venueClientOrderId).toMatch(/^\S+$/);
+  expect(order.venueClientOrderId).toBe(prepared.venueClientOrderId);
+  const signedOrder = JSON.parse(
+    JSON.parse(wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').at(-1).params[1]).message.payload,
+  );
+  expect(signedOrder.clientOrderKey, 'the wallet signed the reviewed draft').toBe(key);
+  const placed = await venueByClientId(owner, prepared.venueClientOrderId);
   expect(placed.venueOrderId).toBe(order.venueOrderId);
   // The Open orders tab shows it, Open.
   await page.locator('[role=tab]', { hasText: 'Open orders' }).click();
@@ -279,46 +291,58 @@ test(`${J} #4 reloads the page while an answer is still unknown, then tries a ne
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const owner = ownerOf(s);
   const before = await venueOpen(owner);
-  // The answer is lost, and so is every look-up, so the answer stays unknown across the reload.
+  // The signed order is lost on the way (the connection drops before it reaches us), so no one has answered it: the venue
+  // holds nothing under its client id, and the desk's own look-up says so.
+  const sent = [];
   await page.route('**/api/v1/venue/submit', async (route) => {
-    await route.fetch();
+    sent.push(route.request().postDataJSON());
     await route.abort('connectionreset');
   });
-  await page.route('**/api/v1/venue/orders/by-client-id**', (route) => route.abort('connectionreset'));
   const price = await awayBid(87);
   await reviewLimitBuy(page, price);
+  const asked = signatures(wallet);
   await page.getByRole('button', { name: 'Confirm buy' }).click();
   await continueInWallet(page);
   const pending = page.getByTestId('venue-pending');
   await expect(pending).toContainText('Checking your earlier order with the venue');
   const cloid = await pending.locator('[data-pending]').getAttribute('data-pending');
-  await page.unroute('**/api/v1/venue/submit');
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect(sent).toHaveLength(1);
+  await page.unrouteAll({ behavior: 'wait' });
+  expect(await venueByClientId(owner, cloid)).toBeNull();
   await page.reload();
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  // The reloaded desk still knows the order has no answer, and says new orders wait.
-  await expect(pending).toContainText('Checking your earlier order with the venue', { timeout: 20_000 });
-  await expect(pending.locator(`[data-pending="${cloid}"]`)).toBeVisible();
+  // The reloaded desk still knows the order has no answer: the venue, asked by client id, holds none yet, and the desk
+  // says new orders wait.
+  const row = pending.locator(`[data-pending="${cloid}"]`);
+  await expect(row).toContainText(`The venue has no order under client id ${cloid} so far.`, { timeout: 20_000 });
   await expect(pending).toContainText('New orders wait until the venue has answered about this order.');
   // A new order is typed: it waits. Buy is off, and nothing is prepared or signed.
   const door = doorCalls(page);
-  const asked = signatures(wallet);
   await typeLimitBuy(page, await awayBid(86), AMOUNT);
   await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
   await page.getByRole('button', { name: 'Buy BTC' }).click({ force: true });
   await expect(reviewSheet(page)).toHaveCount(0);
   expect(door.of('prepare')).toHaveLength(0);
-  expect(signatures(wallet)).toBe(asked);
-  // Once the venue can answer, the desk finds the order by its client id and new orders may go again.
-  await page.unrouteAll({ behavior: 'wait' });
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect(await venueOpen(owner)).toEqual(before);
+  // The person sends the same order again: the same signed bytes under the same key, with no second signature. The venue
+  // answers, the desk names the order, and new orders may go again.
+  await row.getByRole('button', { name: 'Send the same order again' }).click();
   await expect(page.getByTestId('venue-pending-found')).toHaveText(
     `Checked with the venue: your order ${cloid} is Open. Nothing was sent again.`,
     { timeout: 20_000 },
   );
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect(door.of('submit')).toHaveLength(1);
+  expect(door.of('submit')[0].body.actionKey).toBe(sent[0].actionKey);
+  expect(door.of('submit')[0].body.signature).toEqual(sent[0].signature);
   await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeEnabled();
   // One venue order for that draft, and none for the one that waited.
   const after = await venueOpen(owner);
   expect(after).toHaveLength(before.length + 1);
   expect(after.filter((o) => o.venueClientOrderId === cloid)).toHaveLength(1);
+  expect(after.filter((o) => sameDecimal(o.price, price))).toHaveLength(1);
 });
 
 test(`${J} #5 sends the same client id with a different price: refused with a typed reason before signing; the first order is untouched`, async () => {
