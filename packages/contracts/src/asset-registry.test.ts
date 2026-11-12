@@ -87,10 +87,16 @@ describe('parseAssetEdit', () => {
   });
 
   it('hashes an edit without contract or links as before, and a contract changes the hash', () => {
-    const withContract = { ...edit, networks: [{ ...edit.networks[0], contract: '0x7e57' }, edit.networks[1]] };
-    expect(assetEditPayloadHash(withContract)).not.toBe(assetEditPayloadHash(edit));
-    const withNothing = { ...edit, networks: edit.networks.map((n) => ({ ...n, contract: undefined, links: undefined })) };
-    expect(assetEditPayloadHash(withNothing)).toBe(assetEditPayloadHash(edit));
+    const parsed = (input: unknown) => {
+      const r = parseAssetEdit(input);
+      if (!r.ok) throw new Error(r.message);
+      return r.value;
+    };
+    const plain = parsed(edit);
+    const withContract = parsed({ ...edit, networks: [{ ...edit.networks[0], contract: '0x7e57' }, edit.networks[1]] });
+    expect(assetEditPayloadHash(withContract)).not.toBe(assetEditPayloadHash(plain));
+    const withNothing = { ...plain, networks: plain.networks.map((n) => ({ ...n, contract: undefined, links: undefined })) };
+    expect(assetEditPayloadHash(withNothing)).toBe(assetEditPayloadHash(plain));
   });
 
   it('refuses duplicate networks, duplicate actions, a blank reason and unknown fields', () => {
