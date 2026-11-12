@@ -41,6 +41,8 @@ export function SubAccountsPanel({
 
   async function open() {
     setProblem(null);
+    // A new action's answer replaces the last one only once it comes: until then nothing stale reads as its answer.
+    setResult(null);
     if (name.trim() === '') return setProblem(t('Enter name'));
     const subAccountKey = keys.ownSubAccount(owner, name);
     const answer = await run({ kind: 'create_sub_account', name: name.trim(), subAccountKey }, { actionKey: subAccountKey });
@@ -50,6 +52,7 @@ export function SubAccountsPanel({
 
   async function move() {
     setProblem(null);
+    setResult(null);
     const list = subs.data?.value ?? [];
     const subAccount = chosen || list[0]?.subAccount || '';
     const coin = asset || coins[0]?.asset || '';

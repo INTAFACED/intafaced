@@ -224,6 +224,8 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
   await panel.getByLabel('Coin to move', { exact: true }).selectOption('BTC');
   await panel.getByLabel('Amount to move', { exact: true }).fill(MOVE);
   await panel.getByRole('button', { name: 'Move to sub-account' }).click();
+  // The open's answer is cleared when the move starts, so the line below is the move's own answer.
+  await expect(panel.getByTestId('venue-outcome')).toHaveCount(0);
   await continueInWallet(page);
   await expect(panel.getByTestId('venue-outcome')).toContainText('The venue accepted it.');
   // What the wallet signed is the venue transfer itself, on the main account: 1 BTC into this sub-account.
@@ -238,7 +240,7 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
     amount: MOVE,
   });
   // The venue's own record: 1 BTC left the main account and reached the sub-account; nothing left the venue.
-  expect(await btcOf(owner, subAccount)).toBe(toUnits(MOVE));
+  await expect.poll(() => btcOf(owner, subAccount), { timeout: 15_000 }).toBe(toUnits(MOVE));
   expect(await btcOf(owner, null)).toBe(mainBefore - toUnits(MOVE));
   await expect(panel.locator(`[data-sub-account="${subAccount}"] tr[data-asset="BTC"] [data-cell="total"]`)).toHaveText(MOVE);
 
