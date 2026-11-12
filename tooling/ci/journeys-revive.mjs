@@ -54,6 +54,9 @@ export const WINDOW_HOURS = 24;
 /** A journeys artifact this large holds a report (main's reports: about 4.6 MB on 11 and 12 Nov 2026; a dead run's: 287 bytes). */
 export const REPORT_BYTES = 64 * 1024;
 
+/** The label every issue this opens carries: a run with no report, or a refusal, is a break a builder takes. */
+export const ISSUE_LABELS = ['regression'];
+
 export const issueTitle = (run) => `Journeys run on main has no report: run ${run.run_number}`;
 
 /** The runs worth a report check: main's own, finished, not cancelled or skipped, not green, inside the window. */
@@ -319,7 +322,8 @@ export function githubIo(repo) {
       const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "${title}"`);
       return (await gh('GET', `/search/issues?q=${q}`)).json.items.find((i) => i.title === title) ?? null;
     },
-    createIssue: (title, body) => gh('POST', `/repos/${repo}/issues`, { title, body }),
+    // Labelled from the moment it exists, so a builder's pick reads it (the lead's decision of 12 Nov 2026, item 4).
+    createIssue: (title, body) => gh('POST', `/repos/${repo}/issues`, { title, body, labels: ISSUE_LABELS }),
     listPrRuns: async () => {
       const since = new Date(Date.now() - WINDOW_HOURS * 3600_000).toISOString();
       const q = `event=pull_request&status=failure&created=${encodeURIComponent(`>=${since}`)}&per_page=100`;

@@ -1626,6 +1626,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           asset: intent.asset,
           amount: intent.amount,
           status: 'done',
+          settledAt: this.clock(),
         });
         return accepted(prepared.nonce, null);
       }
