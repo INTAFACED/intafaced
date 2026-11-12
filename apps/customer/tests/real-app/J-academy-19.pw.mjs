@@ -102,7 +102,7 @@ const daysAhead = (days, hour) => {
 };
 
 test(`${J} #4 a specialist room page shows its pinned lessons in the host's order and its calendar by day`, async ({ browser }) => {
-  test.setTimeout(480_000);
+  test.setTimeout(240_000);
   const host = await phase('a TEST host signs up', () => freshAccount(browser, 'ja19h'));
   await phase('the host reaches the rank that hosts rooms', () => raiseToHost(host));
   const futures = await write(host, 'createRoom', { ...FUTURES, kind: 'futures', access: 'free', capacity: 30 });
@@ -141,7 +141,7 @@ test(`${J} #4 a specialist room page shows its pinned lessons in the host's orde
     await page.goto('/academy/rooms');
   });
   // The learner narrows the list to futures rooms and opens this one.
-  await page.getByLabel('Show rooms', { exact: true }).selectOption('futures');
+  await page.getByRole('combobox', { name: 'Show rooms', exact: true }).selectOption('futures');
   const card = page.locator('article.more-room-link', { hasText: FUTURES.name });
   await expect(card).toContainText('futures');
   await expect(page.locator('article.more-room-link', { hasText: CLINIC.name })).toHaveCount(0);
@@ -163,7 +163,7 @@ test(`${J} #4 a specialist room page shows its pinned lessons in the host's orde
   );
   // A learner who is not the host has no pin controls.
   await expect(pins.getByRole('button', { name: 'Unpin' })).toHaveCount(0);
-  await expect(pins.getByLabel('Lesson to pin')).toHaveCount(0);
+  await expect(pins.getByRole('combobox', { name: 'Lesson to pin' })).toHaveCount(0);
 
   // Calendar: both sessions, by day, earliest first, each with its time, title and status.
   const calendar = page.locator('[data-room-calendar]');
@@ -191,7 +191,7 @@ test(`${J} #4 a specialist room page shows its pinned lessons in the host's orde
 
   // A specialist room with nothing pinned and nothing scheduled says so, with no sample lesson or session.
   await page.goto('/academy/rooms');
-  await page.getByLabel('Show rooms', { exact: true }).selectOption('merchant_clinic');
+  await page.getByRole('combobox', { name: 'Show rooms', exact: true }).selectOption('merchant_clinic');
   await page
     .locator('article.more-room-link', { hasText: CLINIC.name })
     .getByRole('button', { name: openRoom(CLINIC), exact: true })
