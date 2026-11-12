@@ -2478,3 +2478,39 @@ test('OWNER 262: a re-check leaves a seal still waiting for its inputs alone, an
   assert.equal(recheckStep([run], J([judging]), e).act, 'wait');
   assert.equal(recheckStep([run], J([sealJob(undefined)]), e).act, 'wait', 'a seal with no steps listed is waited out');
 });
+
+test('#7996: a deferred journeys run counts as going, never as a finished run that reports no step', async () => {
+  const { readGoing } = await import('./journey-seal.mjs');
+  const { DEFER_MARK, TOUCH_JOB } = await import('./main-first.mjs');
+  const touch = (deferred) => ({
+    jobs: [{ name: TOUCH_JOB, status: 'completed', steps: [{ name: DEFER_MARK, conclusion: deferred ? 'success' : 'skipped' }] }],
+  });
+  const done = (id, over = {}) => ({ id, head_sha: HEAD, event: 'pull_request', status: 'completed', ...over });
+  const at = (journeys, jobsOf) => async (path) => {
+    if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: [done(1)] };
+    if (path.includes('/workflows/ci-review.yml/runs')) return { workflow_runs: [done(2, { event: 'pull_request_target' })] };
+    if (path.includes('/workflows/real-app-journeys.yml/runs')) return { workflow_runs: journeys };
+    if (path.includes('/runs/2/jobs')) return { jobs: [{ name: 'CI review', status: 'completed', conclusion: 'success' }] };
+    const m = /\/runs\/(\d+)\/jobs/.exec(path);
+    if (m) return jobsOf[m[1]];
+    if (path.includes('/files')) return [{ filename: 'services/svc-a/src/a.ts' }];
+    throw new Error(path);
+  };
+  const pulls = [{ number: 3, title: 'svc-a: J-a-01 #1' }];
+  for (const settle of [true, false]) {
+    const going = await readGoing({ get: at([done(30)], { 30: touch(true) }), repo: 'o/r', sha: HEAD, pulls, settle });
+    assert.equal(going.length, 1);
+    assert.match(going[0], /Real-app journeys run 30 \(deferred/);
+  }
+  // Planted: a run that ran, and a deferred run a newer finished run on the head superseded, hold nothing.
+  assert.deepEqual(await readGoing({ get: at([done(30)], { 30: touch(false) }), repo: 'o/r', sha: HEAD, pulls }), []);
+  assert.deepEqual(
+    await readGoing({ get: at([done(30), done(31)], { 30: touch(true), 31: touch(false) }), repo: 'o/r', sha: HEAD, pulls }),
+    [],
+  );
+  // A change that needs no journeys never waits for a deferred one.
+  const docs = async (path) => (path.includes('/files') ? [{ filename: 'docs/a.md' }] : at([done(30)], { 30: touch(true) })(path));
+  assert.deepEqual(await readGoing({ get: docs, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }] }), []);
+  // Planted: unreadable jobs fail closed.
+  await assert.rejects(readGoing({ get: at([done(30)], { 30: {} }), repo: 'o/r', sha: HEAD, pulls }), /not a list/);
+});

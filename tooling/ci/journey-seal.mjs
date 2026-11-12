@@ -80,6 +80,7 @@ import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readRepo
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
+import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -1521,6 +1522,8 @@ export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false }) {
     for (const r of runsOf?.[workflow] ?? []) {
       if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
       if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+      else if (journeys && r?.deferred === true)
+        out.push(`${what} run ${r.id} (deferred behind main's journeys; it is re-run once main's shards are queued)`);
       else if (judge && needJudge && r?.judgeDown === true)
         out.push(`${what} run ${r.id} (judge down: no verdict; it re-runs when the judge is back)`);
     }
@@ -1844,6 +1847,18 @@ export async function readGoing({ get, repo, sha, pulls, settle = true }) {
           if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
           return jobs;
         });
+  }
+  // A deferred journeys run ran nothing and is re-run later (main-first.mjs): the newest on the head, finished with its
+  // touch job's DEFER_MARK, counts as going (inputsGoing), never as a finished run that reports no step (intafaced #7996).
+  {
+    const { workflow } = SEAL_INPUTS.find((i) => i.journeys);
+    const newest = [...runsOf[workflow]].sort((a, b) => b.id - a.id)[0];
+    if (newest?.status === 'completed') {
+      const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+      const touch = jobs.find((j) => j?.name === TOUCH_JOB);
+      newest.deferred = (touch?.steps ?? []).some((st) => st?.name === DEFER_MARK && st?.conclusion === 'success');
+    }
   }
   let needJourneys = false;
   for (const p of pulls ?? []) {
