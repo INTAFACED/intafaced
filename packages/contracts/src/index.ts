@@ -162,6 +162,7 @@ export * from './academy-certificates.js';
 export * from './academy-courses.js';
 export * from './academy-programmes.js';
 export * from './academy-discussion.js';
+export * from './academy-team.js';
 export * from './academy-course-messages.js';
 export * from './academy-course-quizzes.js';
 export * from './academy-course-release.js';

@@ -1407,8 +1407,33 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   },
   'academy.permission_denied': {
     title: 'This needs a role you do not hold',
-    body: 'Answer-level quiz data needs the data researcher role on the course. Academy has no course roles to hold, so no account holds it.',
-    next: 'Read the item analysis and score distribution instead. Nothing was changed.',
+    body: 'Your roles on this course do not permit this. Answer-level quiz data is not served to any role yet, the data researcher role included.',
+    next: 'Ask a founder who holds the permission, or read what your role allows. Nothing was changed.',
+  },
+  'academy.role_escalation': {
+    title: 'That would give more than you hold',
+    body: 'Nobody may give a role that permits something they do not hold on this course themselves.',
+    next: 'Ask a founder whose roles here cover it. Nothing was changed.',
+  },
+  'academy.role_limit_unset': {
+    title: 'The custom role limit is not set',
+    body: 'The owner has not set how many custom roles the Academy may hold, so no custom role is created. The built-in roles still work.',
+    next: 'Ask the owner to set the custom role limit. Nothing was saved.',
+  },
+  'academy.role_limit_reached': {
+    title: 'The custom role limit is reached',
+    body: 'The Academy already holds as many custom roles as the owner allows. A switched-off role still counts.',
+    next: 'Use a built-in role, or ask the owner to raise the limit. Nothing was saved.',
+  },
+  'academy.role_not_found': {
+    title: 'No such role or role change',
+    body: 'There is no role, or no role change waiting, with that name or id.',
+    next: 'Read the team again. Nothing was changed.',
+  },
+  'academy.second_founder_required': {
+    title: 'A second founder confirms this',
+    body: 'A role change takes effect only when a founder other than the one who proposed it confirms it.',
+    next: 'Ask the other founder to confirm it from their own session. Nothing was changed.',
   },
   'academy.bulk_limit_unset': {
     title: 'The curve file limit is not set',

@@ -11,7 +11,7 @@ import { AgentAccountError, AgentAccounts, parseAgentAccountValues, type AgentAc
 import { InMemoryAgentAccountStore } from './agent-account-store.js';
 import { InMemoryAgentConnectionStore } from './agent-connection-store.js';
 import type { AgentKeyReader } from './agent-key-read-client.js';
-import { AgentOrders, AgentVenueRefusal, agentLeverageKey, agentOrderKey } from './agent-orders.js';
+import { AgentOrders, AgentVenueRefusal, agentLeverageKey, agentOrderKey, dailyLossOf } from './agent-orders.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
@@ -547,6 +547,84 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
     // At the caps, the same orders go through.
     expect((await orders.place(assistant(keyId), buy('size-2', '0.0008'))).state).toBe('accepted');
     expect((await orders.place(assistant(keyId), perp('lev-2', '0.0005', { leverage: '2' }))).state).toBe('accepted');
+  });
+
+  it("#18: once the day's loss reaches the person's daily-loss cap, the assistant's next order is refused naming the cap; open positions are untouched", async () => {
+    const values = parseAgentAccountValues({ ...rawValues(), TRADE_AGENT_MAX_LEVERAGE: '5', TRADE_AGENT_MAX_DAILY_LOSS: '100' });
+    const { keyId, sub, account } = await connected(values);
+    await builderApproved(sub);
+    await accounts.setLimits(person, account.accountId, { maxLeverage: '2', maxDailyLoss: '0.03' });
+    // Opens 0.0008 long at 2x: its taker fee (~0.02 USDC) is under the cap, so the close goes on.
+    expect((await orders.place(assistant(keyId), perp('dl-open', '0.0008', { leverage: '2' }))).state).toBe('accepted');
+    // Closes half across the spread: a realised loss and a second fee take the day's loss past 0.03.
+    expect(
+      (
+        await orders.place(assistant(keyId), {
+          ...perp('dl-close', '0.0004', { side: 'sell', price: '59900', reduceOnly: true }),
+          leverage: undefined,
+        })
+      ).state,
+    ).toBe('accepted');
+    const since = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+    const fills = (await sim.fills(sub, since)).value;
+    expect(fills).toHaveLength(2);
+    const loss = dailyLossOf(fills, 'USDC');
+    expect(loss).toBeGreaterThanOrEqual(a('0.03'));
+    const before = {
+      sub: (await sim.balances(sub)).value,
+      orders: (await sim.openOrders(sub)).value,
+      positions: (await sim.positions(sub)).value,
+    };
+    expect(before.positions).toEqual([expect.objectContaining({ symbol: 'BTC-PERP', side: 'long', size: a('0.0004') })]);
+
+    // The next order, any order: refused naming the cap and the day's loss, before anything is stored or signed.
+    for (const [id, order] of [
+      ['dl-next', perp('dl-next', '0.0001', { leverage: '2' })],
+      ['dl-spot', buy('dl-spot', '0.0001')],
+    ] as const) {
+      const refused = await refusedAs(orders.place(assistant(keyId), order));
+      expect([refused.code, refused.status]).toEqual(['agents.daily_loss_cap_reached', 422]);
+      expect(refused.detail).toEqual({ cap: '0.03', loss: formatAmount(loss), since: since.toISOString() });
+      expect(refused.message).toContain('daily-loss cap');
+      expect(refused.message).toContain('0.03 USDC');
+      expect(await door.stored(person, agentOrderKey(keyId, id))).toBeNull();
+      expect(await door.stored(person, agentLeverageKey(keyId, id))).toBeNull();
+    }
+    // Open positions untouched: nothing closed, cancelled or moved on the venue.
+    expect({
+      sub: (await sim.balances(sub)).value,
+      orders: (await sim.openOrders(sub)).value,
+      positions: (await sim.positions(sub)).value,
+    }).toEqual(before);
+
+    // A new UTC day starts from no loss: the same account's assistant may order again.
+    const tomorrow = new Date(since.getTime() + 86_400_000 + 60_000);
+    const nextDay = new AgentOrders({
+      door,
+      accounts: accountStore,
+      connections,
+      keys: keys.reader,
+      stepUp: { require: async () => ({ stepUpEventId: 'step-up-test', consumedAt: null, replayed: false }) },
+      values,
+      now: () => tomorrow,
+    });
+    expect((await nextDay.place(assistant(keyId), buy('dl-tomorrow', '0.0001'))).state).toBe('accepted');
+  });
+
+  it("#18: the day's loss is realised results less every fee, a base-asset fee valued at its fill price; a gain is no loss", () => {
+    const fill = (realisedPnl: string | null, fee: string, feeAsset = 'USDC', price = '60000') => ({
+      price: a(price),
+      venueFee: a(fee),
+      builderFee: a('0'),
+      feeAsset,
+      realisedPnl: realisedPnl === null ? null : a(realisedPnl),
+    });
+    expect(dailyLossOf([], 'USDC')).toBe(a('0'));
+    expect(dailyLossOf([fill(null, '0.02'), fill('-0.01', '0.01')], 'USDC')).toBe(a('0.04'));
+    expect(dailyLossOf([fill('5', '0.02')], 'USDC')).toBe(a('0'));
+    // 0.000001 BTC of fee at 60000 is 0.06 USDC.
+    expect(dailyLossOf([fill(null, '0.000001', 'BTC')], 'USDC')).toBe(a('0.06'));
+    expect(dailyLossOf([{ ...fill('-1', '0'), builderFee: a('0.5') }], 'USDC')).toBe(a('1.5'));
   });
 
   it("#10: a perp needing more margin than the account holds is the venue's refusal, named; nothing locked; main never drawn", async () => {

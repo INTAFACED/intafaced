@@ -23,6 +23,7 @@ import {
   VOUCHER_LIST_LIMIT,
   type VoucherWindow,
   type CampaignLimits,
+  type CampaignReferral,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -101,6 +102,8 @@ type CampaignRow = {
   vouchers: VoucherWindow | null;
   /** The campaign's limits (CM-eligibility-rules-03); null while blank. */
   limits: CampaignLimits | null;
+  /** A referral campaign's programme (CM-referral-02); null for any other campaign. */
+  referral: CampaignReferral | null;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -270,10 +273,17 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   }
   // A welcome campaign gives a reward per task, each of which may be blank ("not set"; that task's claim refuses).
   const welcome = row.type === 'welcome';
-  if (!welcome && !feeSaver && (!row.reward_asset || row.reward_amount === null)) {
+  // A referral campaign gives each side its own reward (CM-referral-03): the referrer always, the invitee when double sided.
+  const referral = row.type === 'referral';
+  if (!welcome && !referral && !feeSaver && (!row.reward_asset || row.reward_amount === null)) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   }
-  const rewardAssets = welcome ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : [])) : [row.reward_asset];
+  if (referral) missing.push(...referralGaps(row.referral));
+  const rewardAssets = welcome
+    ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : []))
+    : referral
+      ? [row.referral?.rewards.referrer?.asset, row.referral?.rewards.referee?.asset].filter(Boolean)
+      : [row.reward_asset];
   if (row.budget_asset && rewardAssets.some((a) => a && a !== row.budget_asset)) {
     missing.push({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
   }
@@ -293,6 +303,26 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   if (lock?.kind === 'bonus' && lock.expirySeconds === null) missing.push({ code: 'campaigns.bonus_expiry_unset', field: 'bonusExpiry' });
   if (lock?.kind === 'bonus' && lock.appliesTo.length === 0) missing.push({ code: 'campaigns.bonus_scope_unset', field: 'bonusScope' });
   return missing;
+}
+
+/** What a referral programme still lacks before it can go live: each blank criterion, and each reward a side needs. */
+function referralGaps(p: CampaignReferral | null): CampaignGate['missing'] {
+  if (!p) return [{ code: 'campaigns.criteria_unset', field: 'referralCriteria' }];
+  const c = p.criteria;
+  const out: CampaignGate['missing'] = [];
+  const blank = (
+    [
+      ['verification', c.verification],
+      ['criteriaAsset', c.asset],
+      ['depositMin', c.depositMin],
+      ['tradeVolumeMin', c.tradeVolumeMin],
+      ['qualifyWindow', c.windowSeconds],
+    ] as const
+  ).filter(([, v]) => v === null);
+  for (const [field] of blank) out.push({ code: 'campaigns.criteria_unset', field });
+  if (!p.rewards.referrer) out.push({ code: 'campaigns.reward_unset', field: 'referrerReward' });
+  if (p.sides === 'double' && !p.rewards.referee) out.push({ code: 'campaigns.reward_unset', field: 'refereeReward' });
+  return out;
 }
 
 function refuseGate(missing: CampaignGate['missing']): void {
@@ -339,6 +369,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     tasks: r.tasks,
     vouchers: r.vouchers,
     limits: r.limits,
+    referral: r.referral,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -375,6 +406,7 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     ...(d.earning.length > 0 ? { earning: d.earning } : {}),
     ...(d.vouchers ? { vouchers: d.vouchers } : {}),
     ...(d.limits ? { limits: d.limits } : {}),
+    ...(d.referral ? { referral: d.referral } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -402,6 +434,7 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     earning: d.earning,
     vouchers: d.vouchers,
     limits: d.limits,
+    referral: d.referral,
   };
 }
 
@@ -426,6 +459,7 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     earning: r.earning,
     vouchers: r.vouchers,
     limits: r.limits,
+    referral: r.referral,
   });
 }
 
@@ -532,6 +566,7 @@ type Definition = {
   earning: EarningRule[];
   vouchers: VoucherWindow | null;
   limits: CampaignLimits | null;
+  referral: CampaignReferral | null;
 };
 
 /**
@@ -597,6 +632,33 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     earning: parseEarning(input.earning ?? []),
     vouchers: input.vouchers ? parseVoucherWindow(type as CampaignType, input.vouchers) : null,
     limits: input.limits ? limitsOf(input.limits) : null,
+    referral: input.referral ? parseReferral(type as CampaignType, input.referral) : null,
+  };
+}
+
+/**
+ * A referral programme (CM-referral-02), stored the same way every time. Blanks stay blank for the gate to name. Only a
+ * `referral` campaign has one; a single-sided programme rewards the referrer only, so it names no invitee reward.
+ */
+function parseReferral(type: CampaignType, input: CampaignReferral): CampaignReferral {
+  if (type !== 'referral') throw new CampaignsError('campaigns.referral_invalid', 'Only a referral campaign has a referral programme');
+  if (input.sides === 'single' && input.rewards.referee) {
+    throw new CampaignsError('campaigns.referral_invalid', 'A single-sided programme rewards the referrer only');
+  }
+  const c = input.criteria;
+  return {
+    sides: input.sides,
+    criteria: {
+      verification: c.verification,
+      asset: c.asset,
+      depositMin: c.depositMin === null ? null : decimalOf(c.depositMin),
+      tradeVolumeMin: c.tradeVolumeMin === null ? null : decimalOf(c.tradeVolumeMin),
+      windowSeconds: c.windowSeconds,
+    },
+    rewards: {
+      referrer: input.rewards.referrer ? { asset: input.rewards.referrer.asset, amount: decimalOf(input.rewards.referrer.amount) } : null,
+      referee: input.rewards.referee ? { asset: input.rewards.referee.asset, amount: decimalOf(input.rewards.referee.amount) } : null,
+    },
   };
 }
 
@@ -771,6 +833,7 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     canonical(r.earning) === canonical(d.earning) &&
     canonical(r.vouchers) === canonical(d.vouchers) &&
     canonical(r.limits) === canonical(d.limits) &&
+    canonical(r.referral) === canonical(d.referral) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -826,11 +889,12 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
             ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
-            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null}, ${input.actor})
+            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -874,6 +938,7 @@ export class CampaignService {
             tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
             earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            referral = ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -981,6 +1046,7 @@ export class CampaignService {
         tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
         earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            referral = ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;

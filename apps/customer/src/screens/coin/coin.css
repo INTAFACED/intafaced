@@ -301,6 +301,16 @@
     font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
+  .coin-stats__contract {
+    font-family: var(--if-font-mono);
+    font-size: var(--if-text-xs);
+    overflow-wrap: anywhere;
+    text-align: end;
+  }
+  .coin-stats__link {
+    font-size: var(--if-text-xs);
+    color: var(--if-accent-text);
+  }
   .coin-stats__note {
     padding: 0 0 var(--if-space-4);
     font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);

@@ -1,4 +1,4 @@
--- intafaced:destructive reversal of 20261112130000_fee_saver.sql: drops the fee-saver uses and the voucher kind
+-- intafaced:destructive reversal of 20261112150000_fee_saver.sql: drops the fee-saver uses and the voucher kind
 -- Refuses while a fee-saver voucher is issued: dropping it would silently lose which orders took which coupon.
 DO $$
 BEGIN

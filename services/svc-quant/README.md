@@ -145,6 +145,24 @@ This service holds no balances and posts no ledger transactions. The internal
 book is paper: starting cash is a caller-supplied decimal string, marks are
 fixture prices, PnL is computed from fills in that run.
 
+## Paper orders (AL-orders-01, AL-orders-02, AL-orders-03)
+
+A sandbox run's `oms` places orders on the paper book, never the ledger: `buy` and `sell` (market), `limitBuy` and
+`limitSell` (symbol, qty, limit, time in force `gtc` or `ioc`), `cancel(id)`, `setPyramiding(n)` and
+`reverse(symbol, signedTarget)`. Each call returns `{ id, status, reason }` to the strategy, and the run's `events` list
+every order's events in order: `new`, `accepted`, `filled`, `rejected`, `cancel_pending`, `cancelled`.
+
+- A quantity of zero or less is `rejected` with `quantity invalid`; a bad limit `price invalid`; an unknown time in
+  force `time in force invalid`.
+- Pre-trade checks: a buy whose notional plus fee is more than the free cash (cash less what resting buys hold) is
+  `insufficient cash`, with `notional`, `fee` and `cash` on the event; a sell is checked against the position less what
+  resting sells hold (`exceeds position`); a sell with nothing held is `no short rule` (spot paper has none).
+- Pyramiding `n` refuses an entry past the `n`th in one position with `limit hit`; a flat position counts from one again.
+- A reversal is two legs, each checked on its own: the close, then the open on the other side.
+- After the script, resting limits meet a TEST price path once (`TEST_TICKS`, returned as `ticks` labelled TEST): a
+  buy fills at a tick at or below its limit, a sell at or above. It is a fixture, never a feed.
+- The fee is `QUANT_PAPER_FEE_BPS`, an owner value. Blank refuses every order `quant.paper_fee_unset`.
+
 ## Kill-switch
 
 `module.quant` at the edge (`/api/quant`). Flag `quant.sandbox` is rollout plan

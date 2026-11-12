@@ -9,6 +9,7 @@ import { CampaignService, parseTimeZone } from './campaigns.js';
 import { parseRuleLimit } from './rules.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
+import { ReferralService } from './referrals.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
 import { TaskService } from './tasks.js';
@@ -64,6 +65,8 @@ const tasks = new TaskService({
   timeZone: () => timeZone,
   rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
 });
+/** Referral programmes (CM-referral-02): each invitee once, and their own events that count towards qualifying. */
+const referrals = new ReferralService({ sql, markets });
 
 const attemptLimits =
   env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT && env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS && env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
@@ -75,7 +78,7 @@ const attemptLimits =
     : null;
 const vouchers = new VoucherService({ sql, participants, campaigns, saga, attemptLimits: () => attemptLimits });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers);
+const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, referrals);
 // svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
 // or by the shared secret where keys are not wired.
 const edgeContext = createEdgeContext({
@@ -212,6 +215,48 @@ async function attachWelcome(connected: JetStreamEventBus): Promise<void> {
         await tasks.onWelcomeEvent({ userId: fill.userId, event: 'trade.fill', eventId: fill.fillId, at: fill.ts });
       },
       { durable: 'campaigns-welcome-fill-settled' },
+    );
+    // Referral progress (CM-referral-02): each invitee once from their attach, then their own verify, deposit and fills,
+    // each kept once by its event id. Each has its own durable consumer, so one that fails is tried again on its own.
+    await connected.subscribe(
+      'referralCreated',
+      async (edge) => {
+        await referrals.onAttached(edge);
+      },
+      { durable: 'campaigns-referral-attached' },
+    );
+    await connected.subscribe(
+      'kycApproved',
+      async (kyc, envelope) => {
+        await referrals.onVerified({ userId: kyc.userId, tier: kyc.tier, eventId: envelope.idempotencyKey, at: envelope.occurredAt });
+      },
+      { durable: 'campaigns-referral-kyc-approved' },
+    );
+    await connected.subscribe(
+      'payDepositCreditPosted',
+      async (deposit) => {
+        await referrals.onDeposit({
+          userId: deposit.userId,
+          depositId: deposit.depositId,
+          asset: deposit.assetId,
+          amount: deposit.amount,
+          at: deposit.creditedAt,
+        });
+      },
+      { durable: 'campaigns-referral-deposit-credited' },
+    );
+    await connected.subscribe(
+      'fillSettled',
+      async (fill) => {
+        await referrals.onFill({
+          userId: fill.userId,
+          fillId: fill.fillId,
+          marketId: fill.marketId,
+          quoteAmount: fill.quoteAmount,
+          at: fill.ts,
+        });
+      },
+      { durable: 'campaigns-referral-fill-settled' },
     );
   } catch (err) {
     app.log.error({ err }, 'svc-campaigns could not attach the welcome checklist events: it waits, trying again');
