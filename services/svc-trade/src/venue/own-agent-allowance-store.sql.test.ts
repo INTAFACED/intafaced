@@ -101,6 +101,8 @@ describe('SqlAllowanceStore on Postgres (trade.user_venue_own_agent_allowances, 
     expect((await store.draws(USER, al.allowanceId)).length).toBe(1);
     // A refused draw no longer counts, so the room comes back.
     await store.refuse(USER, winner.orderId);
+    // ...and the refused draw is never admitted again on its order id, so it can't be sent outside the allowance.
+    expect(await store.admit(winner, new Date())).toMatchObject({ admitted: false, refusal: 'draw_refused' });
     expect(await store.admit(draw(al.allowanceId, '0.0002'), new Date())).toMatchObject({ admitted: true, replayed: false });
   });
 

@@ -80,6 +80,7 @@ const KNOWN = new Set([
   'agents.allowance_ended',
   'agents.allowance_revoked',
   'agents.allowance_exceeded',
+  'agents.order_refused',
   'agents.allowance_sub_account_unknown',
   'agents.policy_unavailable',
   'agents.policy_denied',

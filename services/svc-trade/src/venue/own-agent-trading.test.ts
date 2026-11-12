@@ -341,6 +341,33 @@ describe("a person's own agent trading their venue sub-account under an allowanc
     ).rejects.toMatchObject({ refusal: { code: 'agent_not_permitted' } });
   });
 
+  it('#6 money: a draw that was refused is refused again on its order id, never signed or sent outside the allowance', async () => {
+    const v = await active('20');
+    const orderId = uuid('0e');
+    const p = await trading.preview(person, AGENT, buy(orderId));
+    // The draw as place() admits it, then refused (the agent key's signing failed, or a revoke landed before it signed).
+    const d = {
+      userId: USER,
+      orderId,
+      allowanceId: v.allowanceId,
+      symbol: p.symbol,
+      side: 'buy' as const,
+      type: 'market' as const,
+      size: p.size,
+      price: p.price,
+      amount: p.notional,
+      state: 'admitted' as const,
+      createdAt: new Date(),
+    };
+    expect((await store.admit(d, new Date())).admitted).toBe(true);
+    await store.refuse(USER, orderId);
+    expect(await store.admit(d, new Date())).toMatchObject({ admitted: false, refusal: 'draw_refused' });
+    expect((await refusedAs(trading.place(person, AGENT, buy(orderId)))).code).toBe('agents.order_refused');
+    expect(await agentKeys()).toEqual([]);
+    expect((await sim.openOrders(subA)).value).toEqual([]);
+    expect((await sim.fills(subA, new Date(0))).value).toEqual([]);
+  });
+
   it('#6 money: two draws at once that together exceed the allowance admit one', async () => {
     await active('20');
     // Each about TEST 13 at the worst price (2% over a ~60000 mark): one fits in 20, two do not.

@@ -62,7 +62,7 @@ export function allowanceLeft(amount: Amount, draws: readonly DrawRecord[]): Amo
 }
 
 /** Why a draw was not admitted, decided under the allowance's row lock. */
-export type AdmitRefusal = 'not_active' | 'revoked' | 'ended' | 'exceeded' | 'order_reused';
+export type AdmitRefusal = 'not_active' | 'revoked' | 'ended' | 'exceeded' | 'order_reused' | 'draw_refused';
 
 export type AdmitOutcome =
   | { readonly admitted: true; readonly draw: DrawRecord; readonly replayed: boolean; readonly left: Amount }
@@ -84,7 +84,8 @@ export interface AllowanceStore {
   findDraw(userId: string, orderId: string): Promise<DrawRecord | null>;
   /**
    * Admit one draw under the allowance's row lock: the allowance active, not ended at `now`, and its amount less every
-   * admitted draw at least the draw's amount. The same order id again returns the draw stored for it.
+   * admitted draw at least the draw's amount. The same order id again returns the admitted draw stored for it; a refused
+   * one stays refused (`draw_refused`), so a retry never sends an order the allowance no longer counts.
    */
   admit(draw: DrawRecord, now: Date): Promise<AdmitOutcome>;
   /** The venue refused the order: the draw no longer counts. */
@@ -109,6 +110,8 @@ export function decideAdmit(a: AllowanceRecord, draws: readonly DrawRecord[], dr
   const existing = draws.find((d) => d.orderId === draw.orderId);
   if (existing) {
     if (!sameTerms(existing, draw)) return { admitted: false, refusal: 'order_reused', left };
+    // A refused draw no longer counts against the allowance, so it is never admitted again: a new order needs a new id.
+    if (existing.state === 'refused') return { admitted: false, refusal: 'draw_refused', left };
     return { admitted: true, draw: existing, replayed: true, left };
   }
   if (a.status === 'revoked') return { admitted: false, refusal: 'revoked', left };

@@ -73,6 +73,7 @@ export type OwnAgentTradingCode =
   | 'agents.allowance_unknown'
   | 'agents.allowance_live'
   | 'agents.allowance_reused'
+  | 'agents.order_refused'
   | 'agents.allowance_unset'
   | 'agents.allowance_not_signed'
   | 'agents.allowance_ended'
@@ -705,6 +706,8 @@ export class OwnAgentTrading {
             422,
             left,
           );
+        case 'draw_refused':
+          fail('agents.order_refused', `the order ${orderId} was refused and is never sent again; a new order needs a new id`, 409);
         case 'order_reused':
           throw new UserVenueDoorError(
             `the order id ${orderId} was already used for a different order; a new order needs a new id`,
