@@ -89,6 +89,7 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
             <strong>{t('waiting', { time: when(view.completesAt) })}</strong>
           </p>
           <p lang={languageFor('told')}>{t('told', { email: view.told.email })}</p>
+          {view.told.also.length > 0 && <p lang={languageFor('toldAlso')}>{t('toldAlso', { emails: view.told.also.join(', ') })}</p>}
           {view.told.sms && <p lang={languageFor('noSms')}>{t('noSms')}</p>}
           <p lang={languageFor('notYou')}>{t('notYou')}</p>
           <p lang={languageFor('after')}>{t('after')}</p>

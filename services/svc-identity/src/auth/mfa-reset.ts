@@ -7,8 +7,9 @@
  *   the row locks are held) and never moved: confirming again answers the time already set, and a later change to the
  *   owner's wait does not touch it. A blank wait refuses (`identity.mfa_reset_unconfigured`); it never means "no wait",
  *   and the sign-in page then points to Support.
- * - When the wait starts, every contact on file is told: the proved address by mail. A proved phone would be texted, but
- *   texting needs `vendor.sms`, which this build does not have, so the answer names that instead of claiming a text.
+ * - When the wait starts, every contact on file is told: the account's proved address and every other address the person
+ *   proved they hold (Receive's `receive_contacts`), each by mail. A proved phone would be texted, but texting needs
+ *   `vendor.sms`, which this build does not have, so the answer names that instead of claiming a text.
  * - Any signed-in session of the account stops it (`cancel`), which mails a notice too. So does a sign-in whose second step
  *   passes with the authenticator app or a recovery code (`stopByProof`): the person still has a way in.
  * - It is tied to the authenticator app it was started for: an app turned off or set up again after the wait began ends
@@ -78,14 +79,17 @@ export interface MfaResetDeps {
   readonly afterCommit?: (() => void | Promise<void>) | undefined;
 }
 
-/** What the person is shown. `email` is masked; `sms` names the missing rail when a proved phone could not be texted. */
+/**
+ * What the person is shown. `email` (the account's address) and `also` (every other proved address) are masked; `sms`
+ * names the missing rail when a proved phone could not be texted.
+ */
 export type MfaResetView =
   | { readonly state: 'code_sent'; readonly resetId: string; readonly email: string; readonly codeExpiresAt: string }
   | {
       readonly state: 'waiting';
       readonly resetId: string;
       readonly completesAt: string;
-      readonly told: { readonly email: string; readonly sms: 'vendor.sms' | null };
+      readonly told: { readonly email: string; readonly also: string[]; readonly sms: 'vendor.sms' | null };
     };
 
 type Budget = { wait: number; ttl: number; maxAttempts: number; key: string; mail: PasswordResetMail };
@@ -165,12 +169,31 @@ type ResetRow = {
   expired: boolean;
 };
 
-function waitingView(row: { id: string; completes_at: Date | null }, user: UserRow): MfaResetView {
+/** The person's other contacts on file: every address and phone they proved they hold on Receive, oldest proof first. */
+type OtherContacts = { emails: Array<{ id: string; target: string }>; phone: boolean };
+
+async function otherContacts(tx: Sql, userId: string, own: string | null): Promise<OtherContacts> {
+  const rows = await tx<Array<{ id: string; channel: string; target: string }>>`
+    SELECT id, channel, target::text AS target FROM receive_contacts
+    WHERE user_id = ${userId} AND verified_at IS NOT NULL
+    ORDER BY verified_at, id`;
+  const ownAddress = (own ?? '').toLowerCase();
+  return {
+    emails: rows.filter((r) => r.channel === 'email' && r.target.toLowerCase() !== ownAddress),
+    phone: rows.some((r) => r.channel === 'phone'),
+  };
+}
+
+function waitingView(row: { id: string; completes_at: Date | null }, user: UserRow, others: OtherContacts): MfaResetView {
   return {
     state: 'waiting',
     resetId: row.id,
     completesAt: new Date(row.completes_at!).toISOString(),
-    told: { email: maskEmail(user.email ?? ''), sms: user.phone && user.phone_verified_at ? 'vendor.sms' : null },
+    told: {
+      email: maskEmail(user.email ?? ''),
+      also: others.emails.map((c) => maskEmail(c.target)),
+      sms: (user.phone && user.phone_verified_at) || others.phone ? 'vendor.sms' : null,
+    },
   };
 }
 
@@ -197,7 +220,7 @@ export async function startMfaReset(deps: MfaResetDeps, userId: string): Promise
       const [open] = await tx<ResetRow[]>`
         SELECT id, state, code_hash, code_expires_at, attempts, completes_at, false AS expired
         FROM mfa_resets WHERE user_id = ${userId} AND state IN ('code_sent', 'waiting')`;
-      if (open?.state === 'waiting') return waitingView(open, user);
+      if (open?.state === 'waiting') return waitingView(open, user, await otherContacts(tx, userId, user.email));
       const now = deps.now();
       const [recent] = await tx<Array<{ n: number; oldest: Date | null }>>`
         SELECT count(*)::int AS n, min(created_at) AS oldest FROM mfa_resets
@@ -248,7 +271,7 @@ export async function confirmMfaReset(deps: MfaResetDeps, input: { resetId: stri
     if (!row) return { refuse: 'auth.code_invalid' as const };
     if (row.state === 'locked') return { refuse: 'auth.too_many_attempts' as const };
     if (row.state !== 'code_sent' && row.state !== 'waiting') return { refuse: 'auth.code_expired' as const };
-    if (row.state === 'waiting') return { view: waitingView(row, user) };
+    if (row.state === 'waiting') return { view: waitingView(row, user, await otherContacts(tx, row.user_id, user.email)) };
     if (row.expired) {
       await tx`UPDATE mfa_resets SET state = 'expired', code_hash = NULL, updated_at = now() WHERE id = ${row.id}`;
       return { refuse: 'auth.code_expired' as const };
@@ -276,16 +299,23 @@ export async function confirmMfaReset(deps: MfaResetDeps, input: { resetId: stri
         updated_at = clock_timestamp()
       WHERE id = ${row.id} AND state = 'code_sent'
       RETURNING id, completes_at`;
-    await queueMail(tx, {
-      userId: row.user_id,
-      key: `mfa-reset-started:${row.id}`,
-      purpose: 'mfa-reset-started',
-      recipient: user.email,
-      code: null,
-      expiresAt: waiting!.completes_at,
-      now: deps.now(),
-    });
-    return { view: waitingView(waiting!, user) };
+    // Every contact on file, in the same transaction as the start of the wait: a crash tells all of them or none.
+    const others = await otherContacts(tx, row.user_id, user.email);
+    const now = deps.now();
+    for (const to of [{ key: `mfa-reset-started:${row.id}`, recipient: user.email }].concat(
+      others.emails.map((c) => ({ key: `mfa-reset-started:${row.id}:${c.id}`, recipient: c.target })),
+    )) {
+      await queueMail(tx, {
+        userId: row.user_id,
+        key: to.key,
+        purpose: 'mfa-reset-started',
+        recipient: to.recipient,
+        code: null,
+        expiresAt: waiting!.completes_at,
+        now,
+      });
+    }
+    return { view: waitingView(waiting!, user, others) };
   });
   await deps.afterCommit?.();
   if ('refuse' in outcome) throw new MfaResetError(outcome.refuse!);
