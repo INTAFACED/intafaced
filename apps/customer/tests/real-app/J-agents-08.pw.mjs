@@ -410,7 +410,7 @@ test(`${J} #7 revokes the allowance during a run: our copy of the agent key is d
   testWallet.rejectNext();
   await row.getByRole('button', { name: 'Revoke' }).click();
   const revoked = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Revoked' });
-  await expect(revoked).toContainText('your wallet has not signed the venue’s revoke yet');
+  await expect(revoked).toContainText('the venue’s revoke waits for your wallet’s signature');
   expect(testWallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
   expect(await permissionsOnA()).toEqual([agentAddress]);
   // The run's order, approved now, is refused: nothing is signed or sent.

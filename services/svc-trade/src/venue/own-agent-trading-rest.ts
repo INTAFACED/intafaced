@@ -62,21 +62,20 @@ export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAg
 
   type Agent = { Params: { agentId: string } };
   type Allowance = { Params: { agentId: string; id: string } };
-  const base = `${OWN_AGENTS_PATH}/:agentId`;
 
-  app.get<Agent>(`${base}/allowances`, privateRead, async (req, reply) => {
+  app.get<Agent>(`${OWN_AGENTS_PATH}/:agentId/allowances`, privateRead, async (req, reply) => {
     const principal = admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (t) => ({ allowances: await t.list(principal, req.params.agentId) }));
   });
 
-  app.post<Agent>(`${base}/allowances`, privateWrite, async (req, reply) => {
+  app.post<Agent>(`${OWN_AGENTS_PATH}/:agentId/allowances`, privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => t.grant(principal, req.params.agentId, body(req)));
   });
 
-  app.post<Allowance>(`${base}/allowances/:id/submit`, privateWrite, async (req, reply) => {
+  app.post<Allowance>(`${OWN_AGENTS_PATH}/:agentId/allowances/:id/submit`, privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => {
@@ -85,26 +84,26 @@ export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAg
     });
   });
 
-  app.post<Allowance>(`${base}/allowances/:id/abandon`, privateWrite, async (req, reply) => {
+  app.post<Allowance>(`${OWN_AGENTS_PATH}/:agentId/allowances/:id/abandon`, privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => t.abandon(principal, req.params.agentId, req.params.id));
   });
 
-  app.post<Allowance>(`${base}/allowances/:id/revoke`, privateWrite, async (req, reply) => {
+  app.post<Allowance>(`${OWN_AGENTS_PATH}/:agentId/allowances/:id/revoke`, privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => t.revoke(principal, req.params.agentId, req.params.id));
   });
 
-  app.post<Agent>(`${base}/orders/preview`, privateWrite, async (req, reply) => {
+  app.post<Agent>(`${OWN_AGENTS_PATH}/:agentId/orders/preview`, privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => t.preview(principal, req.params.agentId, body(req)));
   });
 
   // An answer that is not definite is 202: retry the same orderId, which reads the venue's record first and never signs again.
-  app.post<Agent>(`${base}/orders`, privateWrite, async (req, reply) => {
+  app.post<Agent>(`${OWN_AGENTS_PATH}/:agentId/orders`, privateWrite, async (req, reply) => {
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     try {
@@ -122,7 +121,7 @@ export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAg
     }
   });
 
-  app.get<Agent>(`${base}/orders`, privateRead, async (req, reply) => {
+  app.get<Agent>(`${OWN_AGENTS_PATH}/:agentId/orders`, privateRead, async (req, reply) => {
     const principal = admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (t) => ({ orders: await t.orders(principal, req.params.agentId) }));
