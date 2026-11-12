@@ -20,6 +20,7 @@ import type { PayFiatRampPort } from './pay-fiat-adapter.js';
 import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME } from './rails.js';
 import { onrampSim } from './onramp-sim.js';
 import { PAYIN_SIM_RAIL, payinSim } from './payin-sim.js';
+import { TEST_PURCHASE_HOLD_DAYS, testPartner as testPartnerBank } from '../partner/test-partner.js';
 
 const SECRET = 'bank-add-money-edge-secret-long-enough';
 const ADA = '11111111-1111-4111-8111-111111111111';
@@ -609,6 +610,97 @@ describe('add money (J-bank-02)', () => {
         expect(((await call().catch((e: unknown) => e)) as { code?: string }).code).toBe('bank.fiat_ramp_socket');
       }
       nothingPosted();
+    });
+
+    describe('for a person whose money the partner holds (J-wallet-01 #3; OWNER 226)', () => {
+      /** The same TEST partner bank behind the customer's router and the bank's own services, with ADA held at it. */
+      function atPartner() {
+        const tp = testPartnerBank();
+        tp.set(ADA, { custody: 'off' });
+        const extra = { onrampPartner: partner, testPartner: tp };
+        const bank: BankServices = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+          ramps: { onrampStandIn: rates },
+          ...extra,
+        });
+        return { tp, bank, caller: as(ADA, { onrampStandIn: rates }, extra) };
+      }
+
+      it('paid is credited by the partner once, held back until its release time, and the ledger posts nothing', async () => {
+        const { tp, bank, caller } = atPartner();
+        tp.fund(ADA, { fundId: 'fund-ada-50', assetId: 'USDT', amount: parseAmount('50') });
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        await bank.addMoney.approved(request.requestId);
+        const paid = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' };
+        const before = Date.now();
+        const first = await bank.addMoney.paid(paid);
+        expect(first).toMatchObject({ status: 'credited', creditedAmount: quote.amount, creditedBy: 'partner' });
+        const [second, third] = await Promise.all([bank.addMoney.paid(paid), bank.addMoney.paid(paid)]);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+        nothingPosted();
+        // Invariant: the partner's balance gained the receive amount exactly, once, and it holds all of it back.
+        const main = { userId: ADA, assetId: 'USDT', spaceId: null };
+        expect((await tp.bank.balance(main)).amount).toBe(parseAmount('50') + parseAmount(quote.amount));
+        const holds = await caller.partnerHolds();
+        if (!holds.held) throw new Error('ADA is held at the partner');
+        expect(holds).toMatchObject({ label: 'TEST partner bank', reported: true, released: [] });
+        expect(holds.holds).toHaveLength(1);
+        expect(holds.holds[0]).toMatchObject({ assetId: 'USDT', amount: quote.amount, paidBy: 'bank_pull' });
+        const release = Date.parse(holds.holds[0]!.releaseAt);
+        expect(release).toBeGreaterThanOrEqual(before + TEST_PURCHASE_HOLD_DAYS.bank_pull * 86_400_000);
+        expect(holds.balances).toEqual([
+          expect.objectContaining({ assetId: 'USDT', balance: '62.345678', heldBack: quote.amount, withdrawable: '50' }),
+        ]);
+      });
+
+      it('a crash after the partner credited and before the row said so catches up, credited once', async () => {
+        const { tp, bank, caller } = atPartner();
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        const paid = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' };
+        await bank.addMoney.paid(paid);
+        await sql`
+          UPDATE bank.add_money_requests
+             SET status = 'opened', credited_at = NULL, credited_amount = NULL, partner_pay_in_ref = NULL
+           WHERE id = ${request.requestId}::uuid
+        `;
+        expect(await bank.addMoney.paid(paid)).toMatchObject({ status: 'credited', creditedBy: 'partner' });
+        expect((await tp.bank.balance({ userId: ADA, assetId: 'USDT', spaceId: null })).amount).toBe(parseAmount(quote.amount));
+        nothingPosted();
+      });
+
+      it('the partner down credits nothing and leaves the request as it was, for its next paid', async () => {
+        const { tp, bank, caller } = atPartner();
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        tp.set(ADA, { down: true });
+        const paid = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' };
+        expect(((await bank.addMoney.paid(paid).catch((e: unknown) => e)) as { code?: string }).code).toBe('bank.partner_unavailable');
+        expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject({ status: 'opened', creditedBy: null });
+        tp.set(ADA, { down: false });
+        expect(await bank.addMoney.paid(paid)).toMatchObject({ status: 'credited', creditedBy: 'partner' });
+        nothingPosted();
+      });
+
+      it('holds not reported read "not reported", never nothing held, and what can be withdrawn is not known', async () => {
+        const { tp, caller } = atPartner();
+        tp.fund(ADA, { fundId: 'fund-ada-10', assetId: 'USDT', amount: parseAmount('10') });
+        tp.set(ADA, { purchaseHolds: 'not_reported' });
+        const holds = await caller.partnerHolds();
+        expect(holds).toMatchObject({ held: true, reported: false, asOf: null, holds: [], released: [] });
+        if (!holds.held) throw new Error('ADA is held at the partner');
+        expect(holds.balances).toEqual([expect.objectContaining({ assetId: 'USDT', balance: '10', heldBack: null, withdrawable: null })]);
+      });
+
+      it('a person the partner holds no money for has no partner holds', async () => {
+        const { caller } = atPartner();
+        expect(await as(BOB, { onrampStandIn: rates }, {}).partnerHolds()).toEqual({ held: false });
+        expect((await caller.partnerHolds()).held).toBe(true);
+      });
     });
   });
 });
