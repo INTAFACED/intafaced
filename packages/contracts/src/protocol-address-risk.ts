@@ -77,3 +77,63 @@ export const protocolAddressReportReceiptSchema = z.object({
 });
 export type ProtocolAddressReportInput = z.infer<typeof protocolAddressReportInputSchema>;
 export type ProtocolAddressReportReceipt = z.infer<typeof protocolAddressReportReceiptSchema>;
+
+/**
+ * The compliance queue (D-developer-compliance-01, J-dex-protocol-30 #1 #2), version 1: svc-protocol's operator reads and
+ * writes under `compliance.*`. An operator sees each report with who filed it and how many duplicates by the same person
+ * were refused. A label is published only by two different people: the first asks, the second approves, and the label,
+ * its history row and the report's status change in one transaction.
+ */
+export const PROTOCOL_COMPLIANCE_REFUSALS = [
+  /** The report is not in the queue. */
+  'protocol.compliance.report_unknown',
+  /** The review is not pending, or does not exist. */
+  'protocol.compliance.review_unknown',
+  /** The person who asked cannot be the second reviewer. */
+  'protocol.compliance.same_reviewer',
+  /** A review for this report and label kind is already pending. */
+  'protocol.compliance.review_pending',
+] as const;
+export type ProtocolComplianceRefusal = (typeof PROTOCOL_COMPLIANCE_REFUSALS)[number];
+
+export const ADDRESS_LABEL_REASON_MAX = 500;
+
+export const protocolComplianceReviewSchema = z.object({
+  id: z.string(),
+  kind: z.enum(ADDRESS_LABEL_KINDS),
+  reason: z.string(),
+  status: z.enum(['pending', 'published']),
+  requesterId: z.string(),
+  approverId: z.string().nullable(),
+  askedAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+export const protocolComplianceReportSchema = z.object({
+  id: z.string(),
+  chainId: z.number().int(),
+  address: z.string(),
+  kind: z.enum(ADDRESS_REPORT_KINDS),
+  /** Compliance only: the signed-in person who filed it. Never on the public read. */
+  reporterId: z.string(),
+  note: z.string().nullable(),
+  evidenceUrl: z.string().nullable(),
+  status: z.enum(['open', 'published', 'dismissed']),
+  /** How many further reports by the same person about the same address were refused as duplicates. */
+  duplicatesRefused: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  reviews: z.array(protocolComplianceReviewSchema),
+});
+export const protocolComplianceReportsOutputSchema = z.object({
+  asOf: z.string(),
+  chainId: z.number().int(),
+  reports: z.array(protocolComplianceReportSchema),
+});
+export const protocolComplianceLabelAskInputSchema = z.object({
+  reportId: z.string().uuid(),
+  kind: z.enum(ADDRESS_LABEL_KINDS),
+  reason: z.string().trim().min(1).max(ADDRESS_LABEL_REASON_MAX),
+});
+export const protocolComplianceLabelApproveInputSchema = z.object({ reviewId: z.string().uuid() });
+export type ProtocolComplianceReview = z.infer<typeof protocolComplianceReviewSchema>;
+export type ProtocolComplianceReport = z.infer<typeof protocolComplianceReportSchema>;
+export type ProtocolComplianceReportsOutput = z.infer<typeof protocolComplianceReportsOutputSchema>;

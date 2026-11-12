@@ -2433,6 +2433,17 @@ const protocolSections: readonly DeskSection[] = [
       },
     ],
   },
+  {
+    id: 'trust',
+    title: 'Trust and safety',
+    intro:
+      'Scam reports with who filed them, and the labels two reviewers publish from them; the trust criteria; and the audit and disclosure room, as svc-protocol reports them. A label is a record about an address, not a verdict.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [],
+    panel: 'protocol.trust',
+  },
 ];
 
 export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
