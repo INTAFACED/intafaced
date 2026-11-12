@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { BankError } from '../errors.js';
 import type { AddMoneyRequestView, AddMoneyService } from './add-money.js';
-import { PayinSimRefusedError, onrampPartnerFor, parsePayinSim, payinSim } from './payin-sim.js';
+import { PayinSimRefusedError, onrampPartnerFor, parsePayinSim, payinSim, payinSimReference } from './payin-sim.js';
 import { registerPayinSimPage } from './payin-sim-page.js';
 
 const CATALOGUE = JSON.stringify({ label: 'TEST pay-in stand-in', methods: ['pay_by_bank'] });
@@ -32,6 +32,25 @@ describe('the add-money pay-in stand-in', () => {
     expect(partner.returnUrl(ID)).toBe(`${BACK}?request=${ID}`);
   });
 
+  it('answers a bank transfer with its own TEST reference and TEST account only when its catalogue names one', async () => {
+    const catalogue = {
+      label: 'TEST pay-in stand-in',
+      methods: ['pay_by_bank'],
+      bankTransfer: { accountName: 'TEST pay-in stand-in account', accountRef: 'NL91ABNA0417164300' },
+    };
+    const partner = onrampPartnerFor('payin-sim', { ...config, catalogueJson: JSON.stringify(catalogue) }, { APP_ENV: 'test' })!;
+    expect(partner.covers('bank_transfer')).toBe(true);
+    const input = { onrampId: ID, quoteId: ID, userId: 'u', assetId: 'USDT', amount: '20' };
+    const opened = await partner.payments.open({ ...input, method: 'bank_transfer' });
+    expect(opened).toEqual({
+      partnerRail: 'payin-sim',
+      bank: { reference: payinSimReference(ID), accountName: 'TEST pay-in stand-in account', accountRef: 'NL91ABNA0417164300' },
+    });
+    expect(payinSimReference(ID)).toBe('TEST-333333333333');
+    // The same payment asked again gets the same reference.
+    expect(await partner.payments.open({ ...input, method: 'bank_transfer' })).toEqual(opened);
+  });
+
   it('refuses to start outside dev or test, or under NODE_ENV=production', () => {
     for (const env of [{}, { APP_ENV: 'production' }, { APP_ENV: 'staging' }, { APP_ENV: 'dev', NODE_ENV: 'production' }]) {
       expect(() => onrampPartnerFor('payin-sim', config, env)).toThrow(PayinSimRefusedError);
@@ -46,8 +65,14 @@ describe('the add-money pay-in stand-in', () => {
       JSON.stringify({ label: 'Live partner', methods: ['pay_by_bank'] }),
       JSON.stringify({ label: 'TEST', methods: [] }),
       JSON.stringify({ label: 'TEST', methods: ['pay_by_bank', 'pay_by_bank'] }),
-      // A bank transfer is instructions, not a page: the stand-in opens none.
+      // A bank transfer is instructions, not a page: it is never a listed page, only its own TEST account.
       JSON.stringify({ label: 'TEST', methods: ['bank_transfer'] }),
+      JSON.stringify({
+        label: 'TEST',
+        methods: ['pay_by_bank'],
+        bankTransfer: { accountName: 'Live account', accountRef: 'NL91ABNA0417164300' },
+      }),
+      JSON.stringify({ label: 'TEST', methods: ['pay_by_bank'], bankTransfer: { accountName: 'TEST', accountRef: '' } }),
       JSON.stringify({ label: 'TEST', methods: ['pay_by_bank'], extra: true }),
     ]) {
       expect(parsePayinSim(bad)).toBeNull();
@@ -105,6 +130,7 @@ describe("the pay-in stand-in's page", () => {
     creditedAt: null,
     creditedAmount: null,
     creditedBy: null,
+    returnedAt: null,
   });
 
   function mounted(status: AddMoneyRequestView['status'], approvedCalls: string[] = []) {
