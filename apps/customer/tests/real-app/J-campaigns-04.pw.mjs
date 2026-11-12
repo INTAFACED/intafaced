@@ -323,11 +323,13 @@ test(`${J} #1 opens /uc/promotion on a new account: the checklist with its time 
   // The main account signs up under the full campaign, with every reward set and a week's window.
   await endCampaign(short.id);
   const full = await liveWelcome(`TEST welcome ${tag}`, { windowSeconds: 7 * 86_400 });
-  const me = await newAccountWithWallet(page, 'jc04me', full.id);
-  const mine = await openChecklist(page);
+  // Its own browser, with its own TEST wallet installed: a page holds one wallet.
+  const mePage = await (await browser.newContext()).newPage();
+  const me = await newAccountWithWallet(mePage, 'jc04me', full.id);
+  const mine = await openChecklist(mePage);
   await expect(mine.getByTestId('welcome-campaign')).toHaveText(full.name);
   await expect(mine.getByTestId('welcome-window')).toHaveAttribute('data-state', 'open');
-  await expect(row(page, 'pay.deposit').getByTestId('welcome-reward')).toHaveText('0.02 USDT');
+  await expect(row(mePage, 'pay.deposit').getByTestId('welcome-reward')).toHaveText('0.02 USDT');
   run.write({ early: early.who, earlyKey: early.walletKey, me: me.who, meKey: me.walletKey, shortId: short.id, fullId: full.id });
 });
 
