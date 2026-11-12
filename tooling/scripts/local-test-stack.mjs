@@ -1586,6 +1586,8 @@ function testChain() {
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
+    // The TEST trading venue (SovereignVenue) a wallet deposits into and withdraws from (J-dex-protocol-05 #9).
+    venue: record.venue ?? null,
     liquidityRouter: record.liquidityRouter ?? null,
     // The smart account factory and implementation (J-dex-protocol-08's session keys).
     accountFactory: record.accountFactory ?? null,

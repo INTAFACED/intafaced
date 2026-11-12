@@ -112,6 +112,7 @@ export * from './protocol-address-risk.js';
 export * from './protocol-sessions.js';
 export * from './protocol-wallet-tx.js';
 export * from './protocol-venue-wallet.js';
+export * from './protocol-venue-funds.js';
 export * from './outcome-markets.js';
 export * from './protocol-tokens.js';
 export * from './protocol-contract-source.js';

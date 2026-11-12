@@ -189,6 +189,7 @@ export const appRouter = createProtocolRouter({
         }
       : null,
   claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
+  venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
   swapV2: () =>
     isZeroAddress(env.PROTOCOL_ROUTER_V2_ADDRESS) ||
     isZeroAddress(env.PROTOCOL_SOVEREIGN_PERMIT_ADDRESS) ||

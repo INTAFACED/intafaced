@@ -81,6 +81,7 @@ import { createTokensRouter } from './amm/tokens-router.js';
 import { contractChain, createContractSourceRouter, type ContractChain } from './contract-source/router.js';
 import { createBridgeRouter } from './bridge/router.js';
 import { bridgeRoutesLoader } from './bridge/routes.js';
+import { createVenueFundsRouter } from './venue/router.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
 import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
@@ -488,6 +489,8 @@ export interface ProtocolRouterDeps {
   feeRelay?: () => FeeRelaySetting | null;
   /** `PROTOCOL_CLAIM_ESCROW_ADDRESS` (D-swap-12). Null, zero or absent: claim links refuse `protocol.claim_escrow_unset`. */
   claimEscrow?: () => Address | null;
+  /** `PROTOCOL_VENUE_ADDRESS` (D-bridge-chain-04). Null, zero or absent: venue funds refuse `protocol.venue_unset`. */
+  venue?: () => Address | null;
   /**
    * `PROTOCOL_TX_FEE_BUMP_BPS` and `PROTOCOL_TX_FEE_CEILING_WEI` (RC-dex-protocol-01). Absent or null: speed up and cancel
    * refuse `protocol.fee_bump_unset` / `protocol.fee_ceiling_unset`.
@@ -1350,6 +1353,14 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       chain: () => chain.client,
       claimEscrow: () => deps.claimEscrow?.() ?? null,
       replacement: () => deps.replacement?.() ?? { bumpBps: null, ceilingWei: null },
+      toTrpcError,
+    }),
+
+    // ── Trading venue funds (D-bridge-chain-04): src/venue/ ──
+    venue: createVenueFundsRouter({
+      chain: () => chain.client,
+      venue: () => deps.venue?.() ?? null,
+      directApproveReverts: (token, owner, spender, amount) => chain.directApproveReverts(token, owner, spender, amount),
       toTrpcError,
     }),
 
