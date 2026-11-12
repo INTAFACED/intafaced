@@ -6,7 +6,7 @@ import { ADMIN } from './admin.mjs';
 import { api, fromUnits, toUnits, tool } from './stack.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
-import { otherTraderRun, testDeposit, otherTraderKey } from './venue.mjs';
+import { otherTraderRun, testDeposit, otherTraderKey, venueRecord } from './venue.mjs';
 
 // J-derivatives-17 "I reconcile the builder fees the venues report against the ledger", in the founder console
 // (docs/roadmap/journeys.json). One test per step, titled "J-derivatives-17 #<n>", run in order. The person is the
@@ -68,10 +68,9 @@ async function venueId() {
 }
 const account = async () => ({ venueId: await venueId(), owner, subAccount: null });
 
-/** The venue's own fills for our trader since `since`, with our builder fee on them. */
+/** The venue's own fills for our trader since `since`, with our builder fee on them: the TEST venue's own record, read by the venue fixture. */
 async function venueFills(since) {
-  const { status, body } = await testVenue('/fills', { account: await account(), since: since.toISOString() });
-  expect(status, JSON.stringify(body)).toBe(200);
+  const body = await venueRecord(owner, '/fills', { since: since.toISOString() });
   return body.value.filter((f) => !/^0(\.0+)?$/.test(f.builderFee));
 }
 
@@ -176,8 +175,7 @@ async function ledgerPaidOut(id) {
 
 /** The TEST venue's own builder totals for our builder address, per asset: what it has credited us, and what of that is unclaimed. */
 async function venueBuilderTotals(builder) {
-  const { status, body } = await testVenue('/builder-totals', { builder });
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const body = await venueRecord(owner, '/builder-totals', { builder });
   expect(body.value, 'the TEST venue reports its builder totals').toMatchObject({ known: true });
   return new Map(body.value.value.assets.map((a) => [a.asset, { earned: toUnits(a.earned), unclaimed: toUnits(a.unclaimed) }]));
 }
