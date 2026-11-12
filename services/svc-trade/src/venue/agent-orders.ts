@@ -491,6 +491,127 @@ export class AgentOrders {
   }
 
   /**
+   * A spot order INTAFACED places for the person on one of their own open agent accounts, under the business key its
+   * caller derives (copy trading on the venue: `copy-mirror:…`, `copy.close:…`; copy/venue-copy.ts). The same path as
+   * the assistant's order: the person's own per-order and daily-loss caps, then the account's cap and the owner's bounds
+   * held by the capped signer before the agent key signs, the bytes stored before they are sent, and a retry of the key
+   * read back from the venue's record by its client order id, never signed again. Only on the account's own
+   * sub-account; the main venue account is never named.
+   */
+  async placeOnAccount(
+    principal: Principal,
+    accountId: string,
+    key: string,
+    order: { symbol: string; side: 'buy' | 'sell'; amount: Amount; price: Amount; timeInForce: 'GTC' | 'IOC' },
+  ): Promise<AgentOrderView> {
+    const seed = this.deps.values.keySeed;
+    if (seed === null)
+      throw new AgentAccountError(
+        'agents.agent_key_unset',
+        'the agent key secret is not set (owner value blank), so nothing is signed',
+        422,
+      );
+    const a = await this.deps.accounts.find(principal.userId, accountId);
+    if (!a || a.status !== 'open' || a.subAccount === null) {
+      throw new AgentAccountError(
+        'agents.account_not_open',
+        `agent account ${accountId} is ${a?.status ?? 'gone'}; nothing is placed`,
+        409,
+        {
+          accountId,
+        },
+      );
+    }
+    const account = a as AgentAccountRecord & { subAccount: string };
+    if (compare(order.amount, ZERO) <= 0 || compare(order.price, ZERO) <= 0) orderInvalid('amount and price must be above zero');
+    const venue = await this.deps.door.venue();
+    if (account.venueId !== venue.venue.id) {
+      throw new AgentAccountError(
+        'agents.account_not_open',
+        `agent account ${accountId} is on ${account.venueId}, not ${venue.venue.id}`,
+        409,
+      );
+    }
+    const sub: UserVenueAccount = { venueId: venue.venue.id, owner: account.owner, subAccount: account.subAccount };
+    const tag = key.split(':')[0] ?? 'copy';
+    const stored = await this.deps.door.stored(principal, key);
+    if (stored?.signature) {
+      const was = stored.prepared.intent;
+      if (
+        was.kind !== 'place_order' ||
+        was.symbol !== order.symbol ||
+        was.side !== order.side ||
+        was.amount !== order.amount ||
+        was.price !== order.price ||
+        was.timeInForce !== order.timeInForce
+      ) {
+        throw new UserVenueDoorError(`the key ${key} was already used for a different order`, 'idempotency.conflict', 409);
+      }
+      return this.readBackOrResend(principal, account, tag, key, key, stored.signature, venue);
+    }
+    const market = (await venue.markets(sub)).value.find((m) => m.symbol === order.symbol);
+    if (!market)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'unknown_market',
+        detail: `${order.symbol} is not listed on ${venue.venue.displayName}`,
+      });
+    if (market.kind !== 'spot') orderInvalid(`${order.symbol} is a ${market.kind} market; this path places spot orders only`);
+    const intent: PlaceUserOrderIntent = {
+      kind: 'place_order',
+      symbol: order.symbol,
+      side: order.side,
+      type: 'limit',
+      amount: order.amount,
+      price: order.price,
+      timeInForce: order.timeInForce,
+      reduceOnly: false,
+      clientOrderKey: key,
+      builderFee: null,
+    };
+    this.withinAccountLimits(account, intent, null);
+    await this.withinDailyLoss(account, venue, sub);
+    const signer = this.signerFor(account, venue, seed);
+    const cap: AgentCap = {
+      account: sub,
+      agentAddress: account.agentAddress,
+      asset: account.asset,
+      cap: account.cap,
+      validUntil: null,
+      revokedAt: null,
+    };
+    let prepared: PreparedVenueAction;
+    try {
+      prepared = (
+        await this.deps.door.prepare(
+          principal,
+          { owner: account.owner, subAccount: account.subAccount, signer: { role: 'agent', address: account.agentAddress }, intent },
+          { agentAccount: true },
+        )
+      ).prepared;
+    } catch (error) {
+      throw this.venueNamed(error, venue, key);
+    }
+    if (
+      prepared.account.venueId !== sub.venueId ||
+      prepared.account.owner.toLowerCase() !== account.owner ||
+      prepared.account.subAccount !== account.subAccount ||
+      prepared.signer.role !== 'agent' ||
+      prepared.signer.address.toLowerCase() !== account.agentAddress
+    ) {
+      throw new Error(`order ${key} was prepared outside its agent sub-account; nothing is signed`);
+    }
+    await this.refreshMarks(account, venue, sub, order.symbol, market.baseAsset);
+    let signature: VenueSignature;
+    try {
+      ({ signature } = await signer.sign(prepared, cap));
+    } catch (error) {
+      throw this.signRefusal(error, venue, key);
+    }
+    return this.send(principal, account, tag, key, key, signature, venue, false);
+  }
+
+  /**
    * #17: an order past the person's own per-order size cap (its notional, amount × price as signed, in the account's
    * asset) or an opening perpetual past their leverage cap is refused naming the cap, before the leverage is set or the
    * agent key signs anything. A cap not set leaves only the owner's bounds.

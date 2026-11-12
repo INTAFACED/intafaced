@@ -1,9 +1,12 @@
-// World: book, gates
-import { createHash } from 'node:crypto';
+// World: book, gates, restart
+import { createHash, randomUUID } from 'node:crypto';
+import { keccak256, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders, signIn } from './desk.mjs';
-import { refusalCode } from './p2p.mjs';
+import { confirmStepUp, refusalCode, restorePasskey, testPasskey } from './p2p.mjs';
+import { testDeposit, testVenue, venueForThisFile, venueInfo } from './venue.mjs';
 import { copiedOrders, copiedOrdersLoaded, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
 
 // J-copy-bots-otc-03, in the running app (docs/roadmap/journeys.json): pause, stop or leave a copy, close what I choose,
@@ -14,18 +17,18 @@ import { copiedOrders, copiedOrdersLoaded, followOnScreen, leadFill, listLeader,
 // svc-trade and every balance from the ledger.
 // #5 tries a skipped fill again through the stack's LOCAL TEST rewind (`local-test-gates.mjs copy-rewind`): nothing in the
 // running app sends a fill the copy driver has passed through it again.
-// A step whose part is not built yet is red by the name of what it waits for:
-// - #4 (B3): copy.flatten asks no step-up; today a bare call closes and leaves the follow at once.
-// - #6 (B5): no in-app notice for a skipped or stopped follow.
+// #3 and #4 run on the venue (OWNER 226): a second follow, of a TEST leader on the stack's TEST venue, copies onto the
+// follower's own agent account, and its positions, closes and close-all are the venue's own record (venueStart below).
+// svc-trade's user-venue door is on for this file (venueForThisFile), so trade restarts once before and once after it.
 const J = 'J-copy-bots-otc-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 const SYMBOL = 'BTC%2FUSDT';
 const SYMBOL_TEXT = 'BTC/USDT';
 
 test.describe.configure({ mode: 'default' });
 // An action on a part that never appears fails in 15 s, not at the test's time limit.
 test.use({ actionTimeout: 15_000 });
+venueForThisFile(test);
 
 function state(key) {
   const value = run.read()[key];
@@ -243,10 +246,6 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
   const leaderRef = await listLeader(leader, `Journey Exits ${tag}`);
   const follower = await fundedTrader(page, 'jcf3', '1000');
   run.reset({ tag, leader, leaderRef, follower });
-  // A second follow for #4's close-all, so a close-all that runs without its step-up can't end the follow #7 leaves. It
-  // is made first: on the stack (27 Oct) a follow made before another one of the same person's copied nothing after it.
-  const other = await fundedTrader(page, 'jcl3b', '100');
-  const otherRef = await listLeader(other, `Journey Exits B ${tag}`);
   // The TEST trader who takes a copy that rests (takeRestingCopies).
   // It holds enough of each side to take every resting copy, with retries, through the maker's whole ladder in front of
   // it (three levels a side, about 0.28 BTC or 18000 USDT at 65000).
@@ -254,7 +253,6 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
   expect(fund(market.email, 'BTC', '2.5').tx).toBeTruthy();
   run.write({ market });
   await signIn(page, follower);
-  run.write({ otherRef, otherFollowId: await followOnScreen(page, follower, otherRef, { perOrder: '50', total: '100', fixed: '20' }) });
   const followId = await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
   run.write({ followId });
   // Three lead buys: #2's lead close takes from the oldest copy, #3 closes one of the rest, and one is still open when #7
@@ -421,18 +419,201 @@ test(`${J} #2 stops with close-only: a new lead fill isn't mirrored, and a lead 
   await expect(orders.filter({ hasText: 'Sell' })).toHaveCount(1);
 });
 
-test(`${J} #3 opens Positions and closes one order, then a part larger than open: the close runs once; the oversize part refused`, async ({
+// ── #3 #4 on the venue (OWNER 226): a follow that copies onto the follower's own agent account ──────────────────────
+//
+// The start for #3 and #4: a TEST leader with a TEST wallet buys BTC-USDC on their own venue account on the stack's TEST
+// venue, each order signed by that wallet through our door; the follower opens an agent account (a venue sub-account
+// under their own TEST wallet, with the agent permission their wallet signs for the key INTAFACED holds, which can trade
+// and never withdraw), approves our builder fee on it, and follows the leader onto it. The copy driver copies each lead
+// fill as one venue order on that sub-account, placed by the agent permission. The person's own wallet is the TEST key
+// signing the venue's own EIP-712 payloads, as the browser wallet does. The follow is made through the API: choosing an
+// agent account in the Start copying wizard is J-copy-bots-otc-01's screen (a later piece, a design change shown to the
+// owner first). Every figure the TEST venue reports is TEST, read straight from the TEST venue on loopback.
+const VSYMBOL = 'BTC-USDC';
+const STEP_UP_AGENT = { scope: 'trade.step_up.venue.agentAccount', purpose: 'venue.agentAccount' };
+const walletOf = (name) => privateKeyToAccount(keccak256(toHex(`intafaced TEST venue journey trader ${J} ${name} ${run.read().tag}`)));
+
+async function signWith(key, prepared) {
+  const t = prepared.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  return { digest: prepared.digest, signature, signedBy: key.address.toLowerCase() };
+}
+
+const ok = (res) => {
+  expect(res.status, JSON.stringify(res.body).slice(0, 600)).toBe(200);
+  return res.body;
+};
+
+/** One action the person's own wallet signs, through our door: prepared, signed, sent, and accepted by the venue. */
+async function walletAct(session, key, { subAccount = null, intent, actionKey = null }) {
+  const owner = key.address.toLowerCase();
+  const prepared = ok(
+    await session.post('/api/v1/venue/prepare', { owner, subAccount, signer: { role: 'owner', address: owner }, intent, actionKey }),
+  );
+  const sent = ok(
+    await session.post('/api/v1/venue/submit', { actionKey: prepared.actionKey, signature: await signWith(key, prepared.prepared) }),
+  );
+  expect(sent.outcome, JSON.stringify(sent.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  return sent;
+}
+
+/** Our builder fee rides on every door order: the wallet approves it once on the account, up to the venue's cap. */
+async function approveBuilder(session, key, subAccount, tag) {
+  const status = ok(await session.get('/api/v1/venue/status'));
+  if (!status.builder) return;
+  const cap = (await testVenue('/markets', { account: null })).body.value.find((m) => m.symbol === VSYMBOL)?.builderFeeCapBps;
+  expect(cap, `${VSYMBOL}'s builder-fee cap as the venue publishes it`).toMatchObject({ known: true });
+  await walletAct(session, key, {
+    subAccount,
+    intent: { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: cap.value },
+    actionKey: `approve:${tag}:builder`,
+  });
+}
+
+/** A venue account as the TEST venue names it. */
+const venueAcct = async (owner, subAccount = null) => ({ venueId: (await venueInfo()).id, owner: owner.toLowerCase(), subAccount });
+/** The TEST venue's own record for an account, sub-account or main, read directly. */
+async function onVenue(path, owner, subAccount = null, extra = {}) {
+  const res = await testVenue(path, { account: await venueAcct(owner, subAccount), ...extra });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.value;
+}
+/** The venue's client order id for one of our business keys (venue-contracts `venueClientOrderId`). */
+const cloidOf = async (key) =>
+  `0x${createHash('sha256')
+    .update(`${(await venueInfo()).id}\u0000${key}`)
+    .digest('hex')
+    .slice(0, 32)}`;
+/** Every fill the venue reports on the follower's agent sub-account. */
+const subFills = async () => onVenue('/fills', state('vOwner'), state('vSub'), { since: new Date(0).toISOString() });
+const sameUnits = (a, b) => toUnits(String(a)) === toUnits(String(b));
+
+/**
+ * The leader fill a venue copy was made for: the leader's own venue fill (`venue:<leader account>:<ms>:<venue fill id>`,
+ * svc-trade copy/venue-copy.ts) whose copy key names that position, `copy-mirror:<follow>:<client order id>`.
+ */
+async function leaderFillOfVenuePosition(positionId) {
+  const followId = state('vFollowId');
+  const leaderOwner = state('vLeaderOwner');
+  for (const f of await onVenue('/fills', leaderOwner, null, { since: new Date(0).toISOString() })) {
+    const id = `venue:${leaderOwner}:${new Date(f.filledAt).getTime()}:${f.fillId}`;
+    if (`copy-mirror:${followId}:${capped(`copy-mirror:${followId}:${id}`)}` === positionId) return id;
+  }
+  throw new Error(`no venue fill of the leader's was copied as position ${positionId}`);
+}
+
+/** The leader buys once on their own venue account, signed by their own wallet: an IOC that fills against the TEST ladder. */
+async function venueLeadBuy(leader, key, n) {
+  const book = await testVenue('/book', { symbol: VSYMBOL, depth: 1 });
+  const ask = book.body.value?.asks?.[0]?.price;
+  expect(ask, `the TEST venue's ${VSYMBOL} ask`).toBeTruthy();
+  await walletAct(await api(leader), key, {
+    intent: {
+      kind: 'place_order',
+      symbol: VSYMBOL,
+      side: 'buy',
+      type: 'limit',
+      amount: '0.002',
+      price: ask,
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${J}:lead:${run.read().tag}:${n}`,
+      builderFee: null,
+    },
+  });
+}
+
+/** The start for #3 and #4 (above); kept in this run's state. */
+async function venueStart(page) {
+  if (run.read().vFollowId) return;
+  const { tag } = run.read();
+  const follower = state('follower');
+  const leaderKey = walletOf('leader');
+  const followerKey = walletOf('follower');
+  const leader = await fundedTrader(page, 'jvl3', '10');
+  const vLeaderRef = await listLeader(leader, `Journey Venue Exits ${tag}`, { assets: [VSYMBOL] });
+  const { chainId } = await venueInfo();
+  const ref = (who) => `${chainId}:0x${createHash('sha256').update(`${J}:${tag}:${who}`).digest('hex')}:0`;
+  await testDeposit(leaderKey.address.toLowerCase(), 'USDC', '1000', ref('leader'));
+  await testDeposit(followerKey.address.toLowerCase(), 'USDC', '500', ref('follower'));
+  const leaderSession = await api(leader);
+  await approveBuilder(leaderSession, leaderKey, null, `${J}:${tag}:leader`);
+
+  // The follower's agent account: cap TEST 200 USDC, funded 150, with step-up; the wallet signs the open, the agent
+  // permission and the move in (J-agents-21 #3's own path).
+  const session = await api(follower);
+  const passkey = await testPasskey(session);
+  run.write({ passkey: passkey.saved() });
+  const owner = followerKey.address.toLowerCase();
+  const accountId = randomUUID();
+  const fields = { accountId, owner, asset: 'USDC', cap: '200', fund: '150' };
+  const stepUpApprovalId = await confirmStepUp(session, passkey, { ...STEP_UP_AGENT, target: accountId, amount: '150', fields });
+  let view = ok(await session.post('/api/v1/venue/agent-accounts', { ...fields, stepUpApprovalId }));
+  for (let i = 0; view.next && i < 5; i += 1) {
+    view = ok(
+      await session.post(`/api/v1/venue/agent-accounts/${accountId}/submit`, {
+        actionKey: view.next.actionKey,
+        signature: await signWith(followerKey, view.next.prepared),
+      }),
+    );
+  }
+  expect(view.status).toBe('open');
+  await approveBuilder(session, followerKey, view.subAccount, `${J}:${tag}:sub`);
+
+  // The follow onto that agent account: fixed TEST 20 USDC a copy, at most 50 a copy and 150 in total; then automatic
+  // copying on, as Start copying turns it on.
+  const followed = ok(
+    await session.post('/api/trade/trpc/copy.follow', {
+      leaderRef: vLeaderRef,
+      region: 'DE',
+      permittedMarkets: [VSYMBOL],
+      maxNotionalPerOrder: '50',
+      maxAggregateExposure: '150',
+      fixedOrderSize: '20',
+      expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+      clientRequestId: `jc3-venue:${tag}`,
+      agentAccountId: accountId,
+    }),
+  );
+  const vFollowId = followed.result.data.followId;
+  ok(await session.post('/api/trade/trpc/copy.grantSessionKey', { followId: vFollowId }));
+  run.write({
+    vLeaderRef,
+    vFollowId,
+    vAccountId: accountId,
+    vOwner: owner,
+    vSub: view.subAccount,
+    vLeaderOwner: leaderKey.address.toLowerCase(),
+  });
+
+  // Three lead buys, each copied by the driver as one venue order on the sub-account: #3 closes one and leaves a part,
+  // #4 closes the rest.
+  for (const n of [1, 2, 3]) {
+    await venueLeadBuy(leader, leaderKey, n);
+    await expect
+      .poll(async () => (await copiedPositions(follower, vFollowId)).filter(isOpen).length, {
+        timeout: 60_000,
+        message: `the copy driver never copied lead buy ${n} onto the agent sub-account`,
+      })
+      .toBe(n);
+  }
+}
+
+test(`${J} #3 opens Positions and closes one order, then a part larger than open: the close is one venue order by the agent permission, sent once, read closed as the venue reports it; the oversize part refused before anything is sent`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(480_000);
+  await venueStart(page);
   const follower = state('follower');
-  const followId = state('followId');
+  const followId = state('vFollowId');
+  const owner = state('vOwner');
+  const subAccount = state('vSub');
   await signIn(page, follower);
-  const detail = await openFollow(page, state('leaderRef'));
+  const detail = await openFollow(page, state('vLeaderRef'));
   await detail.getByRole('tab', { name: 'Positions' }).click();
   const table = detail.getByRole('table', { name: 'Copied positions' });
-  // The screen lists svc-trade's copied positions in its order (newest first); a row is found by its index there and
-  // checked by its market and amount, and the close it sends is checked to name that position.
+  // The positions are the venue's own record of the sub-account, and the screen says so.
+  await expect(detail.getByTestId('copied-positions-source')).toContainText('TEST · As TEST venue simulator reports them');
   const rowOf = async (list, positionId) => {
     const at = list.findIndex((p) => p.positionId === positionId);
     const row = table.locator('tbody tr').nth(at);
@@ -443,16 +624,26 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   const positionsBefore = await copiedPositions(follower, followId);
   const open = positionsBefore.filter(isOpen);
   expect(open.length, 'open copied positions before #3, so closing one is not closing all').toBeGreaterThanOrEqual(2);
+  for (const p of positionsBefore) expect(p.reportedBy).toMatchObject({ test: true });
+  // Each copied position is what the venue reports its copy filled on the sub-account.
+  const fillsBefore = await subFills();
+  const bought = fillsBefore.filter((f) => f.side === 'buy').reduce((s, f) => s + toUnits(f.amount), 0n);
+  expect(positionsBefore.reduce((s, p) => s + toUnits(p.bought), 0n) <= bought).toBe(true);
+  expect(
+    fillsBefore.some((f) => f.side === 'sell'),
+    'nothing was sold on the sub-account before #3',
+  ).toBe(false);
   const target = open[0];
   const others = positionsBefore.filter((p) => p.positionId !== target.positionId);
-  // A whole close runs under its business key: the client id of its sell is `copy.close:<follow>:<leader fill>`.
-  const closeClientId = capped(`copy.close:${followId}:${await leaderFillOfPosition(follower, followId, target.positionId)}`);
-  expect(await orderByClientId(follower, closeClientId), 'no close was placed under the key before').toBeNull();
+  // The close runs once under `copy.close:<followId>:<leader fill>`.
+  const leaderFill = await leaderFillOfVenuePosition(target.positionId);
+  expect(
+    await onVenue('/order-by-client-id', owner, subAccount, { venueClientOrderId: await cloidOf(`copy.close:${followId}:${leaderFill}`) }),
+  ).toBeNull();
+  const mainBefore = await onVenue('/balances', owner);
+  const subBefore = await onVenue('/balances', owner, subAccount);
 
-  // Close one, twice at once (the screen's close and the same close by API): one sell, and the ledger moves once.
-  const before = await holdings(follower);
-  const ordersBefore = await myOrderIds(follower);
-  const seen = new Set((await myFills(follower)).map((f) => f.id));
+  // Close one, twice at once (the screen's close and the same close by API): one venue order, sent once.
   const row = await rowOf(positionsBefore, target.positionId);
   await row.getByRole('button', { name: 'Close', exact: true }).click();
   const client = await api(follower);
@@ -465,46 +656,55 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   expect((await sent).postData() ?? '', 'the screen closed another position').toContain(target.positionId);
   const screenBody = await (await onScreen).json();
   const answers = [screenBody, byApi.body].map((body) => body?.result?.data?.orderId ?? refusalCode({ body }));
-  const closeOrderId = answers.find((a) => a && !a.startsWith('trade.'));
-  expect(closeOrderId, `neither close placed a sell: ${JSON.stringify(answers)}`).toBeTruthy();
-  for (const a of answers) expect(['trade.copy_position_closed', closeOrderId]).toContain(a);
-  const closeOrder = await orderByClientId(follower, closeClientId);
-  expect(closeOrder?.id).toBe(closeOrderId);
-  expect(closeOrder?.clientOrderId).toBe(closeClientId);
-  // The close's order settles: nothing open and nothing closing on that position.
+  const closeKeys = answers.filter((a) => a && a.startsWith('copy.close:'));
+  expect(closeKeys.length, `neither close sent an order: ${JSON.stringify(answers)}`).toBeGreaterThan(0);
+  for (const a of answers) expect(['trade.copy_position_closed', closeKeys[0]]).toContain(a);
+  const closeKey = closeKeys[0];
+  // The close's key names the follow and the leader fill the position was copied from.
+  expect(closeKey).toBe(`copy.close:${followId}:${leaderFill}`);
+  const cloid = await cloidOf(closeKey);
+  // On the venue: one order under that key's client order id, on the agent sub-account, a sell of exactly what was open.
+  // Nothing in the browser can sign (no wallet is connected on this page), and the only key INTAFACED holds for that
+  // sub-account is its agent key, the one the venue lists on it: the agent permission placed it.
+  const order = await onVenue('/order-by-client-id', owner, subAccount, { venueClientOrderId: cloid });
+  expect(order, 'the venue has no order under the close key').toBeTruthy();
+  expect(order).toMatchObject({ side: 'sell', symbol: VSYMBOL });
+  expect(sameUnits(order.amount, target.open)).toBe(true);
+  expect((await onVenue('/agents', owner, subAccount)).length).toBe(1);
+  expect(await onVenue('/order-by-client-id', owner, null, { venueClientOrderId: cloid })).toBeNull();
+  // The position reads closed as the venue reports it: its close's fills sold exactly what was open, and nothing else sold.
   await expect
     .poll(
       async () => {
         const p = (await copiedPositions(follower, followId)).find((x) => x.positionId === target.positionId);
-        return p && { open: p.open, closing: p.closing };
+        return p && { open: p.open, closing: p.closing, status: p.status };
       },
       { timeout: 30_000 },
     )
-    .toEqual({ open: '0', closing: '0' });
+    .toEqual({ open: '0', closing: '0', status: 'closed' });
   await expect(row).toContainText('Closed');
-  // The funds return exactly: the ledger reads the balance before, moved by exactly what the close's fills settle; the
-  // close sold exactly what was open, all of it in the one sell.
-  expect(await settlesExactly(follower, before, seen)).toBe(toUnits(target.open));
-  const fresh = (await myFills(follower)).filter((f) => !seen.has(f.id));
-  expect(fresh.length).toBeGreaterThan(0);
-  for (const f of fresh) expect(f.order).toBe(closeOrderId);
-  const ordersAfter = await myOrderIds(follower);
-  expect(ordersAfter).toEqual([...ordersBefore, closeOrderId].sort());
+  const sells = (await subFills()).filter((f) => f.side === 'sell');
+  expect(sells.every((f) => f.venueClientOrderId === cloid)).toBe(true);
+  expect(sells.reduce((s, f) => s + toUnits(f.amount), 0n)).toBe(toUnits(target.open));
+  // What it freed stays on the follower's own sub-account, as the venue reports it; the main venue account is untouched.
+  const subAfter = await onVenue('/balances', owner, subAccount);
+  const usdc = (list) => toUnits(list.find((b) => b.asset === 'USDC')?.total ?? '0');
+  expect(usdc(subAfter) > usdc(subBefore)).toBe(true);
+  expect(await onVenue('/balances', owner)).toEqual(mainBefore);
   // Every other position is as it was.
   const afterClose = await copiedPositions(follower, followId);
-  expect(afterClose.filter((p) => p.positionId !== target.positionId)).toEqual(others);
+  const stable = (list) => list.map(({ reportedBy: _r, ...p }) => p);
+  expect(stable(afterClose.filter((p) => p.positionId !== target.positionId))).toEqual(stable(others));
 
-  // The same close sent again: refused as closed, no second order, nothing moves.
-  const settled = await holdings(follower);
+  // The same close sent again: refused as closed, and no second order reaches the venue.
   const again = await (await api(follower)).post('/api/trade/trpc/copy.closeCopiedPosition', { followId, positionId: target.positionId });
   expect(refusalCode(again), JSON.stringify(again.body).slice(0, 300)).toBe('trade.copy_position_closed');
-  expect(await myOrderIds(follower)).toEqual(ordersAfter);
-  expect(await holdings(follower)).toEqual(settled);
+  expect((await subFills()).filter((f) => f.side === 'sell')).toEqual(sells);
 
-  // A part larger than what is open on a position still open: refused by its typed code, and nothing moves. The
-  // position record reads as it did.
+  // A part larger than what is open on a position still open: refused by its typed code before anything is sent.
   const still = afterClose.find((p) => p.positionId !== target.positionId && isOpen(p));
   expect(still, 'an open copied position left for the oversize part').toBeTruthy();
+  const openOrdersBefore = await onVenue('/open-orders', owner, subAccount);
   const partRow = await rowOf(afterClose, still.positionId);
   await partRow.getByRole('button', { name: 'Close part' }).click();
   const part = page.getByRole('dialog', { name: 'Close part of this position' });
@@ -515,22 +715,87 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   expect((await partSent).postData() ?? '', 'the screen sent the part for another position').toContain(still.positionId);
   expect(refusalCode({ body: await (await oversize).json() })).toBe('trade.copy_close_qty_exceeds');
   await expect(page.getByText('That is more than is open.')).toBeVisible();
-  expect(await copiedPositions(follower, followId)).toEqual(afterClose);
-  expect(await holdings(follower)).toEqual(settled);
-  expect(await myOrderIds(follower)).toEqual(ordersAfter);
+  const stillFill = await leaderFillOfVenuePosition(still.positionId);
+  expect(
+    await onVenue('/order-by-client-id', owner, subAccount, { venueClientOrderId: await cloidOf(`copy.close:${followId}:${stillFill}:1`) }),
+  ).toBeNull();
+  expect(await onVenue('/open-orders', owner, subAccount)).toEqual(openOrdersBefore);
+  expect((await subFills()).filter((f) => f.side === 'sell')).toEqual(sells);
+  expect(stable(await copiedPositions(follower, followId))).toEqual(stable(afterClose));
 });
 
-test(`${J} #4 presses close-all with an unrealised loss: a step-up opens, and the call without its token is refused`, async ({ page }) => {
+test(`${J} #4 presses close-all with an unrealised loss: a step-up opens and the call without its token is refused; with it each position is closed by a venue order and reads closed as the venue reports it`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
   const follower = state('follower');
-  const bare = await (await api(follower)).post('/api/trade/trpc/copy.flatten', { followId: state('otherFollowId') });
-  expect(refusalCode(bare), `B3 close-all step-up: svc-trade answered ${bare.status} ${JSON.stringify(bare.body).slice(0, 200)}`).toBe(
+  const followId = state('vFollowId');
+  const owner = state('vOwner');
+  const subAccount = state('vSub');
+  const open = (await copiedPositions(follower, followId)).filter(isOpen);
+  expect(open.length, 'open copied positions before the close-all').toBeGreaterThan(0);
+  // An unrealised loss: each copy was bought at the TEST ask and would sell now at the lower TEST bid.
+  const book = (await testVenue('/book', { symbol: VSYMBOL, depth: 1 })).body.value;
+  const fills = await subFills();
+  const paid = fills.filter((f) => f.side === 'buy').map((f) => toUnits(f.price));
+  expect(paid.length).toBeGreaterThan(0);
+  expect(
+    paid.every((p) => toUnits(book.bids[0].price) < p),
+    'the TEST bid is below what every copy paid',
+  ).toBe(true);
+
+  // The call without its step-up token: refused, and nothing reaches the venue.
+  const sellsBefore = fills.filter((f) => f.side === 'sell');
+  const bare = await (await api(follower)).post('/api/trade/trpc/copy.flatten', { followId });
+  expect(refusalCode(bare), `svc-trade answered ${bare.status} ${JSON.stringify(bare.body).slice(0, 200)}`).toBe(
     'identity.step_up_required',
   );
+  expect((await subFills()).filter((f) => f.side === 'sell')).toEqual(sellsBefore);
+
+  // On screen, pressing Close copied positions opens the step-up sheet before anything is sent.
   await signIn(page, follower);
-  const detail = await openFollow(page, state('otherRef'));
+  const detail = await openFollow(page, state('vLeaderRef'));
   await detail.getByRole('button', { name: 'Close copied positions' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Close copied positions' }).click();
-  await expect(page.getByRole('dialog', { name: 'Confirm it’s you' }), 'B3 close-all step-up: no step-up opens').toBeVisible(UNBUILT);
+  await expect(page.getByRole('dialog', { name: 'Confirm it’s you' }), 'no step-up opens').toBeVisible();
+  expect((await subFills()).filter((f) => f.side === 'sell')).toEqual(sellsBefore);
+  await page.keyboard.press('Escape');
+
+  // With the token (the person's TEST passkey answering identity's step-up for exactly this follow and request): one venue
+  // order per open position, each under `copy.flatten:<followId>:<leader fill>`, on the agent sub-account.
+  const session = await api(follower);
+  const passkey = await restorePasskey(state('passkey'));
+  const requestId = `jc3-all-${run.read().tag}`;
+  const stepUpApprovalId = await confirmStepUp(session, passkey, {
+    scope: 'trade.step_up.copy.flatten',
+    purpose: 'copy.flatten',
+    target: followId,
+    fields: { followId, requestId },
+  });
+  run.write({ passkey: passkey.saved() });
+  const done = ok(await session.post('/api/trade/trpc/copy.flatten', { followId, requestId, stepUpApprovalId }));
+  const keys = (
+    await Promise.all(open.map(async (p) => `copy.flatten:${followId}:${await leaderFillOfVenuePosition(p.positionId)}`))
+  ).sort();
+  expect([...done.result.data.orderIds].sort()).toEqual(keys);
+  for (const key of keys) {
+    const order = await onVenue('/order-by-client-id', owner, subAccount, { venueClientOrderId: await cloidOf(key) });
+    expect(order, `no venue order under ${key}`).toMatchObject({ side: 'sell', symbol: VSYMBOL });
+  }
+  // Each position reads closed as the venue reports it: the close-all's fills sold exactly what was open.
+  await expect
+    .poll(async () => (await copiedPositions(follower, followId)).every((p) => p.status === 'closed'), { timeout: 30_000 })
+    .toBe(true);
+  expect((await copiedPositions(follower, followId)).filter(isOpen)).toEqual([]);
+  const cloids = await Promise.all(keys.map(cloidOf));
+  const flattenSells = (await subFills()).filter((f) => f.side === 'sell' && cloids.includes(f.venueClientOrderId));
+  expect(flattenSells.reduce((s, f) => s + toUnits(f.amount), 0n)).toBe(open.reduce((s, p) => s + toUnits(p.open), 0n));
+  // And the screen lists every one of them as Closed.
+  const shown = await openFollow(page, state('vLeaderRef'));
+  await shown.getByRole('tab', { name: 'Positions' }).click();
+  const rows = shown.getByRole('table', { name: 'Copied positions' }).locator('tbody tr');
+  await expect(rows).toHaveCount((await copiedPositions(follower, followId)).length);
+  for (const r of await rows.all()) await expect(r).toContainText('Closed');
 });
 
 test(`${J} #5 opens the skip log: one row per skipped mirror with the reason in words; a repeat writes no second row`, async ({ page }) => {

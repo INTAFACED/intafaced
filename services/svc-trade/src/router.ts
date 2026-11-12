@@ -1698,6 +1698,11 @@ export function createTradeRouter(
             clientRequestId: z.string().min(8).max(120),
             /** Quote amount each copied order uses. Omitted means no fixed size. */
             fixedOrderSize: decimal.optional(),
+            /**
+             * One of the follower's own open agent accounts: the follow then copies on the venue, each copy a venue order
+             * on that account placed by its agent permission, and nothing is held from a balance of ours (venue-copy.ts).
+             */
+            agentAccountId: z.string().uuid().optional(),
             leaderSettings: z
               .object({
                 maxAllocation: decimal.optional(),
@@ -1716,7 +1721,10 @@ export function createTradeRouter(
               logRefusalSpec('trade.copy_jurisdiction_blank');
               throw new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
             }
-            return copy.startFollow(ctx.principal, input);
+            const { agentAccountId, ...rest } = input;
+            return agentAccountId
+              ? copy.startVenueFollow(ctx.principal, { ...rest, agentAccountId: agentAccountId.toLowerCase() })
+              : copy.startFollow(ctx.principal, rest);
           }),
         ),
 
