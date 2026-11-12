@@ -191,6 +191,16 @@
       "value": "3000",
       "note": "LOCAL TEST ONLY, not an owner decision: a live strategy run with no heartbeat for 3 seconds reads unknown and goes to the reconciler (J-algo-dev-07 #4). Blank refuses every live start quant.heartbeat_interval_unset."
     },
+    "TRADE_AGENT_MAX_LEVERAGE": {
+      "service": "trade",
+      "value": "5",
+      "note": "LOCAL TEST ONLY, not an owner decision: the highest leverage cap a person may set on an agent account, 5x (J-agents-21 #16). Blank refuses every leverage cap agents.limit_ceiling_unset."
+    },
+    "TRADE_AGENT_MAX_DAILY_LOSS": {
+      "service": "trade",
+      "value": "100",
+      "note": "LOCAL TEST ONLY, not an owner decision: the highest daily-loss cap a person may set on an agent account, TEST 100 USDC (J-agents-21 #16). Blank refuses every daily-loss cap agents.limit_ceiling_unset."
+    },
     "TRADE_USER_VENUE_ORDERS_PAGE_MAX": {
       "service": "trade",
       "value": "50",
