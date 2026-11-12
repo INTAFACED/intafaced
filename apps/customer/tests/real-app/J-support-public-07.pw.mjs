@@ -1,8 +1,8 @@
 // World: restart
 import { test, expect } from './journey.mjs';
-import { draftNotice, publishNotice } from './notices.mjs';
-import { configureStatusPage, findSubscriber, recordReading } from './status-page.mjs';
-import { ORIGIN, restartWith, statusMail } from './stack.mjs';
+import { draftNotice, publishNotice, publishedNotices } from './notices.mjs';
+import { configureStatusPage, findSubscriber, recordReading, statusDefinition } from './status-page.mjs';
+import { ORIGIN, restartWith, restartWithSetting, statusMail } from './stack.mjs';
 
 // J-support-public-07, in the running app (docs/roadmap/journeys.json): a signed-out visitor checks /status and sees
 // only states the platform recorded or published. Tests titled "J-support-public-07 #<n>" prove a whole step.
@@ -180,50 +180,118 @@ test(`${J} #4 an active incident shows its update timeline and sets the affected
   await page.context().close();
 });
 
-test(`${J} #5 /notice lists published notices with their kind, and maintenance as scheduled, in progress or completed`, async ({
+test(`${J} #5 /notice lists published notices with their kind and category, and maintenance as scheduled, in progress or completed; with none published, "none are published" and no sample row`, async ({
   browser,
 }) => {
-  // Each window's times are taken just before it is drafted. The scheduled one is ten years ahead, so no stack that
-  // stays up ever sees it open; the in-progress one is published last and ends within J-home-ia-06's seven-minute wait
-  // for an empty board, in case both run on one stack.
-  const at = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
-  const windows = [
-    ['scheduled', 'Scheduled', () => [at(3650 * 24 * 60), at(3650 * 24 * 60 + 60)]],
-    ['completed', 'Completed', () => [at(-120), at(-60)]],
-    ['in_progress', 'In progress', () => [at(-5), at(6)]],
+  // Two restarts of notify (each up to two minutes), on top of the browser steps.
+  test.setTimeout(600_000);
+  // With none published: notify on its own new database (LOCAL_STACK_NOTIFY_NOTICES=off, local-stack-services/notify.mjs),
+  // so the board holds no notice at all; then back on the stack's own database, whatever happened.
+  restartWithSetting('notify', 'LOCAL_STACK_NOTIFY_NOTICES', 'off');
+  try {
+    expect(await publishedNotices()).toEqual([]);
+    const page = await visitor(browser);
+    await page.goto('/notice');
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: 'Notices' })).toBeVisible();
+    const none = main.getByRole('status').filter({ has: page.getByRole('heading', { name: 'No public notices are published' }) });
+    await expect(none.getByRole('heading', { name: 'No public notices are published' })).toBeVisible();
+    await expect(none).toContainText('None is published right now.');
+    // No sample row: not one notice card, kind label or window on the page.
+    await expect(main.locator('article')).toHaveCount(0);
+    await expect(main.locator('[data-testid^="notice-"]')).toHaveCount(0);
+    await expect(main.getByText(/Maintenance ·|Announcement ·|Window /)).toHaveCount(0);
+    await page.context().close();
+  } finally {
+    restartWithSetting('notify', 'LOCAL_STACK_NOTIFY_NOTICES', null);
+  }
+
+  // Published: the founders' category list (an owner value, labelled TEST here and put back as it was at the end), then
+  // an announcement and three maintenance windows, each filed under a category. Each window's times are taken just
+  // before it is drafted. The scheduled one is ten years ahead, so no stack that stays up ever sees it open; the
+  // in-progress one is published last and ends within J-home-ia-06's seven-minute wait for an empty board, in case both
+  // run on one stack.
+  const before = (await statusDefinition()).noticeCategories ?? null;
+  const CATEGORIES = [
+    { id: 'j07-platform', name: 'TEST platform' },
+    { id: 'j07-wallets', name: 'TEST wallets' },
   ];
-  const published = [];
-  for (const [phase, , times] of windows) {
-    const key = `${J}-maint-${phase}-${RUN}`;
-    const [startsAt, endsAt] = times();
-    published.push(
-      await publishNotice(
-        await draftNotice({
-          kind: 'maintenance',
-          title: `TEST ${phase} maintenance ${RUN}`,
-          body: `TEST ${phase} window`,
+  await configureStatusPage({ noticeCategories: CATEGORIES }, `TEST journey ${J} #5 categories`);
+  try {
+    const at = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
+    const rows = [
+      { kind: 'announcement', phase: null, label: 'Announcement', category: CATEGORIES[0], times: () => [null, at(10)] },
+      {
+        kind: 'maintenance',
+        phase: 'scheduled',
+        label: 'Maintenance · Scheduled',
+        category: CATEGORIES[1],
+        times: () => [at(3650 * 24 * 60), at(3650 * 24 * 60 + 60)],
+      },
+      {
+        kind: 'maintenance',
+        phase: 'completed',
+        label: 'Maintenance · Completed',
+        category: CATEGORIES[0],
+        times: () => [at(-120), at(-60)],
+      },
+      {
+        kind: 'maintenance',
+        phase: 'in_progress',
+        label: 'Maintenance · In progress',
+        category: CATEGORIES[1],
+        times: () => [at(-5), at(6)],
+      },
+    ];
+    const published = [];
+    for (const row of rows) {
+      const name = row.phase ?? row.kind;
+      const key = `${J}-notice-${name}-${RUN}`;
+      const [startsAt, endsAt] = row.times();
+      published.push(
+        await publishNotice(
+          await draftNotice({
+            kind: row.kind,
+            title: `TEST ${name} ${row.kind} ${RUN}`,
+            body: `TEST ${name} notice`,
+            key,
+            startsAt,
+            endsAt,
+            category: row.category.id,
+          }),
           key,
-          startsAt,
-          endsAt,
-        }),
-        key,
-      ),
-    );
+        ),
+      );
+    }
+    // The service publishes each once, with its kind and category.
+    const board = await publishedNotices();
+    for (const [i, row] of rows.entries()) {
+      const shown = board.filter((n) => n.id === published[i].id);
+      expect(shown).toHaveLength(1);
+      expect(shown[0]).toMatchObject({ kind: row.kind, category: { id: row.category.id, name: row.category.name } });
+    }
+    const page = await visitor(browser);
+    await page.goto('/notice');
+    const main = page.locator('main');
+    for (const [i, row] of rows.entries()) {
+      const name = row.phase ?? row.kind;
+      const card = main.getByTestId(`notice-${published[i].id}`);
+      await expect(card.getByRole('heading', { name: `TEST ${name} ${row.kind} ${RUN}` })).toBeVisible();
+      await expect(card).toHaveAttribute('data-kind', row.kind);
+      await expect(card).toContainText(row.label);
+      await expect(card.getByTestId('notice-category')).toHaveText(row.category.name);
+      if (row.phase) await expect(card).toHaveAttribute('data-phase', row.phase);
+      else await expect(card).not.toHaveAttribute('data-phase');
+    }
+    // Only maintenance carries a phase, and with notices published there is no "none are published".
+    await expect(main.locator('article[data-phase]:not([data-kind="maintenance"])')).toHaveCount(0);
+    await expect(main.getByText('No public notices are published')).toHaveCount(0);
+    await page.context().close();
+  } finally {
+    const now = await statusDefinition();
+    if (JSON.stringify(now.noticeCategories ?? null) !== JSON.stringify(before))
+      await configureStatusPage({ noticeCategories: before }, `TEST journey ${J} #5: categories put back`);
   }
-  const page = await visitor(browser);
-  await page.goto('/notice');
-  const main = page.locator('main');
-  for (const [i, [phase, label]] of windows.entries()) {
-    const card = main.getByTestId(`notice-${published[i].id}`);
-    await expect(card.getByRole('heading', { name: `TEST ${phase} maintenance ${RUN}` })).toBeVisible();
-    await expect(card).toHaveAttribute('data-kind', 'maintenance');
-    await expect(card).toHaveAttribute('data-phase', phase);
-    await expect(card).toContainText(`Maintenance · ${label}`);
-  }
-  // Only maintenance carries a phase.
-  await expect(main.locator('article[data-phase]:not([data-kind="maintenance"])')).toHaveCount(0);
-  await expect(main.getByText('No public notices are published')).toHaveCount(0);
-  await page.context().close();
 });
 
 test(`${J} #6 subscribe to status updates by email: proof of work in the browser, a failed check stores nothing, SMS and push named not offered`, async ({
