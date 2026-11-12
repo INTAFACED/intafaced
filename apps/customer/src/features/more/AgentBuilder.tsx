@@ -35,6 +35,7 @@ import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/
 import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, toolWords, TryTool } from './AgentGuardrails';
 import { AccessPage } from './AgentAccess';
+import { AllowancePage } from './AgentAllowance';
 import { ReviewerPanel } from './AgentReviewer';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { EvaluationsPage } from './AgentEvaluations';
@@ -601,13 +602,15 @@ export function OwnAgentPage({ id }: { id: string }) {
               <SharingPage agent={agent} />
             ) : page === 'Access' ? (
               <AccessPage agent={agent} />
+            ) : page === 'Allowance' ? (
+              <AllowancePage agent={agent} />
             ) : page === 'Identity' ? (
               <IdentityPage key={agent.id} agent={agent} />
             ) : (
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
                 <p role="note">
                   {t(
-                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing' | 'Identity' | 'Access'>}`,
+                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing' | 'Identity' | 'Access' | 'Allowance'>}`,
                   )}
                 </p>
               </Panel>
