@@ -20,7 +20,7 @@ import {
 // J-derivatives-01's steps on the user's own venue account (B1, project-state #1789), in the running app against the
 // stack's TEST venue simulator (BTC-PERP, isolated margin only). One test per step, titled "J-derivatives-01 #<n>" as
 // today's files title them; a step in two files must pass in both. #1 makes the verified account and its TEST 1000 USDC
-// (the journey's start). #2 (the gated list) and #3 (deferred to launch prep) are not here; #4 reads the strip's
+// (the journey's start). #2 reads the gated list as svc-trade answers it; #3 (deferred to launch prep) is not here; #4 reads the strip's
 // contract size, mark and funding from the venue's own market read. #10 closes the position and reads our builder fee on
 // svc-ledger's own operator door; #11 reads what #10 closed. Every figure is TEST. The door is on for this file only.
 const J = 'J-derivatives-01';
@@ -110,6 +110,69 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
     await testVenue('/test/switches', { venueDown: false });
   }
   expect((await venueRecord(owner, '/open-orders')).value).toEqual([]);
+});
+
+// The legal and suitability reasons the list used to carry. None of them is a reason (owner decision 2026-10-27).
+const LEGAL_CODES = ['trade.derivatives_eligibility_unset', 'trade.agreement_required', 'trade.adl_disclosure_required'];
+
+test(`${J} #2 opens the gated list: each contract marked open or blocked for this account with the reason; a contract the venue halts is blocked naming it`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const { account } = state();
+  await desk(page);
+  const { displayName } = await venueInfo();
+  const me = await api(account);
+  const gatedList = async () => {
+    const { status, body } = await me.get('/api/v1/venue/gated-list');
+    expect(status, JSON.stringify(body)).toBe(200);
+    return body;
+  };
+  const panel = page.getByTestId('venue-gated-list');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
+  const contractList = page.getByTestId('venue-contract-list');
+
+  /** The screen matches the service, contract by contract: open or blocked, and each reason by its code, no other. */
+  async function shownAsService(body) {
+    const offered = (await contractList.getByRole('button').allInnerTexts()).map((b) => b.split(' · ')[0].trim());
+    expect(body.value.map((c) => c.symbol).sort(), 'the gated list names every contract the desk offers, and no other').toEqual(
+      [...offered].sort(),
+    );
+    for (const c of body.value) {
+      const row = panel.locator(`[data-testid="venue-gate"][data-symbol="${c.symbol}"]`);
+      await expect(row, c.symbol).toHaveAttribute('data-open', c.open ? 'true' : 'false');
+      await expect(row.getByTestId('venue-gate-state')).toHaveText(c.open ? 'Open for your account' : 'Blocked for your account');
+      await expect(row.locator('[data-code]')).toHaveCount(c.blockers.length);
+      for (const b of c.blockers) await expect(row.locator(`[data-code="${b.code}"]`)).toHaveText(b.message);
+      for (const code of LEGAL_CODES) expect(c.blockers.map((x) => x.code)).not.toContain(code);
+    }
+  }
+
+  // This verified account, with our TEST builder fee published: every contract the venue lists is open, with no reason.
+  const before = await gatedList();
+  expect(before.value.map((c) => c.symbol)).toEqual(expect.arrayContaining([SYMBOL, 'XAU-PERP']));
+  for (const c of before.value) expect(c, c.symbol).toMatchObject({ open: true, code: null, blockers: [] });
+  await shownAsService(before);
+  await expect(panel.getByTestId('venue-gated-as-of')).toContainText('As of');
+
+  // The venue halts one contract: that one reads blocked, naming the venue's halt; the others stay open; nothing is sent.
+  try {
+    expect((await testVenue('/test/market-status', { symbol: 'XAU-PERP', status: 'halted' })).status).toBe(200);
+    const row = panel.locator('[data-testid="venue-gate"][data-symbol="XAU-PERP"]');
+    await expect(row).toHaveAttribute('data-open', 'false', { timeout: 20_000 });
+    const halted = await gatedList();
+    const gold = halted.value.find((c) => c.symbol === 'XAU-PERP');
+    expect(gold).toMatchObject({ open: false, code: 'trade.venue.market_halted' });
+    expect(gold.blockers).toEqual([{ code: 'trade.venue.market_halted', message: `${displayName} reports XAU-PERP halted` }]);
+    for (const c of halted.value.filter((x) => x.symbol !== 'XAU-PERP')) expect(c.open, c.symbol).toBe(true);
+    await shownAsService(halted);
+  } finally {
+    await testVenue('/test/market-status', { symbol: 'XAU-PERP', status: 'trading' });
+  }
+  await expect(panel.locator('[data-testid="venue-gate"][data-symbol="XAU-PERP"]')).toHaveAttribute('data-open', 'true', {
+    timeout: 20_000,
+  });
 });
 
 test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark price and funding, each as the venue publishes it`, async ({

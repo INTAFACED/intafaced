@@ -1,3 +1,4 @@
+import { venueGatedList, type VenueGatedBlocker, type VenueGatedContract } from './venue-gated-list.js';
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
@@ -543,6 +544,25 @@ export class UserVenueDoor {
       if (err instanceof VenueRefusalError && err.refusal.code === 'builder_fee_not_published') return null;
       throw err;
     }
+  }
+
+  /**
+   * J-derivatives-01 #2: every perpetual we show here, open or blocked for this account with every reason. `account` is
+   * the region and level gate's reason, or null. A read: nothing is prepared or sent.
+   */
+  async gatedList(account: VenueGatedBlocker | null): Promise<{ venueId: string; value: VenueGatedContract[]; asOf: Date }> {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const perps = read.value.filter((m) => m.kind === 'perpetual');
+    const published = new Map<string, boolean>();
+    for (const m of perps) published.set(m.symbol, (await this.builderFeeFor(m.symbol, 'buy')) !== null);
+    const value = venueGatedList({
+      markets: perps,
+      account,
+      builderFeePublished: (symbol) => published.get(symbol) === true,
+      venueName: venue.venue.displayName,
+    });
+    return { venueId: venue.venue.id, value, asOf: this.deps.now() };
   }
 
   /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
