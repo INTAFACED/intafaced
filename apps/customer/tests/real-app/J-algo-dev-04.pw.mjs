@@ -330,6 +330,13 @@ test(`${J} #5 sets notification channels for the strategy, in-app, email and web
   await section.getByRole('button', { name: 'Save notification channels' }).click();
   await expect(section.getByTestId('quant-notify-note')).toHaveText('Saved. Notices go to: In the app, Email.');
   await expect(section.getByTestId('quant-notify-current')).toHaveAttribute('data-channels', 'inapp,email');
+  // With email chosen, the notice still goes to the app: in-app stays on, on the page and in what svc-quant stored, and
+  // nothing has been sent anywhere yet (no alert exists until #6). #7 reads a real fill notice in the inbox with email on,
+  // and its email row recorded as not sent.
+  await expect(inapp).toBeChecked();
+  await expect(inapp).toBeDisabled();
+  expect((await read(who, 'quant', 'notify.get', { strategyId })).channels).toEqual(['inapp', 'email']);
+  expect(await fillNotices(who)).toEqual([]);
 
   // Webhook: refused as unavailable, and nothing is saved.
   await section.getByRole('checkbox', { name: 'My own webhook' }).check();
