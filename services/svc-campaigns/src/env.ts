@@ -44,6 +44,10 @@ import {
  * `campaigns.reconcile_unset`. CAMPAIGNS_ROLLBACK_WINDOW_SECONDS (owner value) is the rollback window every reward record
  * shows; blank reads "not set". A value-moving rollback needs a reversing recipe that does not exist, so none is offered.
  *
+ * CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN and CAMPAIGNS_REWARD_CEILING_TOTAL (owner values, OWNER 288: "USDC, with a
+ * ceiling. Until you set one it is zero"): the most INTAFACED may owe in USDC rewards, per campaign and in all. Either
+ * blank: every USDC reward refuses `ledger.reward_ceiling_unset` and stays open, nothing owed. NO DEFAULT.
+ *
  * CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT, CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS and CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
  * (owner values, CM-eligibility-rules-04): how many voucher code checks and claims one account, and one source address,
  * may make in the window. Any blank: every check and claim refuses `campaigns.attempt_limit_unset`. NO DEFAULT.
@@ -72,6 +76,18 @@ const schema = baseEnvSchema
       LEDGER_URL: blankAsAbsent(z.string().url().optional()),
       TRADE_URL: blankAsAbsent(z.string().url().optional()),
       CAMPAIGNS_RECONCILE_AFTER_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
+      CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN: blankAsAbsent(
+        z
+          .string()
+          .regex(/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/)
+          .optional(),
+      ),
+      CAMPAIGNS_REWARD_CEILING_TOTAL: blankAsAbsent(
+        z
+          .string()
+          .regex(/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/)
+          .optional(),
+      ),
       CAMPAIGNS_ROLLBACK_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),

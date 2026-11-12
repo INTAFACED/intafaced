@@ -749,6 +749,7 @@ export const REWARD_STATES = [
   'held',
   'qualified',
   'posting',
+  'owed',
   'locked',
   'settling',
   'posted',
@@ -764,7 +765,7 @@ export type RewardState = (typeof REWARD_STATES)[number];
 /** One line of the redemption log: every attempt, with its outcome and typed reason. */
 export const redemptionAttemptSchema = z.object({
   at: iso,
-  outcome: z.enum(['held', 'released', 'qualified', 'posted', 'locked', 'unlocked', 'refused', 'unknown', 'withheld', 'forfeited']),
+  outcome: z.enum(['held', 'released', 'qualified', 'owed', 'posted', 'locked', 'unlocked', 'refused', 'unknown', 'withheld', 'forfeited']),
   reason: z.string().nullable(),
 });
 export type RedemptionAttempt = z.infer<typeof redemptionAttemptSchema>;
@@ -780,6 +781,11 @@ export const rewardRecordSchema = z.object({
   reason: z.string().nullable(),
   /** The ledger transaction once posted. */
   ledgerTxId: z.string().nullable(),
+  /**
+   * A USDC reward INTAFACED owes (launch money model): the Owe transaction (`campaigns:owe:<rewardKey>`) and when it
+   * booked. Owed is never in the customer's wallet or a balance: it is ours until it is paid to their own wallet.
+   */
+  owed: z.object({ txId: z.string(), at: iso }).nullable().default(null),
   createdAt: iso,
   postedAt: iso.nullable(),
   /** When a held reward's risk-review hold ends; null when the campaign pays at once. */
@@ -864,16 +870,18 @@ export type TaskClaimResult = z.infer<typeof taskClaimResultSchema>;
  * `on_hold`: held for review, or withheld while the account is not active. `still_open`: qualified and not booked yet
  * (being posted, waiting for the pot, the platform posting freeze, or an answer that was lost). `posted`: booked, with the
  * ledger transaction. `locked`: a locked reward or bonus waiting on its condition or expiry, held in a campaigns pot and
- * never withdrawable (its total is the customer's restricted balance). `closed`: forfeited or failed, never paid. Totals are summed from the reward rows on each read, never
+ * never withdrawable (its total is the customer's restricted balance). `owed`: a USDC reward INTAFACED owes and has not
+ * paid to the customer's own wallet; an owed reward whose hold has not ended reads `on_hold`. `closed`: forfeited or failed, never paid. Totals are summed from the reward rows on each read, never
  * stored.
  */
-export const REWARD_STATUSES = ['on_hold', 'still_open', 'locked', 'posted', 'closed'] as const;
+export const REWARD_STATUSES = ['on_hold', 'still_open', 'owed', 'locked', 'posted', 'closed'] as const;
 export type RewardStatus = (typeof REWARD_STATUSES)[number];
 export const REWARD_STATUS_OF = {
   held: 'on_hold',
   withheld: 'on_hold',
   qualified: 'still_open',
   posting: 'still_open',
+  owed: 'owed',
   locked: 'locked',
   settling: 'locked',
   pending_funding: 'still_open',
@@ -941,7 +949,8 @@ export type PayoutRecordList = z.infer<typeof payoutRecordListSchema>;
  * one approves, and the approval posts under `token.fee.sweep:campaigns:<reference>:<module>:<asset>`. A refusal (the fee
  * account cannot cover it) is final for that reference.
  */
-export const POT_SOURCE_MODULES = ['trade'] as const;
+/** Fee income the reward pot may be funded from: our own book's trade fees, or builder fees the venues credited us. */
+export const POT_SOURCE_MODULES = ['trade', 'builder'] as const;
 const reference = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{2,63}$/);
 export const potFundingSchema = z.object({
   reference,

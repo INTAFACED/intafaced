@@ -24,7 +24,7 @@ import type { CampaignParticipant } from '@intafaced/contracts';
 import { CampaignsError } from './codes.js';
 import { effectiveState, outsideWindow } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
-import type { PayoutSaga } from './payouts.js';
+import { owesReward, type PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
 import { NO_STREAK, streakOf } from './streaks.js';
 import { evaluateFormula, namesRead, parseFormula } from './formula.js';
@@ -91,6 +91,8 @@ type IntentRow = {
   locked_at: Date | null;
   lock_until: Date | null;
   settle: 'unlock' | 'forfeit' | null;
+  owe_tx_id: string | null;
+  owed_at: Date | null;
 };
 
 /** What a locked row shows: its campaign's lock terms and how many unlock-step fills counted so far. */
@@ -100,7 +102,7 @@ type AttemptRow = { reward_key: string; outcome: RedemptionAttempt['outcome']; r
 
 type FundingRow = {
   reference: string;
-  source_module: 'trade';
+  source_module: PotFunding['sourceModule'];
   asset: string;
   amount: string;
   state: PotFunding['state'];
@@ -153,6 +155,12 @@ export const PERIOD_ONCE = 'once';
 export const MY_REWARDS_LIMIT = 200;
 /** Seconds after a lock ends that a fill made inside it may still arrive and count, before the reward forfeits. */
 export const LOCK_FILL_GRACE_SECONDS = 60;
+
+/** A reward's plain status: an owed reward whose hold has not ended reads `on_hold`, as a held one does. */
+export function statusOf(state: RewardRecord['state'], holdUntil: Date | null, now: Date): MyRewards['rewards'][number]['status'] {
+  if (state === 'owed' && holdUntil && holdUntil > now) return 'on_hold';
+  return REWARD_STATUS_OF[state];
+}
 
 export const rewardKeyOf = (campaignId: string, accountId: string, period: string) => `task:${campaignId}:${accountId}:${period}`;
 
@@ -650,11 +658,13 @@ export class TaskService {
       const made = await this.write(row, input.accountId, key, 'withheld', `account.${who.status}`, null, terms);
       return { reward: await this.record(made.intent), created: made.created };
     }
-    if (holdSeconds > 0 && !served) {
-      const held = await this.write(row, input.accountId, key, 'held', null, new Date(now.getTime() + holdSeconds * 1000), terms);
+    const holdUntil = holdSeconds > 0 && !served ? new Date(now.getTime() + holdSeconds * 1000) : null;
+    // A reward INTAFACED owes is owed at its claim; its hold only delays the payment to the customer's own wallet.
+    if (holdUntil && !owesReward({ form: terms.form, asset: row.reward_asset ?? '' })) {
+      const held = await this.write(row, input.accountId, key, 'held', null, holdUntil, terms);
       return { reward: await this.record(held.intent), created: held.created };
     }
-    const made = await this.write(row, input.accountId, key, 'qualified', null, null, terms);
+    const made = await this.write(row, input.accountId, key, 'qualified', null, holdUntil, terms);
     if (made.created) await this.saga.attempt(key);
     return { reward: await this.record((await this.intent(key))!), created: made.created };
   }
@@ -706,6 +716,7 @@ export class TaskService {
    * asset summed from those rows (CM-rewards-hub-01). The account is the caller's principal, never a field.
    */
   async myRewards(input: { accountId: string }): Promise<MyRewards> {
+    const now = this.now();
     const [rows, groups] = await Promise.all([
       this.sql<(IntentRow & { campaign_name: string })[]>`
         SELECT i.*, i.amount::text AS amount, c.name AS campaign_name
@@ -713,19 +724,21 @@ export class TaskService {
         WHERE i.account_id = ${input.accountId}
         ORDER BY i.created_at DESC, i.reward_key LIMIT ${MY_REWARDS_LIMIT}`,
       // The totals count every reward, not only the listed ones.
-      this.sql<{ state: RewardRecord['state']; asset: string; amount: string; n: number }[]>`
-        SELECT state, asset, sum(amount)::text AS amount, count(*)::int AS n FROM campaigns.reward_intents
-        WHERE account_id = ${input.accountId} GROUP BY state, asset`,
+      this.sql<{ state: RewardRecord['state']; asset: string; amount: string; n: number; holding: boolean }[]>`
+        SELECT state, asset, sum(amount)::text AS amount, count(*)::int AS n,
+          (state = 'owed' AND hold_until IS NOT NULL AND hold_until > ${now}) AS holding
+        FROM campaigns.reward_intents
+        WHERE account_id = ${input.accountId} GROUP BY state, asset, holding`,
     ]);
     const [attempts, locks] = await Promise.all([this.attemptsOf(rows.map((r) => r.reward_key)), this.locksOf(rows)]);
     const rewards = rows.map((r) => ({
       ...this.toRecord(r, attempts.get(r.reward_key) ?? [], locks.get(r.reward_key)),
       campaignName: r.campaign_name,
-      status: REWARD_STATUS_OF[r.state],
+      status: statusOf(r.state, r.hold_until, now),
     }));
     const sums = new Map<string, { status: MyRewards['totals'][number]['status']; asset: string; units: bigint; count: number }>();
     for (const g of groups) {
-      const status = REWARD_STATUS_OF[g.state];
+      const status = g.holding ? 'on_hold' : REWARD_STATUS_OF[g.state];
       const k = `${status}:${g.asset}`;
       const line = sums.get(k) ?? { status, asset: g.asset, units: 0n, count: 0 };
       line.units += parseAmount(g.amount);
@@ -922,12 +935,13 @@ export class TaskService {
       const made = await this.write(row, account.account_id, key, 'withheld', `account.${who.status}`, null, terms, period);
       return { reward: await this.record(made.intent), created: made.created };
     }
-    if (holdSeconds > 0 && !served) {
-      const until = new Date(now.getTime() + holdSeconds * 1000);
+    const until = holdSeconds > 0 && !served ? new Date(now.getTime() + holdSeconds * 1000) : null;
+    // A reward INTAFACED owes is owed at its claim; its hold only delays the payment to the customer's own wallet.
+    if (until && !owesReward({ form: terms.form, asset: terms0.asset })) {
       const held = await this.write(row, account.account_id, key, 'held', null, until, terms, period);
       return { reward: await this.record(held.intent), created: held.created };
     }
-    const made = await this.write(row, account.account_id, key, 'qualified', null, null, terms, period);
+    const made = await this.write(row, account.account_id, key, 'qualified', null, until, terms, period);
     if (made.created) await this.saga.attempt(key);
     return { reward: await this.record((await this.intent(key))!), created: made.created };
   }
@@ -969,7 +983,7 @@ export class TaskService {
   /** One operator asks for a sweep of earned fees into the reward pot. The reference is the business key. */
   async requestFunding(input: {
     reference: string;
-    sourceModule: 'trade';
+    sourceModule: PotFunding['sourceModule'];
     asset: string;
     amount: unknown;
     actor: string;
@@ -1111,6 +1125,7 @@ export class TaskService {
       state: row.state,
       reason: row.reason,
       ledgerTxId: row.ledger_tx_id,
+      owed: row.owe_tx_id && row.owed_at ? { txId: row.owe_tx_id, at: iso(row.owed_at) } : null,
       createdAt: iso(row.created_at),
       postedAt: row.posted_at ? iso(row.posted_at) : null,
       holdUntil: row.hold_until ? iso(row.hold_until) : null,

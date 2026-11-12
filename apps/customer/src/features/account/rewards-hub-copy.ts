@@ -50,6 +50,17 @@ const en = {
   product_bots: 'trading bots',
   product_fiat: 'fiat',
   product_other: 'other products',
+  total_owed: 'Owed by INTAFACED, not in your wallet',
+  status_owed: 'Owed',
+  why_owed:
+    'Owed to you by INTAFACED since {when}. It is not in your wallet and not part of any balance until it is paid to your connected wallet, and paying rewards to wallets is not switched on yet.',
+  why_owed_held:
+    'Owed to you by INTAFACED. It is paid to your connected wallet once the campaign’s review hold ends: {left} left, until {when}. Until then it is not in your wallet.',
+  why_ceiling:
+    'Waiting: INTAFACED’s limit on rewards it may owe ({reason}) has no room for it yet. It is owed once, under the same reference, when there is room.',
+  spendOwed: 'Spend or withdraw',
+  spendOwedNote:
+    'This reward is owed to you by INTAFACED and is not in your wallet yet, so there is nothing to spend or withdraw. Nothing was sent.',
   txLink: 'Transaction {tx}',
 } as const;
 
@@ -103,6 +114,17 @@ const es: { [K in keyof typeof en]: string } = {
   product_bots: 'bots de trading',
   product_fiat: 'fiat',
   product_other: 'otros productos',
+  total_owed: 'Adeudado por INTAFACED, no está en tu monedero',
+  status_owed: 'Adeudada',
+  why_owed:
+    'INTAFACED te la adeuda desde el {when}. No está en tu monedero ni forma parte de ningún saldo hasta que se pague a tu monedero conectado, y el pago de recompensas a monederos aún no está activado.',
+  why_owed_held:
+    'INTAFACED te la adeuda. Se paga a tu monedero conectado cuando termine la retención de revisión de la campaña: quedan {left}, hasta el {when}. Hasta entonces no está en tu monedero.',
+  why_ceiling:
+    'En espera: el límite de recompensas que INTAFACED puede adeudar ({reason}) aún no tiene margen. Se adeuda una vez, con la misma referencia, cuando lo haya.',
+  spendOwed: 'Gastar o retirar',
+  spendOwedNote:
+    'INTAFACED te adeuda esta recompensa y aún no está en tu monedero, así que no hay nada que gastar ni retirar. No se envió nada.',
   txLink: 'Transacción {tx}',
 };
 
@@ -158,6 +180,17 @@ const fr: { [K in keyof typeof en]: string } = {
   product_bots: 'les robots de trading',
   product_fiat: 'la monnaie fiduciaire',
   product_other: 'd’autres produits',
+  total_owed: 'Dû par INTAFACED, pas dans votre portefeuille',
+  status_owed: 'Due',
+  why_owed:
+    'INTAFACED vous la doit depuis le {when}. Elle n’est pas dans votre portefeuille ni dans aucun solde tant qu’elle n’est pas versée à votre portefeuille connecté, et le versement des récompenses aux portefeuilles n’est pas encore activé.',
+  why_owed_held:
+    'INTAFACED vous la doit. Elle est versée à votre portefeuille connecté à la fin de la période de vérification de la campagne : il reste {left}, jusqu’au {when}. D’ici là, elle n’est pas dans votre portefeuille.',
+  why_ceiling:
+    'En attente : la limite des récompenses qu’INTAFACED peut devoir ({reason}) n’a pas encore de marge. Elle est due une fois, sous la même référence, dès qu’il y en a.',
+  spendOwed: 'Dépenser ou retirer',
+  spendOwedNote:
+    'Cette récompense vous est due par INTAFACED et n’est pas encore dans votre portefeuille : il n’y a rien à dépenser ni à retirer. Rien n’a été envoyé.',
   txLink: 'Transaction {tx}',
 };
 
