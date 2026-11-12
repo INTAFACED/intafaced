@@ -622,8 +622,9 @@ test(`${J} #9 deposits 10 TEST base to the trading venue and withdraws more than
   // call data the page shows, and the venue is the stack's TEST SovereignVenue (code on the TEST chain, base TEST Token A).
   const steps = call.getByRole('listitem');
   const last = steps.last();
-  const venue = (await last.locator('dt:text-is("Contract") + dd').innerText()).trim();
-  const data = (await last.locator('code').innerText()).trim();
+  // Each step lists its contract, then its call data, as a term and its definition.
+  await expect(last.getByRole('term')).toHaveText(['Contract', 'Call data']);
+  const [venue, data] = (await last.getByRole('definition').allInnerTexts()).map((text) => text.trim());
   const decoded = decodeFunctionData({ abi: VENUE_ABI, data });
   expect(decoded.functionName).toBe('deposit');
   expect(decoded.args).toEqual([10n * 10n ** 18n, 0n]);
