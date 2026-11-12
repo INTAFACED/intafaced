@@ -970,6 +970,11 @@ export class UserVenueDoor {
     return this.deps.store.find(principal.userId, actionKey);
   }
 
+  /** Every stored action of this person under keys starting `prefix`: what a revoke reads the assistant's orders by (#12). */
+  async storedByPrefix(principal: Principal, prefix: string): Promise<readonly StoredVenueAction[]> {
+    return this.deps.store.listByPrefix(principal.userId, prefix);
+  }
+
   async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
     const key = (actionKey ?? '').trim();
     const row = await this.deps.store.find(principal.userId, key);

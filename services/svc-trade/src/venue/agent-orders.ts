@@ -6,6 +6,7 @@ import {
   AgentCapError,
   CappedAgentSigner,
   VenueRefusalError,
+  hasSubAccountReads,
   isTestVenue,
   type AgentCap,
   type AgentCapMarks,
@@ -19,7 +20,14 @@ import {
   type VenueSignature,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
-import { AGENT_CONNECT_STEP_UP_SCOPE, AgentAccountError, assertPerson, capErrorAs, type AgentAccountValues } from './agent-account.js';
+import {
+  AGENT_CONNECT_STEP_UP_SCOPE,
+  AgentAccountError,
+  assertPerson,
+  capErrorAs,
+  type AgentAccountValues,
+  type NextSignature,
+} from './agent-account.js';
 import type { AgentAccountRecord, AgentAccountStore } from './agent-account-store.js';
 import type { AgentConnectionRecord, AgentConnectionStore } from './agent-connection-store.js';
 import type { AgentKeyReader } from './agent-key-read-client.js';
@@ -63,6 +71,14 @@ export const AGENT_KEY_TRADE_SCOPES: ReadonlySet<string> = new Set(['trade:read'
 export const agentOrderKey = (keyId: string, clientOrderId: string) => `${AGENT_ORDER_PREFIX}${keyId}:${clientOrderId}`;
 /** The business key of the leverage setting an assistant's perpetual order needs first (#8). */
 export const agentLeverageKey = (keyId: string, clientOrderId: string) => `agent:leverage:${keyId}:${clientOrderId}`;
+/**
+ * #12: the business key of the person's own `revoke_agent` for an agent account's venue agent. Once an action is stored
+ * under it, our copy of that account's venue agent key is dropped: it signs nothing more, for any key connected to it.
+ */
+export const agentRevokeKey = (accountId: string) => `agent:account:${accountId}:revoke`;
+/** #12: the business key of the one cancel a revoke sends for one of the assistant's resting orders (its order key). */
+export const agentRevokeCancelKey = (keyId: string, orderKey: string) => `agent:revoke:${keyId}:cancel:${orderKey}`;
+const revokeCancelPrefix = (keyId: string) => `agent:revoke:${keyId}:cancel:`;
 /** 1x in basis points of 1x, the unit a venue's leverage travels in. */
 const ONE_X_BPS = 10_000;
 const LEVERAGE_RE = /^[1-9][0-9]{0,2}$/;
@@ -90,6 +106,29 @@ export interface AgentConnectionView {
   readonly accountId: string;
   readonly subAccount: string | null;
   readonly connectedAt: Date;
+}
+
+/** #12: the assistant revoked. */
+export interface AgentRevokeView {
+  readonly keyId: string;
+  readonly accountId: string;
+  readonly subAccount: string | null;
+  /** When the connection ended: from then on the key places nothing on the account. */
+  readonly endedAt: Date;
+  /** The assistant's orders resting when it was revoked, each cancelled once on the venue, as the venue answered. */
+  readonly cancels: readonly {
+    readonly orderKey: string;
+    readonly venueClientOrderId: string | null;
+    readonly symbol: string;
+    readonly state: 'cancelled' | 'refused' | 'unknown';
+  }[];
+  /** True once our copy of the account's venue agent key is dropped: it signs nothing more. */
+  readonly agentKeyDropped: boolean;
+  /** The venue agent behind the key, and whether the venue still lists it on the agent account, as it reports it. */
+  readonly agent: { readonly address: string; readonly onVenue: boolean };
+  /** The venue's revoke of that agent, for the person's wallet to sign, until the venue no longer lists it. */
+  readonly next: NextSignature | null;
+  readonly test: boolean;
 }
 
 export interface AgentOrderView {
@@ -181,6 +220,7 @@ export class AgentOrders {
         409,
       );
     }
+    await this.notRevoked(principal, account);
     const key = await this.deps.keys.read(principal.userId, keyId);
     if (key === null) {
       throw new AgentAccountError(
@@ -286,7 +326,188 @@ export class AgentOrders {
         { accountId: c.accountId },
       );
     }
+    await this.notRevoked(principal, a);
     return { keyId, account: a as AgentAccountRecord & { subAccount: string } };
+  }
+
+  /** #12: refuses once the person revoked this account's venue agent (our copy of its key is dropped). */
+  private async notRevoked(principal: Principal, a: AgentAccountRecord): Promise<void> {
+    if (await this.deps.door.stored(principal, agentRevokeKey(a.accountId))) {
+      throw new AgentAccountError(
+        'agents.agent_revoked',
+        `the assistant on agent account ${a.accountId} was revoked; its agent key signs nothing more`,
+        409,
+        { accountId: a.accountId },
+      );
+    }
+  }
+
+  // ── the person revokes the assistant (#12) ───────────────────────────────────────────────────────────────────
+
+  /**
+   * #12: the person revokes their assistant, from their own session (never an API key). In order, each step safe to
+   * repeat, so a crash anywhere is finished by the same call again:
+   *   1. The key's connection ends: from then on the key places nothing on the agent account (identity's own revoke of
+   *      the API key, which the person's Revoke also sends, refuses its next call at the door: `auth.api_key_revoked`).
+   *   2. Each of the assistant's orders resting on the agent account's venue account is cancelled once, signed by the
+   *      agent key (a revoked cap still signs a cancel, agent-cap.ts), under `agent:revoke:<keyId>:cancel:<orderKey>`, so
+   *      a repeat re-reads the stored answer and sends nothing new. The person's own orders there are left as they are.
+   *   3. Our copy of the venue agent key is dropped: the venue's `revoke_agent` is prepared for the person's wallet and
+   *      stored under `agent:account:<accountId>:revoke`, after which that key signs nothing more (no new cancel either:
+   *      a cancel not signed before then is the person's own to make) and is let go from this process.
+   *   4. With `{ actionKey, signature }`, the wallet's signature of that revoke is sent to the venue, once.
+   * Money: nothing moves. A cancel only releases what the order had locked on the agent account; positions stay open.
+   * Crash points: none strand anything; the funds stay on the person's own sub-account under their own wallet.
+   */
+  async revoke(
+    principal: Principal,
+    keyIdRaw: string,
+    req: { actionKey?: unknown; signature?: VenueSignature } = {},
+  ): Promise<AgentRevokeView> {
+    assertPerson(principal);
+    const keyId = uuid(keyIdRaw, 'keyId');
+    const c = await this.deps.connections.latest(keyId);
+    if (!c || c.userId !== principal.userId) {
+      throw new AgentAccountError('agents.key_not_connected', `API key ${keyId} trades no agent account of this login`, 404);
+    }
+    const a = await this.deps.accounts.find(principal.userId, c.accountId);
+    if (!a || a.subAccount === null) {
+      throw new AgentAccountError('agents.account_unknown', `the agent account of API key ${keyId} is not on this login`, 404);
+    }
+    const sub: UserVenueAccount = { venueId: a.venueId, owner: a.owner, subAccount: a.subAccount };
+    const revokeKey = agentRevokeKey(a.accountId);
+    if (req.signature !== undefined && req.actionKey !== revokeKey) {
+      throw new AgentAccountError(
+        'agents.account_action_unknown',
+        `${JSON.stringify(req.actionKey ?? null)} is not this assistant's revoke; it is ${revokeKey}`,
+        404,
+      );
+    }
+    // 1. The connection ends.
+    const endedAt = c.endedAt ?? (await this.deps.connections.end(keyId, this.deps.now()))?.endedAt;
+    if (!endedAt) throw new Error(`the connection of key ${keyId} did not end`);
+
+    const venue = await this.deps.door.venue();
+    if (a.venueId !== venue.venue.id) {
+      throw new AgentAccountError('agents.account_not_open', `agent account ${a.accountId} is on ${a.venueId}, not ${venue.venue.id}`, 409);
+    }
+    // 2. The assistant's resting orders, each cancelled once, while our copy of the agent key still signs.
+    const dropped = (await this.deps.door.stored(principal, revokeKey)) !== null;
+    if (!dropped) await this.cancelResting(principal, a as AgentAccountRecord & { subAccount: string }, keyId, venue, sub);
+    // 3. Our copy of the venue agent key is dropped.
+    if (!dropped) {
+      await this.deps.door.prepare(
+        principal,
+        {
+          owner: a.owner,
+          subAccount: a.subAccount,
+          signer: { role: 'owner', address: a.owner },
+          intent: { kind: 'revoke_agent', agentAddress: a.agentAddress },
+          actionKey: revokeKey,
+        },
+        { agentAccount: true },
+      );
+    }
+    this.signers.delete(a.agentAddress);
+    this.holdingMarks.delete(a.agentAddress);
+    this.orderMarks.delete(a.agentAddress);
+    // 4. The wallet's signature of the venue's revoke, sent once.
+    if (req.signature !== undefined) await this.deps.door.submit(principal, revokeKey, req.signature, { agentAccount: true });
+
+    if (!hasSubAccountReads(venue)) throw new Error(`${venue.venue.displayName} offers no sub-account reads`);
+    const onVenue = (await venue.agents(sub)).value.some((x) => x.address.toLowerCase() === a.agentAddress);
+    const stored = await this.deps.door.stored(principal, revokeKey);
+    const cancels = (await this.deps.door.storedByPrefix(principal, revokeCancelPrefix(keyId)))
+      .slice()
+      .sort((x, y) => x.createdAt.getTime() - y.createdAt.getTime() || x.businessKey.localeCompare(y.businessKey))
+      .map((row) => {
+        const intent = row.prepared.intent;
+        const o = row.lastOutcome;
+        return {
+          orderKey: row.businessKey.slice(revokeCancelPrefix(keyId).length),
+          venueClientOrderId: row.prepared.venueClientOrderId ?? null,
+          symbol: intent.kind === 'cancel_order' ? intent.symbol : '',
+          state: o?.definite ? (o.accepted ? ('cancelled' as const) : ('refused' as const)) : ('unknown' as const),
+        };
+      });
+    return {
+      keyId,
+      accountId: a.accountId,
+      subAccount: a.subAccount,
+      endedAt,
+      cancels,
+      agentKeyDropped: stored !== null,
+      agent: { address: a.agentAddress, onVenue },
+      next:
+        stored && onVenue
+          ? { actionKey: revokeKey, step: 'revoke_agent', prepared: stored.prepared, signed: stored.signature !== null }
+          : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /** #12 step 2: cancel, once each, the assistant's orders the venue shows resting on the agent account. */
+  private async cancelResting(
+    principal: Principal,
+    a: AgentAccountRecord & { subAccount: string },
+    keyId: string,
+    venue: UserVenue,
+    sub: UserVenueAccount,
+  ): Promise<void> {
+    const resting = (await venue.openOrders(sub)).value;
+    if (resting.length === 0) return;
+    const mine = new Map(
+      (await this.deps.door.storedByPrefix(principal, `${AGENT_ORDER_PREFIX}${keyId}:`))
+        .filter((row) => row.prepared.intent.kind === 'place_order' && row.prepared.venueClientOrderId)
+        .map((row) => [row.prepared.venueClientOrderId as string, row.businessKey]),
+    );
+    const seed = this.deps.values.keySeed;
+    for (const order of resting) {
+      const orderKey = order.venueClientOrderId ? mine.get(order.venueClientOrderId) : undefined;
+      if (!orderKey) continue; // not the assistant's: the person's own order stays
+      const key = agentRevokeCancelKey(keyId, orderKey);
+      const stored = await this.deps.door.stored(principal, key);
+      if (stored?.lastOutcome?.definite) continue;
+      let signature = stored?.signature ?? null;
+      if (!signature) {
+        if (seed === null)
+          throw new AgentAccountError(
+            'agents.agent_key_unset',
+            'the agent key secret is not set (owner value blank), so the cancel is not signed',
+            422,
+          );
+        const prepared = (
+          await this.deps.door.prepare(
+            principal,
+            {
+              owner: a.owner,
+              subAccount: a.subAccount,
+              signer: { role: 'agent', address: a.agentAddress },
+              intent: { kind: 'cancel_order', symbol: order.symbol, clientOrderKey: orderKey },
+              actionKey: key,
+            },
+            { agentAccount: true },
+          )
+        ).prepared;
+        if (
+          prepared.account.subAccount !== a.subAccount ||
+          prepared.account.owner.toLowerCase() !== a.owner ||
+          prepared.signer.address.toLowerCase() !== a.agentAddress
+        ) {
+          throw new Error(`revoke cancel ${key} was prepared outside its agent sub-account; nothing is signed`);
+        }
+        const cap: AgentCap = {
+          account: sub,
+          agentAddress: a.agentAddress,
+          asset: a.asset,
+          cap: a.cap,
+          validUntil: null,
+          revokedAt: this.deps.now(),
+        };
+        ({ signature } = await this.signerFor(a, venue, seed).sign(prepared, cap));
+      }
+      await this.deps.door.submit(principal, key, signature, { agentAccount: true });
+    }
   }
 
   private signerFor(a: AgentAccountRecord, venue: UserVenue, seed: string): CappedAgentSigner {
