@@ -58,14 +58,14 @@ export function times(now = new Date()) {
 /** The issue's body: the error line, the time, the one action, and for a sign-in the exact link (OWNER 203). */
 export function issueBody({ source, line, action, signIn, signInUrl, runUrl, now = new Date() }) {
   return [
-    `The judge is down: the ${source} reviewer call failed for a reason that is not the change, so no PR gets a verdict and none merges (OWNER 289 point 11). Open PRs show the pending \`judge\` status, not a red check.`,
+    `The judge is down: the ${source} reviewer call failed for a reason that is not the change, so no PR gets a verdict. A PR the review can stop (a gate file, a look baseline, a journey test or shared test code) waits; any other merges on its tests and its journeys (OWNER 302). Open PRs show the pending \`judge\` status, not a red check.`,
     '',
     `- **Error:** \`${String(line).replace(/`/g, "'")}\``,
     `- **Since:** ${times(now)}, ${runUrl}`,
     `- **One action:** ${action}`,
     ...(signIn ? [`- ${signInLines(signInUrl)}`] : []),
     '',
-    `Later down runs add nothing here. The first CI review whose reviewer call succeeds closes this and re-runs the CI review on the oldest ${CATCH_UP_CAP} open PR heads that have no verdict, and each re-run that succeeds takes the next ${CATCH_UP_CAP} until none is left (tooling/ci/judge-down.mjs).`,
+    `Later down runs add nothing here. The first CI review whose reviewer call succeeds closes this and re-runs the CI review on the oldest ${CATCH_UP_CAP} PR heads that have no verdict (open ones first, then those that merged while the judge was down), and each re-run that succeeds takes the next ${CATCH_UP_CAP} until none is left (tooling/ci/judge-down.mjs).`,
   ].join('\n');
 }
 
@@ -79,7 +79,7 @@ export const hasVerdict = (job) =>
  * jobs; a title or body edit's run, whose job is skipped, is passed over: review-marker.mjs reviewRan), when it has no
  * verdict; and for each one in `pulls` that merged, when that run had none because the judge was down (it merged on its
  * tests and its journeys, and the judge reads it now: project-state OWNER 302; a FAIL there opens a fix issue,
- * afterMergeIssue); heads in the order their newest run was made, oldest first, at most `cap`. Heads whose newest run is still
+ * afterMergeIssue); heads in the order their newest run was made, oldest first, open ones before merged ones, at most `cap`. Heads whose newest run is still
  * going, heads with no run, and this run's own head are left. Returns { targets, left }: `left` counts heads past the cap
  * found without a verdict (heads not reached within JOBS_READ_CAP job reads are not counted).
  */
@@ -97,7 +97,13 @@ export async function catchUpTargets({ pulls, runs, jobsOf, repo, skipSha, cap =
     )
     .map((p) => ({ pull: p, runs: byHead.get(p.head.sha) ?? [] }))
     .filter((h) => h.runs[0]?.status === 'completed')
-    .sort((a, b) => String(a.runs[0].created_at).localeCompare(String(b.runs[0].created_at)) || a.runs[0].id - b.runs[0].id);
+    // Open heads first, so pull requests that merged while the judge was down never crowd an open one out of the cap.
+    .sort(
+      (a, b) =>
+        (a.pull.state === 'open' ? 0 : 1) - (b.pull.state === 'open' ? 0 : 1) ||
+        String(a.runs[0].created_at).localeCompare(String(b.runs[0].created_at)) ||
+        a.runs[0].id - b.runs[0].id,
+    );
   const targets = [];
   let left = 0;
   let reads = 0;
@@ -252,7 +258,7 @@ async function backIssue(source) {
     const c = await call(ISSUE_TOKEN, 'PATCH', `/repos/${ISSUE_REPO}/issues/${i.number}`, { state: 'closed', state_reason: 'completed' });
     if (c.status !== 200) return console.log(`::warning::${ISSUE_REPO}#${i.number} wasn't closed: HTTP ${c.status}; nothing re-run`);
   }
-  const note = `The judge is back: the CI review's reviewer call succeeded at ${times()} (${RUN_URL}). This run's Start the seal job re-runs the CI review on the oldest ${CATCH_UP_CAP} open PR heads with no verdict, and lists them in its log.`;
+  const note = `The judge is back: the CI review's reviewer call succeeded at ${times()} (${RUN_URL}). This run's Start the seal job re-runs the CI review on the oldest ${CATCH_UP_CAP} PR heads with no verdict (open ones first, then those that merged while the judge was down), and lists them in its log.`;
   for (const i of open) await call(ISSUE_TOKEN, 'POST', `/repos/${ISSUE_REPO}/issues/${i.number}/comments`, { body: note });
   // The catch-up runs only after this run closed the issue, so a second success at the same time re-runs nothing.
   if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, 'closed=true\n');

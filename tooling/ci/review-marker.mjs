@@ -319,7 +319,7 @@ export function groupPulls(commits, headRef) {
  */
 export const judgeDownNeed = (verdict) =>
   verdict?.state === 'none' && /the judge was down in run/.test(String(verdict.why ?? ''))
-    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and no pull request merges without its judge' }
+    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and this change needs its verdict' }
     : null;
 
 /** A sign-off missing because the judge was down says so in its title, never a red that reads as the change's own (OWNER 289 point 11). */

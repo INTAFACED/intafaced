@@ -343,7 +343,8 @@ test('catch-up: a pull request merged while the judge was down is read when it i
   const { targets } = await catchUpTargets({ pulls, runs, repo, skipSha: 'x', jobsOf: async (r) => [jobs[r.id]] });
   assert.deepEqual(
     targets.map((t) => t.pull.number),
-    [1, 5],
+    [5, 1],
+    'open heads first, then merged ones, so a merged backlog never crowds an open pull request out of the cap',
   );
 });
 
