@@ -44,6 +44,7 @@ export const staffEnrolmentRefusals = defineRefusals('StaffEnrolmentError', {
   'academy.report_not_ready': 'PRECONDITION_FAILED',
   'academy.report_expired': 'PRECONDITION_FAILED',
   'academy.email_not_found': 'NOT_FOUND',
+  'academy.email_incomplete': 'BAD_REQUEST',
 });
 const refuse = staffEnrolmentRefusals.refuse;
 
@@ -390,7 +391,7 @@ export class StaffEnrolment {
   }): Promise<BulkEmailDetail & { replayed: boolean }> {
     const days = requireSetting(this.limits.inactiveDays, staffEnrolmentRefusals, 'academy.inactivity_period_unset');
     const subject = input.subject.trim();
-    if (!subject || !input.body.trim()) refuse('academy.reason_required', 'a course email needs a subject and a body');
+    if (!subject || !input.body.trim()) refuse('academy.email_incomplete', 'a course email needs a subject and a body');
     const now = input.now ?? new Date();
     const prior = await this.emailByKey(input.key);
     if (prior) return { ...prior, replayed: true };

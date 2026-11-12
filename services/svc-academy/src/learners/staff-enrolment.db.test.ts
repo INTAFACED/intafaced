@@ -230,6 +230,15 @@ describe('course email', () => {
     ).toBe('academy.inactivity_period_unset');
     expect(await db.sql`SELECT id FROM academy.bulk_emails`).toHaveLength(0);
   });
+
+  it('refuses a blank subject or message by its own code, before anything is written', async () => {
+    const academy = service();
+    await academy.enrolCourse({ userId: A, slug: 'foundations', track: 'audit' });
+    expect(
+      await codeOf(staff(academy).admin.sendBulkEmail({ path: 'foundations', subject: ' ', body: 'TEST', key: 'mail:foundations:1' })),
+    ).toBe('academy.email_incomplete');
+    expect(await db.sql`SELECT id FROM academy.bulk_emails`).toHaveLength(0);
+  });
 });
 
 describe('learner export', () => {

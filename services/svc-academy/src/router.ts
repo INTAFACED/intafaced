@@ -2582,9 +2582,10 @@ export function createAcademyRouter(
       .output(enrollmentOut)
       .mutation(({ input, ctx }) => guard(() => academy.enrollCertPath({ userId: ctx.principal!.userId, pathSlug: input.pathSlug }))),
 
-    /** AC-enrolment-01: Enrol now from a course page. A repeat while enrolled answers with the same enrolment. */
+    /** AC-notifications-02 (J-academy-15 #6): the learner's own switch for one course's email. */
     ...courseEmailProcedures(academy.staffEnrolment),
 
+    /** AC-enrolment-01: Enrol now from a course page. A repeat while enrolled answers with the same enrolment. */
     enrolCourse: scopedProcedure('academy:write', { module: 'academy' })
       .input(academyEnrolCourseInputSchema)
       .output(academyCourseEnrolmentSchema)

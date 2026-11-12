@@ -114,6 +114,11 @@ export const ENROLMENT_COPY: Record<string, Omit<RefusalView, 'code' | 'changed'
     body: 'A course email leaves out learners with no learning for longer than the owner’s inactivity period, and that period is not set, so the email is refused.',
     next: 'Nothing was written. The owner sets the period (ACADEMY_BULK_EMAIL_INACTIVE_DAYS).',
   },
+  'academy.email_incomplete': {
+    title: 'Subject and message are required',
+    body: 'A course email needs a subject and a message.',
+    next: 'Nothing was written. Fill in both and try again.',
+  },
   'academy.audience_empty': {
     title: 'Nobody to write to',
     body: 'No learner is enrolled in this course.',
