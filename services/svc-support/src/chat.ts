@@ -19,8 +19,9 @@
  * fields (blank asks for a free-text first message only). A guest's address is sealed with the guest address key and
  * erased after the guest retention, as a guest request's is.
  *
- * Continuing a chat by email needs a mailbox, which this build does not connect: it answers `vendor.email` and leaves the
- * chat as it was.
+ * Continuing a chat by email (chat-email.ts): a signed-in customer's chat is mailed to their own proved address through
+ * svc-identity, and stays open. Without a mailbox, or for a guest (whose address only svc-support holds, sealed), it answers
+ * `vendor.email` and leaves the chat as it was.
  */
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
@@ -63,6 +64,7 @@ import {
   type SupportRequestSource,
   type SupportTicket,
 } from '@intafaced/contracts';
+import { NO_CHAT_MAIL, chatMailRequest, type ChatMailPort } from './chat-email.js';
 import { seal } from './guest-requests.js';
 import { refuseCommentSecret, SupportError } from './support-service.js';
 import type { StaffMember } from './desk-staff.js';
@@ -663,6 +665,7 @@ export class SupportChat {
     /** Reads the contact channels' chat hours (the owner's, or null). */
     private readonly hours: () => Promise<string | null>,
     private readonly now: () => Date = () => new Date(),
+    private readonly mail: ChatMailPort = NO_CHAT_MAIL,
   ) {}
 
   async availability(): Promise<SupportChatAvailability> {
@@ -808,10 +811,18 @@ export class SupportChat {
     return this.view(await this.finish(session.id, session.userId ?? `guest:${session.id}`));
   }
 
-  /** Continue by email: there is no mailbox in this build, so it says so and leaves the chat as it was. */
+  /**
+   * Continue by email: the signed-in owner's chat is mailed to their own proved address (once per chat a day) and stays
+   * open. A guest, or no mailbox, answers `vendor.email` and leaves the chat as it was.
+   */
   async continueByEmail(caller: ChatCaller, sessionId: string): Promise<SupportChatEmailResult> {
     const session = await this.session(sessionId, caller);
     if (session.status === 'closed') throw new SupportError('this chat is closed', SUPPORT_CHAT_CLOSED);
+    // Only the signed-in owner can send their chat to their own mailbox; a page holding the chat's token cannot.
+    if (session.userId !== null && caller.userId === session.userId) {
+      const sent = await this.mail.send(chatMailRequest({ sessionId: session.id, userId: session.userId, now: this.now() }));
+      if (sent) return { status: 'emailed', session: this.view(session) };
+    }
     return { status: 'not_connected', code: 'vendor.email', session: this.view(session) };
   }
 

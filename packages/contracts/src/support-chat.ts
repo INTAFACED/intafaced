@@ -13,7 +13,8 @@
  *   call again, never by a new key.
  * - New messages are read with a cursor (`after`, the last sequence the reader has), every `SUPPORT_CHAT_POLL_MS`.
  * - A closed chat cannot be written to (`support.chat_closed`).
- * - Continuing a chat by email needs a mailbox, which this build does not connect: it answers `vendor.email`.
+ * - Continuing a chat by email mails a signed-in customer's own proved address through svc-identity; without a mailbox,
+ *   or for a guest, it answers `vendor.email`.
  */
 import { z } from 'zod';
 
@@ -180,10 +181,14 @@ export type SupportChatPoll = z.infer<typeof supportChatPollSchema>;
 export const supportChatSessionInputSchema = z.object(sessionRef).strict();
 export type SupportChatSessionInput = z.infer<typeof supportChatSessionInputSchema>;
 
-/** Continue by email: needs a mailbox. Without one the answer names `vendor.email` and the chat stays as it was. */
-export const supportChatEmailResultSchema = z
-  .object({ status: z.literal('not_connected'), code: z.literal('vendor.email'), session: supportChatSessionSchema })
-  .strict();
+/**
+ * Continue by email: needs a mailbox. With one, a signed-in customer's chat is mailed to their own proved address and the
+ * answer is `emailed`; without one (or for a guest) the answer names `vendor.email`. Either way the chat stays open.
+ */
+export const supportChatEmailResultSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('emailed'), session: supportChatSessionSchema }).strict(),
+  z.object({ status: z.literal('not_connected'), code: z.literal('vendor.email'), session: supportChatSessionSchema }).strict(),
+]);
 export type SupportChatEmailResult = z.infer<typeof supportChatEmailResultSchema>;
 
 /** The desk's view of one session. */
