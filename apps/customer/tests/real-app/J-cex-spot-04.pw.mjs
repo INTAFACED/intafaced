@@ -7,7 +7,9 @@ import { awayBid, fundedTrader, held, openDesk, openOrders, placements, previewe
 // test per step, titled "J-cex-spot-04 #<n>", run in order on one TEST account funded with TEST USDT through the real
 // ledger. The band and cap are the stack's LOCAL TEST values, set through the operator pair's two-person door
 // (`local-test-gates.mjs limits`); the journey reads them from the public market list and never assumes a number.
-// Step 6 takes BTC/USDC's band and cap away through the same door, and puts them back after.
+// Its sixth test takes BTC/USDC's band and cap away through the same door, and puts them back after.
+// Steps 2 and 6 are adapted to the venue (at launch a pair's rules are the venue's own) and are proven in
+// J-cex-spot-04-venue.pw.mjs; the two tests here keep today's custodial desk covered under titles that are not steps.
 const J = 'J-cex-spot-04';
 const SYMBOL = 'BTC/USDT';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -66,7 +68,7 @@ test(`${J} #1 opens the order-type menu: the types this market does not take are
   expect(sent).toHaveLength(0);
 });
 
-test(`${J} #2 reads the pair's rules on the ticket and in the market's Info: tick, lot, minimums, price band, open-order cap`, async ({
+test(`${J} today's desk (custodial, off at launch): the pair's rules on the ticket and in the market's Info: tick, lot, minimums, price band, open-order cap`, async ({
   page,
 }) => {
   const who = account();
@@ -200,7 +202,7 @@ test(`${J} #5 reaches the open-order cap: the next order is refused with the cap
   expect(await openOrders(who)).toHaveLength(0);
 });
 
-test(`${J} #6 trades a pair whose band or cap the owner has not published: a typed refusal names the missing rule, nothing held`, async ({
+test(`${J} today's desk (custodial, off at launch): a pair whose band or cap the owner has not published refuses naming the missing rule, nothing held`, async ({
   page,
 }) => {
   const who = account();
