@@ -386,11 +386,16 @@ test(`${J} #6 approves the preview: the order appears on the person's own venue 
   page,
 }) => {
   const before = await sent();
-  await openAllowance(page);
+  const testWallet = await openAllowance(page);
   const id = await agentId(page);
   await ask(page, 'Buy 0.0001 BTC at market');
+  const asked = testWallet.requests.length;
   await preview(page).getByRole('button', { name: 'Approve' }).click();
   await expect(main(page).getByRole('status')).toContainText('Order placed on your account’s sub-account by the agent permission');
+  // The person's own wallet signed nothing: no sign sheet and no wallet request for the order, so the venue took it
+  // under the agent permission it holds for A.
+  expect(testWallet.requests.length).toBe(asked);
+  await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
   const [order] = await trading(id, 'orders');
   const { agentAddress } = agents.run.read();
   const subA = (await subAccounts())['Sub-account A'];
