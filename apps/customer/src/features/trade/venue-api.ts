@@ -101,6 +101,9 @@ export const venueMarketSchema = z.object({
   contractSize: maybeKnown(decimalSchema),
   mark: maybeKnown(decimalSchema),
   funding: maybeKnown(z.object({ rate: signedDecimalSchema, intervalSeconds: z.number().int().positive(), nextFundingAt: isoTime })),
+  // The prices the venue judges its trigger orders on, and its published index (J-derivatives-03). Absent: none.
+  triggerSources: z.array(z.enum(['mark', 'last'])).optional(),
+  index: maybeKnown(decimalSchema).optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
 /** A perpetual's funding as the venue publishes it (J-derivatives-01 #4). */
@@ -373,6 +376,69 @@ export function preparedStep(
   return { step: 'sign' };
 }
 
+// ── A position's protections (J-derivatives-03; svc-trade src/venue/protections.ts) ─────────────────────────────
+
+export const PROTECTION_KINDS = ['take_profit', 'stop_loss', 'stop_market', 'stop_limit', 'trailing_stop'] as const;
+export type ProtectionKind = (typeof PROTECTION_KINDS)[number];
+export const PROTECTION_SOURCES = ['mark', 'last', 'index'] as const;
+export type ProtectionSource = (typeof PROTECTION_SOURCES)[number];
+
+export const protectionViewSchema = z.object({
+  id: z.string(),
+  kind: z.enum(PROTECTION_KINDS),
+  role: z.enum(['take_profit', 'stop_loss']),
+  restsOn: z.enum(['venue', 'engine']),
+  label: z.string(),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  quantity: decimalSchema,
+  triggerSource: z.enum(PROTECTION_SOURCES),
+  triggerPrice: decimalSchema.nullable(),
+  limitPrice: decimalSchema.nullable(),
+  trailingDistance: decimalSchema.nullable(),
+  currentTrigger: decimalSchema.nullable(),
+  status: z.enum(['armed', 'triggered', 'filled', 'failed', 'cancelled']),
+  failure: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  venueOrderId: z.string().nullable(),
+  venueClientOrderId: z.string().nullable(),
+  parentClientOrderId: z.string().nullable(),
+  agentPermission: z.object({ agentAddress: z.string() }).nullable(),
+  clientOrderId: z.string(),
+  actionKey: z.string().nullable(),
+});
+export type ProtectionView = z.infer<typeof protectionViewSchema>;
+
+export const protectionCreatedSchema = z.union([
+  z.object({ restsOn: z.literal('venue'), actionKey: z.string(), prepared: preparedAnswerSchema.shape.prepared, reused: z.boolean() }),
+  z.object({ restsOn: z.literal('engine'), protection: protectionViewSchema }),
+]);
+export type ProtectionCreated = z.infer<typeof protectionCreatedSchema>;
+
+export const protectionAgentSchema = z.object({
+  agentAddress: z.string(),
+  agentName: z.string(),
+  approved: z.boolean(),
+  validUntil: z.string().nullable(),
+});
+export type ProtectionAgent = z.infer<typeof protectionAgentSchema>;
+
+/** One protection to arm: only the price fields its kind takes are sent. Amounts are decimal strings. */
+export interface ProtectionRequest {
+  owner: string;
+  symbol: string;
+  kind: ProtectionKind;
+  side: 'buy' | 'sell';
+  quantity: string;
+  triggerPrice?: string;
+  limitPrice?: string;
+  trailingDistance?: string;
+  triggerSource: ProtectionSource;
+  clientOrderId: string;
+  /** The entry order's own client order key, for a take profit or stop loss attached to it. */
+  attachTo?: string;
+}
+
 // ── Intents, as the door takes them: every Amount a decimal string ─────────────────────────────────────────────────
 
 export interface OrderIntent {
@@ -431,6 +497,8 @@ export const keys = {
   order: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:${draft}`,
   close: (owner: string, symbol: string, draft: string) => `close:${part(owner)}:${part(symbol)}:${draft}`,
   cancel: (clientOrderKey: string) => `cancel:${clientOrderKey}`,
+  /** One reverse of a position: its close is `<key>:close` and its open `<key>:open`, each under the one reverse key. */
+  reverse: (owner: string, draft: string) => `order:${part(owner)}:reverse:${draft}`,
   /** The person's own sub-account, by its name: a second press opens the same one (user-venue-door.ts OWN_SUB_ACCOUNT_PREFIX). */
   ownSubAccount: (owner: string, name: string) => `own:sub-account:${part(owner)}:${part(name.trim())}`,
   /** One move between the main account and an own sub-account, by its reviewed draft (OWN_MOVE_PREFIX). */
@@ -562,6 +630,13 @@ export function venueApi(api: ApiClient) {
       }),
     submit: (actionKey: string, signature: { digest: string; signature: string; signedBy: string }) =>
       write('/submit', submitAnswerSchema, { actionKey, signature }),
+    /** The person's protections: the venue's trigger orders our door sent and our engine's stops (J-derivatives-03). */
+    protections: (owner: string, signal?: AbortSignal) =>
+      read('/protections', z.object({ protections: z.array(protectionViewSchema) }), { owner }, signal),
+    createProtection: (input: ProtectionRequest) => write('/protections', protectionCreatedSchema, input),
+    cancelProtection: (id: string) => api.rest(`/venue/protections/${encodeURIComponent(id)}`, protectionViewSchema, { method: 'DELETE' }),
+    protectionAgent: (owner: string, signal?: AbortSignal) => read('/protection-agent', protectionAgentSchema, { owner }, signal),
+    prepareProtectionAgent: (owner: string) => write('/protection-agent/prepare', preparedAnswerSchema, { owner }),
   };
 }
 export type VenueApi = ReturnType<typeof venueApi>;

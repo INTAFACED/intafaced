@@ -53,6 +53,7 @@ export function ReviewDialog({
   run,
   confirmLabel,
   extra,
+  after,
   result,
   onConfirm,
   onClose,
@@ -66,6 +67,8 @@ export function ReviewDialog({
   run: RunAction;
   confirmLabel: string;
   extra?: ReactNode;
+  /** What follows the order's outcome on the sheet (the protections attached to an entry, J-derivatives-03 #4). */
+  after?: ReactNode;
   result: ActionResult | null;
   onConfirm: () => void;
   onClose: () => void;
@@ -160,6 +163,7 @@ export function ReviewDialog({
           {t('Close review')}
         </Button>
         <OutcomeLine result={result} owner={owner} />
+        {after}
       </div>
     </Dialog>
   );
