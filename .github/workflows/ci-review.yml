@@ -150,6 +150,8 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          KEY_DRILL_PR: ${{ vars.CI_REVIEW_KEY_DRILL_PR }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           dir="$RUNNER_TEMP/review"
           # The second key (project-state#2180): kept in an unexported variable, so a call sees one key, as before. Only
@@ -167,6 +169,14 @@ jobs:
             CLAUDE_CODE_OAUTH_TOKEN="${second}"
             answered_on=second
           }
+          # The key drill: the repository variable CI_REVIEW_KEY_DRILL_PR names one pull request whose first call is sent
+          # with a key that cannot be valid, so the API refuses it and the fallback above must answer on the second key.
+          # It proves the second key on a real review without waiting for the first to run out. It skips no call and
+          # changes no verdict: with no second key it does nothing, and unset (the default) nothing here changes.
+          if [ -n "$KEY_DRILL_PR" ] && [ "$KEY_DRILL_PR" = "$PR_NUMBER" ] && [ -n "$second" ]; then
+            echo "::warning::key drill for #$PR_NUMBER (repository variable CI_REVIEW_KEY_DRILL_PR): the first call is sent with a refused key, so the second key must answer"
+            CLAUDE_CODE_OAUTH_TOKEN="placeholder-the-api-refuses"
+          fi
           if [ -f "$dir/skip-reviewer" ]; then
             echo "the diff step already decided (too large to review even in parts)"
             exec node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
