@@ -265,6 +265,8 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
     const feed = feedOf(ctx.tape, 'noTape');
     if (!feed.ok && feed.result.status !== 'loading') return feed.result;
   }
+  // Volume is the sum of the market's trades: with no bars there were no trades, so the market has no volume, said as such.
+  if (bars.length === 0 && study.kind === 'volume') return refuse('noVolume');
   if (bars.length === 0) return refuse('noBars');
   const stepMs = TIMEFRAME_MS[interval];
   const stepSec = stepMs / 1000;

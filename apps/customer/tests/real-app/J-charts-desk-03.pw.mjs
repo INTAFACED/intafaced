@@ -79,6 +79,27 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
+/**
+ * An open spot market the public tape holds no trade for, read from the public routes (the markets list, then each one's
+ * newest trade). The step's other branch needs one; a stack whose every market trades fails here by name.
+ */
+async function untradedMarket() {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  expect(res.status).toBe(200);
+  const markets = await res.json();
+  const listed = [];
+  for (const m of markets) {
+    if (typeof m.symbol !== 'string' || m.symbol.includes(':')) continue;
+    // Only a market open for trading: a market that is not open has no chart studies to read.
+    const life = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(m.symbol)}`);
+    if (!life.ok || (await life.json()).state !== 'OPEN') continue;
+    listed.push(m.symbol);
+    const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=1`);
+    if (tape.ok && (await tape.json()).length === 0) return m.symbol;
+  }
+  throw new Error(`no open spot market is without trades on this stack (open: ${listed.join(', ')})`);
+}
+
 const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
@@ -224,6 +245,13 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   await expect(quietLegend.locator('.st-row').first()).toBeVisible();
   await expect(quietLegend.locator('[data-series]')).toHaveCount(0);
   await expect(quietLegend.locator('.st-fact')).toHaveCount(0);
+
+  // A market with no volume says so: on a listed market the public tape holds no trade for, Volume names it, and draws nothing.
+  const untraded = await untradedMarket();
+  await page.goto(`/charts/${untraded.replace('/', '-')}`);
+  await expect(page.getByTestId('studies')).toBeVisible();
+  await addStudy(page, 'volume', 'Volume');
+  await expect(row(page, 'volume-1')).toContainText('This market has no volume in the loaded bars.');
 });
 
 test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on the others and the setting is remembered', async ({

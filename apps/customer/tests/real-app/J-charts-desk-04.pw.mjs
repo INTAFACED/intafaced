@@ -38,6 +38,26 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
+/**
+ * An open spot market the public tape holds no trade for, read from the public routes (the markets list, then each one's
+ * newest trade). The step's other branch needs one; a stack whose every market trades fails here by name.
+ */
+async function untradedMarket() {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  expect(res.status).toBe(200);
+  const listed = [];
+  for (const m of await res.json()) {
+    if (typeof m.symbol !== 'string' || m.symbol.includes(':')) continue;
+    // Only a market open for trading: a market that is not open has no chart studies to read.
+    const life = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(m.symbol)}`);
+    if (!life.ok || (await life.json()).state !== 'OPEN') continue;
+    listed.push(m.symbol);
+    const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=1`);
+    if (tape.ok && (await tape.json()).length === 0) return m.symbol;
+  }
+  throw new Error(`no open spot market is without trades on this stack (open: ${listed.join(', ')})`);
+}
+
 const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
@@ -228,21 +248,11 @@ test('J-charts-desk-04 #4 adds volume delta and a volume profile: series built f
     )
     .toBe('true true');
 
-  // With no tape for the market it says so. A listed spot market whose public trades route answers none has no tape and,
-  // since the chart's bars are built from the same executed trades, no bars: the chart says there were no trades, the
-  // person adds volume delta and the profile there, and each says by name that there are no public trades. Nothing is
-  // drawn and no delta, cumulative delta or profile figure is shown.
-  const listed = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  let quiet = null;
-  for (const m of listed.filter((x) => x.spot === true && x.active === true && x.symbol !== MARKET_NAME)) {
-    const res = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=500`);
-    if (res.ok && (await res.json()).length === 0) {
-      quiet = m.symbol;
-      break;
-    }
-  }
-  expect(quiet, 'the stack lists a spot market with no public trades').not.toBeNull();
-  await page.goto(`/charts/${quiet.replace('/', '-')}?w=no-tape`);
+  // With no tape for the market it says so: on a listed market the public tape holds no trade for, both studies name it
+  // and draw nothing. That market's chart has no bars either (they are built from the same trades): it says there were no
+  // trades, no chart is drawn, and no delta, cumulative delta or profile figure is shown.
+  const quiet = await untradedMarket();
+  await page.goto(`/charts/${quiet.replace('/', '-')}`);
   await expect(page.getByRole('heading', { name: 'Charts' })).toBeVisible();
   const chart = page.getByTestId('cw').first();
   await expect(chart).toContainText('No trades in this period.');
