@@ -207,10 +207,11 @@ test(`${J} #5 /notice lists published notices with their kind and category, and 
   }
 
   // Published: the founders' category list (an owner value, labelled TEST here and put back as it was at the end), then
-  // an announcement and three maintenance windows, each filed under a category. Each window's times are taken just
-  // before it is drafted. The scheduled one is ten years ahead, so no stack that stays up ever sees it open; the
-  // in-progress one is published last and ends within J-home-ia-06's seven-minute wait for an empty board, in case both
-  // run on one stack.
+  // two announcements, each filed under a category, and three maintenance windows. svc-notify files categories on
+  // announcements only; maintenance carries its kind and its phase (board.ts categoryField). Each window's times are
+  // taken just before it is drafted. The scheduled one is ten years ahead, so no stack that stays up ever sees it open;
+  // the in-progress one is published last and ends within J-home-ia-06's seven-minute wait for an empty board, in case
+  // both run on one stack.
   const before = (await statusDefinition()).noticeCategories ?? null;
   const CATEGORIES = [
     { id: 'j07-platform', name: 'TEST platform' },
@@ -220,32 +221,36 @@ test(`${J} #5 /notice lists published notices with their kind and category, and 
   try {
     const at = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
     const rows = [
-      { kind: 'announcement', phase: null, label: 'Announcement', category: CATEGORIES[0], times: () => [null, at(10)] },
+      { name: 'platform', kind: 'announcement', phase: null, label: 'Announcement', category: CATEGORIES[0], times: () => [null, at(10)] },
+      { name: 'wallets', kind: 'announcement', phase: null, label: 'Announcement', category: CATEGORIES[1], times: () => [null, at(10)] },
       {
+        name: 'scheduled',
         kind: 'maintenance',
         phase: 'scheduled',
         label: 'Maintenance · Scheduled',
-        category: CATEGORIES[1],
+        category: null,
         times: () => [at(3650 * 24 * 60), at(3650 * 24 * 60 + 60)],
       },
       {
+        name: 'completed',
         kind: 'maintenance',
         phase: 'completed',
         label: 'Maintenance · Completed',
-        category: CATEGORIES[0],
+        category: null,
         times: () => [at(-120), at(-60)],
       },
       {
+        name: 'in_progress',
         kind: 'maintenance',
         phase: 'in_progress',
         label: 'Maintenance · In progress',
-        category: CATEGORIES[1],
+        category: null,
         times: () => [at(-5), at(6)],
       },
     ];
     const published = [];
     for (const row of rows) {
-      const name = row.phase ?? row.kind;
+      const { name } = row;
       const key = `${J}-notice-${name}-${RUN}`;
       const [startsAt, endsAt] = row.times();
       published.push(
@@ -257,7 +262,7 @@ test(`${J} #5 /notice lists published notices with their kind and category, and 
             key,
             startsAt,
             endsAt,
-            category: row.category.id,
+            category: row.category?.id ?? null,
           }),
           key,
         ),
@@ -268,18 +273,19 @@ test(`${J} #5 /notice lists published notices with their kind and category, and 
     for (const [i, row] of rows.entries()) {
       const shown = board.filter((n) => n.id === published[i].id);
       expect(shown).toHaveLength(1);
-      expect(shown[0]).toMatchObject({ kind: row.kind, category: { id: row.category.id, name: row.category.name } });
+      expect(shown[0]).toMatchObject({ kind: row.kind, category: row.category });
     }
     const page = await visitor(browser);
     await page.goto('/notice');
     const main = page.locator('main');
     for (const [i, row] of rows.entries()) {
-      const name = row.phase ?? row.kind;
+      const { name } = row;
       const card = main.getByTestId(`notice-${published[i].id}`);
       await expect(card.getByRole('heading', { name: `TEST ${name} ${row.kind} ${RUN}` })).toBeVisible();
       await expect(card).toHaveAttribute('data-kind', row.kind);
       await expect(card).toContainText(row.label);
-      await expect(card.getByTestId('notice-category')).toHaveText(row.category.name);
+      if (row.category) await expect(card.getByTestId('notice-category')).toHaveText(row.category.name);
+      else await expect(card.getByTestId('notice-category')).toHaveCount(0);
       if (row.phase) await expect(card).toHaveAttribute('data-phase', row.phase);
       else await expect(card).not.toHaveAttribute('data-phase');
     }
