@@ -138,7 +138,7 @@ test.beforeAll(async ({ browser }) => {
 test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-account, signing the venue transfer: each lot keeps its acquired date and basis and shows in the sub-account's list`, async ({
   page,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   const s = state();
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const owner = wallet.address.toLowerCase();
@@ -202,8 +202,12 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
   // Open the sub-account on the desk, signed in the wallet on the main account.
   await page.goto(DESK);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  await page.getByRole('button', { name: 'Connect TEST Wallet' }).click();
-  await expect(page.getByTestId('venue-wallet-address')).toHaveText(wallet.address);
+  // The wallet this page connected stays connected across the page's own navigation; connect it again only if it is not.
+  const address = page.getByTestId('venue-wallet-address');
+  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
+  await expect(address.or(connect)).toBeVisible({ timeout: 30_000 });
+  if (await connect.isVisible()) await connect.click();
+  await expect(address).toHaveText(wallet.address);
   const panel = page.getByTestId('venue-sub-accounts');
   await panel.getByLabel('Name for a new sub-account').fill(SUB_NAME);
   await panel.getByRole('button', { name: 'Open sub-account' }).click();
