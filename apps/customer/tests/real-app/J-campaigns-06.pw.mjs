@@ -7,9 +7,9 @@ import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { api, fund, journeyState, mailedCodes, nextMailedCode, restartWithSetting, signOutBrowser, tool } from './stack.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
-import { CHAIN_ID, testChain } from './dex.mjs';
+import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
-import { sameDecimal, testDeposit, venueBalance } from './venue.mjs';
+import { sameDecimal, venueBalance } from './venue.mjs';
 
 // J-campaigns-06, in the running app (docs/roadmap/journeys.json): I watch my invitees qualify and get paid. One test per
 // step, titled "J-campaigns-06 #<n>", run in order. The referral programme is this run's TEST referral campaign, made by
@@ -20,8 +20,9 @@ import { sameDecimal, testDeposit, venueBalance } from './venue.mjs';
 // Each step of the friend's progress ticks only from their own real event: verification approved (identity.kyc.approved),
 // a crypto deposit credited on the TEST chain (pay.deposit_credit.posted) and a spot fill against the stack's market
 // maker (trade.fill.settled). #2's move between the friend's own wallet and venue account: the friend connects their own
-// TEST wallet to their account in the venue room, then the stack's TEST venue credits 25 TEST USDT from it to their venue
-// account (its TEST deposit control), with svc-trade's user-venue door switched on for that moment only and off after.
+// TEST wallet to their account in the venue room and signs a real TEST chain transfer from it into their venue account,
+// which the stack's TEST venue credits; svc-trade's user-venue door is on for that moment only and off after. The bus is
+// then read to show that no deposit of the friend's was announced for it.
 // #3 to #8 (rewards, rebate share, commissions, tiers and caps, a frozen beneficiary, the statement) are added in full by
 // the slices that build them (CM-referral-03, CM-referral-04).
 const J = 'J-campaigns-06';
@@ -150,33 +151,39 @@ async function depositAddress(page) {
 }
 
 /**
- * The friend's newest event of one kind delivered to svc-campaigns twice more: read off the stack's bus and published
- * again with its payload unchanged (the same deposit or fill id) under new envelope keys, so the bus does not drop it as
- * its own duplicate and the referral consumer is what must hold. Returns the payload.
+ * Reads the stack's bus for one event kind of one account. `again` false: every such payload on the stream, oldest first.
+ * `again` true: the newest one is delivered to svc-campaigns twice more, its payload unchanged (the same deposit or fill
+ * id) under new envelope keys, so the bus does not drop it as its own duplicate and the referral consumer is what must
+ * hold; returns that payload.
  */
-function redeliver(eventName, stream, producer, userId) {
+function onBus(eventName, stream, producer, userId, again) {
   const code = `
     import { connect } from 'nats';
     import { EVENT_CATALOG, JetStreamEventBus, decodeEnvelope, streamName } from '@intafaced/events';
-    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, USER_ID: userId, EVENT: event, STREAM: s, PRODUCER: producer } = process.env;
+    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, USER_ID: userId, EVENT: event, STREAM: s, PRODUCER: producer, AGAIN: again } = process.env;
     const subject = EVENT_CATALOG[event].subject;
     const nc = await connect({ servers });
     const jsm = await nc.jetstreamManager();
     const stream = streamName(s, prefix);
     const { state } = await jsm.streams.info(stream);
-    let payload;
-    for (let seq = state.last_seq; seq >= state.first_seq && !payload; seq -= 1) {
+    const found = [];
+    for (let seq = state.first_seq; seq <= state.last_seq; seq += 1) {
       const m = await jsm.streams.getMessage(stream, { seq }).catch(() => null);
       if (m?.subject !== subject) continue;
       const env = decodeEnvelope(m.data);
-      if (env.payload.userId === userId) payload = env.payload;
+      if (env.payload.userId === userId) found.push(env.payload);
     }
     await nc.close();
-    if (!payload) throw new Error('no ' + subject + ' for ' + userId + ' in ' + stream);
-    const bus = await JetStreamEventBus.connect({ servers, producer, streamPrefix: prefix });
-    for (const n of [1, 2]) await bus.publish(event, payload, { idempotencyKey: event + ':referral-again:' + n + ':' + Date.now() });
-    await bus.close();
-    console.log(JSON.stringify(payload));`;
+    if (again !== '1') {
+      console.log(JSON.stringify(found));
+    } else {
+      const payload = found.at(-1);
+      if (!payload) throw new Error('no ' + subject + ' for ' + userId + ' in ' + stream);
+      const bus = await JetStreamEventBus.connect({ servers, producer, streamPrefix: prefix });
+      for (const n of [1, 2]) await bus.publish(event, payload, { idempotencyKey: event + ':referral-again:' + n + ':' + Date.now() });
+      await bus.close();
+      console.log(JSON.stringify(payload));
+    }`;
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
@@ -188,13 +195,16 @@ function redeliver(eventName, stream, producer, userId) {
       EVENT: eventName,
       STREAM: stream,
       PRODUCER: producer,
+      AGAIN: again ? '1' : '0',
     },
     encoding: 'utf8',
     timeout: 60_000,
   });
-  if (r.status !== 0) throw new Error(`delivering ${eventName} again failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  if (r.status !== 0) throw new Error(`reading ${eventName} on the bus failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
   return JSON.parse(r.stdout.trim().split('\n').at(-1));
 }
+const redeliver = (eventName, stream, producer, userId) => onBus(eventName, stream, producer, userId, true);
+const depositsOnBus = (userId) => onBus('payDepositCreditPosted', 'pay', 'svc-pay', userId, false);
 
 /** Until svc-campaigns' named referral consumers have taken and acknowledged every message on the bus. */
 async function consumersCaughtUp(...names) {
@@ -272,30 +282,42 @@ test(`${J} #2 an invitee finishes the last step: the summary moves from in progr
   await waitForInvitee(referrer, (row) => row?.steps.verified === true);
 
   // A move between the friend's own wallet and their venue account is no deposit: the step stays undone. The friend
-  // connects their own TEST wallet to their account in the venue room (signing the connection in it), then moves 25 TEST
-  // USDT, the programme's asset and above its deposit minimum, from that wallet into their venue account.
+  // connects their own TEST wallet to their account in the venue room (signing the connection in it), then their wallet
+  // signs a real TEST chain transfer of 25 TEST USDC into their venue account, which the venue credits. No crypto deposit
+  // of the friend's is credited on our side for it, so svc-campaigns is told of none.
   const walletKey = testWalletKey();
   const wallet = privateKeyToAccount(walletKey).address;
+  fundOnTestChain(wallet, 'venue');
   restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
   try {
     const venuePage = await (await browser.newContext()).newPage();
-    await installTestWallet(venuePage, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+    const signer = await installTestWallet(venuePage, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
     await signIn(venuePage, friend);
     await venuePage.goto('/wallet/venue');
     await venuePage.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
     await venuePage.getByRole('button', { name: 'Connect to my account' }).click();
-    await venuePage.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+    const sheet = venuePage.locator('[data-sheet="sign"]');
+    await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
     await expect(venuePage.getByRole('heading', { name: 'Connected' })).toBeVisible();
     await expect(venuePage.locator('[data-venue-address]')).toHaveText(wallet);
-    expect(await testDeposit(wallet, 'USDT', '25', `${CHAIN_ID}:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-    expect(sameDecimal((await venueBalance(wallet, 'USDT')).free, '25')).toBe(true);
+    const actions = venuePage.getByRole('region', { name: 'Venue actions' });
+    await actions.getByLabel('Amount').fill('25');
+    await actions.getByRole('button', { name: 'Deposit TEST USDC' }).click();
+    await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+    await expect.poll(() => signer.sends[0]?.hash ?? null).not.toBeNull();
+    const hash = signer.sends[0].hash.toLowerCase();
+    const moved = venuePage.getByRole('region', { name: 'On its way' }).getByRole('table').locator(`tr[data-tx-hash="${hash}"]`);
+    await expect(moved).toContainText('Credited by the venue', { timeout: 60_000 });
+    expect(sameDecimal((await venueBalance(wallet, 'USDC')).free, '25')).toBe(true);
     await signOutBrowser(venuePage.context());
   } finally {
     restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'off');
   }
   // TEST funds credited through the ledger (a trial fund, not a deposit of the friend's own) do not count either.
   expect(fund(friend.email, 'USDT', '500').tx).toBeTruthy();
+  // Every message on the bus has reached the referral consumer, and none of them is a credited deposit of the friend's.
   await consumersCaughtUp('campaigns-referral-deposit-credited');
+  expect(depositsOnBus(friendId)).toEqual([]);
   expect((await inviteesOf(referrer)).invitees[0]).toMatchObject({ state: 'in_progress', steps: { deposited: false } });
 
   // Deposited: a crypto deposit of the friend's own, credited on the TEST chain.
@@ -305,6 +327,7 @@ test(`${J} #2 an invitee finishes the last step: the summary moves from in progr
     '"received":true',
   );
   await waitForInvitee(referrer, (row) => row?.steps.deposited === true);
+  expect(depositsOnBus(friendId)).toMatchObject([{ userId: friendId, assetId: 'USDT', amount: '20' }]);
   expect((await inviteesOf(referrer)).invitees[0].state).toBe('in_progress');
 
   // Traded, the last step: a market buy on the real book, filled against the market maker.
