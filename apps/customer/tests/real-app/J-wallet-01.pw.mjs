@@ -561,6 +561,12 @@ test(`${J} #4 looks at an asset with no published price: it reads "No price publ
 });
 
 const RETIRED = 'TESTRETIRED';
+/** The select inside the form field whose own caption is exactly `caption` (a panel of the same title is not the field). */
+const picker = (page, caption) =>
+  page
+    .locator('label')
+    .filter({ has: page.getByText(caption, { exact: true }) })
+    .getByRole('combobox');
 /** The places after the point a decimal string is written with, trailing zeros not counted. */
 const places = (value) => (String(value).split('.')[1] ?? '').replace(/0+$/, '').length;
 /** A decimal string as the customer app writes it: the whole part grouped by thousands, the fraction as given. */
@@ -615,8 +621,8 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   // shown with their reason), and each coin's open networks are the list's networks for it.
   const optionValues = (select, extra = '') =>
     select.locator(`option${extra}`).evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
-  const depositAsset = page.getByLabel('Asset', { exact: true });
-  const depositNetwork = page.getByLabel('Network', { exact: true });
+  const depositAsset = picker(page, 'Asset');
+  const depositNetwork = picker(page, 'Network');
   const depositOffered = [...new Set([...deposits.assets, ...(deposits.halted ?? [])].map((asset) => asset.assetId))];
   await expect.poll(() => optionValues(depositAsset).then((v) => [...v].sort())).toEqual([...depositOffered].sort());
   for (const id of depositOffered) expect(row(id), `Deposit offers ${id}, which the list does not have`).toBeTruthy();
@@ -666,8 +672,8 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await expect(page.getByRole('link', { name: 'Supported assets and networks' })).toHaveAttribute('href', '/uc/assets');
   // Withdraw's own pickers use the same rows: for every coin the person holds, the networks it offers are exactly the
   // list's withdrawal networks for that coin, and the retired coin they still hold is offered none.
-  const withdrawAsset = page.getByLabel('Asset', { exact: true });
-  const withdrawNetwork = page.getByLabel('Network', { exact: true });
+  const withdrawAsset = picker(page, 'Asset');
+  const withdrawNetwork = picker(page, 'Network');
   await expect.poll(() => optionValues(withdrawAsset)).toContain(RETIRED);
   for (const id of await optionValues(withdrawAsset)) {
     await withdrawAsset.selectOption(id);
