@@ -592,11 +592,18 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   const deposits = await read('deposits.assets');
   const row = (id) => listed.find((asset) => asset.assetId === id);
 
-  // Withdraw's address book offers exactly the listed rows that are active and allow withdrawals, at the same precision.
+  // Withdraw's address book offers exactly the listed rows that are active and allow withdrawals, at the same precision,
+  // with the same networks (each by its id and label: the list also names a network's contract and links where known,
+  // which the address book does not carry).
   expect(withdrawable).toEqual(
     listed
       .filter((asset) => asset.state === 'active' && asset.allowedActions.includes('withdraw') && asset.networks.length > 0)
-      .map(({ assetId, precision, networks, defaultNetworkId }) => ({ assetId, precision, networks, defaultNetworkId })),
+      .map(({ assetId, precision, networks, defaultNetworkId }) => ({
+        assetId,
+        precision,
+        networks: networks.map(({ networkId, label }) => ({ networkId, label })),
+        defaultNetworkId,
+      })),
   );
   // Deposit offers only pairs the list allows for deposits; the retired asset takes none.
   expect(deposits.assets.length).toBeGreaterThan(0);
