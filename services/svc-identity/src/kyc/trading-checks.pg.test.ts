@@ -109,7 +109,6 @@ if (!available) {
       list,
       capabilities: MAP,
       kycTier: (userId, tx) => auth.kycTier(userId, tx),
-      announce: (record) => auth.announceTradingClear(record),
     });
   beforeEach(() => bus.reset());
 
@@ -163,7 +162,9 @@ if (!available) {
       // The session carries no approved level, only the trading clear: custody, transfer and withdrawal gates read none.
       expect(await auth.sessionTier(userId)).toEqual({ tier: 'none', tradingCleared: true });
       expect(await db.sql`SELECT state FROM kyc_cases WHERE user_id = ${userId}`).toEqual([{ state: 'approved' }]);
-      expect(bus.published.some((e) => e.subject.endsWith('identity.kyc.approved'))).toBe(true);
+      // No approval event: it would complete the welcome reward's 'verified' task, tell the person they are verified,
+      // and spend the bank approval's own key (`kyc.approved:<user>:basic`). A trading clear is not a verified level.
+      expect(bus.published.filter((e) => e.subject.endsWith('identity.kyc.approved'))).toEqual([]);
       expect((await desk().read(userId)).state).toBe('cleared');
       // Neither the name nor the date of birth is stored in plaintext.
       const stored = JSON.stringify(await db.sql`SELECT * FROM trading_checks WHERE user_id = ${userId}`);

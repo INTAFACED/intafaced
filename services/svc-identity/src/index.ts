@@ -557,7 +557,6 @@ const tradingChecks = new TradingChecksDesk(sql, {
   list: parseSanctionsPersonsList(env.IDENTITY_SANCTIONS_PERSONS_LIST, process.env.APP_ENV),
   capabilities: kycCapabilityMap,
   kycTier: (userId, tx) => auth.kycTier(userId, tx),
-  announce: (record) => auth.announceTradingClear(record),
 });
 // Proof of address (I-kyc-compliance-11): the owner's rule and lists; the file goes to the vault under the same caps.
 const kycPoa = new KycPoaDesk(sql, {

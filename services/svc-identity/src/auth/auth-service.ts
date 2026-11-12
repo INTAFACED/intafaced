@@ -3512,11 +3512,6 @@ export class AuthService {
     return tradingOnly(this.sql, userId);
   }
 
-  /** A level the trading checks cleared is announced as an operator's approval is (J-cex-spot-01 #3). */
-  async announceTradingClear(record: { userId: string; tier: KycTier; jurisdiction: string }): Promise<void> {
-    await this.announceKycApproval(record);
-  }
-
   private async announceKycApproval(record: { userId: string; tier: KycTier; jurisdiction: string }): Promise<void> {
     if (record.tier === 'none') return;
     await this.bus.publish(

@@ -162,7 +162,6 @@ export interface TradingChecksDeps {
   /** The level the person holds now, read the way the token issuer reads it. */
   readonly kycTier: (userId: string, sql: Sql) => Promise<KycTier>;
   /** After a clear commits: the approval event and its XP, as an operator's approval sends them. */
-  readonly announce?: (record: { userId: string; tier: KycTier; jurisdiction: string }) => Promise<void>;
   readonly now?: () => Date;
 }
 
@@ -250,8 +249,6 @@ export class TradingChecksDesk {
         VALUES (${userId}, ${tradingCheckKey(userId)}, ${result}, ${country}, ${recordId}, ${name.ciphertext}, ${name.nonce}, ${now})`;
       return { outcome: result, recordId, fresh: true, jurisdiction: country };
     });
-    if (outcome.fresh && outcome.outcome === 'cleared' && outcome.jurisdiction)
-      await this.deps.announce?.({ userId, tier: 'basic', jurisdiction: outcome.jurisdiction });
     return { outcome: outcome.outcome, recordId: outcome.recordId, fresh: outcome.fresh };
   }
 }
