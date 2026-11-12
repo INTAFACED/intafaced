@@ -519,6 +519,11 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       openInterest: { known: false },
       // A deployer's halt or a split, with the settlement it made, is not read by this adapter yet: not known.
       lastEvent: { known: false },
+      // The contract strip's contract size, mark and funding (J-derivatives-01 #4) are not read by this adapter yet
+      // (`metaAndAssetCtxs` carries mark and funding): each is not known, never guessed.
+      contractSize: { known: false },
+      mark: { known: false },
+      funding: { known: false },
     }));
     return this.asOf(list);
   }

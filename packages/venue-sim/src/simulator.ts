@@ -17,6 +17,7 @@ import {
   type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
+  type UserVenueFunding,
   type UserVenueFill,
   type UserVenueLeverage,
   type UserVenueListing,
@@ -152,6 +153,14 @@ export interface SimMarketConfig {
   readonly maintenanceMarginRate?: Amount;
   /** Perpetuals: the starting mark price (on a market with an `oracle`, its starting oracle price). */
   readonly markPrice?: Amount;
+  /** Base units per contract, as the venue publishes it. Unset: not published. */
+  readonly contractSize?: Amount;
+  /**
+   * Perpetuals: the funding the venue publishes, a signed scaled fraction of notional per `intervalSeconds`, the next
+   * settlement at the next whole interval on the venue's clock. Unset: not published. TEST: the simulator publishes
+   * the rate and settles no funding, so no TEST position is ever charged or paid it.
+   */
+  readonly funding?: { readonly rate: Amount; readonly intervalSeconds: number };
   /** The market's own state at start; absent is `trading`. */
   readonly status?: UserVenueMarketStatus | null;
   /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
@@ -743,6 +752,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       openInterest: this.openInterestCaps.has(m.symbol)
         ? { known: true, value: { size: this.openInterestOf(m.symbol), capSize: this.openInterestCaps.get(m.symbol) ?? null } }
         : { known: false },
+      contractSize: published(m.contractSize),
+      mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
+      funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
     }));
     return this.asOf(list);
   }
@@ -1260,6 +1272,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private agentLive(state: AccountState, address: string): boolean {
     const agent = state.agents.get(address.toLowerCase());
     return agent !== undefined && (agent.validUntil === null || agent.validUntil.getTime() > this.clock().getTime());
+  }
+
+  /** The published rate, and the next settlement: the next whole interval after now on the venue's clock. */
+  private fundingOf(funding: NonNullable<SimMarketConfig['funding']>): UserVenueFunding {
+    const step = funding.intervalSeconds * 1000;
+    const next = (Math.floor(this.clock().getTime() / step) + 1) * step;
+    return { rate: funding.rate, intervalSeconds: funding.intervalSeconds, nextFundingAt: new Date(next) };
   }
 
   private feedOf(market: SimMarketConfig): UserVenueFeed {

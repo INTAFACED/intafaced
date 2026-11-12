@@ -114,8 +114,17 @@ describe('user-venue wire', () => {
           splitRatio: '2',
         },
       },
+      contractSize: { known: true, value: parseAmount('1') },
+      mark: { known: true, value: parseAmount('2650.1') },
+      funding: {
+        known: true,
+        value: { rate: parseAmount('-0.0000125'), intervalSeconds: 3600, nextFundingAt: new Date('2026-11-09T11:00:00.000Z') },
+      },
     };
     const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
+    // The strip's figures travel as decimal strings and an ISO time (J-derivatives-01 #4); a negative rate keeps its sign.
+    expect(json.mark).toEqual({ known: true, value: '2650.1' });
+    expect(json.funding.value).toEqual({ rate: '-0.0000125', intervalSeconds: 3600, nextFundingAt: '2026-11-09T11:00:00.000Z' });
     expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
     expect(json.oracleRule).toEqual({ known: true, value: '3' });
     expect(json.session.value.reopensAt).toBe('2026-11-09T14:30:00.000Z');
@@ -132,5 +141,6 @@ describe('user-venue wire', () => {
       splitRatio: '2',
     });
     expect(typeof (back.marginAccount as { value: { name: unknown } }).value.name).toBe('string');
+    expect(() => decodeVenueWire({ funding: { known: true, value: { rate: 0.0001 } } })).toThrow(/decimal string/);
   });
 });

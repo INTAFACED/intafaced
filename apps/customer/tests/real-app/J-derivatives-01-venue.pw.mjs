@@ -20,8 +20,8 @@ import {
 // J-derivatives-01's steps on the user's own venue account (B1, project-state #1789), in the running app against the
 // stack's TEST venue simulator (BTC-PERP, isolated margin only). One test per step, titled "J-derivatives-01 #<n>" as
 // today's files title them; a step in two files must pass in both. #1 makes the verified account and its TEST 1000 USDC
-// (the journey's start). #2 (the gated list), #3 (deferred to launch prep) and #4 (the strip's mark price and funding,
-// which the venue's market read does not carry) are not here. #10 closes the position and reads our builder fee on
+// (the journey's start). #2 (the gated list) and #3 (deferred to launch prep) are not here; #4 reads the strip's
+// contract size, mark and funding from the venue's own market read. #10 closes the position and reads our builder fee on
 // svc-ledger's own operator door; #11 reads what #10 closed. Every figure is TEST. The door is on for this file only.
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
@@ -110,6 +110,58 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
     await testVenue('/test/switches', { venueDown: false });
   }
   expect((await venueRecord(owner, '/open-orders')).value).toEqual([]);
+});
+
+test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark price and funding, each as the venue publishes it`, async ({
+  page,
+}) => {
+  await desk(page);
+  const list = page.getByTestId('venue-contract-list');
+  const strip = page.getByTestId('venue-contract-strip');
+  const { displayName } = await venueInfo();
+  const venueMarket = async (symbol) => (await testVenue('/markets', {})).body.value.find((m) => m.symbol === symbol);
+  // Picking another contract redraws the strip for it; a figure the venue does not publish says so, never a zero.
+  await list.getByRole('button', { name: `XAU-PERP · ${displayName}` }).click();
+  await expect(strip.getByRole('heading')).toContainText('XAU-PERP');
+  const gold = await venueMarket('XAU-PERP');
+  expect(gold.funding).toEqual({ known: false });
+  await expect(strip.getByTestId('venue-funding')).toHaveText('not published by this venue');
+  await expect(strip.getByTestId('venue-contract-size')).toHaveText(`${gold.contractSize.value} XAU per contract`);
+
+  // The person picks BTC-PERP: the strip is the venue's own figures for it.
+  const pick = list.getByRole('button', { name: `${SYMBOL} · ${displayName}` });
+  await pick.click();
+  await expect(pick).toHaveAttribute('aria-pressed', 'true');
+  await expect(strip.getByRole('heading')).toContainText(SYMBOL);
+  await expect(strip.getByTestId('venue-test')).toHaveText('TEST');
+  const m = await venueMarket(SYMBOL);
+  expect(m.kind).toBe('perpetual');
+  await expect(strip.getByTestId('venue-family')).toHaveText('Perpetual');
+  await expect(strip.getByTestId('venue-settle-asset')).toHaveText(m.quoteAsset);
+  expect(m.contractSize.known).toBe(true);
+  await expect(strip.getByTestId('venue-contract-size')).toHaveText(`${m.contractSize.value} BTC per contract`);
+  // The mark is the venue's now, digit for digit; read the venue and the strip together until one poll agrees, since
+  // another file's fill on the shared TEST book may move it between two reads.
+  expect(m.mark.known).toBe(true);
+  await expect(async () => {
+    const now = await venueMarket(SYMBOL);
+    const shown = await strip.getByTestId('venue-mark').innerText();
+    expect(sameDecimal(shown, now.mark.value), `strip ${shown}, venue ${now.mark.value}`).toBe(true);
+  }).toPass({ timeout: 20_000 });
+  // Funding: the venue's published rate, shown as a percent with its interval, and its next settlement time; read with
+  // the strip in one poll, so an hour turning between two reads can't part them.
+  expect(m.funding.known).toBe(true);
+  const funding = strip.getByTestId('venue-funding');
+  await expect(async () => {
+    const { rate, intervalSeconds, nextFundingAt } = (await venueMarket(SYMBOL)).funding.value;
+    expect(await funding.getAttribute('data-rate')).toBe(rate);
+    const shown = (await strip.getByTestId('venue-funding-rate').innerText()).match(/^(-?[\d.]+)% every (\d+)h$/);
+    expect(shown, 'the rate reads "<percent>% every <hours>h"').not.toBeNull();
+    expect(sameDecimal(shown[1], fromUnits(toUnits(rate) * 100n)), `${shown[1]}% is ${rate} as a percent`).toBe(true);
+    expect(Number(shown[2]) * 3600).toBe(intervalSeconds);
+    expect(await strip.getByTestId('venue-funding-next').getAttribute('dateTime')).toBe(nextFundingAt);
+    expect(new Date(nextFundingAt).getTime()).toBeGreaterThan(Date.now() - 60_000);
+  }).toPass({ timeout: 20_000 });
 });
 
 test(`${J} #5 chooses the margin mode: the modes the venue offers for the contract, the others listed as not offered by this venue; nothing changes`, async ({

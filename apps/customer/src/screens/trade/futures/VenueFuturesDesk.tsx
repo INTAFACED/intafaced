@@ -131,7 +131,7 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
           </li>
         ))}
       </ul>
-      <ContractStrip market={market} positions={account.positions.data} test={status.test} />
+      <ContractStrip market={market} test={status.test} />
       <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
       <WalletBar />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
@@ -167,9 +167,9 @@ function PrimaryLeverageRoutes({ symbol, owner, side, run }: { symbol: string; o
   return <VenueRoutes symbol={symbol} owner={owner} side={side} run={run} leverage={lev.data?.value ?? null} />;
 }
 
-function ContractStrip({ market, positions, test }: { market: VenueMarket; positions: AsOf<VenuePosition[]> | null; test: boolean }) {
+function ContractStrip({ market, test }: { market: VenueMarket; test: boolean }) {
   const { t } = futuresVenueCopy.useCopy();
-  const held = positions?.value.find((p) => p.symbol === market.symbol);
+  const funding = market.funding.known ? market.funding.value : null;
   return (
     <section className="dk-panel" aria-label={t('Contract strip')} data-testid="venue-contract-strip">
       <h2 className="dk-tab-title">
@@ -178,11 +178,19 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
       <dl className="protocol-facts">
         <div>
           <dt>{t('Family')}</dt>
-          <dd>{t('family_perpetual')}</dd>
+          <dd data-testid="venue-family">{t('family_perpetual')}</dd>
         </div>
         <div>
           <dt>{t('Settle asset')}</dt>
-          <dd>{market.quoteAsset}</dd>
+          <dd data-testid="venue-settle-asset">{market.quoteAsset}</dd>
+        </div>
+        <div>
+          <dt>{t('Contract size')}</dt>
+          <dd className="numeric" data-testid="venue-contract-size">
+            {market.contractSize.known
+              ? t('Contract size value', { size: market.contractSize.value, base: market.baseAsset })
+              : t('Not published')}
+          </dd>
         </div>
         <div>
           <dt>{t('Lot size')}</dt>
@@ -200,19 +208,47 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
         </div>
         <div>
           <dt>{t('Mark price')}</dt>
-          <dd className="numeric">
-            <Known value={held ? { known: true, value: held.markPrice } : { known: false }} />
+          <dd className="numeric" data-testid="venue-mark" data-value={market.mark.known ? market.mark.value : undefined}>
+            {market.mark.known ? displayAmount(market.mark.value) : t('Not published')}
           </dd>
         </div>
         <div>
           <dt>{t('Funding')}</dt>
-          <dd>
-            <Known value={{ known: false }} />
+          <dd data-testid="venue-funding" data-rate={funding?.rate}>
+            {funding ? (
+              <>
+                <span className="numeric" data-testid="venue-funding-rate">
+                  {t('Funding rate value', { percent: percentOf(funding.rate), every: intervalText(funding.intervalSeconds) })}
+                </span>{' '}
+                {t('Funding next')}{' '}
+                <time dateTime={funding.nextFundingAt} data-testid="venue-funding-next">
+                  {funding.nextFundingAt}
+                </time>
+              </>
+            ) : (
+              t('Not published')
+            )}
           </dd>
         </div>
       </dl>
     </section>
   );
+}
+
+/** A signed scaled fraction as a percent, digit for digit (`0.0000125` is `0.00125`): the decimal point moved two places. */
+export function percentOf(fraction: string): string {
+  const negative = fraction.startsWith('-');
+  const [whole = '0', part = ''] = (negative ? fraction.slice(1) : fraction).split('.');
+  const padded = part.padEnd(2, '0');
+  const int = `${whole}${padded.slice(0, 2)}`.replace(/^0+(?=\d)/, '');
+  const rest = padded.slice(2).replace(/0+$/, '');
+  const out = rest ? `${int}.${rest}` : int;
+  return negative && /[1-9]/.test(out) ? `-${out}` : out;
+}
+
+/** A funding interval in hours when it is whole hours, else in seconds. */
+export function intervalText(seconds: number): string {
+  return seconds % 3600 === 0 ? `${seconds / 3600}h` : `${seconds}s`;
 }
 
 /**

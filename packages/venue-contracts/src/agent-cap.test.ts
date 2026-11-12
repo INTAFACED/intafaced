@@ -66,6 +66,9 @@ const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserV
   marginAccount: { known: false },
   openInterest: { known: false },
   lastEvent: { known: false },
+  contractSize: { known: false },
+  mark: { known: false },
+  funding: { known: false },
 });
 
 interface World {

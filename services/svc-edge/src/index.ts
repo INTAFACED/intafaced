@@ -519,8 +519,8 @@ await app.register(async (api) => {
       return reply.code(403).send({ error: userCopy(EXPLORER_LIVE_WRITE_REFUSED), code: EXPLORER_LIVE_WRITE_REFUSED });
     }
 
-    // An agent key's sensitive action (a payout, a refund) is held for its owner and never forwarded (DV-keys-05):
-    // identity writes the waiting row, and the answer names it. Any other key's request goes on below.
+    // An agent key cannot move money (J-developer-15 #6): its payout or refund is refused `auth.scope_denied` and never
+    // forwarded, and nothing is written. Any other key's request goes on below.
     const heldAction = exchanged.principal?.kid ? agentHeldAction(req.method, url.pathname) : undefined;
     if (heldAction && exchanged.principal?.kid) {
       const hold = env.IDENTITY_OWNERSHIP_SECRET
@@ -546,11 +546,9 @@ await app.register(async (api) => {
       if (hold.kind === 'refused') {
         return reply.code(API_KEY_DENIED.status).send(apiKeyRefusalBody(API_KEY_DENIED));
       }
-      if (hold.kind === 'held') {
-        req.log.info({ action: heldAction, approvalId: hold.approval.id }, 'edge: agent key action held for its owner');
-        return reply
-          .code(202)
-          .send({ error: userCopy('edge.agent_approval_required'), code: 'edge.agent_approval_required', approval: hold.approval });
+      if (hold.kind === 'agent_refused') {
+        req.log.info({ action: heldAction, code: hold.code }, 'edge: agent key money action refused');
+        return reply.code(403).send({ error: userCopy(hold.code), code: hold.code });
       }
     }
 

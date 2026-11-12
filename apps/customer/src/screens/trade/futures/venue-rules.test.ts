@@ -26,6 +26,9 @@ const market = {
   tradingHours: { known: true, value: '24/7, no close' },
   feed: { known: true, value: { state: 'stale', lastOracleUpdateAt: '2026-11-09T10:00:00.000Z', staleRule: { known: false } } },
   session: { known: false },
+  contractSize: { known: true, value: '1' },
+  mark: { known: true, value: '2650' },
+  funding: { known: false },
 };
 
 /** J-derivatives-27: a TEST stock perpetual with its home market closed. */
