@@ -1542,7 +1542,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   },
   'academy.report_limit_unset': {
     title: 'The report size is not set',
-    body: 'The owner has not set how many learner rows one grade report may hold, so no report is made.',
+    body: 'The owner has not set how many rows one report or export may hold, so none is made or listed.',
     next: 'The owner sets the limit for this deployment. Nothing was made.',
   },
   'academy.report_too_large': {
@@ -1554,6 +1554,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That report number skips one',
     body: 'Reports of a course are numbered one after another, and this number is past the next one.',
     next: 'The list below is read again. Make the next report from it. Nothing was made.',
+  },
+  'academy.cert_signatory_missing': {
+    title: 'The design has no signatory',
+    body: 'A certificate design needs at least one signatory, with a name and a role, before it can be active.',
+    next: 'Add a signatory, save the design, then activate it. Nothing was changed.',
+  },
+  'academy.cert_disclaimer_unset': {
+    title: 'The disclaimer is blank',
+    body: "A certificate design needs its disclaimer text before it can be active. The wording is the owner's.",
+    next: 'Put in the disclaimer the owner gave, save the design, then activate it. Nothing was changed.',
+  },
+  'academy.cert_design_stale': {
+    title: 'The design changed since you read it',
+    body: 'Someone saved a newer revision of this design first.',
+    next: 'The page is read again. Make your change on the newest revision. Nothing was changed.',
+  },
+  'academy.cert_design_not_found': {
+    title: 'No design yet',
+    body: 'This certificate has no design to activate.',
+    next: 'Save a design first. Nothing was changed.',
   },
   'academy.report_not_found': {
     title: 'No such report',
