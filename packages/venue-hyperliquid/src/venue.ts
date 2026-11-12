@@ -514,6 +514,11 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       tradingHours: { known: false },
       feed: { known: false },
       session: { known: false },
+      // The contract strip's contract size, mark and funding (J-derivatives-01 #4) are not read by this adapter yet
+      // (`metaAndAssetCtxs` carries mark and funding): each is not known, never guessed.
+      contractSize: { known: false },
+      mark: { known: false },
+      funding: { known: false },
     }));
     return this.asOf(list);
   }

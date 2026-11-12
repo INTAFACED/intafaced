@@ -63,6 +63,9 @@ const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserV
   tradingHours: { known: false },
   feed: { known: false },
   session: { known: false },
+  contractSize: { known: false },
+  mark: { known: false },
+  funding: { known: false },
 });
 
 interface World {

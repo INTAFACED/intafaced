@@ -96,6 +96,8 @@ import { privateRead, privateWith, privateWrite, publicRead } from './route-inve
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
+import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
+import type { OwnAgentTrading } from './venue/own-agent-trading.js';
 import type { AgentAccounts } from './venue/agent-account.js';
 import type { AgentOrders } from './venue/agent-orders.js';
 import type { UserVenueDoor } from './venue/user-venue-door.js';
@@ -213,6 +215,8 @@ export interface PrivateRestDeps {
   agentAccounts?: AgentAccounts | null;
   /** The assistant's trade path on its agent account (J-agents-21 #6 #7 #10). Off with the door. */
   agentOrders?: AgentOrders | null;
+  /** A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7). Off with the door. */
+  ownAgentTrading?: OwnAgentTrading | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
@@ -1368,6 +1372,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     sellQuotes: deps.venueSellQuotes ?? null,
   });
   attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction }, deps.agentOrders ?? null);
+  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {

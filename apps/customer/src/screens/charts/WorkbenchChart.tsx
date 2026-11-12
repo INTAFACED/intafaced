@@ -256,6 +256,15 @@ export function WorkbenchChart({
       }),
     );
     drawn.current = { series, lines };
+    // What the library holds for each drawn line, read back from the line itself, not from props: "<price>|<title>",
+    // lines separated by a newline, so a check on it is a check on the drawing.
+    element.current?.setAttribute(
+      'data-drawn-price-lines',
+      lines
+        .map((line) => (line as { options?: () => { price?: number; title?: string } }).options?.())
+        .map((options) => (options ? `${options.price ?? ''}|${options.title ?? ''}` : ''))
+        .join('\n'),
+    );
     // The key carries the lines' values; the series is the one the host hands out.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, lineKey]);

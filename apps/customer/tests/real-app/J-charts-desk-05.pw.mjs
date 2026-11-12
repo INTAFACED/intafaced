@@ -30,6 +30,13 @@ const paneBoxes = (page) => chartHost(page).evaluate((el) => el.readPaneBoxes())
 /** What the chart has painted for each drawing: its pane, lines, handles and texts (font and colour), in chart pixels. */
 const drawn = (page) => chartHost(page).evaluate((el) => el.readDrawnLines());
 
+/** The ids of the drawings the chart paints now (a line or a text on the canvas), sorted. A hidden drawing is not painted. */
+const paintedIds = async (page) =>
+  (await drawn(page))
+    .filter((d) => d.lines.length > 0 || d.texts.length > 0)
+    .map((d) => d.id)
+    .sort();
+
 /**
  * A point on one pane: across, on the loaded bar `fx` picks (as `plot` does); down, at `fy` of that pane's own height, from
  * the pane's top as the chart lays it out, rounded to a whole pixel as a mouse gives (the chart reads whole pixels).
@@ -456,16 +463,34 @@ async function magnetSnapsToClose() {
 }
 
 test(`${J} #6 lists every drawing in the object tree, and hides a group together`, async () => {
-  // Trend line, info line, horizontal line, ray and text: five drawings.
+  // Every drawing listed: the trend line, info line, horizontal line, ray and text drawn so far, each by its own kind,
+  // and each one the chart paints.
   await expect(rows(page)).toHaveCount(5);
-  const checks = page.getByRole('checkbox', { name: /^Select / });
-  await checks.nth(0).check();
-  await checks.nth(1).check();
+  const kinds = await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-kind')));
+  expect([...kinds].sort()).toEqual(['horizontal', 'info', 'ray', 'text', 'trend']);
+  const ids = await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')));
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
+  // Two checked drawings grouped and the group hidden: the tree marks just those two hidden, and the chart stops painting
+  // them while it still paints the other three.
+  await rows(page)
+    .nth(0)
+    .getByRole('checkbox', { name: /^Select / })
+    .check();
+  await rows(page)
+    .nth(1)
+    .getByRole('checkbox', { name: /^Select / })
+    .check();
+  const grouped = ids.slice(0, 2);
+  const others = ids.slice(2);
   await page.getByRole('button', { name: /^Group checked/ }).click();
   await page.getByRole('button', { name: 'Hide group', exact: true }).click();
-  await expect(page.locator('[data-visible="false"]')).toHaveCount(2);
+  for (const id of grouped) await expect(page.locator(`[data-drawing-id="${id}"]`)).toHaveAttribute('data-visible', 'false');
+  for (const id of others) await expect(page.locator(`[data-drawing-id="${id}"]`)).toHaveAttribute('data-visible', 'true');
+  await expect.poll(() => paintedIds(page)).toEqual([...others].sort());
+  // Shown again together: both are painted again, and nothing is hidden.
   await page.getByRole('button', { name: 'Show group', exact: true }).click();
   await expect(page.locator('[data-visible="false"]')).toHaveCount(0);
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
   // The tree also lists the chart's indicators: one row per study on the studies bar, each with its own actions. Hiding
   // one from the tree hides it on this interval: its legend row says so and the chart stops drawing it.
   const tree = page.getByTestId('tree-indicators');
@@ -505,13 +530,22 @@ test(`${J} #8 hides all drawings, then clears them after a confirmation`, async 
   expect(count).toBeGreaterThan(0);
   await expect(page.locator('[data-drawing-id][data-visible="false"]')).toHaveCount(count);
   await expect(page.locator('[data-drawing-id][data-visible="true"]')).toHaveCount(0);
+  // Hidden on the chart itself: it paints none of them.
+  const ids = await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')));
+  await expect.poll(() => paintedIds(page)).toEqual([]);
   await pick(page, 'Show all');
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
   await pick(page, 'Clear all');
-  // The clear waits for the in-app dialog: nothing goes until it is confirmed.
-  await expect(rows(page)).not.toHaveCount(0);
+  // The clear waits for the in-app dialog: nothing goes until it is confirmed, and the chart still paints every drawing.
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await expect(rows(page)).toHaveCount(count);
+  expect(await paintedIds(page)).toEqual([...ids].sort());
   await page.getByRole('alertdialog').getByRole('button', { name: 'Clear all', exact: true }).click();
   await expect(rows(page)).toHaveCount(0);
-  // The cleared layout stays cleared on this device.
+  await expect.poll(() => paintedIds(page)).toEqual([]);
+  // The cleared layout stays cleared on this device: no row and nothing painted after a reload.
   await page.reload();
   await expect(rows(page)).toHaveCount(0);
+  await expect.poll(async () => (await chartHost(page).evaluate((el) => typeof el.readDrawnLines)) === 'function').toBe(true);
+  expect(await paintedIds(page)).toEqual([]);
 });

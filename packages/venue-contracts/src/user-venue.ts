@@ -700,6 +700,17 @@ export interface UserVenueSession {
   readonly offHoursRule: MaybeKnown<string>;
 }
 
+/**
+ * A perpetual's funding as the venue publishes it now: the signed rate it applies at the next settlement (a scaled
+ * fraction of notional, `parseAmount('0.0001')` is one basis point; positive means longs pay shorts), how many seconds
+ * lie between settlements, and when the next one is. The venue's figures, never ours.
+ */
+export interface UserVenueFunding {
+  readonly rate: Amount;
+  readonly intervalSeconds: number;
+  readonly nextFundingAt: Date;
+}
+
 export interface UserVenueMarket {
   readonly symbol: string;
   readonly kind: 'spot' | 'perpetual';
@@ -742,6 +753,14 @@ export interface UserVenueMarket {
   readonly feed: MaybeKnown<UserVenueFeed>;
   /** Its home market's session and the venue's off-hours mode (a stock perpetual), or `known: false` for a market with none. */
   readonly session: MaybeKnown<UserVenueSession>;
+  /**
+   * The contract strip's figures (J-derivatives-01 #4), each the venue's own, `known: false` where it publishes none:
+   * how many base units one contract is, the market's mark price now, and its funding (perpetuals). Never filled with
+   * our own figure, and never a zero for "not published".
+   */
+  readonly contractSize: MaybeKnown<Amount>;
+  readonly mark: MaybeKnown<Amount>;
+  readonly funding: MaybeKnown<UserVenueFunding>;
 }
 
 /**

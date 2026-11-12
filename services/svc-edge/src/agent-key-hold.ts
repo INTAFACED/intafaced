@@ -1,16 +1,16 @@
 /**
- * Agent keys' sensitive actions are held, not run (DV-keys-05, J-developer-15 #6).
+ * An agent key cannot move money (J-developer-15 #6: "The payout is refused `auth.scope_denied` and no approval row is
+ * made").
  *
  * A request a key makes on one of the routes below is not forwarded until identity says the key is not an agent key.
- * For an agent key identity writes a waiting row its owner sees on the key page, and the edge answers 202
- * `edge.agent_approval_required` with that row: nothing reached the service, so the action did not run. Any other key's
- * request goes on as before (the service's own scope rules still decide it).
+ * An agent key's request is refused 403 `auth.scope_denied`: nothing reached the service and nothing was written, so
+ * the action did not run. Any other key's request goes on as before (the service's own scope rules still decide it).
  *
  * The list is explicit, by method and tRPC procedure. Widen it only together with the action list in contracts
  * (`AGENT_HELD_ACTIONS`).
  */
 import { createHash } from 'node:crypto';
-import { agentKeyHoldOutputSchema, type AgentHeldAction, type AgentKeyApproval } from '@intafaced/contracts/api-keys';
+import { AGENT_KEY_ACTION_REFUSAL, agentKeyHoldOutputSchema, type AgentHeldAction } from '@intafaced/contracts/api-keys';
 import { unwrapTrpcData } from '@intafaced/contracts';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 
@@ -46,7 +46,8 @@ export function requestBodyHash(body: Buffer | Uint8Array | undefined): string {
 }
 
 export type AgentHoldOutcome =
-  | { readonly kind: 'held'; readonly approval: AgentKeyApproval }
+  /** An agent key: the request is refused `auth.scope_denied`, never forwarded. */
+  | { readonly kind: 'agent_refused'; readonly code: typeof AGENT_KEY_ACTION_REFUSAL }
   | { readonly kind: 'not_held' }
   /** Identity refused: the key is not this user's live key. The request is refused, never forwarded. */
   | { readonly kind: 'refused' }
@@ -104,5 +105,5 @@ export async function holdAgentKeyAttempt(options: {
   }
   const parsed = agentKeyHoldOutputSchema.safeParse(unwrapTrpcData(envelope));
   if (!parsed.success) return { kind: 'unavailable' };
-  return parsed.data.held ? { kind: 'held', approval: parsed.data.approval } : { kind: 'not_held' };
+  return parsed.data.held ? { kind: 'agent_refused', code: parsed.data.refusal } : { kind: 'not_held' };
 }

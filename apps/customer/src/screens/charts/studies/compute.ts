@@ -259,6 +259,14 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
     const series = study.kind === 'open-interest' ? 'Open interest' : study.kind === 'funding' ? 'Funding rate' : 'On-chain series';
     return refuse('notServed', { series, symbol: ctx.symbol });
   }
+  // A tape study on a market with no bars says what it reads once the tape has answered: with no public trades there is no
+  // tape to build from (a failed or refused read says so too). While the tape loads it says no bars, as every study does.
+  if (bars.length === 0 && (study.kind === 'volume-delta' || study.kind === 'volume-profile')) {
+    const feed = feedOf(ctx.tape, 'noTape');
+    if (!feed.ok && feed.result.status !== 'loading') return feed.result;
+  }
+  // Volume is the sum of the market's trades: with no bars there were no trades, so the market has no volume, said as such.
+  if (bars.length === 0 && study.kind === 'volume') return refuse('noVolume');
   if (bars.length === 0) return refuse('noBars');
   const stepMs = TIMEFRAME_MS[interval];
   const stepSec = stepMs / 1000;
