@@ -331,6 +331,8 @@ export interface AcademyServiceOptions {
   learnerSummariesPageSize?: number;
   /** AC-analytics-02: report tasks one list shows (`ACADEMY_REPORT_TASKS_PAGE_SIZE`). Unset, the list refuses. */
   reportTasksPageSize?: number;
+  /** AC-analytics-02: minutes a finished reports-centre file is served (`ACADEMY_REPORT_CENTRE_RETENTION_MINUTES`). Unset, a request refuses. */
+  reportCentreRetentionMinutes?: number;
   /** AC-analytics-02: seconds between report sweeps (`ACADEMY_REPORT_SWEEP_SECONDS`). Unset, no sweep runs and a request refuses. */
   reportSweepSeconds?: number;
   /** AC-quizzes-04: bytes one quiz curve file may hold (`ACADEMY_BULK_FILE_MAX_BYTES`). Unset, a curve upload refuses. */
@@ -552,7 +554,7 @@ export class AcademyService {
     this.learnerSummaries = new LearnerSummaries(sql, this.options.learnerSummariesPageSize ?? null);
     this.reportTasks = new ReportTasks(sql, {
       pageSize: this.options.reportTasksPageSize ?? null,
-      retentionHours: this.options.reportRetentionHours ?? null,
+      retentionMinutes: this.options.reportCentreRetentionMinutes ?? null,
       rowLimit: this.options.learnerExportRows ?? null,
       sweepSeconds: this.options.reportSweepSeconds ?? null,
     });

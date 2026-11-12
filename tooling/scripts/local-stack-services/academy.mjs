@@ -97,12 +97,19 @@ const analyticsPages = () => ({
   ACADEMY_REPORT_TASKS_PAGE_SIZE: '50',
 });
 
-// LOCAL TEST reports centre (a TEST owner value): the report sweep runs every 30 seconds, so a requested report waits and
-// then runs for one sweep each (long enough to see and abort it) and is done on the next (J-academy-16 #3, #4). A report
-// shares the learner export's row limit and retention above (ACADEMY_LEARNER_EXPORT_ROWS, ACADEMY_REPORT_RETENTION_HOURS);
-// `LOCAL_STACK_ACADEMY_REPORT_RETENTION=off` leaves the retention blank, so a request refuses by name.
+// LOCAL TEST reports centre (TEST owner values): the report sweep runs every 30 seconds, so a requested report waits and
+// then runs for one sweep each (long enough to see and abort it) and is done on the next (J-academy-16 #3, #4); a file is
+// kept 1440 minutes (24 hours). A report shares the learner export's row limit above (ACADEMY_LEARNER_EXPORT_ROWS).
+// `LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION=off` leaves the retention blank, so a request refuses by name; a whole
+// number of minutes there keeps a file that long instead, so a journey can watch one expire (J-academy-16 #4).
+const centreRetention = () => {
+  const v = process.env.LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION;
+  if (v === 'off') return {};
+  return { ACADEMY_REPORT_CENTRE_RETENTION_MINUTES: v && /^[1-9][0-9]*$/.test(v) ? v : '1440' };
+};
 const reportsCentre = () => ({
   ACADEMY_REPORT_SWEEP_SECONDS: '30',
+  ...centreRetention(),
 });
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({

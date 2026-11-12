@@ -14,7 +14,7 @@ const db = useServiceDb({ service: 'academy', from: import.meta.url });
 const A = '33333333-3333-4333-8333-333333333333';
 const T0 = new Date('2026-11-12T08:00:00.000Z');
 const later = (seconds: number) => new Date(T0.getTime() + seconds * 1000);
-const SETTINGS: ReportTaskSettings = { pageSize: 50, retentionHours: 24, rowLimit: 100, sweepSeconds: 10 };
+const SETTINGS: ReportTaskSettings = { pageSize: 50, retentionMinutes: 1440, rowLimit: 100, sweepSeconds: 10 };
 
 const tagOf = () => `t-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -171,7 +171,7 @@ describe('report tasks', () => {
   it('refuses a request by name while an owner value is blank, and writes nothing', async () => {
     const me = founder();
     for (const [blank, code] of [
-      [{ retentionHours: null }, 'academy.report_retention_unset'],
+      [{ retentionMinutes: null }, 'academy.report_retention_unset'],
       [{ rowLimit: null }, 'academy.report_limit_unset'],
       [{ sweepSeconds: null }, 'academy.report_sweep_unset'],
     ] as const)

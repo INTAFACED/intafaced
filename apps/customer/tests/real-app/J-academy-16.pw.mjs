@@ -1,11 +1,9 @@
 // World: stack, restart
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
-import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, ROOT, api, restartWithSetting } from './stack.mjs';
+import { ORIGIN, api, restartWithSetting } from './stack.mjs';
 import { signUp } from './desk.mjs';
 import { userIdOf } from './copy.mjs';
 
@@ -15,8 +13,9 @@ import { userIdOf } from './copy.mjs';
 // learner, signed up in the browser, enrols on the Foundations path, reads three lessons and completes one through
 // Academy's own API, and founder A tags them with this run's tag through Academy's admin door, the one the console uses.
 // The stack's TEST owner values (tooling/scripts/local-stack-services/academy.mjs): 50 summaries a page, reports of up to
-// 1000 rows kept 24 hours, and a report sweep every 30 seconds, so a requested report waits for one sweep, runs until the
-// next, and can be seen and aborted. Blank values are svc-academy restarted without that one setting, and put back after.
+// 1000 rows kept 1440 minutes (24 hours), and a report sweep every 30 seconds, so a requested report waits for one sweep,
+// runs until the next, and can be seen and aborted. A blank value, or a one-minute retention to watch a file expire, is
+// svc-academy restarted with that one setting changed, and put back after.
 // The journeys run one at a time on a stack (workers: 1), so the day's counts move only by what this journey does.
 const J = 'J-academy-16';
 const RUN = Date.now().toString(36);
@@ -45,38 +44,6 @@ async function staff(kind, procedure, input) {
     kind === 'query' ? await ctx.edge.query('academy', procedure, input, token) : await ctx.edge.mutate('academy', procedure, input, token);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return JSON.parse(res.text).result.data;
-}
-
-/** svc-academy's own database role on the stack (loopback, the marker's postgres port, the stack's secret), as J-academy-12 opens it. */
-async function academyDb() {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const postgres = createRequire(path.join(ROOT, 'services', 'svc-academy', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
-  return postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
-    max: 1,
-    onnotice: () => {},
-  });
-}
-
-/**
- * LOCAL TEST fixture: a finished report reaches the end of its retention now, without waiting the stack's 24 hours out.
- * Its finish and expiry times move back by the same amount, so the file was kept exactly as long as it was made to be. It
- * changes no file and no state; svc-academy then answers expired on its own reads, and its sweep drops the bytes.
- */
-async function expireReport(taskId) {
-  const sql = await academyDb();
-  try {
-    const moved = await sql`
-      UPDATE academy.report_centre_tasks
-         SET finished_at = finished_at - (expires_at - now()) - interval '1 minute',
-             expires_at = now() - interval '1 minute'
-       WHERE id = ${taskId} AND state = 'done' AND deleted_at IS NULL AND expires_at > now()
-      RETURNING id`;
-    return moved.length;
-  } finally {
-    await sql.end();
-  }
 }
 
 const DAY_MS = 86_400_000;
@@ -233,7 +200,7 @@ test(`${J} #2 per-learner summaries: empty when no learner matches, one row per 
   }
 });
 
-/** Task ids made in #3, used by #4 and #5. */
+/** Task ids made in #3 and #4, used by #4 and #5. */
 const tasks = {};
 
 test(`${J} #3 a requested report shows Requested, then Running; aborted while running it shows Aborted and no file is served`, async ({
@@ -243,8 +210,8 @@ test(`${J} #3 a requested report shows Requested, then Running; aborted while ru
   await learner(browser);
   const desk = await console_(browser);
   await desk.goto('/academy-ops/catalogue');
-  await desk.getByRole('link', { name: 'Reports' }).click();
-  await expect(desk).toHaveURL(/\/academy-ops\/catalogue\/reports$/);
+  await desk.getByRole('link', { name: 'Reports centre', exact: true }).click();
+  await expect(desk).toHaveURL(/\/academy-ops\/catalogue\/report-centre$/);
 
   const first = await requestReport(desk);
   tasks.aborted = first.id;
@@ -279,7 +246,7 @@ test(`${J} #3 a requested report shows Requested, then Running; aborted while ru
 test(`${J} #4 a finished report downloads with its time and hash; once expired it says expired; a blank retention refuses the request`, async ({
   browser,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
   const { userId } = await learner(browser);
   const desk = await console_(browser);
   await desk.goto('/academy-ops/catalogue/report-centre');
@@ -302,26 +269,41 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
   expect(lines.slice(2).map((l) => l.split(',')[0])).toEqual([userId]);
   expect(lines.slice(2)[0].split(',')[2]).toBe('1');
 
-  // Later: the retention ends (a LOCAL TEST fixture moves its times back). The list says Expired and the file is refused.
+  // The file is kept for the owner's retention, 1440 minutes on the stack.
   expect(Date.parse(held.expiresAt) - Date.parse(held.finishedAt)).toBe(24 * 3_600_000);
   expect(held.expired).toBe(false);
-  expect(await expireReport(tasks.done)).toBe(1);
-  // svc-academy's own answer: the file's retention has ended, kept exactly as long as it was made to be.
-  const lapsed = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.find((t) => t.id === tasks.done);
-  expect(lapsed).toMatchObject({ state: 'done', expired: true, sha256: held.sha256 });
-  expect(Date.parse(lapsed.expiresAt)).toBeLessThan(Date.now());
-  expect(Date.parse(lapsed.expiresAt) - Date.parse(lapsed.finishedAt)).toBe(24 * 3_600_000);
-  await desk.reload();
-  await expect(row.getByTestId('report-state')).toHaveText('Expired');
-  await expect(row.getByTestId('report-expires-at')).toContainText('Expired');
-  const gone = await desk.request.get(`/api/academy-report-centre?task=${tasks.done}`);
-  expect(gone.status()).toBe(412);
-  const body = await gone.json();
-  expect(body.code).toBe('academy.report_expired');
-  expect(body.title).toBe('This report file has expired');
+
+  // Later: with svc-academy keeping a file one minute, a report made then runs out on its own. The list says Expired and
+  // the file is refused.
+  restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION', '1');
+  try {
+    await desk.reload();
+    const short = await requestReport(desk);
+    tasks.lapsed = short.id;
+    await untilState(desk, short.id, 'done', 2 * SWEEP_MS + 15_000);
+    const made = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.find((t) => t.id === short.id);
+    expect(made).toMatchObject({ state: 'done', expired: false });
+    expect(Date.parse(made.expiresAt) - Date.parse(made.finishedAt)).toBe(60_000);
+    const lapsedRow = taskRow(desk, short.id);
+    await expect(lapsedRow.getByTestId('report-sha256')).toHaveText(made.sha256);
+
+    await untilState(desk, short.id, 'expired', 90_000);
+    await expect(lapsedRow.getByTestId('report-state')).toHaveText('Expired');
+    await expect(lapsedRow.getByTestId('report-expires-at')).toContainText('Expired');
+    const lapsed = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.find((t) => t.id === short.id);
+    expect(lapsed).toMatchObject({ state: 'done', expired: true, sha256: made.sha256, expiresAt: made.expiresAt });
+    expect(Date.parse(lapsed.expiresAt)).toBeLessThan(Date.now());
+    const gone = await desk.request.get(`/api/academy-report-centre?task=${short.id}`);
+    expect(gone.status()).toBe(412);
+    const body = await gone.json();
+    expect(body.code).toBe('academy.report_expired');
+    expect(body.title).toBe('This report file has expired');
+  } finally {
+    restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION', null);
+  }
 
   // The owner's retention left blank: a request is refused by name and no task is made.
-  restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_RETENTION', 'off');
+  restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION', 'off');
   try {
     await desk.reload();
     const count = await desk.locator('[data-report-task]').count();
@@ -333,7 +315,7 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
     await expect(outcome(desk)).toContainText('The report retention is not set');
     await expect(desk.locator('[data-report-task]')).toHaveCount(count);
   } finally {
-    restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_RETENTION', null);
+    restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION', null);
   }
 });
 
@@ -341,7 +323,7 @@ test(`${J} #5 deleting a report task takes it and its file off the list`, async 
   test.setTimeout(180_000);
   const desk = await console_(browser);
   await desk.goto('/academy-ops/catalogue/report-centre');
-  for (const id of [tasks.done, tasks.aborted]) {
+  for (const id of [tasks.done, tasks.aborted, tasks.lapsed]) {
     const row = taskRow(desk, id);
     await expect(row).toHaveCount(1);
     const n = await row.locator('td').first().textContent();
@@ -357,4 +339,5 @@ test(`${J} #5 deleting a report task takes it and its file off the list`, async 
   const left = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.map((t) => t.id);
   expect(left).not.toContain(tasks.done);
   expect(left).not.toContain(tasks.aborted);
+  expect(left).not.toContain(tasks.lapsed);
 });

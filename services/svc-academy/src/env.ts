@@ -202,6 +202,12 @@ const schema = serviceEnvSchema
       ACADEMY_REPORT_TASKS_PAGE_SIZE: blankAsUnset(z.coerce.number().int().min(1).max(200)),
 
       /**
+       * AC-analytics-02: minutes a finished reports-centre file is served before it expires, at most ten years. Blank /
+       * unset is unpublished: a report request refuses `academy.report_retention_unset`.
+       */
+      ACADEMY_REPORT_CENTRE_RETENTION_MINUTES: blankAsUnset(z.coerce.number().int().min(1).max(5_256_000)),
+
+      /**
        * AC-analytics-02: seconds between report sweeps, which run requested reports. Blank / unset is unpublished: no
        * sweep runs and a report request refuses `academy.report_sweep_unset`.
        */

@@ -5,7 +5,7 @@
  * - `request` writes the task `queued`. A founder's requests are numbered and the desk sends the number it read as next
  *   (`report:<kind>:<founder>:<n>`): a retry of a request that already made task n answers task n, so a retry never
  *   makes a second task; only pressing Request again does. It refuses before writing anything when the owner has left
- *   blank the retention (`ACADEMY_REPORT_RETENTION_HOURS`, `academy.report_retention_unset`), the rows one report may
+ *   blank the retention (`ACADEMY_REPORT_CENTRE_RETENTION_MINUTES`, `academy.report_retention_unset`), the rows one report may
  *   hold (`ACADEMY_LEARNER_EXPORT_ROWS`, shared with learner exports, `academy.report_limit_unset`) or the sweep interval (`ACADEMY_REPORT_SWEEP_SECONDS`,
  *   `academy.report_sweep_unset`: with no sweep a task would never run).
  * - Each sweep first finishes the tasks that were already running (it stores the CSV, its row count and SHA-256 and marks
@@ -91,8 +91,8 @@ export function learnersReportCsv(
 export interface ReportTaskSettings {
   /** `ACADEMY_REPORT_TASKS_PAGE_SIZE`: tasks one list shows. */
   readonly pageSize: number | null;
-  /** `ACADEMY_REPORT_RETENTION_HOURS`: how long a finished file is served. */
-  readonly retentionHours: number | null;
+  /** `ACADEMY_REPORT_CENTRE_RETENTION_MINUTES`: how long a finished file is served, in minutes. */
+  readonly retentionMinutes: number | null;
   /** `ACADEMY_REPORT_ROWS`: learner rows one report may hold. */
   readonly rowLimit: number | null;
   /** `ACADEMY_REPORT_SWEEP_SECONDS`: seconds between report sweeps; null runs none. */
@@ -132,7 +132,7 @@ export class ReportTasks {
 
   /** Task n of this founder: queued now when n is their next, the stored one when it already exists. */
   async request(input: { actorId: string; kind: 'learners'; tag: string | null; n: number; now: Date }): Promise<AcademyReportCentreTask> {
-    requireSetting(this.settings.retentionHours, analyticsRefusals, 'academy.report_retention_unset');
+    requireSetting(this.settings.retentionMinutes, analyticsRefusals, 'academy.report_retention_unset');
     requireSetting(this.settings.rowLimit, analyticsRefusals, 'academy.report_limit_unset');
     requireSetting(this.settings.sweepSeconds, analyticsRefusals, 'academy.report_sweep_unset');
     return this.sql.begin(async (tx) => {
@@ -235,15 +235,15 @@ export class ReportTasks {
         await this.event(tx, taskId, 'failed', null, now);
         return true;
       };
-      const { rowLimit, retentionHours } = this.settings;
+      const { rowLimit, retentionMinutes } = this.settings;
       if (rowLimit === null) return fail('academy.report_limit_unset');
-      if (retentionHours === null) return fail('academy.report_retention_unset');
+      if (retentionMinutes === null) return fail('academy.report_retention_unset');
       const ids = await learnerIds(tx, { tag: task.tag, after: null, limit: rowLimit + 1 });
       if (ids.length > rowLimit) return fail('academy.report_too_large');
       const rows = await summariesOf(tx, ids);
       const csv = learnersReportCsv(task, now, rows);
       const sha256 = createHash('sha256').update(csv, 'utf8').digest('hex');
-      const expiresAt = new Date(now.getTime() + retentionHours * 3_600_000);
+      const expiresAt = new Date(now.getTime() + retentionMinutes * 60_000);
       await tx`
         UPDATE academy.report_centre_tasks
            SET state = 'done', csv = ${csv}, rows = ${rows.length}, sha256 = ${sha256}, finished_at = ${now}, expires_at = ${expiresAt}

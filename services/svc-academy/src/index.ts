@@ -140,6 +140,7 @@ const academy = new AcademyService(
     gradeReportRows: env.ACADEMY_GRADE_REPORT_ROWS,
     learnerSummariesPageSize: env.ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE,
     reportTasksPageSize: env.ACADEMY_REPORT_TASKS_PAGE_SIZE,
+    reportCentreRetentionMinutes: env.ACADEMY_REPORT_CENTRE_RETENTION_MINUTES,
     reportSweepSeconds: env.ACADEMY_REPORT_SWEEP_SECONDS,
     bulkFileMaxBytes: env.ACADEMY_BULK_FILE_MAX_BYTES,
     bulkEnrolRows: env.ACADEMY_BULK_ENROL_ROWS,

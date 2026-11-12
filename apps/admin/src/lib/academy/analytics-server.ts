@@ -35,7 +35,7 @@ const COPY: Record<string, Omit<RefusalView, 'code' | 'changed'>> = {
   },
   'academy.report_retention_unset': {
     title: 'The report retention is not set',
-    body: 'The owner has not set how long a finished report file is kept (ACADEMY_REPORT_RETENTION_HOURS), so no report is requested.',
+    body: 'The owner has not set how long a finished report file is kept (ACADEMY_REPORT_CENTRE_RETENTION_MINUTES), so no report is requested.',
     next: 'The owner sets it for this deployment. Nothing was requested.',
   },
   'academy.report_limit_unset': {
