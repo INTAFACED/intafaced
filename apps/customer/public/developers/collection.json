@@ -650,6 +650,18 @@
           }
         },
         {
+          "name": "fetchFuturesMarginModes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/margin-modes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "margin-modes"]
+            }
+          }
+        },
+        {
           "name": "fetchFundingRateHistory",
           "request": {
             "method": "GET",
