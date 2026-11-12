@@ -22,13 +22,28 @@ const openRoom = (room) => 'Open ' + room.name;
 const trpc = (procedure, input) =>
   `/api/academy/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`;
 
+/** One signed-in API session per account for the whole step: a fresh sign-in on every call is slow on a busy stack. */
+const sessions = new Map();
+const sessionOf = (who) => {
+  if (!sessions.has(who.email)) sessions.set(who.email, api(who));
+  return sessions.get(who.email);
+};
+
+/** A named phase of the step, with how long it took in the run's log. */
+async function phase(name, body) {
+  const started = Date.now();
+  const out = await test.step(name, body);
+  console.log(`${J} #4 ${name}: ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  return out;
+}
+
 async function read(who, procedure, input) {
-  const res = await (await api(who)).get(trpc(procedure, input));
+  const res = await (await sessionOf(who)).get(trpc(procedure, input));
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
 async function write(who, procedure, input) {
-  const res = await (await api(who)).post(trpc(procedure), input);
+  const res = await (await sessionOf(who)).post(trpc(procedure), input);
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
@@ -68,7 +83,7 @@ async function freshAccount(browser, prefix) {
 async function raiseToHost(who) {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
-  const session = await api(who);
+  const session = await sessionOf(who);
   for (let rung = 0; rung < 10; rung++) {
     const perks = (await session.get('/api/identity/trpc/rank.perks')).body.result.data;
     if (perks.lobbyHostRights === true) return;
@@ -87,9 +102,9 @@ const daysAhead = (days, hour) => {
 };
 
 test(`${J} #4 a specialist room page shows its pinned lessons in the host's order and its calendar by day`, async ({ browser }) => {
-  test.setTimeout(240_000);
-  const host = await freshAccount(browser, 'ja19h');
-  await raiseToHost(host);
+  test.setTimeout(480_000);
+  const host = await phase('a TEST host signs up', () => freshAccount(browser, 'ja19h'));
+  await phase('the host reaches the rank that hosts rooms', () => raiseToHost(host));
   const futures = await write(host, 'createRoom', { ...FUTURES, kind: 'futures', access: 'free', capacity: 30 });
   const clinic = await write(host, 'createRoom', { ...CLINIC, kind: 'merchant_clinic', access: 'free', capacity: 30 });
 
@@ -110,19 +125,21 @@ test(`${J} #4 a specialist room page shows its pinned lessons in the host's orde
   });
 
   // Only the host pins, and only a lesson the catalogue has; neither refusal changes the room.
-  const learner = await freshAccount(browser, 'ja19l');
-  const notHost = await (await api(learner)).post(trpc('pinLesson'), { roomId: futures.id, itemSlug: first.slug });
+  const learner = await phase('a TEST learner signs up', () => freshAccount(browser, 'ja19l'));
+  const notHost = await (await sessionOf(learner)).post(trpc('pinLesson'), { roomId: futures.id, itemSlug: first.slug });
   expect(notHost.status).toBe(403);
   expect(notHost.body?.error?.data?.cause?.code).toBe('academy.not_host');
-  const unknown = await (await api(host)).post(trpc('pinLesson'), { roomId: futures.id, itemSlug: `no-such-lesson-${RUN}` });
+  const unknown = await (await sessionOf(host)).post(trpc('pinLesson'), { roomId: futures.id, itemSlug: `no-such-lesson-${RUN}` });
   expect(unknown.status).toBe(404);
   expect(unknown.body?.error?.data?.cause?.code).toBe('academy.curriculum_not_found');
   const stored = await read(learner, 'room', { roomId: futures.id, limit: 50 });
   expect(stored.pinnedLessons.map((l) => l.slug)).toEqual([second.slug, first.slug]);
 
   const page = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
-  await signIn(page, learner);
-  await page.goto('/academy/rooms');
+  await phase('the learner signs in and opens Rooms', async () => {
+    await signIn(page, learner);
+    await page.goto('/academy/rooms');
+  });
   // The learner narrows the list to futures rooms and opens this one.
   await page.getByLabel('Show rooms', { exact: true }).selectOption('futures');
   const card = page.locator('article.more-room-link', { hasText: FUTURES.name });
