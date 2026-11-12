@@ -273,8 +273,17 @@ describe('fill alerts (AL-alerts-01)', () => {
       channels: ['email'],
       message: `TEST trend v1: ${trade.side} ${trade.qty} BTC/USDT at ${trade.price} (${trade.ts})`,
     });
-    // A later sweep finds nothing new; another sweep after more bars announces only the new fills.
+    // A later sweep finds nothing new; a sweep after more bars announces only the new fills, each under a new id.
     expect(await t.sweep()).toBe(0);
+    t.later(60);
+    const more = await t.a.paper.get({ runId: run.runId });
+    expect(more.trades.length).toBeGreaterThan(view.trades.length);
+    const before = t.published.length;
+    expect(await t.sweep()).toBe(more.trades.length - view.trades.length);
+    const fresh = t.published.slice(before).map((fill) => fill.eventId);
+    expect(fresh).toEqual(
+      more.trades.slice(view.trades.length).map((_, n) => `quant.fill:${alert.alertId}:${run.runId}:${view.trades.length + n}`),
+    );
     await t.a.paper.stop({ runId: run.runId });
     expect(await t.sweep()).toBe(0);
   });

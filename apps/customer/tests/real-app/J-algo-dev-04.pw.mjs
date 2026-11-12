@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
-import { api, journeyState } from './stack.mjs';
+import { api, fromUnits, journeyState, times, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { closedBarsSince, tapeWindow, utcMinute } from './tape.mjs';
 
@@ -145,12 +145,33 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
   await signIn(page, who);
   const paper = await openStrategy(page, strategyId);
   const form = await startForm(paper);
+  const reply = page.waitForResponse((res) => res.url().includes('/api/quant/trpc/paper.start') && res.request().method() === 'POST');
   await form.getByRole('button', { name: 'Start', exact: true }).click();
+  const begun = dataOf(await (await reply).json());
   await expect(paper.getByTestId('quant-paper-note')).toHaveText('Version 1 is running on paper.');
   const view = paper.getByTestId('quant-paper-view');
-  const runId = await view.getAttribute('data-run-id');
-  expect(runId).toBeTruthy();
+  const runId = begun.runId;
+  await expect(view).toHaveAttribute('data-run-id', runId);
   run.write({ runId });
+
+  // The start's own reply: no whole bar has closed since the start, so there is no price and nothing has filled; no
+  // earlier price is carried over. A bar closes at the earliest a minute after the start, so the first read is unpriced too.
+  expect(begun).toMatchObject({
+    cash: '1000',
+    holdings: [],
+    feed: 'own_venue',
+    priced: false,
+    pricedThrough: null,
+    trades: [],
+    equity: [],
+  });
+  expect(begun.position).toEqual({ symbol: 'BTC/USDT', qty: '0' });
+  expect(begun.totals).toMatchObject({ startCash: '1000', fees: '0', net: '0', endEquity: '1000' });
+  await expect(view).toHaveAttribute('data-priced', 'false');
+  await expect(view.getByText('Waiting for the first price since the start.', { exact: false })).toBeVisible();
+  await expect(view.getByTestId('quant-paper-fill')).toHaveCount(0);
+  await expect(view.getByTestId('quant-paper-position')).toHaveAttribute('data-qty', '0');
+  await expect(view.getByTestId('quant-paper-equity')).toHaveAttribute('data-equity', '1000');
 
   // Every figure on the run page is labelled paper, and the run says it is not live.
   await expect(view).toHaveAttribute('data-label', LABEL);
@@ -160,18 +181,6 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
   await expect(view.getByTestId('quant-paper-equity')).toContainText('Paper equity:');
   await expect(view.getByTestId('quant-paper-equity')).toContainText('(started with 1000 simulated)');
 
-  // Before the first closed bar since the start there is no price, so nothing has filled; no earlier price is used.
-  const started = await read(who, 'quant', 'paper.get', { runId });
-  expect(started.cash).toBe('1000');
-  expect(started.holdings).toEqual([]);
-  expect(started.feed).toBe('own_venue');
-  if (!started.priced) {
-    expect(started.trades).toEqual([]);
-    await expect(view).toHaveAttribute('data-priced', 'false');
-    await expect(view.getByText('Waiting for the first price since the start.', { exact: false })).toBeVisible();
-    await expect(view.getByTestId('quant-paper-fill')).toHaveCount(0);
-  }
-
   // The run fills on the venue's own bars as they close.
   await expect
     .poll(async () => (await read(who, 'quant', 'paper.get', { runId })).trades.length, {
@@ -180,30 +189,57 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
       message: 'the paper run made no fill on the TEST tape; is the TEST market maker running (pnpm local:market)?',
     })
     .toBeGreaterThan(0);
-  await page.reload();
-  await paper
-    .locator(`[data-testid="quant-paper-run"][data-run-id="${runId}"]`)
-    .getByRole('button', { name: /^Show run/ })
-    .click();
-  await expect(view).toHaveAttribute('data-priced', 'true');
-  const fills = await view
-    .getByTestId('quant-paper-fill')
-    .evaluateAll((rows) => rows.map((row) => ({ ts: row.dataset.ts, side: row.dataset.side, barPrice: row.dataset.barPrice })));
-  expect(fills.length).toBeGreaterThan(0);
+
+  // The run page shows the run as the service holds it; read both again if a bar closed in between.
+  let after;
+  await expect(async () => {
+    after = await read(who, 'quant', 'paper.get', { runId });
+    await page.reload();
+    await paper
+      .locator(`[data-testid="quant-paper-run"][data-run-id="${runId}"]`)
+      .getByRole('button', { name: /^Show run/ })
+      .click();
+    await expect(view).toHaveAttribute('data-priced', 'true', { timeout: 5_000 });
+    const shown = await view
+      .getByTestId('quant-paper-fill')
+      .evaluateAll((rows) =>
+        rows.map((row) => ({ ts: row.dataset.ts, side: row.dataset.side, qty: row.dataset.qty, price: row.dataset.price })),
+      );
+    expect(shown).toEqual(after.trades.map(({ ts, side, qty, price }) => ({ ts, side, qty, price })));
+    await expect(view.getByTestId('quant-paper-position')).toHaveAttribute('data-qty', after.position.qty, { timeout: 1_000 });
+    await expect(view.getByTestId('quant-paper-equity')).toHaveAttribute('data-equity', after.totals.endEquity, { timeout: 1_000 });
+  }).toPass({ timeout: 90_000 });
   await expect(view.getByRole('table', { name: 'Paper fills' })).toBeVisible();
+  expect(after.claimLabel).toBe(LABEL);
 
   // Each fill is at the open of a closed bar of our exchange's own BTC/USDT tape, after the start: never an earlier price.
-  const bars = await closedBarsSince(utcMinute(Math.ceil((Date.now() - Date.parse(started.startedAt)) / 60_000) + 1));
-  for (const fill of fills) {
-    expect(Date.parse(fill.ts)).toBeGreaterThan(Date.parse(started.startedAt));
+  const bars = await closedBarsSince(utcMinute(Math.ceil((Date.now() - Date.parse(after.startedAt)) / 60_000) + 1));
+  for (const fill of after.trades) {
+    expect(Date.parse(fill.ts)).toBeGreaterThan(Date.parse(after.startedAt));
     const bar = bars.find(([at]) => at === Date.parse(fill.ts));
     expect(bar, `a TEST bar at ${fill.ts}`).toBeTruthy();
-    expect(Number(fill.barPrice)).toBe(Number(bar[1]));
+    expect(toUnits(fill.barPrice)).toBe(toUnits(String(bar[1])));
   }
-  const after = await read(who, 'quant', 'paper.get', { runId });
-  expect(after.position.symbol).toBe('BTC/USDT');
-  expect(after.equity.length).toBeGreaterThan(0);
-  expect(after.claimLabel).toBe(LABEL);
+
+  // The position and equity follow from those fills: the position is what was bought less what was sold, and equity is
+  // the cash left after every fill and its fee plus the position at the close of the last bar read, from the same tape.
+  let qty = 0n;
+  let cash = toUnits('1000');
+  for (const fill of after.trades) {
+    const notional = times(fill.price, fill.qty);
+    if (fill.side === 'buy') {
+      qty += toUnits(fill.qty);
+      cash -= notional + toUnits(fill.fee);
+    } else {
+      qty -= toUnits(fill.qty);
+      cash += notional - toUnits(fill.fee);
+    }
+  }
+  expect(after.position).toEqual({ symbol: 'BTC/USDT', qty: fromUnits(qty) });
+  const last = bars.find(([at]) => at + 60_000 === Date.parse(after.pricedThrough));
+  expect(last, `the TEST bar ending ${after.pricedThrough}`).toBeTruthy();
+  const mark = (qty * toUnits(String(last[4]))) / 10n ** 18n;
+  expect(toUnits(after.totals.endEquity)).toBe(cash + mark);
 });
 
 test(`${J} #3 retries the start dialog after a lost reply: the same run, not a second one`, async ({ page }) => {
