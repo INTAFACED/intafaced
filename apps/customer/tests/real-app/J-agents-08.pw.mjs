@@ -3,7 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
-import { api } from './stack.mjs';
+import { api, toUnits } from './stack.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { testDeposit, testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
@@ -128,6 +128,12 @@ async function openAllowance(page) {
   await main(page).getByRole('region', { name: 'Allowance', exact: true }).getByRole('button', { name: 'Connect TEST Wallet' }).click();
   await expect(main(page).getByTestId('venue-wallet-address')).toHaveText(owner());
   return testWallet;
+}
+
+/** One TEST switch on this wallet's venue account only (packages/venue-sim `/test/account-switches`). */
+async function accountSwitch(body) {
+  const r = await testVenue('/test/account-switches', { owner: owner(), ...body });
+  expect(r.status, JSON.stringify(r.body)).toBe(200);
 }
 
 async function ask(page, words) {
@@ -344,7 +350,30 @@ test(`${J} #5 asks the agent to buy a small TEST amount: a structured preview of
   await expect(fact('Order type')).toHaveText('Market');
   await expect(fact('Size')).toHaveText('0.0001');
   await expect(fact('Price')).toHaveText(/^[0-9]+(\.[0-9]+)? USDC$/);
-  await expect(fact('Fee')).toHaveText(/^[0-9]+(\.[0-9]+)? [A-Z]+$/);
+  // The price is the worst a market buy may fill at, read from the venue's own book: above its best ask, and no more
+  // than the owner's TEST 200 bps over the book's mid.
+  const price = (await fact('Price').innerText()).replace(/ USDC$/, '');
+  const best = (await testVenue('/best-prices', { symbol: 'BTC-USDC' })).body.value;
+  const P = toUnits(price);
+  expect(P >= toUnits(best.ask), `${price} vs ask ${best.ask}`).toBe(true);
+  expect(P * 2n * 10_000n <= (toUnits(best.bid) + toUnits(best.ask)) * 10_200n, `${price} vs mid of ${best.bid}/${best.ask}`).toBe(true);
+  // The fee is the venue's own: the same order previewed on the venue directly, at that price, gives the same fee.
+  const onVenue = await subRecord((await subAccounts())['Sub-account A'], '/preview', {
+    intent: {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'market',
+      amount: '0.0001',
+      price,
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: 'j-agents-08:preview-check',
+      builderFee: null,
+    },
+  });
+  expect(onVenue.value.venueFee.known).toBe(true);
+  await expect(fact('Fee')).toHaveText(`${onVenue.value.venueFee.value.amount} ${onVenue.value.venueFee.value.asset}`);
   await expect(p.getByRole('button', { name: 'Approve' })).toBeVisible();
   await expect(p).toContainText('Nothing has been sent.');
   // Nothing was sent: the venue's own record is as it was.
@@ -390,50 +419,79 @@ test(`${J} #6 approves the preview: the order appears on the person's own venue 
     signer: { role: 'agent', address: agentAddress },
     intent: { kind: 'withdraw', asset: 'USDC', amount: '1', destination: owner(), withdrawalKey: `j-agents-08:withdraw:${id}` },
   });
-  expect(withdraw.status).not.toBe(200);
-  expect(JSON.stringify(withdraw.body)).toMatch(/agent_not_permitted|not_offered|signer_not_authorised/);
+  expect(withdraw.status).toBe(422);
+  expect(withdraw.body.refusal).toMatchObject({ code: 'agent_not_permitted' });
 });
 
-test(`${J} #7 revokes the allowance during a run: our copy of the agent key is dropped at once and the next admission refuses; an order already sent is read back from the venue by its client order id; the wallet is asked to sign the venue's revoke`, async ({
+test(`${J} #7 revokes the allowance during a run: our copy of the agent key is dropped at once and the next admission refuses; an order already sent finishes or is read back from the venue by its client order id; the wallet is asked to sign the venue's revoke`, async ({
   page,
 }) => {
   const testWallet = await openAllowance(page);
   const id = await agentId(page);
   const { agentAddress } = agents.run.read();
-  // A run in progress: the agent has drafted an order and the preview waits for approval.
-  await ask(page, 'Buy 0.0001 BTC at market');
-  await expect(preview(page).getByRole('button', { name: 'Approve' })).toBeVisible();
+  const subA = (await subAccounts())['Sub-account A'];
+  const earlier = (await trading(id, 'orders')).map((o) => o.orderId);
+  // A run in progress: the venue holds each submit for TEST 6 seconds, so the approved order is on its way to the venue
+  // while the person revokes.
+  await accountSwitch({ submitDelayMs: 6000 });
+  try {
+    await ask(page, 'Buy 0.0001 BTC at market');
+    await preview(page).getByRole('button', { name: 'Approve' }).click();
+    // Sent: the agent key has signed it and the bytes are with the venue, which has not answered yet.
+    const newOnes = async () => (await trading(id, 'orders')).filter((o) => !earlier.includes(o.orderId)).map((o) => o.state);
+    await expect.poll(newOnes, { timeout: 4_000, intervals: [100] }).toEqual(['unknown']);
+    // Revoke, during the run. The wallet is asked to sign the venue's revoke; the person rejects it this once, so the
+    // venue still holds the agent permission: what stops the agent is our side, at once.
+    const row = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Active' });
+    testWallet.rejectNext();
+    await row.getByRole('button', { name: 'Revoke' }).click();
+    const revoked = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Revoked' });
+    await expect(revoked).toContainText('the venue’s revoke waits for your wallet’s signature');
+    expect(testWallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+    expect(await permissionsOnA()).toEqual([agentAddress]);
+    // The order already sent finishes, and is read back from the venue's own record by its client order id.
+    await expect(main(page).getByRole('status')).toContainText('Order placed on your account’s sub-account by the agent permission', {
+      timeout: 15_000,
+    });
+  } finally {
+    await accountSwitch({ submitDelayMs: 0 });
+  }
+  const orders = await trading(id, 'orders');
+  const inFlight = orders.filter((o) => !earlier.includes(o.orderId));
+  expect(inFlight).toHaveLength(1);
+  expect(inFlight[0]).toMatchObject({ state: 'accepted', signedBy: agentAddress, subAccount: subA });
+  const back = await subRecord(subA, '/order-by-client-id', { venueClientOrderId: inFlight[0].order.venueClientOrderId });
+  expect(back.value).toMatchObject({ venueClientOrderId: inFlight[0].order.venueClientOrderId, symbol: 'BTC-USDC', side: 'buy' });
   const before = await sent();
-  // Revoke. The wallet is asked to sign the venue's revoke; the person rejects it this once, so the venue still holds the
-  // permission, and admission still refuses: our side stops at once, not when the venue's revoke lands.
-  const row = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Active' });
-  testWallet.rejectNext();
-  await row.getByRole('button', { name: 'Revoke' }).click();
-  const revoked = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Revoked' });
-  await expect(revoked).toContainText('the venue’s revoke waits for your wallet’s signature');
-  expect(testWallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
-  expect(await permissionsOnA()).toEqual([agentAddress]);
-  // The run's order, approved now, is refused: nothing is signed or sent.
-  await preview(page).getByRole('button', { name: 'Approve' }).click();
+  // Our copy of the agent key is dropped: the venue still holds the agent permission on A, yet nothing is signed with it.
+  // A new ask is refused before a preview, and an order sent straight to the API with a new order id is refused too.
+  await ask(page, 'Buy 0.0001 BTC at market');
   const alert = main(page).getByRole('region', { name: 'Ask the agent to trade' }).getByRole('alert');
   await expect(alert).toContainText('agents.allowance_revoked');
+  await expect(preview(page)).toHaveCount(0);
+  const direct = await (
+    await api(agents.account())
+  ).post(`/api/v1/venue/own-agents/${id}/orders`, {
+    orderId: '00000000-0000-4000-8000-0000000000a7',
+    side: 'buy',
+    base: 'BTC',
+    size: '0.0001',
+    type: 'market',
+  });
+  expect(direct.status, JSON.stringify(direct.body)).toBe(409);
+  expect(direct.body.intafacedCode).toBe('agents.allowance_revoked');
+  expect(await permissionsOnA()).toEqual([agentAddress]);
   expect(await sent()).toEqual(before);
-  const orders = await trading(id, 'orders');
-  // The order sent before the revoke finished on the venue, and is read back by its client order id.
-  expect(orders.map((o) => o.state)).toEqual(['accepted']);
-  const subA = (await subAccounts())['Sub-account A'];
-  const back = await subRecord(subA, '/order-by-client-id', { venueClientOrderId: orders[0].order.venueClientOrderId });
-  expect(back.value?.venueClientOrderId).toBe(orders[0].order.venueClientOrderId);
-  // The wallet signs the venue's revoke: the venue no longer holds the permission on A.
+  expect((await trading(id, 'orders')).length).toBe(orders.length);
+  // The wallet signs the venue's revoke: the venue no longer holds the agent permission on A.
+  const revoked = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Revoked' });
   const signedBefore = testWallet.requests.length;
   await revoked.getByRole('button', { name: 'Sign the venue’s revoke' }).click();
-  await expect(revoked).not.toContainText('your wallet has not signed');
+  await expect(revoked).not.toContainText('the venue’s revoke waits for your wallet’s signature');
   expect(testWallet.requests.length).toBe(signedBefore + 1);
+  expect(testWallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
   expect(await permissionsOnA()).toEqual([]);
   const [allowance] = await trading(id, 'allowances');
-  expect(allowance).toMatchObject({ status: 'revoked', permissionOnVenue: false, left: allowance.left });
-  // A new ask is refused before a preview: the allowance is revoked.
-  await ask(page, 'Buy 0.0001 BTC at market');
-  await expect(alert).toContainText('agents.allowance_revoked');
+  expect(allowance).toMatchObject({ status: 'revoked', permissionOnVenue: false });
   expect(await sent()).toEqual(before);
 });

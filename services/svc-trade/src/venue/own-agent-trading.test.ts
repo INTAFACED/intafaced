@@ -301,7 +301,7 @@ describe("a person's own agent trading their venue sub-account under an allowanc
         destination: owner,
         withdrawalKey: 'withdraw:test:agent',
       } as VenueIntent),
-    ).rejects.toBeInstanceOf(VenueRefusalError);
+    ).rejects.toMatchObject({ refusal: { code: 'agent_not_permitted' } });
   });
 
   it('#6 money: two draws at once that together exceed the allowance admit one', async () => {
