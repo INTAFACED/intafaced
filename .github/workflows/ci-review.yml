@@ -147,8 +147,24 @@ jobs:
         id: review
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
         run: |
           dir="$RUNNER_TEMP/review"
+          # The second key (project-state#2180): kept in an unexported variable, so a call sees one key, as before. Only
+          # when the first key is refused or used up (reviewer-error.mjs --key: `other`, never a refusal about the
+          # change) is the same call asked once more on it. With no second key set, nothing here changes.
+          second="$CLAUDE_CODE_OAUTH_TOKEN_2"
+          unset CLAUDE_CODE_OAUTH_TOKEN_2
+          answered_on=first
+          other_key() {
+            [ -n "$second" ] && [ "$answered_on" = first ] || return 1
+            [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" --key)" = other ] || return 1
+            line="$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" | sed 's/^::[a-z]*:://')"
+            echo "::warning::the first reviewer key failed, so this call is asked again on CLAUDE_CODE_OAUTH_TOKEN_2: $line"
+            echo "first_line=$line" >> "$GITHUB_OUTPUT"
+            CLAUDE_CODE_OAUTH_TOKEN="${second}"
+            answered_on=second
+          }
           if [ -f "$dir/skip-reviewer" ]; then
             echo "the diff step already decided (too large to review whole)"
             exec node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
@@ -171,6 +187,7 @@ jobs:
           if [ -f "$dir/input.jsonl" ]; then
             # Look-baseline images go with the prompt (ci-review.mjs streamInput): the same call, its input one stream
             # message, its answer a stream whose one `result` line the read step takes (readStreamOutput).
+            ask() {
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model claude-opus-5-5 --effort medium \
               --tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \
@@ -180,9 +197,13 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --input-format stream-json --output-format stream-json --verbose \
               --json-schema "$schema" \
-              < "$dir/input.jsonl" > "$dir/answer.jsonl" 2> "$dir/answer.jsonl.stderr" || failed "$dir/answer.jsonl" "$?"
+              < "$dir/input.jsonl" > "$dir/answer.jsonl" 2> "$dir/answer.jsonl.stderr"
+            }
+            ask || { rc=$?; other_key "$dir/answer.jsonl" "$rc" || failed "$dir/answer.jsonl" "$rc"; ask || failed "$dir/answer.jsonl" "$?"; }
             echo "called=true" >> "$GITHUB_OUTPUT"
+            [ -z "$second" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           else
+            ask() {
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model claude-opus-5-5 --effort medium \
               --tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \
@@ -192,8 +213,11 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$schema" \
               "Review the pull request in the input against the brief at its top. Answer with the structured verdict only." \
-              < "$dir/prompt.txt" > "$dir/answer.json" 2> "$dir/answer.json.stderr" || failed "$dir/answer.json" "$?"
+              < "$dir/prompt.txt" > "$dir/answer.json" 2> "$dir/answer.json.stderr"
+            }
+            ask || { rc=$?; other_key "$dir/answer.json" "$rc" || failed "$dir/answer.json" "$rc"; ask || failed "$dir/answer.json" "$?"; }
             echo "called=true" >> "$GITHUB_OUTPUT"
+            [ -z "$second" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           fi
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
 
@@ -257,6 +281,19 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node tooling/ci/judge-down.mjs back "CI review" issue
 
+      # Which key answered, in one place: the "CI review on its second key" project-state issue (judge-down.mjs `key`),
+      # opened when the second key answered and closed when the first answers again, so the first is renewed before the
+      # second runs out too. Its failure can't fail the job. With no second key set, no `key` output is written and this
+      # step never runs.
+      - name: Reviewer key
+        if: ${{ !cancelled() && steps.review.outputs.key != '' && steps.review.outputs.kind != 'down' }}
+        continue-on-error: true
+        env:
+          ISSUE_TOKEN: ${{ steps.issues-token.outputs.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LINE: ${{ steps.review.outputs.first_line }}
+        run: node tooling/ci/judge-down.mjs "${{ steps.review.outputs.key == 'second' && 'second' || 'first' }}" "CI review" key
+
   # The proof read, a check on the pull request that blocks nothing (project-state OWNER.md items 251 (3) and 250 (2);
   # OWNER 257: nothing new may block a merge). A job of its own after the review, so the review job the seal reads
   # (REVIEW_JOB) neither waits for it nor changes with it, and no required check reads it. For each step the title
@@ -307,9 +344,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROJECT_STATE_READ_TOKEN: ${{ secrets.PROJECT_STATE_READ_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           dir="$RUNNER_TEMP/read"
+          # The second key, as in the Review step: unexported, and asked only after the first is refused or used up.
+          second="$CLAUDE_CODE_OAUTH_TOKEN_2"
+          unset CLAUDE_CODE_OAUTH_TOKEN_2
           no() { echo "::warning::no proof read of this head: $1 (it blocks nothing)"; exit 0; }
           # The first read of a head counts: an earlier attempt of this run that read it is never read again.
           had="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=proof-v2-read-$HEAD_SHA" --jq '.total_count')" || no "the artifacts can't be listed"
@@ -322,8 +363,8 @@ jobs:
           # The first and the second, blind call answer apart, so they run side by side.
           pids=()
           dirs=()
-          for d in "$dir" "$dir/second"; do
-            [ -f "$d/prompt.txt" ] || continue
+          ask() {
+            d="$1"
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model "$READER_MODEL" --effort "$READER_EFFORT" \
               --tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \
@@ -333,7 +374,21 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$(cat "$d/schema.json")" \
               "Read the steps in the input against the brief at its top. Answer with the structured reads only." \
-              < "$d/prompt.txt" > "$d/answer.json" 2> "$d/answer.json.stderr" &
+              < "$d/prompt.txt" > "$d/answer.json" 2> "$d/answer.json.stderr"
+          }
+          # One reader call, asked again on the second key only when the first is refused or used up (--key: `other`).
+          read_one() {
+            ask "$1" && return 0
+            rc=$?
+            [ -n "$second" ] && [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" --key)" = other ] || return "$rc"
+            echo "::warning::the first reviewer key failed, so this read is asked again on CLAUDE_CODE_OAUTH_TOKEN_2: $(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" | sed 's/^::[a-z]*:://')"
+            CLAUDE_CODE_OAUTH_TOKEN="${second}"
+            : > "$1/answered-on-second-key"
+            ask "$1"
+          }
+          for d in "$dir" "$dir/second"; do
+            [ -f "$d/prompt.txt" ] || continue
+            read_one "$d" &
             pids+=("$!")
             dirs+=("$d")
           done
@@ -347,6 +402,9 @@ jobs:
           done
           [ "$failed" = 0 ] || no "a reader call failed"
           echo "called=true" >> "$GITHUB_OUTPUT"
+          if [ -e "$dir/answered-on-second-key" ] || [ -e "$dir/second/answered-on-second-key" ]; then
+            echo "::warning::reviewer key: second (CLAUDE_CODE_OAUTH_TOKEN_2); renew CLAUDE_CODE_OAUTH_TOKEN"
+          else echo "reviewer key: first"; fi
           node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" read "$dir" || no "the answer can't be read"
           echo "read=1" >> "$GITHUB_OUTPUT"
 

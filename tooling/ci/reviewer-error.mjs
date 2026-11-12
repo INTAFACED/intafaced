@@ -22,6 +22,11 @@
  *   node tooling/ci/reviewer-error.mjs <answer file> <exit code> --outputs  the line, and kind, action, line and sign_in
  *                                                                           appended to $GITHUB_OUTPUT
  *   node tooling/ci/reviewer-error.mjs <answer file> <exit code> --kind     only `down` or `error`
+ *   node tooling/ci/reviewer-error.mjs <answer file> <exit code> --key      `other` when another key could answer (otherKey)
+ *
+ * The second key (project-state#2180): from 15:28 UTC on 11 Nov, as from 04:39 UTC on 10 Nov, the one key's account hit
+ * its weekly limit and no PR merged until Nino signed in by hand. ci-review.yml asks a failed call once more on
+ * `CLAUDE_CODE_OAUTH_TOKEN_2` only when otherKey says so: the key itself was refused or used up, never anything else.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -170,6 +175,12 @@ export function classify(text, code, now = new Date(), err = '') {
   return { kind: 'error', cause: 'an answer that is not an outage' };
 }
 
+/** The causes that belong to the key, not the change or the service: another account's key could answer. */
+export const KEY_CAUSES = ['a usage limit', 'a used-up key', 'a refused key'];
+
+/** Whether a failed call is worth asking once more on another key: an outage whose cause is the key's own. */
+export const otherKey = (c) => c?.kind === 'down' && KEY_CAUSES.includes(c.cause);
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [file, code = '?', flag] = process.argv.slice(2);
   const read = (f) => (f && existsSync(f) ? readFileSync(f, 'utf8') : '');
@@ -177,6 +188,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const err = file ? read(`${file}.stderr`) : '';
   const c = classify(text, code, new Date(), err);
   if (flag === '--kind') console.log(c.kind);
+  else if (flag === '--key') console.log(otherKey(c) ? 'other' : 'same');
   else {
     const line = explain(text, code, err);
     console.log(c.kind === 'down' ? `::warning::judge down (${c.cause}): ${line}. One action: ${c.action}` : `::error::${line}`);
