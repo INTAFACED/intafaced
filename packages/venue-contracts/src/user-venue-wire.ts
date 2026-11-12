@@ -113,6 +113,8 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'nextFundingAt',
   // UserVenueDeposit (J-dex-protocol-05 #2)
   'seenAt',
+  // UserVenueOrderTrigger (J-derivatives-03 #6 #7)
+  'triggeredAt',
 ]);
 
 /**

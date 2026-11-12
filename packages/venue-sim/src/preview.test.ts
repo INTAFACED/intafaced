@@ -265,7 +265,15 @@ describe('HTTP answers', () => {
     const markets = await call('/markets', { account: null });
     const eth = markets.raw.value.find((m: any) => m.symbol === 'ETH-USDC');
     expect(eth).toMatchObject({ status: 'trading', maxOrderQty: '500', maxOrderNotional: '2000000' });
-    expect(markets.raw.value.map((m: any) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
+    expect(markets.raw.value.map((m: any) => m.symbol)).toEqual([
+      'BTC-USDC',
+      'BTC-PERP',
+      'ETH-USDC',
+      'ETH-PERP',
+      'XAU-PERP',
+      'XSTK-PERP',
+      'XSTD-PERP',
+    ]);
 
     // A resting order placed while trading stays as it is through every state change.
     const resting = await run(order({ price: a('59000'), amount: a('0.1'), clientOrderKey: 'order:preview-trader:rest' }));

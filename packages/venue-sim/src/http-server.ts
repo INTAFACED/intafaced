@@ -50,7 +50,9 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         `definite: false` (timeout); `failAfterSend` applies the next N
  *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
  *                                                         that long (at most 10 s) before the venue applies it
- *        /test/settle-withdrawals, /test/set-mark {symbol,price}
+ *        /test/settle-withdrawals, /test/set-mark {symbol,price}   the mark moves; a trigger order it crosses fires
+ *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
+ *        /test/pull-ladder {symbol,side: 'bid'|'ask'}     the TEST makers cancel that side of the market's seeded ladder
  *        /test/fills {since}                              every account's fills since a time, with its account
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, XAU-PERP,
  *                                                         XSTK-PERP and XSTD-PERP
@@ -153,6 +155,32 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     builderFeeCapBps: { known: true, value: parseAmount('100') },
   },
 
+  {
+    // TEST: a perpetual of its own for the venue's trigger orders (J-derivatives-03): a take profit, a stop loss, a stop
+    // market and a stop limit rest here, judged on the mark or the last trade, and only J-derivatives-03 trades it, so
+    // moving its mark (/test/set-mark) or pulling a side of its ladder (/test/pull-ladder) reaches no other journey.
+    symbol: 'ETH-PERP',
+    kind: 'perpetual',
+    baseAsset: 'ETH',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 200_000,
+    tickSize: parseAmount('0.1'),
+    lotSize: parseAmount('0.001'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.005'),
+    markPrice: parseAmount('3000'),
+    contractSize: parseAmount('1'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('100000000'),
+    listedBy: VENUE_LISTED,
+    triggerSources: ['mark', 'last'],
+  },
   {
     symbol: 'XAU-PERP',
     kind: 'perpetual',
@@ -266,7 +294,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
-const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'ETH-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
 /**
@@ -280,6 +308,7 @@ const SEED_SIZE = '1';
 const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'BTC-USDC': { mid: parseAmount('60000'), step: parseAmount('10') },
   'BTC-PERP': { mid: parseAmount('60000'), step: parseAmount('10') },
+  'ETH-PERP': { mid: parseAmount('3000'), step: parseAmount('1') },
   'XAU-PERP': { mid: parseAmount('2650'), step: parseAmount('0.5') },
   'XSTK-PERP': { mid: parseAmount('200'), step: parseAmount('0.1') },
   'XSTD-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
@@ -414,6 +443,28 @@ export async function seedTestVenue(
     }
   }
   return { makers: [testMakerKey('bid').address.toLowerCase(), testMakerKey('ask').address.toLowerCase()], orders };
+}
+
+/**
+ * TEST control: the TEST makers cancel their seeded ladder on one side of a market (`bid`: every resting buy), so an
+ * order that needs the other side finds no one; `/test/seed` rests it again. Signed cancels, as any trader's.
+ */
+export async function pullTestLadder(sim: TestVenueSimulator, symbol: string, side: 'bid' | 'ask'): Promise<number> {
+  if (!LADDER_SYMBOLS.has(symbol)) throw new VenueWireError(`${symbol} has no TEST ladder`);
+  const owner = testMakerKey(side).address.toLowerCase();
+  const acct: UserVenueAccount = { venueId: sim.venue.id, owner, subAccount: null };
+  let pulled = 0;
+  for (const order of (await sim.openOrders(acct)).value) {
+    if (order.symbol !== symbol || order.venueClientOrderId === null) continue;
+    const key = [...Array(SEED_LEVELS).keys()]
+      .map((i) => `order:test-maker-${side}:seed:${symbol}:${i + 1}`)
+      .flatMap((base) => [base, ...[...Array(20).keys()].map((n) => `${base}:again-${n + 1}`)])
+      .find((k) => venueClientOrderId(sim.venue.id, k) === order.venueClientOrderId);
+    if (!key) continue;
+    await makerRun(sim, side, { kind: 'cancel_order', symbol, clientOrderKey: key });
+    pulled += 1;
+  }
+  return pulled;
 }
 
 /** One owner's TEST switches (`/test/account-switches`). Kept per simulator, never part of UserVenue. */
@@ -621,6 +672,17 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
       sim.setMark(str(body, 'symbol'), price as Amount);
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/set-index': {
+      const price = body.price;
+      if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
+      sim.setIndex(str(body, 'symbol'), price as Amount);
+      return { ok: true, label: 'TEST' };
+    }
+    case '/test/pull-ladder': {
+      const side = body.side;
+      if (side !== 'bid' && side !== 'ask') throw new VenueWireError("side is required ('bid' or 'ask')");
+      return { ok: true, pulled: await pullTestLadder(sim, str(body, 'symbol'), side), label: 'TEST' };
     }
     case '/test/feed': {
       const state = body.state;

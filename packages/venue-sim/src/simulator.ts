@@ -45,6 +45,8 @@ import {
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  type VenueTrigger,
+  type VenueTriggerSource,
 } from '@intafaced/venue-contracts';
 import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenueDomain } from './signing.js';
 
@@ -201,6 +203,11 @@ export interface SimMarketConfig {
   readonly marginAccount?: UserVenueMarginAccountRule;
   /** The deployer's cap on the market's open interest at start, in base units; absent: no open interest is reported. */
   readonly openInterestCap?: Amount | null;
+  /**
+   * Perpetuals: the prices the venue judges its trigger orders on (`VenueTrigger`). Absent or empty: it takes no trigger
+   * order on this market, and one refuses `not_offered`.
+   */
+  readonly triggerSources?: readonly VenueTriggerSource[];
 }
 
 /**
@@ -278,6 +285,9 @@ interface OrderState {
   readonly lockPerUnit: Amount;
   /** The deployer margin account the order's lock sits in (a market with `marginAccount`), or `null`: the main balances. */
   readonly marginAccount: string | null;
+  /** A trigger order attached to an entry: the entry, and the size the person asked for (it arms on what the entry filled). */
+  readonly parent?: OrderState | null;
+  readonly requested?: Amount;
 }
 
 interface PositionState {
@@ -341,6 +351,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly openInterestCaps = new Map<string, Amount | null>();
   /** Each market's latest halt or split that settled its positions (`settleMarket`). */
   private readonly marketEvents = new Map<string, UserVenueMarketEvent>();
+  /** Each perpetual's last traded price, the `last` trigger source; absent until its first fill. */
+  private readonly lastTrades = new Map<string, Amount>();
+  /** Each perpetual's TEST index (oracle) price, as the venue publishes it (`setIndex`); it starts at the market's mark. */
+  private readonly indexes = new Map<string, Amount>();
+  /** Trigger orders waiting for their source to cross their price, by market. They are not on the book. */
+  private readonly triggers = new Map<string, OrderState[]>();
+  /** Set while trigger orders are being fired, so a fill a trigger order makes never fires another from inside it. */
+  private firing = false;
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
@@ -371,7 +389,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     for (const market of options.markets) {
       this.marketsBySymbol.set(market.symbol, market);
       this.resting.set(market.symbol, []);
+      this.triggers.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+      if (market.kind === 'perpetual' && market.markPrice !== undefined) this.indexes.set(market.symbol, market.markPrice);
       this.marketState.set(market.symbol, {
         status: market.status === undefined ? 'trading' : market.status,
         maxOrderQty: market.maxOrderQty ?? null,
@@ -391,7 +411,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
     this.marketsBySymbol.set(market.symbol, market);
     this.resting.set(market.symbol, []);
+    this.triggers.set(market.symbol, []);
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+    if (market.kind === 'perpetual' && market.markPrice !== undefined) this.indexes.set(market.symbol, market.markPrice);
     this.marketState.set(market.symbol, {
       status: market.status === undefined ? 'trading' : market.status,
       maxOrderQty: market.maxOrderQty ?? null,
@@ -425,7 +447,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'venue_rejected', 'a split needs a ratio above zero');
     const at = this.clock();
     const cancelled = new Map<AccountState, (string | null)[]>();
-    for (const order of [...this.bookOf(symbol)]) {
+    for (const order of [...this.bookOf(symbol), ...(this.triggers.get(symbol) ?? [])]) {
       this.release(order, 'canceled');
       cancelled.set(order.account, [...(cancelled.get(order.account) ?? []), order.order.venueClientOrderId]);
     }
@@ -598,6 +620,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (this.offHours.has(symbol))
       refuse(this.venue.id, 'market_off_hours', `${symbol}'s home market is closed: the mark holds at the last open-hours price`);
     this.marks.set(symbol, price);
+    // A trigger order judged on the mark fires as soon as the mark crosses it.
+    this.runTriggers();
+  }
+
+  /** TEST control: the perpetual's TEST index (oracle) price, as the venue publishes it. No venue trigger is judged on it. */
+  setIndex(symbol: string, price: Amount): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: it has no index`);
+    if (compare(price, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'an index price must be above zero');
+    this.indexes.set(symbol, price);
   }
 
   /** TEST: the next `count` submits on this account are applied and then answered `definite: false` (a lost answer). */
@@ -755,6 +787,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
+      triggerSources: m.kind === 'perpetual' ? (m.triggerSources ?? []) : [],
+      index: published(m.kind === 'perpetual' ? (m.oracle ? this.marks.get(m.symbol) : this.indexes.get(m.symbol)) : undefined),
     }));
     return this.asOf(list);
   }
@@ -1110,6 +1144,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
 
     const outcome = this.apply(prepared);
+    // A fill moves the mark and the last price: any trigger order they now cross fires before the answer goes back.
+    this.runTriggers();
     this.assertNoNegativeBalance();
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
@@ -1419,8 +1455,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'venue_rejected', `size is not a multiple of the lot size on ${market.symbol}`);
     if (intent.price % market.tickSize !== ZERO)
       refuse(this.venue.id, 'venue_rejected', `price is not a multiple of the tick size on ${market.symbol}`);
+    if (intent.trigger) this.checkTriggerOnItsFace(market, intent);
+    else if (intent.parentClientOrderKey) refuse(this.venue.id, 'venue_rejected', 'only a trigger order is attached to an entry order');
     if (market.kind === 'perpetual') {
-      if (intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
+      if (!intent.trigger && intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
         refuse(this.venue.id, 'not_offered', 'a resting reduce-only order is not offered on the TEST simulator: close with IOC or market');
       }
       const setting = state.leverage.get(market.symbol);
@@ -1455,6 +1493,22 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     } else if (intent.reduceOnly) {
       refuse(this.venue.id, 'not_offered', `${market.symbol} is cash spot: no reduce-only`);
     }
+  }
+
+  /** A trigger order's own rules: a perpetual whose venue takes triggers on its source, reduce-only, priced on the tick. */
+  private checkTriggerOnItsFace(market: SimMarketConfig, intent: PlaceUserOrderIntent): void {
+    const trigger = intent.trigger as VenueTrigger;
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${market.symbol} is cash spot: no trigger orders`);
+    if (!(market.triggerSources ?? []).includes(trigger.source))
+      refuse(this.venue.id, 'not_offered', `trigger orders judged on the ${trigger.source} price are not offered on ${market.symbol}`);
+    if (trigger.role !== 'take_profit' && trigger.role !== 'stop_loss')
+      refuse(this.venue.id, 'venue_rejected', 'a trigger order is a take profit or a stop loss');
+    if (!intent.reduceOnly) refuse(this.venue.id, 'not_offered', 'a trigger order is reduce-only on this venue: it closes, never opens');
+    if (compare(trigger.price, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a trigger price must be above zero');
+    if (trigger.price % market.tickSize !== ZERO)
+      refuse(this.venue.id, 'venue_rejected', `the trigger price is not a multiple of the tick size on ${market.symbol}`);
+    if (intent.type === 'limit' && intent.timeInForce !== 'GTC')
+      refuse(this.venue.id, 'not_offered', 'a triggered limit order rests GTC on this venue');
   }
 
   private checkLeverageOnItsFace(symbol: string, leverageBps: number, marginMode: VenueMarginMode): SimMarketConfig {
@@ -1683,6 +1737,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     refused: (code: VenueRefusalCode, detail: string) => VenueSubmitOutcome,
     accepted: (venueRef: string | null, order: UserVenueOrder | null) => VenueSubmitOutcome,
   ): VenueSubmitOutcome {
+    if (intent.trigger) return this.placeTrigger(state, intent, cloid, builderFee, refused, accepted);
     const market = this.market(intent.symbol);
     const perp = market.kind === 'perpetual';
     const crossesPrice = (resting: OrderState) =>
@@ -1768,12 +1823,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         (a, b) => (intent.side === 'buy' ? compare(a.order.price, b.order.price) : compare(b.order.price, a.order.price)) || a.seq - b.seq,
       );
     for (const maker of ordered) {
-      if (order.order.remaining === ZERO) break;
+      if (order.order.remaining === ZERO || !isLive(order)) break;
+      // A fill can close a position and cancel its other reduce-only orders: one cancelled meanwhile is not traded.
+      if (!isLive(maker)) continue;
       const qty = min(order.order.remaining, maker.order.remaining);
       this.fill(market, maker, order, qty, maker.order.price);
     }
 
-    if (order.order.remaining !== ZERO) {
+    if (order.order.remaining !== ZERO && isLive(order)) {
       if (intent.type === 'market' || intent.timeInForce === 'IOC') {
         // The unfilled rest of an IOC ends here: final, nothing stays locked.
         this.release(order, 'canceled');
@@ -1867,6 +1924,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const averagePrice = o.averagePrice === null ? price : div(add(mul(o.averagePrice, o.filled), mul(price, qty)), filled);
       side.order = { ...o, filled, remaining, averagePrice, status: remaining === ZERO ? 'filled' : 'partially_filled' };
       if (remaining === ZERO) this.release(side, 'filled');
+      // A protection attached to this entry arms on what the entry has filled, never on more (`normalTpsl`).
+      if (!o.reduceOnly) this.armChildren(side);
 
       if (builderFee > ZERO) {
         const b = side.builderFee!.builder.toLowerCase();
@@ -1893,6 +1952,214 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
     // An oracle market's mark is the oracle price: a fill does not move it.
     if (market.kind === 'perpetual' && !market.oracle) this.marks.set(market.symbol, price);
+    if (market.kind === 'perpetual') {
+      this.lastTrades.set(market.symbol, price);
+      // A position closed to nothing takes its reduce-only orders with it: a pair's other leg never fires on nothing.
+      for (const side of [maker, taker]) {
+        if (!side.order.reduceOnly) continue;
+        const p = side.account.positions.get(market.symbol);
+        if (!p || p.size === ZERO) this.cancelProtections(side.account, market.symbol, taker);
+      }
+    }
+  }
+
+  /** Every live reduce-only order of `state` on `symbol`, waiting triggers included, cancelled `position_closed`. */
+  private cancelProtections(state: AccountState, symbol: string, except: OrderState): void {
+    for (const o of [...state.orders.values()]) {
+      if (o === except || o.order.symbol !== symbol || !o.order.reduceOnly || !isLive(o)) continue;
+      this.release(o, 'canceled', 'position_closed');
+    }
+  }
+
+  /** The waiting protections attached to `entry`, sized to what it has filled so far, never above what was asked. */
+  private armChildren(entry: OrderState): void {
+    for (const o of entry.account.orders.values()) {
+      if (o.parent !== entry || !isLive(o) || o.order.trigger?.state !== 'waiting') continue;
+      const amount = min(o.requested ?? o.order.amount, entry.order.filled);
+      if (amount !== ZERO) o.order = { ...o.order, amount, remaining: amount };
+    }
+  }
+
+  /**
+   * A trigger order (`intent.trigger`): checked against the position (or the entry it is attached to) and the price it
+   * is judged on now, its most fees locked, and kept off the book until its source crosses its price (`runTriggers`).
+   */
+  private placeTrigger(
+    state: AccountState,
+    intent: PlaceUserOrderIntent,
+    cloid: string,
+    builderFee: PreparedVenueAction['builderFee'],
+    refused: (code: VenueRefusalCode, detail: string) => VenueSubmitOutcome,
+    accepted: (venueRef: string | null, order: UserVenueOrder | null) => VenueSubmitOutcome,
+  ): VenueSubmitOutcome {
+    const market = this.market(intent.symbol);
+    const trigger = intent.trigger as VenueTrigger;
+    const setting = state.leverage.get(market.symbol);
+    if (!setting) return refused('leverage_not_set', `no leverage is set on ${market.symbol} for this account`);
+    let parent: OrderState | null = null;
+    if (intent.parentClientOrderKey) {
+      parent = state.orders.get(venueClientOrderId(this.venue.id, intent.parentClientOrderKey)) ?? null;
+      if (!parent || parent.order.symbol !== market.symbol || parent.order.reduceOnly)
+        return refused('venue_rejected', 'the entry order this protection is attached to is not an opening order on this account');
+      if (parent.order.side === intent.side) return refused('venue_rejected', 'a protection closes its entry: it is on the other side');
+      if (compare(intent.amount, parent.order.amount) > 0) return refused('venue_rejected', 'a protection is larger than its entry order');
+      if (!isLive(parent) && parent.order.filled === ZERO)
+        return refused('venue_rejected', 'the entry order ended without a fill: there is nothing to protect');
+    } else {
+      const p = state.positions.get(market.symbol);
+      const held = p !== undefined && p.size !== ZERO ? p : undefined;
+      if (!held || (held.side === 'long') === (intent.side === 'buy'))
+        return refused('venue_rejected', 'reduce-only order would open or grow a position');
+      if (compare(intent.amount, held.size) > 0) return refused('venue_rejected', 'reduce-only order is larger than the position');
+    }
+    const now = this.sourcePrice(market.symbol, trigger.source);
+    if (now !== null && crossed(intent.side, trigger, now)) {
+      const want = (trigger.role === 'take_profit') === (intent.side === 'sell') ? 'above' : 'below';
+      return refused(
+        'venue_rejected',
+        `a ${trigger.role === 'take_profit' ? 'take profit' : 'stop loss'} on this side must trigger ${want} the ${trigger.source} price ${formatAmount(now)}: this one would fire at once`,
+      );
+    }
+    const { lockAsset, lockPerUnit } = this.orderLock(market, intent, setting, builderFee);
+    const amount = parent && parent.order.filled !== ZERO ? min(intent.amount, parent.order.filled) : intent.amount;
+    const lockAmount = mul(lockPerUnit, intent.amount, QUOTE_ROUND);
+    const marginAccount = market.marginAccount ? market.marginAccount.name : null;
+    const balance = this.lockBalance(state, marginAccount, lockAsset);
+    if (compare(balance.free, lockAmount) < 0)
+      return refused('insufficient_balance', `free ${lockAsset} does not cover the most this trigger order can pay in fees`);
+    balance.free = sub(balance.free, lockAmount);
+    balance.locked = add(balance.locked, lockAmount);
+    this.venueOrderCounter += 1;
+    this.seqCounter += 1;
+    const order: OrderState = {
+      account: state,
+      seq: this.seqCounter,
+      builderFee,
+      leverageBps: setting.leverageBps,
+      marginMode: setting.marginMode,
+      lockPerUnit,
+      marginAccount,
+      parent,
+      requested: intent.amount,
+      order: {
+        venueOrderId: `sim-${this.venueOrderCounter}`,
+        venueClientOrderId: cloid,
+        symbol: market.symbol,
+        side: intent.side,
+        type: intent.type,
+        timeInForce: intent.timeInForce,
+        price: intent.price,
+        amount,
+        filled: ZERO,
+        remaining: amount,
+        averagePrice: null,
+        status: 'open',
+        locked: lockAmount,
+        lockedAsset: lockAsset,
+        reduceOnly: true,
+        trigger: { price: trigger.price, source: trigger.source, role: trigger.role, state: 'waiting', triggeredAt: null, failure: null },
+        parentClientOrderId: parent?.order.venueClientOrderId ?? null,
+        cancelReason: null,
+      },
+    };
+    state.orders.set(cloid, order);
+    this.triggers.get(market.symbol)!.push(order);
+    return accepted(order.order.venueOrderId, order.order);
+  }
+
+  /** The price a trigger is judged on now, or `null` while there is none (no trade yet on `last`). */
+  private sourcePrice(symbol: string, source: VenueTriggerSource): Amount | null {
+    return (source === 'mark' ? this.marks.get(symbol) : this.lastTrades.get(symbol)) ?? null;
+  }
+
+  /**
+   * Fire every waiting trigger order whose source has crossed its price, oldest first, until none is left to fire. Each
+   * fires once: it leaves the waiting list before it is sent, and a fill it makes is judged only after it is done.
+   */
+  private runTriggers(): void {
+    if (this.firing) return;
+    this.firing = true;
+    try {
+      for (let round = 0; round < 100; round += 1) {
+        let fired = false;
+        for (const [symbol, waiting] of this.triggers) {
+          for (const o of [...waiting].sort((a, b) => a.seq - b.seq)) {
+            const trigger = o.order.trigger;
+            if (!isLive(o) || !trigger || trigger.state !== 'waiting') continue;
+            if (o.parent && o.parent.order.filled === ZERO) continue;
+            const now = this.sourcePrice(symbol, trigger.source);
+            if (now === null || !crossed(o.order.side, trigger, now)) continue;
+            this.fire(o);
+            fired = true;
+          }
+        }
+        if (!fired) return;
+      }
+      throw new Error('TEST simulator invariant: trigger orders kept firing for 100 rounds');
+    } finally {
+      this.firing = false;
+    }
+  }
+
+  /**
+   * One trigger order's source crossed its price: sent as the order it carries, for no more than the position holds
+   * (and the entry filled), against other traders' resting orders. A market order that finds nothing at or better than
+   * its worst price fails, in the venue's words, and closes nothing; a limit rests on the book at its price.
+   */
+  private fire(o: OrderState): void {
+    const state = o.account;
+    const market = this.market(o.order.symbol);
+    const waiting = this.triggers.get(market.symbol)!;
+    waiting.splice(waiting.indexOf(o), 1);
+    const p = state.positions.get(market.symbol);
+    const held = p && p.size !== ZERO && (p.side === 'long') === (o.order.side === 'sell') ? p : undefined;
+    if (!held) {
+      this.release(o, 'canceled', 'position_closed');
+      return;
+    }
+    let qty = min(o.order.remaining, held.size);
+    if (o.parent) qty = min(qty, o.parent.order.filled);
+    // Its lock, sized again to what it now closes.
+    const balance = this.lockBalance(state, o.marginAccount, o.order.lockedAsset);
+    const lock = mul(o.lockPerUnit, qty, QUOTE_ROUND);
+    balance.locked = add(sub(balance.locked, o.order.locked), lock);
+    balance.free = sub(add(balance.free, o.order.locked), lock);
+    const at = this.clock();
+    o.order = {
+      ...o.order,
+      amount: qty,
+      remaining: qty,
+      locked: lock,
+      trigger: { ...o.order.trigger!, state: 'triggered', triggeredAt: at },
+    };
+    const sell = o.order.side === 'sell';
+    const ordered = this.bookOf(market.symbol)
+      .filter((m) => m.account !== state && m.order.side !== o.order.side)
+      .filter((m) => (sell ? compare(m.order.price, o.order.price) >= 0 : compare(m.order.price, o.order.price) <= 0))
+      .sort((a, b) => (sell ? compare(b.order.price, a.order.price) : compare(a.order.price, b.order.price)) || a.seq - b.seq);
+    for (const maker of ordered) {
+      if (o.order.remaining === ZERO || !isLive(o)) break;
+      if (!isLive(maker)) continue;
+      this.fill(market, maker, o, min(o.order.remaining, maker.order.remaining), maker.order.price);
+    }
+    if (o.order.remaining === ZERO || !isLive(o)) return;
+    if (o.order.type === 'limit') {
+      this.bookOf(market.symbol).push(o);
+      return;
+    }
+    if (o.order.filled === ZERO) {
+      this.release(o, 'rejected');
+      o.order = {
+        ...o.order,
+        trigger: {
+          ...o.order.trigger!,
+          state: 'failed',
+          failure: `no ${sell ? 'buy' : 'sell'} order rests at or ${sell ? 'above' : 'below'} the worst price ${formatAmount(o.order.price)} ${market.quoteAsset}, so the triggered order did not fill`,
+        },
+      };
+      return;
+    }
+    this.release(o, 'canceled');
   }
 
   /**
@@ -1997,23 +2264,38 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   /** End an order's remaining lock exactly once. */
-  private release(order: OrderState, status: UserVenueOrder['status']): void {
+  private release(order: OrderState, status: UserVenueOrder['status'], cancelReason: 'position_closed' | null = null): void {
     const o = order.order;
     if (o.locked !== ZERO) {
       const balance = this.lockBalance(order.account, order.marginAccount, o.lockedAsset);
       balance.locked = sub(balance.locked, o.locked);
       balance.free = add(balance.free, o.locked);
     }
-    order.order = { ...order.order, locked: ZERO, status };
+    order.order = { ...order.order, locked: ZERO, status, ...(cancelReason ? { cancelReason } : {}) };
     const book = this.bookOf(o.symbol);
     const at = book.indexOf(order);
     if (at >= 0) book.splice(at, 1);
+    const waiting = this.triggers.get(o.symbol) ?? [];
+    const w = waiting.indexOf(order);
+    if (w >= 0) waiting.splice(w, 1);
   }
 }
 
 /** A published word of the venue's, or `known: false` when it publishes none. */
 function published<T>(value: T | undefined): MaybeKnown<T> {
   return value === undefined ? { known: false } : { known: true, value };
+}
+
+/**
+ * Whether `price` has crossed a trigger for an order on `side`: a take profit when the price has moved in the position's
+ * favour to it, a stop loss when against. A sell closes a long (take profit at or above, stop loss at or below); a buy
+ * closes a short (the other way round).
+ */
+export function crossed(side: 'buy' | 'sell', trigger: VenueTrigger, price: Amount): boolean {
+  const above = compare(price, trigger.price) >= 0;
+  const below = compare(price, trigger.price) <= 0;
+  if (trigger.role === 'take_profit') return side === 'sell' ? above : below;
+  return side === 'sell' ? below : above;
 }
 
 function isLive(o: OrderState): boolean {

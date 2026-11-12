@@ -76,6 +76,27 @@ export interface VenueSigner {
 
 export type VenueTimeInForce = 'GTC' | 'IOC' | 'ALO';
 
+/**
+ * The price a venue trigger order is judged on: the venue's mark, or its last traded price. A source a market does not
+ * list in `triggerSources` refuses `not_offered` at prepare. An index trigger is never a venue trigger here: where the
+ * venue lists none, our engine judges it on the venue's published index (`UserVenueMarket.index`).
+ */
+export type VenueTriggerSource = 'mark' | 'last';
+export const VENUE_TRIGGER_SOURCES: readonly VenueTriggerSource[] = ['mark', 'last'];
+
+/**
+ * A trigger order's trigger (Hyperliquid: an order's `trigger` with `tpsl`, read 2026-11-12): the order rests on the
+ * venue, unseen by the book, until its source crosses `price`, then it is sent as the order it carries (a market order
+ * at its worst price, or a limit at its price). A take profit fires when the price moves in the position's favour to
+ * `price`, a stop loss when it moves against it; for a sell (closing a long) that is at or above, and at or below,
+ * `price`; for a buy the other way round. A trigger order is always reduce-only: it closes, never opens or grows.
+ */
+export interface VenueTrigger {
+  readonly price: Amount;
+  readonly source: VenueTriggerSource;
+  readonly role: 'take_profit' | 'stop_loss';
+}
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -88,6 +109,16 @@ export interface PlaceUserOrderIntent {
   /** `ALO` is post-only. A market order is sent as `IOC` at its worst price. */
   readonly timeInForce: VenueTimeInForce;
   readonly reduceOnly: boolean;
+  /**
+   * Set on a trigger order: it rests on the venue until `trigger.source` crosses `trigger.price`, then is sent as this
+   * order. Absent or `null`: an ordinary order, sent to the book at once.
+   */
+  readonly trigger?: VenueTrigger | null;
+  /**
+   * Set on a trigger order attached to an entry order (Hyperliquid's `normalTpsl` grouping): the entry's own
+   * `clientOrderKey`. It arms on what the entry has filled and no more, and waits while the entry has filled nothing.
+   */
+  readonly parentClientOrderKey?: string | null;
   /**
    * The business key of this intent (AGENTS.md floor 3), e.g.
    * `order:<userId>:<deskSession>:<n>`. Never a random id: a retry of the same
@@ -545,6 +576,26 @@ export interface UserVenueOrder {
   readonly locked: Amount;
   readonly lockedAsset: string;
   readonly reduceOnly: boolean;
+  /** A trigger order's trigger and where it stands, as the venue reports it; absent or `null` on an ordinary order. */
+  readonly trigger?: UserVenueOrderTrigger | null;
+  /** On a trigger order attached to an entry: the entry's venue client order id. */
+  readonly parentClientOrderId?: string | null;
+  /**
+   * Why the venue cancelled it, where it says: `position_closed` when the position it closed is gone (a trigger order
+   * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing).
+   */
+  readonly cancelReason?: 'position_closed' | null;
+}
+
+/**
+ * A trigger order's state on the venue: `waiting` while its source has not crossed its price; `triggered` once it was
+ * sent (the order's own status says how it filled); `failed` when it was triggered and the venue could not carry it
+ * out, with the venue's reason in its own words (`failure`) and the position left as it was.
+ */
+export interface UserVenueOrderTrigger extends VenueTrigger {
+  readonly state: 'waiting' | 'triggered' | 'failed';
+  readonly triggeredAt: Date | null;
+  readonly failure: string | null;
 }
 
 export interface UserVenuePosition {
@@ -849,6 +900,13 @@ export interface UserVenueMarket {
   readonly contractSize: MaybeKnown<Amount>;
   readonly mark: MaybeKnown<Amount>;
   readonly funding: MaybeKnown<UserVenueFunding>;
+  /**
+   * The prices this venue judges its trigger orders on for this market (empty: it takes no trigger orders here). A
+   * trigger on any other source refuses `not_offered` at prepare. Optional on the wire for venues that report none.
+   */
+  readonly triggerSources?: readonly VenueTriggerSource[];
+  /** The venue's published index (oracle) price for the market now, or `known: false` where it publishes none. */
+  readonly index?: MaybeKnown<Amount>;
 }
 
 /**
