@@ -399,7 +399,10 @@ test(`${J} #7 opens Accounts and asks for portfolio margin: Standard only, with 
   await connectWallet(page, dex);
   await walletSection(page, 'Accounts');
   const mode = page.getByRole('region', { name: 'Account mode' });
-  await expect(mode).toContainText('Standard', UNBUILT);
+  // The mode shown is the mode value itself, not any line of the panel that names Standard.
+  const shown = mode.locator('[data-account-mode]');
+  await expect(shown).toHaveAttribute('data-account-mode', 'standard', UNBUILT);
+  await expect(shown).toHaveText('Standard');
   // Standard is the only mode: nothing else to pick.
   await expect(mode.getByRole('radio')).toHaveCount(0);
   await expect(mode.getByRole('combobox')).toHaveCount(0);
@@ -408,7 +411,10 @@ test(`${J} #7 opens Accounts and asks for portfolio margin: Standard only, with 
   expect(await link.getAttribute('href')).toMatch(/^\/|^https?:/);
   await mode.getByRole('button', { name: 'Ask for portfolio margin' }).click();
   await expect(mode.getByRole('alert')).toContainText('trade.portfolio_margin_unset');
-  await expect(mode).toContainText('Standard');
+  // Asking changed nothing: the mode is still Standard, and still the only one.
+  await expect(shown).toHaveAttribute('data-account-mode', 'standard');
+  await expect(shown).toHaveText('Standard');
+  await expect(mode.locator('[data-account-mode]')).toHaveCount(1);
 });
 
 test(`${J} #8 turns on wallet auto-earn: a list of assets chosen by the owner; with the list blank the refusal names it; the key may only supply, never transfer`, async ({
