@@ -14,6 +14,9 @@
  *   POST /api/v1/venue/agent-accounts/:id/close
  *   GET  /api/v1/venue/agent-accounts/connections           the person's agent keys and the agent account each trades
  *   POST /api/v1/venue/agent-accounts/:id/connections       { keyId, stepUpApprovalId }: bind an own agent key (#6)
+ *   POST /api/v1/venue/agent-accounts/connections/:keyId/revoke   {} or { actionKey, signature }: revoke the assistant (#12):
+ *                                                             its connection ends, its resting orders are cancelled once,
+ *                                                             our agent key is dropped, and the wallet signs the venue's revoke
  *
  * And the assistant's own route, called with the connected agent API key (agent-orders.ts, #7 #8 #10):
  *
@@ -114,6 +117,7 @@ export function attachAgentAccountRoutes(
   }
 
   type Id = { Params: { id: string } };
+  type KeyId = { Params: { keyId: string } };
 
   app.get(`${AGENT_ACCOUNTS_PATH}/terms`, privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;
@@ -142,6 +146,17 @@ export function attachAgentAccountRoutes(
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answerOrders(reply, async (o) => o.connect(principal, req.params.id, body(req)));
+  });
+
+  // #12: the person revokes the assistant connected through this key. The first call ends it and prepares the venue's
+  // revoke for the wallet; the call again with that action's key and the wallet's signature sends it, once.
+  app.post<KeyId>(`${AGENT_ACCOUNTS_PATH}/connections/:keyId/revoke`, privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answerOrders(reply, async (o) => {
+      const b = body<{ actionKey?: string; signature?: VenueSignature }>(req);
+      return o.revoke(principal, req.params.keyId, b);
+    });
   });
 
   // The assistant's order: an agent API key connected to an agent account (agent-orders.ts). An answer that is not

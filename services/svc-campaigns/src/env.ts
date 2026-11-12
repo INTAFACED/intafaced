@@ -36,6 +36,10 @@ import {
  * TRADE_URL reaches svc-trade's public market list, to name the market a fill's id points at. Unset: a step that names
  * a market counts no fill (logged); a step for any market still counts.
  *
+ * PROTOCOL_URL (with TRADE_URL and INTERNAL_SERVICE_SECRET) reaches svc-protocol's connected wallets, read for the person
+ * with their own edge-signed principal, and svc-trade's read of the venue's deposits, for the welcome checklist's deposit task (J-campaigns-04 #2). Unset: that task reads `unread`
+ * and never ticks; the other tasks are unchanged.
+ *
  * NATS_URL is the bus task progress is read from (`trade.fill.settled`). Unreachable at boot: the service runs, logs and
  * tries again every 15 seconds; JetStream keeps the events for the durable consumer once it attaches.
  *
@@ -71,6 +75,8 @@ const schema = baseEnvSchema
       INTERNAL_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
       LEDGER_URL: blankAsAbsent(z.string().url().optional()),
       TRADE_URL: blankAsAbsent(z.string().url().optional()),
+      /** svc-protocol, for the connected wallets the welcome deposit task reads (J-campaigns-04). Unset: it reads unread. */
+      PROTOCOL_URL: blankAsAbsent(z.string().url().optional()),
       CAMPAIGNS_RECONCILE_AFTER_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
       CAMPAIGNS_ROLLBACK_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
