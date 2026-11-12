@@ -130,6 +130,18 @@ export const RECIPE_MATRIX = {
     reason:
       "§13 — our fees settled by a partner into our treasury wallet or our reserve at that partner, keyed on the partner's settlement line, refused above what it owes. No production writer and no grant until partner fees can be earned (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
   },
+  feeGiveBackOwe: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — a fee a customer paid on a fill, given back as goodwill: our builder-fee revenue down and what we owe them up, keyed fee-refund:<the fill's earn key>. Refused without two different approvers or above the fee paid on that fill. No production writer and no grant (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
+  feeGiveBackPayOut: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — a fee give-back paid from one of our own-funds places to the customer's own wallet, keyed on the chain transaction, refused above what we owe them and above what the place holds. No production writer and no grant (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
   orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/order-place.ts' },
   orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/holds.ts' },
   orderHoldAmend: {

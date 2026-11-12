@@ -70,9 +70,9 @@ describe('help-article authoring and review', () => {
     await kb.saveDraft(AUTHOR, text());
     await kb.submit(AUTHOR, { id: 'withdraw-time', revision: 1 });
     await kb.saveDraft(AUTHOR, text({ body: 'TEST Newer.', baseRevision: 1 }));
-    await expect(kb.approve(REVIEWER, { id: 'withdraw-time', revision: 1 })).rejects.toMatchObject({ code: 'support.kb.revision_stale' });
+    await expect(kb.approve(REVIEWER, { id: 'withdraw-time', revision: 1 })).rejects.toMatchObject({ code: 'support.kb_revision_stale' });
     await expect(kb.sendBack(REVIEWER, { id: 'withdraw-time', revision: 1, reason: 'TEST' })).rejects.toMatchObject({
-      code: 'support.kb.revision_stale',
+      code: 'support.kb_revision_stale',
     });
   });
 

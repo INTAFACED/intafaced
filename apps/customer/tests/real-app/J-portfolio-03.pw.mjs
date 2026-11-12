@@ -1,4 +1,5 @@
 // World: book, restart, stack
+import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, journeyState, otherTrader, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { awayBid, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit, signIn, signUp, verify } from './desk.mjs';
@@ -338,19 +339,62 @@ test(`${J} #2 filters by date, asset, type, account, address and year, and sorts
   await expect(list.first().locator('td').nth(2)).toHaveText('+20 USDT');
   await bar.getByRole('combobox', { name: 'Account', exact: true }).selectOption('');
 
-  // Year: this calendar year holds everything; a tax year cannot be picked because its start date is not published.
+  // Year: a UTC calendar year. The screen offers UTC years and asks the bank for one by number; the bank keeps exactly
+  // the lines whose UTC posting year it is, in every year asked, and the screen shows what the bank kept. The browser
+  // sits in a zone 13 hours ahead of UTC, so a local year would not pass for the UTC one.
   const year = bar.getByRole('combobox', { name: 'Year', exact: true });
-  await year.selectOption(String(new Date().getUTCFullYear()));
+  const thisYear = new Date().getUTCFullYear();
+  const lines = await allLines(who);
+  for (const asked of [thisYear, thisYear - 1, thisYear + 1]) {
+    const kept = await allLines(who, { year: asked });
+    const want = lines.filter((l) => new Date(l.postedAt).getUTCFullYear() === asked).map((l) => l.id);
+    expect(kept.map((l) => l.id).sort(), `UTC year ${asked}`).toEqual(want.sort());
+  }
+  expect(lines.filter((l) => new Date(l.postedAt).getUTCFullYear() === thisYear)).toHaveLength(lines.length);
+  // The year's edges are the UTC ones, to the millisecond: with a range that ends just before 1 January 00:00 UTC, or starts
+  // at the next 1 January 00:00 UTC, nothing of the year is left and the bank refuses the empty range; a range that touches
+  // the first or the last millisecond of the UTC year is answered. A year in any other zone moves at least one edge.
+  const edge = async (range) => (await bankRead(who, 'activity.list', { limit: 10, year: thisYear, ...range })).status;
+  expect(await edge({ to: `${thisYear - 1}-12-31T23:59:59.999Z` }), 'ends before the UTC year').toBe(400);
+  expect(await edge({ to: `${thisYear}-01-01T00:00:00.000Z` }), 'touches its first UTC millisecond').toBe(200);
+  expect(await edge({ from: `${thisYear}-12-31T23:59:59.999Z` }), 'touches its last UTC millisecond').toBe(200);
+  expect(await edge({ from: `${thisYear + 1}-01-01T00:00:00.000Z` }), 'starts after the UTC year').toBe(400);
+  const askedFor = (y) =>
+    page.waitForRequest((r) => r.url().includes('activity.list') && decodeURIComponent(r.url()).includes(`"year":${y}`));
+  const asks = askedFor(thisYear);
+  await year.selectOption(String(thisYear));
+  await asks;
   await expect(list).toHaveCount(all);
+  const asksLast = askedFor(thisYear - 1);
+  await year.selectOption(String(thisYear - 1));
+  await asksLast;
+  await expect(activity(page)).toContainText('Nothing matches');
+  await expect(list).toHaveCount(0);
+  // The tax year is offered and refused by name while its start date is unset: disabled on the screen, and the bank
+  // refuses it by name, so the screen's disabled option is not the only guard.
   await expect(year.locator('option', { hasText: 'Tax year (not set up)' })).toHaveAttribute('disabled', '');
-  // The bank refuses a tax year by name while its start date is unset, so the screen's disabled option is not the only guard.
-  const taxYear = await bankRead(who, 'activity.list', { limit: 10, taxYear: new Date().getUTCFullYear() });
+  const taxYear = await bankRead(who, 'activity.list', { limit: 10, taxYear: thisYear });
   expect(taxYear.status).toBe(412);
   expect(JSON.stringify(taxYear.body)).toContain('portfolio.tax_year_start_unset');
   await year.selectOption('');
+  await expect(list).toHaveCount(all);
 
-  // Address: no withdrawal went anywhere, so no line matches an address.
-  await bar.getByLabel('Withdrawal address').fill('0xabcdef');
+  // Address: the TEST withdrawal #1 seeded went to the address the stack's seed names for its reference
+  // (local-test-stack.mjs seed-withdrawal). Part of it, in capitals, keeps that withdrawal alone; an address nothing went
+  // to keeps nothing.
+  const { withdrawalRef } = run.read();
+  expect(withdrawalRef, '#1 seeded the withdrawal').toBeTruthy();
+  const address = `0x${createHash('sha256').update(`seed-withdrawal-to:${withdrawalRef}`).digest('hex').slice(0, 40)}`;
+  const part = address.slice(6, 22);
+  const byAddress = await allLines(who, { address: part.toUpperCase() });
+  expect(byAddress.map((l) => [l.kind, l.direction, l.amount, l.asset, l.address])).toEqual([
+    ['withdrawal', 'out', WITHDRAWN, 'USDT', address],
+  ]);
+  await bar.getByLabel('Withdrawal address').fill(part.toUpperCase());
+  await expect(list).toHaveCount(1);
+  await expect(list.first()).toContainText('Withdrawal');
+  await expect(list.first().locator('td').nth(2)).toHaveText(`−${WITHDRAWN} USDT`);
+  await bar.getByLabel('Withdrawal address').fill('0xabcdef0123456789');
   await expect(activity(page)).toContainText('Nothing matches');
   await bar.getByRole('button', { name: 'Clear filters' }).click();
   await expect(list).toHaveCount(all);
@@ -555,19 +599,52 @@ test(`${J} #6 adds a note to an entry and presses save twice: one note, shown on
   await expect(rows(page).first()).toContainText('Welcome test funds');
 });
 
-test(`${J} #7 groups activity by tax effect: refused in words while the owner has not set what each type means`, async ({ page }) => {
+test(`${J} #7 groups activity by tax effect: types grouped by whether they are income, disposal or neutral`, async ({ page }) => {
   const who = account();
   await signIn(page, who);
-  const refused = await bankRead(who, 'activity.taxEffects');
-  expect(refused.status).toBe(412);
-  expect(JSON.stringify(refused.body)).toContain('portfolio.tax_effect_map_unset');
+  // The bank answers with an effect for every kind, each one of income, disposal or neutral.
+  const answer = await bankRead(who, 'activity.taxEffects');
+  expect(answer.status, JSON.stringify(answer.body).slice(0, 300)).toBe(200);
+  const effects = answer.data.effects;
+  const kinds = [...new Set((await allLines(who)).map((l) => l.kind))];
+  expect(kinds.length).toBeGreaterThan(4);
+  for (const kind of kinds) expect(['income', 'disposal', 'neutral'], `${kind}: ${effects[kind]}`).toContain(effects[kind]);
+  for (const [kind, effect] of Object.entries(effects)) expect(['income', 'disposal', 'neutral'], kind).toContain(effect);
+
+  // On the screen: the types grouped under Income, Disposal and Neutral, each type in exactly the group the bank named,
+  // and none left without a group.
   await openActivity(page);
   await page.getByRole('button', { name: 'Group by tax effect' }).click();
-  const block = page.locator('[data-slot="state-block"][data-kind="refused"]');
-  await expect(block).toBeVisible();
-  await expect(block).not.toContainText('portfolio.tax_effect_map_unset');
-  // Nothing is shown as taxable while the map is blank, and the list stays.
-  await expect(page.getByText(/taxable/i)).toHaveCount(0);
+  const groups = page.locator('[data-label="tax-effects"]');
+  await expect(groups).toBeVisible();
+  await expect(groups.locator('[data-effect="unset"]')).toHaveCount(0);
+  const named = { income: 'Income', disposal: 'Disposal', neutral: 'Neutral' };
+  for (const [effect, word] of Object.entries(named)) {
+    const group = groups.locator(`[data-effect="${effect}"]`);
+    await expect(group).toHaveCount(1);
+    await expect(group.locator('dt')).toHaveText(word);
+  }
+  // A few kinds the person has, by their row words, each in its bank-named group and in no other.
+  const words = { welcome_funds: 'Welcome test funds', trade: 'Trade', convert: 'Convert', withdrawal: 'Withdrawal' };
+  for (const [kind, word] of Object.entries(words)) {
+    if (!kinds.includes(kind)) continue;
+    await expect(groups.locator(`[data-effect="${effects[kind]}"] dd`)).toContainText(word);
+    for (const other of Object.keys(named).filter((e) => e !== effects[kind])) {
+      expect((await groups.locator(`[data-effect="${other}"] dd`).innerText()).split(', ')).not.toContain(word);
+    }
+  }
+  // Grouped by whether they are income, disposal or neutral: each of the three holds at least one kind the bank named,
+  // so a map that puts everything under one effect does not pass. Every kind the bank answered is in exactly its own
+  // group on the screen, and in no other.
+  for (const effect of Object.keys(named)) {
+    expect(Object.values(effects).filter((e) => e === effect).length, `${effect} holds a kind`).toBeGreaterThan(0);
+  }
+  for (const [kind, effect] of Object.entries(effects)) {
+    await expect(groups.locator(`[data-effect="${effect}"] [data-kind="${kind}"]`), kind).toHaveCount(1);
+    await expect(groups.locator(`[data-kind="${kind}"]`), `${kind} in one group`).toHaveCount(1);
+  }
+  await expect(groups.locator('[data-kind]')).toHaveCount(Object.keys(effects).length);
+  // The list stays below the groups.
   await expect(rows(page)).not.toHaveCount(0);
 });
 

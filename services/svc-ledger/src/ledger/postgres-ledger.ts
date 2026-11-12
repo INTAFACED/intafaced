@@ -34,6 +34,7 @@ import {
   allowedHistoryProduct,
   allowedHistoryRail,
   orderIdFromHoldPurpose,
+  allowedHistoryWithdrawalId,
   decodeHistoryCursor,
   encodeHistoryCursor,
   type HistoryEntry,
@@ -745,14 +746,16 @@ export class PostgresLedger implements LedgerClient {
           product: unknown;
           order_purpose: unknown;
           fill_fee: string | null;
+          withdrawal_id: unknown;
         }
       >
     >`
-      SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail, p.product,
+      SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail, p.product, p.withdrawal_id,
              o.purpose AS order_purpose, CASE WHEN p.fill_line THEN f.fee END AS fill_fee
         FROM (
           SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
-                 t.meta -> 'rail' AS rail, t.meta -> 'product' AS product, a.id AS account_id, a.owner_type, a.owner_id, a.kind,
+                 t.meta -> 'rail' AS rail, t.meta -> 'product' AS product,
+                 t.meta -> 'withdrawalId' AS withdrawal_id, a.id AS account_id, a.owner_type, a.owner_id, a.kind,
                  (t.module = 'trade' AND t.reason IN ('trade.fill', 'trade.fill.mm_maker', 'trade.fill.buyback') AND a.owner_type = 'user'
                    AND a.kind = 'available' AND x.direction = 'debit') AS fill_line
             FROM accounts a
@@ -833,6 +836,7 @@ export class PostgresLedger implements LedgerClient {
         product: allowedHistoryProduct(r.product),
         orderId: orderIdFromHoldPurpose(r.order_purpose),
         fee: r.fill_fee === null ? null : parseStoredAmount(r.fill_fee, 'ledger_entries.amount'),
+        withdrawalId: allowedHistoryWithdrawalId(r.module, r.reason, r.withdrawal_id),
       })),
       nextCursor: rows.length > limit && last ? encodeHistoryCursor({ entryId: last.entry_id }) : null,
     };

@@ -138,6 +138,11 @@ describe('over the router', () => {
     });
   });
 
+  it('answers the TEST map labelled TEST when the test stack chose it', async () => {
+    const taxEffects = { effects: { trade: 'disposal', earn: 'income' }, label: 'TEST' as const };
+    await expect(caller({ activity: service(), taxEffects }).activity.taxEffects({})).resolves.toEqual(taxEffects);
+  });
+
   it('takes a description alone, and refuses a write with neither a note nor a description', async () => {
     const written: unknown[] = [];
     const activityRecords = {

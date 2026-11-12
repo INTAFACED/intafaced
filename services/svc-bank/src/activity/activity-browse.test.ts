@@ -28,7 +28,7 @@ function post(
   reason: string,
   direction: 'debit' | 'credit',
   seq: number,
-  extra: { module?: string; owner?: string; at?: Date; amount?: string } = {},
+  extra: { module?: string; owner?: string; at?: Date; amount?: string; withdrawalId?: string } = {},
 ): Posted {
   return {
     ownerType: extra.owner ? 'subaccount' : 'user',
@@ -42,6 +42,7 @@ function post(
     seq,
     postedAt: extra.at ?? new Date(Date.UTC(2026, 9, 1, 0, 0, seq)),
     entryId: String(seq),
+    ...(extra.withdrawalId ? { withdrawalId: extra.withdrawalId } : {}),
   };
 }
 
@@ -64,6 +65,7 @@ function pages(rows: Posted[]): LedgerHistoryPages {
           postedAt: row.postedAt,
           assetId: row.assetId,
           entryId: row.entryId,
+          ...(row.withdrawalId ? { withdrawalId: row.withdrawalId } : {}),
         })),
         nextCursor: mine.length > req.limit && last ? Buffer.from(`v2.${last.seq}`).toString('base64url') : null,
       };
@@ -84,8 +86,14 @@ const space = {
 const spaces = { allNamedSpaces: async (): Promise<SpaceRecord[]> => [space] };
 
 type Records = NonNullable<ConstructorParameters<typeof ActivityService>[1]>['records'];
-function service(rows: Posted[], records?: Records) {
-  return new ActivityService(spaces, { pages: pages(rows), cursorSecret: SECRET, ...(records ? { records } : {}) });
+type PayWithdrawals = NonNullable<NonNullable<ConstructorParameters<typeof ActivityService>[1]>['payWithdrawals']>;
+function service(rows: Posted[], records?: Records, payWithdrawals?: PayWithdrawals) {
+  return new ActivityService(spaces, {
+    pages: pages(rows),
+    cursorSecret: SECRET,
+    ...(records ? { records } : {}),
+    ...(payWithdrawals ? { payWithdrawals } : {}),
+  });
 }
 const txs = (items: Array<{ txId: string }>) => items.map((item) => item.txId);
 
@@ -275,6 +283,45 @@ describe('withdrawal address', () => {
     });
     await expect(service(rows, broken).list(ALICE, { address: '0xabcdef01' })).rejects.toMatchObject({ name: 'ActivityUnavailableError' });
     expect(txs((await service(rows, broken).list(ALICE, {})).items)).toHaveLength(3);
+  });
+
+  describe('a withdrawal svc-pay made (J-portfolio-03 #2)', () => {
+    const W = '7a7a7a7a-0000-4000-8000-000000000001';
+    const PAID = '0x1111111111111111111111111111111111111111';
+    const payRows = [
+      ...rows,
+      post('tx-pay-hold', 'withdraw.held', 'credit', 4, { module: 'ledger', withdrawalId: `${W}:0` }),
+      post('tx-pay-settle', 'withdraw.settled', 'credit', 5, { module: 'ledger', withdrawalId: `${W}:0` }),
+    ];
+    const asked: Array<readonly string[]> = [];
+    const pay = (answer: ReadonlyMap<string, string> | null): PayWithdrawals => ({
+      addressesFor: async (_user, ids) => {
+        asked.push(ids);
+        return answer;
+      },
+    });
+
+    it('takes its address from svc-pay by the withdrawal id the ledger line names, and filters by it', async () => {
+      asked.length = 0;
+      const activity = service(payRows, records(), pay(new Map([[W, PAID]])));
+      expect(txs((await activity.list(ALICE, { address: '0X11111111' })).items).sort()).toEqual(['tx-pay-hold', 'tx-pay-settle']);
+      expect(txs((await activity.list(ALICE, { address: '0xabcdef01' })).items)).toEqual(['tx-wd']);
+      // One ask per page, the attempt stripped, and only for lines the bank's own records do not hold.
+      expect(asked[0]).toEqual([W]);
+      const all = await activity.list(ALICE, {});
+      expect(all.items.find((item) => item.txId === 'tx-pay-hold')?.address).toBe(PAID);
+      expect(all.items.find((item) => item.txId === 'tx-wd')?.address).toBe(ADDRESS);
+    });
+
+    it('fails an address filter when svc-pay cannot answer, or cannot be asked; shows every line otherwise', async () => {
+      await expect(service(payRows, records(), pay(null)).list(ALICE, { address: '0x1111' })).rejects.toMatchObject({
+        name: 'ActivityUnavailableError',
+      });
+      await expect(service(payRows, records()).list(ALICE, { address: '0x1111' })).rejects.toMatchObject({
+        name: 'ActivityUnavailableError',
+      });
+      expect(txs((await service(payRows, records(), pay(null)).list(ALICE, {})).items)).toHaveLength(5);
+    });
   });
 
   it('refuses an address filter when nothing can look addresses up', async () => {

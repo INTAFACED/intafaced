@@ -611,6 +611,7 @@ const messages = {
   'Tax effect disposal': 'Disposal',
   'Tax effect neutral': 'Neutral',
   'Tax effect not set': 'Not set',
+  'Tax effect test map': 'TEST: made up for this test stack, not a tax treatment anyone decided.',
   'Tax year note': 'Only calendar years (UTC) can be chosen. A tax year needs a start date that is not published.',
   'Withdrawal address': 'Withdrawal address',
   'Address hint': 'Part of an address, {min}+ characters',

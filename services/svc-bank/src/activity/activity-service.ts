@@ -1,3 +1,4 @@
+import type { PayWithdrawalAddressesPort } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import { PAR_ASSETS } from '../portfolio/valuation.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
@@ -103,6 +104,8 @@ export interface LedgerPageEntry {
   readonly product?: string | null;
   /** The page owner's own trade order this posting belongs to, else null. Absent until svc-ledger sends it. */
   readonly orderId?: string | null;
+  /** A withdrawal line's own `<withdrawal id>:<attempt>`, else null. Absent until svc-ledger sends it. */
+  readonly withdrawalId?: string | null;
 }
 
 export interface LedgerPageRequest {
@@ -158,6 +161,11 @@ export interface ActivityServiceOptions {
   records?: Pick<ActivityRecordService, 'forItems'> & Partial<Pick<ActivityRecordService, 'addressesFor'>>;
   /** Whose bank money the partner holds: their history is the partner's record of its moves. Unset: the ledger's. */
   custody?: PartnerCustody;
+  /**
+   * Where the person's own svc-pay withdrawals went, by withdrawal id (J-portfolio-03 #2). Unset: only the bank's own
+   * off-ramps carry an address. Its `null` answer fails a read filtered by address, never hides a line otherwise.
+   */
+  payWithdrawals?: PayWithdrawalAddressesPort;
 }
 
 /** The date range is backwards. */
@@ -448,6 +456,8 @@ function after(a: LedgerPageEntry, b: LedgerPageEntry): number {
 
 /** A partner move between a person's own spaces is never a personal send: its note comes from `transfer_messages`. */
 const NO_PERSONAL_TX: ReadonlySet<string> = new Set();
+const NO_WITHDRAWALS: ReadonlyMap<string, string> = new Map();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class ActivityService {
   constructor(
@@ -790,6 +800,13 @@ export class ActivityService {
         transferHalves.set(entry.txId, (transferHalves.get(entry.txId) ?? 0) + 1);
     }
 
+    // Each withdrawal line's own svc-pay withdrawal, by ledger tx id: the id before the attempt (`<id>:<n>`).
+    const withdrawalOf = new Map<string, string>();
+    for (const { entry } of taken) {
+      const id = typeof entry.withdrawalId === 'string' ? /^(.+):\d{1,9}$/.exec(entry.withdrawalId)?.[1] : undefined;
+      if (id !== undefined) withdrawalOf.set(entry.txId, id);
+    }
+
     const seen = new Map<string, number>();
     const items: ActivityItem[] = taken.map(({ entry, queue }) => {
       const dir = directionOf(entry.direction);
@@ -848,7 +865,7 @@ export class ActivityService {
         // A missing note never hides the money movement.
       }
     }
-    return this.withRecords(userId, withHandles, personalTx, needAddress, needNotes);
+    return this.withRecords(userId, withHandles, personalTx, needAddress, needNotes, withdrawalOf);
   }
 
   /**
@@ -861,6 +878,7 @@ export class ActivityService {
     items: ActivityItem[],
     records: NonNullable<ActivityServiceOptions['records']>,
     needAddress: boolean,
+    withdrawalOf: ReadonlyMap<string, string>,
   ): Promise<ActivityItem[]> {
     const lookup = records.addressesFor;
     if (!lookup) {
@@ -869,16 +887,35 @@ export class ActivityService {
     }
     const txIds = [...new Set(items.filter((item) => item.kind === 'withdrawal').map((item) => item.txId))];
     if (txIds.length === 0) return items;
+    let found: ReadonlyMap<string, string>;
     try {
-      const found = await lookup.call(records, userId, txIds);
-      return items.map((item) => {
-        const address = item.kind === 'withdrawal' ? found.get(item.txId) : undefined;
-        return address === undefined ? item : { ...item, address };
-      });
+      found = await lookup.call(records, userId, txIds);
     } catch {
       if (needAddress) throw new ActivityUnavailableError();
       return items;
     }
+    // A withdrawal svc-pay made: its address is svc-pay's record, asked by the withdrawal id the ledger line names.
+    const byTx = new Map(found);
+    const paid = txIds.filter((txId) => !byTx.has(txId) && UUID.test(withdrawalOf.get(txId) ?? ''));
+    const pay = this.options.payWithdrawals;
+    if (paid.length > 0 && pay) {
+      const answer = await pay.addressesFor(userId, [...new Set(paid.map((txId) => withdrawalOf.get(txId)!))]);
+      if (answer === null) {
+        if (needAddress) throw new ActivityUnavailableError();
+      } else {
+        for (const txId of paid) {
+          const address = answer.get(withdrawalOf.get(txId)!);
+          if (address !== undefined) byTx.set(txId, address);
+        }
+      }
+    } else if (paid.length > 0 && needAddress) {
+      // Filtering by address with no way to ask svc-pay would quietly miss its withdrawals.
+      throw new ActivityUnavailableError();
+    }
+    return items.map((item) => {
+      const address = item.kind === 'withdrawal' ? byTx.get(item.txId) : undefined;
+      return address === undefined ? item : { ...item, address };
+    });
   }
 
   /**
@@ -892,6 +929,7 @@ export class ActivityService {
     personalTx: ReadonlySet<string>,
     needAddress: boolean,
     needNotes: boolean,
+    withdrawalOf: ReadonlyMap<string, string> = NO_WITHDRAWALS,
   ): Promise<ActivityItem[]> {
     const records = this.options.records;
     if (!records) {
@@ -899,7 +937,7 @@ export class ActivityService {
       return items;
     }
     if (items.length === 0) return items;
-    items = await this.withAddresses(userId, items, records, needAddress);
+    items = await this.withAddresses(userId, items, records, needAddress, withdrawalOf);
     let notes: ReadonlyMap<string, ActivityAnnotation>;
     try {
       notes = await records.forItems(

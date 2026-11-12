@@ -179,7 +179,7 @@ describe('ops.kb-workflow Stage-1 published catalog', () => {
         bodyKey: 'support.kb.account_access.body',
         baseRevision: 1,
       }),
-    ).rejects.toMatchObject({ code: 'support.kb.revision_stale' });
+    ).rejects.toMatchObject({ code: 'support.kb_revision_stale' });
     const still = await svc.getKbArticle('kb-account-access');
     expect(still).toEqual(bumped);
     expect(still).toMatchObject({ revision: 2, published: true });

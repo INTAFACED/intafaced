@@ -7,7 +7,17 @@ import { api, journeyState, restartWithSetting, toUnits, fromUnits } from './sta
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { continueInWallet, openVenueDesk, sameDecimal, TEST_VENUE, TEST_VENUE_B, testVenueAt, venueForThisFile } from './venue.mjs';
+import {
+  continueInWallet,
+  openVenueDesk,
+  sameDecimal,
+  TEST_VENUE,
+  TEST_VENUE_B,
+  testVenueAt,
+  venueBalance,
+  venueForThisFile,
+  venueRecord,
+} from './venue.mjs';
 
 // J-derivatives-28, "My order goes to the best venue I can sign for", in the running app against the stack's two TEST
 // venue simulators (LOCAL_STACK_USER_VENUE=two: the first venue with its 1 BTC a level TEST ladder, and a second TEST venue
@@ -49,9 +59,12 @@ const deposit = (venue, owner, asset, amount) =>
     amount,
     depositRef: `84532:0x${randomBytes(32).toString('hex')}:0`,
   });
+// The person's own record on a venue, read straight from that TEST venue through the fixture (never through our door).
 const byClientId = async (venue, owner, id) =>
-  (await at(venue.base, '/order-by-client-id', { account: account(venue, owner), venueClientOrderId: id })).value;
-const fillsOf = async (venue, owner, since) => (await at(venue.base, '/fills', { account: account(venue, owner), since })).value;
+  (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: id }, venue.base)).value;
+const fillsOf = async (venue, owner, since) => (await venueRecord(owner, '/fills', { since }, venue.base)).value;
+const openOrders = async (venue, owner) => (await venueRecord(owner, '/open-orders', {}, venue.base)).value;
+const approvalOf = async (venue, owner, builder) => (await venueRecord(owner, '/builder-fee-approval', { builder }, venue.base)).value;
 const filled = (fills, id) => fromUnits(fills.filter((f) => f.venueClientOrderId === id).reduce((t, f) => t + toUnits(f.amount), 0n));
 const switchDown = (venue, venueDown) => at(venue.base, '/test/switches', { venueDown });
 const byId = async (id) => {
@@ -117,8 +130,7 @@ async function ready(s, { approve = false } = {}) {
     expect(sent.body.outcome).toMatchObject({ definite: true, accepted: true });
   };
   for (const venue of [v.a, v.b]) {
-    const balances = (await at(venue.base, '/balances', { account: account(venue, owner) })).value;
-    if (!balances.some((b) => b.asset === 'USDC' && toUnits(b.total) > 0n)) await deposit(venue, owner, 'USDC', FUNDS);
+    if (!(toUnits((await venueBalance(owner, 'USDC', venue.base)).total) > 0n)) await deposit(venue, owner, 'USDC', FUNDS);
     const lev = await client.get(`/api/v1/venue/leverage?owner=${owner}&symbol=${SYMBOL}&venueId=${venue.id}`);
     expect(lev.status, JSON.stringify(lev.body).slice(0, 300)).toBe(200);
     if (!lev.body.value)
@@ -128,7 +140,7 @@ async function ready(s, { approve = false } = {}) {
         `leverage:${owner}:${SYMBOL}:isolated:${LEVERAGE}:setup-${venue.id}`,
       );
     if (!approve) continue;
-    const approved = (await at(venue.base, '/builder-fee-approval', { account: account(venue, owner), builder: builder.address })).value;
+    const approved = await approvalOf(venue, owner, builder.address);
     if (toUnits(approved) >= toUnits(builder.feeBps)) continue;
     await signAndSend(
       venue,
@@ -226,6 +238,9 @@ test(`${J} #1 opens the ticket for a market two venues list: each venue with its
       )
       .toBe(true);
   }
+  // Whether the person can sign there is the venue's own record of their account: funded on the first, nothing on the second.
+  expect(sameDecimal((await venueBalance(owner, 'USDC', v.a.base)).total, FUNDS)).toBe(true);
+  expect(toUnits((await venueBalance(owner, 'USDC', v.b.base)).total)).toBe(0n);
   await expect(row(page, v.a)).toHaveAttribute('data-account', 'signable');
   await expect(row(page, v.a).locator('[data-cell="account"]')).toContainText('You can sign here');
   await expect(row(page, v.b)).toHaveAttribute('data-account', 'connect');
@@ -280,21 +295,25 @@ test(`${J} #2 enters an order the first venue's shown depth can't fill at the sh
   // The fees, exactly as the chosen venue's own preview of this order prices them.
   const builder = (await (await api(state().account)).get('/api/v1/venue/status')).body.builder;
   const own = (
-    await at(v.b.base, '/preview', {
-      account: account(v.b, owner),
-      intent: {
-        kind: 'place_order',
-        symbol: SYMBOL,
-        side: 'buy',
-        type: 'market',
-        amount: size,
-        price: worst,
-        timeInForce: 'IOC',
-        reduceOnly: false,
-        clientOrderKey: (await line(sheet, 'client-id').innerText()).trim(),
-        builderFee: { builder: builder.address, feeBps: builder.feeBps },
+    await venueRecord(
+      owner,
+      '/preview',
+      {
+        intent: {
+          kind: 'place_order',
+          symbol: SYMBOL,
+          side: 'buy',
+          type: 'market',
+          amount: size,
+          price: worst,
+          timeInForce: 'IOC',
+          reduceOnly: false,
+          clientOrderKey: (await line(sheet, 'client-id').innerText()).trim(),
+          builderFee: { builder: builder.address, feeBps: builder.feeBps },
+        },
       },
-    })
+      v.b.base,
+    )
   ).value;
   expect(own.venueFee.known && own.builderFee.known, 'the venue prices both fees for this order').toBe(true);
   for (const [name, fee] of [
@@ -334,7 +353,7 @@ test(`${J} #2 enters an order the first venue's shown depth can't fill at the sh
   }
   // A preview sends nothing and asks the wallet for nothing.
   expect(wallet.requests).toHaveLength(signed);
-  expect((await at(v.b.base, '/open-orders', { account: account(v.b, owner) })).value).toEqual([]);
+  expect(await openOrders(v.b, owner)).toEqual([]);
 });
 
 test(`${J} #8 confirms an order on a venue where they never approved our builder fee: one approval from their own wallet naming the venue and at most the published fee, then the order; declining sends nothing; an agent key can't sign it; a blank fee refuses and asks for nothing`, async ({
@@ -345,7 +364,7 @@ test(`${J} #8 confirms an order on a venue where they never approved our builder
   const { owner, client } = await ready(s);
   const v = await both();
   const builder = (await client.get('/api/v1/venue/status')).body.builder;
-  expect((await at(v.b.base, '/builder-fee-approval', { account: account(v.b, owner), builder: builder.address })).value).toBe('0');
+  expect(await approvalOf(v.b, owner, builder.address)).toBe('0');
 
   // An agent key can't sign the approval: the venue refuses it before anything is signed.
   const agent = await client.post('/api/v1/venue/prepare', {
@@ -399,7 +418,7 @@ test(`${J} #8 confirms an order on a venue where they never approved our builder
     `No order was sent: our builder fee on ${v.b.displayName} was not approved, and every order there carries it.`,
   );
   expect(wallet.requests).toHaveLength(0);
-  expect((await at(v.b.base, '/open-orders', { account: account(v.b, owner) })).value).toEqual([]);
+  expect(await openOrders(v.b, owner)).toEqual([]);
   expect(await fillsOf(v.b, owner, s.startedAt)).toEqual([]);
 
   // Approving: one approval signature from the owner wallet, then the order is signed and sent.
@@ -411,9 +430,7 @@ test(`${J} #8 confirms an order on a venue where they never approved our builder
   const p = (await (await prepared).json()).prepared;
   await expect(sheet.getByTestId('venue-route-filled')).toBeVisible({ timeout: 20_000 });
   expect(wallet.requests).toHaveLength(2);
-  expect((await at(v.b.base, '/builder-fee-approval', { account: account(v.b, owner), builder: builder.address })).value).toBe(
-    builder.feeBps,
-  );
+  expect(await approvalOf(v.b, owner, builder.address)).toBe(builder.feeBps);
   expect(p.venueId).toBe(v.b.id);
   const placed = await byClientId(v.b, owner, p.venueClientOrderId);
   expect(placed.status).toBe('filled');
@@ -512,7 +529,7 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
     } else {
       expect(since, `${venue.displayName} took nothing in this step`).toEqual([]);
     }
-    expect((await at(venue.base, '/open-orders', { account: account(venue, owner) })).value).toEqual([]);
+    expect(await openOrders(venue, owner)).toEqual([]);
   }
   await page.unroute('**/api/v1/venue/submit');
   run.write({ lastVenueId: chosen.id });
@@ -524,8 +541,10 @@ test(`${J} #4 the chosen venue goes down before the next order: it is marked dow
   test.setTimeout(300_000);
   const s = state();
   await ready(s);
-  const { wallet } = await desk(page);
+  const { wallet, owner } = await desk(page);
   const v = await both();
+  // Every order and fill of this person's from here on, on either venue, would be one sent while a venue was down.
+  const t0 = new Date().toISOString();
   const downVenue = await byId(s.lastVenueId ?? v.b.id);
   const upVenue = downVenue.id === v.a.id ? v.b : v.a;
   const order = await sizeFor(v.a);
@@ -557,6 +576,11 @@ test(`${J} #4 the chosen venue goes down before the next order: it is marked dow
   await expect(row(page, downVenue)).toHaveAttribute('data-state', 'up', { timeout: 15_000 });
   await expect(row(page, upVenue)).toHaveAttribute('data-state', 'up');
   expect(wallet.requests).toHaveLength(0);
+  // No order went out while a venue was down: the venues' own records hold no order and no fill of this person's since.
+  for (const venue of [v.a, v.b]) {
+    expect(await fillsOf(venue, owner, t0), `${venue.displayName} took nothing in this step`).toEqual([]);
+    expect(await openOrders(venue, owner)).toEqual([]);
+  }
 });
 
 test(`${J} #6 an operator opens the routing view: our users' routed volume and builder fees by venue, and house exposure "none: routed"`, async ({
@@ -587,7 +611,14 @@ test(`${J} #6 an operator opens the routing view: our users' routed volume and b
       const all = (await at(venue.base, '/test/fills', { since: s.startedAt })).value.filter((x) => x.fill.filledAt < to);
       const strangers = all.filter((x) => x.owner !== owner && !makers.has(x.owner));
       expect(strangers, `${venue.displayName}: only this file and the TEST makers fill in the period`).toEqual([]);
-      const fills = all.filter((x) => x.owner === owner && x.fill.venueClientOrderId).map((x) => x.fill);
+      const fills = (await fillsOf(venue, owner, s.startedAt)).filter((f) => f.venueClientOrderId && f.filledAt < to);
+      // The venue's record of the person's fills is the same set its list of every account's fills holds for them.
+      expect(fills.map((f) => f.fillId).sort()).toEqual(
+        all
+          .filter((x) => x.owner === owner && x.fill.venueClientOrderId)
+          .map((x) => x.fill.fillId)
+          .sort(),
+      );
       const volume = fills.reduce((t, f) => t + (toUnits(f.price) * toUnits(f.amount)) / 10n ** 18n, 0n);
       const fees = fills.reduce((t, f) => t + toUnits(f.builderFee), 0n);
       const r = table.locator(`tr[data-venue="${venue.id}"]`);

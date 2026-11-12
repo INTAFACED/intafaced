@@ -69,6 +69,8 @@ export const JOURNEY_CI = [
   'tooling/ci/journey-touch.mjs',
   'tooling/ci/journey-verdict.mjs',
   'tooling/ci/journey-verdict.test.mjs',
+  // The scoreboard's shard download ("Merge the shards").
+  'tooling/ci/shard-download.mjs',
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
   'tooling/ci/journey-reach-map.mjs',
   'tooling/ci/journey-reach-map.json',

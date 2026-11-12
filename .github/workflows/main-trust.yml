@@ -21,7 +21,7 @@ name: Main trust
 # in this one starts the journeys revert (main-bisect.yml, tooling/ci/journeys-revert.mjs), which opens the culprit's revert;
 # the run's own early-break job usually started it already as the failing shard ended, and then this start adds nothing.
 #
-# Every hour (`revive`): a Real-app journeys run on main that finished with no report (it died before its tests ran) has its
+# Every hour and after each CI run on main (`revive`): a Real-app journeys run on main that finished with no report (it died before its tests ran) has its
 # failed jobs re-run, with waits of 30 min, 1 h, 2 h and 4 h between attempts and five attempts at most, then one issue
 # names it. Every pull request's verdict reads main's reports and fails closed on one it can't read, so one dead run would
 # otherwise stop every pull request until a person re-ran it (run 4005, 11 Nov 2026). See tooling/ci/journeys-revive.mjs.
@@ -116,9 +116,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/journeys-revive.mjs prs
 
+  # Also after each CI run on main (one per merge): GitHub's cron in this repository fires hours late or not at all
+  # (no `schedule` run of this file from #8010's merge at 23:47 UTC on 11 Nov to 02:33 UTC on 12 Nov, three ticks due;
+  # the nightly journeys cron `43 20` started at 00:53 and 01:59), so a dead run waited for a person again. On a merge it
+  # runs only the main pass: its waits and attempt bound decide, so a tick more often re-runs nothing sooner.
   revive:
     name: Re-run a journeys run on main that has no report
-    if: github.event_name == 'schedule'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 15 # healthy run: a report read of a few seconds per red main run of the last day
     permissions:
@@ -130,7 +136,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Re-run or name a finished main run without a report, then pull requests red only on main's inputs
+      - name: Re-run or name a finished main run without a report, then (on the timer) pull requests red only on main's inputs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node tooling/ci/journeys-revive.mjs
+          MODE: ${{ github.event_name == 'schedule' && 'all' || 'main' }}
+        run: node tooling/ci/journeys-revive.mjs "$MODE"

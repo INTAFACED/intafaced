@@ -7,6 +7,7 @@ import { edgeTrustFromEnv } from '@intafaced/config';
 import {
   createEdgeContext,
   createPayCustodyDepositClient,
+  createPayWithdrawalAddressesClient,
   rawBodyOf,
   retainRawBody,
   s2sFromEnv,
@@ -35,6 +36,7 @@ import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
@@ -163,8 +165,12 @@ const onrampPartner = onrampPartnerFor(
 /** The TEST partner bank and ramp: none unless chosen, and it refuses to boot outside dev/test. It holds no money. */
 const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
 
+/** What each kind of activity line means for tax: the owner's map once set; a TEST one only when chosen on dev/test. */
+const taxEffects = taxEffectsFor(env.BANK_TAX_EFFECTS, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  taxEffects,
   // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
   custodyLayer: env.LEDGER_CUSTODY_LAYER,
   // A partner move posts nothing on the ledger, so it asks svc-ledger's posting freeze first (floor 4).
@@ -215,6 +221,8 @@ const bank = createBankServices(sql, ledger, history, {
   activity: {
     pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
     cursorSecret: env.INTERNAL_SERVICE_SECRET,
+    // Where the person's own svc-pay withdrawals went (J-portfolio-03 #2), asked by withdrawal id; svc-pay's tables stay its own.
+    payWithdrawals: createPayWithdrawalAddressesClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET }),
   },
   // Background exports (PF-statements-02): off until both the worker interval and the claim lease are set. The TEST render
   // hold is a fault for J-portfolio-11 #5 and boot refuses it outside an explicit dev or test process.

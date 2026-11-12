@@ -8,7 +8,8 @@
 // separated by spaces. Each file counts its longest time across the reports, so a shard that was cut short or a file
 // that failed early in one run does not make it look fast, plus the suite's time per step for each step no report
 // timed, so a new journey or steps added to an old one count before any run has timed them. With no report every step
-// counts the same. A report that cannot be read is skipped.
+// counts UNTIMED_STEP_MS, the time a step took on main, so a run that could not read the last reports still plans its
+// shards from a real size. A report that cannot be read is skipped.
 //
 // `--shards auto` picks as many shards as keep each one's journeys near the target (shardTarget), between MIN_SHARDS
 // and MAX_SHARDS. (Failure it prevents: run 631 spent about 30 minutes per shard of a 60-minute job, and the real-app
@@ -65,6 +66,11 @@ export const TARGETED_MAX_SHARDS = 10;
 // A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts
 // once until a run has timed its file; from then on the report's count wins.
 const STEP = /^\s*test\(/gm;
+// A step's time when no report timed any step: main's run 43122218992 (2dea3d951, 11 Nov 2026) took 37,903,623 ms
+// over 2,333 timed steps, 16.2 seconds a step. (Failure it prevents, #8032: run 43130806194's download of the last
+// reports met `HTTP 403: API rate limit exceeded for installation`, every step counted 1 ms, the plan read "about 0
+// min" and took the 8-shard floor, and all 8 shards hit their time limit with four times a shard's journeys.)
+export const UNTIMED_STEP_MS = 16_000;
 const TIMED = new Set(['passed', 'failed', 'timedOut']);
 
 /** Journey files under `dir`, as paths relative to it with forward slashes, the way Playwright's report names them. */
@@ -162,7 +168,7 @@ export function estimateDurations(files, past, timed, steps) {
       ms += past.get(f);
       count += timed.get(f);
     }
-  const perStep = count ? ms / count : 1;
+  const perStep = count ? ms / count : UNTIMED_STEP_MS;
   return new Map(
     files.map((f) => {
       const known = past.get(f) ?? 0;
