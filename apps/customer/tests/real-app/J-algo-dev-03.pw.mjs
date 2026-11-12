@@ -8,12 +8,9 @@ import { userIdOf } from './copy.mjs';
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
-// verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money. Steps whose slice
-// is not built yet (RC-algo-dev-05 for #8) check their step's text with a short wait,
-// so they fail fast and name what is missing.
+// verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money.
 const J = 'J-algo-dev-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -362,6 +359,25 @@ async function quotaDoor() {
         );
       }
     },
+    /** Publishes or withdraws a TEST profile's tier, keyed by what it writes, with a reason for the audit row. */
+    async tier(profile, { dataFreshnessSeconds, priorityClass, published }) {
+      data(
+        await ctx.edge.mutate(
+          'quant',
+          'ops.quota.tier',
+          {
+            profile,
+            dataFreshnessSeconds,
+            priorityClass,
+            published,
+            reason: `LOCAL TEST ${J}`,
+            idempotencyKey: `quant.tier:${profile}:${dataFreshnessSeconds}:${priorityClass}:${published}:try${test.info().retry}`,
+          },
+          token,
+        ),
+        'ops.quota.tier',
+      );
+    },
     async assign(accountId, profile) {
       data(
         await ctx.edge.mutate(
@@ -533,8 +549,70 @@ test(`${J} #8 chooses a plan with more data freshness or execution priority: the
   page,
 }) => {
   await signIn(page, developer());
+  const door = await quotaDoor();
+  const tiers = page.getByTestId('quant-plan-tiers');
+  const empty = tiers.getByTestId('quant-plan-tiers-empty');
+
+  // With no tier published, the plan page says so and offers nothing to choose.
   await page.goto('/quant/strategies');
-  await expect(page.getByTestId('quant-plan-tiers'), 'compute tiers are not built (RC-algo-dev-05)').toBeVisible(UNBUILT);
+  await expect(tiers).toHaveAttribute('aria-label', 'Plan tiers');
+  await expect(empty).toHaveText('No plan tier is published, so there is no other plan to choose.');
+  await expect(tiers.getByRole('button', { name: /^Choose / })).toHaveCount(0);
+
+  // Two TEST tiers on their own TEST profiles: one with fresher data, one with a higher execution priority class.
+  const fresher = planName('fresher data');
+  const sooner = planName('execution priority');
+  await door.plan(fresher, { ...ROOMY, concurrent_runs: '6' });
+  await door.plan(sooner, ROOMY);
+  try {
+    await door.tier(fresher, { dataFreshnessSeconds: '0', priorityClass: '1', published: true });
+    await door.tier(sooner, { dataFreshnessSeconds: '60', priorityClass: '5', published: true });
+    await page.reload();
+    await expect(empty).toHaveCount(0);
+
+    // The plan page shows, for each tier, what it changes: freshness, priority class and every limit of its profile.
+    const cell = (row, tier) => tiers.locator(`tr[data-row="${row}"] td[data-tier="${tier}"]`);
+    await expect(tiers.getByRole('columnheader', { name: fresher })).toBeVisible();
+    await expect(tiers.getByRole('columnheader', { name: sooner })).toBeVisible();
+    await expect(tiers.locator('tr[data-row="freshness"] th')).toHaveText('Data freshness');
+    await expect(cell('freshness', fresher)).toHaveText('As the exchange publishes it');
+    await expect(cell('freshness', sooner)).toHaveText('60 seconds behind the exchange');
+    await expect(tiers.locator('tr[data-row="priority"] th')).toHaveText('Execution priority class');
+    await expect(cell('priority', fresher)).toHaveText('Class 1 (a higher class starts first)');
+    await expect(cell('priority', sooner)).toHaveText('Class 5 (a higher class starts first)');
+    for (const [resource, limit] of Object.entries(ROOMY)) {
+      await expect(cell(resource, sooner)).toHaveText(limit);
+      await expect(cell(resource, fresher)).toHaveText(resource === 'concurrent_runs' ? '6' : limit);
+    }
+
+    // Choosing the fresher tier names what it changes against the developer's plan, which is no published tier.
+    const plan = await page.getByTestId('quant-usage-plan').getAttribute('data-profile');
+    expect(plan, 'a plan applies to this account').toBeTruthy();
+    await tiers.getByRole('button', { name: `Choose ${fresher}` }).click();
+    const choice = page.getByTestId('quant-plan-choice');
+    await expect(choice).toHaveAttribute('data-tier', fresher);
+    await expect(choice.locator('p').first()).toHaveText(`${fresher} against your plan, ${plan}`);
+    await expect(choice.locator('li[data-row="freshness"]')).toHaveText(
+      'Data freshness: not set now, As the exchange publishes it on this tier',
+    );
+    await expect(choice.locator('li[data-row="priority"]')).toHaveText(
+      'Execution priority class: not set now, Class 1 (a higher class starts first) on this tier',
+    );
+    await expect(choice).toContainText('Moving to a tier is not open on this page: an operator assigns the plan.');
+
+    // Choosing the other tier shows its higher priority class instead.
+    await tiers.getByRole('button', { name: `Choose ${sooner}` }).click();
+    await expect(choice).toHaveAttribute('data-tier', sooner);
+    await expect(choice.locator('li[data-row="priority"]')).toHaveText(
+      'Execution priority class: not set now, Class 5 (a higher class starts first) on this tier',
+    );
+  } finally {
+    // Put the world back: both tiers withdrawn, so the next file's plan page lists none.
+    await door.tier(fresher, { dataFreshnessSeconds: '0', priorityClass: '1', published: false });
+    await door.tier(sooner, { dataFreshnessSeconds: '60', priorityClass: '5', published: false });
+  }
+  await page.reload();
+  await expect(empty).toBeVisible();
 });
 
 /** Runs a bar backtest of the renamed strategy's newest version on the TEST tape, slipping by `slippage` basis points. */
