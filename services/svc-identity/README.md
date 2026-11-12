@@ -73,6 +73,8 @@ Owns accounts, credentials, sessions, KYC state, and the rank graph. It is the *
 
 HTTP: `GET /health` · `GET /ready` (reports whether argon2id is active) · S2S sub-account ownership on internal HTTP.
 
+**`kyc.tradingChecks.read` / `run`** (`identity:read` / `identity:write`): the trading checks (J-cex-spot-01 #3, OWNER 258 (4)). Legal name and country confirmed, screened with the sign-up date of birth (sealed in `birth_dates` under `IDENTITY_KYC_DOC_KEY`) against `IDENTITY_SANCTIONS_PERSONS_LIST` (no default: unset refuses `kyc.screening_list_unset`, nothing written; a TEST list refuses outside APP_ENV dev or test). Clear: trading alone (`reviewed_by` `trading-checks`; `kyc.status` reads basic with `tradingOnly`), granting only `trade_crypto`, never basic's custody or transfer; the token keeps `tier` none and carries `trd`, read only by trading gates (`tradeTier`: svc-trade's venue door and routes). Hit: a pending record for compliance, nothing granted, answered `held`. One outcome per `kyc:trading-checks:<user>`; no ID document, selfie or vendor
+
 ### KYC — what it gates, and what it must never gate
 
 **Zero-KYC follows custody (§22), and that is already code.** `checkAccess` short-circuits to `allowed.permissionless` whenever the plane is `protocol` and the module is `custodial: false`, **before any tier is read** (`packages/config/src/jurisdiction.ts`). Nothing in this service can gate such a surface, and nothing here should ever be made to.

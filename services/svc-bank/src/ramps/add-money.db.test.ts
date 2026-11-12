@@ -600,6 +600,71 @@ describe('add money (J-bank-02)', () => {
       nothingPosted();
     });
 
+    it('a bank transfer it gives bank details for opens with its own TEST reference and account, posting nothing (J-bank-02 #2)', async () => {
+      const transfers = payinSim(
+        {
+          label: 'TEST pay-in stand-in',
+          methods: ['pay_by_bank'],
+          bankTransfer: { accountName: 'TEST pay-in stand-in account', accountRef: 'NL91 ABNA 0417 1643 00' },
+        },
+        new URL('http://127.0.0.1:14999'),
+        new URL('http://127.0.0.1:3210/bank/ramps/new'),
+      );
+      const caller = as(ADA, { onrampStandIn: rates }, { onrampPartner: transfers });
+      const { methods } = await caller.addMoney.methods(nl);
+      const offered = methods.find((m) => m.method === 'bank_transfer')!;
+      expect(offered.payStandIn).toBe('TEST pay-in stand-in');
+      const requestId = randomUUID();
+      const row = await caller.addMoney.start({ requestId, ...nl, method: 'bank_transfer', quoteId: offered.quote!.quoteId });
+      expect(row).toMatchObject({
+        status: 'opened',
+        onramp: {
+          partnerRail: PAYIN_SIM_RAIL,
+          hostedUrl: null,
+          bankInstructions: {
+            reference: `TEST-${requestId.replace(/-/g, '').slice(0, 12).toUpperCase()}`,
+            accountName: 'TEST pay-in stand-in account',
+            accountRef: 'NL91ABNA0417164300',
+          },
+        },
+      });
+      // Asking again is the same request with the same reference: nothing opened twice.
+      const again = await caller.addMoney.start({ requestId, ...nl, method: 'bank_transfer', quoteId: offered.quote!.quoteId });
+      expect(again.onramp).toEqual(row.onramp);
+      nothingPosted();
+    });
+
+    it('a payment the custodial layer credited on the ledger is never taken back here: refused, and the ledger posts nothing more', async () => {
+      const { bank, quote, request } = await opened(ADA);
+      await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+      const err = await bank.addMoney.returned({ requestId: request.requestId }).catch((e: unknown) => e);
+      expect((err as { code?: string }).code).toBe('bank.ramp_conflict');
+      expect(ledger.journal().map((tx) => tx.reason)).toEqual(['deposit.credited']);
+      expect(await available(ADA)).toBe(parseAmount(quote.amount));
+      expect((await bank.addMoney.opened(request.requestId)).request).toMatchObject({ status: 'credited', returnedAt: null });
+    });
+
+    it('a request not credited, refused or unknown is never returned, and nothing moves', async () => {
+      const { caller, bank, request } = await opened(ADA);
+      const refused = await caller.addMoney.start({
+        requestId: randomUUID(),
+        assetId: 'USDT',
+        amount: '20',
+        country: 'DE',
+        method: 'card',
+      });
+      for (const id of [request.requestId, refused.requestId]) {
+        expect(((await bank.addMoney.returned({ requestId: id }).catch((e: unknown) => e)) as { code?: string }).code).toBe(
+          'bank.ramp_conflict',
+        );
+      }
+      expect(((await bank.addMoney.returned({ requestId: randomUUID() }).catch((e: unknown) => e)) as { code?: string }).code).toBe(
+        'bank.add_money_request_missing',
+      );
+      expect((await bank.addMoney.opened(request.requestId)).request).toMatchObject({ status: 'opened', returnedAt: null });
+      nothingPosted();
+    });
+
     it('with no pay-in partner wired, approving and paid refuse by name and nothing moves', async () => {
       const { request, quote } = await opened(ADA);
       const plain = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { ramps: { onrampStandIn: rates } });
@@ -683,6 +748,63 @@ describe('add money (J-bank-02)', () => {
         expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject({ status: 'opened', creditedBy: null });
         tp.set(ADA, { down: false });
         expect(await bank.addMoney.paid(paid)).toMatchObject({ status: 'credited', creditedBy: 'partner' });
+        nothingPosted();
+      });
+
+      it('returned is taken back at the partner once, its hold goes, and the ledger posts nothing (J-bank-02 #7)', async () => {
+        const { tp, bank, caller } = atPartner();
+        tp.fund(ADA, { fundId: 'fund-ada-50r', assetId: 'USDT', amount: parseAmount('50') });
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+        const first = await bank.addMoney.returned({ requestId: request.requestId });
+        expect(first).toMatchObject({ status: 'returned', creditedBy: 'partner', creditedAmount: quote.amount });
+        const [second, third] = await Promise.all([
+          bank.addMoney.returned({ requestId: request.requestId }),
+          bank.addMoney.returned({ requestId: request.requestId }),
+        ]);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+        nothingPosted();
+        // Invariant: the partner's balance is back to what it held before the purchase, and it holds nothing back of it.
+        expect((await tp.bank.balance({ userId: ADA, assetId: 'USDT', spaceId: null })).amount).toBe(parseAmount('50'));
+        const holds = await caller.partnerHolds();
+        if (!holds.held) throw new Error('ADA is held at the partner');
+        expect(holds.holds).toEqual([]);
+      });
+
+      it('a crash after the partner took it back and before the row said so catches up, taken back once', async () => {
+        const { tp, bank, caller } = atPartner();
+        tp.fund(ADA, { fundId: 'fund-ada-50c', assetId: 'USDT', amount: parseAmount('50') });
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+        await bank.addMoney.returned({ requestId: request.requestId });
+        await sql`
+          UPDATE bank.add_money_requests SET status = 'credited', returned_at = NULL, return_ref = NULL
+           WHERE id = ${request.requestId}::uuid
+        `;
+        expect(await bank.addMoney.returned({ requestId: request.requestId })).toMatchObject({ status: 'returned' });
+        expect((await tp.bank.balance({ userId: ADA, assetId: 'USDT', spaceId: null })).amount).toBe(parseAmount('50'));
+        nothingPosted();
+      });
+
+      it('the partner down takes nothing back and leaves it credited, for its next returned', async () => {
+        const { tp, bank, caller } = atPartner();
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+        tp.set(ADA, { down: true });
+        expect(((await bank.addMoney.returned({ requestId: request.requestId }).catch((e: unknown) => e)) as { code?: string }).code).toBe(
+          'bank.partner_unavailable',
+        );
+        expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject({ status: 'credited', returnedAt: null });
+        tp.set(ADA, { down: false });
+        // Back up, the partner's next returned takes it back once.
+        expect(await bank.addMoney.returned({ requestId: request.requestId })).toMatchObject({ status: 'returned' });
         nothingPosted();
       });
 

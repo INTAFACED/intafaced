@@ -106,8 +106,9 @@ describe('catalog — the key set is closed and complete', () => {
     // An agent key's held payout or refund (J-developer-15 #6) and the API explorer's refused live write (J-developer-15 #7) add two error keys.
     // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
     // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
+    // A moderator's deletion of a learner's discussion post (J-academy-18 #2) adds a title and a body key.
     // A paper strategy fill under the person's own fill alert (J-algo-dev-04 #6) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(322);
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(324);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

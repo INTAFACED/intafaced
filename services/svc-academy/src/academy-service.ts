@@ -117,6 +117,8 @@ import { academyProgrammeCertId, ACADEMY_CURRICULUM_PATHS } from '@intafaced/con
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
 import { ProgrammeRecords } from './curriculum/programme-records.js';
 import { CourseDiscussion } from './curriculum/discussion.js';
+import { DiscussionModeration, type ModerationNoticePublisher } from './curriculum/moderation.js';
+import { CourseTeam } from './team/course-team.js';
 import { CourseMessages } from './curriculum/course-messages.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
@@ -150,7 +152,7 @@ import {
 } from './certs/perk-plane.js';
 import { getCurriculumItem, hasCurriculumSlug, itemType, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
-import { type ProgrammeDefinition } from './curriculum/programmes.js';
+import { PROGRAMME_CATALOG, programmeBySlug, unmetPrerequisites, type ProgrammeDefinition } from './curriculum/programmes.js';
 import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
 import { VideoTracks, type VideoTrack } from './video/tracks.js';
 import { AcademyCustomerStore } from './learning/customer-store.js';
@@ -177,6 +179,7 @@ import type { StakeSource } from './stake-source.js';
 import { isConstructed, type StreamCredential, type StreamProvider } from './stream/provider.js';
 import { withAcademySpan } from './tracing.js';
 import { LearnerDesk, requireReason } from './learners/learner-desk.js';
+import { StaffEnrolment } from './learners/staff-enrolment.js';
 
 /**
  * ACADEMY LOBBIES (§8.3, §XIII "live session lobbies, capacity tiers").
@@ -326,6 +329,14 @@ export interface AcademyServiceOptions {
   gradeReportRows?: number;
   /** AC-quizzes-04: bytes one quiz curve file may hold (`ACADEMY_BULK_FILE_MAX_BYTES`). Unset, a curve upload refuses. */
   bulkFileMaxBytes?: number;
+  /** AC-enrolment-03: addresses one bulk enrolment upload holds (`ACADEMY_BULK_ENROL_ROWS`). Unset, an upload refuses. */
+  bulkEnrolRows?: number;
+  /** AC-notifications-02: days without learning that leave a learner out of a course email. Unset, a send refuses. */
+  bulkEmailInactiveDays?: number;
+  /** AC-analytics-02: hours a learner export is kept (`ACADEMY_REPORT_RETENTION_HOURS`). Unset, a request refuses. */
+  reportRetentionHours?: number;
+  /** AC-analytics-02: learner rows one export holds (`ACADEMY_LEARNER_EXPORT_ROWS`). Unset, a request refuses. */
+  learnerExportRows?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -355,6 +366,12 @@ export interface AcademyServiceOptions {
   certIssueSweepSeconds?: number;
   /** AC-programmes-01: owner-set courses per learning programme (`ACADEMY_PROGRAMME_MAX_COURSES`). Undefined: a save with courses refuses. */
   programmeMaxCourses?: number;
+  /** AC-roles-01: owner-set number of custom roles (`ACADEMY_CUSTOM_ROLE_LIMIT`). Undefined: creating one refuses. */
+  customRoleLimit?: number;
+  /** AC-rooms-02: where a deleted post's author notice goes; undefined or null leaves it waiting in the outbox. */
+  moderationNotices?: ModerationNoticePublisher | null;
+  /** AC-rooms-02: logs a notice the bus did not take (it stays waiting). */
+  onModerationNoticeError?: (err: unknown, eventId: string) => void;
   /** AC-rooms-01: owner-set characters per discussion post (`ACADEMY_POST_MAX_CHARS`). Undefined: posting refuses. */
   postMaxChars?: number;
   /** AC-rooms-01: owner-set bytes per post image (`ACADEMY_POST_IMAGE_MAX_BYTES`). Undefined: a post with an image refuses. */
@@ -416,6 +433,8 @@ function dueFor(dueAt: Date | null, extendedUntil: Date | null): { dueAt: string
 export class AcademyService {
   /** J-academy-14: the staff desk for one learner. */
   readonly learners: LearnerDesk;
+  /** J-academy-15: staff enrolment, invitations, course email and learner exports. */
+  readonly staffEnrolment: StaffEnrolment;
   private readonly customer: AcademyCustomerStore;
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
@@ -437,6 +456,10 @@ export class AcademyService {
   private readonly programmeRecords: ProgrammeRecords;
   /** AC-rooms-01: course discussions. The router calls it directly; it decides nothing about any other record. */
   readonly discussion: CourseDiscussion;
+  /** AC-roles-01: course team roles, custom roles and the per-course permission check. */
+  readonly team: CourseTeam;
+  /** AC-rooms-02: reports, the moderation queue and deleting posts with a reason. */
+  readonly moderation: DiscussionModeration;
   /** AC-rooms-04: conversations with course teams. The router calls it directly. */
   readonly courseMessages: CourseMessages;
   /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly (AC-quizzes-02: its own attempts). */
@@ -498,6 +521,22 @@ export class AcademyService {
     this.peerReviews = new PeerReviews(sql, this.courseAssignments, this.options.mediaStorage ?? null, this.options.assignmentGet);
     this.courseStarts = new CourseStarts(sql);
     this.courseTerms = new CourseTermsStore(sql);
+    this.staffEnrolment = new StaffEnrolment(
+      sql,
+      {
+        bulkEnrolRows: this.options.bulkEnrolRows ?? null,
+        inactiveDays: this.options.bulkEmailInactiveDays ?? null,
+        reportRetentionHours: this.options.reportRetentionHours ?? null,
+        exportRows: this.options.learnerExportRows ?? null,
+      },
+      {
+        terms: (path) => this.courseTerms.read(path),
+        unmetPrerequisites: async (userId, path) => {
+          const def = programmeBySlug(this.options.programmeCatalog ?? PROGRAMME_CATALOG, path);
+          return def ? unmetPrerequisites(def, await this.customer.activePathSlugs(userId)) : [];
+        },
+      },
+    );
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
     this.issueRules = new CertIssueRules(sql);
@@ -510,6 +549,13 @@ export class AcademyService {
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);
     this.gradeReports = new GradeReports(sql, this.courseGradebook, this.options.gradeReportRows ?? null);
+    this.team = new CourseTeam(sql, this.options.customRoleLimit ?? null);
+    this.moderation = new DiscussionModeration(
+      sql,
+      this.team,
+      this.options.moderationNotices ?? null,
+      this.options.onModerationNoticeError,
+    );
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,

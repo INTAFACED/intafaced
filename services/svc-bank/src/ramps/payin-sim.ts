@@ -23,15 +23,35 @@ export type OnrampPartnerSetting = (typeof ONRAMP_PARTNER_SETTINGS)[number];
 /** The ledger rail boundary the stand-in's pay-ins arrive from. */
 export const PAYIN_SIM_RAIL = 'payin-sim';
 
-/** The ways to pay that are a hosted page. A bank transfer is instructions, not a page, and the stand-in opens none. */
+/** The ways to pay that are a hosted page. A bank transfer is instructions, not a page. */
 const HOSTED_METHODS = ['pay_by_bank', 'card', 'wallet_pay'] as const satisfies readonly OnrampMethod[];
 
 const catalogueShape = z
   .object({
     label: z.string().regex(/^TEST\b/),
     methods: z.array(z.enum(HOSTED_METHODS)).min(1),
+    /**
+     * The TEST account a bank transfer is paid to (J-bank-02 #2), both labelled TEST: with it the stand-in answers a bank
+     * transfer with its own reference for the payment and this account, as a partner's instructions. Without it, it
+     * opens no bank transfer.
+     */
+    bankTransfer: z
+      .object({
+        accountName: z
+          .string()
+          .regex(/^TEST\b/)
+          .max(140),
+        accountRef: z.string().min(1).max(64),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
+
+/** The stand-in's reference for one bank transfer: its own, from the payment's id, so asking again gives the same one. */
+export function payinSimReference(onrampId: string): string {
+  return `TEST-${onrampId.replace(/-/g, '').slice(0, 12).toUpperCase()}`;
+}
 
 export type PayinSimCatalogue = z.infer<typeof catalogueShape>;
 
@@ -86,6 +106,8 @@ function loopbackBase(raw: string | undefined): URL | null {
 /** The stand-in over one typed catalogue, its own page address and the app's return address. */
 export function payinSim(catalogue: PayinSimCatalogue, pageBase: URL, returnTo: URL): OnrampPartner {
   const listed = new Set<OnrampMethod>(catalogue.methods);
+  if (catalogue.bankTransfer) listed.add('bank_transfer');
+  const transfer = catalogue.bankTransfer;
   const page = (onrampId: string) => new URL(`/test/payin-sim/pay/${encodeURIComponent(onrampId)}`, pageBase).toString();
   return {
     label: catalogue.label,
@@ -95,6 +117,11 @@ export function payinSim(catalogue: PayinSimCatalogue, pageBase: URL, returnTo: 
       loopbackPages: true,
       async open(input) {
         if (!listed.has(input.method)) return null;
+        if (input.method === 'bank_transfer') {
+          if (!transfer) return null;
+          const bank = { reference: payinSimReference(input.onrampId), accountName: transfer.accountName, accountRef: transfer.accountRef };
+          return { partnerRail: PAYIN_SIM_RAIL, bank };
+        }
         return { partnerRail: PAYIN_SIM_RAIL, hostedUrl: page(input.onrampId) };
       },
     },
@@ -160,3 +187,6 @@ export const payinPaidBody = z
     payCurrency: z.string().regex(/^[A-Z]{3,16}$/),
   })
   .strict();
+
+/** The pay-in partner's "returned" job body (`/internal/jobs/payin-sim/returned`): the payment it says was sent back. */
+export const payinReturnedBody = z.object({ requestId: z.string().uuid() }).strict();

@@ -78,6 +78,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row for the seller when the buyer marks paid',
   },
   {
+    event: 'academyDiscussionPostDeleted',
+    durable: 'notify-academy-discussion-post-deleted',
+    subject: 'intafaced.academy.discussion_post.deleted',
+    effect: 'Inbox row for the author when a moderator deleted their discussion post with a reason',
+  },
+  {
     event: 'p2pTraderPosted',
     durable: 'notify-p2p-trader-posted',
     subject: 'intafaced.p2p.trader.posted',

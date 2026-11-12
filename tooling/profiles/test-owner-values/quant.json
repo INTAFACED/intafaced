@@ -75,6 +75,21 @@
       "service": "quant",
       "value": "{\"profile\":\"TEST developer\",\"limits\":{\"strategies\":\"200\",\"versions\":\"200\",\"concurrent_runs\":\"20\",\"paper_runs\":\"500\",\"runs\":\"2000\",\"log_lines\":\"1000000\",\"storage\":\"500000000\",\"collaborators\":\"10\",\"notifications\":\"1000\"}}",
       "note": "TEST limits of the TEST developer profile, seeded once on the local and CI stack, high enough that no other journey meets them; a journey that proves a limit assigns its own TEST profile."
+    },
+    "SANDBOX_MAX_OPS": {
+      "service": "quant",
+      "value": "50000",
+      "note": "TEST isolate operation ceiling, so a journey's paper run can place and cancel orders on the stack."
+    },
+    "SANDBOX_MAX_SOURCE": {
+      "service": "quant",
+      "value": "8000",
+      "note": "TEST isolate source-length ceiling, in characters, so a journey's paper strategy fits."
+    },
+    "QUANT_PAPER_FEE_BPS": {
+      "service": "quant",
+      "value": "10",
+      "note": "TEST paper-book fee, 10 basis points of notional, so the pre-trade check of notional plus fee can be seen (J-algo-dev-05 #6)."
     }
   }
 }

@@ -23,6 +23,7 @@ import {
   p2pEscrowRefunded,
   p2pEscrowReleased,
   p2pOfferPaused,
+  academyDiscussionPostDeleted,
   p2pRemarkCaseOpened,
   p2pTraderPosted,
   p2pTradeDisputed,
@@ -582,6 +583,33 @@ export async function subscribeNotificationEvents(
         }),
       );
     }),
+  );
+
+  attachments.push(
+    await attach(
+      bus,
+      'academyDiscussionPostDeleted',
+      academyDiscussionPostDeleted.subject,
+      'notify-academy-discussion-post-deleted',
+      async (payload) => {
+        // AC-rooms-02 / J-academy-18 #2: a moderator deleted the author's post (or every post of theirs in one course) with
+        // a reason; the author is told here. One notice per moderation event, so the event id is the business key. Who
+        // reported the post is not in the event and never in the notice.
+        nakIfRetryable(
+          await notify.create({
+            userId: payload.authorId,
+            kind: 'academy.discussion_post.deleted',
+            titleKey: 'notify.academy.discussion_post.deleted.title',
+            bodyKey: 'notify.academy.discussion_post.deleted.body',
+            params: { count: String(payload.posts), course: payload.courseTitle, reason: payload.reason },
+            href: '/academy/rooms',
+            severity: 'info',
+            sourceSubject: academyDiscussionPostDeleted.subject,
+            sourceIdempotencyKey: `${payload.eventId}:author`,
+          }),
+        );
+      },
+    ),
   );
 
   attachments.push(

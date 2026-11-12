@@ -82,7 +82,11 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
           {row.payStandIn ? t('standInPriced', { label: row.standIn }) : t('standIn', { label: row.standIn })}
         </small>
       )}
-      {row.quote && row.payStandIn && <small className="muted">{t('payStandIn', { label: row.payStandIn })}</small>}
+      {row.quote && row.payStandIn && (
+        <small className="muted">
+          {t(row.method === 'bank_transfer' ? 'payStandInTransfer' : 'payStandIn', { label: row.payStandIn })}
+        </small>
+      )}
       {row.blocker && (
         <small className="muted">
           {feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
@@ -126,6 +130,7 @@ function Outcome({ request }: { request: AddMoneyRequest }) {
   return (
     <div role="status" data-testid="add-money-opened">
       <h3>{t('openedTitle')}</h3>
+      {onramp?.bankInstructions && <p data-testid="add-money-ownership">{t('ownership')}</p>}
       {onramp?.bankInstructions && (
         <dl className="bd-facts">
           <Fact label={t('payReference')}>
@@ -195,6 +200,11 @@ export function TrackerSteps({ request }: { request: AddMoneyRequest }) {
           <span dir="ltr">{t('creditedAmount', { amount: funds(request.creditedAmount, request.assetId) })}</span>
         </p>
       )}
+      {request.returnedAt && request.creditedAmount && (
+        <p data-testid="tracker-returned">
+          {t('returnedAmount', { amount: funds(request.creditedAmount, request.assetId), time: date(request.returnedAt, true) })}
+        </p>
+      )}
     </>
   );
 }
@@ -219,7 +229,7 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
         failures = 0;
         setRequest(result.data);
         setFailure(null);
-        if (result.data.status === 'credited' || result.data.status === 'refused') {
+        if (result.data.status === 'credited' || result.data.status === 'returned' || result.data.status === 'refused') {
           onSettled();
           return;
         }
@@ -257,6 +267,7 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
 
 function StatusWord({ request }: { request: AddMoneyRequest }) {
   const { t } = addMoneyCopy.useCopy();
+  if (request.status === 'returned') return <>{t('status_returned')}</>;
   if (request.status === 'credited') return <>{t('status_credited')}</>;
   if (request.status === 'pending') return <>{t('status_pending')}</>;
   if (request.status === 'opened') return <>{t('status_opened')}</>;

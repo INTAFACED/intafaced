@@ -40,7 +40,8 @@
  * the venue answers a read by key.
  *
  * Reads need trade:read, writes trade:write, and every route but `status` the trade jurisdiction (as the grid's
- * routes do). Every Amount travels as a decimal string (`encodeVenueWire`). A venue refusal answers 422 with
+ * routes do). An unverified person's desk reads the `denied.kyc_required` refusal and shows its form with Verify
+ * (J-cex-spot-01 #2), never the venue's figures. Every Amount travels as a decimal string (`encodeVenueWire`). A venue refusal answers 422 with
  * `intafacedCode: trade.venue.<code>` and the venue's `refusal` (503 for `venue_down`); a step-up refusal 403.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -72,8 +73,9 @@ export interface UserVenueRestDeps {
   tradeAccessBlocker?: (req: FastifyRequest, principal: Principal) => { code: string; message: string } | null;
   /**
    * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank, as
-   * `best-prices` answers it beside the venue's book, so a desk can bound a venue market order's worst price by it. Never
-   * a default: blank answers `{ known: false }`.
+   * `best-prices` answers it. The desk bounds a venue spot market order's worst price by it, and the door enforces the same
+   * bound on preview and prepare (UserVenueDoorDeps.slippageCapBps); blank, a spot market order refuses
+   * (`trade.slippage_cap_unset`). Never a default.
    */
   slippageCapBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */

@@ -66,6 +66,7 @@ export const QUANT_QUOTA_EXCEEDED = 'quant.quota_exceeded' as const;
 export const QUANT_QUOTA_PROFILE_UNSET = 'quant.quota_profile_unset' as const;
 export const QUANT_QUOTA_REASON_UNSET = 'quant.quota_reason_unset' as const;
 export const QUANT_PAPER_CASH_UNSET = 'quant.paper_cash_unset' as const;
+export const QUANT_PAPER_FEE_UNSET = 'quant.paper_fee_unset' as const;
 export const QUANT_PAPER_LIST_LIMIT_UNSET = 'quant.paper_list_limit_unset' as const;
 export const QUANT_NOTIFY_CHANNEL_UNAVAILABLE = 'quant.notify_channel_unavailable' as const;
 export const QUANT_ALERT_TEMPLATE_INVALID = 'alert.template_invalid' as const;
@@ -145,6 +146,7 @@ export type QuantCode =
   | typeof QUANT_QUOTA_PROFILE_UNSET
   | typeof QUANT_QUOTA_REASON_UNSET
   | typeof QUANT_PAPER_CASH_UNSET
+  | typeof QUANT_PAPER_FEE_UNSET
   | typeof QUANT_PAPER_LIST_LIMIT_UNSET
   | typeof QUANT_NOTIFY_CHANNEL_UNAVAILABLE
   | typeof QUANT_ALERT_TEMPLATE_INVALID
