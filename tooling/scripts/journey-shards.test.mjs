@@ -7,7 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   JOURNEY_DIR,
+  MAX_SHARDS,
   TARGETED_MAX_SHARDS,
+  UNTIMED_STEP_MS,
   estimateDurations,
   freshFiles,
   fileDurations,
@@ -193,7 +195,8 @@ test('a new file and steps added to an old one count at the suite time per step 
   );
 });
 
-test('with no timed file every step counts the same', () => {
+test("with no timed file every step counts the same, a step's time on main", () => {
+  assert.equal(UNTIMED_STEP_MS, 16_000);
   const steps = new Map([
     ['a', 3],
     ['b', 1],
@@ -201,10 +204,22 @@ test('with no timed file every step counts the same', () => {
   assert.deepEqual(
     [...estimateDurations(['a', 'b'], new Map(), new Map(), steps)],
     [
-      ['a', 3],
-      ['b', 1],
+      ['a', 3 * UNTIMED_STEP_MS],
+      ['b', 1 * UNTIMED_STEP_MS],
     ],
   );
+});
+
+// #8032: run 43130806194 could not download the last reports (HTTP 403, the installation's rate limit), planned "about
+// 0 min" on the 8-shard floor, and every shard hit its time limit. With no report the full suite still plans its size.
+test('the planner as the workflow calls it with no report plans the full suite at its real size, not the floor', () => {
+  const run = execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const shards = JSON.parse(run);
+  assert.equal(shards.length, MAX_SHARDS, `${shards.length} shards`);
+  assert.deepEqual(shards.flatMap((s) => s.split(' ')).sort(), journeyFiles(JOURNEY_DIR));
 });
 
 test('the shard count keeps each shard near the target, within its floor and ceiling', () => {

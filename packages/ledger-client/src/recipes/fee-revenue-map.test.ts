@@ -32,7 +32,8 @@ function recipesTouchingHouseFeesFromSource(): RecipeName[] {
     for (const name of fnNames) {
       if (!registry.has(name as RecipeName)) continue;
       // Function body: from this export to the next export function/const, or EOF.
-      const start = code.indexOf(`export function ${name}`);
+      // Match the whole name: `feeGiveBackOwe` must not find `feeGiveBackOwedAccount` first.
+      const start = code.search(new RegExp(`export function ${name}\\s*\\(`));
       if (start < 0) continue;
       const rest = code.slice(start);
       const next = rest.slice(`export function ${name}`.length).search(/\nexport (?:function|const|type|interface|async)/);

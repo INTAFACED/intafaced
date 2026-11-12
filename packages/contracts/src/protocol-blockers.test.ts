@@ -7,6 +7,7 @@ import {
   protocolBlockersInputSchema,
   protocolBlockersOutputSchema,
   protocolBlockersRead,
+  standingBlockers,
   type IndexerStatus,
   type ProtocolChainStatus,
   type ProtocolSnapshot,
@@ -141,6 +142,23 @@ describe('protocol blocker engine', () => {
     const refused = { ...healthy, sessionPolicy: { refusedBy: 'approve' } };
     expect(blockersFor('sessionKey', refused).find((b) => b.code === 'policy_gap')?.params).toEqual({ rule: 'approve' });
     expect(codes(refused, 'swap')).not.toContain('policy_gap');
+  });
+});
+
+describe('standing blockers', () => {
+  it('names the blockers no source can clear, in the engine order', () => {
+    expect(standingBlockers('swap').map((b) => b.code)).toEqual(['no_execution_path', 'not_audited']);
+    expect(standingBlockers('stake').map((b) => b.code)).toEqual(['no_chain_service', 'not_audited']);
+    expect(standingBlockers('smartAccount').map((b) => b.code)).toEqual(['not_audited']);
+  });
+
+  it('is part of every answer the engine gives, healthy or with every source down', () => {
+    const allDown = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
+    for (const action of PROTOCOL_ACTIONS) {
+      const standing = standingBlockers(action).map((b) => b.code);
+      expect(standing.length, action).toBeGreaterThan(0);
+      for (const snapshot of [healthy, allDown]) expect(codes(snapshot, action), action).toEqual(expect.arrayContaining(standing));
+    }
   });
 });
 

@@ -192,6 +192,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             assets: z.array(
               z.object({
                 assetId: z.string(),
+                /** The asset's decimal places in the supported asset list (`assets.list`), the same for Deposit and Withdraw. */
+                precision: z.number().int().nonnegative(),
                 networks: z.array(
                   z.object({
                     id: z.string(),

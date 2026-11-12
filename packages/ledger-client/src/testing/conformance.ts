@@ -19,6 +19,7 @@ import {
   campaignLockAccount,
   chargeReceivableAccount,
   partnerFeeReceivableAccount,
+  feeGiveBackOwedAccount,
   feeShareBudgetAccount,
   feeShareOwedAccount,
   recipes,
@@ -401,6 +402,55 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-2');
         expect(formatAmount((await ledger.balance(treasuryWallet('conf-pf', 'USDC'))).amount)).toBe('-3');
         expect(formatAmount((await ledger.balance(houseFees('merchant', 'USDC'))).amount)).toBe('5');
+      });
+
+      it('never pays a fee give-back past what we owe the customer or past what the paying place holds', async () => {
+        const user = '11111111-1111-4111-8111-1111111111c9';
+        const owed = feeGiveBackOwedAccount(user, 'USDC');
+        const builder = { kind: 'venue-builder-account' as const, venueId: 'conf-gb' };
+        const empty = { kind: 'treasury-wallet' as const, walletId: 'conf-gb-empty' };
+        const pay = (chainTx: string, amount: string, from: typeof builder | typeof empty = builder) =>
+          recipes.feeGiveBackPayOut({
+            userId: user,
+            from,
+            toWallet: '0x00000000000000000000000000000000000000c9',
+            chainTx,
+            assetId: 'USDC',
+            amount: amt(amount),
+          });
+        // A 5 USDC builder fee on one fill, collected into our builder account at the venue (TEST amounts).
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf-gb',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            assetId: 'USDC',
+            amount: amt('5'),
+            userId: user,
+          }),
+        );
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf-gb', claimId: 'c1', assetId: 'USDC', amount: amt('5') }));
+        // TEST approvers.
+        await ledger.post(
+          recipes.feeGiveBackOwe({
+            venueId: 'conf-gb',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            userId: user,
+            assetId: 'USDC',
+            feePaid: amt('5'),
+            amount: amt('3'),
+            approvers: ['conf-op-a', 'conf-op-b'],
+          }),
+        );
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('3');
+        expect(formatAmount((await ledger.balance(houseFees('builder', 'USDC'))).amount)).toBe('2');
+        await expect(ledger.post(pay('0xover', '3.000001'))).rejects.toThrow(InsufficientFundsError);
+        await expect(ledger.post(pay('0xempty', '3', empty))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('3');
+        await ledger.post(pay('0xpaid', '3'));
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf-gb', 'USDC'))).amount)).toBe('-2');
       });
     });
 
