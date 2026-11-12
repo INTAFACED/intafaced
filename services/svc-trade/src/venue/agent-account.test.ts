@@ -429,7 +429,12 @@ describe('the agent account on the TEST venue', () => {
         signer: { role: 'owner', address: owner },
         intent: { kind: 'create_sub_account', name, subAccountKey: `own:sub-account:${owner}:${name}` },
       });
-    const moveOwn = (subAccount: string, amount: string, moveKey: string, direction = 'into_sub_account' as const) =>
+    const moveOwn = (
+      subAccount: string,
+      amount: string,
+      moveKey: string,
+      direction: 'into_sub_account' | 'out_of_sub_account' = 'into_sub_account',
+    ) =>
       door.prepare(principal, {
         owner,
         signer: { role: 'owner', address: owner },

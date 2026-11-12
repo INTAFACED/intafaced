@@ -147,7 +147,7 @@ export const venueCopy = defineCopy('trade.venue', {
   'Sub-accounts why':
     'A sub-account is a second account on the venue under your same wallet. Moving coins between your accounts is not a sale: each coin keeps its acquired date and cost.',
   'Sub-accounts not offered': 'This venue offers no sub-accounts: {detail}',
-  'No sub-accounts': 'You have no sub-accounts on this venue yet.',
+  'No sub-accounts': 'You have no sub-accounts on this venue.',
   'Sub-account name': 'Name for a new sub-account',
   'Open sub-account': 'Open sub-account',
   'Sub-account': 'Sub-account',
