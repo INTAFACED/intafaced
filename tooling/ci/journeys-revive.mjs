@@ -18,7 +18,28 @@
  * The waits grow (30 min, 1 h, 2 h, 4 h), so the tries outlast an outage of several hours, and the attempts are bounded:
  * at most MAX_ATTEMPT - 1 re-runs per run, ever. A refused request (403, 429) stops the tick, never retried.
  *
- *   node tooling/ci/journeys-revive.mjs        (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
+ * PULL REQUESTS (prTick). A pull request's journeys run that is red only because the verdict couldn't read main's
+ * inputs is re-run once those inputs are back, so one dead main run no longer keeps every open pull request red until a
+ * person re-runs each. Run 4005 again: main's run was green at 23:50 UTC on 11 Nov, the open pull requests stayed red,
+ * and a person re-ran six of them at 23:52 UTC; four went green. The verdict's judgement is unchanged and still fails
+ * closed: this only asks GitHub to run the same verdict again on the same head. A run is re-run when all of these hold:
+ *   - it is a pull_request run of this repository, finished `failure`, created in the last WINDOW_HOURS, its attempt
+ *     below PR_MAX_ATTEMPT (so at most PR_MAX_ATTEMPT - 1 re-runs per run, and so per head);
+ *   - its pull request is open, not a draft, its head is still this run's head, and no newer journeys run is on that head;
+ *   - its one red job is JUDGE_JOB and that job's one failed step is JUDGE_STEP (a shard, the stack, the build or the
+ *     verdict's own tests red is the pull request's own and stays red);
+ *   - every row the verdict printed as red is an `(input)` row about main's inputs (MAIN_INPUTS: the baseline's named
+ *     run's report, the pass history, the last set-aside list). One step row, or a row about this run's own report, and
+ *     it stays red. No summary found in the log (the verdict threw, or its wording changed) is never re-run;
+ *   - main is back (mainBack): every main run a row names, and every red main run in the window, has its report, and no
+ *     main run's re-run attempt is still going.
+ * It runs after each Real-app journeys run on main ends (main-trust.yml post-merge, `prs`), so it follows main's
+ * report coming back within minutes, and on the hourly `revive` tick after the main pass, for any other input outage.
+ *
+ * A refused request (403, 429) stops the tick, never retried, and opens one issue (REFUSED_TITLE) when GitHub still takes it.
+ *
+ *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
+ *   node tooling/ci/journeys-revive.mjs prs    pull requests only
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
@@ -93,8 +114,127 @@ export async function tick({ repo, now, io }) {
   return out;
 }
 
+// ── Pull requests red only on main's inputs ───────────────────────────────
+/** At most PR_MAX_ATTEMPT - 1 re-runs of one pull request's run, whose head it is. */
+export const PR_MAX_ATTEMPT = 3;
+/** The scoreboard job and its verdict step (real-app-journeys.yml): rename them together. */
+export const JUDGE_JOB = 'Real-app journeys';
+export const JUDGE_STEP = 'Verdict against the list of steps not built yet';
+/** The verdict's `(input)` rows that are about main's runs, never this run's own work (journey-verdict.mjs main). */
+export const MAIN_INPUTS = [
+  /^the pass history couldn't be read: /,
+  /^the baseline's named run .* report couldn't be read: /,
+  /^the last run on main's set-aside list couldn't be read: /,
+];
+export const REFUSED_TITLE = 'Journeys re-runs stopped: GitHub refused a request';
+
+/**
+ * The verdict's red rows from its job log: the `- ` lines after "outside the list or against its rules: **N**.", N of
+ * them. null when the summary isn't there or the count doesn't match (the verdict threw, or its wording changed): never
+ * read as input-only.
+ */
+export function verdictReds(log) {
+  const lines = String(log)
+    .split('\n')
+    .map((l) => l.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, '').replace(/\r$/, ''));
+  const at = lines.findIndex((l) => /outside the list or against its rules: \*\*\d+\*\*\./.test(l));
+  if (at < 0) return null;
+  const n = Number(lines[at].match(/\*\*(\d+)\*\*/)[1]);
+  const rows = [];
+  for (const l of lines.slice(at + 1)) {
+    if (l.startsWith('- ')) rows.push(l.slice(2));
+    else if (l.trim() === '' && rows.length === 0) continue;
+    else break;
+  }
+  return rows.length === n ? rows : null;
+}
+
+/** Red only on main's inputs: every row is an `(input)` row MAIN_INPUTS names. Returns the main run ids the rows name. */
+export function mainInputOnly(rows) {
+  if (!rows?.length) return null;
+  const ids = new Set();
+  for (const row of rows) {
+    const m = row.match(/^\(input\) \(money\): (.*)$/);
+    if (!m || !MAIN_INPUTS.some((re) => re.test(m[1]))) return null;
+    for (const id of m[1].matchAll(/\b(\d{9,})\b/g)) ids.add(Number(id[1]));
+  }
+  return { runIds: [...ids] };
+}
+
+/** Is main back: no main re-run attempt still going, and every red main run in the window has its report. */
+export async function mainBack({ repo, now, io }) {
+  const runs = await io.listRuns();
+  const going = runs.filter((r) => isMainRun(r, repo) && r.status !== 'completed' && Number(r.run_attempt) > 1);
+  if (going.length) return { back: false, why: `main run ${going[0].run_number}'s re-run is still going` };
+  for (const r of candidates(runs, { repo, now }))
+    if (!(await io.hasReport(r))) return { back: false, why: `main run ${r.run_number} has no report` };
+  return { back: true };
+}
+
+/** The pull request runs worth reading: this repository's, finished red, in the window, attempts left. */
+export function prCandidates(runs, { repo, now }) {
+  const since = now - WINDOW_HOURS * 3600_000;
+  return runs
+    .filter((r) => r.event === 'pull_request' && r.head_repository?.full_name === repo)
+    .filter((r) => r.status === 'completed' && r.conclusion === 'failure')
+    .filter((r) => Date.parse(r.created_at) >= since)
+    .filter((r) => Number(r.run_attempt || 1) < PR_MAX_ATTEMPT)
+    .sort((a, b) => a.run_number - b.run_number);
+}
+
+/** Why a run's red is its own (a string), or null when its only red is the verdict step. */
+export function ownRed(jobs) {
+  const red = jobs.filter((j) => !['success', 'skipped', 'neutral'].includes(j.conclusion));
+  if (red.length !== 1 || red[0].name !== JUDGE_JOB) return `red jobs: ${red.map((j) => j.name).join(', ') || 'none'}`;
+  const steps = (red[0].steps ?? []).filter((s) => !['success', 'skipped', 'neutral'].includes(s.conclusion));
+  if (steps.length !== 1 || steps[0].name !== JUDGE_STEP) return `red steps: ${steps.map((s) => s.name).join(', ') || 'none'}`;
+  return null;
+}
+
+/**
+ * One pass over the pull requests. `io` adds to the main tick's: listPrRuns(), pull(n) -> { state, draft, head: { sha } },
+ * headRuns(sha) -> runs, jobs(run) -> jobs of its latest attempt, jobLog(job) -> text. Returns one line per run read.
+ */
+export async function prTick({ repo, now, io }) {
+  const out = [];
+  let back = null;
+  for (const run of prCandidates(await io.listPrRuns(), { repo, now })) {
+    const name = `pull request run ${run.run_number} (${run.id}) attempt ${run.run_attempt}`;
+    const n = run.pull_requests?.[0]?.number;
+    if (!n) continue;
+    const pr = await io.pull(n);
+    if (pr.state !== 'open' || pr.draft || pr.head?.sha !== run.head_sha) continue;
+    const newer = (await io.headRuns(run.head_sha)).some((r) => r.run_number > run.run_number);
+    if (newer) continue;
+    const jobs = await io.jobs(run);
+    const own = ownRed(jobs);
+    if (own) {
+      out.push(`${name} (#${n}): its own red (${own}), left red`);
+      continue;
+    }
+    const rows = verdictReds(await io.jobLog(jobs.find((j) => j.name === JUDGE_JOB)));
+    const input = mainInputOnly(rows);
+    if (!input) {
+      out.push(`${name} (#${n}): its own red (${rows ? rows.join(' | ').slice(0, 300) : 'no verdict summary in the log'}), left red`);
+      continue;
+    }
+    back ??= await mainBack({ repo, now, io });
+    let missing = null;
+    for (const id of input.runIds) if (!(await io.hasReport({ id }))) missing ??= id;
+    if (!back.back || missing) {
+      out.push(`${name} (#${n}): red only on main's inputs, waiting (${missing ? `run ${missing} has no report yet` : back.why})`);
+      continue;
+    }
+    const r = await io.rerun(run);
+    out.push(
+      `${name} (#${n}): red only on main's inputs, main is back, ${r.ok ? 're-run of failed jobs requested' : `GitHub did not take its re-run (${r.status})`}`,
+    );
+  }
+  return out;
+}
+
 // ── GitHub ─────────────────────────────────────────────────────────────────
-async function gh(method, path, body) {
+async function gh(method, path, body, raw = false) {
   if (process.env.DRY_RUN === '1' && method !== 'GET') {
     console.log(`DRY_RUN ${method} ${path}`);
     return { status: 0, json: null };
@@ -114,8 +254,12 @@ async function gh(method, path, body) {
   if (res.status === 403 && /already running/i.test(text)) return { status: 403, json: null, alreadyRunning: true };
   if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
   if (method === 'GET' && !res.ok) throw new Error(`GitHub ${res.status} on GET ${path}`);
+  if (raw) return { status: res.status, text };
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
+
+/** A refused request (gh above): it stops the tick. */
+export const isRefusal = (e) => /^GitHub (403|429) on /.test(e?.message ?? '');
 
 export function githubIo(repo) {
   return {
@@ -132,7 +276,31 @@ export function githubIo(repo) {
       return (await gh('GET', `/search/issues?q=${q}`)).json.items.find((i) => i.title === title) ?? null;
     },
     createIssue: (title, body) => gh('POST', `/repos/${repo}/issues`, { title, body }),
+    listPrRuns: async () => {
+      const since = new Date(Date.now() - WINDOW_HOURS * 3600_000).toISOString();
+      const q = `event=pull_request&status=failure&created=${encodeURIComponent(`>=${since}`)}&per_page=100`;
+      return (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?${q}`)).json.workflow_runs;
+    },
+    pull: async (n) => (await gh('GET', `/repos/${repo}/pulls/${n}`)).json,
+    headRuns: async (sha) =>
+      (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?head_sha=${sha}&per_page=100`)).json.workflow_runs,
+    jobs: async (run) =>
+      (await gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=100`)).json.jobs,
+    jobLog: async (job) => (await gh('GET', `/repos/${repo}/actions/jobs/${job.id}/logs`, undefined, true)).text,
   };
+}
+
+/** After a refusal: one issue, if GitHub still takes it; its own failure is only logged. */
+async function nameRefusal(io, e) {
+  try {
+    if (await io.openIssue(REFUSED_TITLE)) return;
+    await io.createIssue(
+      REFUSED_TITLE,
+      `Main trust's journeys re-runs (tooling/ci/journeys-revive.mjs) stopped on a refusal and did not retry it:\n\n\`${e.message}\`\n\nThe next tick tries again from scratch; read the refusal before anything else re-runs by hand.`,
+    );
+  } catch (e2) {
+    console.error(`✖ journeys-revive: the refusal issue could not be opened either: ${e2.message}`);
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -141,10 +309,18 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error('✖ journeys-revive: GITHUB_REPOSITORY and GH_TOKEN are required');
     process.exit(1);
   }
-  tick({ repo, now: Date.now(), io: githubIo(repo) })
-    .then((lines) => console.log(lines.length ? lines.join('\n') : 'every finished journeys run on main in the window has a report'))
-    .catch((e) => {
-      console.error(`✖ journeys-revive: ${e.message}`);
-      process.exit(1);
-    });
+  const io = githubIo(repo);
+  const prsOnly = process.argv[2] === 'prs';
+  (async () => {
+    if (!prsOnly) {
+      const lines = await tick({ repo, now: Date.now(), io });
+      console.log(lines.length ? lines.join('\n') : 'every finished journeys run on main in the window has a report');
+    }
+    const lines = await prTick({ repo, now: Date.now(), io });
+    console.log(lines.length ? lines.join('\n') : 'no pull request journeys run in the window is red only on the verdict');
+  })().catch(async (e) => {
+    console.error(`✖ journeys-revive: ${e.message}`);
+    if (isRefusal(e)) await nameRefusal(io, e);
+    process.exit(1);
+  });
 }
