@@ -354,9 +354,9 @@ export function VenueFollowWizard({
         {step === 4 ? (
           <div className="cb-form">
             {failure ? <RefusalNote failure={failure} /> : null}
-            {failure?.code === 'trade.copy_venue_balance_short' && failure.message ? (
+            {failure?.code === 'trade.copy_venue_balance_short' && problems.balance ? (
               <p className="cb-error" role="alert">
-                {failure.message}
+                {problems.balance}
               </p>
             ) : null}
             <KeyValue

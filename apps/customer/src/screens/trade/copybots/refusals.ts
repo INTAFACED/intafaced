@@ -41,7 +41,7 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'The copy permission was not signed, so nothing was sent and nothing is followed. Try again.',
   },
   'trade.copy_venue_permission_pending': {
-    title: 'The venue has not listed the permission yet',
+    title: 'The venue is still listing the permission',
     body: 'Your signature was sent. The follow starts once the venue lists the permission; open My follows in a moment.',
   },
   'trade.copy_venue_follow_abandoned': {
@@ -52,9 +52,21 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading on your venue account isn’t on here',
     body: 'Nothing was followed and no money moved.',
   },
+  'trade.copy_venue_action_unknown': {
+    title: 'That isn’t this follow’s permission',
+    body: 'The signature asked for doesn’t match this follow, so nothing was sent. Start the follow again.',
+  },
+  'trade.copy_venue_signed': {
+    title: 'Your wallet already signed this permission',
+    body: 'It can no longer be cancelled here. The follow starts once the venue lists it; open My follows in a moment.',
+  },
+  'trade.copy_venue_refused': {
+    title: 'The venue refused this copy',
+    body: 'The copied order was not placed on your venue account. Your follow and its limits are kept.',
+  },
   'trade.copy_agent_key_unset': {
     title: 'Copy permissions aren’t set up',
-    body: 'The platform has not set up copy permissions yet. Nothing was followed and no money moved.',
+    body: 'The platform has no copy permissions set up. Nothing was followed and no money moved.',
   },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },

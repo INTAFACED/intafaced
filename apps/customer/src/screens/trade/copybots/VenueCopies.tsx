@@ -79,7 +79,7 @@ export function VenueCopiedOrders({ follow, api }: { follow: Follow; api: RoomAp
           {t('Each copy is your own order on {venue}, placed by this follow’s permission, as {venue} reports it.', {
             venue: resource.data.venueName,
           })}
-          {resource.data.test ? ` ${t('TEST')}` : ''}
+          {resource.data.test ? ' TEST' : ''}
         </InfoNote>
       ) : null}
     </>
