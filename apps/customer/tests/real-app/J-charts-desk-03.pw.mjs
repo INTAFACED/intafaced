@@ -135,6 +135,16 @@ test('J-charts-desk-03 #1 types rsi into the indicator dialog, finds RSI under O
   await expect(oscillators).toContainText('Relative Strength Index');
   await oscillators.getByRole('button', { name: 'Add Relative Strength Index' }).click();
   await expect(row(page, 'rsi-1')).toHaveAttribute('data-pane', 'sub');
+  // In a sub-pane on the chart itself: the library's own series for rsi-1 sits on a pane below the price pane (0).
+  await expect
+    .poll(async () =>
+      JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]')
+        .filter((x) => x.key.split(':')[0] === 'rsi-1')
+        .map((x) => x.pane),
+    )
+    .toEqual([expect.any(Number)]);
+  const [rsi] = JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]').filter((x) => x.key.split(':')[0] === 'rsi-1');
+  expect(rsi.pane).toBeGreaterThan(0);
   // The chip's accessible name is the study's name; its visible text carries the inputs.
   await expect(page.getByRole('button', { name: 'Settings for Relative Strength Index' })).toContainText('RSI 14');
 });
