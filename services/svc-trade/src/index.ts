@@ -111,6 +111,7 @@ import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
+import { registerInternalVenueDeposits } from './venue/internal-deposits.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
 import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
@@ -528,6 +529,8 @@ const userVenueDoors = userVenueUrls.map(
 const userVenue = userVenueDoors[0] ?? null;
 const userVenueRouter =
   userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
+// The primary venue's deposits for one wallet, read by svc-campaigns' welcome checklist (J-campaigns-04 #2 #3).
+registerInternalVenueDeposits(app, { door: userVenue, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // J-agents-21's agent account beside the door: off with it. Its owner values are read even when blank (each refuses).
 const agentAccountStore = new SqlAgentAccountStore(sql);
 const agentAccountValues = parseAgentAccountValues(env);

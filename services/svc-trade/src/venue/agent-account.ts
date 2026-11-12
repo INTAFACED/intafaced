@@ -96,6 +96,8 @@ export type AgentAccountCode =
   | 'agents.key_read_unavailable'
   | 'agents.key_already_connected'
   | 'agents.key_not_connected'
+  // The person revoked the assistant (#12): our copy of the account's venue agent key signs nothing more.
+  | 'agents.agent_revoked'
   | 'agents.order_needs_agent_key'
   | 'agents.order_request_invalid'
   | 'agents.order_leverage_unknown'
@@ -154,7 +156,7 @@ export interface AgentAccountsDeps {
 /** What the wallet is asked to sign next, if anything. */
 export interface NextSignature {
   readonly actionKey: string;
-  readonly step: 'open_sub_account' | 'approve_agent' | 'move_in' | 'move_out';
+  readonly step: 'open_sub_account' | 'approve_agent' | 'move_in' | 'move_out' | 'revoke_agent';
   readonly prepared: PreparedVenueAction;
   /** True when this action was signed and sent and its answer is not yet known: re-send it, never sign a new one. */
   readonly signed: boolean;

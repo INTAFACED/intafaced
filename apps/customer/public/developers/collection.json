@@ -1624,6 +1624,19 @@
           }
         },
         {
+          "name": "venueAgentRevoke",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/connections/:keyId/revoke",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", "connections", ":keyId", "revoke"],
+              "variable": [{ "key": "keyId", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "venueAgentOrder",
           "request": {
             "method": "POST",

@@ -1177,6 +1177,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       'Connect one of your agent API keys to this agent account, from your own sign-in after step-up, never from a key; a key already connected elsewhere is refused',
   },
   {
+    name: 'venueAgentRevoke',
+    method: 'POST',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/revoke',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Revoke your assistant, from your own sign-in: its key places nothing more, its resting orders are cancelled once, our copy of its venue agent key is dropped, and your wallet signs the venue's revoke; open positions stay",
+  },
+  {
     name: 'venueAgentOrder',
     method: 'POST',
     path: '/api/v1/venue/agent/orders',
