@@ -2,7 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { chosePro, signIn, signUp } from './desk.mjs';
 import { ORIGIN } from './stack.mjs';
-import { clickPlot, openWorkbench, pick, rows } from './charts-desk.mjs';
+import { clickPlot, openWorkbench, pick, pointText, rows } from './charts-desk.mjs';
 import { readFileSync } from 'node:fs';
 
 // J-charts-desk-07, in the running app (docs/roadmap/journeys.json): a pro trader arranges the spot desk. One test per
@@ -273,6 +273,8 @@ test(`${J} #6 saves a chart template with indicators and drawings and applies it
   await pick(page, 'Horizontal line');
   await clickPlot(page, 0.5, 0.3);
   await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first()).toHaveAttribute('data-kind', 'horizontal');
+  const drawnAt = await pointText(rows(page).first()).textContent();
 
   await page.getByRole('button', { name: 'Templates' }).click({ timeout: 5_000 });
   await page.getByRole('button', { name: 'Save as template' }).click();
@@ -298,15 +300,30 @@ test(`${J} #6 saves a chart template with indicators and drawings and applies it
       'styles=candles,bars,line,area,columns,heikin-ashi studies=on drawings=on templates=on',
     );
     await second.getByRole('button', { name: 'Templates' }).click();
-    await second.getByRole('menuitem', { name: 'TEST studies' }).click();
+    // The template holds the drawing, with the market it was drawn on.
+    const item = second.getByRole('menuitem', { name: 'TEST studies' });
+    await expect(item.getByTestId('cw-template-drawings')).toHaveText('Drawings: 1 on BTC/USDT');
+    await item.click();
     await expect(second.getByTestId('cw-template')).toHaveAttribute('data-template', 'TEST studies');
     // The study set is reproduced: RSI with its inputs, drawn in a sub-pane below the price pane, and the chart's style.
     await expect(rsiChip(second)).toContainText('RSI 14');
     await expect.poll(async () => (await rsiSeries(second)).length).toBeGreaterThan(0);
     for (const series of await rsiSeries(second)) expect(series.pane).toBeGreaterThan(0);
     await expect(canvas(second, 'ETH/USDT')).toHaveAttribute('data-style', 'heikin-ashi');
-    // Drawings belong to the prices and times they were drawn on, so they stay on BTC/USDT.
+    // Drawings belong to the prices and times they were drawn on: on ETH/USDT none is placed, and the chart says so.
     await expect(rows(second)).toHaveCount(0);
+    await expect(second.getByTestId('cw-template')).toHaveAttribute('data-drawings-kept-for', 'BTC/USDT');
+    await expect(second.getByTestId('cw-template')).toContainText('stay with BTC/USDT');
+    // Applied on BTC/USDT on this device, which has no drawings of its own, the template places the drawing it kept.
+    await second.goto('/charts/BTC-USDT');
+    await expect(host(second)).toBeVisible();
+    await expect(rows(second)).toHaveCount(0);
+    await second.getByRole('button', { name: 'Templates' }).click();
+    await second.getByRole('menuitem', { name: 'TEST studies' }).click();
+    await expect(second.getByTestId('cw-template')).toHaveAttribute('data-drawings-placed', '1');
+    await expect(rows(second)).toHaveCount(1);
+    await expect(rows(second).first()).toHaveAttribute('data-kind', 'horizontal');
+    await expect(pointText(rows(second).first())).toHaveText(drawnAt ?? '');
 
     // The spot desk's chart has its own options: candles and line, no indicators, drawings or templates, and the
     // template's Heikin Ashi does not reach it.

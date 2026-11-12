@@ -1,8 +1,9 @@
 /**
  * The account's chart templates (`charts.templates`, C-embed-feed-ops-03 / charts-desk-embed-feed-ops-017, J-charts-desk-07
- * #6): a named set of studies (the indicators with their inputs, colours and panes) and the chart's style, saved on one
- * chart and applied to any other symbol or workbench. A drawing is anchored to one market's prices and times, so a
- * template carries the study set, never the drawings themselves.
+ * #6): a named set of studies (the indicators with their inputs, colours and panes), the chart's style and the drawings on
+ * the chart it was saved on, applied to any other symbol or workbench. A drawing is anchored to one market's prices and
+ * times, so a template keeps its drawings with that market: they are placed where the template is applied on that market,
+ * and kept, not placed, on any other.
  *
  * Kept through the identity preferences door (compare-and-set on `version`) so templates follow the person to every
  * device; C-workspace-02 owns the door. A view record only: a template never places an order or changes a balance.
@@ -15,6 +16,8 @@ export const CHART_TEMPLATES_NAMESPACE = 'charts.templates' as const;
 export const CHART_TEMPLATES_HARD_MAX = 50;
 export const CHART_TEMPLATE_STUDIES_MAX = 25;
 export const CHART_TEMPLATE_NAME_MAX = 40;
+export const CHART_TEMPLATE_DRAWINGS_MAX = 100;
+export const CHART_TEMPLATE_DRAWING_POINTS_MAX = 500;
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9:-]{0,63}$/, 'id');
 const token = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, 'token');
@@ -40,6 +43,35 @@ export const templatePanesSchema = z
   })
   .strict();
 
+const decimal = z.string().regex(/^-?\d{1,20}(\.\d{1,18})?$/, 'decimal');
+const symbol = z.string().regex(/^[A-Za-z0-9._-]{1,32}\/[A-Za-z0-9._:-]{1,32}$/, 'symbol');
+
+/** One drawing as the chart keeps it: by bar time (epoch seconds) and decimal price, never by pixel. */
+export const templateDrawingSchema = z
+  .object({
+    id: z.string().regex(/^[A-Za-z0-9:_-]{1,64}$/, 'id'),
+    kind: z.string().regex(/^[a-zA-Z]{1,24}$/, 'kind'),
+    points: z
+      .array(z.object({ time: z.number().int().nonnegative(), price: decimal }).strict())
+      .min(1)
+      .max(CHART_TEMPLATE_DRAWING_POINTS_MAX),
+    variant: z.enum(['abcd', 'xabcd']).optional(),
+    text: z.string().max(200).optional(),
+    size: z.number().int().min(8).max(64).optional(),
+    tone: token,
+    pane: z.number().int().min(1).max(12).optional(),
+    levels: z.array(decimal).max(24).optional(),
+    locked: z.boolean(),
+    hidden: z.boolean(),
+  })
+  .strict();
+
+/** The drawings on the chart a template was saved on, with the market they belong to. */
+export const templateDrawingsSchema = z
+  .object({ symbol, items: z.array(templateDrawingSchema).max(CHART_TEMPLATE_DRAWINGS_MAX) })
+  .strict()
+  .refine((drawings) => new Set(drawings.items.map((item) => item.id)).size === drawings.items.length, 'each drawing id once');
+
 export const chartTemplateSchema = z
   .object({
     id,
@@ -50,6 +82,8 @@ export const chartTemplateSchema = z
     /** The chart style and colour scheme it was saved with. */
     style: token,
     scheme: token,
+    /** Absent on a template saved before drawings were kept, or from a chart with none. */
+    drawings: templateDrawingsSchema.optional(),
     savedAt: z.string().datetime({ offset: true }),
   })
   .strict()

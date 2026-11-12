@@ -12,6 +12,7 @@ import { defaultDeskPair, navigate, normalizePair, refusalCopy, Skeleton, StateB
 import { ChartGrid } from './ChartGrid';
 import type { WidgetProps } from './MarketChartWidget';
 import { DrawingsLayer } from './drawings/DrawingsLayer';
+import { drawingsKey, readDoc, writeDoc } from './drawings/store';
 import type { DrawingLimits } from './drawings/model';
 import { ownerValue, useChartOwnerValues } from './owner-values';
 import { useBookHalt, useMarketLifecycle } from './market-state';
@@ -33,7 +34,7 @@ import { isChartStyle, type ColourScheme } from './chart-style';
 import { WatchlistPanel } from '../../features/watchlists/WatchlistPanel';
 import { chartHrefFor, WATCHLIST_DRAG_TYPE } from '../../features/watchlists/links';
 import { TemplatesMenu } from './TemplatesMenu';
-import { styleFrom, studiesFrom, type ChartTemplate } from './templates';
+import { drawingsFrom, styleFrom, studiesFrom, type ChartTemplate } from './templates';
 import { templatesCopy } from './templates-copy';
 import { FEATURESETS, describeFeatureset, styleOnDesk } from './featureset';
 
@@ -150,40 +151,61 @@ function Page({
   const owner = useChartOwnerValues(market.symbol);
   const drawingCap = ownerValue(owner, 'drawingCap');
   const brushCap = ownerValue(owner, 'brushPointCap');
-  // Chart templates (C-embed-feed-ops-03): applying one replaces this workbench's study set and style, then draws the grid
-  // again so every chart reads them; the interval, the symbol and the drawings stay.
-  const { t: tt } = templatesCopy.useCopy();
-  const [applied, setApplied] = useState<{ name: string; count: number; nonce: number } | { refused: true; nonce: number } | null>(null);
-  const studiesKey = storeKey(userId, id);
-  const currentChart = useCallback(
-    () => ({ studies: readStudies(studiesKey), style: setting.mode, scheme: setting.scheme ?? 'standard' }),
-    [studiesKey, setting.mode, setting.scheme],
-  );
-  const applyTemplate = useCallback(
-    (template: ChartTemplate) => {
-      const studies = studiesFrom(template, readStudies(studiesKey));
-      const style = styleFrom(template);
-      const nonce = (applied?.nonce ?? 0) + 1;
-      if (!studies || !style) return setApplied({ refused: true, nonce });
-      // Only the parts this desk turns on: studies where it draws them, a style it draws (else it keeps its own).
-      if (FEATURES.studies) {
-        try {
-          localStorage.setItem(studiesKey, JSON.stringify(studies));
-        } catch {
-          return setApplied({ refused: true, nonce });
-        }
-      }
-      setSetting((now) => ({ ...now, mode: styleOnDesk(FEATURES, style.mode, now.mode), scheme: style.scheme }));
-      setApplied({ name: template.name, count: FEATURES.studies ? studies.studies.length : 0, nonce });
-    },
-    [studiesKey, setSetting, applied?.nonce],
-  );
   const limits: DrawingLimits = {
     drawingCap: drawingCap.ok ? drawingCap.value : null,
     drawingWhy: drawingCap.ok ? undefined : drawingCap.why,
     brushPointCap: brushCap.ok ? brushCap.value : null,
     brushWhy: brushCap.ok ? undefined : brushCap.why,
   };
+  // Chart templates (C-embed-feed-ops-03): applying one replaces this workbench's study set and style and adds its drawings
+  // on the market they were drawn on, then draws the grid again so every chart reads them; the interval and symbol stay.
+  const { t: tt } = templatesCopy.useCopy();
+  type Applied =
+    | { name: string; count: number; placed: number; keptFor: string | null; kept: number; nonce: number }
+    | { refused: 'Not drawable' | 'Drawings over cap' | 'Drawing cap unset'; nonce: number };
+  const [applied, setApplied] = useState<Applied | null>(null);
+  const studiesKey = storeKey(userId, id);
+  const drawingKey = drawingsKey(userId, id, market.symbol);
+  const currentChart = useCallback(
+    () => ({
+      studies: readStudies(studiesKey),
+      style: setting.mode,
+      scheme: setting.scheme ?? 'standard',
+      drawings: FEATURES.drawings ? { symbol: market.symbol, doc: readDoc(localStorage, drawingKey) } : undefined,
+    }),
+    [studiesKey, setting.mode, setting.scheme, market.symbol, drawingKey],
+  );
+  const applyTemplate = useCallback(
+    (template: ChartTemplate) => {
+      const studies = studiesFrom(template, readStudies(studiesKey));
+      const style = styleFrom(template);
+      const drawings = FEATURES.drawings ? drawingsFrom(template, market.symbol, readDoc(localStorage, drawingKey)) : null;
+      const nonce = (applied?.nonce ?? 0) + 1;
+      if (!studies || !style || (FEATURES.drawings && !drawings)) return setApplied({ refused: 'Not drawable', nonce });
+      // The owner's drawing cap holds for a template's drawings as for drawn ones; a blank cap places none.
+      const placing = drawings && 'doc' in drawings && drawings.placed > 0 ? drawings : null;
+      if (placing && limits.drawingCap === null) return setApplied({ refused: 'Drawing cap unset', nonce });
+      if (placing && limits.drawingCap !== null && placing.doc.drawings.length > limits.drawingCap)
+        return setApplied({ refused: 'Drawings over cap', nonce });
+      // Only the parts this desk turns on: studies where it draws them, a style it draws (else it keeps its own).
+      try {
+        if (FEATURES.studies) localStorage.setItem(studiesKey, JSON.stringify(studies));
+        if (placing && !writeDoc(localStorage, drawingKey, placing.doc)) return setApplied({ refused: 'Not drawable', nonce });
+      } catch {
+        return setApplied({ refused: 'Not drawable', nonce });
+      }
+      setSetting((now) => ({ ...now, mode: styleOnDesk(FEATURES, style.mode, now.mode), scheme: style.scheme }));
+      setApplied({
+        name: template.name,
+        count: FEATURES.studies ? studies.studies.length : 0,
+        placed: placing?.placed ?? 0,
+        keptFor: drawings && 'keptFor' in drawings ? drawings.keptFor : null,
+        kept: drawings && 'keptFor' in drawings ? drawings.count : 0,
+        nonce,
+      });
+    },
+    [studiesKey, drawingKey, market.symbol, limits.drawingCap, setSetting, applied?.nonce],
+  );
   return (
     <div className="cw-page" data-market={market.symbol} data-workbench={id} data-featureset={describeFeatureset(FEATURES)}>
       <header className="cw-head">
@@ -198,12 +220,23 @@ function Page({
         </div>
       </header>
       {applied && 'refused' in applied ? (
-        <p role="status" className="cw-note">
-          {tt('Not drawable')}
+        <p role="status" className="cw-note" data-testid="cw-template-refused" data-why={applied.refused}>
+          {applied.refused === 'Drawings over cap'
+            ? tt('Drawings over cap', { cap: String(limits.drawingCap ?? '') })
+            : tt(applied.refused)}
         </p>
       ) : applied ? (
-        <p role="status" className="cw-note" data-testid="cw-template" data-template={applied.name}>
+        <p
+          role="status"
+          className="cw-note"
+          data-testid="cw-template"
+          data-template={applied.name}
+          data-drawings-placed={applied.placed}
+          data-drawings-kept-for={applied.keptFor ?? undefined}
+        >
           {tt('Applied', { name: applied.name, count: applied.count })}
+          {applied.placed > 0 ? ` ${tt('Drawings placed', { count: applied.placed })}` : ''}
+          {applied.keptFor ? ` ${tt('Drawings kept for', { count: applied.kept, symbol: applied.keptFor })}` : ''}
         </p>
       ) : null}
       {unoffered && (

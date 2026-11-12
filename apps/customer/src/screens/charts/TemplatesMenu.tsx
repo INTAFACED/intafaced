@@ -93,7 +93,12 @@ export function TemplatesMenu({
                       }}
                     >
                       <span className="cw-templates-name">{template.name}</span>{' '}
-                      <span className="cw-templates-facts">{t('Template facts', { count: template.studies.length })}</span>
+                      <span className="cw-templates-facts">{t('Template facts', { count: template.studies.length })}</span>{' '}
+                      {template.drawings && template.drawings.items.length > 0 ? (
+                        <span className="cw-templates-facts" data-testid="cw-template-drawings">
+                          {t('Template drawings', { count: template.drawings.items.length, symbol: template.drawings.symbol })}
+                        </span>
+                      ) : null}
                     </button>
                   ))}
                 </div>
