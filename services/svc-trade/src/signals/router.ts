@@ -7,6 +7,7 @@ import { AuthError } from '@intafaced/auth';
 import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { TradeError } from '../spot/types.js';
 import { SignalError, type SignalDesk } from './signal-desk.js';
+import type { SignalBots } from './signal-bots.js';
 
 function signalTrpcError(error: unknown): unknown {
   if (error instanceof TRPCError) return error;
@@ -18,7 +19,11 @@ function signalTrpcError(error: unknown): unknown {
           ? 'PRECONDITION_FAILED'
           : error.status === 401
             ? 'UNAUTHORIZED'
-            : 'BAD_REQUEST';
+            : error.status === 403
+              ? 'FORBIDDEN'
+              : error.status === 409
+                ? 'CONFLICT'
+                : 'BAD_REQUEST';
     return new TRPCError({ code, message: error.message, cause: error });
   }
   // Who may place at all (spot/place-eligibility.ts): refused as a signed-in order is, by its own code.
@@ -28,7 +33,7 @@ function signalTrpcError(error: unknown): unknown {
   return error;
 }
 
-export function signalsRouter(desk?: SignalDesk) {
+export function signalsRouter(desk?: SignalDesk, bots?: SignalBots) {
   async function call<T>(fn: (desk: SignalDesk) => Promise<T>): Promise<T> {
     try {
       if (!desk) throw new SignalError('Chart alert webhooks are not available', 'trade.signal_unavailable', 503);
@@ -37,7 +42,22 @@ export function signalsRouter(desk?: SignalDesk) {
       throw signalTrpcError(error);
     }
   }
+  async function botCall<T>(fn: (b: SignalBots) => Promise<T>): Promise<T> {
+    try {
+      if (!bots) throw new SignalError('Signal bots are not available', 'trade.signal_unavailable', 503);
+      return await fn(bots);
+    } catch (error) {
+      throw signalTrpcError(error);
+    }
+  }
   return router({
+    /** Signal bots run from a bought signal listing (signal-bots.ts, J-copy-bots-otc-21). */
+    bots: router({
+      create: scopedProcedure('trade:write', { module: 'trade' })
+        .input(z.object({ listingId: z.string().uuid(), clientBotId: z.string().min(1).max(120) }).strict())
+        .mutation(({ ctx, input }) => botCall((b) => b.create(ctx.principal, input))),
+      list: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => botCall((b) => b.list(ctx.principal))),
+    }),
     webhooks: router({
       create: scopedProcedure('trade:write', { module: 'trade' })
         .input(

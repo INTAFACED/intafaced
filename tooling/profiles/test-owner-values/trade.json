@@ -81,6 +81,11 @@
       "value": "30",
       "note": "TEST life of 30 days for a chart alert webhook's place grant, so J-copy-bots-otc-20 can create one. Not an owner decision."
     },
+    "TRADE_SIGNAL_BOT_CAP": {
+      "service": "trade",
+      "value": "100",
+      "note": "TEST cap of 100 USDC on what one signal bot may commit, so J-copy-bots-otc-21 can create a signal bot. Not an owner decision; production stays blank and every create refuses trade.signal_bot_cap_unset."
+    },
     "TRADE_BOTS_VERIFICATION_LEVEL": {
       "service": "trade",
       "value": "full",

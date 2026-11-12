@@ -29,6 +29,43 @@ export const signalWebhookSchema = z.object({
   token: z.string().nullable().optional(),
 });
 export type SignalWebhook = z.infer<typeof signalWebhookSchema>;
+/** A person's payment for access to a signal listing (svc-market `signals.*`), by card through the card partner. */
+export const signalPaymentSchema = z.object({
+  paymentId: z.string(),
+  listingId: z.string(),
+  method: z.literal('card'),
+  partner: z.string(),
+  assetId: z.string(),
+  amount: decimalSchema,
+  status: z.enum(['pending', 'approved', 'paid', 'declined']),
+  code: z.string().nullable(),
+  test: z.boolean(),
+  createdAt: z.string(),
+});
+export type SignalPayment = z.infer<typeof signalPaymentSchema>;
+/** A signal listing, with the caller's own payment and access. `price` null: not set, and buying refuses. */
+export const signalListingSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  assetId: z.string(),
+  price: decimalSchema.nullable(),
+  createdAt: z.string(),
+  payment: signalPaymentSchema.nullable(),
+  access: z.boolean(),
+});
+export type SignalListing = z.infer<typeof signalListingSchema>;
+/** A signal bot (svc-trade `signals.bots.*`), run from a bought listing. */
+export const signalBotSchema = z.object({
+  botId: z.string(),
+  clientBotId: z.string(),
+  listingId: z.string(),
+  title: z.string(),
+  state: z.enum(['awaiting_signal', 'active', 'stopped']),
+  cap: z.object({ amount: decimalSchema, asset: z.string() }),
+  createdAt: z.string(),
+});
+export type SignalBot = z.infer<typeof signalBotSchema>;
 /** The scopes the platform has paused now (svc-trade `copy.platformPauses`, CB-ops-03). */
 export const platformPausesSchema = z.object({
   leads: z.array(z.string()),
@@ -321,6 +358,11 @@ export function createRoomApi(api: ApiClient) {
     flatten: (input: { followId: string; requestId: string; stepUpApprovalId: string | null }) =>
       api.mutate('trade', 'copy.flatten', input, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
+    signalListings: (signal?: AbortSignal) => api.query('market', 'signals.listings', undefined, z.array(signalListingSchema), { signal }),
+    buySignal: (listingId: string) => api.mutate('market', 'signals.buy', { listingId }, signalPaymentSchema),
+    signalBots: (signal?: AbortSignal) => api.query('trade', 'signals.bots.list', undefined, z.array(signalBotSchema), { signal }),
+    createSignalBot: (input: { listingId: string; clientBotId: string }) =>
+      api.mutate('trade', 'signals.bots.create', input, signalBotSchema),
     webhooks: (signal?: AbortSignal) => api.query('trade', 'signals.webhooks.list', undefined, z.array(signalWebhookSchema), { signal }),
     createWebhook: (input: { symbol: string; venueOwner: string; clientRequestId: string }) =>
       api.mutate('trade', 'signals.webhooks.create', input, signalWebhookSchema),

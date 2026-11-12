@@ -32,6 +32,7 @@ import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote 
 import { TwapWizard, type BotKind } from './TwapWizard';
 import { GRID_TONE, GRID_WORD, GridRoom } from './GridRoom';
 import { WebhooksRoom } from './WebhooksRoom';
+import { SignalBotsTable, SignalsRoom } from './SignalsRoom';
 import type { GridBot } from './api';
 import { roomRefusal } from './refusals';
 
@@ -113,6 +114,7 @@ export function BotsRoom({ path }: { path: string }) {
   const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
   if (pathname === TYPE_LINK.grid.href) return <GridRoom path={path} />;
   if (pathname === '/trade/bots/webhooks') return <WebhooksRoom />;
+  if (pathname === '/trade/bots/signals') return <SignalsRoom />;
   const parked = PARKED[pathname];
   if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
   // Only grid and DCA have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
@@ -171,6 +173,12 @@ function BotsHub({ path }: { path: string }) {
   const grids = useLive(
     (signal) => (session ? api.gridList(signal) : Promise.resolve({ ok: true as const, data: [] as GridBot[] })),
     `bots-grids:${session ? (userId ?? 'in') : 'out'}`,
+    10_000,
+  );
+  // Signal bots run from a bought signal (J-copy-bots-otc-21), listed by svc-trade beside the other bots.
+  const signalBots = useLive(
+    (signal) => (session ? api.signalBots(signal) : Promise.resolve({ ok: true as const, data: [] })),
+    `bots-signal:${session ? (userId ?? 'in') : 'out'}`,
     10_000,
   );
   // My bots is the service's own list of this person's bots, so a new browser shows the same bots.
@@ -500,6 +508,10 @@ function BotsHub({ path }: { path: string }) {
             );
           })}
         </ul>
+        <div className="cb-action-row">
+          <a href="/trade/bots/signals">{t('Signals: buy access to a signal and run a signal bot')}</a>
+          <a href="/trade/bots/webhooks">{t('Chart alert webhooks')}</a>
+        </div>
       </PageSection>
 
       <PageSection
@@ -556,6 +568,11 @@ function BotsHub({ path }: { path: string }) {
                 onRowActivate={(r) => navigate(`${TYPE_LINK.grid.href}?bot=${encodeURIComponent(r.botId)}`)}
                 minWidth={940}
               />
+            ) : null}
+            {signalBots.failure && !signalBots.data ? (
+              <RefusalNote failure={signalBots.failure} retry={signalBots.reload} />
+            ) : signalBots.data && signalBots.data.length > 0 ? (
+              <SignalBotsTable bots={signalBots} />
             ) : null}
             <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
             {moreMine ? (

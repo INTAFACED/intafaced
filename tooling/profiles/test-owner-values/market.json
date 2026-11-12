@@ -25,6 +25,11 @@
       "service": "market",
       "value": "seller_full",
       "note": "TEST refund policy: the seller may refund a held purchase in full, so a journey can see a refund move money once. The owner has not decided; blank, every refund request and refund refuses owner.decision and the purchase stays held."
+    },
+    "MARKET_SIGNAL_CARD_PARTNER": {
+      "service": "market",
+      "value": "test",
+      "note": "TEST partner card a signal subscription is paid through (J-copy-bots-otc-21 #2): it approves every payment and settles the price to our TEST reserve at once, each labelled TEST. Not a partner's answer. No partner is named; production stays blank and every signal purchase refuses market.signal_payment_partner_unset."
     }
   }
 }

@@ -49,6 +49,7 @@ import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from '
 import type { LeadDesk } from './copy/lead-applications.js';
 import { signalsRouter } from './signals/router.js';
 import type { SignalDesk } from './signals/signal-desk.js';
+import type { SignalBots } from './signals/signal-bots.js';
 import type { PlatformPauseDesk } from './copy/platform-pauses.js';
 import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
@@ -902,6 +903,7 @@ export function createTradeRouter(
   builderFees?: BuilderFeeReconReader,
   venueActivity?: OwnVenueActivityDeps,
   signals?: SignalDesk,
+  signalBots?: SignalBots,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -953,7 +955,7 @@ export function createTradeRouter(
     /** `venue.ownActivity`: a person's own venue spot trading, svc-tax only (J-cex-spot-01 #11). Read-only. */
     venue: ownVenueActivityRouter(venueActivity),
     /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
-    signals: signalsRouter(signals),
+    signals: signalsRouter(signals, signalBots),
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
     bots: router({ grid: gridRouter(grid) }),
     health: publicProcedure

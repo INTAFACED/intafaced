@@ -20,5 +20,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     MARKET_REFUND_WINDOW_SECONDS: '120',
     MARKET_RELEASE_SWEEP_SECONDS: '5',
     ...refundPolicy(),
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/market.json: the TEST partner card a signal
+    // subscription is paid through (J-copy-bots-otc-21 #2). Production stays blank and every signal purchase refuses
+    // market.signal_payment_partner_unset.
+    MARKET_SIGNAL_CARD_PARTNER: 'test',
   }),
 });

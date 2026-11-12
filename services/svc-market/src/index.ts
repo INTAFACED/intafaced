@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createEdgeContext, rawBodyOf, s2sFromEnv, verifyServiceHeaders, verifyServiceRequest } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
 import { VendorService } from './vendor-service.js';
@@ -16,6 +16,8 @@ import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
 import { PerpProposalService } from './perp-proposal-service.js';
 import { marketReadyHonesty } from './ready-honesty.js';
+import { SignalMarket } from './signals/signal-market.js';
+import { testCardPartner } from './signals/card-partner.js';
 
 // §9 — register the TracerProvider before the first span is created.
 registerProcessHooks(
@@ -75,6 +77,9 @@ await sql`SELECT 1 FROM market.reviews LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM market.listing_category_events LIMIT 1`.catch(() => {
   throw new Error('market.listing_category_events is missing — run migrations before starting svc-market');
 });
+await sql`SELECT 1 FROM market.signal_payments LIMIT 1`.catch(() => {
+  throw new Error('market.signal_payments is missing — run migrations before starting svc-market');
+});
 
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every outgoing call on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-market');
@@ -98,7 +103,13 @@ const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
 const reviews = new ReviewsService(sql);
-const appRouter = createMarketRouter(vendors, commerce, perpProposals, actionApprovals, reviews);
+// Signal listings and their one card payment (J-copy-bots-otc-21). Blank partner: every purchase refuses by name.
+const signals = new SignalMarket(
+  sql,
+  ledger,
+  env.MARKET_SIGNAL_CARD_PARTNER === 'test' ? testCardPartner(env.APP_ENV, process.env.NODE_ENV) : null,
+);
+const appRouter = createMarketRouter(vendors, commerce, perpProposals, actionApprovals, reviews, signals);
 
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
@@ -115,6 +126,23 @@ app.get('/ready', async () =>
     commissionConfigured: env.MARKET_HOUSE_COMMISSION_BPS !== undefined,
   }),
 );
+
+/**
+ * Whether a person holds paid access to a signal listing (J-copy-bots-otc-21): svc-trade asks before it creates a
+ * signal bot, and refuses on anything but `access: true`. Service credentials only. Unknown listing: 404.
+ */
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
+app.get<{ Params: { listingId: string; userId: string } }>('/internal/signals/access/:listingId/:userId', async (req, reply) => {
+  const caller = doorS2s
+    ? verifyServiceRequest(req, { verifier: doorS2s.verifier, mode: doorS2s.mode, legacySecret: env.INTERNAL_SERVICE_SECRET })
+    : verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, { rawBody: rawBodyOf(req) });
+  if (caller.service === null) return reply.code(401).send({ error: 'service credentials required', code: 'market.unauthenticated' });
+  if (!/^[0-9a-f-]{36}$/.test(req.params.listingId))
+    return reply.code(404).send({ error: 'no such listing', code: 'market.listing_not_found' });
+  const answer = await signals.access(req.params.listingId, req.params.userId);
+  if (!answer) return reply.code(404).send({ error: 'no such listing', code: 'market.listing_not_found' });
+  return { listingId: req.params.listingId, userId: req.params.userId, access: answer.access, title: answer.title };
+});
 
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',

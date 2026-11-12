@@ -881,6 +881,15 @@ const schema = serviceEnvSchema
       TRADE_SIGNAL_WEBHOOK_DAYS: z.string().default(''),
 
       /**
+       * The most one signal bot may commit, in USDC (CB-bots-api-signal-04, J-copy-bots-otc-21). Empty (default) =
+       * unset → every signal bot create refuses `trade.signal_bot_cap_unset`. Owner value; never invented.
+       */
+      TRADE_SIGNAL_BOT_CAP: z.string().default(''),
+
+      /** svc-market, for a person's access to a signal listing (J-copy-bots-otc-21). Unset: every signal bot create refuses. */
+      MARKET_URL: z.string().url().optional(),
+
+      /**
        * How often the limit-convert sweep prices each waiting limit convert (J-cex-spot-11 #8). Blank (default): no
        * sweep runs, and placing a limit convert refuses `trade.convert_limit_unset`; nothing is ever held unwatched.
        */

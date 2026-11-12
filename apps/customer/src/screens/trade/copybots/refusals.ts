@@ -264,6 +264,34 @@ const DEVICE: Readonly<Record<string, Words>> = {
 };
 
 const BOTS: Readonly<Record<string, Words>> = {
+  // Signal listings and signal bots (J-copy-bots-otc-21).
+  'market.access_required': {
+    title: 'Buy access to this signal first',
+    body: 'A signal bot runs only from a signal you bought access to. Nothing was created.',
+  },
+  'market.signal_price_unset': {
+    title: 'This signal has no price yet',
+    body: 'The provider has not set a price, so it can’t be bought. Nothing was charged.',
+  },
+  'market.signal_payment_partner_unset': {
+    title: 'Card payments aren’t available',
+    body: 'No card partner is set up, so a signal can’t be paid for. Nothing was charged.',
+  },
+  'market.signal_payment_unknown': {
+    title: 'We can’t tell if the payment went through',
+    body: 'Try again: the same payment is asked for, and you are never charged twice.',
+  },
+  'market.purchase_self': { title: 'This is your own signal', body: 'A provider can’t buy their own signal.' },
+  'trade.signal_bot_cap_unset': {
+    title: 'Signal bots aren’t available',
+    body: 'The platform has not set a limit for signal bots, so none can be made. Nothing was created.',
+  },
+  'trade.signal_access_unavailable': {
+    title: 'We couldn’t check your access',
+    body: 'Nothing was created. Try again in a moment.',
+  },
+  'trade.signal_listing_not_found': { title: 'That signal isn’t listed', body: 'Reload the list and choose another signal.' },
+  'trade.signal_bot_key_conflict': { title: 'That bot already exists', body: 'Reload the page and try again.' },
   'trade.algo_disabled': { title: 'Bots are switched off', body: 'New schedules can’t be created right now. Nothing was started.' },
   'trade.algo_volume_immature': {
     title: 'Not enough trading history for this bot',

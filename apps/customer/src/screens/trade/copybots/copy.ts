@@ -19,8 +19,10 @@ const messages = {
     'A position you copied is sold only when you close it, when you choose Close copied positions, or after a stop when the leader closes that trade.',
   'A run can last 24 hours at most': 'A run can last 24 hours at most',
   'A saved strategy in Quant Studio': 'A saved strategy in Quant Studio',
+  'A signal appears here when a provider lists one.': 'A signal appears here when a provider lists one.',
   'A strategy can’t trade live. It runs on paper.': 'A strategy can’t trade live. It runs on paper.',
   'About this leader': 'About this leader',
+  'Access bought': 'Access bought',
   Action: 'Action',
   Active: 'Active',
   Address: 'Address',
@@ -44,6 +46,7 @@ const messages = {
   'Available on paper only': 'Available on paper only',
   'Available. {reason}': 'Available. {reason}',
   'Average price': 'Average price',
+  'Awaiting signal': 'Awaiting signal',
   Back: 'Back',
   'Back to Bots': 'Back to Bots',
   'Backtested presets': 'Backtested presets',
@@ -63,6 +66,9 @@ const messages = {
   'Bots you start appear here, on every device you sign in on.': 'Bots you start appear here, on every device you sign in on.',
   'Bounds allowed': 'Bounds allowed',
   Buy: 'Buy',
+  'Buy access': 'Buy access',
+  'Buy access to a provider’s signal, then run a signal bot from it.': 'Buy access to a provider’s signal, then run a signal bot from it.',
+  'Buy access to a signal, then create a bot from it.': 'Buy access to a signal, then create a bot from it.',
   Buying: 'Buying',
   'Buys a fixed amount on a schedule': 'Buys a fixed amount on a schedule',
   'Buys at each level below the price and sells one level up, inside a range you set.':
@@ -118,6 +124,7 @@ const messages = {
   'Counted from the filled slice orders only': 'Counted from the filled slice orders only',
   Countries: 'Countries',
   Country: 'Country',
+  'Create a bot': 'Create a bot',
   'Create bot': 'Create bot',
   'Create webhook': 'Create webhook',
   Custom: 'Custom',
@@ -222,7 +229,9 @@ const messages = {
   'Left today': 'Left today',
   Level: 'Level',
   Levels: 'Levels',
+  Limit: 'Limit',
   'Live account: real orders': 'Live account: real orders',
+  'Loading signals': 'Loading signals',
   'Loss limit': 'Loss limit',
   'Lot size {lot}': 'Lot size {lot}',
   'Lower price': 'Lower price',
@@ -246,6 +255,7 @@ const messages = {
     'My bots lists the bots you started in the last 3 months. Open an older one by its ID.',
   'My follows': 'My follows',
   'My grid bots': 'My grid bots',
+  Name: 'Name',
   'Needs trading history': 'Needs trading history',
   'New actions stay locked until we know what happened to request {id}.':
     'New actions stay locked until we know what happened to request {id}.',
@@ -283,6 +293,7 @@ const messages = {
   'No price available right now': 'No price available right now',
   'No recurring-order service exists. Use Convert for a single trade.':
     'No recurring-order service exists. Use Convert for a single trade.',
+  'No signals are listed yet': 'No signals are listed yet',
   'No trades on record': 'No trades on record',
   None: 'None',
   'None set': 'None set',
@@ -301,6 +312,7 @@ const messages = {
   'Not published': 'Not published',
   'Not set': 'Not set',
   'Not set by the platform': 'Not set by the platform',
+  'Not set by the provider': 'Not set by the provider',
   'Not set: the bot has run less than a day': 'Not set: the bot has run less than a day',
   'Not verified': 'Not verified',
   'Nothing skipped': 'Nothing skipped',
@@ -318,6 +330,7 @@ const messages = {
   'Only the leader’s trades in these markets can be copied. Nothing else.':
     'Only the leader’s trades in these markets can be copied. Nothing else.',
   Open: 'Open',
+  'Open My bots': 'Open My bots',
   'Open Quant Studio': 'Open Quant Studio',
   'Open a bot by ID': 'Open a bot by ID',
   'Open order': 'Open order',
@@ -343,6 +356,10 @@ const messages = {
   Paused: 'Paused',
   'Paused by the platform': 'Paused by the platform',
   'Paused: the price is outside the range': 'Paused: the price is outside the range',
+  'Pay once by card. The card partner takes the payment; you are charged once, however often you press Buy.':
+    'Pay once by card. The card partner takes the payment; you are charged once, however often you press Buy.',
+  'Payment not finished yet. Buy access again to finish it; you are never charged twice.':
+    'Payment not finished yet. Buy access again to finish it; you are never charged twice.',
   Performance: 'Performance',
   'Permission ends': 'Permission ends',
   'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.':
@@ -409,11 +426,16 @@ const messages = {
   Side: 'Side',
   'Sign in': 'Sign in',
   'Sign in to make a webhook.': 'Sign in to make a webhook.',
+  'Sign in to see signals.': 'Sign in to see signals.',
   'Sign in to see the leaders you follow.': 'Sign in to see the leaders you follow.',
   'Sign in to see your bots.': 'Sign in to see your bots.',
   'Sign in to set up a bot.': 'Sign in to set up a bot.',
   Signal: 'Signal',
+  'Signal bots': 'Signal bots',
   'Signal leaders': 'Signal leaders',
+  'Signal listings': 'Signal listings',
+  Signals: 'Signals',
+  'Signals: buy access to a signal and run a signal bot': 'Signals: buy access to a signal and run a signal bot',
   'Sized from market volume': 'Sized from market volume',
   'Sizes slices to follow the market’s usual trading volume': 'Sizes slices to follow the market’s usual trading volume',
   Skipped: 'Skipped',
@@ -461,6 +483,7 @@ const messages = {
   'Strategy from Quant Studio': 'Strategy from Quant Studio',
   'Switched off': 'Switched off',
   'TEST account: no real money': 'TEST account: no real money',
+  'TEST partner card': 'TEST partner card',
   'TP / SL': 'TP / SL',
   'That bot is now {state}.': 'That bot is now {state}.',
   'That follow is no longer in your list.': 'That follow is no longer in your list.',
@@ -477,6 +500,7 @@ const messages = {
   'The bot trades with your real balance on this market. Each slice is an ordinary order.':
     'The bot trades with your real balance on this market. Each slice is an ordinary order.',
   'The bot was created. It is in My bots.': 'The bot was created. It is in My bots.',
+  'The card partner did not take the payment. Nothing was charged.': 'The card partner did not take the payment. Nothing was charged.',
   'The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.':
     'The close of {amount} in {market} is still settling. Closing again sends that same order, never a second one.',
   'The copy was refused': 'The copy was refused',
@@ -587,9 +611,12 @@ const messages = {
     'You have no passkey or authenticator app, so closing everything cannot be confirmed.',
   'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.':
     'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.',
+  'You have no signal bots': 'You have no signal bots',
   'You have no webhooks': 'You have no webhooks',
   'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.':
     'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.',
+  'You pay by card through the card partner. INTAFACED keeps no balance for you and holds none of your money.':
+    'You pay by card through the card partner. INTAFACED keeps no balance for you and holds none of your money.',
   'You set them. A leader can never raise them': 'You set them. A leader can never raise them',
   'Your balance did not cover it': 'Your balance did not cover it',
   'Your bot’s reserve was lowered by {amount} {asset}. No money moved.':
@@ -601,6 +628,7 @@ const messages = {
   'Your country': 'Your country',
   'Your follows': 'Your follows',
   'Your limits': 'Your limits',
+  'Your signal bots': 'Your signal bots',
   'Your trading fee': 'Your trading fee',
   'Your webhooks': 'Your webhooks',
   '{amount} is open in {market}. The part you close is sold at the market price.':

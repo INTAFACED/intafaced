@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { LEDGER_POST_ALLOWLIST, grantFor, modulesFor } from './caller-allowlist.js';
 
 describe('svc-market ledger grant (MC-market-02, J-more-catalogue-02 #4 to #6)', () => {
-  it('may post a pay-through purchase and the held purchase recipes in the market module, and nothing else', () => {
+  it('may post a pay-through purchase, the held purchase recipes and a card-paid signal charge in the market module, and nothing else', () => {
     expect(LEDGER_POST_ALLOWLIST['svc-market']).toEqual({
+      chargeEarn: { module: 'market', cite: 'services/svc-market/src/signals/signal-market.ts' },
+      chargeCollect: { module: 'market', cite: 'services/svc-market/src/signals/signal-market.ts' },
       marketPurchase: { module: 'market', cite: 'services/svc-market/src/commerce/commerce-service.ts' },
       marketPurchaseHold: { module: 'market', cite: 'services/svc-market/src/commerce/held-purchase.ts' },
       marketPurchaseRefund: { module: 'market', cite: 'services/svc-market/src/commerce/held-purchase.ts' },

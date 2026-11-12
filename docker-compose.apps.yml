@@ -757,6 +757,8 @@ services:
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
       TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
       TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
+      TRADE_SIGNAL_BOT_CAP: ${TRADE_SIGNAL_BOT_CAP:-}
+      MARKET_URL: http://svc-market:4018
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
@@ -1561,6 +1563,7 @@ services:
       # Pass-through only — no compose default. Silence still refuses
       # market.commission_not_configured.
       MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
+      MARKET_SIGNAL_CARD_PARTNER: ${MARKET_SIGNAL_CARD_PARTNER:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4018']
     healthcheck: *healthcheck

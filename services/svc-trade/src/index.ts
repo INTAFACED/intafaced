@@ -47,6 +47,8 @@ import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
 import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
 import { createLiveTierClient } from './signals/live-tier.js';
+import { SignalBots, parseSignalBotCap } from './signals/signal-bots.js';
+import { createMarketAccessClient } from './signals/market-access.js';
 import { PlatformPauseDesk } from './copy/platform-pauses.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
@@ -761,6 +763,12 @@ const signalDesk = new SignalDesk({
   webhookDays: parseSignalWebhookDays(env.TRADE_SIGNAL_WEBHOOK_DAYS),
 });
 registerSignalIntake(app, signalDesk);
+// Signal bots (J-copy-bots-otc-21): access is read from svc-market on every create; a blank cap refuses every create.
+const signalBots = new SignalBots(
+  sql,
+  createMarketAccessClient(env.MARKET_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+  parseSignalBotCap(env.TRADE_SIGNAL_BOT_CAP),
+);
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
   trade,
@@ -817,6 +825,7 @@ export const appRouter = createTradeRouter(
   // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
+  signalBots,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

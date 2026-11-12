@@ -76,6 +76,10 @@ export const LEDGER_POST_ALLOWLIST = {
     sweepFeesToRewards: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),
   },
   'svc-market': {
+    // A signal subscription paid by card through the card partner: our revenue, then the partner's settlement of it
+    // into our reserve there. Neither touches a customer balance (launch money model; J-copy-bots-otc-21 #2).
+    chargeEarn: g('market', 'services/svc-market/src/signals/signal-market.ts'),
+    chargeCollect: g('market', 'services/svc-market/src/signals/signal-market.ts'),
     marketPurchase: g('market', 'services/svc-market/src/commerce/commerce-service.ts'),
     marketPurchaseHold: g('market', 'services/svc-market/src/commerce/held-purchase.ts'),
     marketPurchaseRefund: g('market', 'services/svc-market/src/commerce/held-purchase.ts'),

@@ -24,6 +24,8 @@ import type { ReviewsService } from './reviews/reviews-service.js';
 import { REVIEW_MEAN_ROUNDING } from './reviews/reviews-service.js';
 import { userCopy } from './user-copy.js';
 import { createStrategyListing } from './strategy/strategy-listing.js';
+import { signalsMarketRouter } from './signals/router.js';
+import type { SignalMarket } from './signals/signal-market.js';
 import type { PerpProposalService } from './perp-proposal-service.js';
 import {
   MARKET_L3_UNAVAILABLE,
@@ -370,8 +372,12 @@ export function createMarketRouter(
   perpProposals?: PerpProposalService,
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   reviews?: ReviewsService,
+  signals?: SignalMarket,
 ) {
   return router({
+    /** Signal listings and the one card payment for access (CB-bots-api-signal-04, J-copy-bots-otc-21). */
+    signals: signalsMarketRouter(signals),
+
     /**
      * Apply to be a vendor. One application per account; status is not an input.
      *

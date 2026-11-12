@@ -69,6 +69,14 @@ const schema = serviceEnvSchema
       MARKET_REFUND_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
       MARKET_RELEASE_SWEEP_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
       MARKET_REFUND_POLICY: blankAsAbsent(z.enum(['seller_full']).optional()),
+
+      /**
+       * The card partner a signal subscription is paid through (CB-bots-api-signal-04, J-copy-bots-otc-21 #2). No partner
+       * is named yet, so production leaves it blank and every signal purchase refuses
+       * `market.signal_payment_partner_unset`. `test` is the TEST partner card stand-in (signals/card-partner.ts), which
+       * refuses to start outside APP_ENV dev or test.
+       */
+      MARKET_SIGNAL_CARD_PARTNER: blankAsAbsent(z.enum(['test']).optional()),
     }),
   );
 
