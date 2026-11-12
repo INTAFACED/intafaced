@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSession } from '../session/session';
 import type { ApiClient } from '../../shared/api';
 import { Button, Dialog, EmptyState, Page } from '../../shared/ui';
+import { PartnerProgramme } from './PartnerProgramme';
 import { ReferralCode } from './ReferralCode';
 import { ReferralRecords } from './ReferralRecords';
 import { RewardsHub } from './RewardsHub';
@@ -562,6 +563,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
           )}
           {view !== 'records' && <ReferralCode />}
           {view !== 'records' && <ShareSheet />}
+          {view === 'overview' && <PartnerProgramme />}
           {view !== 'link' && (
             <div id="promotion-referrals">
               <ReferralRecords />
