@@ -1,6 +1,6 @@
 // World: restart
 import { test, expect } from './journey.mjs';
-import { draftNotice, publishNotice } from './notices.mjs';
+import { draftNotice, publishNotice, publishedNotices } from './notices.mjs';
 import { campaignTotals, enquiriesFor, inviteCampaign, publicSettings, setPublicSettings } from './outreach.mjs';
 import { ORIGIN, toolAwaited } from './stack.mjs';
 
@@ -148,7 +148,10 @@ test(`${J} #4 joining from an invite link captures one enquiry for that invite, 
     const down = await visitor(browser);
     await down.goto(`${JOIN}/partner?source=${failing.sourceKey}`);
     await contact(down, `${key.toLowerCase()}-down@example.org`);
-    await expect(down.getByRole('alert')).toBeVisible();
+    // The refusal, in the form's own words for an unconfirmed save (outreach-intake.js errorCopy), not a success.
+    await expect(down.getByRole('alert')).toHaveText(
+      'We could not confirm this save. Your entries remain here. Try again with the same entries to safely check the result.',
+    );
     await expect(down.getByRole('heading', { name: 'What’s your area of expertise?', exact: true })).toHaveCount(0);
     await expect(down.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toHaveCount(0);
     await down.context().close();
@@ -185,8 +188,43 @@ test(`${J} #5 /app with nothing set: the honest state, no store link and no vers
   await page.context().close();
 });
 
-test(`${J} #6 /announcement shows a published announcement from the founders' board`, async ({ browser }) => {
-  test.setTimeout(120_000);
+/**
+ * svc-notify restarted with its TEST notices switch set (`off`: a new database of its own, so the board holds no notice;
+ * `null`: back on the stack's own), awaited so this worker's event loop stays free (#7449).
+ */
+async function notifyNotices(value) {
+  const before = process.env.LOCAL_STACK_NOTIFY_NOTICES;
+  if (value === null) delete process.env.LOCAL_STACK_NOTIFY_NOTICES;
+  else process.env.LOCAL_STACK_NOTIFY_NOTICES = value;
+  try {
+    await toolAwaited('local-test-stack.mjs', 'restart', 'notify');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_NOTIFY_NOTICES;
+    else process.env.LOCAL_STACK_NOTIFY_NOTICES = before;
+  }
+}
+
+test(`${J} #6 /announcement shows the published announcements, or "none are published"`, async ({ browser }) => {
+  // Two restarts of notify (each up to two minutes), on top of the browser steps.
+  test.setTimeout(600_000);
+  // None published: the announcement centre says so, with no sample notice.
+  await notifyNotices('off');
+  try {
+    expect(await publishedNotices()).toEqual([]);
+    const empty = await visitor(browser);
+    await empty.goto('/announcement');
+    const main = empty.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: 'Notices' })).toBeVisible();
+    const none = main.getByRole('status').filter({ has: empty.getByRole('heading', { name: 'No public notices are published' }) });
+    await expect(none.getByRole('heading', { name: 'No public notices are published' })).toBeVisible();
+    await expect(none).toContainText('None is published right now.');
+    await expect(main.locator('article')).toHaveCount(0);
+    await empty.context().close();
+  } finally {
+    await notifyNotices(null);
+  }
+
+  // Published: the founders' board publishes one, and the centre lists it.
   const key = `${J}-${Date.now()}`;
   const title = `LOCAL TEST announcement ${key}`;
   const draft = await draftNotice({ kind: 'announcement', title, body: 'LOCAL TEST body for the announcement centre.', minutes: 5, key });
