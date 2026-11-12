@@ -16,6 +16,7 @@
     "@intafaced/config": "workspace:*",
     "@intafaced/contracts": "workspace:*",
     "@intafaced/db": "workspace:*",
+    "@intafaced/events": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/quant-honesty": "workspace:*",
     "@intafaced/telemetry": "workspace:*",

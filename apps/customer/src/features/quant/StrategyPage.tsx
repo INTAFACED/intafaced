@@ -13,6 +13,7 @@ import { Read } from '../more/common';
 import { preservePaperHref } from '../more/trade-context';
 import { useApi } from '../session/session';
 import { PaperRuns } from './PaperRuns';
+import { StrategyAlerts, StrategyChannels } from './StrategyNotify';
 import { QuantRooms } from './QuantRooms';
 import { strategyPageCopy } from './strategy-page-copy';
 import './algo.css';
@@ -47,6 +48,8 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
           <>
             <StrategyVersions strategy={strategy} />
             <PaperRuns strategy={strategy} />
+            <StrategyChannels strategy={strategy} />
+            <StrategyAlerts strategy={strategy} />
           </>
         )}
       </Read>

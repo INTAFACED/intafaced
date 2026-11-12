@@ -13,6 +13,9 @@ import { createQuantRouter } from './router.js';
 import { openRunRepository } from './runs/open.js';
 import { openStrategyRepository } from './studio/open.js';
 import { openQuota } from './quota/open.js';
+import { JetStreamEventBus } from '@intafaced/events';
+import { openNotifyRepository } from './notify/open.js';
+import { sweepFillAlerts } from './notify/sweep.js';
 import { parseQuotaSeed } from './quota/quota.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -50,6 +53,7 @@ const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_M
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const shares = openShareRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const notify = openNotifyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 
 function embedOrigins(raw: string | undefined): readonly string[] | null {
   if (!raw) return null;
@@ -92,6 +96,7 @@ export const appRouter = createQuantRouter({
   disclosure: disclosure.repository,
   templates: templates.repository,
   quota: quota.repository,
+  notify: notify.repository,
   releaseNoteMax: env.QUANT_RELEASE_NOTE_MAX === undefined ? null : Number(env.QUANT_RELEASE_NOTE_MAX),
   share: {
     repository: shares.repository,
@@ -125,10 +130,66 @@ app.log.info(
   'svc-quant ready',
 );
 
+/**
+ * `ownedStreams: ['quant']`: this process creates `INTAFACED_QUANT`, whose one subject says a paper strategy filled under
+ * a fill alert (AL-alerts-01). The bus is connected on first need and again on each sweep until it answers: while it is
+ * unreachable nothing is marked announced, so the fills go out once it is back, with no restart.
+ */
+let bus: JetStreamEventBus | null = null;
+let connecting: Promise<JetStreamEventBus | null> | null = null;
+const connectBus = (): Promise<JetStreamEventBus | null> => {
+  if (bus) return Promise.resolve(bus);
+  connecting ??= JetStreamEventBus.connect({
+    servers: env.NATS_URL,
+    producer: env.SERVICE_NAME,
+    streamPrefix: env.NATS_STREAM_PREFIX,
+    ownedStreams: ['quant'],
+  })
+    .then((connected) => (bus = connected))
+    .catch((err: unknown) => {
+      app.log.warn({ err }, 'svc-quant: event bus unreachable, fill alerts wait for the next sweep');
+      return null;
+    })
+    .finally(() => {
+      connecting = null;
+    });
+  return connecting;
+};
+
+/** How often the server looks for new paper fills under fill alerts: a cadence, not a business value. */
+const FILL_SWEEP_MS = 15_000;
+let sweeping: Promise<unknown> | null = null;
+const fillSweep = setInterval(() => {
+  if (sweeping || !env.DATABASE_URL) return;
+  sweeping = sweepFillAlerts({
+    notify: notify.repository,
+    runs: runs.repository,
+    strategies: strategies.repository,
+    history,
+    fees,
+    sink: async () => {
+      const connected = await connectBus();
+      if (!connected) return null;
+      return async (fill) => {
+        await connected.publish('quantOrderFilled', fill, { idempotencyKey: fill.eventId });
+      };
+    },
+    log: (message, err) => app.log.warn({ err }, message),
+  })
+    .catch((err: unknown) => app.log.warn({ err }, 'svc-quant: fill alert sweep failed; the next sweep tries again'))
+    .finally(() => {
+      sweeping = null;
+    });
+}, FILL_SWEEP_MS);
+fillSweep.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(fillSweep);
       await app.close();
+      await bus?.close();
+      await notify.close();
       await strategies.close();
       await runs.close();
       await disclosure.close();

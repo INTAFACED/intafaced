@@ -158,6 +158,7 @@ export const EVENT_BUS_MATRIX = {
   venueDelistingScheduled: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
+  quantOrderFilled: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;
 
 /**

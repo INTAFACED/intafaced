@@ -538,6 +538,40 @@ export const supportTicketResolved = defineEvent(
   'A support request was resolved. The owner can now rate it; svc-notify turns this into the rating request.',
 );
 
+/**
+ * A paper strategy run filled an order that a fill alert watches (AL-live-06, AL-alerts-01). svc-quant derives a paper
+ * run's fills from the exchange's own closed candles; its alert sweep publishes one of these per fill and alert, keyed
+ * `quant.fill:<alertId>:<runId>:<n>`, so a crash between publish and mark publishes the same `eventId` again and
+ * svc-notify, which turns it into one inbox notice, writes it once.
+ *
+ * `mode` is always `paper`: nothing here is a real order, and no notice may read as one. Carries ids, decimal strings and
+ * the message the person's own template rendered from the allow-listed fields; never source code, keys or a balance.
+ * `channels` are the out-of-app channels the person chose for this strategy; the in-app notice is written regardless.
+ */
+export const quantOrderFilled = defineEvent(
+  'quant',
+  'order',
+  'filled',
+  1,
+  z.object({
+    eventId: z.string().min(1).max(300),
+    userId: userIdSchema,
+    strategyId: z.string().min(1).max(128),
+    strategyVersion: z.number().int().positive(),
+    runId: z.string().min(1).max(128),
+    alertId: z.string().min(1).max(128),
+    mode: z.literal('paper'),
+    symbol: z.string().min(1).max(64),
+    side: z.enum(['buy', 'sell']),
+    qty: amountSchema,
+    price: amountSchema,
+    filledAt: z.string().datetime({ offset: true }),
+    message: z.string().min(1).max(600),
+    channels: z.array(z.enum(['email', 'sms', 'push'])).max(3),
+  }),
+  'A paper strategy run filled an order under a fill alert. svc-notify writes one inbox notice per event id.',
+);
+
 // ── blueprint (§7.1) ─────────────────────────────────────────────────────────
 //
 // Doctrine §0.7 governs these payloads as much as any UI string: nothing here
@@ -2068,6 +2102,7 @@ export const EVENT_CATALOG = {
   buybackExecuted,
   bankMarginCalled,
   supportTicketResolved,
+  quantOrderFilled,
   personalRequestCreated,
   personalRequestSettled,
   personalTransferPosted,

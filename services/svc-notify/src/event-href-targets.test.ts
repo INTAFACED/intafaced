@@ -39,6 +39,8 @@ const LIVE_ROOMS = [
   '/agents/approvals',
   // The P2P board filtered to one maker, where a followed trader's new ad is (J-p2p-12 #4).
   '/p2p?makerId=:id',
+  // A strategy's own page, where its paper runs and fill alerts are (J-algo-dev-04 #6).
+  '/quant/strategies/:id',
 ];
 
 /** Detail rows IA-SPEC 2.3, 2.4, 2.6 and 2.9 give to bank, cex-spot, pay and agents. The app falls back to the nearest list room until they exist. */

@@ -195,6 +195,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
       'Inbox row support.rate_request asking the owner to rate a resolved request; email where an address is confirmed, and with no email sender set its email row waits pending vendor.email',
   },
   {
+    event: 'quantOrderFilled',
+    durable: 'notify-quant-order-filled',
+    subject: 'intafaced.quant.order.filled',
+    effect:
+      'Inbox row quant.fill for the owner of a paper strategy run that filled under their fill alert, once per event id; the chosen out-of-app channels each get a delivery row, refused by name when no sender is set',
+  },
+  {
     event: 'agentActionRejected',
     durable: 'notify-agent-action-rejected',
     subject: 'intafaced.agents.action.rejected',

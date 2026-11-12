@@ -13,6 +13,7 @@ import {
   agentUsageAlertCrossed,
   agentApprovalRequested,
   supportTicketResolved,
+  quantOrderFilled,
   fillSettled,
   kycApproved,
   ledgerFreezeUpdated,
@@ -43,6 +44,9 @@ import { noticeVenueDelisting } from './venue-delisting-notice.js';
 import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
+
+/** A paper strategy fill under a fill alert (AL-alerts-01). */
+export const QUANT_FILL_KIND = 'quant.fill';
 import {
   NOTIFY_EVENT_CONSUMERS,
   SKIPPED_NOTIFY_SUBJECTS,
@@ -1096,6 +1100,43 @@ export async function subscribeNotificationEvents(
           sourceSubject: supportTicketResolved.subject,
           // One ask per request: svc-support publishes it once, on the first resolve.
           sourceIdempotencyKey: payload.ticketId,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'quantOrderFilled', quantOrderFilled.subject, 'notify-quant-order-filled', async (payload) => {
+      // A paper strategy fill under the person's own fill alert (AL-alerts-01). svc-quant publishes it from the server, so
+      // the notice is written with no browser open; deduped on the event id, so a redelivery writes nothing new.
+      // The message was rendered by svc-quant from the person's template and the allow-listed fields only.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: QUANT_FILL_KIND,
+          titleKey: 'notify.quant.fill.title',
+          bodyKey: 'notify.quant.fill.body',
+          params: {
+            message: payload.message,
+            strategyId: payload.strategyId,
+            strategyVersion: String(payload.strategyVersion),
+            runId: payload.runId,
+            alertId: payload.alertId,
+            mode: payload.mode,
+            symbol: payload.symbol,
+            side: payload.side,
+            qty: payload.qty,
+            price: payload.price,
+            filledAt: payload.filledAt,
+          },
+          href: `/quant/strategies/${encodeURIComponent(payload.strategyId)}`,
+          severity: 'info',
+          sourceSubject: quantOrderFilled.subject,
+          sourceIdempotencyKey: payload.eventId,
+          // The out-of-app channels the person chose for this strategy; each gets a delivery row, refused by name when
+          // the platform has no sender for it. None chosen is inbox only.
+          outOfApp: payload.channels.length > 0,
+          ...(payload.channels.length > 0 ? { askedChannels: payload.channels } : {}),
         }),
       );
     }),
