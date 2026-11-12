@@ -83,6 +83,20 @@ export const venueMarketSchema = z.object({
       offHoursRule: maybeKnown(z.string()),
     }),
   ),
+  // The margin account a market's deployer keeps for it, apart from the main account, and its open interest with the
+  // deployer's cap (J-derivatives-27 #7 #8). Absent from an older door: read as not published.
+  marginAccount: maybeKnown(z.object({ name: z.string(), collateralAsset: z.string(), marginMode })).optional(),
+  openInterest: maybeKnown(z.object({ size: decimalSchema, capSize: decimalSchema.nullable() })).optional(),
+  // The latest deployer's halt or split that settled the market's positions, as the venue reports it (J-derivatives-27 #9 #10).
+  lastEvent: maybeKnown(
+    z.object({
+      kind: z.enum(['deployer_halt', 'split']),
+      eventAt: isoTime,
+      settlementPrice: decimalSchema,
+      reopenedAt: isoTime.nullable(),
+      splitRatio: z.string().nullable(),
+    }),
+  ).optional(),
   // The contract strip's figures, each the venue's own or "not published" (J-derivatives-01 #4).
   contractSize: maybeKnown(decimalSchema),
   mark: maybeKnown(decimalSchema),
@@ -91,6 +105,31 @@ export const venueMarketSchema = z.object({
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
 /** A perpetual's funding as the venue publishes it (J-derivatives-01 #4). */
 export type VenueFunding = Extract<VenueMarket['funding'], { known: true }>['value'];
+/** A deployer's halt or a split that settled a market's positions, as the venue reports it (J-derivatives-27 #9 #10). */
+export type VenueMarketEvent = Extract<NonNullable<VenueMarket['lastEvent']>, { known: true }>['value'];
+/** One owner's balance in a market deployer's own margin account, as the venue reports it (J-derivatives-27 #7). */
+export const venueMarketMarginSchema = z.object({
+  symbol: z.string(),
+  name: z.string(),
+  collateralAsset: z.string(),
+  marginMode,
+  free: decimalSchema,
+  locked: decimalSchema,
+  total: decimalSchema,
+});
+export type VenueMarketMargin = z.infer<typeof venueMarketMarginSchema>;
+/** One of the owner's settlements in a deployer's halt or a split, as the venue records it (J-derivatives-27 #9 #10). */
+export const venueSettlementSchema = z.object({
+  symbol: z.string(),
+  kind: z.enum(['deployer_halt', 'split']),
+  side: z.enum(['long', 'short']).nullable(),
+  size: decimalSchema,
+  price: decimalSchema,
+  realisedPnl: signedDecimalSchema,
+  cancelledOrders: z.array(z.string().nullable()),
+  settledAt: isoTime,
+});
+export type VenueSettlement = z.infer<typeof venueSettlementSchema>;
 /** A stock perpetual's home-market session as the venue publishes it (J-derivatives-27). */
 export type VenueSession = Extract<VenueMarket['session'], { known: true }>['value'];
 
@@ -355,7 +394,15 @@ export type VenueIntent =
   | { kind: 'cancel_order'; symbol: string; clientOrderKey: string }
   | { kind: 'update_leverage'; symbol: string; leverageBps: number; marginMode: VenueMarginMode }
   | { kind: 'approve_builder_fee'; builder: string; maxFeeBps: string }
-  | { kind: 'withdraw'; asset: string; amount: string; destination: string; withdrawalKey: string };
+  | { kind: 'withdraw'; asset: string; amount: string; destination: string; withdrawalKey: string }
+  | {
+      kind: 'market_margin_transfer';
+      symbol: string;
+      direction: 'into_market' | 'out_of_market';
+      asset: string;
+      amount: string;
+      moveKey: string;
+    };
 
 // ── Business keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -381,6 +428,8 @@ export const keys = {
       ? `builder-approval:${part(owner)}:${part(venueId)}:${part(builder)}:${maxFeeBps}`
       : `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}`,
   withdraw: (owner: string, draft: string) => `withdraw:${part(owner)}:${draft}`,
+  marketMargin: (owner: string, symbol: string, direction: 'into_market' | 'out_of_market', draft: string) =>
+    `market-margin:${part(owner)}:${part(symbol)}:${direction === 'into_market' ? 'in' : 'out'}:${draft}`,
 };
 
 // ── Figures ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -469,6 +518,12 @@ export function venueApi(api: ApiClient) {
     /** The owner's own sub-accounts, as the venue lists them on the main account (J-agents-08 #2). */
     subAccounts: (owner: string, signal?: AbortSignal) =>
       read('/sub-accounts', asOf(z.array(z.object({ subAccount: z.string(), name: z.string() }))), { owner }, signal),
+    /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
+    marketMargin: (owner: string, symbol: string, signal?: AbortSignal) =>
+      read('/market-margin', asOf(venueMarketMarginSchema), { owner, symbol }, signal),
+    /** The owner's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
+    settlements: (owner: string, since: string, signal?: AbortSignal) =>
+      read('/settlements', asOf(z.array(venueSettlementSchema)), { owner, since }, signal),
     leverage: (owner: string, symbol: string, signal?: AbortSignal, venueId?: string) =>
       read('/leverage', asOf(venueLeverageSchema.nullable()), { owner, symbol, venueId }, signal),
     builderFeeApproval: (owner: string, signal?: AbortSignal, venueId?: string) =>
