@@ -76,16 +76,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import {
-  JOURNEYS_ARTIFACT,
-  fetchInputs,
-  isMainRun,
-  judge,
-  manifestsAt,
-  moneyCodeDirs,
-  readReport,
-  rootInputs,
-} from './journey-verdict.mjs';
+import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
@@ -779,11 +770,6 @@ export function makeIo(repo, token) {
       return out;
     },
     verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
-    // Whether a path is in money code, by the default branch's manifests (the base's copy this script runs from).
-    moneyCode: async (paths) => {
-      const dirs = moneyCodeDirs(manifestsAt(BASE_ROOT));
-      return paths.some((f) => dirs.has(packageOf(f)));
-    },
   };
 }
 
@@ -1041,9 +1027,8 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *   - one whose paths share an area (areasOf) with a commit on main from where the step last passed to the newest main
  *     commit the head holds (`upTo`): the commits one of which broke it, and any that tried to fix it since
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
- * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) or money
- * code (`touches.money`: AGENTS.md "How work flows" 8, "a red in a package your PR changes always blocks the merge, even
- * when main shares it") is in every red's area, so nothing it inherited is passed over. A money step's red (the verdict's
+ * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) is in every
+ * red's area, so nothing it inherited is passed over. A money step's red (the verdict's
  * money rule) is never passed over, for any pull request, except one that failed, then passed on its retry both on this
  * head and in main's run (project-state OWNER 278: it "stops only its own journeys"), which stops only the pull
  * requests in its area like any other inherited red.
@@ -1074,12 +1059,12 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
   if (main.problems.length)
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
-  if (touches.shared || touches.money)
+  if (touches.shared)
     return {
       blocking: red.map((x) => (sameOnMain(main, x) ? { ...x, onMain: true } : x)),
       passed: [],
       notes: [
-        `this pull request changes ${touches.shared ? "the journey stack's shared setup, which reaches every journey" : 'money code (AGENTS.md "How work flows" 8)'}, so every red counts, inherited or not`,
+        `this pull request changes the journey stack's shared setup, which reaches every journey, so every red counts, inherited or not`,
       ],
     };
   const mine = new Set([...touches.paths].flatMap(areasOf));
@@ -1096,7 +1081,7 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     // A money step is never passed over (REVIEW.md item 3: setting a money step aside is a quarantine); a red the verdict
     // didn't mark either way counts as money. The one exception is OWNER 278: a money step that failed, then passed on
     // its retry, here and in main's run (the same verdict line, so main's was a retry pass too), stops only the pull
-    // requests in its area, by the rules below; money code and shared setup still put a pull request in every area.
+    // requests in its area, by the rules below; shared setup still puts a pull request in every area.
     if (x.money !== false && x.retryFlaky !== true) {
       stop(`but it is a money step, so it stops every pull request`);
       continue;
@@ -1379,9 +1364,6 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     ]),
     paths: new Set(paths),
     shared: shared.length > 0,
-    // Money code by the base's manifests, or any package.json the pull request changes: a dependency on ledger-client it
-    // adds, or a new package, would make money code the base can't see (CI review on e288d257).
-    money: paths.some((f) => /(^|\/)package\.json$/.test(f)) || (io.moneyCode ? await io.moneyCode(paths) : false),
   };
   let main;
   let upTo;
