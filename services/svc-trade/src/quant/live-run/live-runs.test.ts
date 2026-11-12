@@ -341,6 +341,29 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     expect((await positions())[0]!.size).toBe(a('0.01'));
   });
 
+  it('a freeze that cannot be read places nothing and restarts nothing, logged once; once read again the run trades', async () => {
+    let v = await runs.start(person, {}, terms());
+    v = await runs.submit(person, v.runId, v.next!.actionKey, await sign(v.next!.prepared));
+    expect(v.state).toBe('running');
+    freeze.down = true;
+    await runs.tick();
+    clock += 1_500;
+    await runs.tick();
+    expect(await store.orders(USER, v.runId)).toEqual([]);
+    expect(await positions()).toEqual([]);
+    expect((await store.events(USER, v.runId)).filter((e) => e.kind === 'freeze_unread')).toHaveLength(1);
+    // A dead process is not restarted while the freeze can't be read either.
+    await runs.killProcess(person, v.runId);
+    clock += 1_500;
+    await runs.tick();
+    await runs.tick();
+    expect((await store.find(USER, v.runId))!).toMatchObject({ state: 'running', restarts: 0 });
+    expect(await store.orders(USER, v.runId)).toEqual([]);
+    freeze.down = false;
+    await runs.tick();
+    expect((await store.find(USER, v.runId))!.state).toBe('unknown');
+  });
+
   it("another person's run answers as a missing one; the plain door refuses a run's keys", async () => {
     const v = await live();
     const stranger = {

@@ -1048,7 +1048,13 @@ export class LiveRuns {
             if (!run || !STOPPABLE.includes(run.state)) return;
             if (!frozen.has(run.userId))
               frozen.set(run.userId, this.deps.freeze ? await this.deps.freeze.frozen(run.userId).catch(() => null) : null);
-            if (frozen.get(run.userId) === true) return this.freezeStop(run);
+            const isFrozen = frozen.get(run.userId);
+            if (isFrozen === true) return this.freezeStop(run);
+            // The freeze can't be read (identity down, refused, or not wired): this pass places nothing and restarts
+            // nothing for the run, and says so once per outage. A live process keeps its heartbeat, so the outage alone
+            // never spends a restart attempt.
+            if (isFrozen !== false) return this.freezeUnread(run);
+            this.unreadFreeze.delete(this.id(run));
             if (this.workers.has(this.id(run)) && run.state === 'running') return this.step(run);
             return this.recover(run);
           });
@@ -1061,6 +1067,21 @@ export class LiveRuns {
     } finally {
       this.ticking = false;
     }
+  }
+
+  /** Run ids whose freeze read failed on the last pass, so the outage is logged once, not on every pass. */
+  private readonly unreadFreeze = new Set<string>();
+
+  private async freezeUnread(r: LiveRunRecord): Promise<void> {
+    if (this.workers.has(this.id(r)) && r.state === 'running')
+      await this.deps.store.beat(r.userId, r.runId, this.deps.now(), r.strategyState);
+    if (this.unreadFreeze.has(this.id(r))) return;
+    this.unreadFreeze.add(this.id(r));
+    await this.log(
+      r,
+      'freeze_unread',
+      'The account freeze could not be read, so the run places no order and restarts nothing until it can.',
+    );
   }
 
   private async freezeStop(r: LiveRunRecord): Promise<void> {
