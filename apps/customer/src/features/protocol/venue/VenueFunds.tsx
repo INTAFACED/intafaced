@@ -113,7 +113,7 @@ function Connected({ api, t, account }: { api: Api; t: Translate; account: strin
         ))}
       </DataTable>
       <p className="muted">{t('fundsAt', { block: read.blockNumber })}</p>
-      <form className="protocol-quote" aria-label={t('fundsForm')} onSubmit={(event) => void build(event)}>
+      <form className="protocol-quote protocol-venue-funds" aria-label={t('fundsForm')} onSubmit={(event) => void build(event)}>
         <fieldset>
           <legend>{t('fundsDirection')}</legend>
           {(['deposit', 'withdraw'] as const).map((k) => (
