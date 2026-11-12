@@ -75,276 +75,276 @@ function screeningSwitch(env) {
   return out;
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
+const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
   name: 'identity',
-  env: () =>
-    screeningSwitch({
-      ...c('svc-identity', PORTS.identity),
-      DATABASE_URL: dbUrl('svc_identity', secrets),
-      LEDGER_URL: urlOf('ledger'),
-      // `LOCAL_STACK_IDENTITY_REGISTRATION=closed` on a start or restart publishes sign-up as closed, so its refusal can be
-      // seen too (J-identity-01 #1).
-      REGISTRATION_OPEN: process.env.LOCAL_STACK_IDENTITY_REGISTRATION === 'closed' ? 'false' : 'true',
-      // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
-      // http://localhost:3210 for passkeys. Not the production relying party.
-      WEBAUTHN_ENABLED: 'true',
-      WEBAUTHN_RP_ID: 'localhost',
-      WEBAUTHN_RP_NAME: 'INTAFACED (LOCAL TEST)',
-      WEBAUTHN_ORIGIN: CUSTOMER_LOCALHOST_ORIGIN,
-      IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
-      IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
-      // Owner pay-scope grant. Identity asks pay at login. Unset leaves sessions without pay:*.
-      PAY_URL: urlOf('pay'),
-      // Edge reads each caller's current account authority with this key; without it
-      // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
-      IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
-      // LOCAL TEST ONLY (Nitro, option B, 2026-10-13). Required, no default, owner-unpublished: how long a
-      // two-person action approval lives. 600 s is a local test value, not an owner decision. The labelled
-      // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
-      // test accounts; "LOCAL TEST — not a real approval".
-      IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
-      IDENTITY_ACTION_APPROVAL_POLICIES: testValue('IDENTITY_ACTION_APPROVAL_POLICIES'),
-      // LOCAL TEST life of a staff invite's first-connection link (J-ops-console-09 #2), labelled TEST in the same profile,
-      // never an owner decision. Blank refuses every invite (identity.staff_invite_ttl_unset).
-      IDENTITY_STAFF_INVITE_TTL_SECONDS: testValue('IDENTITY_STAFF_INVITE_TTL_SECONDS'),
-      // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
-      // transport, a lifetime, and a rate budget are published. local-outbox is refused
-      // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
-      // not an owner decision. The confirm link is written to the outbox file, labelled
-      // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
-      // `LOCAL_STACK_IDENTITY_MAIL=off` on a start or restart leaves the transport out, as a build with no mail provider
-      // runs, so the sign-up page's "email is switched off" notice can be seen (J-identity-01 #4).
-      ...(process.env.LOCAL_STACK_IDENTITY_MAIL === 'off'
-        ? {}
-        : { IDENTITY_MAIL_TRANSPORT: 'local-outbox', IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }),
-      IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
-      IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
-      IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
-      // LOCAL TEST ONLY, not owner decisions: another confirmation mail after 10 s (short, so a journey can see the early
-      // refusal and still send five in an hour), and five wrong codes inside the hour hold the codes (J-identity-01 #7).
-      IDENTITY_EMAIL_CONFIRM_RESEND_SECONDS: '10',
-      IDENTITY_EMAIL_CONFIRM_CODE_MAX_ATTEMPTS: '5',
-      // LOCAL TEST ONLY. Sign-up refuses until the owner publishes its numbers (I-signin-sessions-18,
-      // I-kyc-compliance-06). These are for this stack, not owner decisions: a code lives 10 minutes, five wrong
-      // codes lock it, a new code after 30 seconds, ten sign-ups per address an hour. AQ is closed so the
-      // journey can show the per-country switch refusing; it says nothing about any real country.
-      IDENTITY_FLOW_SUBJECT_KEY: secrets.identityFlowSubject,
-      IDENTITY_SIGNUP_MIN_AGE_YEARS: '18',
-      IDENTITY_SIGNUP_CODE_TTL_SECONDS: '600',
-      IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS: '5',
-      IDENTITY_SIGNUP_RESEND_SECONDS: '30',
-      IDENTITY_SIGNUP_REQUEST_MAX: '10',
-      IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
-      IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
-      // Sign-in by a mailed code (J-identity-02 #3): TEST values from the profile file, not owner decisions.
-      IDENTITY_LOGIN_CODE_TTL_SECONDS: testValue('IDENTITY_LOGIN_CODE_TTL_SECONDS'),
-      IDENTITY_LOGIN_CODE_MAX_ATTEMPTS: testValue('IDENTITY_LOGIN_CODE_MAX_ATTEMPTS'),
-      IDENTITY_LOGIN_CODE_RESEND_SECONDS: testValue('IDENTITY_LOGIN_CODE_RESEND_SECONDS'),
-      IDENTITY_LOGIN_CODE_REQUEST_MAX: testValue('IDENTITY_LOGIN_CODE_REQUEST_MAX'),
-      IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS'),
-      // Handle change cap (J-pay-03 #2): a TEST value from the profile file, not an owner decision.
-      IDENTITY_HANDLE_CHANGE_MAX: testValue('IDENTITY_HANDLE_CHANGE_MAX'),
-      // Receive by email or phone (J-pay-03 #6): TEST values from the profile file, not owner decisions. No text sender is
-      // built in, so adding a phone shows the "texts are switched off" notice on every stack.
-      IDENTITY_RECEIVE_CONTACT_MAX: testValue('IDENTITY_RECEIVE_CONTACT_MAX'),
-      IDENTITY_RECEIVE_CONTACT_CODE_TTL_SECONDS: testValue('IDENTITY_RECEIVE_CONTACT_CODE_TTL_SECONDS'),
-      IDENTITY_RECEIVE_CONTACT_CODE_MAX_ATTEMPTS: testValue('IDENTITY_RECEIVE_CONTACT_CODE_MAX_ATTEMPTS'),
-      // Password reset and username recovery (J-identity-03): TEST values from the profile file, not owner decisions.
-      IDENTITY_PASSWORD_RESET_TTL_SECONDS: testValue('IDENTITY_PASSWORD_RESET_TTL_SECONDS'),
-      // `LOCAL_STACK_IDENTITY_BREACH_LIST=off` on a start or restart leaves the breached-password list unset, as a build
-      // without one runs, so the sign-up page's "the screening list is not set" can be seen (J-identity-01 #2).
-      ...(process.env.LOCAL_STACK_IDENTITY_BREACH_LIST === 'off'
-        ? {}
-        : { IDENTITY_BREACHED_PASSWORDS_FILE: testValue('IDENTITY_BREACHED_PASSWORDS_FILE') }),
-      IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS: testValue('IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS'),
-      IDENTITY_PASSWORD_RESET_REQUEST_MAX: testValue('IDENTITY_PASSWORD_RESET_REQUEST_MAX'),
-      IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS'),
-      IDENTITY_NEW_DEVICE_CHECK: testValue('IDENTITY_NEW_DEVICE_CHECK'),
-      IDENTITY_NEW_DEVICE_TTL_SECONDS: testValue('IDENTITY_NEW_DEVICE_TTL_SECONDS'),
-      IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
-      // `LOCAL_STACK_IDENTITY_MFA_RESET_WAIT=off` on a start or restart leaves the reset's waiting time blank, as production is
-      // until the owner sets it, so its refusal pointing to Support can be seen (J-identity-05 #2).
-      ...(process.env.LOCAL_STACK_IDENTITY_MFA_RESET_WAIT === 'off'
-        ? {}
-        : { IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS') }),
-      IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: testValue('IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS'),
-      // LOCAL TEST: a trade-ops operator may restrict one account's trading with a second person's approval (J-identity-08 #7).
-      // Off by default, where identity keeps refusing the change with operator.denied.
-      IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: testValue('IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL'),
-      IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: testValue('IDENTITY_KYC_REQUIREMENTS_BY_LEVEL'),
-      IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: testValue('IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL'),
-      IDENTITY_KYC_REJECT_REASONS: testValue('IDENTITY_KYC_REJECT_REASONS'),
-      IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL'),
-      IDENTITY_KYC_CAPABILITY_REASONS: testValue('IDENTITY_KYC_CAPABILITY_REASONS'),
-      IDENTITY_TRADING_RESTRICTION_REASONS: testValue('IDENTITY_TRADING_RESTRICTION_REASONS'),
-      IDENTITY_APPEAL_WINDOW_DAYS: testValue('IDENTITY_APPEAL_WINDOW_DAYS'),
-      IDENTITY_APPEAL_DECISION_REASONS: testValue('IDENTITY_APPEAL_DECISION_REASONS'),
-      IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY'),
-      IDENTITY_KYC_UPLOAD_MAX_BYTES: testValue('IDENTITY_KYC_UPLOAD_MAX_BYTES'),
-      IDENTITY_KYC_UPLOAD_TYPES: testValue('IDENTITY_KYC_UPLOAD_TYPES'),
-      // `LOCAL_STACK_IDENTITY_POA_RULE=off` on a start or restart leaves the recency rule blank, so its refusal can be seen
-      // too (J-identity-08 #5).
-      ...(process.env.LOCAL_STACK_IDENTITY_POA_RULE === 'off'
-        ? {}
-        : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
-      IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
-      // The trading checks' sanctions list of persons (J-cex-spot-01 #3): one labelled TEST person from the profile, never a
-      // real name or an owner list. `LOCAL_STACK_IDENTITY_SANCTIONS_LIST=off` on a start or restart leaves it blank, as
-      // production is until the owner sets one, so the check's kyc.screening_list_unset refusal can be seen.
-      ...(process.env.LOCAL_STACK_IDENTITY_SANCTIONS_LIST === 'off'
-        ? {}
-        : { IDENTITY_SANCTIONS_PERSONS_LIST: testValue('IDENTITY_SANCTIONS_PERSONS_LIST') }),
-      // `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` on a start or restart publishes the one TEST membership tier above, so the
-      // published tier can be seen (J-wallet-01 #6); without it the tiers are blank and Account says membership is not offered.
-      ...(process.env.LOCAL_STACK_IDENTITY_MEMBERSHIP === 'test'
-        ? { IDENTITY_MEMBERSHIP_TIERS: JSON.stringify(TEST_MEMBERSHIP_TIERS) }
-        : {}),
-      IDENTITY_KYC_HANDOFF_TTL_SECONDS: testValue('IDENTITY_KYC_HANDOFF_TTL_SECONDS'),
-      // `LOCAL_STACK_IDENTITY_KYC_ATTEMPTS=off` on a start or restart leaves the attempt limit blank (all three), so the
-      // page's "no limit is set" can be seen too (J-identity-08 #4).
-      ...(process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS === 'off'
-        ? {}
-        : {
-            IDENTITY_KYC_MAX_DENIALS: testValue('IDENTITY_KYC_MAX_DENIALS'),
-            IDENTITY_KYC_DENIAL_WINDOW_HOURS: testValue('IDENTITY_KYC_DENIAL_WINDOW_HOURS'),
-            IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
-          }),
-      IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: testValue('IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS'),
-      // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
-      // for, so a journey can see the lock still holding with its end time.
-      IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
-      // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
-      IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
-      // LOCAL TEST ONLY: seals each API key's request-signing secret (secrets.json); a key that places orders signs
-      // every request (DV-auth-01), so without it such a key is refused at creation.
-      API_KEY_SIGNING_ENC_KEY: secrets.identityApiKeySigning,
-      // The request-signing timestamp window (J-developer-04 #2, J-developer-02 #6): a TEST value, not an owner decision.
-      // `LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW=off` on a start or restart leaves it blank, as production is until the
-      // owner sets it, so a journey can see every signed request refused with auth.request_window_unset.
-      IDENTITY_REQUEST_SIGN_WINDOW_SECONDS:
-        process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW === 'off' ? '' : testValue('IDENTITY_REQUEST_SIGN_WINDOW_SECONDS'),
-      // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
-      // off and the founder console's document list and viewer refuse kyc_doc.unwired.
-      IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
-      // LOCAL TEST ONLY: the pay QR signing key (PP-send-request-11), made on this machine (secrets.json) and labelled with the
-      // `local-test:` marker, which identity refuses at boot unless APP_ENV is exactly dev or test. Not an owner key.
-      // `LOCAL_STACK_IDENTITY_PAY_QR_KEY=off` on a start or restart leaves it blank, as production is until the owner sets
-      // one, so a journey can see codes refused with identity.qr_key_unset.
-      ...(process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY === 'off' ? {} : { IDENTITY_PAY_QR_KEY: `local-test:${secrets.identityPayQr}` }),
-      // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
-      // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
-      // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door
-      // (support:ops: the queue and request workspace at /support, help articles, help-centre and attachment settings,
-      // contact channels and request forms), the support desk's read-only lookup of one customer's records in another
-      // module (support:lookup: copy follows, bots and quotes on the trade desk), the notify desk's writes (admin:write: the status page and notices) and the
-      // campaigns desk (campaigns:ops: build, ask, approve, go live). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
-      // session here (svc-trade's insurance top-up among them), the same scope the local gates' operator tokens already
-      // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
-      // sub-account. admin:treasury and every pay: scope stay off.
-      IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,support:lookup,campaigns:ops',
-      // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
-      // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
-      IDENTITY_MAX_SUB_ACCOUNTS: '10',
-      // Watchlist and saved-screen caps (C-alerts-scan-05, -07): explicit LOCAL TEST values, not owner limits (the owner
-      // has not published them; blank refuses every write that needs one). 10 named lists, 100 symbols per list, 10 screens.
-      IDENTITY_WATCHLIST_LIST_CAP: '10',
-      IDENTITY_WATCHLIST_SYMBOL_CAP: '100',
-      IDENTITY_SAVED_SCREEN_CAP: '10',
-      // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
-      // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
-      IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
-      IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
-      IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
-      // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
-      // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
-      // J-developer-03 can show the fourth refused. `LOCAL_STACK_IDENTITY_KEY_CAP=off` on a start or restart leaves it
-      // blank, so J-developer-03 #8 can see that refusal too.
-      ...(process.env.LOCAL_STACK_IDENTITY_KEY_CAP === 'off'
-        ? {}
-        : { IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3' }),
-      // Keys per sub-account (J-developer-15 #2): an explicit LOCAL TEST value, not an owner limit. Blank refuses every
-      // sub-account key with identity.portfolio_key_cap_unset; `LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP=off` on a start or
-      // restart leaves it blank so that refusal can be seen.
-      ...(process.env.LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP === 'off' ? {} : { IDENTITY_PORTFOLIO_KEYS_MAX: '2' }),
-      // Developer roles in an organisation (J-developer-15 #4): an explicit LOCAL TEST role set, not the owner's. Blank is
-      // `roles not set`; `LOCAL_STACK_IDENTITY_DEVELOPER_ROLES=off` on a start or restart leaves it blank so that state can be seen.
-      ...(process.env.LOCAL_STACK_IDENTITY_DEVELOPER_ROLES === 'off' ? {} : { IDENTITY_DEVELOPER_ROLES: 'keys_admin,keys_read' }),
-      // LOCAL TEST named developer sandboxes (J-developer-02 #2, #3), labelled in the same profile, never an owner decision.
-      // The code keeps no default: blank refuses a second sandbox with identity.sandbox_cap_unset, and
-      // `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a start or restart leaves it blank so that refusal can be seen.
-      ...(process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP === 'off'
-        ? {}
-        : { IDENTITY_SANDBOXES_MAX_BY_TIER: testValue('IDENTITY_SANDBOXES_MAX_BY_TIER') }),
-      IDENTITY_SANDBOX_BASE_URL: testValue('IDENTITY_SANDBOX_BASE_URL'),
-      // LOCAL TEST API rate tiers and grant ceiling (J-developer-06), labelled in the same profile, never an owner decision.
-      // Blank refuses every key call at the edge (edge.limits_unset) and every limit request (identity.rate_limits_unset);
-      // `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a start or restart leaves it blank so those can be seen.
-      ...(process.env.LOCAL_STACK_IDENTITY_RATE_LIMITS === 'off'
-        ? {}
-        : { IDENTITY_API_RATE_LIMITS: testValue('IDENTITY_API_RATE_LIMITS') }),
-      // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
-      // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
-      IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
-      // LOCAL TEST idle sign-out and signed-in device limit (I-signin-sessions-06, J-identity-06 #4), labelled in the same
-      // profile, never an owner decision. Off on a normal start, so every other journey signs in with no device limit;
-      // `LOCAL_STACK_IDENTITY_SESSION_LIMITS=on` on a restart sets both for J-identity-06 #4, which restarts without it after.
-      ...(process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS === 'on'
-        ? { SESSION_IDLE_SECONDS: testValue('SESSION_IDLE_SECONDS'), SESSION_MAX_CONCURRENT: testValue('SESSION_MAX_CONCURRENT') }
-        : {}),
-      // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
-      // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
-      // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
-      // One copy: the labelled TEST value in tooling/profiles/test-owner-values/identity.json.
-      IDENTITY_ACCOUNT_TIERS: testValue('IDENTITY_ACCOUNT_TIERS'),
-      // LOCAL TEST limit override policy (J-ops-console-04 #12), labelled TEST in the same profile, never an owner decision:
-      // blank refuses every override with identity.limit_ceiling_unset.
-      IDENTITY_LIMIT_OVERRIDE_POLICY: testValue('IDENTITY_LIMIT_OVERRIDE_POLICY'),
-      // LOCAL TEST staff roster (OWNER 44), labelled TEST in the same profile, never an owner decision: one TEST member per
-      // role (support, compliance, risk, finance), so staff journeys sign in to the console as staff, not as a founder
-      // (apps/customer/tests/real-app/staff.mjs). Identity reads it only with APP_ENV exactly dev or test and refuses boot with
-      // it anywhere else; production keeps the blank roster and the founder-only console.
-      IDENTITY_STAFF_TEST_ROSTER: testValue('IDENTITY_STAFF_TEST_ROSTER'),
-      // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
-      // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
-      // `LOCAL_STACK_IDENTITY_REFERRAL_WINDOW=off` on a start or restart leaves the attach window blank, so its refusal can
-      // be seen too (J-campaigns-05 #5); a plain restart puts the TEST value back.
-      ...(process.env.LOCAL_STACK_IDENTITY_REFERRAL_WINDOW === 'off'
-        ? {}
-        : { IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS') }),
-      IDENTITY_REFERRAL_CODE_LENGTH: testValue('IDENTITY_REFERRAL_CODE_LENGTH'),
-      // LOCAL TEST sign-in challenge (I-signin-sessions-30, J-identity-02 #2), labelled TEST in the same profile; the key is
-      // this stack's own (secrets.json). `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER=<n>` on a start or restart sets the
-      // failure count, so a journey can see the challenge; a plain restart puts the TEST value back.
-      // `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND=<label>` beside it signs with a key derived from the stack's secret and
-      // that label. Identity counts an address's failures under a hash keyed by it, so the journey starts from no failures
-      // and its own 15-minute window, not one the run's earlier wrong passwords opened that could close mid-step (#7988).
-      IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES:
-        process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER || testValue('IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES'),
-      IDENTITY_SIGNIN_CHALLENGE_BITS: testValue('IDENTITY_SIGNIN_CHALLENGE_BITS'),
-      IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: testValue('IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS'),
-      IDENTITY_SIGNIN_CHALLENGE_KEY:
-        process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND && secrets.identitySigninChallenge
-          ? createHmac('sha256', secrets.identitySigninChallenge)
-              .update(`local-test:signin-challenge-round:${process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND}`)
-              .digest('hex')
-          : secrets.identitySigninChallenge,
-      // LOCAL TEST one-tap share tags (RC-campaigns-06, J-campaigns-05 #2): the visit limit is labelled TEST in the same
-      // profile; the signing key is derived from this stack's own sign-in challenge secret (secrets.json), so it is valid
-      // nowhere else and needs no new secret name. `LOCAL_STACK_IDENTITY_SHARE_TAG_KEY=off` leaves it blank, as production is
-      // until the owner sets it, so the share.key_unset refusal can be seen; a plain restart puts it back. With no such secret
-      // (a caller that builds this env from a partial secrets object) the key stays blank too, never derived from nothing.
-      ...(process.env.LOCAL_STACK_IDENTITY_SHARE_TAG_KEY === 'off' || !secrets.identitySigninChallenge
-        ? {}
-        : { IDENTITY_SHARE_TAG_KEY: createHmac('sha256', secrets.identitySigninChallenge).update('local-test:share-tag').digest('hex') }),
-      IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE: testValue('IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE'),
-      // LOCAL TEST referral lapse period and sweep cadence (J-campaigns-05 #7), same profile. Blank period refuses the sweep
-      // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
-      IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS'),
-      IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS'),
-      // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset).
-      IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE'),
-      // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
-      // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
-      ...identityFounderEnv(),
-    }),
+  env: () => ({
+    ...c('svc-identity', PORTS.identity),
+    DATABASE_URL: dbUrl('svc_identity', secrets),
+    LEDGER_URL: urlOf('ledger'),
+    // `LOCAL_STACK_IDENTITY_REGISTRATION=closed` on a start or restart publishes sign-up as closed, so its refusal can be
+    // seen too (J-identity-01 #1).
+    REGISTRATION_OPEN: process.env.LOCAL_STACK_IDENTITY_REGISTRATION === 'closed' ? 'false' : 'true',
+    // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
+    // http://localhost:3210 for passkeys. Not the production relying party.
+    WEBAUTHN_ENABLED: 'true',
+    WEBAUTHN_RP_ID: 'localhost',
+    WEBAUTHN_RP_NAME: 'INTAFACED (LOCAL TEST)',
+    WEBAUTHN_ORIGIN: CUSTOMER_LOCALHOST_ORIGIN,
+    IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
+    IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
+    // Owner pay-scope grant. Identity asks pay at login. Unset leaves sessions without pay:*.
+    PAY_URL: urlOf('pay'),
+    // Edge reads each caller's current account authority with this key; without it
+    // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
+    IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
+    // LOCAL TEST ONLY (Nitro, option B, 2026-10-13). Required, no default, owner-unpublished: how long a
+    // two-person action approval lives. 600 s is a local test value, not an owner decision. The labelled
+    // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
+    // test accounts; "LOCAL TEST — not a real approval".
+    IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
+    IDENTITY_ACTION_APPROVAL_POLICIES: testValue('IDENTITY_ACTION_APPROVAL_POLICIES'),
+    // LOCAL TEST life of a staff invite's first-connection link (J-ops-console-09 #2), labelled TEST in the same profile,
+    // never an owner decision. Blank refuses every invite (identity.staff_invite_ttl_unset).
+    IDENTITY_STAFF_INVITE_TTL_SECONDS: testValue('IDENTITY_STAFF_INVITE_TTL_SECONDS'),
+    // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
+    // transport, a lifetime, and a rate budget are published. local-outbox is refused
+    // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
+    // not an owner decision. The confirm link is written to the outbox file, labelled
+    // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
+    // `LOCAL_STACK_IDENTITY_MAIL=off` on a start or restart leaves the transport out, as a build with no mail provider
+    // runs, so the sign-up page's "email is switched off" notice can be seen (J-identity-01 #4).
+    ...(process.env.LOCAL_STACK_IDENTITY_MAIL === 'off'
+      ? {}
+      : { IDENTITY_MAIL_TRANSPORT: 'local-outbox', IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }),
+    IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+    IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
+    IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
+    // LOCAL TEST ONLY, not owner decisions: another confirmation mail after 10 s (short, so a journey can see the early
+    // refusal and still send five in an hour), and five wrong codes inside the hour hold the codes (J-identity-01 #7).
+    IDENTITY_EMAIL_CONFIRM_RESEND_SECONDS: '10',
+    IDENTITY_EMAIL_CONFIRM_CODE_MAX_ATTEMPTS: '5',
+    // LOCAL TEST ONLY. Sign-up refuses until the owner publishes its numbers (I-signin-sessions-18,
+    // I-kyc-compliance-06). These are for this stack, not owner decisions: a code lives 10 minutes, five wrong
+    // codes lock it, a new code after 30 seconds, ten sign-ups per address an hour. AQ is closed so the
+    // journey can show the per-country switch refusing; it says nothing about any real country.
+    IDENTITY_FLOW_SUBJECT_KEY: secrets.identityFlowSubject,
+    IDENTITY_SIGNUP_MIN_AGE_YEARS: '18',
+    IDENTITY_SIGNUP_CODE_TTL_SECONDS: '600',
+    IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS: '5',
+    IDENTITY_SIGNUP_RESEND_SECONDS: '30',
+    IDENTITY_SIGNUP_REQUEST_MAX: '10',
+    IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
+    IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+    // Sign-in by a mailed code (J-identity-02 #3): TEST values from the profile file, not owner decisions.
+    IDENTITY_LOGIN_CODE_TTL_SECONDS: testValue('IDENTITY_LOGIN_CODE_TTL_SECONDS'),
+    IDENTITY_LOGIN_CODE_MAX_ATTEMPTS: testValue('IDENTITY_LOGIN_CODE_MAX_ATTEMPTS'),
+    IDENTITY_LOGIN_CODE_RESEND_SECONDS: testValue('IDENTITY_LOGIN_CODE_RESEND_SECONDS'),
+    IDENTITY_LOGIN_CODE_REQUEST_MAX: testValue('IDENTITY_LOGIN_CODE_REQUEST_MAX'),
+    IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS'),
+    // Handle change cap (J-pay-03 #2): a TEST value from the profile file, not an owner decision.
+    IDENTITY_HANDLE_CHANGE_MAX: testValue('IDENTITY_HANDLE_CHANGE_MAX'),
+    // Receive by email or phone (J-pay-03 #6): TEST values from the profile file, not owner decisions. No text sender is
+    // built in, so adding a phone shows the "texts are switched off" notice on every stack.
+    IDENTITY_RECEIVE_CONTACT_MAX: testValue('IDENTITY_RECEIVE_CONTACT_MAX'),
+    IDENTITY_RECEIVE_CONTACT_CODE_TTL_SECONDS: testValue('IDENTITY_RECEIVE_CONTACT_CODE_TTL_SECONDS'),
+    IDENTITY_RECEIVE_CONTACT_CODE_MAX_ATTEMPTS: testValue('IDENTITY_RECEIVE_CONTACT_CODE_MAX_ATTEMPTS'),
+    // Password reset and username recovery (J-identity-03): TEST values from the profile file, not owner decisions.
+    IDENTITY_PASSWORD_RESET_TTL_SECONDS: testValue('IDENTITY_PASSWORD_RESET_TTL_SECONDS'),
+    // `LOCAL_STACK_IDENTITY_BREACH_LIST=off` on a start or restart leaves the breached-password list unset, as a build
+    // without one runs, so the sign-up page's "the screening list is not set" can be seen (J-identity-01 #2).
+    ...(process.env.LOCAL_STACK_IDENTITY_BREACH_LIST === 'off'
+      ? {}
+      : { IDENTITY_BREACHED_PASSWORDS_FILE: testValue('IDENTITY_BREACHED_PASSWORDS_FILE') }),
+    IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS: testValue('IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS'),
+    IDENTITY_PASSWORD_RESET_REQUEST_MAX: testValue('IDENTITY_PASSWORD_RESET_REQUEST_MAX'),
+    IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS'),
+    IDENTITY_NEW_DEVICE_CHECK: testValue('IDENTITY_NEW_DEVICE_CHECK'),
+    IDENTITY_NEW_DEVICE_TTL_SECONDS: testValue('IDENTITY_NEW_DEVICE_TTL_SECONDS'),
+    IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
+    // `LOCAL_STACK_IDENTITY_MFA_RESET_WAIT=off` on a start or restart leaves the reset's waiting time blank, as production is
+    // until the owner sets it, so its refusal pointing to Support can be seen (J-identity-05 #2).
+    ...(process.env.LOCAL_STACK_IDENTITY_MFA_RESET_WAIT === 'off'
+      ? {}
+      : { IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS') }),
+    IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: testValue('IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS'),
+    // LOCAL TEST: a trade-ops operator may restrict one account's trading with a second person's approval (J-identity-08 #7).
+    // Off by default, where identity keeps refusing the change with operator.denied.
+    IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: testValue('IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL'),
+    IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: testValue('IDENTITY_KYC_REQUIREMENTS_BY_LEVEL'),
+    IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: testValue('IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL'),
+    IDENTITY_KYC_REJECT_REASONS: testValue('IDENTITY_KYC_REJECT_REASONS'),
+    IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL'),
+    IDENTITY_KYC_CAPABILITY_REASONS: testValue('IDENTITY_KYC_CAPABILITY_REASONS'),
+    IDENTITY_TRADING_RESTRICTION_REASONS: testValue('IDENTITY_TRADING_RESTRICTION_REASONS'),
+    IDENTITY_APPEAL_WINDOW_DAYS: testValue('IDENTITY_APPEAL_WINDOW_DAYS'),
+    IDENTITY_APPEAL_DECISION_REASONS: testValue('IDENTITY_APPEAL_DECISION_REASONS'),
+    IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY'),
+    IDENTITY_KYC_UPLOAD_MAX_BYTES: testValue('IDENTITY_KYC_UPLOAD_MAX_BYTES'),
+    IDENTITY_KYC_UPLOAD_TYPES: testValue('IDENTITY_KYC_UPLOAD_TYPES'),
+    // `LOCAL_STACK_IDENTITY_POA_RULE=off` on a start or restart leaves the recency rule blank, so its refusal can be seen
+    // too (J-identity-08 #5).
+    ...(process.env.LOCAL_STACK_IDENTITY_POA_RULE === 'off'
+      ? {}
+      : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
+    IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
+    // The trading checks' sanctions list of persons (J-cex-spot-01 #3): one labelled TEST person from the profile, never a
+    // real name or an owner list. `LOCAL_STACK_IDENTITY_SANCTIONS_LIST=off` on a start or restart leaves it blank, as
+    // production is until the owner sets one, so the check's kyc.screening_list_unset refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_SANCTIONS_LIST === 'off'
+      ? {}
+      : { IDENTITY_SANCTIONS_PERSONS_LIST: testValue('IDENTITY_SANCTIONS_PERSONS_LIST') }),
+    // `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` on a start or restart publishes the one TEST membership tier above, so the
+    // published tier can be seen (J-wallet-01 #6); without it the tiers are blank and Account says membership is not offered.
+    ...(process.env.LOCAL_STACK_IDENTITY_MEMBERSHIP === 'test' ? { IDENTITY_MEMBERSHIP_TIERS: JSON.stringify(TEST_MEMBERSHIP_TIERS) } : {}),
+    IDENTITY_KYC_HANDOFF_TTL_SECONDS: testValue('IDENTITY_KYC_HANDOFF_TTL_SECONDS'),
+    // `LOCAL_STACK_IDENTITY_KYC_ATTEMPTS=off` on a start or restart leaves the attempt limit blank (all three), so the
+    // page's "no limit is set" can be seen too (J-identity-08 #4).
+    ...(process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS === 'off'
+      ? {}
+      : {
+          IDENTITY_KYC_MAX_DENIALS: testValue('IDENTITY_KYC_MAX_DENIALS'),
+          IDENTITY_KYC_DENIAL_WINDOW_HOURS: testValue('IDENTITY_KYC_DENIAL_WINDOW_HOURS'),
+          IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
+        }),
+    IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: testValue('IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS'),
+    // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
+    // for, so a journey can see the lock still holding with its end time.
+    IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
+    // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
+    IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+    // LOCAL TEST ONLY: seals each API key's request-signing secret (secrets.json); a key that places orders signs
+    // every request (DV-auth-01), so without it such a key is refused at creation.
+    API_KEY_SIGNING_ENC_KEY: secrets.identityApiKeySigning,
+    // The request-signing timestamp window (J-developer-04 #2, J-developer-02 #6): a TEST value, not an owner decision.
+    // `LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW=off` on a start or restart leaves it blank, as production is until the
+    // owner sets it, so a journey can see every signed request refused with auth.request_window_unset.
+    IDENTITY_REQUEST_SIGN_WINDOW_SECONDS:
+      process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW === 'off' ? '' : testValue('IDENTITY_REQUEST_SIGN_WINDOW_SECONDS'),
+    // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
+    // off and the founder console's document list and viewer refuse kyc_doc.unwired.
+    IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
+    // LOCAL TEST ONLY: the pay QR signing key (PP-send-request-11), made on this machine (secrets.json) and labelled with the
+    // `local-test:` marker, which identity refuses at boot unless APP_ENV is exactly dev or test. Not an owner key.
+    // `LOCAL_STACK_IDENTITY_PAY_QR_KEY=off` on a start or restart leaves it blank, as production is until the owner sets
+    // one, so a journey can see codes refused with identity.qr_key_unset.
+    ...(process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY === 'off' ? {} : { IDENTITY_PAY_QR_KEY: `local-test:${secrets.identityPayQr}` }),
+    // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
+    // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
+    // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door
+    // (support:ops: the queue and request workspace at /support, help articles, help-centre and attachment settings,
+    // contact channels and request forms), the support desk's read-only lookup of one customer's records in another
+    // module (support:lookup: copy follows, bots and quotes on the trade desk), the notify desk's writes (admin:write: the status page and notices) and the
+    // campaigns desk (campaigns:ops: build, ask, approve, go live). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
+    // session here (svc-trade's insurance top-up among them), the same scope the local gates' operator tokens already
+    // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
+    // sub-account. admin:treasury and every pay: scope stay off.
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,support:lookup,campaigns:ops',
+    // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
+    // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
+    IDENTITY_MAX_SUB_ACCOUNTS: '10',
+    // Watchlist and saved-screen caps (C-alerts-scan-05, -07): explicit LOCAL TEST values, not owner limits (the owner
+    // has not published them; blank refuses every write that needs one). 10 named lists, 100 symbols per list, 10 screens.
+    IDENTITY_WATCHLIST_LIST_CAP: '10',
+    IDENTITY_WATCHLIST_SYMBOL_CAP: '100',
+    IDENTITY_SAVED_SCREEN_CAP: '10',
+    // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
+    // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
+    IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
+    IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
+    IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
+    // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
+    // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
+    // J-developer-03 can show the fourth refused. `LOCAL_STACK_IDENTITY_KEY_CAP=off` on a start or restart leaves it
+    // blank, so J-developer-03 #8 can see that refusal too.
+    ...(process.env.LOCAL_STACK_IDENTITY_KEY_CAP === 'off'
+      ? {}
+      : { IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3' }),
+    // Keys per sub-account (J-developer-15 #2): an explicit LOCAL TEST value, not an owner limit. Blank refuses every
+    // sub-account key with identity.portfolio_key_cap_unset; `LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP=off` on a start or
+    // restart leaves it blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP === 'off' ? {} : { IDENTITY_PORTFOLIO_KEYS_MAX: '2' }),
+    // Developer roles in an organisation (J-developer-15 #4): an explicit LOCAL TEST role set, not the owner's. Blank is
+    // `roles not set`; `LOCAL_STACK_IDENTITY_DEVELOPER_ROLES=off` on a start or restart leaves it blank so that state can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_DEVELOPER_ROLES === 'off' ? {} : { IDENTITY_DEVELOPER_ROLES: 'keys_admin,keys_read' }),
+    // LOCAL TEST named developer sandboxes (J-developer-02 #2, #3), labelled in the same profile, never an owner decision.
+    // The code keeps no default: blank refuses a second sandbox with identity.sandbox_cap_unset, and
+    // `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a start or restart leaves it blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP === 'off'
+      ? {}
+      : { IDENTITY_SANDBOXES_MAX_BY_TIER: testValue('IDENTITY_SANDBOXES_MAX_BY_TIER') }),
+    IDENTITY_SANDBOX_BASE_URL: testValue('IDENTITY_SANDBOX_BASE_URL'),
+    // LOCAL TEST API rate tiers and grant ceiling (J-developer-06), labelled in the same profile, never an owner decision.
+    // Blank refuses every key call at the edge (edge.limits_unset) and every limit request (identity.rate_limits_unset);
+    // `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a start or restart leaves it blank so those can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_RATE_LIMITS === 'off' ? {} : { IDENTITY_API_RATE_LIMITS: testValue('IDENTITY_API_RATE_LIMITS') }),
+    // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
+    // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
+    IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
+    // LOCAL TEST idle sign-out and signed-in device limit (I-signin-sessions-06, J-identity-06 #4), labelled in the same
+    // profile, never an owner decision. Off on a normal start, so every other journey signs in with no device limit;
+    // `LOCAL_STACK_IDENTITY_SESSION_LIMITS=on` on a restart sets both for J-identity-06 #4, which restarts without it after.
+    ...(process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS === 'on'
+      ? { SESSION_IDLE_SECONDS: testValue('SESSION_IDLE_SECONDS'), SESSION_MAX_CONCURRENT: testValue('SESSION_MAX_CONCURRENT') }
+      : {}),
+    // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
+    // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
+    // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
+    // One copy: the labelled TEST value in tooling/profiles/test-owner-values/identity.json.
+    IDENTITY_ACCOUNT_TIERS: testValue('IDENTITY_ACCOUNT_TIERS'),
+    // LOCAL TEST limit override policy (J-ops-console-04 #12), labelled TEST in the same profile, never an owner decision:
+    // blank refuses every override with identity.limit_ceiling_unset.
+    IDENTITY_LIMIT_OVERRIDE_POLICY: testValue('IDENTITY_LIMIT_OVERRIDE_POLICY'),
+    // LOCAL TEST staff roster (OWNER 44), labelled TEST in the same profile, never an owner decision: one TEST member per
+    // role (support, compliance, risk, finance), so staff journeys sign in to the console as staff, not as a founder
+    // (apps/customer/tests/real-app/staff.mjs). Identity reads it only with APP_ENV exactly dev or test and refuses boot with
+    // it anywhere else; production keeps the blank roster and the founder-only console.
+    IDENTITY_STAFF_TEST_ROSTER: testValue('IDENTITY_STAFF_TEST_ROSTER'),
+    // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
+    // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
+    // `LOCAL_STACK_IDENTITY_REFERRAL_WINDOW=off` on a start or restart leaves the attach window blank, so its refusal can
+    // be seen too (J-campaigns-05 #5); a plain restart puts the TEST value back.
+    ...(process.env.LOCAL_STACK_IDENTITY_REFERRAL_WINDOW === 'off'
+      ? {}
+      : { IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS') }),
+    IDENTITY_REFERRAL_CODE_LENGTH: testValue('IDENTITY_REFERRAL_CODE_LENGTH'),
+    // LOCAL TEST sign-in challenge (I-signin-sessions-30, J-identity-02 #2), labelled TEST in the same profile; the key is
+    // this stack's own (secrets.json). `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER=<n>` on a start or restart sets the
+    // failure count, so a journey can see the challenge; a plain restart puts the TEST value back.
+    // `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND=<label>` beside it signs with a key derived from the stack's secret and
+    // that label. Identity counts an address's failures under a hash keyed by it, so the journey starts from no failures
+    // and its own 15-minute window, not one the run's earlier wrong passwords opened that could close mid-step (#7988).
+    IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES:
+      process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER || testValue('IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES'),
+    IDENTITY_SIGNIN_CHALLENGE_BITS: testValue('IDENTITY_SIGNIN_CHALLENGE_BITS'),
+    IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: testValue('IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS'),
+    IDENTITY_SIGNIN_CHALLENGE_KEY:
+      process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND && secrets.identitySigninChallenge
+        ? createHmac('sha256', secrets.identitySigninChallenge)
+            .update(`local-test:signin-challenge-round:${process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND}`)
+            .digest('hex')
+        : secrets.identitySigninChallenge,
+    // LOCAL TEST one-tap share tags (RC-campaigns-06, J-campaigns-05 #2): the visit limit is labelled TEST in the same
+    // profile; the signing key is derived from this stack's own sign-in challenge secret (secrets.json), so it is valid
+    // nowhere else and needs no new secret name. `LOCAL_STACK_IDENTITY_SHARE_TAG_KEY=off` leaves it blank, as production is
+    // until the owner sets it, so the share.key_unset refusal can be seen; a plain restart puts it back. With no such secret
+    // (a caller that builds this env from a partial secrets object) the key stays blank too, never derived from nothing.
+    ...(process.env.LOCAL_STACK_IDENTITY_SHARE_TAG_KEY === 'off' || !secrets.identitySigninChallenge
+      ? {}
+      : { IDENTITY_SHARE_TAG_KEY: createHmac('sha256', secrets.identitySigninChallenge).update('local-test:share-tag').digest('hex') }),
+    IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE: testValue('IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE'),
+    // LOCAL TEST referral lapse period and sweep cadence (J-campaigns-05 #7), same profile. Blank period refuses the sweep
+    // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
+    IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS'),
+    IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS'),
+    // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset).
+    IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE'),
+    // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
+    // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
+    ...identityFounderEnv(),
+  }),
 });
+
+export default (deps) => {
+  const def = service(deps);
+  return { ...def, env: () => screeningSwitch(def.env()) };
+};
