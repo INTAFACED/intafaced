@@ -394,7 +394,7 @@ async function find(env) {
   if (!/^\d+$/.test(env.RED_RUN)) throw new Error('RED_RUN must be a run id');
   const asked = parseSteps(env.STEPS);
   const gh = client(env.GH_TOKEN);
-  // `untraced`: a confirmed red that names no single merge (OWNER 289 item 6), so revert-unknown labels its issue.
+  // `untraced`: a confirmed red that names no single merge (OWNER 289 item 6), so settle-early starts the settle run.
   const none = (why, lines = [], untraced = false) => {
     summary(['### Journeys revert: nothing reverted', '', why, ...(lines.length ? ['', ...lines.map((l) => `- ${l}`)] : [])]);
     output({
@@ -539,37 +539,71 @@ async function noteBreakIssues(token, repo, notes) {
   return lines;
 }
 
-/** The red traced to no single merge (revert-find or the probe named none): note it on each journey's break issue. */
-/** Why no one is blamed. CONTROL_FAILED: the probe saw a candidate fail, but the control (the last passing commit, run
- *  again beside it) failed or did not run too. Pure. */
-export function unknownReason({ REASON, PROBED, GOOD }) {
-  if (REASON !== 'CONTROL_FAILED') return String(REASON);
-  const at = (x) => (SHA.test(x ?? '') ? `\`${x.slice(0, 10)}\`` : 'an unnamed commit');
-  return `the steps fail on ${at(PROBED)}, but also fail (or did not run) on ${at(GOOD)}, the last commit where they passed, run again on the same kind of runner: the red is not that merge's, so no one is blamed`;
-}
-
-async function unknown(env) {
+/** A confirmed journeys red (revert-find named its steps): start the settle run at once, beside the probe and the control
+ *  (main-bisect.yml settle-early). Only when it can't start does each journey's break issue open, as `main-unknown-red`. */
+async function settle(env) {
   need(env, 'GITHUB_REPOSITORY', 'STEPS', 'RED_RUN', 'REASON');
   if (!/^\d+$/.test(env.RED_RUN)) throw new Error('RED_RUN must be a run id');
   const repo = env.GITHUB_REPOSITORY;
-  const reason = unknownReason(env);
+  const reason = String(env.REASON);
   const steps = parseSteps(env.STEPS);
   const started = await startSettle(client(env.GH_TOKEN), repo, { steps, redRun: env.RED_RUN });
   if (started?.length)
     return summary([
-      '### Journeys revert: no single merge found',
+      '### Journeys revert: the steps run alone on main',
       '',
       reason,
       '',
-      `Started the settle run: ${steps.join(', ')} run alone on main's head. Passing, each gets a \`flaky\` issue; failing again, its journey gets a \`regression\` issue.`,
+      `Started the settle run: ${steps.join(', ')} run alone on main's head. Passing, each gets a \`flaky\` issue unless the probe names a merge; failing again, its journey gets a \`regression\` issue.`,
     ]);
   const notes = breakIssueNotes({
     steps,
     reason: `${reason.slice(0, 300)}; and the run of the steps alone on main's head did not start`,
     redRunUrl: `https://github.com/${repo}/actions/runs/${env.RED_RUN}`,
   }).map((n) => ({ ...n, opens: true }));
-  summary(['### Journeys revert: no single merge found', '', reason, '', ...(await noteBreakIssues(env.GH_TOKEN, repo, notes))]);
+  summary(['### Journeys revert: the steps run alone on main', '', reason, '', ...(await noteBreakIssues(env.GH_TOKEN, repo, notes))]);
   return 1;
+}
+
+/** The automatic revert opened for red run `redRun`, among pull requests (newest first): one the App opened on a
+ *  revert/auto- branch, open or merged, whose body names that run. A revert closed unmerged is no longer the cause. Pure. */
+export function revertForRun(pulls, redRun) {
+  return (
+    (pulls ?? []).find(
+      (p) =>
+        p?.user?.login === APP_LOGIN &&
+        String(p?.head?.ref ?? '').startsWith(BRANCH_PREFIX) &&
+        (p.state === 'open' || p.merged_at) &&
+        new RegExp(`/actions/runs/${redRun}\\b`).test(String(p.body ?? '')),
+    ) ?? null
+  );
+}
+
+/** Whether an issue's texts ({ user, body }) hold the workflow's settle record for red run `redRun`. Pure. */
+export function settledFor(texts, redRun) {
+  return (texts ?? []).some((t) => t?.user?.login === 'github-actions[bot]' && parseSettle(t.body)?.red_run === Number(redRun));
+}
+
+/** A merge was named after the settle passed: close each step's open `flaky` issue that this red's settle opened. */
+async function closeSettledFlaky(token, repo, { steps, redRun, revertUrl }) {
+  if (!token) return ['- No issues token, so no flaky issue was checked.'];
+  const gh = client(token);
+  const lines = [];
+  for (const step of steps) {
+    const title = flakyStepTitle(step);
+    const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "${title}"`);
+    const { json } = await gh('GET', `/search/issues?q=${q}&per_page=5`);
+    const issue = (json?.items ?? []).find((i) => i.title === title);
+    if (!issue) continue;
+    const { json: comments } = await gh('GET', `/repos/${repo}/issues/${issue.number}/comments?per_page=100`);
+    if (!settledFor([issue, ...(comments ?? [])], redRun)) continue;
+    await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, {
+      body: `The revert on main has since named the merge that broke this step in the same red and opened ${revertUrl}. The step is broken, not flaky: its journey's break issue tracks it, so this one closes.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+    });
+    await gh('PATCH', `/repos/${repo}/issues/${issue.number}`, { state: 'closed', state_reason: 'not_planned' });
+    lines.push(`- Closed #${issue.number}: ${title} (a merge was named)`);
+  }
+  return lines;
 }
 
 async function open(env) {
@@ -703,8 +737,15 @@ async function open(env) {
     ]);
     if (kind === 'journeys' && number && !dry) {
       // A failed note never undoes an opened revert: it is said in the summary.
-      const notes = breakIssueNotes({ steps, revertUrl: `https://github.com/${repo}/pull/${number}`, redRunUrl: runUrl });
+      const revertUrl = `https://github.com/${repo}/pull/${number}`;
+      const notes = breakIssueNotes({ steps, revertUrl, redRunUrl: runUrl });
       summary(['', ...(await noteBreakIssues(env.ISSUES_TOKEN, repo, notes).catch((e) => [`- Break issue not noted: ${e.message}`]))]);
+      // The settle ran beside the probe and may have passed first: its flaky issue for this red gives way to the revert.
+      summary([
+        ...(await closeSettledFlaky(env.ISSUES_TOKEN, repo, { steps, redRun: env.RED_RUN, revertUrl }).catch((e) => [
+          `- Flaky issues not checked: ${e.message}`,
+        ])),
+      ]);
     }
   } finally {
     if (token && !dry) {
@@ -956,6 +997,30 @@ function selfTest() {
     ],
     'a settle run that broke: a labelled main-unknown-red issue, never nothing',
   );
+  // Settle beside the probe (programme lead, 12 Nov 2026): a named merge wins over an early settle, in either order.
+  const app = (over) => ({
+    user: { login: 'intafaced-mac-agents[bot]' },
+    head: { ref: 'revert/auto-abc' },
+    state: 'open',
+    merged_at: null,
+    body: '- Red run: https://github.com/o/r/actions/runs/42 on `main`',
+    ...over,
+  });
+  eq(revertForRun([app({})], 42)?.state, 'open', 'an open App revert for this red run is found');
+  eq(
+    revertForRun([app({ state: 'closed', merged_at: '2026-11-12T10:00:00Z' })], '42')?.merged_at,
+    '2026-11-12T10:00:00Z',
+    'a merged one too',
+  );
+  eq(revertForRun([app({ state: 'closed' })], 42), null, 'one closed unmerged is no longer the cause');
+  eq(revertForRun([app({})], 4), null, 'planted fault: another run (42 is not 4) names no revert');
+  eq(revertForRun([app({ user: { login: 'ZenYoda3' } })], 42), null, 'only the App opens the automatic revert');
+  eq(revertForRun([app({ head: { ref: 'fix/42' } })], 42), null, 'only on a revert/auto- branch');
+  const rec42 = settleNotes({ steps: ['J-a-01#2'], back: true, sha: A, runUrl: 'u', redRunUrl: 'https://x/actions/runs/42', at: 't' })[0]
+    .body;
+  eq(settledFor([{ user: { login: 'github-actions[bot]' }, body: rec42 }], 42), true, 'the flaky issue this red settled');
+  eq(settledFor([{ user: { login: 'github-actions[bot]' }, body: rec42 }], 43), false, "another red's flaky issue stays open");
+  eq(settledFor([{ user: { login: 'ZenYoda3' }, body: rec42 }], 42), false, 'only the workflow writes the record');
   // #7936, plant 1's own revert, as it merged.
   eq(
     failingSteps(
@@ -994,14 +1059,6 @@ function selfTest() {
     'unfinished',
     'an unfinished confirm',
   );
-  eq(
-    /fail on `aaaaaaaaaa`, but also fail .* on `bbbbbbbbbb`.*no one is blamed/.test(
-      unknownReason({ REASON: 'CONTROL_FAILED', PROBED: A, GOOD: B }),
-    ),
-    true,
-    'a failed control blames no one',
-  );
-  eq(unknownReason({ REASON: 'x' }), 'x', 'any other reason as given');
   eq(
     culpritOf(revertBody({ repo: 'o/r', sha: A, subject: 's', prNumber: 7, redRun: 9, steps: ['J-a-01#2'], base: B, failing: [] })),
     A.slice(0, 10),
@@ -1329,6 +1386,20 @@ async function back(env) {
   if (env.SETTLE === 'true') {
     if (!/^\d+$/.test(env.RED_RUN ?? '')) throw new Error('RED_RUN must be a run id');
     const steps = parseSteps(env.STEPS);
+    if (back === true) {
+      // The probe beside this run named a merge first: its revert decides, so the pass opens no flaky issue.
+      const { json: pulls } = await client(env.GH_TOKEN)(
+        'GET',
+        `/repos/${env.GITHUB_REPOSITORY}/pulls?state=all&sort=created&direction=desc&per_page=50`,
+      );
+      const revert = revertForRun(pulls, env.RED_RUN);
+      if (revert)
+        return summary([
+          '### Journeys settle: passed alone, but a merge was named',
+          '',
+          `${steps.join(', ')} passed alone on \`${env.BAD.slice(0, 10)}\`, and the revert on main opened #${revert.number} for this red, so no \`flaky\` issue opens: the revert and its break issue decide.`,
+        ]);
+    }
     const notes = settleNotes({
       steps,
       back,
@@ -1384,14 +1455,14 @@ async function confirmFiles(env) {
   output({ files: files.join(' '), steps: parseSteps(env.STEPS).join(',') });
 }
 
-const COMMANDS = { trigger, find, open, unknown, early, confirm, back, 'confirm-files': confirmFiles };
+const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles };
 if (process.argv.includes('--self-test')) {
   selfTest();
   await selfTestRevoke();
 } else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {
-    console.error('usage: journeys-revert.mjs trigger|find|open|unknown|--self-test');
+    console.error('usage: journeys-revert.mjs trigger|find|open|settle|--self-test');
     process.exit(2);
   }
   cmd(process.env)
