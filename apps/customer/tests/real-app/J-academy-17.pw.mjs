@@ -1,7 +1,7 @@
 // World: restart
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { ADMIN } from './admin.mjs';
 import { api, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
@@ -181,18 +181,17 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
 // ─── #2 to #4: the certificate design and the issued list (AC-certificates-03) ───────────────────────────────────────
 // The Foundations design is one record every journey shares: this file activates it only inside #3 and switches it off
 // again before #3 ends, so no other file's certificate ever prints this file's TEST design.
-// These steps write (save, activate, export), so the person is the stack's TEST founder A in the console: the TEST
-// compliance role reads and reviews but holds no `admin:write` (identity's TEST roster), and svc-academy refuses its
-// writes `scope.denied`, as it should (PR #8107's first run 43225592421).
+// The person is the TEST compliance staff member, as in #1: saving, activating and deactivating a design and making an
+// export are compliance work (`admin:compliance`), which the compliance role holds and plain `admin:write` does not.
 
 const designCard = (page) => page.locator(`[data-cert-design="${CERT}"]`);
 const outcome = (page) => page.getByTestId('cert-desk-outcome');
 const SIGNER = { name: `TEST Signer ${J}`, role: 'TEST Head of Academy' };
 const designTitle = (n) => `TEST Foundations design ${run.read().stamp ?? ''} v${n}`;
 
-/** Opens the designs page as TEST founder A, with the Foundations card visible. */
-async function openDesigns(page) {
-  await founderSignIn(page, 'a');
+/** Opens the designs page as the compliance staff member, with the Foundations card visible. */
+async function openDesigns(page, browser) {
+  await staffSignIn(page, browser, 'compliance');
   await page.goto(`${ADMIN}/academy-ops/certificates/designs`);
   await expect(designCard(page)).toBeVisible({ timeout: 60_000 });
   return designCard(page);
@@ -226,10 +225,11 @@ async function staffRead(procedure, input) {
 
 test(`${J} #2 activating a certificate design with no signatory, then with a blank disclaimer, each refuses with its own typed reason`, async ({
   page,
+  browser,
 }) => {
   test.setTimeout(240_000);
   run.write({ stamp: Date.now().toString(36) });
-  const card = await openDesigns(page);
+  const card = await openDesigns(page, browser);
 
   // A draft with no signatory saves, and activating it refuses by name.
   await saveDesign(page, { title: designTitle(1), signatories: [], disclaimer: 'TEST disclaimer', reason: `TEST ${J}: draft` });
@@ -262,7 +262,7 @@ test(`${J} #3 editing an active design with issued certificates warns, and the i
   browser,
 }) => {
   test.setTimeout(360_000);
-  const card = await openDesigns(page);
+  const card = await openDesigns(page, browser);
   const firstTitle = designTitle(1);
   await saveDesign(page, { title: firstTitle, signatories: [SIGNER], disclaimer: `TEST ${J}: disclaimer`, reason: `TEST ${J}: ready` });
   await card.getByLabel('Activation reason').fill(`TEST ${J}: activate`);
@@ -332,9 +332,9 @@ test(`${J} #3 editing an active design with issued certificates warns, and the i
   await expect(card).toHaveAttribute('data-state', 'draft');
 });
 
-test(`${J} #4 the issued list and its export agree, with zero counts and an empty state when none`, async ({ page }) => {
+test(`${J} #4 the issued list and its export agree, with zero counts and an empty state when none`, async ({ page, browser }) => {
   test.setTimeout(240_000);
-  await founderSignIn(page, 'a');
+  await staffSignIn(page, browser, 'compliance');
 
   // None issued for a certificate: zero counts and the empty state, never an invented row.
   await page.goto(`${ADMIN}/academy-ops/certificates/issued?certificate=test-${J.toLowerCase()}-none`);

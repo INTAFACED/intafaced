@@ -1,6 +1,7 @@
 /**
- * AC-certificates-03: the founder console's certificate design and issued-list procedures. Operator only (`admin:*`,
- * module academy); the saver, activator and export maker is the caller's own id from the edge-signed principal. Refusals
+ * AC-certificates-03: the founder console's certificate design and issued-list procedures. Operator only, module academy:
+ * reads need `admin:read`; saving, activating and deactivating a design and making an export are compliance work and need
+ * `admin:compliance` (a founder session holds it, and so does the compliance staff role; plain `admin:write` does not); the saver, activator and export maker is the caller's own id from the edge-signed principal. Refusals
  * keep their code on the wire.
  */
 import { z } from 'zod';
@@ -36,17 +37,17 @@ export function certDesignProcedures(designs: CertDesigns) {
       .output(academyCertDesignSchema)
       .query(({ input }) => guard(() => designs.design(input.certId))),
 
-    saveCertDesign: scopedProcedure('admin:write', { module: 'academy' })
+    saveCertDesign: scopedProcedure('admin:compliance', { module: 'academy' })
       .input(academySaveCertDesignInputSchema)
       .output(academySaveCertDesignResultSchema)
       .mutation(({ input, ctx }) => guard(() => designs.save({ ...input, operatorId: ctx.principal!.userId, now: new Date() }))),
 
-    activateCertDesign: scopedProcedure('admin:write', { module: 'academy' })
+    activateCertDesign: scopedProcedure('admin:compliance', { module: 'academy' })
       .input(academyActivateCertDesignInputSchema)
       .output(academyCertDesignSchema)
       .mutation(({ input, ctx }) => guard(() => designs.activate({ ...input, operatorId: ctx.principal!.userId, now: new Date() }))),
 
-    deactivateCertDesign: scopedProcedure('admin:write', { module: 'academy' })
+    deactivateCertDesign: scopedProcedure('admin:compliance', { module: 'academy' })
       .input(academyDeactivateCertDesignInputSchema)
       .output(academyCertDesignSchema)
       .mutation(({ input, ctx }) => guard(() => designs.deactivate({ ...input, operatorId: ctx.principal!.userId, now: new Date() }))),
@@ -61,7 +62,7 @@ export function certDesignProcedures(designs: CertDesigns) {
       .output(academyCertExportsSchema)
       .query(() => guard(() => designs.exports())),
 
-    makeCertExport: scopedProcedure('admin:write', { module: 'academy' })
+    makeCertExport: scopedProcedure('admin:compliance', { module: 'academy' })
       .input(academyMakeCertExportInputSchema)
       .output(academyCertExportSchema)
       .mutation(({ input, ctx }) => guard(() => designs.makeExport({ ...input, operatorId: ctx.principal!.userId, now: new Date() }))),

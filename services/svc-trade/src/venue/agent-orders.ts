@@ -1,4 +1,4 @@
-import { add, compare, div, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, mul, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import type { TypedDataDefinition } from 'viem';
@@ -432,6 +432,8 @@ export class AgentOrders {
       clientOrderKey: key,
       builderFee: null,
     };
+    // #17: the person's own per-order size and leverage caps, before anything is set or signed.
+    this.withinAccountLimits(a, intent, leverageBps);
     const signer = this.signerFor(a, venue, seed);
     const cap: AgentCap = { account: sub, agentAddress: a.agentAddress, asset: a.asset, cap: a.cap, validUntil: null, revokedAt: null };
     // #8: an opening perpetual is isolated at the named leverage on the sub-account, set first by the agent key.
@@ -484,6 +486,34 @@ export class AgentOrders {
       throw this.signRefusal(error, venue, key);
     }
     return this.send(principal, a, keyId, clientOrderId, key, signature, venue, false);
+  }
+
+  /**
+   * #17: an order past the person's own per-order size cap (its notional, amount × price as signed, in the account's
+   * asset) or an opening perpetual past their leverage cap is refused naming the cap, before the leverage is set or the
+   * agent key signs anything. A cap not set leaves only the owner's bounds.
+   */
+  private withinAccountLimits(a: AgentAccountRecord, intent: PlaceUserOrderIntent, leverageBps: number | null): void {
+    const { maxOrderNotional, maxLeverage } = a.limits;
+    if (maxOrderNotional !== null) {
+      const notional = mul(intent.amount, intent.price, 'ceil');
+      if (compare(notional, maxOrderNotional) > 0) {
+        throw new AgentAccountError(
+          'agents.order_size_cap_exceeded',
+          `this order is ${formatAmount(notional)} ${a.asset}; your per-order size cap for this assistant is ${formatAmount(maxOrderNotional)} ${a.asset}`,
+          422,
+          { cap: formatAmount(maxOrderNotional), notional: formatAmount(notional) },
+        );
+      }
+    }
+    if (maxLeverage !== null && leverageBps !== null && leverageBps > maxLeverage * ONE_X_BPS) {
+      throw new AgentAccountError(
+        'agents.leverage_cap_exceeded',
+        `this order opens at ${leverageBps / ONE_X_BPS}x; your leverage cap for this assistant is ${maxLeverage}x`,
+        422,
+        { cap: String(maxLeverage), leverage: String(leverageBps / ONE_X_BPS) },
+      );
+    }
   }
 
   /** A refusal before the agent key signs: the cap's and the bounds' own codes, else the venue's, named. */

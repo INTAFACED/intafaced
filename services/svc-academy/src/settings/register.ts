@@ -30,6 +30,8 @@ export interface SettingRow {
     | AcademyErrorCode
     | 'academy.prize_pool_unset'
     | 'academy.report_limit_unset'
+    | 'academy.inactivity_period_unset'
+    | 'academy.report_retention_unset'
     | 'academy.ambassador_pay.rates_unset'
     | 'academy.ambassador_revenue_share.rates_unset'
     | null;
@@ -48,6 +50,10 @@ export interface SettingsEnv {
   readonly ACADEMY_GRADE_REPORT_ROWS?: number | undefined;
   readonly ACADEMY_CERT_ISSUED_ROWS?: number | undefined;
   readonly ACADEMY_BULK_FILE_MAX_BYTES?: number | undefined;
+  readonly ACADEMY_BULK_ENROL_ROWS?: number | undefined;
+  readonly ACADEMY_BULK_EMAIL_INACTIVE_DAYS?: number | undefined;
+  readonly ACADEMY_REPORT_RETENTION_HOURS?: number | undefined;
+  readonly ACADEMY_LEARNER_EXPORT_ROWS?: number | undefined;
   readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
   readonly ACADEMY_POST_MAX_CHARS?: number | undefined;
@@ -249,6 +255,34 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.bulk_limit_unset',
+    },
+    {
+      key: 'bulk_enrol_rows',
+      state: state(positiveInt(env.ACADEMY_BULK_ENROL_ROWS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.bulk_limit_unset',
+    },
+    {
+      key: 'bulk_email_inactive_days',
+      state: state(positiveInt(env.ACADEMY_BULK_EMAIL_INACTIVE_DAYS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.inactivity_period_unset',
+    },
+    {
+      key: 'report_retention_hours',
+      state: state(positiveInt(env.ACADEMY_REPORT_RETENTION_HOURS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_retention_unset',
+    },
+    {
+      key: 'learner_export_rows',
+      state: state(positiveInt(env.ACADEMY_LEARNER_EXPORT_ROWS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_limit_unset',
     },
     {
       // Blank runs no sweep, so a delayed certificate would wait for its learner to come back: delayed rules refuse.
