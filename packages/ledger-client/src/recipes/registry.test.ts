@@ -43,11 +43,12 @@ import { RECIPE_MATRIX } from './live-path-inventory.js';
  * feeShareBudgetFund + feeShareOwe + feeSharePayOut (a fee share we owe a lead trader or affiliate and its payment to their own wallet, own accounts only, launch money model rule 1) → 97.
  * chargeEarn + chargeCollect (a charge a customer owes us, earned and collected into one of our own-funds places, own accounts only, launch money model rule 1) → 99.
  * partnerFeeEarn + partnerFeeSettle (our fee on a partner-processed payment, earned and settled by the partner into our own funds, own accounts only, launch money model rule 1) → 101.
+ * feeGiveBackOwe + feeGiveBackPayOut (a fee a customer paid on a fill, given back from our own funds to their own wallet with two approvers, own accounts only, launch money model rule 1) → 103.
  */
 describe('recipes registry', () => {
   it('exports every named recipe and nothing unnamed', () => {
     const names = Object.keys(recipes) as RecipeName[];
-    expect(names.length).toBe(101);
+    expect(names.length).toBe(103);
     expect(names).toContain('marketPurchase');
     expect(names).toContain('businessApprovalHold');
     expect(names).toContain('businessPayroll');
@@ -64,7 +65,7 @@ describe('recipes registry', () => {
     const mdPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'RECIPES.md');
     const md = readFileSync(mdPath, 'utf8');
     const countMatch = md.match(/\*\*(\d+) pure recipes\.\*\*/);
-    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('101');
+    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('103');
 
     const rowNames = [...md.matchAll(/^\| `([a-zA-Z][a-zA-Z0-9]*)`\s*\|/gm)].map((m) => m[1]!);
     const registry = Object.keys(recipes).sort();
