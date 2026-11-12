@@ -1224,7 +1224,7 @@ export class SupportService implements SupportContract {
   }
 
   /**
-   * Operator change of who may read an article. Stale `baseRevision` refuses `support.kb.revision_stale`;
+   * Operator change of who may read an article. Stale `baseRevision` refuses `support.kb_revision_stale`;
    * an unknown article is `support.kb_invalid`. The same audience again changes nothing and writes no audit row.
    */
   async setKbAudience(input: {
@@ -1244,7 +1244,7 @@ export class SupportService implements SupportContract {
         actorId: input.operatorId,
       });
       if (result.status === 'refuse') {
-        if (result.reason === 'revision_stale') throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        if (result.reason === 'revision_stale') throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
         throw new SupportError('KB article refused', 'support.kb_invalid');
       }
       return toPublicKb(result.article);
@@ -1290,7 +1290,7 @@ export class SupportService implements SupportContract {
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
-        throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
       }
       if (result.reason === 'section_unknown') throw new SupportError('KB section is not open', 'support.kb_section_unknown');
       throw new SupportError('KB article refused', result.reason === 'vendor' ? 'support.kb_vendor_name' : 'support.kb_invalid');
@@ -1339,7 +1339,7 @@ export class SupportService implements SupportContract {
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
-        throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
       }
       throw new SupportError('KB article refused', 'support.kb_invalid');
     }

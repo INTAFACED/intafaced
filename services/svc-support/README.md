@@ -173,7 +173,7 @@ principal, the desk is a `support:ops` principal. The filter runs before the pag
 place in a page and is in no count, and it answers exactly like a missing id (`null`, or the same refusal). `setKbAudience`
 (`support:ops`) takes the revision the desk read, writes a new version that keeps the keys and topic, and one audit row
 (`support.kb_audience_changes`: article, from, to, revisions, actor; append-only). The same audience again changes nothing
-and writes no row. A stale revision is a CONFLICT (`support.kb.revision_stale`); an audience outside the list never
+and writes no row. A stale revision is a CONFLICT (`support.kb_revision_stale`); an audience outside the list never
 reaches the service and, if it does, refuses `support.kb_audience_invalid`. `kbAudienceChanges` (`support:ops`, `{id}`) reads
 that trail for one article, oldest first: old and new audience, the revisions, who and when; an unknown article has none.
 Per-segment visibility is not built: whether it is wanted is a thread decision, and nothing about a segment is stored.
