@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   SET_ASIDE_DAYS,
   historyRuns,
+  readHistory,
   issueProblem,
   judge,
   moneyRule,
@@ -245,6 +246,40 @@ test("history: only main's own finished runs between the named run and this one"
     historyRuns(runs, { repo, namedCreated: r(1, 1).created_at, thisCreated: r(7, 7).created_at, thisId: 7 }).map((x) => x.run_number),
     [2, 6],
   );
+});
+
+// Run 4084 (43127556856, 12 Nov 2026) finished `failure` with a report artifact that had no report.json, after its shard
+// merge hit the API rate limit; run 4005 (11 Nov) finished with none after no shard started. Each failed every pull
+// request's verdict ("the pass history couldn't be read") until it was re-run or cancelled. A finished run with no report
+// is skipped and named; a report that can't be read (a refusal, a rate limit) still fails the read.
+test('the pass history skips a finished main run that kept no report, and still fails on one it cannot read', () => {
+  const hr = (n) => ({ id: 43127556000 + n, run_number: n });
+  const report = (states) => ({ states });
+  const reports = { 4083: report({ 'J-a-01#1': 'passed' }), 4085: report({ 'J-a-02#1': 'flaky' }) };
+  const got = readHistory([hr(4083), hr(4084), hr(4085)], (r) => reports[r.run_number] ?? null);
+  assert.deepEqual(got.skipped, [4084]);
+  assert.deepEqual(passesSince(got.reports), { 'J-a-01#1': 4083, 'J-a-02#1': 4085 });
+  // What a skip lets through: a step that passed only in the skipped run is not in the pass history.
+  const only = readHistory([hr(4084)], () => null);
+  assert.deepEqual(passesSince(only.reports), {});
+  // Unreadable stays red: a rate-limited or refused download throws, named by run.
+  assert.throws(
+    () =>
+      readHistory([hr(4083), hr(4084)], (r) => {
+        if (r.run_number === 4084)
+          throw new Error('Command failed: gh run download: error fetching artifacts: HTTP 403: API rate limit exceeded for installation.');
+        return reports[r.run_number];
+      }),
+    /run 4084's report couldn't be read \(Command failed: gh run download: error fetching artifacts: HTTP 403: API rate limit exceeded/,
+  );
+});
+
+test("fetchInputs reads the history with the optional reader, so only a missing artifact or a missing report.json skips, and the named run's report stays required", () => {
+  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
+  assert.match(body, /readHistory\(runs, \(r\) => \{[\s\S]*downloadReport\(repo, r\.id, 'report\.json', true\)/);
+  assert.match(body, /named = reportOf\(baseline\.run\.id\);/);
+  assert.match(body, /readReport\(raw \?\? downloadReport\(repo, id\)\)/);
 });
 
 // The set-aside (OWNER 225, 227): a step that failed, then passed on its retry, on main, is set aside by the machine for
