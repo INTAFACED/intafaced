@@ -851,6 +851,13 @@ export interface UserVenueMarket {
   readonly funding: MaybeKnown<UserVenueFunding>;
 }
 
+/** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
+export interface VenueFundingRow {
+  readonly fundingAt: Date;
+  /** A signed scaled fraction of notional per interval (as `UserVenueFunding.rate`), never a percent. */
+  readonly rate: Amount;
+}
+
 /**
  * The best resting prices on one market, as the venue's own public book shows them now: the highest bid and the lowest
  * ask, or `null` for an empty side. What a market order's worst price (its slippage limit) is set from.
@@ -992,6 +999,14 @@ export interface UserVenue {
    * does not list. Optional: a venue that publishes no book leaves it out, and a market order then has no worst price.
    */
   bestPrices?(symbol: string): Promise<AsOf<VenueBestPrices>>;
+
+  /**
+   * The funding rates this venue published for the perpetual `symbol` at each settled interval since `since`, oldest
+   * first, no account (J-charts-desk-04 #6: a chart's funding study). Refuses `unknown_market` for a symbol it does not
+   * list and `not_offered` for a market with no published funding. Optional: a venue (or an adapter) that does not read
+   * its funding history leaves it out, and the chart then refuses the study by name.
+   */
+  fundingHistory?(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**

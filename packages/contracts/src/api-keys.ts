@@ -426,3 +426,60 @@ export type DeveloperSetRoleInput = z.infer<typeof developerSetRoleInputSchema>;
 export const developerSetRoleOutputSchema = z
   .object({ userId: z.string().guid(), role: developerRoleSchema.nullable(), changed: z.boolean() })
   .strict();
+
+/**
+ * A key's call log (DV-keys-06, J-developer-08): one row per call the edge answered for an `ifc_…` key, with what was
+ * called and the HTTP status the edge answered. Never a body, a header value, the key or the caller's address: the edge
+ * sends the key's hash only so identity can find the key, and identity keeps only whether the caller's address was
+ * outside the key's IP list.
+ */
+export const API_KEY_CALL_LIMIT_MAX = 200;
+
+const callDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/** The edge's report of one answered call. Only the edge may send it. */
+export const apiKeyCallRecordInputSchema = z
+  .object({
+    /** SHA-256 (hex) of the presented key, as identity stores it. Never the key. */
+    keyHash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** The `x-request-id` the edge answered the call with: the business key, so a repeat report writes nothing new. */
+    requestId: z.string().min(1).max(128),
+    method: z.string().min(1).max(16),
+    /** The path without its query. */
+    path: z.string().min(1).max(512),
+    status: z.number().int().min(100).max(599),
+    /** The caller's address as the edge resolved it, used to set the outside-IP flag and never stored. */
+    clientIp: z.string().max(64).nullable(),
+    at: isoInstant,
+  })
+  .strict();
+export type ApiKeyCallRecordInput = z.infer<typeof apiKeyCallRecordInputSchema>;
+export const apiKeyCallRecordOutputSchema = z.object({ recorded: z.boolean() }).strict();
+export type ApiKeyCallRecordOutput = z.infer<typeof apiKeyCallRecordOutputSchema>;
+
+/** The owner's read of one key's log, newest first; `status`, `from` and `to` (UTC days, inclusive) narrow it. */
+export const apiKeyCallsInputSchema = z
+  .object({
+    keyId: z.string().guid(),
+    limit: z.number().int().min(1).max(API_KEY_CALL_LIMIT_MAX),
+    status: z.number().int().min(100).max(599).optional(),
+    from: callDay.optional(),
+    to: callDay.optional(),
+  })
+  .strict();
+export type ApiKeyCallsInput = z.infer<typeof apiKeyCallsInputSchema>;
+
+export const apiKeyCallSchema = z
+  .object({
+    requestId: z.string(),
+    method: z.string(),
+    path: z.string(),
+    status: z.number().int(),
+    outsideIpList: z.boolean(),
+    at: z.string(),
+  })
+  .strict();
+export type ApiKeyCall = z.infer<typeof apiKeyCallSchema>;
+
+export const apiKeyCallsOutputSchema = z.object({ keyId: z.string().guid(), asOf: z.string(), calls: z.array(apiKeyCallSchema) }).strict();
+export type ApiKeyCallsOutput = z.infer<typeof apiKeyCallsOutputSchema>;

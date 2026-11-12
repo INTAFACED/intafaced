@@ -906,6 +906,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       'The venue’s best bid and ask on one market, from its own book, with its as-of time: where a market order’s worst price is set from',
   },
   {
+    name: 'venueFundingHistory',
+    method: 'GET',
+    path: '/api/v1/venue/funding-history',
+    product: 'accounts',
+    access: 'public',
+    summary:
+      'The funding the venue published at each settled interval on its listed perpetual on one asset, since a time: refused by name where none is published',
+  },
+  {
     name: 'venueBalances',
     method: 'GET',
     path: '/api/v1/venue/balances',

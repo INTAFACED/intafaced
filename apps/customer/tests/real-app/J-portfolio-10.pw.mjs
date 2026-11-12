@@ -168,20 +168,56 @@ test(`${J} #3 reads stats and network details: market cap reads "not published" 
   await signIn(page, who);
   await openCoin(page);
   const stats = page.getByTestId('coin-stats');
+  // No supply figure: neither the stack's BTC/USDT market nor its 24h ticker publishes a supply or market cap, so the
+  // market cap row's value is exactly "not published", never a figure.
+  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`, { headers: { origin: ORIGIN } })).json();
+  const market = markets.find((row) => row.symbol === 'BTC/USDT');
+  expect(market, 'BTC/USDT is a market on the stack').toBeDefined();
+  const SUPPLY = /supply|market.?cap|circulating/i;
+  expect(
+    Object.keys(market).filter((key) => SUPPLY.test(key)),
+    'the market publishes no supply figure',
+  ).toEqual([]);
+  expect(
+    Object.keys(await tickerNow()).filter((key) => SUPPLY.test(key)),
+    'the ticker publishes no supply figure',
+  ).toEqual([]);
   const cap = stats.getByTestId('stat-market-cap');
   await expect(cap).toBeVisible();
   await expect(cap).toContainText('Market cap');
-  await expect(cap).toContainText('not published');
-  // The networks are the platform's asset registry's, read back from svc-bank.
+  await expect(cap.locator('.coin-stats__value')).toHaveText('not published');
+  // The networks are the platform's asset registry's, read back from svc-bank: the networks of BTC's row when it is
+  // active and a customer may deposit or withdraw it, joined in the registry's order; a coin with none says "not listed".
   const registry = (await (await api(who)).get('/api/bank/trpc/assets.list')).body.result.data.assets;
-  const btc = registry.find((row) => row.assetId === 'BTC');
+  const btc = registry.find(
+    (row) =>
+      row.assetId === 'BTC' &&
+      row.state === 'active' &&
+      (row.allowedActions.includes('deposit') || row.allowedActions.includes('withdraw')),
+  );
   const network = page.getByTestId('coin-network');
   await expect(network).toContainText('Networks');
   await expect(network.locator('.coin-stats__value')).toHaveText(
     btc && btc.networks.length > 0 ? btc.networks.map((row) => row.label).join(', ') : 'not listed',
   );
-  // No contract address or link is invented: the registry holds none.
-  await expect(page.getByTestId('coin-stats')).not.toContainText(/0x[0-9a-f]{6,}/i);
+  // Contract and links "where known": the registry is where the page would know them, and BTC's row (and each of its
+  // networks) holds no contract address and no link, so none is known and the stats show none: no contract row, no
+  // address, and no link at all.
+  const CONTRACT = /contract|address|link|url|explorer|website|homepage/i;
+  for (const row of registry.filter((entry) => entry.assetId === 'BTC')) {
+    expect(
+      Object.keys(row).filter((key) => CONTRACT.test(key)),
+      'the registry row holds no contract or link',
+    ).toEqual([]);
+    for (const net of row.networks)
+      expect(
+        Object.keys(net).filter((key) => CONTRACT.test(key)),
+        `network ${net.label}`,
+      ).toEqual([]);
+  }
+  await expect(stats.locator('a')).toHaveCount(0);
+  await expect(stats).not.toContainText(/contract|explorer|website/i);
+  await expect(stats).not.toContainText(/0x[0-9a-f]{6,}/i);
 });
 
 test(`${J} #4 reads "Your position": quantity, average price, cost basis and result from the lot book`, async ({ page }) => {
@@ -277,17 +313,29 @@ test(`${J} #5 reads recent activity for the coin: this person's BTC fills, newes
 test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin chosen, or the spot desk for the pair`, async ({
   browser,
 }) => {
-  // Simple: the Buy card on the page is locked to BTC and reaches its review.
+  // Simple: the Buy card on the page has BTC chosen and locked; pressing its Buy reaches the review of a BTC buy.
   const simple = await browser.newContext({ baseURL: ORIGIN });
   try {
     const page = await simple.newPage();
     await signIn(page, who);
     await openCoin(page);
+    await expect(page.getByTestId('trade-button')).toHaveCount(0);
     const buy = page.getByTestId('buy-card');
     await expect(buy).toBeVisible();
+    // The coin is chosen: the coin row reads Buy BTC and offers no other coin.
     await expect(buy.locator('[aria-label="Change coin"]')).toHaveCount(0);
-    await expect(buy).toContainText('BTC');
-    await expect(page.getByTestId('trade-button')).toHaveCount(0);
+    await expect(buy.getByTestId('buy-row').first().getByTestId('buy-row__text')).toHaveText(/^\s*Buy\s*BTC\s*$/);
+    const fillsBefore = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body.length;
+    await buy.getByLabel('Amount in USD').fill('10');
+    await buy.getByRole('button', { name: 'Review buy' }).click();
+    const review = page.getByRole('alertdialog');
+    await expect(review).toContainText('Review your buy');
+    await expect(review.getByTestId('review-get')).toContainText(/BTC/);
+    await expect(review).toContainText(/per BTC/);
+    // Leaving the review places nothing.
+    await review.getByRole('button', { name: 'Cancel' }).click();
+    await expect(review).toHaveCount(0);
+    expect((await (await api(who)).get('/api/v1/account/trades?limit=100')).body.length).toBe(fillsBefore);
   } finally {
     await simple.close();
   }
@@ -303,6 +351,9 @@ test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin ch
     await expect(trade).toHaveText('Trade BTC/USDT');
     await trade.click();
     await expect(page).toHaveURL((url) => url.pathname === '/trade/spot/BTC-USDT');
+    // The spot desk drew for that pair: its pair reads BTC/USDT and its ticket buys BTC.
+    await expect(page.getByTestId('dk-pair')).toHaveText('BTC/USDT');
+    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
   } finally {
     await pro.close();
   }

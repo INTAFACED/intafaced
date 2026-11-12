@@ -3,6 +3,7 @@ import {
   assetFromSearch,
   fillFromSearch,
   groupActivity,
+  groupActivityPages,
   groupInAsset,
   inTab,
   isLedgerTab,
@@ -453,5 +454,26 @@ describe('Fees and Ledger tabs', () => {
   it('Ledger lists every line once, ungrouped, in the order sent', () => {
     expect(lineGroups(lines, 'ledger').map((group) => group.main.id)).toEqual(['a', 'b', 'c', 'd']);
     expect(lineGroups([], 'ledger')).toEqual([]);
+  });
+});
+
+describe('groupActivityPages: loading the next page never rewrites a row already shown (J-portfolio-03 #8)', () => {
+  it("an order split by the page edge shows its real lines on each page, and the first page's rows stay as they were", () => {
+    // Newest first: the release is on page one, its hold (and an older deposit) on page two.
+    const page1 = [L(30, 'deposit', 'in', 'USDT', '1'), L(20, 'order_release', 'in', 'USDT', '5', 'o-edge')];
+    const page2 = [L(10, 'order_hold', 'out', 'USDT', '5', 'o-edge'), L(0, 'deposit', 'in', 'USDT', '2')];
+    const first = groupActivityPages(page1, [0]).groups;
+    const both = groupActivityPages([...page1, ...page2], [0, page1.length]).groups;
+    expect(both.slice(0, first.length)).toEqual(first);
+    expect(both.map((group) => group.main.kind)).toEqual(['deposit', 'order_release', 'order_hold', 'deposit']);
+    expectConserved([...page1, ...page2], both);
+    // Grouped as one list, the same lines would fold into one cancelled row: what a page edge must not do to a shown row.
+    expect(groupActivity([...page1, ...page2]).groups.map((group) => group.kind)).toContain('cancelled');
+  });
+
+  it('with one page, or no page starts, it is groupActivity', () => {
+    const lines = [L(10, 'order_release', 'in', 'USDT', '5', 'o-one'), L(0, 'order_hold', 'out', 'USDT', '5', 'o-one')];
+    expect(groupActivityPages(lines, undefined)).toEqual(groupActivity(lines));
+    expect(groupActivityPages(lines, [0])).toEqual(groupActivity(lines));
   });
 });

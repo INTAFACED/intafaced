@@ -512,14 +512,57 @@ test(`${J} #6 lists every drawing in the object tree, and hides a group together
 
 test(`${J} #7 deletes a line, and Undo brings it back with its original points`, async () => {
   const line = rowNamed(page, /^Horizontal line \d+$/);
+  await expect(line).toHaveCount(1);
+  const id = await line.getAttribute('data-drawing-id');
+  const pane = Number(await line.getAttribute('data-pane'));
   await line.getByRole('button', { name: /^Horizontal line \d+$/ }).click();
   const before = await pointText(line).textContent();
-  const count = await rows(page).count();
+  const [level] = pricesOf(before);
+  expect(level, `a stored price in "${before}"`).toBeTruthy();
+  const ids = await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')));
+  // Before the delete the chart paints this line, at its stored price.
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
+  const { x } = await plot(page, 0.5, 0.5);
+  // Painted flat at its stored value: on the price pane, where the price scale puts that price (read in the same call as
+  // the paint, so a rescale between the two can't pass or fail it); on an indicator pane, where that pane reads the value.
+  const paintedAtLevel = async () => {
+    const { painted, priceY } = await chartHost(page).evaluate(
+      (el, [drawingId, value]) => ({ painted: el.readDrawnLines().find((d) => d.id === drawingId), priceY: el.readPriceY(value) }),
+      [id, Number(level)],
+    );
+    expect(painted, `the chart paints ${id}`).toBeTruthy();
+    expect(painted.pane, `${id} pane`).toBe(pane);
+    expect(painted.lines.length, `${id} lines`).toBeGreaterThan(0);
+    for (const [, y1, , y2] of painted.lines) {
+      expect(y1, `${id} is flat`).toBe(y2);
+      const off = pane === 0 ? Math.abs(y1 - priceY) : await pixelsFromValue(page, x, y1, Number(level));
+      expect(off, `${id} painted at y ${y1}, ${off} px from where its pane reads ${level}`).toBeLessThanOrEqual(1.5);
+    }
+  };
+  await expect(paintedAtLevel).toPass({ timeout: 15_000 });
+
+  // Deleted (it is still the selected drawing): exactly this line leaves the tree and the chart, every other drawing
+  // stays.
   await page.keyboard.press('Delete');
-  await expect(rows(page)).toHaveCount(count - 1);
+  await expect(page.locator(`[data-drawing-id="${id}"]`)).toHaveCount(0);
+  const others = ids.filter((i) => i !== id);
+  await expect
+    .poll(() => rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')).sort()))
+    .toEqual([...others].sort());
+  await expect.poll(() => paintedIds(page)).toEqual([...others].sort());
+
+  // Undo: the same drawing returns, with the same points as before, and the chart paints it again at its stored price.
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(rows(page)).toHaveCount(count);
-  await expect(pointText(rowNamed(page, /^Horizontal line \d+$/))).toHaveText(before);
+  const back = page.locator(`[data-drawing-id="${id}"]`);
+  await expect(back).toHaveCount(1);
+  await expect(back).toHaveAttribute('data-kind', 'horizontal');
+  await expect(back).toHaveAttribute('data-pane', String(pane));
+  await expect(pointText(back)).toHaveText(before);
+  await expect
+    .poll(() => rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')).sort()))
+    .toEqual([...ids].sort());
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
+  await expect(paintedAtLevel).toPass({ timeout: 15_000 });
 });
 
 test(`${J} #8 hides all drawings, then clears them after a confirmation`, async () => {
