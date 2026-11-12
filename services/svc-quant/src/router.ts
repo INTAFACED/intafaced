@@ -107,6 +107,7 @@ import {
   QUANT_RUN_UNFINISHED,
   QUANT_SANDBOX_MAX_OPS_UNSET,
   QUANT_SANDBOX_MAX_SOURCE_UNSET,
+  QUANT_PAPER_FEE_UNSET,
   QUANT_SANDBOX_UNWIRED,
   QUANT_SIMULATED_AS_LIVE,
   QUANT_STRATEGY_VERSION_UNSET,
@@ -177,6 +178,52 @@ const fillSchema = z.object({
   venue: z.literal('internal'),
 });
 
+const rejectReason = z.enum([
+  'quantity invalid',
+  'price invalid',
+  'time in force invalid',
+  'unknown symbol',
+  'limit hit',
+  'insufficient cash',
+  'exceeds position',
+  'no short rule',
+  'unknown order',
+  'not open',
+]);
+
+/** One event of one paper order (AL-orders-01). */
+const orderEventSchema = z.object({
+  seq: z.number().int(),
+  order: z.string(),
+  kind: z.enum(['new', 'accepted', 'filled', 'rejected', 'cancel_pending', 'cancelled']),
+  type: z.enum(['market', 'limit']),
+  side: z.enum(['buy', 'sell']),
+  symbol: z.string(),
+  qty: z.string(),
+  tif: z.enum(['gtc', 'ioc']),
+  market: z.string(),
+  limit: z.string().optional(),
+  price: z.string().optional(),
+  reason: rejectReason.optional(),
+  notional: z.string().optional(),
+  fee: z.string().optional(),
+  cash: z.string().optional(),
+  position: z.string().optional(),
+  reserved: z.string().optional(),
+});
+
+/** One leg of a reversal, each checked on its own (AL-orders-02). */
+const reverseLegSchema = z.object({
+  leg: z.enum(['close', 'open']),
+  side: z.enum(['buy', 'sell']),
+  symbol: z.string(),
+  qty: z.string(),
+  checked: z.literal(true),
+  outcome: z.enum(['filled', 'refused']),
+  order: z.string(),
+  reason: rejectReason.nullable(),
+});
+
 const runOutput = z
   .object({
     ok: z.literal(true),
@@ -186,6 +233,9 @@ const runOutput = z
     pnl: z.string(),
     fills: z.array(fillSchema),
     positions: z.array(z.object({ symbol: z.string(), qty: z.string() })),
+    events: z.array(orderEventSchema),
+    legs: z.array(reverseLegSchema),
+    ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
     venue: z.literal('internal'),
     venueVault: z.enum(['unset', 'set']),
   })
@@ -221,6 +271,7 @@ function toTrpc(err: unknown): never {
         : err.code === QUANT_SANDBOX_UNWIRED ||
             err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
             err.code === QUANT_SANDBOX_MAX_SOURCE_UNSET ||
+            err.code === QUANT_PAPER_FEE_UNSET ||
             err.code === QUANT_BACKTEST_LAKE_MISSING ||
             err.code === QUANT_BACKTEST_FILLS_MISSING ||
             err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||

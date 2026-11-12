@@ -63,6 +63,7 @@ function embedOrigins(raw: string | undefined): readonly string[] | null {
 export const appRouter = createQuantRouter({
   wired: isolateWired,
   venueVaultSet,
+  paperFeeBps: env.QUANT_PAPER_FEE_BPS ?? null,
   limits: { maxOps: env.SANDBOX_MAX_OPS, maxSource: env.SANDBOX_MAX_SOURCE },
   lake,
   history,

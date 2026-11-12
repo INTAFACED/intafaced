@@ -52,6 +52,11 @@ export const quantSignalRulesSchema = z.object({
   }),
   sizing: z.object({ kind: z.enum(QUANT_SIZING_KINDS), value: z.string().max(40) }),
   exit: z.object({ stopLossPercent: z.string().max(40), takeProfitPercent: z.string().max(40) }),
+  /**
+   * Pyramiding (AL-orders-02): at most this many entries in one position. Optional; blank or absent means one entry,
+   * which is all the moving-average cross ever takes, since it enters only from flat.
+   */
+  pyramiding: z.string().max(12).optional(),
 });
 export type QuantSignalRules = z.infer<typeof quantSignalRulesSchema>;
 
