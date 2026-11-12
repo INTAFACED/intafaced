@@ -46,6 +46,7 @@ import {
   JUDGE_SCHEMA,
 } from './test-judge.mjs';
 import { roomOf } from './look-baselines.mjs';
+import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH, isSharedSetup } from './journey-seal.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -280,52 +281,84 @@ export function partNote(parts, k, bytes) {
   ].join('\n');
 }
 
-/** main-bisect's revert pull requests (journeys-revert.mjs BRANCH_PREFIX, opened with the factory's App token). */
+/** main-bisect's revert pull requests: the same branch, author and commit message the seal's autoRevertScope reads. */
 export const REVERT_BRANCH_PREFIX = 'revert/auto-';
-export const REVERT_AUTHOR = 'intafaced-mac-agents[bot]';
+export { AUTO_REVERT_AUTHOR as REVERT_AUTHOR };
+const REVERTS_COMMIT = /^This reverts commit ([0-9a-f]{40})\.$/m;
 
-/** Each file's added and removed lines, keyed `old\0new`; null when a section is binary or can't be read. */
-function changedLines(diff) {
+/**
+ * Each file's hunks, keyed `old\0new`: { oldStart, newStart, lines }, a `\ No newline` marker kept on its line. Null
+ * when a section is binary, can't be read, or repeats a file.
+ */
+function hunksOf(diff) {
   const out = new Map();
   for (const s of diffSections(diff)) {
     const [f] = parseDiff(s);
-    if (!f || f.binary || out.has(`${f.oldPath}\0${f.newPath}`)) return null;
-    const lines = s.split('\n');
-    const at = lines.findIndex((l) => l.startsWith('@@ '));
-    const body = at < 0 ? [] : lines.slice(at);
-    out.set(`${f.oldPath}\0${f.newPath}`, {
-      plus: body.filter((l) => l.startsWith('+')).map((l) => l.slice(1)),
-      minus: body.filter((l) => l.startsWith('-')).map((l) => l.slice(1)),
-    });
+    const key = `${f?.oldPath}\0${f?.newPath}`;
+    if (!f || f.binary || out.has(key)) return null;
+    const hunks = [];
+    for (const line of s.split('\n')) {
+      const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+      if (h) hunks.push({ oldStart: Number(h[1]), newStart: Number(h[2]), lines: [] });
+      else if (hunks.length && line.startsWith('\\')) hunks.at(-1).lines.push(`${hunks.at(-1).lines.pop() ?? ''}\n${line}`);
+      else if (hunks.length && /^[ +-]/.test(line)) hunks.at(-1).lines.push(line);
+    }
+    out.set(key, hunks);
   }
   return out;
 }
 
+/** A hunk's lines undone: + and - swapped, each run of changes written as git writes it, its - lines before its + lines. */
+function undo(lines) {
+  const out = [];
+  let minus = [];
+  let plus = [];
+  const flush = () => (out.push(...minus, ...plus), (minus = []), (plus = []));
+  for (const l of lines) {
+    if (l.startsWith('+')) minus.push(`-${l.slice(1)}`);
+    else if (l.startsWith('-')) plus.push(`+${l.slice(1)}`);
+    else (flush(), out.push(l));
+  }
+  flush();
+  return out;
+}
+
 /**
- * Whether `diff` is exactly the reverse of `culpritDiff`: the same files, each with the other's removed lines added and
- * its added lines removed, in the same order (a hunk's offset may differ after main moved on). Any binary file: false.
+ * Whether `diff` is exactly the reverse of `culpritDiff`: the same files, each with the same hunks undone, context lines
+ * and order included, every hunk of a file moved by one and the same number of lines (main may have moved on above it).
+ * Any binary file, or any other difference: false.
  */
 export function exactReverse(diff, culpritDiff) {
-  const a = changedLines(diff);
-  const b = changedLines(culpritDiff);
+  const a = hunksOf(diff);
+  const b = hunksOf(culpritDiff);
   if (!a || !b || a.size === 0 || a.size !== b.size) return false;
-  const same = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
-  for (const [key, c] of b) {
+  for (const [key, ch] of b) {
     const [oldPath, newPath] = key.split('\0');
-    const r = a.get(`${newPath}\0${oldPath}`);
-    if (!r || !same(r.plus, c.minus) || !same(r.minus, c.plus)) return false;
+    const rh = a.get(`${newPath}\0${oldPath}`);
+    if (!rh || rh.length !== ch.length) return false;
+    const shift = rh.length ? rh[0].oldStart - ch[0].newStart : 0;
+    for (let i = 0; i < ch.length; i++) {
+      if (rh[i].oldStart - ch[i].newStart !== shift || rh[i].newStart - ch[i].oldStart !== shift) return false;
+      const want = undo(ch[i].lines);
+      if (want.length !== rh[i].lines.length || want.some((l, k) => l !== rh[i].lines[k])) return false;
+    }
   }
   return true;
 }
 
 /**
  * The commit this pull request reverts, when it is main-bisect's automatic revert and its diff is exactly the reverse
- * of that commit, which main contains; else null. Read through the API at the event's shas; any read that isn't a 200
- * is null, so the review goes on as for any pull request. (Failure it prevents: intafaced #7934, main-bisect's revert
- * of #7926, failed as a weakened test, though it restored main's test from before #7926; project-state #2065.)
+ * of that commit, which main contains; else null. The same proofs as the seal's autoRevertScope (journey-seal.mjs): a
+ * `revert/auto-<sha10>` branch in this repository, opened by the factory App as a Bot, exactly one commit, whose message
+ * says it reverts the commit the branch names, and no shared journey setup; then main contains that commit and the diff
+ * is exactly its reverse (exactReverse). Read through the API at the event's shas; any read that isn't a 200 is null, so
+ * the review goes on as for any pull request. (Failure it prevents: intafaced #7934, main-bisect's revert of #7926,
+ * failed as a weakened test, though it restored main's test from before #7926; project-state #2065.)
  */
 export async function automaticRevert({ repo, pull, diff, get }) {
-  if (pull.user !== REVERT_AUTHOR || !String(pull.ref ?? '').startsWith(REVERT_BRANCH_PREFIX)) return null;
+  const branch = AUTO_REVERT_BRANCH.exec(String(pull.ref ?? ''));
+  if (!branch || !pull.inRepo || pull.user !== AUTO_REVERT_AUTHOR || pull.userType !== 'Bot' || pull.commits !== 1) return null;
+  if (parseDiff(diff).some((f) => [f.oldPath, f.newPath].some((p) => p && isSharedSetup(p)))) return null;
   const json = async (p) => {
     const r = await get(p, 'application/vnd.github+json');
     if (r.status !== 200) return null;
@@ -336,9 +369,8 @@ export async function automaticRevert({ repo, pull, diff, get }) {
     }
   };
   const commit = await json(`/repos/${repo}/commits/${pull.head}`);
-  const m = /^This reverts commit ([0-9a-f]{40})\b/m.exec(String(commit?.commit?.message ?? ''));
-  if (!m || commit?.parents?.length !== 1) return null;
-  const culprit = m[1];
+  const culprit = REVERTS_COMMIT.exec(String(commit?.commit?.message ?? ''))?.[1];
+  if (!culprit || !culprit.startsWith(branch[1]) || commit?.parents?.length !== 1) return null;
   const onMain = await json(`/repos/${repo}/compare/${culprit}...${pull.base}`);
   if (onMain?.status !== 'ahead' && onMain?.status !== 'identical') return null;
   const c = await get(`/repos/${repo}/commits/${culprit}`, 'application/vnd.github.v3.diff');
@@ -348,7 +380,7 @@ export async function automaticRevert({ repo, pull, diff, get }) {
 
 /** What the reviewer is told above the diff of an automatic revert, from the job's code. */
 export const revertNote = (culprit) =>
-  `Trusted fact from the job's code (ci-review.mjs automaticRevert), not from the author: this pull request is main-bisect's automatic revert, opened by ${REVERT_AUTHOR} from a ${REVERT_BRANCH_PREFIX} branch, and its diff is exactly the reverse of commit ${culprit}, which main contains: the same lines added and removed in every file. Its tests return to main's tests from before that commit.`;
+  `Trusted fact from the job's code (ci-review.mjs automaticRevert), not from the author: this pull request is main-bisect's automatic revert, opened by ${AUTO_REVERT_AUTHOR} from a ${REVERT_BRANCH_PREFIX} branch, and its diff is exactly the reverse of commit ${culprit}, which main contains: every hunk of every file undone, context lines included. Its tests return to main's tests from before that commit.`;
 
 /** The structured answer the reviewer must give (the reviewer CLI, -p --json-schema). */
 export const VERDICT_SCHEMA = {
@@ -480,7 +512,16 @@ export function eventPull(payload, repo) {
   const head = String(pr?.head?.sha ?? '');
   const base = String(pr?.base?.sha ?? '');
   if (!pr || !SHA40.test(head) || !SHA40.test(base)) return null;
-  return { number: pr.number, head, base, inRepo: pr.head?.repo?.full_name === repo, user: pr.user?.login, ref: pr.head?.ref };
+  return {
+    number: pr.number,
+    head,
+    base,
+    inRepo: pr.head?.repo?.full_name === repo,
+    user: pr.user?.login,
+    userType: pr.user?.type,
+    commits: pr.commits,
+    ref: pr.head?.ref,
+  };
 }
 
 async function getText(path, accept) {

@@ -196,6 +196,16 @@ test('exactReverse: the same lines the other way in every file, and nothing else
   const pair = (l) => `diff --git a/t.mjs b/t.mjs\n--- a/t.mjs\n+++ b/t.mjs\n@@ -1,2 +1,2 @@\n${l.join('\n')}\n`;
   assert.equal(exactReverse(pair(['-c', '-d', '+a', '+b']), pair(['-a', '-b', '+c', '+d'])), true);
   assert.equal(exactReverse(pair(['-c', '-d', '+b', '+a']), pair(['-a', '-b', '+c', '+d'])), false);
+  // Planted (the CI review's finding on #8019): the same line removed elsewhere, other context, or hunks moved apart.
+  const at = (h, ctx, l) => `diff --git a/t.mjs b/t.mjs\n--- a/t.mjs\n+++ b/t.mjs\n${h}\n ${ctx}\n${l.join('\n')}\n`;
+  const added = at('@@ -10,1 +10,2 @@', 'test(#1)', ['+  expect(x).toBe(1n);']);
+  assert.equal(exactReverse(at('@@ -14,2 +14,1 @@', 'test(#1)', ['-  expect(x).toBe(1n);']), added), true, 'moved down by 4');
+  assert.equal(exactReverse(at('@@ -40,2 +40,1 @@', 'test(#7)', ['-  expect(x).toBe(1n);']), added), false, 'another test');
+  const twoHunks = (a, b, sign) =>
+    `diff --git a/t.mjs b/t.mjs\n--- a/t.mjs\n+++ b/t.mjs\n${a}\n ctx1\n${sign}one\n${b}\n ctx2\n${sign}two\n`;
+  const culprit2 = twoHunks('@@ -1,1 +1,2 @@', '@@ -9,1 +10,2 @@', '+');
+  assert.equal(exactReverse(twoHunks('@@ -1,2 +1,1 @@', '@@ -10,2 +9,1 @@', '-'), culprit2), true);
+  assert.equal(exactReverse(twoHunks('@@ -1,2 +1,1 @@', '@@ -30,2 +29,1 @@', '-'), culprit2), false, 'the second hunk elsewhere');
   const bin = 'diff --git a/p.png b/p.png\nBinary files a/p.png and b/p.png differ\n';
   assert.equal(exactReverse(REVERT_DIFF + bin, CULPRIT_DIFF + bin), false);
   assert.equal(exactReverse('', ''), false);
@@ -219,7 +229,7 @@ const revertApi = (over = {}) => {
   };
   return { get, asked };
 };
-const PULL = { head: HEAD, base: BASE, user: REVERT_AUTHOR, ref: 'revert/auto-cccccccccc' };
+const PULL = { head: HEAD, base: BASE, user: REVERT_AUTHOR, userType: 'Bot', commits: 1, inRepo: true, ref: 'revert/auto-cccccccccc' };
 
 test("automaticRevert: only main-bisect's own revert, exactly the reverse of a commit main contains", async () => {
   assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: REVERT_DIFF, get: revertApi().get }), CULPRIT);
@@ -232,6 +242,23 @@ test("automaticRevert: only main-bisect's own revert, exactly the reverse of a c
   assert.equal(api.asked.length, 0, 'another author is never read further');
   await none({ ...PULL, user: 'ZenYoda3' }, REVERT_DIFF);
   await none({ ...PULL, ref: 'fix/revert' }, REVERT_DIFF);
+  // Planted (the CI review's findings on #8019): what the seal's autoRevertScope also refuses.
+  await none({ ...PULL, userType: 'User' }, REVERT_DIFF);
+  await none({ ...PULL, commits: 2 }, REVERT_DIFF);
+  await none({ ...PULL, inRepo: false }, REVERT_DIFF);
+  await none({ ...PULL, ref: 'revert/auto-dddddddddd' }, REVERT_DIFF);
+  await none({ ...PULL, ref: 'revert/auto-cccccccccc-x' }, REVERT_DIFF);
+  await none(PULL, REVERT_DIFF, {
+    commit: { commit: { message: `Revert "x"\n\nThis reverts commit ${CULPRIT}. And more` }, parents: [{ sha: BASE }] },
+  });
+  const shared = (d) => d.replaceAll('docs/new.md', 'apps/customer/tests/real-app/stack.mjs');
+  const sharedApi = revertApi();
+  const sharedGet = async (p, accept) => {
+    const r = await sharedApi.get(p, accept);
+    return p.endsWith(CULPRIT) && accept === 'application/vnd.github.v3.diff' ? { ...r, text: shared(CULPRIT_DIFF) } : r;
+  };
+  assert.equal(exactReverse(shared(REVERT_DIFF), shared(CULPRIT_DIFF)), true);
+  assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: shared(REVERT_DIFF), get: sharedGet }), null, 'shared journey setup');
   await none(PULL, REVERT_DIFF.replace('+  expect(a).toBe(1n);', '+  expect(a).toBeTruthy();'));
   await none(PULL, REVERT_DIFF, { status: 'diverged' });
   await none(PULL, REVERT_DIFF, { diffStatus: 404 });
