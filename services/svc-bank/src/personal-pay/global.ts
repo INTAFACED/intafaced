@@ -6,7 +6,7 @@ import { oneLine, signReceipt } from '../receipt-signing.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { classifyAccount, classifyBic, type AccountKind } from './account-format.js';
 import { personalPayError, PSP_BLOCKER } from './errors.js';
-import { SWIFT_CHARGES, type Corridor, type FxQuote, type GlobalPorts, type SwiftCharges } from './ports.js';
+import { SWIFT_CHARGES, type Corridor, type FxQuote, type GlobalPorts, type StandInPayout, type SwiftCharges } from './ports.js';
 import { forwardKey, postToRail, reverseFromRail, reverseKey } from './post.js';
 import {
   normalizeAccount,
@@ -389,6 +389,13 @@ export class GlobalSendService {
   /** Who answers a global send: null for a real or absent partner, or the TEST stand-in's label, shown beside its numbers. */
   partner(): { standIn: string | null } {
     return { standIn: this.ports.standIn?.label ?? null };
+  }
+
+  /** The TEST stand-in's own record of one send it paid out; refused where no stand-in answers, or it paid none. */
+  standInPayout(sendId: string): StandInPayout {
+    const record = this.ports.standIn?.payout?.(sendId) ?? null;
+    if (!record) throw personalPayError('bank.global_not_found');
+    return record;
   }
 
   /** The catalogue, each corridor with the delivery methods a payout partner pays out on (`payoutMethods`). */

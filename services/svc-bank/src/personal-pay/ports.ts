@@ -65,6 +65,19 @@ export interface Corridor {
   readonly swiftCharges?: SwiftCharges | null;
 }
 
+/** The TEST stand-in's own record of one send it paid out. */
+export interface StandInPayout {
+  readonly sendId: string;
+  readonly quoteId: string;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly toCurrency: string;
+  readonly rate: string;
+  readonly receiveAmount: string;
+  readonly conversions: number;
+  readonly calls: number;
+}
+
 export const SWIFT_CHARGES = ['SHA', 'OUR', 'BEN'] as const;
 export type SwiftCharges = (typeof SWIFT_CHARGES)[number];
 
@@ -140,8 +153,12 @@ export interface BillPorts {
 }
 
 export interface GlobalPorts {
-  /** Set only by the TEST stand-in (`global-sim.ts`): its catalogue's TEST label, shown beside every number it gives. */
-  readonly standIn?: { readonly label: string };
+  /**
+   * Set only by the TEST stand-in (`global-sim.ts`): its catalogue's TEST label, shown beside every number it gives, and
+   * its own record of a send it paid out: the figures it converted at, how many times it converted (a payout asked again
+   * for the same send is acknowledged, never converted again) and how many times it was asked.
+   */
+  readonly standIn?: { readonly label: string; readonly payout?: (sendId: string) => StandInPayout | null };
   /**
    * Set only by the TEST stand-in: whether a send is screened, put on hold before anything is posted
    * (`GlobalHoldService.screen`). Screened once: after its hold is released, the send carries on.

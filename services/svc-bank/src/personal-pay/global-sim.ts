@@ -1,7 +1,7 @@
 import { formatAmount, mul, parseAmount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { isExplicitDevOrTest } from '@intafaced/config';
-import { emptyGlobalPorts, SWIFT_CHARGES, type GlobalPorts } from './ports.js';
+import { emptyGlobalPorts, SWIFT_CHARGES, type GlobalPorts, type StandInPayout } from './ports.js';
 
 /**
  * THE GLOBAL-SEND STAND-IN, AND IT IS A TEST FIXTURE.
@@ -120,8 +120,11 @@ function receive(amount: string, rate: string): string {
 
 /** The stand-in's ports over one typed catalogue. `now` is injectable so a quote's validity can be tested. */
 export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = () => new Date()): GlobalPorts {
+  // What it paid out, by send, in this process only (a TEST record, gone on restart). The first payout of a send converts;
+  // the same send asked again is acknowledged with the same reference and converts nothing more.
+  const paid = new Map<string, StandInPayout>();
   return {
-    standIn: { label: catalogue.label },
+    standIn: { label: catalogue.label, payout: (sendId) => paid.get(sendId) ?? null },
     ...(catalogue.reviewFrom?.length
       ? {
           review: {
@@ -183,7 +186,16 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
         ),
       railId: () => GLOBAL_SIM_RAIL,
       // The stand-in pays nobody: it acknowledges the send so the tracker has a reference, keyed by the send itself.
-      submit: async ({ sendId }) => ({ ok: true, providerRef: `TEST-${sendId}`, status: 'sent' }),
+      submit: async ({ sendId, quoteId, assetId, amount, toCurrency, rate, receiveAmount }) => {
+        const before = paid.get(sendId);
+        paid.set(
+          sendId,
+          before
+            ? { ...before, calls: before.calls + 1 }
+            : { sendId, quoteId, assetId, amount, toCurrency, rate, receiveAmount, conversions: 1, calls: 1 },
+        );
+        return { ok: true, providerRef: `TEST-${sendId}`, status: 'sent' };
+      },
     },
     travelRule: {
       decision: () => ({ decidedBy: catalogue.travelRule.decidedBy, requiredFields: [...catalogue.travelRule.requiredFields] }),

@@ -95,6 +95,29 @@ async function quoted(page, card) {
   return answer;
 }
 
+let founderSessions;
+/** The stack's founder sessions, signed in once for the file. */
+function founders() {
+  founderSessions ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { ctx, sessions: await gates.approverSessions(ctx) };
+  })();
+  // A failed sign-in is not kept: the next staff call signs in again.
+  founderSessions.catch(() => {
+    founderSessions = undefined;
+  });
+  return founderSessions;
+}
+
+/** The TEST stand-in's own record of a send it paid out, read by staff (founder `a`) straight from svc-bank's ops door. */
+async function standInPayout(sendId) {
+  const { ctx, sessions } = await founders();
+  const res = await ctx.edge.query('bank', 'global.ops.standInPayout', { sendId }, sessions.a.token);
+  if (!res.json?.result?.data) throw new Error(`standInPayout refused: ${res.status} ${res.text.slice(0, 300)}`);
+  return res.json.result.data;
+}
+
 /** Pay's global send with the US, dollars over SWIFT chosen, and a US recipient saved for it once. */
 async function toUs(page) {
   await page.goto('/pay/global');
@@ -217,7 +240,7 @@ test(`${J} #3 locks the rate and confirms: the send is paid at exactly the locke
   const card = await toGermany(page);
   await card.getByLabel('Recipient', { exact: true }).selectOption({ index: 1 });
   await card.getByLabel('You send').fill('40');
-  await card.getByRole('button', { name: 'Get a quote' }).click();
+  const lock = await quoted(page, card);
   // The quote is a lock, counting down from the stand-in's TEST 300 seconds.
   await expect(card.getByTestId('global-lock')).toHaveText(/^Rate locked for [45]:\d{2}\. Confirm inside it/, { timeout: 30_000 });
   await expect(card.getByTestId('global-quote')).toContainText('80 EUR');
@@ -226,8 +249,26 @@ test(`${J} #3 locks the rate and confirms: the send is paid at exactly the locke
   await expect(confirm.getByTestId('global-confirm-lock')).toContainText('Rate locked for');
   await expect(confirm).toContainText('80 EUR');
   await confirm.getByLabel('Authenticator code').fill(await code());
-  await confirm.getByRole('button', { name: 'Confirm with a code' }).click();
+  const [sendResponse] = await Promise.all([
+    page.waitForResponse((res) => res.url().includes('/api/bank/trpc/global.send') && res.request().method() === 'POST', {
+      timeout: 60_000,
+    }),
+    confirm.getByRole('button', { name: 'Confirm with a code' }).click(),
+  ]);
+  const sent = (await sendResponse.json())?.result?.data;
+  expect(sent).toMatchObject({ status: 'sent', quoteId: lock.quoteId, quoteRate: '2', quoteReceive: '80' });
   await expect(card.getByTestId('global-sent')).toBeVisible({ timeout: 30_000 });
+  // The partner's side, read from the TEST stand-in itself: it converted this send once, at exactly the lock's figures.
+  expect(await standInPayout(sent.id)).toMatchObject({
+    sendId: sent.id,
+    quoteId: lock.quoteId,
+    assetId: 'USDT',
+    amount: '40',
+    toCurrency: 'EUR',
+    rate: '2',
+    receiveAmount: '80',
+    conversions: 1,
+  });
   const row = card.getByTestId('global-history').locator('li').first();
   await expect(row).toContainText('40', { timeout: 30_000 });
   // The signed receipt carries the locked figures: rate 2, they receive 80 EUR.

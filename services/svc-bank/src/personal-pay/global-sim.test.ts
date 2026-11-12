@@ -69,7 +69,7 @@ describe('the global-send stand-in (TEST only)', () => {
     expect(refused(dev, '')).toBe('bank.global_sim_catalogue_unreadable');
     expect(refused(dev, json({ label: 'Partner catalogue' }))).toBe('bank.global_sim_catalogue_unreadable');
     expect(refused({ APP_ENV: 'test' })).toBe('started');
-    expect(globalPortsFor('global-sim', json(), dev).standIn).toEqual({ label: 'TEST stand-in' });
+    expect(globalPortsFor('global-sim', json(), dev).standIn).toMatchObject({ label: 'TEST stand-in' });
   });
 
   it('answers only from the catalogue: corridors, banks, the travel-rule fields and the rate', async () => {
@@ -165,7 +165,15 @@ describe('the global-send stand-in (TEST only)', () => {
       rate: '2',
       receiveAmount: '2',
     };
+    expect(ports.standIn?.payout?.('s-1')).toBeNull();
     expect(await ports.payout.submit(input)).toEqual({ ok: true, providerRef: 'TEST-s-1', status: 'sent' });
     expect(await ports.payout.submit(input)).toEqual({ ok: true, providerRef: 'TEST-s-1', status: 'sent' });
+    // Its own record: asked twice for the same send, it converted once, at the figures it was given.
+    expect(ports.standIn?.payout?.('s-1')).toMatchObject({
+      rate: input.rate,
+      receiveAmount: input.receiveAmount,
+      conversions: 1,
+      calls: 2,
+    });
   });
 });
