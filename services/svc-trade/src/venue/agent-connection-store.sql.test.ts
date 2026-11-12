@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import { SqlAgentAccountStore, type AgentAccountRecord } from './agent-account-store.js';
+import { NO_LIMITS, SqlAgentAccountStore, type AgentAccountRecord } from './agent-account-store.js';
 import { SqlAgentConnectionStore } from './agent-connection-store.js';
 
 // trade.user_venue_agent_connections (J-agents-21 #6): one active connection per key, never deleted, its terms fixed.
@@ -37,6 +37,7 @@ const account = (accountId: string, agent: string): AgentAccountRecord => ({
   name: `assistant-${accountId.slice(-12)}`,
   asset: 'USDC',
   cap: parseAmount('200'),
+  limits: NO_LIMITS,
   agentAddress: agent,
   fundAmount: parseAmount('150'),
   status: 'opening',

@@ -10,6 +10,7 @@
  *   POST /api/v1/venue/agent-accounts/:id/fund              { moveId, amount }
  *   POST /api/v1/venue/agent-accounts/:id/withdraw          { moveId, amount }
  *   POST /api/v1/venue/agent-accounts/:id/cap               { cap }
+ *   POST /api/v1/venue/agent-accounts/:id/limits            { maxOrderNotional?, maxLeverage?, maxDailyLoss? } (#16)
  *   POST /api/v1/venue/agent-accounts/:id/close
  *   GET  /api/v1/venue/agent-accounts/connections           the person's agent keys and the agent account each trades
  *   POST /api/v1/venue/agent-accounts/:id/connections       { keyId, stepUpApprovalId }: bind an own agent key (#6)
@@ -193,6 +194,12 @@ export function attachAgentAccountRoutes(
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (a) => a.setCap(principal, req.params.id, body(req)));
+  });
+
+  app.post<Id>(`${AGENT_ACCOUNTS_PATH}/:id/limits`, privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (a) => a.setLimits(principal, req.params.id, body(req)));
   });
 
   app.post<Id>(`${AGENT_ACCOUNTS_PATH}/:id/close`, privateWrite, async (req, reply) => {
