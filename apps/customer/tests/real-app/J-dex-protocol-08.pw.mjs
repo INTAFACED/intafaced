@@ -332,7 +332,7 @@ test(`${J} #4 opens sub-accounts and a multi-signature account: the sub-account 
   // venue itself (the app has no control that opens one): once per wallet, so a retry finds it there.
   const SUB_NAME = 'TEST savings';
   if (!(await venueRecord(owner, '/sub-accounts')).value.some((sub) => sub.name === SUB_NAME))
-    await ownVenueAction({ kind: 'create_sub_account', name: SUB_NAME, subAccountKey: `${J}:${owner.toLowerCase()}:sub` });
+    await ownVenueAction({ kind: 'create_sub_account', name: SUB_NAME, subAccountKey: `j-dex-protocol-08:${owner.toLowerCase()}:sub` });
   const listed = (await venueRecord(owner, '/sub-accounts')).value;
   expect(listed.map((sub) => sub.name)).toEqual([SUB_NAME]);
   // The venue is read for a signed-in person who passed the checks.
