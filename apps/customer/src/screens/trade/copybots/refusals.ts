@@ -254,6 +254,26 @@ const COPY: Readonly<Record<string, Words>> = {
   },
   'trade.copy_lead_application_decided': { title: 'That application is decided', body: 'Read it again to see the decision.' },
   'trade.copy_lead_application_not_found': { title: 'That application wasn’t found', body: 'Read the page again.' },
+  'trade.copy_lead_following': {
+    title: 'Leave your leader first',
+    body: 'You are following a leader. Leave that leader before you apply to lead. Nothing was sent.',
+  },
+  'trade.copy_lead_balance_threshold_unset': {
+    title: 'Applying to lead is closed',
+    body: 'The least venue balance to lead is not set by the platform, so no application can be measured. Nothing was sent.',
+  },
+  'trade.copy_lead_venue_account_missing': {
+    title: 'Connect your venue account first',
+    body: 'Connect the wallet whose venue account you will lead from, on the trading desk, and sign once with it. Nothing was sent.',
+  },
+  'trade.copy_lead_venue_unreadable': {
+    title: 'Your venue account could not be read',
+    body: 'The trading venue did not answer, so your balance could not be measured. Nothing was sent.',
+  },
+  'trade.copy_lead_balance_below': {
+    title: 'Your venue balance is under the threshold',
+    body: 'Your venue account holds less than leading needs, as the venue reports it. Nothing was sent.',
+  },
 };
 
 const DEVICE: Readonly<Record<string, Words>> = {
