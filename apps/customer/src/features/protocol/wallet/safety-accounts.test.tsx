@@ -12,7 +12,24 @@ const wallet = { status: 'connected', address: ME as string | null, guard: { ok:
 const predictAccount = vi.fn();
 vi.mock('./WalletProvider', async (actual) => ({ ...(await actual<typeof import('./WalletProvider')>()), useWallet: () => wallet }));
 vi.mock('../api', () => ({ createProtocolApi: () => ({ predictAccount }) }));
-vi.mock('../../session/session', () => ({ useApi: () => ({}) }));
+const session = { userId: 'u1' as string | null, api: {} };
+const venueStatus = vi.fn();
+const venueSubs = vi.fn();
+vi.mock('../../session/session', () => ({ useApi: () => ({}), useSession: () => session }));
+vi.mock('../../trade/venue-api', async (actual) => ({
+  ...(await actual<typeof import('../../trade/venue-api')>()),
+  venueApi: () => ({ status: venueStatus, subAccounts: venueSubs }),
+}));
+const VENUE_UP = {
+  enabled: true,
+  available: true,
+  venue: { id: 'test-venue', displayName: 'TEST venue', proofLevel: 'simulator' },
+  test: true,
+  label: 'TEST',
+  chainId: 84532,
+  builder: null,
+};
+const SUB = '0x3333333333333333333333333333333333333333';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement, root: Root;
@@ -30,6 +47,9 @@ beforeEach(() => {
   wallet.address = ME;
   wallet.guard = { ok: true };
   predictAccount.mockReset();
+  session.userId = 'u1';
+  venueStatus.mockReset().mockResolvedValue({ ok: true, data: { enabled: false } });
+  venueSubs.mockReset();
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -63,6 +83,48 @@ describe('wallet Accounts (D-portfolio-wallet-02)', () => {
     await mount(<AccountsPanel />);
     expect(text()).toContain('Your wallet is on another network.');
     expect(predictAccount).not.toHaveBeenCalled();
+  });
+
+  it("lists the wallet's own sub-accounts on the venue, as the venue reports them, with the venue named", async () => {
+    predictAccount.mockResolvedValue({
+      ok: true,
+      data: { address: SMART, chainId: 84532, factory: ME, implementation: ME, deployed: true },
+    });
+    venueStatus.mockResolvedValue({ ok: true, data: VENUE_UP });
+    venueSubs.mockResolvedValue({
+      ok: true,
+      data: { venueId: 'test-venue', asOf: '2026-11-12T08:00:00.000Z', value: [{ subAccount: SUB, name: 'Savings' }] },
+    });
+    await mount(<AccountsPanel />);
+    await act(async () => {});
+    const table = host.querySelector('[role="region"][aria-label="Venue sub-accounts"] table')!;
+    const rows = [...table.querySelectorAll('tbody tr')].map((row) => row.textContent);
+    expect(rows).toEqual([`Savings${SUB}`]);
+    expect(venueSubs).toHaveBeenCalledWith(ME, expect.anything());
+    expect(text()).toContain('Your own sub-accounts on TEST venue');
+    expect(host.querySelector('[data-testid="venue-as-of"]')).not.toBeNull();
+  });
+
+  it('says why no venue sub-account is listed: signed out, the venue not connected, or the venue down', async () => {
+    predictAccount.mockResolvedValue({
+      ok: true,
+      data: { address: SMART, chainId: 84532, factory: ME, implementation: ME, deployed: true },
+    });
+    session.userId = null;
+    await mount(<AccountsPanel />);
+    expect(text()).toContain("Sign in to see this wallet's sub-accounts on the trading venue.");
+    session.userId = 'u1';
+    await mount(<AccountsPanel key="off" />);
+    await act(async () => {});
+    expect(text()).toContain('The trading venue is not connected');
+    venueStatus.mockResolvedValue({
+      ok: true,
+      data: { enabled: true, available: false, refusal: { code: 'venue_down', detail: 'TEST venue is down' } },
+    });
+    await mount(<AccountsPanel key="down" />);
+    await act(async () => {});
+    expect(text()).toContain('The trading venue did not answer, so its sub-accounts cannot be read: TEST venue is down');
+    expect(venueSubs).not.toHaveBeenCalled();
   });
 
   it('shows the multi-signature control disabled with its blocker', async () => {
