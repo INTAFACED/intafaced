@@ -250,19 +250,27 @@ test(`${J} #3 retries the start dialog after a lost reply: the same run, not a s
   const form = await startForm(paper);
   // The start reaches svc-quant, but its reply is lost on the way back.
   let lost = false;
+  let lostReply = '';
   await page.route('**/api/quant/trpc/paper.start*', async (route) => {
     if (lost) return route.continue();
     lost = true;
-    await route.fetch();
+    lostReply = await (await route.fetch()).text();
     await route.abort('connectionreset');
   });
   await form.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(form.getByTestId('failure')).toBeVisible();
+  // The lost reply did start a run on the server: it named a new run, and the service already lists it.
+  const lostRunId = /"runId":"([^"]+)"/.exec(lostReply)?.[1];
+  expect(lostRunId, `the lost reply names its run: ${lostReply.slice(0, 200)}`).toBeTruthy();
+  expect(lostRunId).not.toBe(first);
+  const before = await read(who, 'quant', 'paper.list', { strategyId, limit: 50 });
+  expect(before.runs.map((row) => row.runId).sort()).toEqual([first, lostRunId].sort());
+  expect(before.counts).toEqual([{ strategyVersion: 1, runs: 2 }]);
   // Pressed again from the same dialog: the run the lost reply started, not a second one.
   await form.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(paper.getByTestId('quant-paper-note')).toHaveText('Version 1 is running on paper.');
   const second = await paper.getByTestId('quant-paper-view').getAttribute('data-run-id');
-  expect(second).not.toBe(first);
+  expect(second).toBe(lostRunId);
   await page.reload();
   await expect(runRows(paper)).toHaveCount(2);
   const list = await read(who, 'quant', 'paper.list', { strategyId, limit: 50 });
