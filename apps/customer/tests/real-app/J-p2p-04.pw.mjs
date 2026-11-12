@@ -308,6 +308,13 @@ test('J-p2p-04 #3 saving a payment method asks for a step-up and shows it masked
     await page.reload();
     await expect(page.getByTestId('methods-key-off')).toContainText('the owner has not switched one on');
     await expect(page.getByTestId('method-add-form').getByTestId('method-add-country')).toBeDisabled();
+    // Not only the page: the service itself saves nothing without its key. A save sent straight to it is refused by the
+    // owner-decision code before any confirmation is asked, and the person's saved methods are unchanged.
+    const stored = await s.query('instruments.list', { limit: 200 });
+    const keyOff = await s.bare.mutate('instruments.create', account(METHOD, holderOf(state.seller), { fiatCurrency: 'USD' }));
+    expect(keyOff.status, JSON.stringify(keyOff.body).slice(0, 300)).toBe(412);
+    expect(refusalCode(keyOff)).toBe('p2p.instrument_kms_required');
+    expect(await s.query('instruments.list', { limit: 200 })).toEqual(stored);
   } finally {
     restartWith('p2p', 'LOCAL_STACK_P2P_KEY_STORE', true);
   }
