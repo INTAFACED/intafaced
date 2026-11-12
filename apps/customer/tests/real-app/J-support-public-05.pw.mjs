@@ -345,7 +345,7 @@ test(`${J} #7 asking to continue by email: the chat continues in the email threa
   expect(answer?.result?.data?.status, JSON.stringify(answer).slice(0, 300)).toBe('emailed');
   await expect(mailed.room.getByTestId('support-chat-email-notice')).toHaveAttribute('data-email-status', 'emailed');
   await expect(mailed.room.locator('[data-not-connected="vendor.email"]')).toHaveCount(0);
-  // The email thread exists: a mail to this customer carries the chat so far.
+  // The email thread exists: a mail to this customer names this chat.
   await expect
     .poll(
       () =>
