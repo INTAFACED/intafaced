@@ -253,6 +253,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
             process.env.LOCAL_STACK_AGENT_ACCOUNT_CEILING === 'off' ? '' : testValue('TRADE_AGENT_ACCOUNT_CEILING'),
           TRADE_AGENT_ACCOUNT_ASSET: testValue('TRADE_AGENT_ACCOUNT_ASSET'),
           TRADE_AGENT_KEY_SEED: testValue('TRADE_AGENT_KEY_SEED'),
+          // J-derivatives-03: our engine judges the venue-lacking protections (a trailing stop, a stop on the index) each second.
+          TRADE_PROTECTION_ENGINE_INTERVAL_MS: '1000',
           TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
           TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
           TRADE_AGENT_MARKETS: testValue('TRADE_AGENT_MARKETS'),

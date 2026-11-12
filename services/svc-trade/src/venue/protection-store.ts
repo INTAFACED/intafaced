@@ -72,7 +72,13 @@ export class InMemoryEngineProtectionStore implements EngineProtectionStore {
     const r = this.rows.get(id);
     if (r && r.status === 'armed') this.rows.set(id, { ...r, bestPrice: best });
   }
-  async move(id: string, from: EngineProtectionStatus, to: EngineProtectionStatus, _at: Date, extra: { failure?: string; cancelReason?: string; firedAt?: Date } = {}) {
+  async move(
+    id: string,
+    from: EngineProtectionStatus,
+    to: EngineProtectionStatus,
+    _at: Date,
+    extra: { failure?: string; cancelReason?: string; firedAt?: Date } = {},
+  ) {
     const r = this.rows.get(id);
     if (!r || r.status !== from) return false;
     this.rows.set(id, {

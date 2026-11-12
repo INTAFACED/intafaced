@@ -40,6 +40,11 @@ const schema = serviceEnvSchema
        * (src/venue/agent-key.ts). Blank refuses every create `agents.agent_key_unset`.
        */
       TRADE_AGENT_KEY_SEED: z.string().default(''),
+      /**
+       * How often our engine judges the protections the venue does not take (J-derivatives-03: a trailing stop, a stop on
+       * the venue's index), in milliseconds. Blank: the engine does not run, and such a stop stays armed, unjudged.
+       */
+      TRADE_PROTECTION_ENGINE_INTERVAL_MS: z.string().default(''),
       /** NO DEFAULT drain bound: the largest notional of one agent order. Blank refuses every agent order `agents.order_bound_unset`. */
       TRADE_AGENT_MAX_ORDER_NOTIONAL: z.string().default(''),
       /** NO DEFAULT drain bound: the worst price an agent order may name, bps from the mark. Blank refuses `agents.price_bound_unset`. */

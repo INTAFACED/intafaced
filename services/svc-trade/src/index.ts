@@ -121,6 +121,8 @@ import { SqlAllowanceStore } from './venue/own-agent-allowance-store.js';
 import { createOwnAgentPolicy } from './venue/own-agent-policy-client.js';
 import { SqlAgentConnectionStore } from './venue/agent-connection-store.js';
 import { createAgentKeyReader } from './venue/agent-key-read-client.js';
+import { VenueProtections } from './venue/protections.js';
+import { SqlEngineProtectionStore } from './venue/protection-store.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
@@ -561,6 +563,34 @@ const ownAgentTrading = userVenue
       now: () => new Date(),
     })
   : null;
+// A position's protections on the person's own venue account (J-derivatives-03): the venue's trigger orders through the
+// door, and our engine for the kinds the venue lacks, signed by the protection key the person approved. Off with the door.
+const venueProtections = userVenue
+  ? new VenueProtections({
+      door: userVenue,
+      store: new SqlEngineProtectionStore(sql),
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      now: () => new Date(),
+    })
+  : null;
+const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
+  ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
+  : 0;
+if (venueProtections && protectionEngineMs > 0) {
+  let busy = false;
+  setInterval(() => {
+    if (busy) return;
+    busy = true;
+    venueProtections
+      .tick()
+      .catch((err: unknown) =>
+        process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
+      )
+      .finally(() => {
+        busy = false;
+      });
+  }, protectionEngineMs).unref();
+}
 // Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
 // venue's door. Off with the door.
 const venueSellQuotes = userVenue
@@ -1840,6 +1870,7 @@ registerPrivateRest(app, {
   agentAccounts,
   agentOrders,
   ownAgentTrading,
+  venueProtections,
   venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),

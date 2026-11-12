@@ -115,12 +115,12 @@ describe('TEST venue simulator: trigger orders (J-derivatives-03)', { timeout: 6
   it('#2 a take profit on the wrong side of the mark, an opening trigger and one larger than the position are refused, and nothing rests', async () => {
     const w = await long();
     const mark = (await w.sim.markets(null)).value.find((m) => m.symbol === ETH)!.mark;
-    expect(mark).toEqual({ known: true, value: a('3001') });
+    expect(mark).toEqual({ known: true, value: a('3000') });
     expect(await w.run(tp('2990'))).toMatchObject({
       accepted: false,
       refusal: {
         code: 'venue_rejected',
-        detail: 'a take profit on this side must trigger above the mark price 3001: this one would fire at once',
+        detail: 'a take profit on this side must trigger above the mark price 3000: this one would fire at once',
       },
     });
     expect(await w.run(sl('3050'))).toMatchObject({
@@ -268,8 +268,10 @@ describe('TEST venue simulator: trigger orders (J-derivatives-03)', { timeout: 6
     await w.run(
       tp('3100', { amount: a('2'), parentClientOrderKey: 'order:trigger-trader:entry', clientOrderKey: 'order:trigger-trader:child' }),
     );
+    // Crossed while the entry has filled nothing: it waits.
     w.sim.setMark(ETH, a('3200'));
     expect(await byKey(w, 'order:trigger-trader:child')).toMatchObject({ status: 'open', amount: a('2'), trigger: { state: 'waiting' } });
+    w.sim.setMark(ETH, a('3000'));
     // Another trader sells 0.5 into the entry: the protection arms on 0.5, and the mark above its price fires it for 0.5.
     const other = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet trigger seller')));
     const otherAccount: UserVenueAccount = { venueId: w.sim.venue.id, owner: other.address.toLowerCase(), subAccount: null };
@@ -285,7 +287,7 @@ describe('TEST venue simulator: trigger orders (J-derivatives-03)', { timeout: 6
     await pullTestLadder(w.sim, ETH, 'bid');
     await otherRun(order({ reduceOnly: false, amount: a('0.5'), price: a('2998'), clientOrderKey: 'order:trigger-seller:hit' }));
     expect(await byKey(w, 'order:trigger-trader:entry')).toMatchObject({ filled: a('0.5') });
-    // Its fill set the mark to 2998: the protection is sized to 0.5 and still waits for 3100.
+    // The protection is sized to the 0.5 filled and still waits for 3100 (the oracle mark is 3000; a fill does not move it).
     expect(await byKey(w, 'order:trigger-trader:child')).toMatchObject({ amount: a('0.5'), trigger: { state: 'waiting' } });
     await seedTestVenue(w.sim);
     w.sim.setMark(ETH, a('3100'));

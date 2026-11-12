@@ -788,7 +788,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
       triggerSources: m.kind === 'perpetual' ? (m.triggerSources ?? []) : [],
-      index: published(m.kind === 'perpetual' ? (m.oracle ? this.marks.get(m.symbol) : this.indexes.get(m.symbol)) : undefined),
+      index: published(m.kind === 'perpetual' ? this.indexes.get(m.symbol) : undefined),
     }));
     return this.asOf(list);
   }

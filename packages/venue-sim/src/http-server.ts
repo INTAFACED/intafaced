@@ -180,6 +180,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maxOrderNotional: parseAmount('100000000'),
     listedBy: VENUE_LISTED,
     triggerSources: ['mark', 'last'],
+    // TEST: priced by its TEST oracle, so a fill never moves its mark: a journey step moves it only by /test/set-mark.
+    oracle: {},
   },
   {
     symbol: 'XAU-PERP',
