@@ -8,7 +8,7 @@
  * trust's one shard re-run ended 15:23 UTC with no report again, and every pull request's verdict failed on it until a
  * person re-ran it at 23:14 UTC. The verdict stays as strict as it is; this only brings the report back.
  *
- * Main trust runs this on its hourly timer (main-trust.yml `revive`). It reads main's own journeys runs (push, schedule,
+ * Main trust runs this on its hourly timer and after each CI run on main (main-trust.yml `revive`). It reads main's own journeys runs (push, schedule,
  * dispatch) created in the last WINDOW_HOURS, finished and not cancelled or skipped, that did not succeed (a run still going,
  * or one of its attempts still going, is left alone), and for each one whose `real-app-journeys` artifact has no
  * report.json:
@@ -41,6 +41,7 @@
  *
  *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
  *   node tooling/ci/journeys-revive.mjs prs    pull requests only
+ *   node tooling/ci/journeys-revive.mjs main   main runs only (after each CI run on main: GitHub's cron here runs late or never)
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
@@ -50,6 +51,8 @@ export const MAX_ATTEMPT = 5;
 export const WAIT_MINUTES = { 1: 30, 2: 60, 3: 120, 4: 240 };
 // The whole series (four waits of 30 min to 4 h, five attempts of about an hour) ends within about 13 h of a run starting.
 export const WINDOW_HOURS = 24;
+/** A journeys artifact this large holds a report (main's reports: about 4.6 MB on 11 and 12 Nov 2026; a dead run's: 287 bytes). */
+export const REPORT_BYTES = 64 * 1024;
 
 export const issueTitle = (run) => `Journeys run on main has no report: run ${run.run_number}`;
 
@@ -85,9 +88,14 @@ export function issueBody(run, repo) {
  * One tick. `io` is GitHub: listRuns(), hasReport(run), rerun(run) -> { ok, status }, openIssue(title) -> issue|null,
  * createIssue(title, body). Returns the actions taken, one line per run, for the log and the tests.
  */
-export async function tick({ repo, now, io }) {
+export async function tick({ repo, now, io, lazy = false }) {
   const out = [];
   for (const run of candidates(await io.listRuns(), { repo, now })) {
+    // `lazy` (after each CI run on main, many times an hour): a run still inside its wait isn't read at all, and a run
+    // whose journeys artifact is large (a report is megabytes; run 4005's dead artifact was 287 bytes) costs one read,
+    // not a download. The installation's API budget is shared with the merge seal, which fails closed on a 403 (#8038).
+    if (lazy && decide(run, now) === 'wait') continue;
+    if (lazy && (await io.reportLikely(run))) continue;
     if (await io.hasReport(run)) continue;
     const action = decide(run, now);
     const name = `run ${run.run_number} (${run.id}) attempt ${run.run_attempt}`;
@@ -294,6 +302,13 @@ export function githubIo(repo) {
   return {
     listRuns: async () =>
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&per_page=100`)).json.workflow_runs,
+    // At least REPORT_BYTES in the newest journeys artifact: one read, for the lazy tick.
+    reportLikely: async (run) => {
+      const a =
+        (await gh('GET', `/repos/${repo}/actions/runs/${run.id}/artifacts?name=real-app-journeys&per_page=20`)).json.artifacts ?? [];
+      const newest = a.filter((x) => !x.expired).sort((x, y) => Date.parse(y.created_at) - Date.parse(x.created_at))[0];
+      return Boolean(newest && newest.size_in_bytes >= REPORT_BYTES);
+    },
     // The verdict's own reader: no artifact, or an artifact without report.json, is null; any other failure throws.
     hasReport: async (run) => downloadReport(repo, run.id, 'report.json', true) !== null,
     rerun: async (run) => {
@@ -341,12 +356,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
   const io = githubIo(repo);
-  const prsOnly = process.argv[2] === 'prs';
+  const mode = process.argv[2] ?? 'all';
+  if (!['all', 'main', 'prs'].includes(mode)) {
+    console.error(`✖ journeys-revive: unknown mode ${mode} (all, main or prs)`);
+    process.exit(1);
+  }
   (async () => {
-    if (!prsOnly) {
-      const lines = await tick({ repo, now: Date.now(), io });
+    if (mode !== 'prs') {
+      const lines = await tick({ repo, now: Date.now(), io, lazy: mode === 'main' });
       console.log(lines.length ? lines.join('\n') : 'every finished journeys run on main in the window has a report');
     }
+    if (mode === 'main') return;
     const lines = await prTick({ repo, now: Date.now(), io });
     console.log(lines.length ? lines.join('\n') : 'no pull request journeys run in the window is red only on the verdict');
   })().catch(async (e) => {
