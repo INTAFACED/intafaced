@@ -172,7 +172,6 @@ test(`${J} #2 reads the market's rules on the ticket and in the market list: tic
   const c = customer();
   const { symbol, base } = await freshMarket('R', RULES);
   await listByApi(symbol);
-  run.write({ ruled: symbol });
   const venue = await venueInfo();
   const own = await venueMarket(c.owner, symbol);
   // The venue publishes each rule: these are the figures the desk must show, never ours.
@@ -197,7 +196,8 @@ test(`${J} #2 reads the market's rules on the ticket and in the market list: tic
   expect(percent, await shown('band')).toBeTruthy();
   expect(sameDecimal(percent, String(Number(own.priceBandBps) / 100))).toBe(true);
   expect(await shown('cap')).toBe(`Up to ${own.maxOpenOrders} open orders on your venue account`);
-  expect(await shown('largest')).toBe(`${own.maxOrderQty} ${base}, or ${own.maxOrderNotional} USDC`);
+  // Read as written: the figures are the venue's own strings, and the comma here is the sentence's.
+  await expect(ruleRow(page, 'largest').locator('dd')).toHaveText(`${own.maxOrderQty} ${base}, or ${own.maxOrderNotional} USDC`);
   await expect(panel).not.toContainText('Not published');
 
   // The market list the desk reads (our door's list of the markets INTAFACED shows) carries the venue's own figures.
@@ -217,11 +217,14 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   const c = customer();
   const client = await api(c.account);
   const venue = await venueInfo();
-  // A pair whose venue publishes no smallest order value and no price band (its open-order cap it does publish).
-  const { symbol, base } = await freshMarket('U', { ...RULES, minOrderNotional: null, priceBandBps: null });
+  // A pair whose venue publishes no smallest order value, no price band and no open-order cap, and, for the owner's
+  // branch below, a pair of this step's own whose venue publishes every rule.
+  const { symbol, base } = await freshMarket('U', { ...RULES, minOrderNotional: null, priceBandBps: null, maxOpenOrders: null });
   await listByApi(symbol);
+  const { symbol: ruled, base: ruledBase } = await freshMarket('P', RULES);
+  await listByApi(ruled);
   const own = await venueMarket(c.owner, symbol);
-  expect([own.minOrderNotional, own.priceBandBps, own.maxOpenOrders]).toEqual([null, null, RULES.maxOpenOrders]);
+  expect([own.minOrderNotional, own.priceBandBps, own.maxOpenOrders]).toEqual([null, null, null]);
   const before = await venueOwn(c.owner, symbol);
   expect(before.open).toHaveLength(0);
 
@@ -240,7 +243,14 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   });
   expect(prepared.status, JSON.stringify(prepared.body).slice(0, 300)).toBe(422);
   expect(prepared.body.intafacedCode).toBe('trade.venue_rule_unpublished');
-  expect(prepared.body.message).toContain(`${venue.displayName} publishes no smallest order value, no price band for ${symbol}`);
+  expect(prepared.body.message).toContain(
+    `${venue.displayName} publishes no smallest order value, no price band, no open-order cap for ${symbol}`,
+  );
+  // Our door's own market list carries the venue's blanks as blanks: no smallest order value, band or cap of ours stands
+  // in (on the venue path the owner sets none of the three; the venue's own rules are the only ones).
+  const listed = (await client.get('/api/v1/venue/markets')).body.value.find((m) => m.symbol === symbol);
+  expect(listed, `${symbol} is on the customer's market list`).toBeTruthy();
+  expect([listed.minOrderNotional, listed.priceBandBps, listed.maxOpenOrders]).toEqual([null, null, null]);
 
   // The desk shows each rule as not published by the venue, and the ticket refuses in words before any review.
   const wallet = await openVenueDesk(page, c.account, `/trade/spot/${symbol}`, c.walletKey);
@@ -251,12 +261,12 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   });
   await expect(ruleRow(page, 'min').locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
   await expect(ruleRow(page, 'band').locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
-  await expect(ruleRow(page, 'cap').locator('dd')).toHaveText(`Up to ${RULES.maxOpenOrders} open orders on your venue account`);
+  await expect(ruleRow(page, 'cap').locator('dd')).toHaveText(`Not published by ${venue.displayName}`);
   await buyForm(page).getByRole('textbox', { name: 'Price' }).fill('20');
   await buyForm(page).getByRole('textbox', { name: 'Amount' }).fill('1');
   const note = buyForm(page).locator('[data-code="trade.venue_rule_unpublished"]');
   await expect(note).toHaveText(
-    `${venue.displayName} publishes no smallest order value, price band for ${symbol}, so this order can’t be checked against it and the desk won’t guess one. Nothing was sent.`,
+    `${venue.displayName} publishes no smallest order value, price band, open-order cap for ${symbol}, so this order can’t be checked against it and the desk won’t guess one. Nothing was sent.`,
   );
   await expect(buyForm(page).getByRole('button', { name: `Buy ${base}` })).toBeDisabled();
   await page.waitForTimeout(1_000);
@@ -264,10 +274,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   expect(wallet.requests).toHaveLength(0);
 
   // The owner's branch: a market order is bounded by the owner's price protection, a band only the owner sets. Left
-  // blank, a market order on step 2's pair (whose venue publishes every rule) refuses by name, on the desk and at our door.
-  const ruled = run.read().ruled;
-  expect(ruled, 'step 2 listed its pair').toBeTruthy();
-  const ruledBase = ruled.split('-')[0];
+  // blank, a market order on this step's fully ruled pair refuses by name, on the desk and at our door.
   const ruledBefore = await venueOwn(c.owner, ruled);
   try {
     restartTrade({ LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_TRADE_SLIPPAGE_CAP: 'off' });
