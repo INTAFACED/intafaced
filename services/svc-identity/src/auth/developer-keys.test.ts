@@ -108,7 +108,7 @@ describe('agent keys (J-developer-15 #5): tagged and restricted at create', () =
     for (const scope of ['identity:write', 'pay:write', 'pay:payout', 'pay:refund', 'trade:withdraw']) {
       const refusal = refusalOf({ name: 'agent-1', scopes: ['trade:read', scope], kind: 'agent' });
       expect(refusal, scope).toBeInstanceOf(DeveloperKeyError);
-      expect(refusal?.code, scope).toBe('identity.agent_scope_forbidden');
+      expect(refusal?.code, scope).toBe('auth.agent_scope_forbidden');
     }
   });
 

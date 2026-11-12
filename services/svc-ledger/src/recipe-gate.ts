@@ -1098,6 +1098,31 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'feeGiveBackOwe',
+      // Shape sample only, never posted: TEST approvers and amounts.
+      post: recipes.feeGiveBackOwe({
+        venueId: 'test-venue',
+        venueAccount: '0xtest',
+        fillId: 'f-test',
+        userId: '11111111-1111-4111-8111-111111111111',
+        assetId: 'USDC',
+        feePaid: AMT,
+        amount: AMT,
+        approvers: ['test-approver-a', 'test-approver-b'],
+      }),
+    },
+    {
+      name: 'feeGiveBackPayOut',
+      post: recipes.feeGiveBackPayOut({
+        userId: '11111111-1111-4111-8111-111111111111',
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'tradeFillMakerRebate',
       post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },

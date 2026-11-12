@@ -1546,6 +1546,43 @@
           }
         },
         {
+          "name": "venueAgentConnections",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", "connections"]
+            }
+          }
+        },
+        {
+          "name": "venueAgentConnect",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "connections"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent", "orders"]
+            }
+          }
+        },
+        {
           "name": "venueOrders",
           "request": {
             "method": "GET",

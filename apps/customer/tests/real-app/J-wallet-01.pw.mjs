@@ -32,7 +32,7 @@ import {
 // #3 puts this person's bank money at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`, funded there
 // with TEST 50 USDT), buys TEST 10 USDT by card and TEST 20 USDT by a bank pull through the partner's TEST pay-in page, and reads what the partner
 // holds back of it on Withdraw, through its switches for "not reported" and for the release; then puts it back.
-// #5 reads the asset registry, as before. #6 reads the membership panel with the tiers blank, then with identity restarted
+// #5 reads the asset registry and holds Deposit's and Withdraw's own pickers to it. #6 reads the membership panel with the tiers blank, then with identity restarted
 // with one TEST tier (`LOCAL_STACK_IDENTITY_MEMBERSHIP=test`), then blank again.
 const J = 'J-wallet-01';
 const DESK = '/trade/spot/BTC-USDC';
@@ -561,6 +561,19 @@ test(`${J} #4 looks at an asset with no published price: it reads "No price publ
 });
 
 const RETIRED = 'TESTRETIRED';
+/** The select inside the form field of `scope` whose own caption is exactly `caption` (a panel of the same title is not the field). */
+const picker = (scope, caption) =>
+  scope
+    .locator('label')
+    .filter({ has: scope.page().getByText(caption, { exact: true }) })
+    .getByRole('combobox');
+/** The places after the point a decimal string is written with, trailing zeros not counted. */
+const places = (value) => (String(value).split('.')[1] ?? '').replace(/0+$/, '').length;
+/** A decimal string as the customer app writes it: the whole part grouped by thousands, the fraction as given. */
+const grouped = (value) => {
+  const [whole, fraction] = String(value).split('.');
+  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction ? `.${fraction}` : ''}`;
+};
 
 test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw use, and a retired asset stays listed with its history`, async ({
   page,
@@ -589,7 +602,15 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   expect(deposits.assets.length).toBeGreaterThan(0);
   for (const asset of deposits.assets) {
     expect(row(asset.assetId)).toMatchObject({ state: 'active', allowedActions: expect.arrayContaining(['deposit']) });
-    for (const network of asset.networks) expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
+    // Deposit's precision for the asset is the list's own, exactly.
+    expect(asset.precision, `Deposit's precision for ${asset.assetId}`).toBe(row(asset.assetId).precision);
+    for (const network of asset.networks) {
+      expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
+      // Deposit's figure for the pair, its minimum, is written at the list's precision for that asset, never finer.
+      expect(places(network.minimumDeposit), `${asset.assetId} on ${network.id}: minimum ${network.minimumDeposit}`).toBeLessThanOrEqual(
+        row(asset.assetId).precision,
+      );
+    }
   }
   expect(deposits.assets.map((asset) => asset.assetId)).not.toContain(RETIRED);
   expect(row(RETIRED)).toMatchObject({ state: 'retired', allowedActions: [] });
@@ -598,6 +619,42 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await signIn(page, who);
   await page.goto('/uc/recharge');
   await page.mouse.move(0, 600);
+  // Deposit's own pickers use those rows: its coins are the ones the list lets in (and any whose pairs are switched off,
+  // shown with their reason), and each coin's open networks are the list's networks for it.
+  const optionValues = (select, extra = '') =>
+    select.locator(`option${extra}`).evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
+  // Deposit's own pickers sit in its "Asset" panel; the records' filter further down has an "Asset" field of its own.
+  const depositPanel = page.getByRole('region', { name: 'Asset', exact: true });
+  const depositAsset = picker(depositPanel, 'Asset');
+  const depositNetwork = picker(depositPanel, 'Network');
+  await expect(depositAsset).toHaveCount(1);
+  await expect(depositNetwork).toHaveCount(1);
+  const depositOffered = [...new Set([...deposits.assets, ...(deposits.halted ?? [])].map((asset) => asset.assetId))];
+  await expect.poll(() => optionValues(depositAsset).then((v) => [...v].sort())).toEqual([...depositOffered].sort());
+  for (const id of depositOffered) expect(row(id), `Deposit offers ${id}, which the list does not have`).toBeTruthy();
+  for (const asset of deposits.assets) {
+    await depositAsset.selectOption(asset.assetId);
+    const open = asset.networks.map((n) => n.id);
+    await expect.poll(() => optionValues(depositNetwork, ':not([data-halted])').then((v) => [...v].sort())).toEqual([...open].sort());
+    for (const network of asset.networks) {
+      expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
+      // The page shows that minimum exactly as the bank gives it, so Deposit shows no more places than the list's precision.
+      await depositNetwork.selectOption(network.id);
+      await expect(
+        page
+          .getByRole('term')
+          .filter({ hasText: /^Minimum deposit$/ })
+          .locator('xpath=following-sibling::dd[1]'),
+      ).toHaveText(`${grouped(network.minimumDeposit)} ${asset.assetId}`);
+      // And the page names the decimal places Deposit uses for the asset: the list's precision, exactly.
+      await expect(
+        page
+          .getByRole('term')
+          .filter({ hasText: /^Decimal places$/ })
+          .locator('xpath=following-sibling::dd[1]'),
+      ).toHaveText(String(row(asset.assetId).precision));
+    }
+  }
   await page.getByRole('link', { name: 'Supported assets and networks' }).click();
   await expect(page).toHaveURL(/\/uc\/assets$/);
   await expect(page.getByRole('heading', { name: 'Supported assets and networks', level: 1 })).toBeVisible();
@@ -626,6 +683,24 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
   await expect(page.getByRole('link', { name: 'Supported assets and networks' })).toHaveAttribute('href', '/uc/assets');
+  // Withdraw's own pickers use the same rows: for every coin the person holds, the networks it offers are exactly the
+  // list's withdrawal networks for that coin, and the retired coin they still hold is offered none.
+  // Withdraw's own pickers sit in its form, the one with the Network field.
+  const withdrawForm = page.locator('form').filter({ has: page.getByText('Network', { exact: true }) });
+  const withdrawAsset = picker(withdrawForm, 'Asset');
+  const withdrawNetwork = picker(withdrawForm, 'Network');
+  await expect(withdrawAsset).toHaveCount(1);
+  await expect(withdrawNetwork).toHaveCount(1);
+  await expect.poll(() => optionValues(withdrawAsset)).toContain(RETIRED);
+  for (const id of await optionValues(withdrawAsset)) {
+    await withdrawAsset.selectOption(id);
+    const open = (withdrawable.find((asset) => asset.assetId === id)?.networks ?? []).map((n) => n.networkId);
+    await expect
+      .poll(() => optionValues(withdrawNetwork).then((v) => [...v].sort()), `Withdraw's networks for ${id}`)
+      .toEqual([...open].sort());
+  }
+  await withdrawAsset.selectOption(RETIRED);
+  await expect(withdrawNetwork).toContainText('No network is open for this asset');
 });
 
 test(`${J} #6 opens membership tier on Account: with config blank, a refused state; with config set, the tier`, async ({ page }) => {
