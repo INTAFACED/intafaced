@@ -131,7 +131,7 @@ function PublishSignal() {
         {criteria.failure ? (
           <RefusalNote failure={criteria.failure} retry={criteria.reload} />
         ) : c && !c.set ? (
-          <InfoNote tone="warn">{t('Not set by the platform yet. Publishing is refused until it is.')}</InfoNote>
+          <InfoNote tone="warn">{t('Not set by the platform. Publishing is refused until it is set.')}</InfoNote>
         ) : c ? (
           <KeyValue
             items={[
@@ -386,7 +386,7 @@ function Earnings() {
         status={earnings.status === 'loading' ? 'loading' : earnings.status === 'error' ? 'error' : 'ready'}
         onRetry={earnings.reload}
         errorState={earnings.failure ? <RefusalNote failure={earnings.failure} retry={earnings.reload} /> : undefined}
-        emptyState={<EmptyState size="inline" title={t('No sales yet')} reason={t('Sales of your monthly fee signals show here.')} />}
+        emptyState={<EmptyState size="inline" title={t('No sales')} reason={t('Sales of your monthly fee signals show here.')} />}
         minWidth={600}
       />
       <KeyValue

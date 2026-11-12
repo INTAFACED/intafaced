@@ -455,10 +455,10 @@ const GRID: Readonly<Record<string, Words>> = {
 const SIGNALS: Readonly<Record<string, Words>> = {
   'market.provider_criteria_not_set': {
     title: 'Signal provider criteria are not set',
-    body: 'The platform hasn’t set what a signal provider needs yet, so no signal can be published. Nothing was published.',
+    body: 'The platform hasn’t set what a signal provider needs, so no signal can be published. Nothing was published.',
   },
   'market.provider_criteria_not_met': {
-    title: 'You don’t meet the signal provider criteria yet',
+    title: 'You don’t meet the signal provider criteria',
     body: 'A provider needs the verification level and the trading record shown here. Nothing was published.',
   },
   'market.provider_record_unavailable': {
@@ -495,7 +495,7 @@ const SIGNALS: Readonly<Record<string, Words>> = {
     title: 'You have no free listing slot',
     body: 'A monthly fee signal takes one Market listing slot. Archive one, or stake for more.',
   },
-  'market.earnings_vendor_required': { title: 'No earnings yet', body: 'Earnings show once you sell in the Market.' },
+  'market.earnings_vendor_required': { title: 'No earnings', body: 'Earnings show once you sell in the Market.' },
 };
 
 export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>): RefusalCopy & { code: string | null } {

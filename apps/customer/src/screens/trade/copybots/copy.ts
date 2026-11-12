@@ -311,7 +311,7 @@ const messages = {
   'No price available right now': 'No price available right now',
   'No recurring-order service exists. Use Convert for a single trade.':
     'No recurring-order service exists. Use Convert for a single trade.',
-  'No sales yet': 'No sales yet',
+  'No sales': 'No sales',
   'No signals are published': 'No signals are published',
   'No trades on record': 'No trades on record',
   None: 'None',
@@ -331,7 +331,7 @@ const messages = {
   'Not published': 'Not published',
   'Not set': 'Not set',
   'Not set by the platform': 'Not set by the platform',
-  'Not set by the platform yet. Publishing is refused until it is.': 'Not set by the platform yet. Publishing is refused until it is.',
+  'Not set by the platform. Publishing is refused until it is set.': 'Not set by the platform. Publishing is refused until it is set.',
   'Not set: the bot has run less than a day': 'Not set: the bot has run less than a day',
   'Not verified': 'Not verified',
   'Nothing skipped': 'Nothing skipped',

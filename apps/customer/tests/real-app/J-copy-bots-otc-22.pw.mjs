@@ -113,7 +113,7 @@ test(`${J} #1 publishes with the provider criteria blank: refused as criteria no
   restartWith('market', 'LOCAL_STACK_MARKET_SIGNAL_CRITERIA', false);
   try {
     await openPublish(page);
-    await expect(page.getByText('Not set by the platform yet. Publishing is refused until it is.')).toBeVisible();
+    await expect(page.getByText('Not set by the platform. Publishing is refused until it is set.')).toBeVisible();
     await fill(page, { title: `TEST blank criteria ${provider.handle}`, fee: 'Free' });
     // svc-market refuses it by name, not the screen.
     expect(await pressPublish(page)).toEqual({ status: 412, code: 'market.provider_criteria_not_set' });
