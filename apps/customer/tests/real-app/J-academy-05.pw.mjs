@@ -286,18 +286,14 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   const rank = await rankNow();
   expect(BigInt(rank.seasonXp) - BigInt(rankBefore.seasonXp)).toBe(BigInt(policy.xpDelta));
   const perks = await perksNow();
-  // The rank rose exactly when the XP reached the next rank's line, which the ladder stated before the certificate.
-  const crossed = rankBefore.nextRankAt !== null && BigInt(policy.xpDelta) >= BigInt(rankBefore.nextRankAt);
-  if (crossed) {
-    expect(rank.rank).toBeGreaterThan(rankBefore.rank);
-    // No perk is invented: the perks are still the rank's own table, the same kinds identity held before, none added.
-    expect(Object.keys(perks).sort()).toEqual(Object.keys(perksBefore).sort());
-  } else {
-    expect(rank.rank).toBe(rankBefore.rank);
-    expect(rank.nextRankAt).toBe((BigInt(rankBefore.nextRankAt) - BigInt(policy.xpDelta)).toString());
-    // No perk is invented: the same rank holds exactly the perks it held before the certificate.
-    expect(perks).toEqual(perksBefore);
-  }
+  // The ladder stated, before the certificate, how much XP the next rank needs. This learner's XP stays short of it, so
+  // the rank number holds and the XP is all the certificate gave. No perk comes with a certificate: the perks are exactly
+  // the ones this rank held before.
+  expect(rankBefore.nextRankAt, JSON.stringify(rankBefore)).not.toBeNull();
+  expect(BigInt(policy.xpDelta) < BigInt(rankBefore.nextRankAt), JSON.stringify({ policy, rankBefore })).toBe(true);
+  expect(rank.rank).toBe(rankBefore.rank);
+  expect(rank.nextRankAt).toBe((BigInt(rankBefore.nextRankAt) - BigInt(policy.xpDelta)).toString());
+  expect(perks).toEqual(perksBefore);
 
   await page.goto('/academy/certificates');
   await certCard(page).getByRole('button', { name: 'View certificate', exact: true }).click();
@@ -314,8 +310,7 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   const whole = (n) => new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(BigInt(n));
   await expect(panel.locator('.rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
   await expect(lifetime).toHaveText(whole(rank.xp));
-  await expect(fee).toHaveText(`${perks.feeDiscountBps / 100}%`);
-  if (!crossed) await expect(fee).toHaveText(`${perksBefore.feeDiscountBps / 100}%`);
+  await expect(fee).toHaveText(`${perksBefore.feeDiscountBps / 100}%`);
 
   // With no published value: staff publish a programme of the course this learner finished, and the learner's programme
   // read issues its certificate. No XP value is published for it, so it gives no XP and no perk.
