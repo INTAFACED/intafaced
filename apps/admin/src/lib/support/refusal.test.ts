@@ -35,7 +35,7 @@ describe('svc-support’s typed refusals', () => {
     ['support.order.user_mismatch', "That order is a different customer's"],
     ['support.identity_grounding_unwired', 'The support desk cannot read account state'],
     ['support.settle.refused', 'svc-support will not do that to a money request'],
-    ['support.kb.revision_stale', 'Someone changed this article first'],
+    ['support.kb_revision_stale', 'Someone changed this article first'],
     ['support.kb.not_published', 'That article is not published'],
     ['support.kb_invalid', 'svc-support did not accept that article'],
     ['support.kb_vendor_name', 'Article keys may not name another company’s product'],

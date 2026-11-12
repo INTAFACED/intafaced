@@ -1,4 +1,5 @@
 // World: restart, stack
+// Stack: fresh
 import { test, expect } from './journey.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import {

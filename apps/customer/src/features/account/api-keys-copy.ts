@@ -168,7 +168,7 @@ const messages = {
   'approvalAction.pay.payout': 'Send a payout',
   'approvalAction.pay.refund': 'Send a refund',
   approvalWaiting: 'Waiting for you. Nothing was sent.',
-  'refused.identity.agent_scope_forbidden':
+  'refused.auth.agent_scope_forbidden':
     'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
   accountOwn: 'This account',
   'refused.identity.delegated_refused': 'Sign in on this device. An API key or a sub-account cannot make keys.',

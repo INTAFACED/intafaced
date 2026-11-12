@@ -11,6 +11,12 @@
  *   POST /api/v1/venue/agent-accounts/:id/withdraw          { moveId, amount }
  *   POST /api/v1/venue/agent-accounts/:id/cap               { cap }
  *   POST /api/v1/venue/agent-accounts/:id/close
+ *   GET  /api/v1/venue/agent-accounts/connections           the person's agent keys and the agent account each trades
+ *   POST /api/v1/venue/agent-accounts/:id/connections       { keyId, stepUpApprovalId }: bind an own agent key (#6)
+ *
+ * And the assistant's own route, called with the connected agent API key (agent-orders.ts, #7 #10):
+ *
+ *   POST /api/v1/venue/agent/orders                         { clientOrderId, symbol, side, type, amount, price, timeInForce }
  *
  * Reads need trade:read, writes trade:write, every route the trade jurisdiction, and every route the person's own
  * session (never an API key: the assistant's key can't make, fund or close the account it trades). Amounts travel as
@@ -21,10 +27,12 @@ import { requireScope, type Principal, type Scope } from '@intafaced/auth';
 import { VenueWireError, decodeVenueWire, encodeVenueWire, type VenueSignature } from '@intafaced/venue-contracts';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { AgentAccountError, type AgentAccounts } from './agent-account.js';
+import { AgentVenueRefusal, type AgentOrders } from './agent-orders.js';
 import { UserVenueDoorError } from './user-venue-door.js';
 import { venueRefusalReply, type UserVenueRestDeps } from './user-venue-rest.js';
 
 export const AGENT_ACCOUNTS_PATH = '/api/v1/venue/agent-accounts';
+export const AGENT_ORDERS_PATH = '/api/v1/venue/agent/orders';
 
 export function agentAccountReply(reply: FastifyReply, err: unknown) {
   if (err instanceof AgentAccountError) {
@@ -35,10 +43,26 @@ export function agentAccountReply(reply: FastifyReply, err: unknown) {
       ...err.detail,
     });
   }
+  if (err instanceof AgentVenueRefusal) {
+    // The venue's own refusal of the assistant's order, in its words, with the venue named; nothing is open.
+    return reply.code(422).send({
+      code: 'InvalidOrder',
+      message: err.message,
+      intafacedCode: `trade.venue.${err.refusal.code}`,
+      refusal: err.refusal,
+      venue: { id: err.refusal.venueId, displayName: err.venueName },
+      actionKey: err.actionKey,
+    });
+  }
   return venueRefusalReply(reply, err);
 }
 
-export function attachAgentAccountRoutes(app: FastifyInstance, accounts: AgentAccounts | null, deps: UserVenueRestDeps): void {
+export function attachAgentAccountRoutes(
+  app: FastifyInstance,
+  accounts: AgentAccounts | null,
+  deps: UserVenueRestDeps,
+  orders: AgentOrders | null = null,
+): void {
   function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
@@ -49,6 +73,18 @@ export function attachAgentAccountRoutes(app: FastifyInstance, accounts: AgentAc
       return null;
     }
     return deps.requireTradeJurisdiction(req, reply, principal) ? principal : null;
+  }
+
+  function off(): never {
+    throw new UserVenueDoorError('the user-venue door is off on this deployment (TRADE_USER_VENUE_URL unset)', 'trade.user_venue_off', 404);
+  }
+
+  async function answerOrders(reply: FastifyReply, run: (o: AgentOrders) => Promise<unknown>) {
+    try {
+      return reply.code(200).send(encodeVenueWire(await run(orders ?? off())));
+    } catch (error) {
+      return agentAccountReply(reply, error);
+    }
   }
 
   async function answer(reply: FastifyReply, run: (a: AgentAccounts) => Promise<unknown>) {
@@ -88,6 +124,31 @@ export function attachAgentAccountRoutes(app: FastifyInstance, accounts: AgentAc
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (a) => a.create(principal, body(req)));
+  });
+
+  app.get(`${AGENT_ACCOUNTS_PATH}/connections`, privateRead, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answerOrders(reply, async (o) => ({ connections: await o.connections(principal) }));
+  });
+
+  app.post<Id>(`${AGENT_ACCOUNTS_PATH}/:id/connections`, privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answerOrders(reply, async (o) => o.connect(principal, req.params.id, body(req)));
+  });
+
+  // The assistant's order: an agent API key connected to an agent account (agent-orders.ts). An answer that is not
+  // definite is 202: retry the same clientOrderId, which reads the venue's record first and never signs again.
+  app.post(AGENT_ORDERS_PATH, privateWrite, async (req, reply) => {
+    const principal = admit(req, reply, 'trade:write');
+    if (!principal) return;
+    try {
+      const view = await (orders ?? off()).place(principal, body(req));
+      return reply.code(view.state === 'accepted' ? 200 : 202).send(encodeVenueWire(view));
+    } catch (error) {
+      return agentAccountReply(reply, error);
+    }
   });
 
   app.get<Id>(`${AGENT_ACCOUNTS_PATH}/:id`, privateRead, async (req, reply) => {
