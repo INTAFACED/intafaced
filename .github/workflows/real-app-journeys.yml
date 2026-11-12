@@ -937,7 +937,7 @@ jobs:
             ${{ runner.temp }}/journeys/report.json
             ${{ runner.temp }}/journeys/set-aside.json
           if-no-files-found: warn
-      # The stored pass history on its own (a few hundred KB beside a report of about 25 MB), so a verdict reading it
+      # The stored pass history on its own (about 2 MB, 40 KB zipped, beside a report of about 25 MB), so a verdict reading it
       # downloads only it. Written on main only; nothing to keep elsewhere.
       - name: Keep the pass history
         if: always()
