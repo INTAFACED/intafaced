@@ -480,6 +480,88 @@ describe('academy customer learning reads and writes', () => {
     await expect(academy.readCurriculumItem({ userId: USER, slug: items[0]!.slug, now })).resolves.toBeTruthy();
   });
 
+  it('a seat cap, an enrolment window and a visibility close a course in words, keep who set them, and keep enrolments made', async () => {
+    const academy = service({ certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
+    const now = new Date('2026-10-23T12:00:00.000Z');
+    const THIRD = '33333333-3333-4333-8333-333333333333';
+    await expect(academy.setCourseSeatCap({ slug: 'markets', seatCap: 2, reason: ' ', operatorId: OTHER, now })).rejects.toMatchObject({
+      code: 'academy.reason_required',
+    });
+    await expect(academy.setCourseSeatCap({ slug: 'markets', seatCap: 0, reason: 'TEST', operatorId: OTHER })).rejects.toMatchObject({
+      code: 'academy.cert_invalid',
+    });
+    await expect(
+      academy.setCourseEnrolmentWindow({ slug: 'markets', opensAt: now, closesAt: now, reason: 'TEST', operatorId: OTHER }),
+    ).rejects.toMatchObject({ code: 'academy.window_invalid' });
+    await expect(
+      academy.setCourseVisibility({ slug: 'nope', visibility: 'hidden', reason: 'TEST', operatorId: OTHER }),
+    ).rejects.toMatchObject({
+      code: 'academy.course_not_found',
+    });
+    // Nothing set: no cap, open, listed.
+    expect(await academy.courseEnrolment({ userId: USER, slug: 'markets', now })).toMatchObject({
+      seatCap: null,
+      seatsRemaining: null,
+      closed: null,
+    });
+
+    // A cap of 2: seats count active enrolments; the second fills it and the third is refused full.
+    await academy.setCourseSeatCap({ slug: 'markets', seatCap: 2, reason: 'TEST cohort', operatorId: OTHER, now });
+    expect(await academy.courseEnrolment({ userId: USER, slug: 'markets', now })).toMatchObject({
+      seatCap: 2,
+      seatsRemaining: 2,
+      closed: null,
+    });
+    await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit', now });
+    await academy.enrolCourse({ userId: OTHER, slug: 'markets', track: 'audit', now });
+    expect(await academy.courseEnrolment({ userId: THIRD, slug: 'markets', now })).toMatchObject({ seatsRemaining: 0, closed: 'full' });
+    await expect(academy.enrolCourse({ userId: THIRD, slug: 'markets', track: 'audit', now })).rejects.toMatchObject({
+      code: 'academy.enrolment_closed',
+      message: expect.stringContaining('reason=full'),
+    });
+    // Programmes enrol through the same cap.
+    await expect(academy.enrollCertPath({ userId: THIRD, pathSlug: 'markets' })).rejects.toMatchObject({
+      code: 'academy.enrolment_closed',
+    });
+    // A learner already enrolled gets the same enrolment back, full or not.
+    const again = await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit', now });
+    expect(again.enrolment).not.toBeNull();
+    expect((await sql`SELECT 1 FROM academy.cert_enrollments WHERE path_slug = 'markets' AND left_at IS NULL`).length).toBe(2);
+    await academy.setCourseSeatCap({ slug: 'markets', seatCap: null, reason: 'TEST off', operatorId: OTHER, now });
+    expect(await academy.courseEnrolment({ userId: THIRD, slug: 'markets', now })).toMatchObject({
+      seatCap: null,
+      seatsRemaining: null,
+      closed: null,
+    });
+
+    // The window: not started, then ended; each refuses with its reason, and clearing it opens the course again.
+    const day = 24 * 3600_000;
+    for (const [opensAt, closesAt, why] of [
+      [new Date(now.getTime() + day), null, 'window_not_started'],
+      [new Date(now.getTime() - 2 * day), new Date(now.getTime() - day), 'window_ended'],
+    ] as const) {
+      await academy.setCourseEnrolmentWindow({ slug: 'markets', opensAt, closesAt, reason: 'TEST window', operatorId: OTHER, now });
+      expect((await academy.courseEnrolment({ userId: THIRD, slug: 'markets', now })).closed).toBe(why);
+      await expect(academy.enrolCourse({ userId: THIRD, slug: 'markets', track: 'audit', now })).rejects.toMatchObject({
+        message: expect.stringContaining(`reason=${why}`),
+      });
+    }
+    await academy.setCourseEnrolmentWindow({ slug: 'markets', opensAt: null, closesAt: null, reason: 'TEST off', operatorId: OTHER, now });
+
+    // Hidden and unpublished leave the catalogue and close enrolment; the other fields stay as they were.
+    for (const visibility of ['hidden', 'unpublished'] as const) {
+      await academy.setCourseVisibility({ slug: 'markets', visibility, reason: 'TEST', operatorId: OTHER, now });
+      expect((await academy.courseEnrolment({ userId: THIRD, slug: 'markets', now })).closed).toBe(visibility);
+      expect((await academy.publicCourses()).map((card) => card.slug)).not.toContain('markets');
+    }
+    expect(await sql`SELECT seat_cap, opens_at, closes_at, visibility, reason, set_by FROM academy.course_enrolment_terms`).toEqual([
+      { seat_cap: null, opens_at: null, closes_at: null, visibility: 'unpublished', reason: 'TEST', set_by: OTHER },
+    ]);
+    await academy.setCourseVisibility({ slug: 'markets', visibility: 'published', reason: 'TEST', operatorId: OTHER, now });
+    expect((await academy.publicCourses()).map((card) => card.slug)).toContain('markets');
+    expect((await academy.enrolCourse({ userId: THIRD, slug: 'markets', track: 'audit', now })).enrolment).not.toBeNull();
+  });
+
   it('refuses an unmet programme prerequisite and enrols when it is met or empty', async () => {
     const gated = service({ programmeCatalog: WITH_PREREQ, certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
     await expect(gated.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({
