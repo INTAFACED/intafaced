@@ -39,7 +39,7 @@ import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partne
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
-import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
+import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
 import {
   payoutCancelledBody,
@@ -799,6 +799,8 @@ jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
  * with it) is where the payer approves.
  */
 jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, (b) => bank.addMoney.paid(b));
+/** The same partner says a credited payment was sent back (J-bank-02 #7): the credit is taken out once, as it reports. */
+jobDoor('/internal/jobs/payin-sim/returned', payinReturnedBody, (b) => bank.addMoney.returned(b));
 /**
  * The printer's and courier's side of a physical card (BK-cissue-03, J-bank-13 #4): a card produced, shipped, delivered.
  * A signed job door, never a customer or a staff session. No printer or courier is connected (`hardware`): on any

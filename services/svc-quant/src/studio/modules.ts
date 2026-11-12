@@ -9,6 +9,8 @@ import { QUANT_PARAM_OUT_OF_RANGE, QUANT_PARAM_UNSET, QUANT_SIZING_RULE_UNSET, Q
 
 /** The history route answers at most 1000 bars a read, so a slower average than that could never warm up. */
 export const MAX_AVERAGE_BARS = 1000;
+/** Pyramiding: at most this many entries in one position. */
+export const MAX_PYRAMIDING = 100;
 
 export interface RuleInput {
   readonly name: string;
@@ -36,12 +38,12 @@ function outOfRange(name: string, detail: string): never {
   throw new QuantError(QUANT_PARAM_OUT_OF_RANGE, `${name} ${detail}`);
 }
 
-function integerInput(name: string, raw: string, min: number, max: number): number {
+function integerInput(name: string, raw: string, min: number, max: number, unit = 'bars'): number {
   const text = raw.trim();
   if (!text) unset(name);
-  if (!INTEGER.test(text)) throw new QuantError('quant.params_invalid', `${name} must be a whole number of bars`);
+  if (!INTEGER.test(text)) throw new QuantError('quant.params_invalid', `${name} must be a whole number of ${unit}`);
   const value = Number(text);
-  if (value < min || value > max) outOfRange(name, `must be from ${min} to ${max} bars`);
+  if (value < min || value > max) outOfRange(name, `must be from ${min} to ${max} ${unit}`);
   return value;
 }
 
@@ -81,6 +83,9 @@ export function compileSignalRules(input: QuantSignalRules): CompiledRules {
   // A long position can lose at most all of it, so a stop beyond 100 percent never fires.
   const stopLoss = positiveDecimal('exit.stopLossPercent', input.exit.stopLossPercent, '100');
   const takeProfit = positiveDecimal('exit.takeProfitPercent', input.exit.takeProfitPercent, null);
+  // Optional: blank keeps one entry. The cross enters only from flat, so the bar engine never exceeds it.
+  const pyramidingText = (input.pyramiding ?? '').trim();
+  const pyramiding = pyramidingText ? integerInput('pyramiding', pyramidingText, 1, MAX_PYRAMIDING, 'entries') : null;
 
   const rules: QuantSignalRules = {
     symbol,
@@ -88,6 +93,7 @@ export function compileSignalRules(input: QuantSignalRules): CompiledRules {
     signal: { kind: 'ma_cross', average: input.signal.average, fast: String(fast), slow: String(slow) },
     sizing: { kind: input.sizing.kind, value: size },
     exit: { stopLossPercent: stopLoss ?? '', takeProfitPercent: takeProfit ?? '' },
+    ...(pyramiding === null ? {} : { pyramiding: String(pyramiding) }),
   };
   return { rules, source: signalSource(rules), inputs: declaredInputs(rules) };
 }
@@ -100,6 +106,7 @@ function declaredInputs(rules: QuantSignalRules): RuleInput[] {
     { name: 'sizing.value', type: 'decimal', required: true, value: rules.sizing.value, min: null, max: sizingMax(rules.sizing.kind) },
     { name: 'exit.stopLossPercent', type: 'decimal', required: false, value: rules.exit.stopLossPercent, min: null, max: '100' },
     { name: 'exit.takeProfitPercent', type: 'decimal', required: false, value: rules.exit.takeProfitPercent, min: null, max: null },
+    { name: 'pyramiding', type: 'integer', required: false, value: rules.pyramiding ?? '', min: '1', max: String(MAX_PYRAMIDING) },
   ];
 }
 
@@ -157,5 +164,6 @@ function sourceOf(rules: QuantSignalRules, slot: Slot, header: string): string {
   if (rules.exit.takeProfitPercent) {
     lines.push(`exit.takeProfit(${s}, percent(${slot('exit.takeProfitPercent', rules.exit.takeProfitPercent, true)}));`);
   }
+  if (rules.pyramiding) lines.push(`oms.setPyramiding(${rules.pyramiding});`);
   return lines.join('\n');
 }

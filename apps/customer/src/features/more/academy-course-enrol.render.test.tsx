@@ -112,6 +112,7 @@ const row = (slug: string, over: Partial<AcademyCourseOutlineItem> = {}): Academ
   slug,
   title: slug.toUpperCase(),
   kind: 'lesson',
+  type: 'lesson',
   state: 'unlocked',
   lock: null,
   missing: [],
@@ -147,6 +148,20 @@ describe('course outline (AC-course-structure-02)', () => {
     expect(out).toContain('Completed');
     expect(out).toContain('Locked items skipped: 2');
     expect(out).toMatch(/href="\/academy\/e" rel="next"/);
+  });
+
+  it('types each item as a lesson, a quiz or an assignment, never by its content kind', () => {
+    const typed = [
+      row('a'),
+      row('b', { kind: 'playbook', type: 'quiz', rule: 'score', ruleMet: false }),
+      row('c', { kind: 'workbook', type: 'assignment' }),
+    ];
+    const out = html(<CourseOutlineView outline={{ slug: 'markets', items: typed }} current="a" />);
+    expect(out).toContain('<span data-item-type="lesson">Lesson</span>');
+    expect(out).toContain('<span data-item-type="quiz">Quiz</span>');
+    expect(out).toContain('<span data-item-type="assignment">Assignment</span>');
+    expect(out).not.toContain('Playbook');
+    expect(out).not.toContain('Workbook');
   });
 
   it('a course that has not started says no item can be opened instead of offering Previous and Next', () => {

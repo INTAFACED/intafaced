@@ -3,6 +3,7 @@ import { test, expect } from './journey.mjs';
 import { UNBUILT } from './dex.mjs';
 import { desk, founderPair, openDesk } from './protocol-desk.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
+import { signIn, signUp } from './desk.mjs';
 
 // J-dex-protocol-30, in the running app (docs/roadmap/journeys.json): screen the protocol: reports, labels, tiers,
 // pools and disclosures. One test per step, titled "J-dex-protocol-30 #<n>", run in order on the founder console as the
@@ -15,10 +16,26 @@ import { bodyRows, tableIn } from './tables.mjs';
 //   (D-developer-compliance-01), no token tiers, trust criteria or blocklist (D-launch-listing-02), no name tags
 //   (D-launch-listing-01), no pool halt (D-launch-listing-07), no permissioned pool checklist (D-liquidity-07) and no
 //   audit and disclosure room (D-developer-compliance-02);
-// - #1's duplicate report and #4's to #8's subjects are TEST reports, tokens and pools the stack will seed when the
-//   desk is built; each two-reviewer step is asked by founder A and approved by founder B.
+// - #1's report is filed in the running app by a TEST customer, who then files the same report again and is refused;
+//   #4's to #8's subjects are TEST tokens and pools the stack will seed when those tabs are built; each two-reviewer step
+//   is asked by founder A and approved by founder B.
 const J = 'J-dex-protocol-30';
 const founders = founderPair();
+const SUSPECT = '0x00000000000000000000000000000000000ba5e0';
+// This run's report and label, told apart from any earlier run's by the time they were written.
+const RUN = Date.now().toString(36);
+const NOTE = `LOCAL TEST ${J} phishing report ${RUN}`;
+const LABEL_REASON = `LOCAL TEST ${J} phishing label ${RUN}`;
+/** The customer who files #1's report, kept for the file's tests. */
+let reporter = null;
+
+/** The public address page's risk card. */
+async function riskCard(page) {
+  await page.goto(`/chain/address/${SUSPECT}`);
+  const card = page.getByRole('region', { name: 'Address risk' });
+  await expect(card).toBeVisible();
+  return card;
+}
 
 test.describe.configure({ mode: 'default' });
 
@@ -45,30 +62,71 @@ test(`${J} #1 opens the scam report queue: reports with the reporter hidden from
   browser,
   page,
 }) => {
+  test.setTimeout(180_000);
+  // A TEST customer files a phishing report about the address, then files it again: the second is refused.
+  reporter = await signUp(page, 'cx');
+  await signIn(page, reporter);
+  const file = async () => {
+    const card = await riskCard(page);
+    await card.getByRole('button', { name: 'Report this address' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Report this address' });
+    await dialog.getByLabel('Reason').selectOption('phishing');
+    await dialog.getByLabel('What happened (optional)').fill(NOTE);
+    await dialog.getByRole('button', { name: 'Send report' }).click();
+    return dialog;
+  };
+  await expect((await file()).getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Thank you. Your report was received.' })).toBeVisible();
+  const again = await file();
+  await expect(again.getByRole('alert')).toHaveText('You already reported this address. Your report is still open.');
+
+  // The queue shows the one report, who filed it, and the refused duplicate.
   const { a } = await founders(browser);
   const reports = await trust(a, 'Scam reports');
-  const report = row(reports, 'Reports', 'TEST phishing report');
+  const report = row(reports, 'Reports', NOTE);
   await expect(report).toHaveCount(1);
-  await expect(report).toContainText('Duplicate from the same reporter refused');
-  // The public token page shows the report count, never who reported.
-  await page.goto('/dex/tokens/0x00000000000000000000000000000000000ba5e0');
-  await expect(page.getByRole('main').getByTestId('scam-reports')).toHaveText(/^\d+ reports?$/);
+  await expect(report).toContainText('Duplicate from the same reporter refused once');
+  const reporterId = (await report.getByTestId('reporter').innerText()).trim();
+  expect(reporterId).not.toBe('');
+
+  // The public pages show a count, never who reported or what they wrote.
+  await page.goto(`/dex/tokens/${SUSPECT}`);
+  const count = page.getByRole('main').getByTestId('scam-reports');
+  await expect(count).toHaveText(/^\d+ reports?$/);
+  expect(Number((await count.innerText()).split(' ')[0])).toBeGreaterThanOrEqual(1);
+  for (const hidden of [NOTE, reporterId, reporter.email, reporter.handle]) await expect(page.getByRole('main')).not.toContainText(hidden);
+  const card = await riskCard(page);
+  await expect(card).toContainText(/Reported \d+ times?\./);
+  for (const hidden of [NOTE, reporterId, reporter.email]) await expect(card).not.toContainText(hidden);
 });
 
 test(`${J} #2 publishes a "phishing" label as the first reviewer: pending; public with its reason after the second`, async ({
   browser,
+  page,
 }) => {
+  test.setTimeout(120_000);
   const { a, b } = await founders(browser);
   const reports = await trust(a, 'Scam reports');
-  const report = row(reports, 'Reports', 'TEST phishing report');
+  const report = row(reports, 'Reports', NOTE);
   await report.getByRole('button', { name: 'Publish label' }).click();
   await reports.getByLabel('Label').selectOption('phishing');
-  await reports.getByLabel(/^Reason/).fill(`LOCAL TEST ${J} phishing label`);
+  await reports.getByLabel(/^Reason/).fill(LABEL_REASON);
   await reports.getByRole('button', { name: 'Ask a second reviewer' }).click();
   await expect(report).toContainText('Pending a second reviewer');
-  const second = row(await trust(b, 'Scam reports'), 'Reports', 'TEST phishing report');
+  // Pending is not public: the address page shows no label with this reason yet.
+  await expect(await riskCard(page)).not.toContainText(LABEL_REASON);
+  // The person who asked cannot be the second reviewer.
+  await report.getByRole('button', { name: 'Approve label' }).click();
+  await expect(reports.getByRole('alert')).toContainText('a different person must approve it');
+  await expect(report).toContainText('Pending a second reviewer');
+
+  const second = row(await trust(b, 'Scam reports'), 'Reports', NOTE);
   await second.getByRole('button', { name: 'Approve label' }).click();
-  await expect(second).toContainText('Public: phishing');
+  await expect(second).toContainText(`Public: phishing. Why: ${LABEL_REASON}`);
+  // Public, with its reason, on the address page.
+  const card = await riskCard(page);
+  await expect(card).toContainText(`Phishing (phishing). Why: ${LABEL_REASON}`);
+  await expect(card).toContainText('Risk: unsafe');
 });
 
 test(`${J} #4 sets a human "verified" tier on a token: pending until a second approver; then shown with date and reason; removal returns the prior tier with an audit row`, async ({
@@ -168,6 +226,18 @@ test(`${J} #12 opens the audit and disclosure room: each product row says "Exter
   const room = await trust(a, 'Audit and disclosures');
   const products = bodyRows(room.getByRole('table', { name: 'Products' }));
   await expect(products).not.toHaveCount(0);
-  for (const product of await products.all()) await expect(product).toContainText('External audit: not done');
-  await expect(room.getByRole('region', { name: 'Disclosure policy' })).toContainText('owner.decision');
+  // No external report is recorded on the stack: every row says so, and none shows a date, a scope or a report link.
+  for (const product of await products.all()) {
+    await expect(product.getByTestId('external-audit')).toHaveText('External audit: not done');
+    await expect(product.getByRole('link')).toHaveCount(0);
+  }
+  // The owner has set no disclosure policy and no terms: each shows its typed refusal, and no text is offered as in force.
+  for (const [region, refusal] of [
+    ['Disclosure policy', 'Disclosure policy not set · owner.decision'],
+    ['Terms', 'Terms not set · owner.decision'],
+  ]) {
+    const shown = room.getByRole('region', { name: region });
+    await expect(shown.getByRole('status')).toHaveText(refusal);
+    await expect(shown).toHaveAttribute('data-code', 'owner.decision');
+  }
 });

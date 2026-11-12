@@ -40,7 +40,7 @@ import {
   type StudyInstance,
   type StudyStore,
 } from './model';
-import { useTape } from './data';
+import { useFunding, useTape, type FundingFeed } from './data';
 import { IndicatorDialog, StudySettings, type StudyChanges } from './StudyDialogs';
 import { useStudyDraw } from './useStudyDraw';
 import { useWords, type StudiesWords } from './words';
@@ -83,6 +83,7 @@ interface FeedState {
   key: string;
   higher: Record<string, Loadable<Candle[]>>;
   tape?: Loadable<Print[]>;
+  funding?: Loadable<FundingFeed>;
 }
 const NO_HIGHER: Record<string, Loadable<Candle[]>> = {};
 
@@ -194,6 +195,23 @@ function TapeFeed({
   onData: (key: string, data: Loadable<Print[]>) => void;
 }) {
   const data = useTape(symbol);
+  useEffect(() => {
+    onData(feedKey, data);
+  }, [feedKey, data, onData]);
+  return null;
+}
+
+/** Feeds the venue's funding on the market's base asset while the funding study reads it (J-charts-desk-04 #6). */
+function FundingFeedReader({
+  feedKey,
+  base,
+  onData,
+}: {
+  feedKey: string;
+  base: string;
+  onData: (key: string, data: Loadable<FundingFeed>) => void;
+}) {
+  const data = useFunding(base);
   useEffect(() => {
     onData(feedKey, data);
   }, [feedKey, data, onData]);
@@ -326,6 +344,7 @@ export function StudiesBar({
   const shown = useMemo(() => store.studies.filter((s) => shownOn(s, interval)), [store.studies, interval]);
   const hiddenHere = useMemo(() => store.studies.filter((s) => !shownOn(s, interval)), [store.studies, interval]);
   const needsTape = shown.some((s) => studyDef(s.kind).needs === 'tape');
+  const needsFunding = shown.some((s) => studyDef(s.kind).needs === 'funding');
   const htfTargets = useMemo(
     () =>
       shown.flatMap((s) => {
@@ -348,6 +367,12 @@ export function StudiesBar({
       return base.tape === data && base === prev ? prev : { ...base, tape: data };
     });
   }, []);
+  const onFunding = useCallback((key: string, data: Loadable<FundingFeed>) => {
+    setFeedState((prev) => {
+      const base: FeedState = prev.key === key ? prev : { key, higher: NO_HIGHER };
+      return base.funding === data && base === prev ? prev : { ...base, funding: data };
+    });
+  }, []);
 
   const results = useMemo<Array<{ study: StudyInstance; result: StudyResult }> | null>(() => {
     if (bars === null) return null;
@@ -359,12 +384,13 @@ export function StudiesBar({
       lotSize: market.lotSize,
       higher: feeds?.higher ?? NO_HIGHER,
       tape: needsTape ? feeds?.tape : undefined,
+      funding: needsFunding ? feeds?.funding : undefined,
       percent,
       // In a replay the last drawn bar is the newest bar there is: the trades after its close have not happened.
       replayEnd: replaying && bars.length > 0 ? bars[bars.length - 1]!.t + TIMEFRAME_MS[interval] : undefined,
     };
     return shown.map((study) => ({ study, result: computeStudy(study, ctx) }));
-  }, [bars, market.symbol, market.tickSize, market.lotSize, interval, feeds, needsTape, shown, percent, replaying]);
+  }, [bars, market.symbol, market.tickSize, market.lotSize, interval, feeds, needsTape, needsFunding, shown, percent, replaying]);
 
   const drawn = useMemo<SeriesOut[]>(() => (results ?? []).flatMap((r) => (r.result.status === 'ready' ? r.result.series : [])), [results]);
   const layout = panesOf(store);
@@ -627,6 +653,7 @@ export function StudiesBar({
         />
       ))}
       {needsTape && <TapeFeed key={feedKey} feedKey={feedKey} symbol={market.symbol} onData={onTape} />}
+      {needsFunding && <FundingFeedReader key={feedKey} feedKey={feedKey} base={market.base} onData={onFunding} />}
     </section>
   );
 }

@@ -339,6 +339,16 @@ export type AcademyErrorCode =
   | 'academy.post_not_found'
   /** AC-rooms-01: the action belongs to someone else (only the asker marks the accepted answer). */
   | 'academy.permission_denied'
+  /** AC-roles-01: a role change that would give a role permitting more than the person giving it holds. */
+  | 'academy.role_escalation'
+  /** AC-roles-01: the owner has not set how many custom roles there may be. */
+  | 'academy.role_limit_unset'
+  /** AC-roles-01: the owner's custom role limit is reached. */
+  | 'academy.role_limit_reached'
+  /** AC-roles-01: no role, or no role change, by that name or id. */
+  | 'academy.role_not_found'
+  /** AC-roles-01: a role change waits for a second founder, and the one who proposed it cannot confirm it. */
+  | 'academy.second_founder_required'
   /** J-academy-14: a learner's access record has ended (or was revoked); staff reinstate it. */
   | 'academy.grant_expired'
   | 'academy.grant_not_found'
@@ -566,6 +576,11 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.attachment_type_refused',
   'academy.post_not_found',
   'academy.permission_denied',
+  'academy.role_escalation',
+  'academy.role_limit_unset',
+  'academy.role_limit_reached',
+  'academy.role_not_found',
+  'academy.second_founder_required',
   'academy.grant_expired',
   'academy.grant_not_found',
   'academy.grant_active',

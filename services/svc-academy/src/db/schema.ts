@@ -493,6 +493,18 @@ export const courseStarts = academy.table('course_starts', {
   setAt: tstz('set_at').notNull(),
 });
 
+/** AC-enrolment-01: a course's seat cap, enrolment window and visibility, set by staff with a reason (no row: none). */
+export const courseEnrolmentTerms = academy.table('course_enrolment_terms', {
+  path: text('path').primaryKey(),
+  seatCap: integer('seat_cap'),
+  opensAt: tstz('opens_at'),
+  closesAt: tstz('closes_at'),
+  visibility: text('visibility').notNull().default('published'),
+  reason: text('reason').notNull(),
+  setBy: uuid('set_by').notNull(),
+  setAt: tstz('set_at').notNull(),
+});
+
 export const itemExtensions = academy.table(
   'item_extensions',
   {
@@ -840,6 +852,7 @@ export const schema = {
   itemExtensions,
   featuredItems,
   courseStarts,
+  courseEnrolmentTerms,
   learningState,
   learningActiveDays,
   learningTouches,

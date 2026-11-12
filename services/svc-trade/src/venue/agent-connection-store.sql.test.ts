@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import { SqlAgentAccountStore, type AgentAccountRecord } from './agent-account-store.js';
+import { NO_LIMITS, SqlAgentAccountStore, type AgentAccountRecord } from './agent-account-store.js';
 import { SqlAgentConnectionStore } from './agent-connection-store.js';
 
 // trade.user_venue_agent_connections (J-agents-21 #6): one active connection per key, never deleted, its terms fixed.
@@ -37,6 +37,7 @@ const account = (accountId: string, agent: string): AgentAccountRecord => ({
   name: `assistant-${accountId.slice(-12)}`,
   asset: 'USDC',
   cap: parseAmount('200'),
+  limits: NO_LIMITS,
   agentAddress: agent,
   fundAmount: parseAmount('150'),
   status: 'opening',
@@ -95,6 +96,23 @@ describe('SqlAgentConnectionStore on Postgres (trade.user_venue_agent_connection
     // Ended, the key may be connected again.
     const next = await store.connectOnce({ keyId: KEY, userId: USER, accountId: ACCOUNT_B, createdAt: new Date(), endedAt: null });
     expect(next.accountId).toBe(ACCOUNT_B);
+  });
+
+  it('#12: end ends the active connection once; latest reads it back ended; a repeat keeps the first end', async () => {
+    const store = new SqlAgentConnectionStore(db!.sql);
+    const keyId = '22222222-2222-4222-8222-2222222222f2';
+    const at = new Date('2026-11-12T09:00:00Z');
+    await store.connectOnce({ keyId, userId: USER, accountId: ACCOUNT_A, createdAt: at, endedAt: null });
+    const ended = await store.end(keyId, new Date('2026-11-12T10:00:00Z'));
+    expect(ended).toEqual({ keyId, userId: USER, accountId: ACCOUNT_A, createdAt: at, endedAt: new Date('2026-11-12T10:00:00Z') });
+    expect(await store.active(keyId)).toBeNull();
+    expect(await store.end(keyId, new Date('2026-11-12T11:00:00Z'))).toEqual(ended);
+    expect(await store.latest(keyId)).toEqual(ended);
+    // A clock that stepped back never ends a connection before it began.
+    const early = '22222222-2222-4222-8222-2222222222f3';
+    await store.connectOnce({ keyId: early, userId: USER, accountId: ACCOUNT_B, createdAt: at, endedAt: null });
+    expect((await store.end(early, new Date('2026-11-12T08:00:00Z')))?.endedAt).toEqual(at);
+    expect(await store.latest('22222222-2222-4222-8222-2222222222ff')).toBeNull();
   });
 
   it("refuses a connection to an account that isn't stored", async () => {
