@@ -36,7 +36,7 @@ export const pendingReview = (r: ProtocolComplianceReport): ProtocolComplianceRe
   r.reviews.find((v) => v.status === 'pending') ?? null;
 
 export const publishedWords = (r: ProtocolComplianceReport): string[] =>
-  r.reviews.filter((v) => v.status === 'published').map((v) => `Public: ${v.kind}`);
+  r.reviews.filter((v) => v.status === 'published').map((v) => `Public: ${v.kind}. Why: ${v.reason}`);
 
 const REFUSAL_WORDS: Readonly<Record<string, string>> = {
   'protocol.compliance.same_reviewer': 'You asked for this label, so a different person must approve it. Nothing was published.',

@@ -36,7 +36,7 @@ describe('protocol trust desk words', () => {
   it('reads the pending review and the published labels', () => {
     expect(pendingReview(report({ reviews: [review('pending')] }))?.status).toBe('pending');
     expect(pendingReview(report({ reviews: [review('published')] }))).toBeNull();
-    expect(publishedWords(report({ reviews: [review('published')] }))).toEqual(['Public: phishing']);
+    expect(publishedWords(report({ reviews: [review('published')] }))).toEqual(['Public: phishing. Why: TEST']);
   });
   it('names what every unbuilt tab waits for, and words each refusal', () => {
     for (const tab of Object.keys(TRUST_TAB_WAITS)) expect(TRUST_TABS).toContain(tab);

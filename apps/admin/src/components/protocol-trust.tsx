@@ -60,7 +60,7 @@ function ReportRow({
       <td>{report.kind}</td>
       <td>{report.note ?? 'No note'}</td>
       <td>
-        <code>{report.reporterId}</code>
+        <code data-testid="reporter">{report.reporterId}</code>
         <div className="dk-muted">Hidden from the public: the public page shows a count only.</div>
       </td>
       <td>{formatAsOf(report.createdAt)}</td>
@@ -249,7 +249,7 @@ function AuditRoom({ read }: { read: TrustRead['audit'] }) {
             {read.data.products.map((p) => (
               <tr key={p.product}>
                 <td>{p.product}</td>
-                <td>
+                <td data-testid="external-audit">
                   {p.external ? (
                     <>
                       External audit: {p.external.id}, signed by {p.external.signedBy} on {p.external.signedAt}
@@ -272,10 +272,14 @@ function AuditRoom({ read }: { read: TrustRead['audit'] }) {
           </tbody>
         </table>
       )}
-      <section aria-label="Disclosure policy" className="adm-callout" data-tone="warn">
-        <strong>Disclosure policy not set · owner.decision</strong>
-        <p>No disclosure policy or terms text is recorded, so none is shown, and nothing says it is in force.</p>
-      </section>
+      {(['Disclosure policy', 'Terms'] as const).map((what) => (
+        <section key={what} aria-label={what} className="adm-callout" data-tone="warn" data-code="owner.decision">
+          <p role="status">
+            <strong>{what} not set · owner.decision</strong>
+          </p>
+          <p>No {what.toLowerCase()} text is recorded, so none is shown, and nothing says it is in force.</p>
+        </section>
+      ))}
     </div>
   );
 }

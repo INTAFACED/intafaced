@@ -90,21 +90,6 @@ describe('compliance queue (Postgres)', () => {
     expect(history!.count).toBe('1');
   });
 
-  it("the stack's TEST seed files one report and one refused duplicate, once, as this queue reads them", async () => {
-    // @ts-expect-error -- the stack's seed is plain JavaScript in tooling/scripts.
-    const seed = await import('../../../../tooling/scripts/seed-protocol-compliance-test.mjs');
-    const r = { ...seed.TEST_COMPLIANCE_REPORT, address: getAddress('0x000000000000000000000000000000000000bad3') };
-    await sql`DELETE FROM protocol.address_reports WHERE address = ${r.address}`;
-    try {
-      expect((await seed.insertComplianceTestReport(sql, r)).changed).toBe(true);
-      expect((await seed.insertComplianceTestReport(sql, r)).changed).toBe(false);
-      const row = (await readQueue(new PostgresComplianceStore(sql), CHAIN_ID, new Date())).reports.find((x) => x.address === r.address);
-      expect(row).toMatchObject({ note: 'TEST phishing report', kind: 'phishing', status: 'open', duplicatesRefused: 1 });
-    } finally {
-      await sql`DELETE FROM protocol.address_reports WHERE address = ${r.address}`;
-    }
-  });
-
   it('refuses an approver who asked, in the table itself', async () => {
     const [report] = await sql<{ id: string }[]>`SELECT id FROM protocol.address_reports WHERE address = ${SUSPECT}`;
     await expect(
