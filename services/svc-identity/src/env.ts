@@ -778,22 +778,6 @@ const schema = serviceEnvSchema
         return typeof v === 'string' ? v.trim() : v;
       }, z.string().optional()),
       /**
-       * Text-message transport. Blank / unset → unwired; a phone sign-in link refuses `vendor.sms`. `local-outbox` is the
-       * only implemented transport and is refused at boot unless APP_ENV is exactly dev or test. Any other name refuses at
-       * boot. No SMS provider is configured here.
-       */
-      IDENTITY_SMS_TRANSPORT: z.preprocess((v) => {
-        if (v === undefined || v === null) return undefined;
-        if (typeof v === 'string' && v.trim() === '') return undefined;
-        return typeof v === 'string' ? v.trim() : v;
-      }, z.string().optional()),
-      /** Absolute file path for the local-outbox text transport. Required when that transport is selected. */
-      IDENTITY_LOCAL_SMS_OUTBOX: z.preprocess((v) => {
-        if (v === undefined || v === null) return undefined;
-        if (typeof v === 'string' && v.trim() === '') return undefined;
-        return typeof v === 'string' ? v.trim() : v;
-      }, z.string().optional()),
-      /**
        * Owner-published lifetime for an email-confirmation proof, in seconds.
        * Blank / unset → unpublished; the request refuses (`auth.email_confirm_unwired`).
        * Never git-default a lifetime. One day is the ceiling.

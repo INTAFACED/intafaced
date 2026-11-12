@@ -22,7 +22,6 @@ import { AuthService } from './auth/auth-service.js';
 import { parseStaffTestRoster } from '@intafaced/auth';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
-import { openIdentitySms } from './auth/local-sms.js';
 import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -421,12 +420,6 @@ const transportMail = openIdentityMail({
   appEnv: process.env.APP_ENV,
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
-});
-// Texted codes: the LOCAL-TEST outbox file in dev and test only, as for mail; unset, a phone link answers vendor.sms.
-const sms = openIdentitySms({
-  appEnv: process.env.APP_ENV,
-  transport: env.IDENTITY_SMS_TRANSPORT,
-  outboxPath: env.IDENTITY_LOCAL_SMS_OUTBOX,
 });
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
@@ -903,7 +896,7 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
-  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social, phone: { sms } }),
+  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social }),
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),

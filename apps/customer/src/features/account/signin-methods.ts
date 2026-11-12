@@ -7,8 +7,6 @@ export const signinMethods = z.object({
   passkeys: z.number().int().min(0),
   wallets: z.array(z.object({ address: z.string().regex(/^0x[0-9a-f]{40}$/), linkedAt: z.string() })),
   providers: z.array(z.string()),
-  /** The phone number this account signs in with, beside its password; a name, not a way in of its own. */
-  phone: z.string().nullable(),
 });
 export type SigninMethods = z.infer<typeof signinMethods>;
 

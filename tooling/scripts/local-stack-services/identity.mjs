@@ -102,10 +102,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...(process.env.LOCAL_STACK_IDENTITY_MAIL === 'off'
       ? {}
       : { IDENTITY_MAIL_TRANSPORT: 'local-outbox', IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }),
-    // LOCAL TEST ONLY: texted codes (a phone to sign in with, J-identity-02 #1) go to a LOCAL-TEST outbox file beside the
-    // mail one, never to a phone; refused at boot outside APP_ENV dev or test. No SMS provider is connected.
-    IDENTITY_SMS_TRANSPORT: 'local-outbox',
-    IDENTITY_LOCAL_SMS_OUTBOX: path.join(STATE, 'sms-outbox.log'),
     IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',

@@ -4,22 +4,18 @@ import type { Sql } from 'postgres';
 import {
   checkLinkEmailCode,
   checkLinkPassword,
-  checkLinkPhone,
   checkLinkWallet,
   checkUnlink,
   linkEmailCode,
   linkPassword,
-  linkPhone,
   linkWallet,
   listSigninMethods,
   parseSigninMethod,
-  sendPhoneLinkCode,
   SigninMethodError,
   startWalletChallenge,
   unlinkSigninMethod,
   VENDOR_SMS,
   walletAddress,
-  type PhoneConfig,
   type SigninMethods,
   type WalletConfig,
 } from './auth/signin-methods.js';
@@ -34,7 +30,6 @@ const methodsOutput = z.object({
   passkeys: z.number().int(),
   wallets: z.array(z.object({ address: z.string(), linkedAt: z.string() })),
   providers: z.array(z.string()),
-  phone: z.string().nullable(),
 });
 
 /** A wallet's signed answer, for linking it here and for signing in with it (`auth.walletSignIn`): one shape for both. */
@@ -73,9 +68,7 @@ export function signinMethodTrpc(err: unknown): TRPCError | null {
           ? 'CONFLICT'
           : err.code === 'identity.last_signin_method' || err.code === VENDOR_SMS || err.code === 'identity.method_unverified'
             ? 'PRECONDITION_FAILED'
-            : err.code === 'identity.phone_code_too_soon' || err.code === 'identity.phone_code_locked'
-              ? 'TOO_MANY_REQUESTS'
-              : 'BAD_REQUEST';
+            : 'BAD_REQUEST';
   return new TRPCError({ code, message: userCopy(err.code), cause: err });
 }
 
@@ -106,7 +99,7 @@ function signinMethodTrpcError(err: unknown): never {
 export function createSigninMethodsRouter(
   sql: Sql,
   stepUp: SecurityStepUp,
-  options: { wallet: WalletConfig; social?: SocialSignin | undefined; phone?: PhoneConfig | undefined },
+  options: { wallet: WalletConfig; social?: SocialSignin | undefined },
 ) {
   const requireLink = (principal: Parameters<SecurityStepUp['require']>[0], method: string, request: string, approval?: string | null) =>
     stepUp.require(principal, 'identity.step_up.link_method', { method, clientRequestId: request }, approval);
@@ -149,8 +142,6 @@ export function createSigninMethodsRouter(
             stepUpApprovalId,
             password: z.string().max(1024).optional(),
             phone: phone.optional(),
-            /** The six-digit code texted to `phone`. Without it, a phone link texts one. */
-            code: z.string().max(16).optional(),
             wallet: walletAnswer.optional(),
           })
           .strict(),
@@ -161,16 +152,9 @@ export function createSigninMethodsRouter(
           const method = parseSigninMethod(input.method);
           const userId = ctx.principal.userId;
           if (method === 'sms_code') {
-            // A number is texted a code first; it links when the code comes back, after the step-up. With no text
-            // transport it is refused with the outside provider's code, and nothing is stored.
+            // A number is checked for shape, then refused: texted codes need the outside provider. Nothing is stored.
             if (!input.phone) throw new SigninMethodError('identity.method_invalid');
-            const phoneConfig = options.phone ?? { sms: undefined };
-            if (!phoneConfig.sms)
-              throw new SigninMethodError(VENDOR_SMS, 'Texted codes need an outside SMS provider, which is not connected');
-            if (input.code === undefined) return await sendPhoneLinkCode(sql, phoneConfig, userId, input.phone);
-            await checkLinkPhone(sql, phoneConfig, userId, input.phone, input.code);
-            await requireLink(ctx.principal, method, input.clientRequestId, input.stepUpApprovalId);
-            return await linkPhone(sql, phoneConfig, userId, input.phone, input.code);
+            throw new SigninMethodError(VENDOR_SMS, 'Texted codes need an outside SMS provider, which is not connected');
           }
           if (method === 'password') {
             if (input.password === undefined) throw new SigninMethodError('identity.method_invalid');
@@ -200,6 +184,7 @@ export function createSigninMethodsRouter(
       .mutation(async ({ ctx, input }) => {
         try {
           const method = parseSigninMethod(input.method);
+          if (method === 'sms_code') throw new SigninMethodError('identity.method_not_linked');
           // The last way in is refused before the step-up, so it spends no confirmation.
           await checkUnlink(sql, ctx.principal.userId, method);
           await stepUp.require(

@@ -1,6 +1,5 @@
 // World: restart
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { signInChallengeMet, signInChallengeText } from '@intafaced/contracts/identity-signin-challenge';
@@ -13,7 +12,6 @@ import {
   nextMailedCode,
   signOutBrowser,
   signUpInBrowser,
-  stackFile,
   staffFreeze,
   tool,
 } from './stack.mjs';
@@ -99,105 +97,6 @@ test(`${J} #1 signs in with the handle or the email and a password and is return
   expect(byEmail).toBe(byHandle);
   await expect(page).toHaveURL(/\/money\?asset=BTC$/);
   await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toHaveCount(0);
-});
-
-/**
- * The LOCAL-TEST text-message codes the stack sent to `phone`, oldest first. The stack has no text-message outbox yet
- * (SMS, vendor.sms, is off in this build); a LOCAL-TEST outbox like the mail one is where a builder would put them.
- */
-function textedCodes(phone) {
-  const file = stackFile('sms-outbox.log');
-  if (!existsSync(file)) return [];
-  const digits = phone.replace(/\D/g, '');
-  return readFileSync(file, 'utf8')
-    .split('\n')
-    .filter((line) => line.replace(/\D/g, '').includes(digits))
-    .map((line) => /code=(\d{6})/.exec(line)?.[1])
-    .filter(Boolean);
-}
-
-test(`${J} #1 signs in with a phone and a password and is returned to the room they came from; an unknown phone and a wrong password read the same as an unknown name`, async ({
-  page,
-  browser,
-}) => {
-  test.setTimeout(180_000);
-  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
-  const who = await account(browser);
-  const phone = `+4915${String(Date.now()).slice(-8)}`;
-
-  // The person links a phone on Security, signed in, with the code texted to it. Adding a way to sign in confirms it is
-  // them with a second factor (I-account-lifecycle-07), so the account sets up an authenticator app first.
-  const own = await (await browser.newContext()).newPage();
-  await own.goto('/login');
-  await fillSignIn(own, who.email, who.password);
-  await expect(own).not.toHaveURL(/\/login/);
-  let { secret, step } = await addAuthenticator(own, totp);
-  let code;
-  await own.goto('/uc/safe');
-  const card = own.getByTestId('security__signin-methods');
-  const row = card.getByRole('listitem', { name: 'Phone number', exact: true });
-  await row.getByRole('button', { name: 'Link a phone number' }).click();
-  await row.getByLabel('Phone number, starting with +').fill(phone);
-  // The code request's own answer, then the card settled after it (no control left busy), and only then the checks: a
-  // not-connected notice drawn after the answer cannot slip past them.
-  const asked = own.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/linkSigninMethod'));
-  await row.getByRole('button', { name: 'Text me a code' }).click();
-  const reply = await asked;
-  const replied = await reply.text();
-  await expect(card.locator('button:disabled, input:disabled')).toHaveCount(0);
-  const shown = await card.innerText();
-  expect(replied, `identity answered ${reply.status()}; the card shows: ${shown}`).not.toContain('vendor.sms');
-  expect(reply.status(), `identity answered ${replied.slice(0, 300)}`).toBe(200);
-  await expect(card.locator('[data-not-connected="vendor.sms"]'), `the card shows: ${shown}`).toHaveCount(0);
-  await expect.poll(() => textedCodes(phone).length, { timeout: 20_000 }).toBeGreaterThan(0);
-  await row.getByLabel(/code/i).fill(textedCodes(phone).at(-1));
-  await row.getByRole('button', { name: /confirm|link/i }).click();
-  const confirm = card.getByRole('form', { name: 'Confirm it is you' });
-  ({ code, step } = await nextCode(totp, secret, step));
-  await confirm.getByLabel('6-digit code from your authenticator app').fill(code);
-  await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await expect(row).toContainText(phone.slice(-4));
-  await own.context().close();
-
-  // Signed out on Security: an unknown phone, the phone with a wrong password and an unknown name all read the same.
-  await page.goto('/uc/safe');
-  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
-  await page.getByRole('main').getByRole('link', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL(/\/login\?redirect=/);
-  const refusal = page.getByTestId('failure');
-  await fillSignIn(page, `nobody-${who.handle}@local-test.invalid`, who.password);
-  await expect(refusal).toContainText('Those details did not work');
-  const unknown = await refusal.textContent();
-  await page.reload();
-  await fillSignIn(page, `+4916${String(Date.now()).slice(-8)}`, who.password);
-  await expect(refusal).toHaveText(unknown);
-  await page.reload();
-  await fillSignIn(page, phone, `${who.password}-wrong`);
-  await expect(refusal).toHaveText(unknown);
-
-  // The phone with the password signs in this account, with its authenticator code as every sign-in of it asks, and
-  // lands back on Security, signed in.
-  await page.reload();
-  await fillSignIn(page, phone, who.password);
-  await expect(page.getByRole('alert')).toContainText('Your password is right. Enter it again with the six-digit code');
-  ({ code, step } = await nextCode(totp, secret, step));
-  await page.fill('input[name=totp]', code);
-  const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.login'));
-  await fillSignIn(page, phone, who.password);
-  const res = await answered;
-  expect(res.status()).toBe(200);
-  ({ code, step } = await nextCode(totp, secret, step));
-  const byEmail = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, totpCode: code }),
-  });
-  expect((await res.json()).result.data.userId).toBe((await byEmail.json()).result.data.userId);
-  await expect(page).toHaveURL(/\/uc\/safe$/);
-  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toHaveCount(0);
-  await expect(
-    page.getByRole('region', { name: 'Your devices' }).getByTestId('security__row').filter({ hasText: 'This device' }),
-  ).toHaveCount(1);
 });
 
 test(`${J} #8 a private address while signed out goes to sign-in and back to that exact room; a reload keeps the sign-in`, async ({
