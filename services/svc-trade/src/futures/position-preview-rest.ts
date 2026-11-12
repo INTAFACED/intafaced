@@ -4,7 +4,7 @@ import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
-import { checkCollateralClassForMargin, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
+import { checkCollateralClassForMargin, FUTURES_VENUE, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
 import type { FuturesMarkProvenance } from './mark-policy.js';
 import {
   correctToBand,
@@ -41,6 +41,8 @@ export interface PositionPreviewRefusal {
     | 'tier'
     | 'openInterest';
   message: string;
+  /** The venue whose rule refused it, where the refusal is the venue's own rule (a margin class it does not take). */
+  venue?: string;
 }
 
 export interface PositionPreviewWire {
@@ -261,6 +263,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
         code: classCheck.code ?? UNSUPPORTED_COLLATERAL_CLASS,
         field: 'collateral',
         message: classCheck.reason ?? 'that collateral class is not taken as margin',
+        venue: FUTURES_VENUE.name,
       });
     }
     const cap = deps.leverageCap;

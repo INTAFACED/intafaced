@@ -104,6 +104,7 @@ describe("the pay-in stand-in's page", () => {
     pendingAt: status === 'pending' ? '2026-11-04T10:00:02.000Z' : null,
     creditedAt: null,
     creditedAmount: null,
+    creditedBy: null,
   });
 
   function mounted(status: AddMoneyRequestView['status'], approvedCalls: string[] = []) {

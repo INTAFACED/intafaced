@@ -1331,24 +1331,9 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
   const shared = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['tooling/scripts/local-test-world.mjs'] }) });
   assert.equal(shared.ok, false, 'review R1: shared setup reaches every journey, so nothing inherited is passed over');
   assert.match(shared.lines.join('\n'), /shared setup, which reaches every journey, so every red counts/);
-  const money = await sealPull({
-    repo: REPO,
-    number: 7,
-    sha: HEAD,
-    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), moneyCode: async (p) => p.includes('services/svc-support/src/chat.ts') },
-  });
-  assert.equal(money.ok, false, 'review R2: a pull request changing money code inherits nothing (AGENTS.md How work flows 8)');
-  const manifest = await sealPull({
-    repo: REPO,
-    number: 7,
-    sha: HEAD,
-    io: { ...io({ files: ['services/svc-support/src/chat.ts', 'services/svc-support/package.json'] }), moneyCode: async () => false },
-  });
-  assert.equal(
-    manifest.ok,
-    false,
-    "CI review: a changed package.json may add a ledger-client dependency the base can't see, so every red counts",
-  );
+  const money = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'] }) });
+  assert.equal(money.ok, true, 'OWNER 297: a pull request that touches money code is sealed like any other');
+
   const notInHistory = await sealPull({
     repo: REPO,
     number: 7,
@@ -1488,12 +1473,6 @@ test("C1 review round 1: the break range also runs to main's reference run when 
     rangeOf: async (from, to) => (to === OLDER ? Promise.reject(new Error('behind')) : { files: [], commits: 1, short: false }),
   });
   assert.equal(err.blocking.length, 1, 'either end unreadable: unbounded');
-  assert.equal(
-    (await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: { ...area(), money: true }, rangeOf: range() })).blocking
-      .length,
-    1,
-    'money code: every red counts',
-  );
 });
 
 test("C1 council G2: the break range is every commit's own paths, so a package one commit broke and a later one restored counts", async () => {
@@ -1604,14 +1583,6 @@ test('OWNER 278: a money step that passed only on its retry, here and on main, s
     rangeOf: range(),
   });
   assert.equal(byCode.blocking.length, 1, 'a pull request in its break range is stopped');
-  const money = await splitInherited({
-    upTo: MAIN_SHA,
-    red: flakyRed,
-    main: main(),
-    touches: { ...area(), money: true },
-    rangeOf: range(),
-  });
-  assert.equal(money.blocking.length, 1, 'money code: every red counts');
   const shared = await splitInherited({
     upTo: MAIN_SHA,
     red: flakyRed,
@@ -2123,6 +2094,10 @@ test('#1574 readGoing: the re-check leaves the seal alone while an input on the 
   ];
   going = await readGoing({ get, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }] });
   assert.deepEqual(going, []);
+  // The seal's own wait (settle false) counts that run as going until its Start the seal job has ended too, so that job's
+  // re-check finds the seal still waiting and leaves it: one verdict, not a re-run after it.
+  going = await readGoing({ get, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }], settle: false });
+  assert.deepEqual(going, ['the CI review run 2 (in_progress)']);
   assert.ok(reads.some((r) => r.includes('ci-review.yml/runs?head_sha=') && r.includes('event=pull_request_target')));
   // Planted: an unreadable list fails the re-check, never reads as nothing going.
   await assert.rejects(readGoing({ get: async () => ({}), repo: 'o/r', sha: HEAD, pulls: [] }), /not a list/);
@@ -2446,4 +2421,85 @@ test('judgeSteps: a named step that failed is yours; one with no finished run is
   assert.deepEqual(failed.kinds, ['yours']);
   const none = await judgeSteps({ sha: HEAD, repo: REPO, title: 'x: J-a-01 #1', body: '', runs: [], reportOf: reports({}) });
   assert.deepEqual(none.kinds, ['runner']);
+});
+
+// ---- No red while waiting (project-state OWNER 262 part 2): the seal waits in its job, then judges once -------------
+
+test('OWNER 262: the seal waits in its job while an input is going, and judges once none is', async () => {
+  const { waitStep, WAIT_STEP, WAIT_POLLS, WAIT_POLL_MS } = await import('./journey-seal.mjs');
+  const pull = { number: 3, state: 'open', head: { sha: HEAD } };
+  assert.equal(waitStep({ pull, sha: HEAD, going: ['CI run 1 (in_progress)'] }).act, 'wait');
+  assert.equal(waitStep({ pull, sha: HEAD, going: [] }).act, 'judge');
+  // Planted: a closed pull request or a moved head stops the wait, and the judging steps then say so (red, as before).
+  assert.equal(waitStep({ pull: { ...pull, state: 'closed' }, sha: HEAD, going: ['x'] }).act, 'judge');
+  assert.equal(waitStep({ pull: { ...pull, head: { sha: 'f'.repeat(40) } }, sha: HEAD, going: ['x'] }).act, 'judge');
+  // merge-seal.yml's step carries WAIT_STEP's name, runs before every judging step, and the job's limit covers the wait
+  // and the CI review's 20 minutes after it.
+  const yml = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
+  const seal = yml.slice(yml.indexOf('\n  seal:\n'));
+  const at = seal.indexOf(`- name: ${WAIT_STEP}\n`);
+  assert.ok(at > 0, 'the seal job has the wait step');
+  assert.match(seal.slice(at, seal.indexOf('\n      - ', at + 1)), /run: node tooling\/ci\/journey-seal\.mjs --wait-inputs\n/);
+  assert.ok(at < seal.indexOf('- name: Require CI'), 'it waits before judging');
+  assert.ok(Number(/\n    timeout-minutes: (\d+)/.exec(seal)?.[1]) >= (WAIT_POLLS * WAIT_POLL_MS) / 60_000 + 20 + 1);
+  assert.ok(WAIT_POLL_MS >= 300_000, 'a waiting seal checks at most every 5 minutes, to spare the installation API limit');
+});
+
+test('OWNER 262: a re-check leaves a seal still waiting for its inputs alone, and waits out one already judging', async () => {
+  const { WAIT_STEP } = await import('./journey-seal.mjs');
+  const run = { id: 5, event: 'pull_request_target', status: 'in_progress' };
+  const J = (jobs) => new Map([['5', jobs]]);
+  const e = 'pull_request_target';
+  const sealJob = (steps) => ({ id: 9, name: SEAL, status: 'in_progress', steps });
+  const waiting = sealJob([
+    { name: 'Run actions/checkout', status: 'completed', conclusion: 'success' },
+    { name: WAIT_STEP, status: 'in_progress' },
+    { name: "Require CI's jobs on this exact head", status: 'queued' },
+  ]);
+  assert.equal(recheckStep([run], J([waiting]), e).act, 'done', 'still waiting: it reads the inputs itself');
+  const queuedWait = sealJob([{ name: WAIT_STEP, status: 'queued' }]);
+  assert.equal(recheckStep([run], J([queuedWait]), e).act, 'done', 'not yet at the wait');
+  // Planted: past its wait it may have read inputs before this change, so it is waited out and re-run, as before.
+  const judging = sealJob([
+    { name: WAIT_STEP, status: 'completed', conclusion: 'success' },
+    { name: "Require CI's jobs on this exact head", status: 'in_progress' },
+  ]);
+  assert.equal(recheckStep([run], J([judging]), e).act, 'wait');
+  assert.equal(recheckStep([run], J([sealJob(undefined)]), e).act, 'wait', 'a seal with no steps listed is waited out');
+});
+
+test('#7996: a deferred journeys run counts as going, never as a finished run that reports no step', async () => {
+  const { readGoing } = await import('./journey-seal.mjs');
+  const { DEFER_MARK, TOUCH_JOB } = await import('./main-first.mjs');
+  const touch = (deferred) => ({
+    jobs: [{ name: TOUCH_JOB, status: 'completed', steps: [{ name: DEFER_MARK, conclusion: deferred ? 'success' : 'skipped' }] }],
+  });
+  const done = (id, over = {}) => ({ id, head_sha: HEAD, event: 'pull_request', status: 'completed', ...over });
+  const at = (journeys, jobsOf) => async (path) => {
+    if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: [done(1)] };
+    if (path.includes('/workflows/ci-review.yml/runs')) return { workflow_runs: [done(2, { event: 'pull_request_target' })] };
+    if (path.includes('/workflows/real-app-journeys.yml/runs')) return { workflow_runs: journeys };
+    if (path.includes('/runs/2/jobs')) return { jobs: [{ name: 'CI review', status: 'completed', conclusion: 'success' }] };
+    const m = /\/runs\/(\d+)\/jobs/.exec(path);
+    if (m) return jobsOf[m[1]];
+    if (path.includes('/files')) return [{ filename: 'services/svc-a/src/a.ts' }];
+    throw new Error(path);
+  };
+  const pulls = [{ number: 3, title: 'svc-a: J-a-01 #1' }];
+  for (const settle of [true, false]) {
+    const going = await readGoing({ get: at([done(30)], { 30: touch(true) }), repo: 'o/r', sha: HEAD, pulls, settle });
+    assert.equal(going.length, 1);
+    assert.match(going[0], /Real-app journeys run 30 \(deferred/);
+  }
+  // Planted: a run that ran, and a deferred run a newer finished run on the head superseded, hold nothing.
+  assert.deepEqual(await readGoing({ get: at([done(30)], { 30: touch(false) }), repo: 'o/r', sha: HEAD, pulls }), []);
+  assert.deepEqual(
+    await readGoing({ get: at([done(30), done(31)], { 30: touch(true), 31: touch(false) }), repo: 'o/r', sha: HEAD, pulls }),
+    [],
+  );
+  // A change that needs no journeys never waits for a deferred one.
+  const docs = async (path) => (path.includes('/files') ? [{ filename: 'docs/a.md' }] : at([done(30)], { 30: touch(true) })(path));
+  assert.deepEqual(await readGoing({ get: docs, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }] }), []);
+  // Planted: unreadable jobs fail closed.
+  await assert.rejects(readGoing({ get: at([done(30)], { 30: {} }), repo: 'o/r', sha: HEAD, pulls }), /not a list/);
 });

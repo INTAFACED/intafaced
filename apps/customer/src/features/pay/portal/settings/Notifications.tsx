@@ -9,6 +9,7 @@ import { DateTime } from '../ui/DateTime';
 import { Gate, ListShell, MoreFooter, SelectField } from '../components';
 import { useCursorList, useMemberNames, useUrlParam, type ListState } from '../hooks';
 import { useSession } from '../../../session/session';
+import { useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { Timeline } from '../ui/Timeline';
 import { actorName } from './account/actors';
 import { isDecimalThreshold } from './model';
@@ -36,6 +37,16 @@ export function Notifications({ portal, preferencesOnly = false }: { portal: Por
   );
   const names = useMemberNames(portal);
   const { userId } = useSession();
+  const access = useOptionalMerchantAccess();
+  // Saving a preference needs notifications.manage (svc-pay merchant-ops/roles.ts). Outside the portal's access
+  // provider (a preview) nothing is known, so the service's own refusal is the only answer.
+  const lockedReason = !access
+    ? null
+    : access.access.status !== 'ready'
+      ? c.t('prefWaitingAccess')
+      : access.can('notifications.manage')
+        ? null
+        : c.t('prefNeedsManage');
   return (
     <NotificationsView
       portal={portal}
@@ -56,6 +67,7 @@ export function Notifications({ portal, preferencesOnly = false }: { portal: Por
       reloadHistory={() => history.reload(true)}
       names={names}
       myUserId={userId}
+      lockedReason={lockedReason}
     />
   );
 }
@@ -79,6 +91,7 @@ export function NotificationsView({
   reloadHistory,
   names,
   myUserId,
+  lockedReason = null,
 }: {
   portal: PortalApi;
   hideTabs?: boolean;
@@ -98,6 +111,8 @@ export function NotificationsView({
   reloadHistory: () => void;
   names: ReadonlyMap<string, string>;
   myUserId: string | null;
+  /** Why this person may not change a preference, in words, or null when they may. */
+  lockedReason?: string | null;
 }) {
   const { t } = portalCopy.useCopy();
   const [markState, setMarkState] = useState<'idle' | 'busy' | string>('idle');
@@ -180,7 +195,13 @@ export function NotificationsView({
           </p>
           <Gate resource={prefs} retry={reloadPrefs} rows={4}>
             {(rows) => (
-              <PreferenceRows rows={rows} portal={portal} onSaved={reloadHistory} actor={(id) => actorName(id, myUserId, names)} />
+              <PreferenceRows
+                rows={rows}
+                portal={portal}
+                onSaved={reloadHistory}
+                actor={(id) => actorName(id, myUserId, names)}
+                lockedReason={lockedReason}
+              />
             )}
           </Gate>
         </PaySection>
@@ -276,12 +297,14 @@ function PrefRow({
   onDirty,
   onSaved,
   actor,
+  lockedReason,
 }: {
   pref: Preference;
   portal: PortalApi;
   onDirty: (kind: NotificationKind, dirty: boolean) => void;
   onSaved: () => void;
   actor: (id: string) => string;
+  lockedReason: string | null;
 }) {
   const { t } = portalCopy.useCopy();
   const [saved, setSaved] = useState(pref);
@@ -297,7 +320,7 @@ function PrefRow({
   }, [pref.kind, dirty, onDirty]);
   const kind: NotificationKind = pref.kind;
   return (
-    <li data-testid="pp-pref" className="pp-pref">
+    <li data-testid="pp-pref" className="pp-pref" aria-disabled={lockedReason ? true : undefined}>
       <div>
         <strong>{t(`notifKind_${kind}` as 'notifKind_dispute_due')}</strong>
         <p className="muted">{t(`notifHelp_${kind}` as 'notifHelp_dispute_due')}</p>
@@ -313,19 +336,31 @@ function PrefRow({
             inputMode="decimal"
             value={threshold}
             onChange={(e) => setThreshold(e.target.value)}
+            disabled={lockedReason !== null}
             hint={t('hThreshold')}
             error={invalid ? t('err_threshold') : undefined}
           />
         )}
+        {lockedReason && (
+          <small className="muted" id={`pp-pref-locked-${kind}`}>
+            {lockedReason}
+          </small>
+        )}
       </div>
       <div className="pp-pref-controls">
         <label className="pp-check">
-          <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={on}
+            disabled={lockedReason !== null}
+            aria-describedby={lockedReason ? `pp-pref-locked-${kind}` : undefined}
+            onChange={(e) => setOn(e.target.checked)}
+          />
           {t('inApp')}
         </label>
         <Button
           variant="secondary"
-          disabled={!dirty || invalid || state === 'busy'}
+          disabled={lockedReason !== null || !dirty || invalid || state === 'busy'}
           onClick={async () => {
             setState('busy');
             const result = await portal.setPreference({
@@ -362,11 +397,13 @@ function PreferenceRows({
   portal,
   onSaved,
   actor,
+  lockedReason,
 }: {
   rows: Preference[];
   portal: PortalApi;
   onSaved: () => void;
   actor: (id: string) => string;
+  lockedReason: string | null;
 }) {
   const [dirtyKinds, setDirtyKinds] = useState<ReadonlySet<NotificationKind>>(() => new Set());
   const onDirty = useCallback((kind: NotificationKind, dirty: boolean) => {
@@ -382,7 +419,15 @@ function PreferenceRows({
   return (
     <ul className="pp-prefs">
       {rows.map((pref) => (
-        <PrefRow key={pref.kind} pref={pref} portal={portal} onDirty={onDirty} onSaved={onSaved} actor={actor} />
+        <PrefRow
+          key={pref.kind}
+          pref={pref}
+          portal={portal}
+          onDirty={onDirty}
+          onSaved={onSaved}
+          actor={actor}
+          lockedReason={lockedReason}
+        />
       ))}
     </ul>
   );

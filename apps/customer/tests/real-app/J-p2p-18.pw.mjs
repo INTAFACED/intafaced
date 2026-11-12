@@ -1,8 +1,9 @@
 // World: freeze, gates
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { api, fund, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
+import { ROOT, api, fund, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { p2p, readyTaker, testPasskey, verifiedName } from './p2p.mjs';
 
@@ -183,6 +184,21 @@ test('J-p2p-18 #2 an export over the range cap is refused, and a valid range sav
   const summary = page.getByTestId('order-export');
   await expect(summary).toContainText(`${state.total} orders`);
   await expect(summary).toContainText(`${state.amount} USDT for ${state.fiatAmount} EUR`);
+
+  // A reached quota refuses with the reset time. The quota is the stack's labelled TEST owner value (the receipts' own is
+  // P2P_RECEIPT_DAILY_QUOTA); the file above was this person's first export today, so the rest of the day's exports are
+  // used up in the app, and the next one is refused with when the quota resets: the start of the next UTC day.
+  const profile = JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/p2p.json'), 'utf8')).values;
+  const quota = Number(profile.P2P_EXPORT_DAILY_QUOTA?.value);
+  expect(Number.isInteger(quota) && quota > 0, 'the stack publishes a TEST daily export quota, P2P_EXPORT_DAILY_QUOTA').toBe(true);
+  for (let used = 1; used < quota; used += 1) {
+    await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export CSV' }).click()]);
+  }
+  const reset = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1));
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  const refusal = page.getByRole('alert');
+  await expect(refusal).toContainText('You have used today’s exports.');
+  await expect(refusal).toContainText(reset.toISOString().slice(0, 10));
 });
 
 test('J-p2p-18 #3 a completed order has a receipt, an open one does not, and the daily quota says when it resets', async ({ page }) => {

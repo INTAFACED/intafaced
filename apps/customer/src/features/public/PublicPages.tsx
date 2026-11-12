@@ -7,6 +7,7 @@ import { NoticeDetail, NoticeFeed } from './NoticeFeed';
 import { doorSummaries } from './public-catalogue';
 import { PARTICIPATION_ROOMS } from './public-pages';
 import { usePartnerSettings } from './partner-settings';
+import { useAppStoreLink } from './app-store-link';
 import { pagesCopy } from './public-pages-copy';
 import { publicCopy } from './public-copy';
 import './public-pages.css';
@@ -122,18 +123,32 @@ export function NoticePage({ detail = false, id = null }: { detail?: boolean; id
   );
 }
 
-/** /app: there is no store release, so the page says so and shows the real way to keep the web app one tap away. */
+/**
+ * /app: one store button when the founders have set an https store link (SP-pages-03); otherwise the page says there is no
+ * store release. Either way it shows the real way to keep the web app one tap away.
+ */
 export function AppPage() {
   const copy = pagesCopy.useCopy();
+  const store = useAppStoreLink();
   return (
     <div className="pub-page">
       <header className="pub-heading">
         <h1>{copy.t('appTitle')}</h1>
       </header>
-      <section className="pub-notice" role="status">
-        <h2>{copy.t('appNoneTitle')}</h2>
-        <p>{copy.t('appNoneBody')}</p>
-      </section>
+      {store ? (
+        <section className="pub-card" aria-labelledby="app-store">
+          <h2 id="app-store">{copy.t('appStoreTitle')}</h2>
+          <p>{copy.t('appStoreBody')}</p>
+          <a className="button button--primary" href={store} rel="noopener noreferrer">
+            {copy.t('appStoreOpen')}
+          </a>
+        </section>
+      ) : (
+        <section className="pub-notice" role="status">
+          <h2>{copy.t('appNoneTitle')}</h2>
+          <p>{copy.t('appNoneBody')}</p>
+        </section>
+      )}
       <section className="pub-card">
         <h2>{copy.t('appHomeTitle')}</h2>
         <ul>

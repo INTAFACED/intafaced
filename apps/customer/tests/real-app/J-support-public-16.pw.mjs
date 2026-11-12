@@ -1,7 +1,7 @@
 // World: book
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { asDesk, helpCentre, publishText, saveCategory, saveSection, setAudience, setHelpCentre } from './help-centre.mjs';
+import { asDesk, helpCentre, publishText, saveCategory, saveSection, setAudience, setHelpCentre, unpublish } from './help-centre.mjs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { EDGE, ORIGIN, ROOT, journeyState } from './stack.mjs';
@@ -133,8 +133,33 @@ test(`${J} #2 the audience is saved, and changing it adds one audit row with the
   expect(changes).toEqual([expect.objectContaining({ fromAudience: 'public', toAudience: 'signed_in' })]);
 });
 
-test(`${J} #3 a save from a stale revision is refused, and a script tag pasted into the body previews as text`, async ({ browser }) => {
-  const { ARTICLE, TITLE, section } = current();
+test(`${J} #3 a save from a stale revision is refused with support.kb_revision_stale, and a script tag pasted into the body previews as text`, async ({
+  browser,
+}) => {
+  const { ARTICLE, TITLE, run, category, section } = current();
+  // In the editor: the author opens an article at revision 1, the second operator saves revision 2 first, and the
+  // author's save, from revision 1, is refused by name. On an article of its own, so the main article keeps revision 1.
+  const side = `${ARTICLE}-stale`;
+  const words = { title: `TEST Stale ${run}`, language: 'en', sectionId: section.id };
+  await desk('lead', 'mutation', 'kbSaveDraft', { id: side, ...words, body: 'TEST First words.', baseRevision: 0 });
+  const author = await editor(browser, 'a', side);
+  await expect(author.panel.getByTestId('kbe-draft')).toContainText('Newest draft: revision 1,');
+  await desk('agent', 'mutation', 'kbSaveDraft', { id: side, ...words, body: 'TEST Second operator words.', baseRevision: 1 });
+  await author.panel.getByLabel('Section').selectOption({ label: `${category.name} › ${section.name}` });
+  await author.panel.getByLabel('Title').fill(words.title);
+  await author.panel.getByLabel('Body (blank lines split paragraphs)').fill(`TEST Author words ${run}.`);
+  await confirm(author.panel, 'Review draft', 'Yes, save the draft');
+  const outcome = author.panel.getByTestId('kbe-outcome');
+  await expect(outcome).toContainText('Someone changed this article first');
+  await expect(outcome).toContainText('Code: support.kb_revision_stale');
+  await author.page.context().close();
+  // Nothing was saved by the stale save: revision 2 is the second operator's, and the author's words are nowhere.
+  const sideHistory = await history(side);
+  expect(sideHistory.versions.map((v) => v.revision)).toEqual([1, 2]);
+  expect((await desk('lead', 'query', 'kbDraft', { id: side, revision: 2 })).body).toBe('TEST Second operator words.');
+  expect(JSON.stringify(sideHistory)).not.toContain(`TEST Author words ${run}.`);
+
+  // The same refusal from the desk's own door, on the main article: a save from revision 0 after revision 1.
   const stale = await asDesk('lead', 'mutation', 'kbSaveDraft', {
     id: ARTICLE,
     title: TITLE,
@@ -143,10 +168,15 @@ test(`${J} #3 a save from a stale revision is refused, and a script tag pasted i
     sectionId: section.id,
     baseRevision: 0,
   });
-  expect(stale.text).toContain('support.kb.revision_stale');
+  expect(stale.status).toBe(409);
+  expect(stale.text).toContain('support.kb_revision_stale');
+
+  // A script tag pasted into the body: the preview shows it as text, adds no script element, and runs nothing.
   const { page, panel } = await editor(browser, 'a', ARTICLE);
   await panel.getByLabel('Body (blank lines split paragraphs)').fill(`TEST Paste ${SCRIPT} here.`);
-  await expect(panel.getByTestId('kbe-preview')).toContainText(`TEST Paste ${SCRIPT} here.`);
+  const preview = panel.getByTestId('kbe-preview');
+  await expect(preview.getByText(`TEST Paste ${SCRIPT} here.`, { exact: true })).toBeVisible();
+  await expect(preview.locator('script')).toHaveCount(0);
   expect(await page.evaluate(() => window.__j16)).toBeUndefined();
   // Nothing was saved by either: the draft is still the only version.
   expect((await history(ARTICLE)).versions.map((v) => v.revision)).toEqual([1]);
@@ -193,7 +223,7 @@ test(`${J} #5 a second operator approves, publish is allowed once with submit, a
     revision: 2,
     state: 'draft',
   });
-  expect((await asDesk('lead', 'mutation', 'kbPublishDraft', { id: other, revision: 1 })).text).toContain('support.kb.revision_stale');
+  expect((await asDesk('lead', 'mutation', 'kbPublishDraft', { id: other, revision: 1 })).text).toContain('support.kb_revision_stale');
 });
 
 test(`${J} #6 /help lists the article once under its section, and the version table holds two immutable rows`, async ({ browser }) => {
@@ -244,20 +274,72 @@ test(`${J} #7 restricting the article to a segment with the segment cap blank is
   expect(JSON.stringify(after)).not.toContain(`TEST ${run}`);
 });
 
-test(`${J} #8 the help centre settings show name, theme and languages, and a missing translation is listed in the desk`, async () => {
-  const settings = await helpCentre();
-  expect(settings).toHaveProperty('name');
-  expect(settings).toHaveProperty('languages');
-  expect(settings).toHaveProperty('theme');
-  // Gaps are counted per offered language: a stack whose owner has offered none offers one for this step (its default
-  // language when one is set, which the offered list must hold), then puts it back.
-  const offered = settings.languages === null;
-  if (offered) await setHelpCentre({ languages: [settings.defaultLanguage ?? 'en'] }, `TEST ${J} #8 offer a language`);
+test(`${J} #8 the help centre settings show name, theme and languages (none set: "languages are not set" and no picker), and a missing translation is listed in the desk`, async ({
+  browser,
+}) => {
+  const n = names(state.read().run ?? Date.now().toString(36));
+  await library(n);
+  // An answer of its own, so a reader's page has an article whose language picker can be looked for.
+  const answer = await publishText({
+    id: `${n.ARTICLE}-lang`,
+    title: `TEST Languages ${n.run}`,
+    body: 'TEST Which language this answer is in.',
+    language: 'en',
+    sectionId: n.section.id,
+    baseRevision: 0,
+  });
+  const before = await helpCentre();
+  const deskPage = await browser.newContext({ viewport: { width: 1440, height: 1000 } }).then((c) => c.newPage());
+  await founderSignIn(deskPage, 'a');
+  const reader = await browser.newContext({ baseURL: ORIGIN }).then((c) => c.newPage());
+  const settingsPanel = async () => {
+    await deskPage.goto(`${ADMIN}/support/settings`);
+    const panel = deskPage.getByTestId('help-centre-panel');
+    await expect(panel.getByRole('heading', { name: 'Help centre', exact: true })).toBeVisible();
+    return panel;
+  };
+  const readerPicker = async () => {
+    await reader.goto(`/helpdetail?id=${answer.id}`);
+    const main = reader.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: answer.title })).toBeVisible();
+    return main.getByRole('combobox', { name: 'Article language' });
+  };
+  const theme = { system: 'Follows the reader’s device', light: 'Light', dark: 'Dark' };
   try {
+    // None set: the desk says "Languages are not set" and counts no gap; there is no picker, in the desk or for a reader.
+    if (before.languages !== null) await setHelpCentre({ languages: null }, `TEST ${J} #8 offer no language`);
+    const blank = await helpCentre();
+    expect(blank.languages).toBeNull();
+    let panel = await settingsPanel();
+    // Name and theme are the service's own values, "Not set" while the owner has chosen none.
+    await expect(panel.getByTestId('help-centre-name')).toHaveText(blank.name ?? 'Not set');
+    await expect(panel.getByTestId('help-centre-theme')).toHaveText(blank.theme ? theme[blank.theme] : 'Not set');
+    await expect(panel.getByTestId('help-centre-languages')).toContainText('Languages are not set');
+    await expect(panel.getByTestId('help-centre-missing-none')).toHaveText('Languages are not set, so no translation gap is counted.');
+    await expect(panel.getByRole('combobox')).toHaveCount(0);
+    await expect(await readerPicker()).toHaveCount(0);
+
+    // One language offered: the reader gets a picker, and the desk lists the answer versions not yet translated into it.
+    const language = before.languages?.[0] ?? before.defaultLanguage ?? 'en';
+    await setHelpCentre({ languages: [language] }, `TEST ${J} #8 offer a language`);
+    await expect(await readerPicker()).toHaveCount(1);
     const translations = await desk('lead', 'query', 'helpCentreTranslations', { limit: 100 });
-    expect(JSON.stringify(translations)).toContain('missing');
+    expect(translations.languages).toEqual([language]);
+    const missing = translations.rows.filter((row) => row.state === 'missing');
+    expect(missing.length).toBeGreaterThan(0);
+    panel = await settingsPanel();
+    await expect(panel.getByTestId('help-centre-languages')).toContainText(language);
+    await expect(panel.getByTestId('help-centre-missing-count')).toHaveText(
+      `${missing.length} missing in the first ${translations.rows.length} of ${translations.total} article versions × languages.`,
+    );
+    await expect(panel.getByTestId('help-centre-missing-row')).toHaveText(
+      missing.map((row) => `${row.articleId} version ${row.version} · ${row.language} · missing`),
+    );
   } finally {
-    if (offered) await setHelpCentre({ languages: null }, `TEST ${J} #8 put the languages back`);
+    await setHelpCentre({ languages: before.languages }, `TEST ${J} #8 put the languages back`);
+    await deskPage.context().close();
+    await reader.context().close();
+    await unpublish(answer.id, answer.revision);
   }
 });
 

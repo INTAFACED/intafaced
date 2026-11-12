@@ -457,7 +457,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -470,7 +470,7 @@ jobs:
       # svc-fix's pinned JDK and Maven archives, kept between runs: the build fetches them from GitHub's release host,
       # whose 504s failed every journeys run before any test (runs 42561646967 and 42578853059, 9 Nov). Only the archives
       # are kept; ensure-toolchain.mjs checks each one's pinned sha256/sha512 and fetches it again when it does not match.
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
@@ -566,7 +566,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -662,7 +662,7 @@ jobs:
 
       # The build job's kept JDK and Maven archives, read only: a shard without the run's build builds svc-fix itself and
       # fetched the JDK from the same release host (run 42568666064, 9 Nov: the build and 20 shards failed on its 504s).
-      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
@@ -793,10 +793,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      # A journey that failed leaves the shard green (the run's verdict judges it), so the logs print then too: otherwise a
+      # flaky step's service-side cause goes with the runner (#8044: svc-ledger did not answer, and nothing kept why).
       - name: Stack logs on failure
-        if: failure()
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
         run: |
-          for f in "$LOCAL_STACK_STATE"/logs/*.log; do echo "::group::$f"; tail -40 "$f"; echo "::endgroup::"; done
+          if [ "$JOB_STATUS" = success ] && ! jq -e '(.stats.unexpected // 0) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+            exit 0
+          fi
+          for f in "$LOCAL_STACK_STATE"/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; tail -200 "$f" || true; echo "::endgroup::"
+          done
 
       - name: Stop the stack
         if: always()
@@ -810,7 +820,7 @@ jobs:
     needs: [touch, journeys]
     if: always()
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 80 # healthy run: a few minutes; the shard download may wait up to 65 for a spent API budget to reset
     env:
       JOURNEYS_TARGET: ${{ needs.touch.outputs.target }}
       NOTHING: ${{ needs.touch.outputs.mode == 'none' }}
@@ -833,7 +843,7 @@ jobs:
           # for the set-aside list (it refuses a shallow clone).
           fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -855,9 +865,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHARD_COUNT: ${{ needs.touch.outputs.count || 8 }}
+          WAIT_BUDGET_MINUTES: 65 # the job's timeout-minutes less the time the later steps need
+        # A spent API budget is waited out until its reset, never swallowed: run 4084 (12 Nov 2026) hit "API rate limit
+        # exceeded for installation" here, saved a report with no report.json, and every pull request's verdict failed on
+        # it. Any other refusal fails this step by name (tooling/ci/shard-download.mjs). It prints the token's budget.
         run: |
           mkdir -p "$RUNNER_TEMP/shards" "$RUNNER_TEMP/blobs" "$RUNNER_TEMP/journeys"
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'real-app-journeys-shard-*' --dir "$RUNNER_TEMP/shards" || true
+          node tooling/ci/shard-download.mjs "$RUNNER_TEMP/shards"
           # One folder per shard artifact; the blob keeps its own name, prefixed so two shards never collide.
           for d in "$RUNNER_TEMP"/shards/real-app-journeys-shard-*; do
             [ -d "$d" ] || continue
@@ -915,12 +929,13 @@ jobs:
       - name: Verdict tests
         if: always() && env.NOTHING != 'true'
         run: node --test tooling/ci/journey-verdict.test.mjs
-      # It also writes the set-aside list (set-aside.json), kept with the report below.
+      # It also writes the set-aside list (set-aside.json) and, on main, the stored pass history (pass-history.json) the
+      # next verdicts read instead of every run since the baseline; both are kept with the report below.
       - name: Verdict against the list of steps not built yet
         if: always() && env.NOTHING != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch --set-aside-out "$RUNNER_TEMP/journeys/set-aside.json"
+        run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch --set-aside-out "$RUNNER_TEMP/journeys/set-aside.json" --history-out "$RUNNER_TEMP/journeys/pass-history.json"
 
       # After the verdict, so the set-aside list goes with the report; it runs whatever the verdict says.
       - name: Keep the report
@@ -932,6 +947,15 @@ jobs:
             ${{ runner.temp }}/journeys/report.json
             ${{ runner.temp }}/journeys/set-aside.json
           if-no-files-found: warn
+      # The stored pass history on its own (about 2 MB, 40 KB zipped, beside a report of about 25 MB), so a verdict reading it
+      # downloads only it. Written on main only; nothing to keep elsewhere.
+      - name: Keep the pass history
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: real-app-journeys-pass-history
+          path: ${{ runner.temp }}/journeys/pass-history.json
+          if-no-files-found: ignore
 
   # A journeys run on a branch ends here, dispatched or on a pull request in this repository (never main's or a schedule's).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI

@@ -22,6 +22,7 @@ import {
   venueWithdrawalKey,
   withdrawalAfter,
   withDomainTypes,
+  type VenueDeposit,
   type VenueDepositRoute,
   type VenueWithdrawal,
 } from './venue-account-api';
@@ -39,6 +40,13 @@ import { venueWalletCopy, type VenueWalletCopyKey } from './venue-wallet-copy';
  * deposit address; the venue credits it and the room shows the venue's figure with its as-of time. A withdrawal is the
  * venue's action, confirmed with a fresh second factor and signed in the wallet; the room follows it pending to done,
  * with the venue's fee and the network fee, or "not known". INTAFACED moves nothing and the ledger posts nothing.
+ *
+ * J-dex-protocol-05 #1 to #3 on the same room: the deposit's terms as the venue publishes them (its minimum and the
+ * confirmations it waits for, or "not published"); the venue's own list of the deposits it has seen, "Confirming k of N"
+ * with an explorer link, or the hash alone where the network has none, then credited, and a transfer below the minimum
+ * "not credited"; and a withdrawal's destination, the connected wallet with the network filled, read-only until Edit. An
+ * edited destination that holds contract code (read through the wallet's own connection) warns and needs a tick before
+ * Withdraw; one whose code can't be read is treated the same, never as a plain wallet.
  */
 
 /** The venue asset this room moves. TEST USDC: the stack's TEST USD token, credited by the TEST venue as USDC. */
@@ -105,6 +113,81 @@ export function venueRefusal(failure: Failed, t: T): Refusal {
         reference,
       };
   }
+}
+
+/** A 0x address of 20 bytes. */
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+/** One deposit's state in words, as the venue reports it. */
+export function depositStatusText(deposit: VenueDeposit, t: T): string {
+  if (deposit.status === 'credited') return t('depositRowCredited');
+  if (deposit.status === 'not_credited')
+    return deposit.reason === 'below_minimum' ? t('depositRowBelowMinimum') : t('depositRowNotCredited');
+  return t('depositRowConfirming', { n: String(deposit.confirmations), of: String(deposit.required) });
+}
+
+/** The deposit's terms as the venue publishes them: each one it does not publish says so, never a made-up figure. */
+export function DepositTerms({ route, t }: { route: VenueDepositRoute; t: T }) {
+  const network = route.network ?? t('networkChain', { id: String(route.chainId) });
+  return (
+    <dl data-testid="deposit-terms" aria-label={t('termsTitle')}>
+      <div>
+        <dt>{t('termsNetwork')}</dt>
+        <dd>{network}</dd>
+      </div>
+      <div>
+        <dt>{t('termsMinimum')}</dt>
+        <dd>{route.minimum ? t('termsMinimumValue', { amount: plainDecimal(route.minimum) }) : t('termsMinimumNone')}</dd>
+      </div>
+      <div>
+        <dt>{t('termsArrival')}</dt>
+        <dd>{route.confirmations ? t('termsArrivalValue', { n: String(route.confirmations), network }) : t('termsArrivalNone')}</dd>
+      </div>
+      <div>
+        <dt>{t('termsSigned')}</dt>
+        <dd>{t('termsSignedValue')}</dd>
+      </div>
+    </dl>
+  );
+}
+
+/** The venue's list of the deposits it has seen for this wallet, newest first. */
+export function DepositsOnTheirWay({ deposits, t }: { deposits: readonly VenueDeposit[]; t: T }) {
+  return (
+    <section aria-label={t('onItsWay')}>
+      <h3>{t('onItsWay')}</h3>
+      {deposits.length === 0 ? (
+        <p>{t('onItsWayEmpty')}</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">{t('depositColAmount')}</th>
+              <th scope="col">{t('depositColStatus')}</th>
+              <th scope="col">{t('depositColTransaction')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {deposits.map((deposit) => (
+              <tr key={deposit.depositRef} data-deposit-status={deposit.status} data-tx-hash={deposit.txHash.toLowerCase()}>
+                <td>{t('feeValue', { amount: plainDecimal(deposit.amount) })}</td>
+                <td>{depositStatusText(deposit, t)}</td>
+                <td>
+                  {deposit.explorerUrl ? (
+                    <a href={deposit.explorerUrl} title={deposit.txHash}>
+                      {t('viewOnExplorer')}
+                    </a>
+                  ) : (
+                    <code>{deposit.txHash}</code>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
 }
 
 /** The venue's figure for the room's asset: its free balance and the venue's as-of time. */
@@ -279,8 +362,20 @@ export function VenueWalletRoom() {
   const route: VenueDepositRoute | null = doorInfo && doorInfo.enabled && doorInfo.available ? (doorInfo.deposit ?? null) : null;
   const [amount, setAmount] = useState('');
   const [figure, setFigure] = useState<VenueFigure | 'unread' | null>(null);
-  const [depositNote, setDepositNote] = useState<{ amount: string; hash: string; credited: boolean | null } | null>(null);
-  const [withdrawAsk, setWithdrawAsk] = useState<{ key: string; amount: string } | null>(null);
+  const [depositNote, setDepositNote] = useState<{ amount: string; hash: string; credited: boolean | null; belowMinimum?: boolean } | null>(
+    null,
+  );
+  const [withdrawAsk, setWithdrawAsk] = useState<{ key: string; amount: string; destination: string } | null>(null);
+  /** The venue's own list of the deposits it has seen for this wallet; null until read (or when the venue lists none). */
+  const [deposits, setDeposits] = useState<readonly VenueDeposit[] | null>(null);
+  /** Until when the room reads the list again: after a deposit is sent, and while one is confirming. */
+  const [followDepositsUntil, setFollowDepositsUntil] = useState(0);
+  /** The withdrawal's destination: the connected wallet, until the person presses Edit and types another. */
+  const [editing, setEditing] = useState(false);
+  const [destinationText, setDestinationText] = useState('');
+  /** What the chain says is at an edited destination: a plain wallet, contract code, or unread (treated as a contract). */
+  const [destinationKind, setDestinationKind] = useState<'wallet' | 'contract' | 'unread' | null>(null);
+  const [contractTicked, setContractTicked] = useState(false);
   /** Bumped when the same ask is tried again, so its step-up asks afresh for the SAME key. */
   const [withdrawTry, setWithdrawTry] = useState(0);
   const [withdrawal, setWithdrawal] = useState<{ amount: string; record: VenueWithdrawal | null } | null>(null);
@@ -306,6 +401,57 @@ export function VenueWalletRoom() {
       current = false;
     };
   }, [account, owner, live, venueReady]);
+
+  // The venue's deposit list: read when the room can ask the venue, then again while it follows a deposit.
+  const confirming = deposits?.some((deposit) => deposit.status === 'confirming') ?? false;
+  useEffect(() => {
+    if (!owner || !live || !venueReady || !route) {
+      setDeposits(null);
+      return;
+    }
+    let current = true;
+    const readOnce = () =>
+      void account.deposits(owner).then((read) => {
+        if (current) setDeposits(read.ok ? read.data.value : null);
+      });
+    readOnce();
+    if (!confirming && Date.now() >= followDepositsUntil) {
+      return () => {
+        current = false;
+      };
+    }
+    const timer = setInterval(() => {
+      // Past the follow window with nothing confirming: one last read, then the list stays as the venue last said.
+      if (!confirming && Date.now() >= followDepositsUntil) clearInterval(timer);
+      readOnce();
+    }, FOLLOW_EVERY_MS);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, [account, owner, live, venueReady, route, confirming, followDepositsUntil]);
+
+  // The destination is the connected wallet until Edit; an edited one is checked on chain for contract code.
+  const destination = editing ? destinationText.trim() : (owner ?? '');
+  const destinationValid = ADDRESS_RE.test(destination);
+  const readCode = wallet.code;
+  useEffect(() => {
+    setContractTicked(false);
+    if (!editing || !ADDRESS_RE.test(destination)) {
+      setDestinationKind(null);
+      return;
+    }
+    let current = true;
+    void readCode(destination).then((code) => {
+      if (!current) return;
+      setDestinationKind(code === null ? 'unread' : /^0x0*$/.test(code) ? 'wallet' : 'contract');
+    });
+    return () => {
+      current = false;
+    };
+  }, [editing, destination, readCode]);
+  const needsTick = editing && (destinationKind === 'contract' || destinationKind === 'unread');
+  const destinationReady = destinationValid && (!editing || destinationKind !== null) && (!needsTick || contractTicked);
 
   /** Why the venue can't be asked now, in words; null when it can. */
   function doorRefusal(): Refusal | null {
@@ -335,7 +481,7 @@ export function VenueWalletRoom() {
   }
 
   /** Reads the venue's figure until it holds the deposit on top of `before` (the venue credited it), or the wait ends. */
-  async function followDeposit(before: string, sent: string) {
+  async function followDeposit(before: string, sent: string, hash: string) {
     if (!owner) return;
     const from = scaledDecimal(before);
     const added = scaledDecimal(sent);
@@ -349,6 +495,17 @@ export function VenueWalletRoom() {
       if (now !== null && now >= from + added) {
         setDepositNote((note) => (note ? { ...note, credited: true } : note));
         return;
+      }
+      // The venue's own list says it will not credit this transfer (below its minimum): the room says so and stops.
+      const listed = await account.deposits(owner);
+      if (!mounted.current) return;
+      if (listed.ok) {
+        setDeposits(listed.data.value);
+        const row = listed.data.value.find((deposit) => deposit.txHash.toLowerCase() === hash.toLowerCase());
+        if (row?.status === 'not_credited') {
+          setDepositNote((note) => (note ? { ...note, credited: false, belowMinimum: row.reason === 'below_minimum' } : note));
+          return;
+        }
       }
     }
     if (mounted.current) setDepositNote((note) => (note ? { ...note, credited: false } : note));
@@ -375,7 +532,8 @@ export function VenueWalletRoom() {
       }
       if (sent.status !== 'sent') return setRefusal(walletRefusal('failed', 'wallet_error'));
       setDepositNote({ amount: sentAmount, hash: sent.hash, credited: null });
-      void followDeposit(before.free, sentAmount);
+      setFollowDepositsUntil(Date.now() + FOLLOW_MS);
+      void followDeposit(before.free, sentAmount, sent.hash);
     });
 
   /**
@@ -383,7 +541,7 @@ export function VenueWalletRoom() {
    * was lost): if the venue never shows the record, the ask comes back with its SAME key, so trying again can't make a
    * second withdrawal; while the record is unknown, no new withdrawal starts.
    */
-  async function followWithdrawal(nonce: string, withdrawn: string, retry?: { key: string; amount: string }) {
+  async function followWithdrawal(nonce: string, withdrawn: string, retry?: { key: string; amount: string; destination: string }) {
     if (!owner) return;
     const until = Date.now() + FOLLOW_MS;
     let seen = false;
@@ -419,18 +577,19 @@ export function VenueWalletRoom() {
       const decimals = route?.tokenDecimals ?? 6;
       const asked = canonicalAmount(amount);
       if (toTokenUnits(amount, decimals) === null || asked === null) return setRefusal(amountRefusal(decimals));
+      if (!destinationReady) return setRefusal({ variant: 'refused', title: t('destinationTitle'), body: t('destinationBody') });
       // One key for this withdrawal: a double press or a retry of it is the same prepared action, and one wallet prompt.
       setWithdrawal(null);
-      setWithdrawAsk({ key: venueWithdrawalKey(owner, Date.now()), amount: asked });
+      setWithdrawAsk({ key: venueWithdrawalKey(owner, Date.now()), amount: asked, destination: destination.toLowerCase() });
     });
 
   /** The step-up names exactly what svc-trade re-hashes: this key, account, asset, amount and destination. */
-  const withdrawStepUp = (ask: { key: string; amount: string }): StepUpBegin => ({
+  const withdrawStepUp = (ask: { key: string; amount: string; destination: string }): StepUpBegin => ({
     scope: 'trade.step_up.venue.withdraw',
     purpose: 'venue.withdraw',
     target: ask.key,
     amount: ask.amount,
-    fields: { withdrawalKey: ask.key, owner: owner ?? '', subAccount: '', asset: ASSET, amount: ask.amount, destination: owner ?? '' },
+    fields: { withdrawalKey: ask.key, owner: owner ?? '', subAccount: '', asset: ASSET, amount: ask.amount, destination: ask.destination },
   });
 
   const confirmedWithdraw = (stepUpApprovalId: string | null) =>
@@ -443,7 +602,7 @@ export function VenueWalletRoom() {
         owner,
         asset: ASSET,
         amount: ask.amount,
-        destination: owner,
+        destination: ask.destination,
         withdrawalKey: ask.key,
         stepUpApprovalId,
       });
@@ -614,6 +773,7 @@ export function VenueWalletRoom() {
                     </div>
                   </dl>
                 ) : null}
+                {live && venueReady && route ? <DepositTerms route={route} t={t} /> : null}
                 <Field
                   label={t('amount')}
                   hint={t('amountHint')}
@@ -627,18 +787,76 @@ export function VenueWalletRoom() {
                 <Button disabled={busy} onClick={() => void deposit()}>
                   {t('deposit')}
                 </Button>{' '}
-                <Button disabled={busy || withdrawAsk !== null || unsettled} onClick={() => void withdraw()}>
+                <div data-testid="withdraw-destination" role="group" aria-label={t('destinationGroup')}>
+                  <Field
+                    label={t('destination')}
+                    hint={editing ? t('destinationEditHint') : t('destinationWalletHint')}
+                    name="venue-destination"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={editing ? destinationText : (owner ?? '')}
+                    readOnly={!editing}
+                    disabled={busy}
+                    onChange={(event) => setDestinationText(event.target.value)}
+                  />
+                  <label className="field">
+                    <span>{t('network')}</span>
+                    <select
+                      name="venue-network"
+                      value={route ? String(route.chainId) : ''}
+                      disabled={!editing || busy}
+                      onChange={() => undefined}
+                    >
+                      {route ? (
+                        <option value={String(route.chainId)}>{route.network ?? t('networkChain', { id: String(route.chainId) })}</option>
+                      ) : null}
+                    </select>
+                  </label>
+                  {!editing ? (
+                    <Button
+                      variant="secondary"
+                      disabled={busy || withdrawAsk !== null}
+                      onClick={() => {
+                        setDestinationText(owner ?? '');
+                        setEditing(true);
+                      }}
+                    >
+                      {t('edit')}
+                    </Button>
+                  ) : null}
+                  {needsTick ? (
+                    <div>
+                      <p role="alert">{destinationKind === 'contract' ? t('contractWarning') : t('contractUnread')}</p>
+                      <label>
+                        {/* The app resets native inputs to appearance: none, which leaves a checkbox with no size: this
+                            one keeps the browser's own box, so the person can see and tick it. */}
+                        <input
+                          type="checkbox"
+                          className="appearance-auto size-3.5 shrink-0 accent-lime"
+                          checked={contractTicked}
+                          disabled={busy}
+                          onChange={(event) => setContractTicked(event.target.checked)}
+                        />{' '}
+                        {t('contractTick')}
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+                <Button disabled={busy || withdrawAsk !== null || unsettled || !destinationReady} onClick={() => void withdraw()}>
                   {t('withdraw')}
                 </Button>
                 {depositNote ? (
                   <p role="status" data-testid="venue-deposit">
                     {depositNote.credited === true
                       ? t('depositCredited', { amount: depositNote.amount })
-                      : depositNote.credited === false
-                        ? t('depositUncredited', { hash: depositNote.hash })
-                        : t('depositSent', { amount: depositNote.amount })}
+                      : depositNote.belowMinimum
+                        ? t('depositBelowMinimum', { amount: depositNote.amount })
+                        : depositNote.credited === false
+                          ? t('depositUncredited', { hash: depositNote.hash })
+                          : t('depositSent', { amount: depositNote.amount })}
                   </p>
                 ) : null}
+                {live && venueReady && route && deposits ? <DepositsOnTheirWay deposits={deposits} t={t} /> : null}
                 {withdrawAsk ? (
                   <div data-venue-step-up>
                     <StepUpConfirm

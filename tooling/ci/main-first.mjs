@@ -50,6 +50,8 @@ export const DISPATCH_CAP = 2;
 /** The touch job's step that marks a hand-dispatched full run (real-app-journeys.yml; workflow-concurrency.test.mjs holds
  *  the name), so another run can tell it from a targeted one in the jobs API. */
 export const DISPATCH_MARK = 'A hand-dispatched full run';
+/** real-app-journeys.yml's job that lets deferred runs go (`--release`); workflow-concurrency.test.mjs holds the name. */
+export const RELEASE_JOB = 'Let deferred runs go';
 /** real-app-journeys.yml's first job, which runs this wait. */
 export const TOUCH_JOB = 'What this run runs';
 /** A job GitHub has created but not yet given a runner. */
@@ -68,9 +70,13 @@ export const PLAN_JOB = TOUCH_JOB;
 export async function mainWaiting(runs, jobsOf) {
   for (const run of runs ?? []) {
     if (run?.head_branch !== 'main' || run?.event === 'pull_request') continue;
-    if (run.status === 'queued') return `main's run ${run.id} is queued for a runner`;
-    if (run.status !== 'in_progress') continue;
+    if (!['queued', 'in_progress'].includes(run.status)) continue;
     const jobs = await jobsOf(run.id);
+    // Its release already ran: its shards are queued, so a run deferred now would queue behind them anyway, and nothing
+    // would let it go until the next main run (intafaced #7996, 12 Nov 2026: run 43127859276 was deferred at 00:32 UTC
+    // on main's run 43127556856, which read `queued` with its shards waiting but had let deferred runs go at 00:30).
+    if (Array.isArray(jobs) && jobs.some((j) => j?.name === RELEASE_JOB && j?.status === 'completed')) continue;
+    if (run.status === 'queued') return `main's run ${run.id} is queued for a runner`;
     if (!Array.isArray(jobs)) continue;
     const waiting = jobs.filter((j) => WAITING.has(j?.status));
     if (waiting.length) return `main's run ${run.id} has ${waiting.length} job(s) waiting for a runner`;
@@ -181,6 +187,17 @@ async function selfTest() {
     5: [{ name: 'What this run runs', status: 'completed', conclusion: 'failure' }],
     6: [{ name: 'What this run runs', status: 'in_progress' }],
     7: [{ name: 'What this run runs', status: 'completed', conclusion: 'success' }], // shards skipped after the plan
+    // #7996: shards waiting for runners, but the release already ran, so nothing would let a run deferred now go.
+    10: [
+      { name: 'What this run runs', status: 'completed', conclusion: 'success' },
+      { name: RELEASE_JOB, status: 'completed', conclusion: 'success' },
+      { name: 'Journeys (shard 1 of 2)', status: 'queued' },
+    ],
+    11: [
+      { name: 'What this run runs', status: 'completed', conclusion: 'success' },
+      { name: RELEASE_JOB, status: 'in_progress' },
+      { name: 'Journeys (shard 1 of 2)', status: 'queued' },
+    ],
   };
   const jobsOf = async (id) => jobs[id];
   const run = (id, status, over = {}) => ({ id, status, head_branch: 'main', event: 'push', ...over });
@@ -194,6 +211,10 @@ async function selfTest() {
     [[run(7, 'in_progress')], null],
     [[run(8, 'in_progress'), run(1, 'in_progress')], /run 1 has 1 job/], // run 8's jobs can't be read: passed over
     [[run(9, 'queued')], /queued for a runner/],
+    [[run(10, 'queued')], null], // its release ran: deferring now would strand the run
+    [[run(10, 'in_progress')], null],
+    [[run(11, 'in_progress')], /1 job\(s\) waiting/], // its release still running: it reads runs as they are now
+    [[run(10, 'queued'), run(9, 'queued')], /run 9 is queued/], // another main run still waits
     [[run(9, 'pending')], null], // waiting behind the running main run in its group: no runner asked for
     [[run(1, 'in_progress', { head_branch: 'feature' })], null],
     [[run(1, 'in_progress', { event: 'pull_request' })], null], // a pull request from a branch named main

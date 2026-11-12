@@ -1317,6 +1317,14 @@
           }
         },
         {
+          "name": "venueDeposits",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/deposits", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "deposits"] }
+          }
+        },
+        {
           "name": "venueLeverage",
           "request": {
             "method": "GET",
@@ -1534,6 +1542,43 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "venue", "agent-accounts", ":id", "close"],
               "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentConnections",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", "connections"]
+            }
+          }
+        },
+        {
+          "name": "venueAgentConnect",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "connections"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent", "orders"]
             }
           }
         },

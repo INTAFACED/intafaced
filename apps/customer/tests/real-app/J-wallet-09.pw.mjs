@@ -236,6 +236,19 @@ function userVenue(on) {
   }
 }
 
+/** Mines `n` empty blocks on the stack's TEST chain (`evm_mine`, the TEST chain's own control). */
+async function mineBlocks(n) {
+  for (let i = 0; i < n; i += 1) {
+    const res = await fetch(testChain().gateUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'evm_mine', params: [] }),
+    });
+    const body = await res.json();
+    if (body.error) throw new Error(`evm_mine: ${JSON.stringify(body.error)}`);
+  }
+}
+
 /** The wallet's TEST USD on the TEST chain, in base units (6 decimals), read from the node itself. */
 async function chainUsd(address) {
   const data = encodeFunctionData({ abi: parseAbi(['function balanceOf(address) view returns (uint256)']), args: [address] });
@@ -312,6 +325,9 @@ test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the use
   expect(wallet.sends[0].params[0].to.toLowerCase()).toBe(TEST_USD);
   expect(wallet.sends[0].params[0].data.toLowerCase()).toContain(door.deposit.address.slice(2));
   await expect(page.getByTestId('venue-deposit')).toBeVisible();
+  // The TEST venue credits a deposit after 3 confirmations (TEST_VENUE_DEPOSIT_TERMS, tooling/scripts/local-test-venue.mjs),
+  // and the stack's anvil mines a block per transaction only: the TEST chain mines the two blocks after the deposit's own.
+  await mineBlocks(2);
 
   // The venue credits it: this new account's venue figure is exactly the deposit, with the venue's as-of time.
   await expect(figure).toHaveText(`${DEPOSIT} TEST USDC`, { timeout: 60_000 });

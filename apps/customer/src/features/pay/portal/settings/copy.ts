@@ -290,6 +290,9 @@ const en = {
   preferenceChanged: 'Last saved',
   preferenceChangedBy: 'Last saved by {actor}',
   prefHistoryTitle: 'Change history',
+  prefNeedsManage:
+    'You can read this preference but not change it: changing it needs the manage notifications permission (notifications.manage), which your role doesn’t have. Ask the account owner or an admin.',
+  prefWaitingAccess: 'We are still checking your role on this account, so this can’t be changed right now.',
   prefHistoryBody:
     'Every change to these preferences: what it was set to, who made it and when. Changes saved before this history was kept are not listed.',
   prefHistoryEmptyTitle: 'No changes yet',

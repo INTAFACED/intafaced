@@ -7,8 +7,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   JOURNEY_DIR,
+  MAX_SHARDS,
   TARGETED_MAX_SHARDS,
+  UNTIMED_STEP_MS,
   estimateDurations,
+  freshFiles,
   fileDurations,
   journeyFiles,
   longestDurations,
@@ -192,7 +195,8 @@ test('a new file and steps added to an old one count at the suite time per step 
   );
 });
 
-test('with no timed file every step counts the same', () => {
+test("with no timed file every step counts the same, a step's time on main", () => {
+  assert.equal(UNTIMED_STEP_MS, 16_000);
   const steps = new Map([
     ['a', 3],
     ['b', 1],
@@ -200,10 +204,22 @@ test('with no timed file every step counts the same', () => {
   assert.deepEqual(
     [...estimateDurations(['a', 'b'], new Map(), new Map(), steps)],
     [
-      ['a', 3],
-      ['b', 1],
+      ['a', 3 * UNTIMED_STEP_MS],
+      ['b', 1 * UNTIMED_STEP_MS],
     ],
   );
+});
+
+// #8032: run 43130806194 could not download the last reports (HTTP 403, the installation's rate limit), planned "about
+// 0 min" on the 8-shard floor, and every shard hit its time limit. With no report the full suite still plans its size.
+test('the planner as the workflow calls it with no report plans the full suite at its real size, not the floor', () => {
+  const run = execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const shards = JSON.parse(run);
+  assert.equal(shards.length, MAX_SHARDS, `${shards.length} shards`);
+  assert.deepEqual(shards.flatMap((s) => s.split(' ')).sort(), journeyFiles(JOURNEY_DIR));
 });
 
 test('the shard count keeps each shard near the target, within its floor and ceiling', () => {
@@ -341,4 +357,65 @@ test('the planner as the workflow calls it for a targeted run prints at most 10 
   const shards = JSON.parse(out).map((s) => s.split(' '));
   assert.ok(shards.length <= TARGETED_MAX_SHARDS, `${shards.length} shards`);
   assert.deepEqual(shards.flat().sort(), [...named].sort());
+});
+
+// A file that needs a fresh stack (`// Stack: fresh`) runs first in its shard: only files after it in name order, the
+// order Playwright runs a shard in, share its shard (#7994: J-more-catalogue-11 #1 read J-more-catalogue-01 #6's launch).
+test('a file that needs a fresh stack runs first in its shard, whatever the times say', () => {
+  const files = ['J-a.pw.mjs', 'J-b.pw.mjs', 'J-c.pw.mjs', 'J-m.pw.mjs', 'J-x.pw.mjs', 'J-y.pw.mjs', 'J-z.pw.mjs'];
+  const durations = new Map(files.map((f, i) => [f, (i + 1) * 1000]));
+  const fresh = new Set(['J-m.pw.mjs']);
+  for (const shards of [2, 3, 4]) {
+    const plan = planShards(files, durations, shards, fresh);
+    const bin = plan.find((b) => b.files.includes('J-m.pw.mjs'));
+    assert.equal(bin.files[0], 'J-m.pw.mjs', `${shards} shards: ${JSON.stringify(plan)}`);
+    assert.deepEqual(planCovers(plan, files, fresh), []);
+  }
+  // Without the line the same times put J-c before J-m in J-m's shard: the order that broke #7994.
+  const loose = planShards(files, durations, 2);
+  assert.notEqual(loose.find((b) => b.files.includes('J-m.pw.mjs')).files[0], 'J-m.pw.mjs', JSON.stringify(loose));
+});
+
+test('the plan check names a fresh-stack file that another file runs before in its shard', () => {
+  const files = ['J-a.pw.mjs', 'J-m.pw.mjs', 'J-z.pw.mjs'];
+  const broken = [
+    { ms: 2, files: ['J-a.pw.mjs', 'J-m.pw.mjs'] },
+    { ms: 1, files: ['J-z.pw.mjs'] },
+  ];
+  assert.deepEqual(planCovers(broken, files, new Set(['J-m.pw.mjs'])), [
+    'J-m.pw.mjs needs a fresh stack but runs after J-a.pw.mjs in shard 1',
+  ]);
+  assert.deepEqual(planCovers(broken, files), []);
+});
+
+test('a plan that cannot run every fresh-stack file first refuses by name', () => {
+  assert.throws(
+    () => planShards(['J-a.pw.mjs', 'J-m.pw.mjs'], new Map(), 1, new Set(['J-m.pw.mjs'])),
+    /J-a\.pw\.mjs runs before every file that needs a fresh stack/,
+  );
+  assert.throws(
+    () => planShards(['J-a.pw.mjs', 'J-m.pw.mjs'], new Map(), 1, new Set(['J-a.pw.mjs', 'J-m.pw.mjs'])),
+    /2 journey files need a fresh stack and there are 1 shards/,
+  );
+});
+
+test("the repo's fresh-stack files, J-more-catalogue-11 among them, each run first in their shard of the full plan and of a targeted one", () => {
+  const all = journeyFiles(JOURNEY_DIR);
+  const fresh = freshFiles(JOURNEY_DIR, all);
+  assert.ok(fresh.has('J-more-catalogue-11.pw.mjs'), 'J-more-catalogue-11 carries // Stack: fresh');
+  for (const only of [null, 'J-more-catalogue-01.pw.mjs J-more-catalogue-11.pw.mjs']) {
+    const out = execFileSync(
+      process.execPath,
+      ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', ...(only ? ['--only', only] : [])],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    const shards = JSON.parse(out).map((s) => s.split(' '));
+    for (const f of fresh) {
+      const shard = shards.find((s) => s.includes(f));
+      if (shard) assert.equal([...shard].sort()[0], f, `${only ?? 'full'}: ${f} runs after ${[...shard].sort()[0]}`);
+    }
+  }
 });

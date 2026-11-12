@@ -87,6 +87,7 @@ import {
   requireSetting,
   startOfUtcDay,
   RECEIPT_QUOTA_LOCK_CLASS,
+  EXPORT_QUOTA_LOCK_CLASS,
   type ExportFormat,
   type ExportPolicy,
 } from './export-receipt.js';
@@ -376,6 +377,7 @@ export type P2pErrorCode =
   | 'p2p.export_format_unbuilt'
   | 'p2p.export_range_too_large'
   | 'p2p.export_too_many_rows'
+  | 'p2p.export_quota_reached'
   | 'p2p.receipt_quota_reached'
   | 'p2p.receipt_not_available'
   | 'p2p.user_not_found'
@@ -6266,7 +6268,9 @@ export class P2pService {
 
   /**
    * P-trade-orders-14: `trades.export` under owner caps, with an audit row.
-   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`. The audit
+   * rows are the daily quota's counter: past it the export refuses
+   * `p2p.export_quota_reached` with the next UTC midnight.
    */
   async exportTrades(input: {
     userId: string;
@@ -6274,6 +6278,7 @@ export class P2pService {
     to: string;
     /** Omitted means csv, the format this endpoint has always served. */
     format?: ExportFormat;
+    now?: Date;
   }): Promise<{
     csv: string;
     rows: number;
@@ -6284,6 +6289,8 @@ export class P2pService {
       const format = assertFormatBuilt(input.format ?? 'csv');
       const maxRangeDays = requireSetting(this.exportPolicy.maxRangeDays, 'P2P_EXPORT_MAX_RANGE_DAYS');
       const maxRows = requireSetting(this.exportPolicy.maxRows, 'P2P_EXPORT_MAX_ROWS');
+      const daily = requireSetting(this.exportPolicy.exportDailyQuota, 'P2P_EXPORT_DAILY_QUOTA');
+      const now = input.now ?? new Date();
       const from = new Date(input.from);
       const to = new Date(input.to);
       if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
@@ -6306,10 +6313,24 @@ export class P2pService {
            AND created_at >= ${from} AND created_at <= ${to}
          GROUP BY asset, fiat_currency ORDER BY asset, fiat_currency
       `;
-      await this.sql`
-        INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count)
-        VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows})
-      `;
+      await transaction(this.sql, async (tx) => {
+        // One user's exports serialise, so two parallel clicks cannot both take the last export of the day.
+        await tx`SELECT pg_advisory_xact_lock(${EXPORT_QUOTA_LOCK_CLASS}, hashtext(${input.userId}))`;
+        const used = await tx<Array<{ today: number }>>`
+          SELECT count(*)::int AS today FROM p2p.export_audit
+           WHERE user_id = ${input.userId} AND kind = 'export' AND created_at >= ${startOfUtcDay(now)}
+        `;
+        if (Number(used[0]?.today ?? 0) >= daily) {
+          throw new P2pError(
+            `p2p.export_quota_reached: daily quota ${daily} used; resets at ${nextUtcMidnight(now).toISOString()}`,
+            'p2p.export_quota_reached',
+          );
+        }
+        await tx`
+          INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count, created_at)
+          VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows}, ${now})
+        `;
+      });
       return {
         ...file,
         format,

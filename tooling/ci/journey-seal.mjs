@@ -76,19 +76,11 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import {
-  JOURNEYS_ARTIFACT,
-  fetchInputs,
-  isMainRun,
-  judge,
-  manifestsAt,
-  moneyCodeDirs,
-  readReport,
-  rootInputs,
-} from './journey-verdict.mjs';
+import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
+import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -779,11 +771,6 @@ export function makeIo(repo, token) {
       return out;
     },
     verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
-    // Whether a path is in money code, by the default branch's manifests (the base's copy this script runs from).
-    moneyCode: async (paths) => {
-      const dirs = moneyCodeDirs(manifestsAt(BASE_ROOT));
-      return paths.some((f) => dirs.has(packageOf(f)));
-    },
   };
 }
 
@@ -1041,9 +1028,8 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *   - one whose paths share an area (areasOf) with a commit on main from where the step last passed to the newest main
  *     commit the head holds (`upTo`): the commits one of which broke it, and any that tried to fix it since
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
- * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) or money
- * code (`touches.money`: AGENTS.md "How work flows" 8, "a red in a package your PR changes always blocks the merge, even
- * when main shares it") is in every red's area, so nothing it inherited is passed over. A money step's red (the verdict's
+ * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) is in every
+ * red's area, so nothing it inherited is passed over. A money step's red (the verdict's
  * money rule) is never passed over, for any pull request, except one that failed, then passed on its retry both on this
  * head and in main's run (project-state OWNER 278: it "stops only its own journeys"), which stops only the pull
  * requests in its area like any other inherited red.
@@ -1074,12 +1060,12 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
   if (main.problems.length)
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
-  if (touches.shared || touches.money)
+  if (touches.shared)
     return {
       blocking: red.map((x) => (sameOnMain(main, x) ? { ...x, onMain: true } : x)),
       passed: [],
       notes: [
-        `this pull request changes ${touches.shared ? "the journey stack's shared setup, which reaches every journey" : 'money code (AGENTS.md "How work flows" 8)'}, so every red counts, inherited or not`,
+        `this pull request changes the journey stack's shared setup, which reaches every journey, so every red counts, inherited or not`,
       ],
     };
   const mine = new Set([...touches.paths].flatMap(areasOf));
@@ -1096,7 +1082,7 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     // A money step is never passed over (REVIEW.md item 3: setting a money step aside is a quarantine); a red the verdict
     // didn't mark either way counts as money. The one exception is OWNER 278: a money step that failed, then passed on
     // its retry, here and in main's run (the same verdict line, so main's was a retry pass too), stops only the pull
-    // requests in its area, by the rules below; money code and shared setup still put a pull request in every area.
+    // requests in its area, by the rules below; shared setup still puts a pull request in every area.
     if (x.money !== false && x.retryFlaky !== true) {
       stop(`but it is a money step, so it stops every pull request`);
       continue;
@@ -1379,9 +1365,6 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     ]),
     paths: new Set(paths),
     shared: shared.length > 0,
-    // Money code by the base's manifests, or any package.json the pull request changes: a dependency on ledger-client it
-    // adds, or a new package, would make money code the base can't see (CI review on e288d257).
-    money: paths.some((f) => /(^|\/)package\.json$/.test(f)) || (io.moneyCode ? await io.moneyCode(paths) : false),
   };
   let main;
   let upTo;
@@ -1546,6 +1529,8 @@ export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false }) {
     for (const r of runsOf?.[workflow] ?? []) {
       if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
       if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+      else if (journeys && r?.deferred === true)
+        out.push(`${what} run ${r.id} (deferred behind main's journeys; it is re-run once main's shards are queued)`);
       else if (judge && needJudge && r?.judgeDown === true)
         out.push(`${what} run ${r.id} (judge down: no verdict; it re-runs when the judge is back)`);
     }
@@ -1618,6 +1603,9 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
         return { act: 'wait', runId, msg: `run ${runId} is deciding whether its seal waits for its inputs` };
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
     }
+    // A seal still waiting for its inputs (WAIT_STEP) reads them all once they finish: re-running it would be a second verdict.
+    if (seal.status !== 'completed' && (seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
+      return { act: 'done', msg: `the seal in run ${runId} is waiting for its inputs and judges once they finish` };
     if (seal.status !== 'completed')
       return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
     if (run.status !== 'completed') return { act: 'wait', runId, msg: `run ${runId} is still finishing` };
@@ -1845,25 +1833,39 @@ export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green 
 export const REVIEW_RUNS_READ = 5;
 
 /**
- * inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys), and a down
+ * inputsGoing on `sha` read through the API (each run read through settledRun unless `settle` is false), journeys counted when any of `pulls` needs them (needsJourneys), and a down
  * judge for every pull request: the head's finished CI review runs' jobs are read, newest first, until one actually
  * reviewed (review-marker.mjs reviewRan).
  */
-export async function readGoing({ get, repo, sha, pulls }) {
+export async function readGoing({ get, repo, sha, pulls, settle = true }) {
   const runsOf = {};
   for (const { workflow, event } of SEAL_INPUTS) {
     const runs = (
       await get(`/repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${sha}${event ? `&event=${event}` : ''}&per_page=100`)
     )?.workflow_runs;
     if (!Array.isArray(runs)) throw new Error(`${workflow} runs on ${sha}: not a list`);
-    runsOf[workflow] = await settleRuns(
-      runs.filter((r) => r?.head_sha === sha),
-      async (id) => {
-        const jobs = (await get(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100`))?.jobs;
-        if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
-        return jobs;
-      },
-    );
+    const onHead = runs.filter((r) => r?.head_sha === sha);
+    // settle false (the seal's WAIT_STEP): a run counts as going until its START_JOB has ended too, so that job's re-check
+    // finds the seal still waiting and leaves it (recheckStep), and the seal gives the one verdict.
+    runsOf[workflow] = !settle
+      ? onHead
+      : await settleRuns(onHead, async (id) => {
+          const jobs = (await get(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100`))?.jobs;
+          if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
+          return jobs;
+        });
+  }
+  // A deferred journeys run ran nothing and is re-run later (main-first.mjs): the newest on the head, finished with its
+  // touch job's DEFER_MARK, counts as going (inputsGoing), never as a finished run that reports no step (intafaced #7996).
+  {
+    const { workflow } = SEAL_INPUTS.find((i) => i.journeys);
+    const newest = [...runsOf[workflow]].sort((a, b) => b.id - a.id)[0];
+    if (newest?.status === 'completed') {
+      const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+      const touch = jobs.find((j) => j?.name === TOUCH_JOB);
+      newest.deferred = (touch?.steps ?? []).some((st) => st?.name === DEFER_MARK && st?.conclusion === 'success');
+    }
   }
   let needJourneys = false;
   for (const p of pulls ?? []) {
@@ -1913,6 +1915,49 @@ async function sealNowStep({ repo, token }) {
   const v = sealNow({ files, headCi, going, verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false });
   console.log(`${v.now ? 'seals now' : 'waits'}: ${v.why}`);
   if (GITHUB_OUTPUT) writeFileSync(GITHUB_OUTPUT, `now=${v.now}\n`, { flag: 'a' });
+}
+
+/**
+ * The seal job's first step (`--wait-inputs`, WAIT_STEP): while an input on the head is still going, the seal waits in
+ * its job, a running check that blocks the merge as a missing one does, and judges once they have all finished, so it
+ * is never red only because it is waiting (project-state OWNER 262 part 2, 9 Nov 2026: "no red while waiting"). Before
+ * this, a seal that ran at once (sealNow: a change under .github/, or a verdict already on the head) or a green re-run
+ * while an input ran (whileGoing) failed with "has not finished": 23 of the 70 red seals from 12:00 UTC on 11 Nov to
+ * 00:01 UTC on 12 Nov. Given the pull request as it is now and inputsGoing's lines: `wait` while one is going on its
+ * head; `judge` once none is, or when the pull request closed or its head moved (the judging steps then say so). Pure.
+ */
+export function waitStep({ pull, sha, going }) {
+  if (pull?.state !== 'open') return { act: 'judge', msg: `#${pull?.number} is no longer open` };
+  if (pull?.head?.sha !== sha) return { act: 'judge', msg: `#${pull.number}'s head moved to ${String(pull?.head?.sha).slice(0, 10)}` };
+  if (going.length) return { act: 'wait', msg: `waiting for ${going.join(', ')}` };
+  return { act: 'judge', msg: 'every input on this head has finished' };
+}
+
+/** The seal job's step that waits for its inputs (waitStep); a re-check leaves a seal still in it alone (recheckStep). */
+export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this change needs';
+/**
+ * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
+ * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on
+ * 12 Nov at 02:59 UTC seals failed on "API rate limit exceeded for installation"), so a waiting seal spends about 100
+ * calls an hour, not 480.
+ */
+export const WAIT_POLLS = 12;
+export const WAIT_POLL_MS = 300_000;
+
+async function waitInputsStep({ repo, token, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  const { HEAD_SHA, PR_NUMBER } = process.env;
+  if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(PR_NUMBER ?? '')) throw new Error('--wait-inputs needs HEAD_SHA and PR_NUMBER');
+  const get = (path) => api(path, token);
+  let said = '';
+  for (let poll = 1; ; poll++) {
+    const pull = await get(`/repos/${repo}/pulls/${PR_NUMBER}`);
+    const step = waitStep({ pull, sha: HEAD_SHA, going: await readGoing({ get, repo, sha: HEAD_SHA, pulls: [pull], settle: false }) });
+    if (step.act === 'judge') return console.log(`judging now: ${step.msg}`);
+    if (poll >= WAIT_POLLS)
+      throw new Error(`${step.msg} after ${(WAIT_POLLS * WAIT_POLL_MS) / 60_000} min; the seal fails closed (re-run it once they finish)`);
+    if (step.msg !== said) console.log(`${(said = step.msg)}; checking every ${WAIT_POLL_MS / 1000}s`);
+    await sleep(WAIT_POLL_MS);
+  }
 }
 
 /** A POST to the API that returns { status, message } and never throws on an HTTP error, so the caller decides. */
@@ -2070,6 +2115,7 @@ async function main() {
   if (process.argv.includes('--recheck')) return recheck({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--seal-now')) return sealNowStep({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--clear-older')) return clearOlderStep({ repo: REPO, token: GH_TOKEN });
+  if (process.argv.includes('--wait-inputs')) return waitInputsStep({ repo: REPO, token: GH_TOKEN });
   const io = makeIo(REPO, GH_TOKEN);
   // The journeys run's planner (real-app-journeys.yml) reads an automatic revert's narrow scope from the same rule.
   const scopeAt = process.argv.indexOf('--auto-revert-scope');

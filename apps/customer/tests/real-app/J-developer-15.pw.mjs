@@ -326,7 +326,7 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
     requestId: apiKeyCreateRequestId(me.userId, [], asked),
   });
   expect(probe.status, JSON.stringify(probe.body).slice(0, 300)).toBe(403);
-  expect(probe.body?.error?.data?.cause?.code).toBe('identity.agent_scope_forbidden');
+  expect(probe.body?.error?.data?.cause?.code).toBe('auth.agent_scope_forbidden');
 
   // An agent key with a read permission is made, and the list tags it as an agent key holding only that permission.
   await page.goto('/uc/safe/api-keys/new');
