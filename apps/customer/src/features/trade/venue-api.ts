@@ -513,6 +513,16 @@ export function walletTypedData(typedData: PreparedAnswer['prepared']['typedData
   };
 }
 
+/** J-derivatives-01 #2: one perpetual open or blocked for this account, with every reason (svc-trade venue-gated-list.ts). */
+const venueGatedContractSchema = z.object({
+  symbol: z.string(),
+  open: z.boolean(),
+  code: z.string().nullable(),
+  message: z.string().nullable(),
+  blockers: z.array(z.object({ code: z.string(), message: z.string() })),
+});
+export type VenueGatedContract = z.infer<typeof venueGatedContractSchema>;
+
 // ── The door ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export function venueApi(api: ApiClient) {
@@ -523,6 +533,7 @@ export function venueApi(api: ApiClient) {
   return {
     status: (signal?: AbortSignal) => api.rest('/venue/status', venueStatusSchema, { signal }),
     markets: (signal?: AbortSignal) => read('/markets', asOf(z.array(venueMarketSchema)), {}, signal),
+    gatedList: (signal?: AbortSignal) => read('/gated-list', asOf(z.array(venueGatedContractSchema)), {}, signal),
     balances: (owner: string, signal?: AbortSignal, subAccount?: string) =>
       read('/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount }, signal),
     openOrders: (owner: string, signal?: AbortSignal) => read('/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),

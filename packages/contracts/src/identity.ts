@@ -278,7 +278,7 @@ export const freezeLinkRedeemSchema = z
  * address's first and last characters) so the customer can see what they approve.
  */
 export const SERVICE_MAIL_PATH = '/internal/mail' as const;
-export const serviceMailPurposeSchema = z.enum(['withdraw-address-approval']);
+export const serviceMailPurposeSchema = z.enum(['withdraw-address-approval', 'support-chat-email']);
 export type ServiceMailPurpose = z.infer<typeof serviceMailPurposeSchema>;
 export const serviceMailRequestSchema = z
   .object({

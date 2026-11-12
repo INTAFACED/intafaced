@@ -1030,9 +1030,8 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
  * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) is in every
  * red's area, so nothing it inherited is passed over. A money step's red (the verdict's
- * money rule) is never passed over, for any pull request, except one that failed, then passed on its retry both on this
- * head and in main's run (project-state OWNER 278: it "stops only its own journeys"), which stops only the pull
- * requests in its area like any other inherited red.
+ * money rule) is never passed over, for any pull request. (A pass on the retry is no longer a red at all: the lead's
+ * decision of 12 Nov 2026 under OWNER 296 and 297, journey-verdict.mjs.)
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
  * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
@@ -1080,10 +1079,8 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     const journey = journeyOf(x.step);
     const stop = (why) => blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, ${why}`, onMain: true });
     // A money step is never passed over (REVIEW.md item 3: setting a money step aside is a quarantine); a red the verdict
-    // didn't mark either way counts as money. The one exception is OWNER 278: a money step that failed, then passed on
-    // its retry, here and in main's run (the same verdict line, so main's was a retry pass too), stops only the pull
-    // requests in its area, by the rules below; shared setup still puts a pull request in every area.
-    if (x.money !== false && x.retryFlaky !== true) {
+    // didn't mark either way counts as money.
+    if (x.money !== false) {
       stop(`but it is a money step, so it stops every pull request`);
       continue;
     }
