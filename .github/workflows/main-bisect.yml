@@ -30,9 +30,9 @@ run-name: ${{ inputs.journeys != '' && format('Main bisect {0} {1}{2}', inputs.b
 # It also writes the recovery record (journeys-revert.mjs recoveryRecord) as a comment on the revert, which project-state
 # tooling/board/event.mjs reads for "affected journey back".
 #
-# Settle (`confirm: settle`): when a journeys red traces to no single merge (revert-unknown below, or Main trust's trigger
-# when no commit lies between the passing run and the red one), the failing journeys run alone on main's head the same
-# way. Passing: each step gets one `flaky` issue and the red is settled, since a red main is a step that fails again run
+# Settle (`confirm: settle`): for every journeys red revert-find confirms (settle-early below, started beside the probe
+# and the control), and when no commit lies between the passing run and the red one (Main trust's trigger), the failing
+# journeys run alone on main's head the same way. A merge the probe names still wins over it. Passing: each step gets one `flaky` issue and the red is settled, since a red main is a step that fails again run
 # alone on main's head (the programme lead, 12 Nov 2026). Failing again: one `regression` issue per journey at once.
 on:
   workflow_dispatch:
@@ -459,13 +459,16 @@ jobs:
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs open
 
-  # A journeys red that traces to no single merge (revert-find names none, or the probe names no culprit): start the
-  # settle run of the failing journeys alone on main's head (above). Only when that start fails does a labelled
-  # `main-unknown-red` issue open at once, naming why.
-  revert-unknown:
-    name: 'Journeys revert: no single merge found'
-    needs: [revert-find, revert-probe, revert-control]
-    if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && (needs.revert-find.outputs.unknown != '' || (needs.revert-find.outputs.probe == 'true' && (needs.revert-probe.outputs.culprit == '' || needs.revert-control.outputs.passes != 'true'))) }}
+  # Every journeys red revert-find confirms (it names the failing steps): start the settle run of those steps alone on
+  # main's head at once, beside the probe and the control, so a red with no merge to blame is settled in one journey's
+  # run, however many candidates the probe walks (the programme lead's decision of 12 Nov 2026). A merge the probe names
+  # still wins: its revert closes the settle's `flaky` issue for this red, and a settle that passes after the revert
+  # opened opens none (journeys-revert.mjs open, back). Only when the start fails does a labelled `main-unknown-red`
+  # issue open at once.
+  settle-early:
+    name: 'Journeys revert: run the steps alone on main'
+    needs: revert-find
+    if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && needs.revert-find.outputs.steps != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     permissions:
@@ -484,7 +487,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
           RED_RUN: ${{ inputs.red_run }}
-          REASON: ${{ needs.revert-find.outputs.unknown || (needs.revert-probe.outputs.culprit != '' && 'CONTROL_FAILED') || 'the probe ran the failing journeys on each candidate commit and named no single one' }}
-          GOOD: ${{ inputs.good }}
-          PROBED: ${{ needs.revert-probe.outputs.culprit }}
-        run: node tooling/ci/journeys-revert.mjs unknown
+          REASON: ${{ needs.revert-find.outputs.unknown || 'started beside the probe and the control, which may still name the merge' }}
+        run: node tooling/ci/journeys-revert.mjs settle

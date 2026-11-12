@@ -1856,6 +1856,23 @@
         }
       }
     },
+    "/api/v1/venue/funding-history": {
+      "get": {
+        "operationId": "venueFundingHistory",
+        "summary": "The funding the venue published at each settled interval on its listed perpetual on one asset, since a time: refused by name where none is published",
+        "tags": ["accounts"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/venue/balances": {
       "get": {
         "operationId": "venueBalances",
@@ -2351,6 +2368,25 @@
       "post": {
         "operationId": "venueAgentAccountCap",
         "summary": "Change the agent account's cap; above the owner's ceiling it is refused, naming the ceiling",
+        "tags": ["accounts"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/venue/agent-accounts/{id}/limits": {
+      "post": {
+        "operationId": "venueAgentAccountLimits",
+        "summary": "Set the agent account's per-order size, leverage and daily-loss caps; one above the owner's ceiling is refused, naming it",
         "tags": ["accounts"],
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
         "security": [{ "apiKey": [] }],

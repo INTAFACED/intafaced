@@ -906,6 +906,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       'The venue’s best bid and ask on one market, from its own book, with its as-of time: where a market order’s worst price is set from',
   },
   {
+    name: 'venueFundingHistory',
+    method: 'GET',
+    path: '/api/v1/venue/funding-history',
+    product: 'accounts',
+    access: 'public',
+    summary:
+      'The funding the venue published at each settled interval on its listed perpetual on one asset, since a time: refused by name where none is published',
+  },
+  {
     name: 'venueBalances',
     method: 'GET',
     path: '/api/v1/venue/balances',
@@ -1133,6 +1142,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: "Change the agent account's cap; above the owner's ceiling it is refused, naming the ceiling",
+  },
+  {
+    name: 'venueAgentAccountLimits',
+    method: 'POST',
+    path: '/api/v1/venue/agent-accounts/:id/limits',
+    product: 'accounts',
+    access: 'private',
+    summary: "Set the agent account's per-order size, leverage and daily-loss caps; one above the owner's ceiling is refused, naming it",
   },
   {
     name: 'venueAgentAccountClose',

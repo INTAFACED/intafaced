@@ -1257,6 +1257,18 @@
           }
         },
         {
+          "name": "venueFundingHistory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/funding-history",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "funding-history"]
+            }
+          }
+        },
+        {
           "name": "venueBalances",
           "request": {
             "method": "GET",
@@ -1556,6 +1568,19 @@
               "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/cap",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "venue", "agent-accounts", ":id", "cap"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentAccountLimits",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/limits",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "limits"],
               "variable": [{ "key": "id", "value": "" }]
             }
           }

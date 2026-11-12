@@ -343,22 +343,3 @@ test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser 
     )
     .toBe(true);
 });
-
-test('J-charts-desk-04 #6 adds open interest, funding and an on-chain series: each is refused by name on a spot market, nothing drawn', async ({
-  page,
-}) => {
-  await openChart(page);
-  await addStudy(page, 'open interest', 'Open interest');
-  await addStudy(page, 'funding', 'Funding rate');
-  await addStudy(page, 'on chain', 'On-chain series');
-  await expect(legend(page)).toContainText(`Open interest is not published for ${MARKET_NAME}.`);
-  await expect(legend(page)).toContainText(`Funding rate is not published for ${MARKET_NAME}.`);
-  await expect(legend(page)).toContainText(`On-chain series is not published for ${MARKET_NAME}.`);
-  // Nothing drawn: the library holds no series for any of the three (only the workbench's other studies, if any).
-  const ids = ['open-interest-1', 'funding-1', 'on-chain-1'];
-  for (const id of ids) await expect(row(page, id)).toBeVisible();
-  await expect
-    .poll(async () => (await drawnStudies(page)).filter((x) => ids.some((id) => x.key === id || x.key.startsWith(`${id}:`))))
-    .toEqual([]);
-  for (const id of ids) await expect(row(page, id).locator('[data-series]')).toHaveCount(0);
-});

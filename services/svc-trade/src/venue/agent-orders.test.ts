@@ -512,6 +512,41 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
     );
   });
 
+  it("#17: an order above the person's per-order cap, then one above their leverage cap, each refused naming the cap before anything is signed", async () => {
+    const { keyId, sub, account } = await connected(
+      parseAgentAccountValues({ ...rawValues(), TRADE_AGENT_MAX_LEVERAGE: '5', TRADE_AGENT_MAX_DAILY_LOSS: '100' }),
+    );
+    await builderApproved(sub);
+    await accounts.setLimits(person, account.accountId, { maxOrderNotional: '50', maxLeverage: '2' });
+    const before = {
+      usdc: await total(sub, 'USDC'),
+      orders: (await sim.openOrders(sub)).value,
+      positions: (await sim.positions(sub)).value,
+    };
+    // 0.001 × 60100 = 60.1 USDC, above the per-order cap of 50 (and inside the cap of 200 and the owner's bound).
+    const size = await refusedAs(orders.place(assistant(keyId), buy('size-1', '0.001')));
+    expect([size.code, size.status]).toEqual(['agents.order_size_cap_exceeded', 422]);
+    expect(size.detail).toEqual({ cap: '50', notional: '60.1' });
+    expect(size.message).toContain('50 USDC');
+    // 3x on a perp, above the leverage cap of 2x, on an order inside the per-order cap.
+    const lev = await refusedAs(orders.place(assistant(keyId), perp('lev-1', '0.0005', { leverage: '3' })));
+    expect([lev.code, lev.status]).toEqual(['agents.leverage_cap_exceeded', 422]);
+    expect(lev.detail).toEqual({ cap: '2', leverage: '3' });
+    // Before anything is signed: no order and no leverage setting stored or sent; the venue shows nothing new.
+    for (const k of [agentOrderKey(keyId, 'size-1'), agentOrderKey(keyId, 'lev-1'), agentLeverageKey(keyId, 'lev-1')]) {
+      expect(await door.stored(person, k), k).toBeNull();
+    }
+    expect((await sim.leverage(sub, 'BTC-PERP')).value).toBeNull();
+    expect({
+      usdc: await total(sub, 'USDC'),
+      orders: (await sim.openOrders(sub)).value,
+      positions: (await sim.positions(sub)).value,
+    }).toEqual(before);
+    // At the caps, the same orders go through.
+    expect((await orders.place(assistant(keyId), buy('size-2', '0.0008'))).state).toBe('accepted');
+    expect((await orders.place(assistant(keyId), perp('lev-2', '0.0005', { leverage: '2' }))).state).toBe('accepted');
+  });
+
   it("#10: a perp needing more margin than the account holds is the venue's refusal, named; nothing locked; main never drawn", async () => {
     const { keyId, sub } = await connected();
     await builderApproved(sub);

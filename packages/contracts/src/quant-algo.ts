@@ -755,3 +755,117 @@ export const quantPaperRunSchema = quantPaperRunSummarySchema.extend({
   claimLabel: z.literal('Paper — not live performance'),
 });
 export type QuantPaperRun = z.infer<typeof quantPaperRunSchema>;
+
+/**
+ * The strategy lifecycle and its promotion gate (AL-lifecycle-01, ENGINE section 9). A version's stage is its newest
+ * stored stage row; before it has one it is derived from its own stored runs (draft, backtested, validated, paper).
+ * Promote asks the gate to move a version from `paper` to `candidate`. The gate reads only stored run rows and the
+ * owner's stored criteria, never anything the caller sends and never a Preview room's sample windows.
+ */
+export const QUANT_STAGES = [
+  'draft',
+  'backtested',
+  'validated',
+  'paper',
+  'candidate',
+  'live',
+  'paused',
+  'stopped',
+  'killed',
+  'retired',
+] as const;
+export type QuantStage = (typeof QUANT_STAGES)[number];
+
+/** The owner's gate criteria (ENGINE LC-3, E-4). Each is blank until an operator sets it; blank blocks promotion. */
+export const QUANT_GATE_CRITERIA = ['paperMinutes', 'maxDrawdownPercent'] as const;
+export type QuantGateCriterion = (typeof QUANT_GATE_CRITERIA)[number];
+
+/** What the gate checks, in the order the screen lists them. */
+export const QUANT_GATE_CHECKS = ['outOfSample', 'riskLimits', 'paperDuration', 'maxDrawdown'] as const;
+export type QuantGateCheck = (typeof QUANT_GATE_CHECKS)[number];
+
+export const quantGateCheckSchema = z.object({
+  check: z.enum(QUANT_GATE_CHECKS),
+  status: z.enum(['met', 'not_met', 'not_set']),
+  /** The owner criterion the check is judged against, when it has one; null value: not set. */
+  criterion: z.object({ name: z.enum(QUANT_GATE_CRITERIA), value: z.string().nullable() }).nullable(),
+  /** What the gate read: a verdict status, a duration in minutes, a percentage, or which risk limits are blank. */
+  observed: z.string().nullable(),
+  /** The stored run the check read, or null when none counts. */
+  runId: z.string().nullable(),
+});
+export type QuantGateCheckResult = z.infer<typeof quantGateCheckSchema>;
+
+export const quantStageRowSchema = z.object({
+  from: z.enum(QUANT_STAGES),
+  to: z.enum(QUANT_STAGES),
+  at: z.string(),
+  runIds: z.array(z.string()),
+});
+export type QuantStageRow = z.infer<typeof quantStageRowSchema>;
+
+export const quantGateDecisionSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  at: z.string(),
+  runIds: z.array(z.string()),
+  criteria: z.array(z.object({ name: z.enum(QUANT_GATE_CRITERIA), value: z.string().nullable() })),
+});
+export type QuantGateDecision = z.infer<typeof quantGateDecisionSchema>;
+
+/** `lifecycle.get`: the version's stage, its stored stage rows and gate decisions, and the gate as it reads now. */
+export const quantLifecycleSchema = z.object({
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  stage: z.enum(QUANT_STAGES),
+  stages: z.array(quantStageRowSchema),
+  decisions: z.array(quantGateDecisionSchema),
+  gate: z.object({
+    approved: z.boolean(),
+    unset: z.array(z.enum(QUANT_GATE_CRITERIA)),
+    checks: z.array(quantGateCheckSchema),
+  }),
+  asOf: z.string(),
+});
+export type QuantLifecycle = z.infer<typeof quantLifecycleSchema>;
+
+/**
+ * `lifecycle.promote`. Keyed `quant.stage:<strategyId>:v<version>:paper:candidate:<seq>`, where `seq` is the number of
+ * gate decisions of this version the screen read: a second press with the same reading replays the first answer.
+ */
+export const quantPromoteInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  strategyVersion: z.number().int().positive(),
+  seq: z.number().int().nonnegative(),
+});
+export const quantPromoteOutputSchema = z.object({
+  decision: quantGateDecisionSchema,
+  stage: quantStageRowSchema.nullable(),
+  lifecycle: quantLifecycleSchema,
+});
+export type QuantPromoteOutput = z.infer<typeof quantPromoteOutputSchema>;
+
+/**
+ * The owner values an operator sets at runtime (`ops.criteria.set`): the gate's criteria and the out-of-sample
+ * criteria a verdict is judged against. Blank is "not set". A row overrides the boot value; with no row, the boot value
+ * stands. Every write keeps its actor and reason.
+ */
+export const QUANT_OWNER_CRITERIA = [
+  'gate.paperMinutes',
+  'gate.maxDrawdownPercent',
+  'oos.minTrades',
+  'oos.minReturnPercent',
+  'oos.maxDrawdownPercent',
+  'oos.maxShortfallPercent',
+] as const;
+export type QuantOwnerCriterion = (typeof QUANT_OWNER_CRITERIA)[number];
+export const quantCriteriaSetInputSchema = z.object({
+  name: z.enum(QUANT_OWNER_CRITERIA),
+  value: z.string().max(20).nullable(),
+  /** True puts the criterion back to its boot value: the operator's row is removed (the audit row stays). */
+  toBoot: z.boolean().optional(),
+  reason: z.string().max(500),
+  idempotencyKey: z.string().trim().min(1).max(160),
+});
+export const quantCriteriaSchema = z.object({
+  criteria: z.array(z.object({ name: z.enum(QUANT_OWNER_CRITERIA), value: z.string().nullable(), source: z.enum(['operator', 'boot']) })),
+});

@@ -198,11 +198,12 @@ async function syllabusRows(slug) {
   });
   const body = await res.json();
   expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body.result.data.syllabus.map((row) => ({ slug: row.slug, kind: row.kind }));
+  return body.result.data.syllabus.map((row) => ({ slug: row.slug, kind: row.kind, type: row.type }));
 }
 /** The courses' items, as their public course pages list them. */
 const syllabus = async (slug) => (await syllabusRows(slug)).map((row) => row.slug);
-const KIND_LABEL = { playbook: 'Playbook', workbook: 'Workbook', lesson: 'Lesson' };
+/** What an item is to the learner in a course outline, in the outline's own words. */
+const TYPE_LABEL = { lesson: 'Lesson', quiz: 'Quiz', assignment: 'Assignment' };
 
 const myCourse = (page, slug) => page.locator(`[data-my-learning-section] [data-my-course="${slug}"]`);
 
@@ -234,6 +235,26 @@ async function staff(procedure, input) {
 }
 
 const setPrerequisites = (itemSlug, prerequisites) => staff('admin.setItemPrerequisites', { itemSlug, prerequisites });
+const setQuiz = (slug, quiz) => staff('admin.setQuiz', { slug, quiz, reason: `${J} TEST quiz` });
+/** A TEST quiz staff publish on one item for #6, and take down at the end. */
+const TEST_QUIZ = {
+  passMark: 1,
+  attemptLimit: null,
+  timeLimitSeconds: null,
+  reviewMode: 'score_only',
+  questions: [
+    {
+      id: 'q1',
+      prompt: 'TEST: what does a limit order fix?',
+      points: 1,
+      choices: [
+        { id: 'a', text: 'TEST: the worst price' },
+        { id: 'b', text: 'TEST: the size of the book' },
+      ],
+      correctChoiceId: 'a',
+    },
+  ],
+};
 const setCourseStart = (slug, startsAt) => staff('admin.setCourseStart', { slug, startsAt, reason: `TEST ${J}` });
 // The staff doors #1 needs to set a seat cap, an enrolment window and a course's visibility (not in svc-academy yet).
 const setSeatCap = (slug, seatCap, reason) => staff('admin.setCourseSeatCap', { slug, seatCap, reason });
@@ -340,15 +361,30 @@ test(`${J} #5 Learning shows My learning by state with real progress, and Start 
   await expect(page.locator(`[data-my-learning-section="in_progress"] [data-my-course="${third}"]`)).toHaveCount(0);
 });
 
-test(`${J} #6 Start course opens the first open item with the outline: typed items, a locked one with its reason, Next skipping it`, async ({
+test(`${J} #6 Start course opens the first open item with the outline: items typed as lesson, quiz or assignment, a locked one with its reason, Next and Previous skipping it`, async ({
   page,
 }) => {
   const { who, second } = state('who', 'second');
-  const rows = await syllabusRows(second);
-  const items = rows.map((row) => row.slug);
+  const before = await syllabusRows(second);
+  const items = before.map((row) => row.slug);
   expect(items.length, 'the course needs four items to lock the third').toBeGreaterThanOrEqual(4);
+  // Staff publish a TEST quiz on a later reading item, so the course holds a lesson, a quiz and an assignment (its workbook).
+  const quizItem = before.findLast((row, i) => i >= 3 && row.kind !== 'workbook')?.slug;
+  expect(quizItem, 'the course needs a reading item after the third to carry the TEST quiz').toBeTruthy();
+  expect(
+    before.some((row) => row.kind === 'workbook'),
+    'the course needs its workbook, the assignment',
+  ).toBe(true);
+  await setQuiz(quizItem, TEST_QUIZ);
   await setPrerequisites(items[2], [items[1]]);
   try {
+    const rows = await syllabusRows(second);
+    // Academy holds each item as a lesson, a quiz or an assignment, and this course has each of the three.
+    expect([...new Set(rows.map((row) => row.type))].sort()).toEqual(['assignment', 'lesson', 'quiz']);
+    expect(rows.find((row) => row.slug === quizItem)?.type).toBe('quiz');
+    for (const row of rows)
+      expect(row.type, row.slug).toBe(row.slug === quizItem ? 'quiz' : row.kind === 'workbook' ? 'assignment' : 'lesson');
+
     await signIn(page, who);
     await page.goto('/academy/learning');
     await myCourse(page, second).getByRole('link', { name: 'Start course' }).click();
@@ -356,14 +392,18 @@ test(`${J} #6 Start course opens the first open item with the outline: typed ite
     const outline = page.locator(`[data-academy-outline="${second}"]`);
     await expect(outline.locator('[data-outline-item]')).toHaveCount(items.length);
     await expect(outline.locator(`[data-outline-item="${items[0]}"] a`)).toHaveAttribute('aria-current', 'page');
-    // Each item is typed as what it is, not one of several labels.
-    for (const { slug, kind } of rows)
-      await expect(outline.locator(`[data-outline-item="${slug}"] [data-testid="academy-lms-meta"]`)).toContainText(KIND_LABEL[kind]);
+    // Each item is typed in the outline as Academy holds it: a lesson, a quiz or an assignment, never one of the content kinds.
+    for (const { slug, type } of rows) {
+      const meta = outline.locator(`[data-outline-item="${slug}"] [data-testid="academy-lms-meta"]`);
+      await expect(meta.locator('[data-item-type]')).toHaveText(TYPE_LABEL[type]);
+      await expect(meta.locator('[data-item-type]')).toHaveAttribute('data-item-type', type);
+    }
+    await expect(outline.getByText(/^(Playbook|Workbook)$/)).toHaveCount(0);
     const locked = outline.locator(`[data-outline-item="${items[2]}"]`);
     await expect(locked).toHaveAttribute('data-outline-state', 'locked');
     await expect(locked.getByRole('link')).toHaveCount(0);
-    const before = await outline.locator(`[data-outline-item="${items[1]}"] a`).innerText();
-    await expect(locked).toContainText(`Locked: complete ${before} first.`);
+    const needed = await outline.locator(`[data-outline-item="${items[1]}"] a`).innerText();
+    await expect(locked).toContainText(`Locked: complete ${needed} first.`);
     await expect(outline.getByText('This is the first item you can open.')).toBeVisible();
 
     await outline.getByRole('link', { name: 'Next', exact: true }).click();
@@ -374,8 +414,11 @@ test(`${J} #6 Start course opens the first open item with the outline: typed ite
     await expect(outline.getByText('Locked items skipped: 1')).toBeVisible();
     await outline.getByRole('link', { name: 'Previous', exact: true }).click();
     await expect(page).toHaveURL(`/academy/${items[1]}`);
+    // Previous skipped the locked item too, and says so.
+    await expect(outline.getByText('Locked items skipped: 1')).toBeVisible();
   } finally {
     await setPrerequisites(items[2], []);
+    await setQuiz(quizItem, null);
   }
 });
 
