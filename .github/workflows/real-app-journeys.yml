@@ -793,10 +793,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      # A journey that failed leaves the shard green (the run's verdict judges it), so the logs print then too: otherwise a
+      # flaky step's service-side cause goes with the runner (#8044: svc-ledger did not answer, and nothing kept why).
       - name: Stack logs on failure
-        if: failure()
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
         run: |
-          for f in "$LOCAL_STACK_STATE"/logs/*.log; do echo "::group::$f"; tail -40 "$f"; echo "::endgroup::"; done
+          if [ "$JOB_STATUS" = success ] && ! jq -e '(.stats.unexpected // 0) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+            exit 0
+          fi
+          for f in "$LOCAL_STACK_STATE"/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; tail -200 "$f" || true; echo "::endgroup::"
+          done
 
       - name: Stop the stack
         if: always()
