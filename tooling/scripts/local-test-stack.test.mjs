@@ -292,7 +292,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
-// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1): svc-protocol and svc-bank hold a TEST business
+// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1, J-derivatives-01 #2): svc-protocol, svc-bank and svc-trade hold a TEST business
 // block for the TEST region AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
 {
   const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
@@ -304,16 +304,18 @@ const script = resolve(here, 'local-test-stack.mjs');
     const served = envs();
     assert.equal(envOf(served, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST block by default');
     assert.equal(envOf(served, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST bank block by default');
+    assert.equal(envOf(served, 'trade').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST trade block by default');
     assert.equal(envOf(served, 'edge').DEFAULT_REGION, undefined, 'edge keeps its own default region');
     process.env.LOCAL_STACK_TEST_REGION_SERVED = 'off';
     const blocked = envs();
     assert.equal(envOf(blocked, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
+    assert.equal(envOf(blocked, 'trade').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'edge').DEFAULT_REGION, 'AA');
     for (const { name, env } of blocked) {
       const before = envOf(served, name);
       assert.equal(env.INTAFACED_SANCTIONS_REGIONS, before.INTAFACED_SANCTIONS_REGIONS, `${name}'s sanctions list is unchanged`);
-      if (name !== 'protocol' && name !== 'bank')
+      if (name !== 'protocol' && name !== 'bank' && name !== 'trade')
         assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
       if (name !== 'edge') assert.equal(env.DEFAULT_REGION, before.DEFAULT_REGION, `${name}'s region is unchanged`);
     }

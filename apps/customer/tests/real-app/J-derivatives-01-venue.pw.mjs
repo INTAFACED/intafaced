@@ -1,8 +1,8 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
-import { signUp, verify } from './desk.mjs';
+import { ORIGIN, api, journeyState, restartWith, toUnits, fromUnits } from './stack.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -115,10 +115,12 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
 // The legal and suitability reasons the list used to carry. None of them is a reason (owner decision 2026-10-27).
 const LEGAL_CODES = ['trade.derivatives_eligibility_unset', 'trade.agreement_required', 'trade.adl_disclosure_required'];
 
-test(`${J} #2 opens the gated list: each contract marked open or blocked for this account with the reason; a contract the venue halts is blocked naming it`, async ({
+test(`${J} #2 opens the gated list: each contract marked open or blocked for this account with the reason (eligibility level, region; no agreement until launch prep); a contract the venue halts is blocked naming it`, async ({
   page,
+  browser,
 }) => {
-  test.setTimeout(180_000);
+  // Four restarts (svc-trade and Edge into the TEST region AA, and back) besides the reads.
+  test.setTimeout(600_000);
   const { account } = state();
   await desk(page);
   const { displayName } = await venueInfo();
@@ -173,6 +175,63 @@ test(`${J} #2 opens the gated list: each contract marked open or blocked for thi
   await expect(panel.locator('[data-testid="venue-gate"][data-symbol="XAU-PERP"]')).toHaveAttribute('data-open', 'true', {
     timeout: 20_000,
   });
+
+  /** Every contract blocked for `who` by one account reason, shown on its desk with that reason and no other. */
+  async function blockedByAccount(onPage, who, code, words) {
+    const { status, body } = await (await api(who)).get('/api/v1/venue/gated-list');
+    expect(status, JSON.stringify(body)).toBe(200);
+    expect(body.value.map((c) => c.symbol).sort()).toEqual(before.value.map((c) => c.symbol).sort());
+    for (const c of body.value) {
+      expect(c, c.symbol).toMatchObject({ open: false, code });
+      expect(
+        c.blockers.map((b) => b.code),
+        c.symbol,
+      ).toEqual([code]);
+      expect(c.blockers[0].message).toContain(words);
+    }
+    await onPage.goto(DESK);
+    const shown = onPage.getByTestId('venue-gated-list');
+    await expect(shown).toBeVisible({ timeout: 30_000 });
+    for (const c of body.value) {
+      const row = shown.locator(`[data-testid="venue-gate"][data-symbol="${c.symbol}"]`);
+      await expect(row, c.symbol).toHaveAttribute('data-open', 'false', { timeout: 20_000 });
+      await expect(row.getByTestId('venue-gate-state')).toHaveText('Blocked for your account');
+      await expect(row.locator('[data-code]')).toHaveCount(1);
+      await expect(row.locator(`[data-code="${code}"]`)).toHaveText(c.blockers[0].message);
+    }
+  }
+
+  // Eligibility level: a person signed up but not verified sees every contract blocked, naming the level it needs.
+  const levelContext = await browser.newContext({ baseURL: ORIGIN });
+  try {
+    const levelPage = await levelContext.newPage();
+    const unverified = await signUp(levelPage, 'vfutlvl');
+    await blockedByAccount(levelPage, unverified, 'denied.kyc_required', 'Verification tier "basic" required for trade');
+  } finally {
+    await levelContext.close();
+  }
+
+  // Region: the TEST region AA not served (svc-trade and Edge restarted with LOCAL_STACK_TEST_REGION_SERVED=off, the
+  // door kept on): this verified account, now from AA, sees every contract blocked naming the region's reason.
+  const door = process.env.LOCAL_STACK_USER_VENUE;
+  process.env.LOCAL_STACK_USER_VENUE = 'on';
+  try {
+    restartWith('trade', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    await signIn(page, account);
+    await blockedByAccount(page, account, 'denied.region_blocked', 'TEST region, not served at launch');
+  } finally {
+    try {
+      restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+    } finally {
+      restartWith('trade', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+      if (door === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+      else process.env.LOCAL_STACK_USER_VENUE = door;
+    }
+  }
+  // Served again: open, as before.
+  const served = await gatedList();
+  for (const c of served.value) expect(c, c.symbol).toMatchObject({ open: true, blockers: [] });
 });
 
 test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark price and funding, each as the venue publishes it`, async ({

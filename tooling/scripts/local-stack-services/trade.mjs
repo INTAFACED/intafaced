@@ -58,6 +58,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // Our own order book's spot plane follows the custody switch (OWNER 288): unset, TRADE_SPOT_ENABLED is on only with
     // LEDGER_CUSTODY_LAYER on. The same value as svc-ledger's (ledger.mjs), as matching.mjs carries.
     LEDGER_CUSTODY_LAYER: 'on',
+    // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart adds the TEST business block for the TEST region AA,
+    // as protocol.mjs does, and edge.mjs then stamps every request from AA, so trade's region gate names denied.region_blocked
+    // with its reason (the venue desk's gated list, J-derivatives-01 #2). The sanctions list is never touched.
+    ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' } : {}),
     NOTIFY_URL: urlOf('notify'), // market maintenance windows on the lifecycle read (J-cex-spot-14 #5)
     TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
     IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
