@@ -97,10 +97,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
       : {}),
     // Guest requests (SP-tickets-01): the mail goes through svc-notify's guest verification door on svc-support's own
     // secret, to notify's LOCAL TEST outbox, with links that open this stack's customer app. `LOCAL_STACK_SUPPORT_GUEST_MAIL=off`
-    // leaves the door unwired, so a guest request waits with vendor.email (J-support-public-03 #3).
+    // leaves the door unwired, so a guest request waits with vendor.email (J-support-public-03 #3), and a chat continued by
+    // email answers vendor.email too.
     ...(process.env.LOCAL_STACK_SUPPORT_GUEST_MAIL === 'off'
       ? {}
-      : { NOTIFY_URL: urlOf('notify'), NOTIFY_SUPPORT_SERVICE_SECRET: secrets.notifySupportService }),
+      : {
+          NOTIFY_URL: urlOf('notify'),
+          NOTIFY_SUPPORT_SERVICE_SECRET: secrets.notifySupportService,
+          // A signed-in customer's chat continued by email goes to identity's LOCAL TEST outbox (J-support-public-05 #7);
+          // with guest mail off it answers vendor.email, as a stack with no mailbox does.
+          SUPPORT_CHAT_EMAIL: 'identity',
+        }),
     SUPPORT_PUBLIC_ORIGIN: CUSTOMER_ORIGIN,
     SUPPORT_GUEST_ADDRESS_KEY: secrets.supportGuestAddress,
     // LOCAL TEST only, labelled in the same file: the guest link lifetime, the per-address limit and its window, and how

@@ -301,10 +301,10 @@ export function coveredSteps(titles, bad) {
 
 /** Start the journeys revert for the steps no earlier run started for `bad`. Returns the steps it started, [] when none
  *  were left, or null on a failed start. */
-async function startRevert(gh, repo, { good, bad, steps, redRun, confirm = false, revertPr = null }) {
+async function startRevert(gh, repo, { good, bad, steps, redRun, confirm = false, revertPr = null, settle = false }) {
   const { json } = await gh('GET', `/repos/${repo}/actions/workflows/main-bisect.yml/runs?per_page=50`);
   const titles = (json?.workflow_runs ?? []).map((r) => r.display_title ?? r.name);
-  const covered = confirm ? new Set() : coveredSteps(titles, bad);
+  const covered = confirm || settle ? new Set() : coveredSteps(titles, bad);
   const left = steps.filter((x) => !covered.has(x));
   if (!left.length) return [];
   const inputs = {
@@ -314,9 +314,18 @@ async function startRevert(gh, repo, { good, bad, steps, redRun, confirm = false
     red_run: String(redRun),
     base: 'main',
     ...(confirm ? { confirm: 'true', revert_pr: String(revertPr) } : {}),
+    ...(settle ? { confirm: 'settle' } : {}),
   };
   const r = await gh('POST', `/repos/${repo}/actions/workflows/main-bisect.yml/dispatches`, { ref: 'main', inputs });
   return r.status === 204 || r.status === 0 ? left : null;
+}
+
+/** A red no single merge explains is settled by running its steps alone on main's head (main-bisect.yml, confirm:
+ *  settle). Returns the steps started, or null when main's head can't be read or the start failed. */
+async function startSettle(gh, repo, { steps, redRun }) {
+  const { json } = await gh('GET', `/repos/${repo}/commits/main`);
+  if (!SHA.test(json?.sha ?? '')) return null;
+  return startRevert(gh, repo, { good: json.sha, bad: json.sha, steps, redRun, settle: true });
 }
 
 /** Main's finished journeys runs before `run`, newest first (the runs post-merge-trust.mjs compares with). */
@@ -353,10 +362,14 @@ async function trigger(env) {
     return summary([
       `Journeys revert: no step passed on \`${prevRun.head_sha.slice(0, 10)}\` and then failed outright; nothing to revert.`,
     ]);
-  if (prevRun.head_sha === run.head_sha)
-    return summary([
-      `Journeys revert: ${steps.join(', ')} broke with no commit between the runs (flaky or outside the code); nothing to revert.`,
+  if (prevRun.head_sha === run.head_sha) {
+    const settled = await startSettle(gh, repo, { steps, redRun: run.id });
+    summary([
+      `Journeys revert: ${steps.join(', ')} broke with no commit between the runs, so there is nothing to revert. ${settled?.length ? "Started the settle run: the steps run alone on main's head." : 'The settle run did not start.'}`,
     ]);
+    if (!settled?.length) return 1;
+    return;
+  }
   const started = await startRevert(gh, repo, { good: prevRun.head_sha, bad: run.head_sha, steps, redRun: run.id });
   summary([
     `### Journeys revert`,
@@ -540,12 +553,23 @@ async function unknown(env) {
   if (!/^\d+$/.test(env.RED_RUN)) throw new Error('RED_RUN must be a run id');
   const repo = env.GITHUB_REPOSITORY;
   const reason = unknownReason(env);
+  const steps = parseSteps(env.STEPS);
+  const started = await startSettle(client(env.GH_TOKEN), repo, { steps, redRun: env.RED_RUN });
+  if (started?.length)
+    return summary([
+      '### Journeys revert: no single merge found',
+      '',
+      reason,
+      '',
+      `Started the settle run: ${steps.join(', ')} run alone on main's head. Passing, each gets a \`flaky\` issue; failing again, its journey gets a \`regression\` issue.`,
+    ]);
   const notes = breakIssueNotes({
-    steps: parseSteps(env.STEPS),
-    reason: reason.slice(0, 300),
+    steps,
+    reason: `${reason.slice(0, 300)}; and the run of the steps alone on main's head did not start`,
     redRunUrl: `https://github.com/${repo}/actions/runs/${env.RED_RUN}`,
-  });
+  }).map((n) => ({ ...n, opens: true }));
   summary(['### Journeys revert: no single merge found', '', reason, '', ...(await noteBreakIssues(env.GH_TOKEN, repo, notes))]);
+  return 1;
 }
 
 async function open(env) {
@@ -885,6 +909,53 @@ function selfTest() {
     true,
     'a run that broke says nothing',
   );
+  // Settle (programme lead, 12 Nov 2026): a red no merge explains, run alone on main's head.
+  const settle = (back) =>
+    settleNotes({
+      steps: ['J-a-01#2', 'J-a-01#3', 'J-b-01#1'],
+      back,
+      sha: A,
+      runUrl: 'u',
+      redRunUrl: 'https://x/actions/runs/42',
+      at: 't',
+    });
+  const passed = settle(true);
+  eq(
+    passed.map((n) => [n.title, n.labels, n.opens]),
+    [
+      ['Flaky step on main: J-a-01 #2', ['flaky'], true],
+      ['Flaky step on main: J-a-01 #3', ['flaky'], true],
+      ['Flaky step on main: J-b-01 #1', ['flaky'], true],
+    ],
+    'passes alone: one flaky issue per step, no break issue',
+  );
+  eq(
+    passed.some((n) => n.labels.includes('regression')),
+    false,
+    'planted fault: a pass alone never opens a regression',
+  );
+  eq(
+    parseSettle(passed[0].body),
+    { v: 1, steps: ['J-a-01#2'], red_run: 42, sha: A, run: 'u', result: 'pass', at: 't' },
+    'the settle record reads back',
+  );
+  const failed = settle(false);
+  eq(
+    failed.map((n) => [n.title, n.labels, n.opens, /<!-- steps: ([^>]*) -->/.exec(n.body)?.[1]]),
+    [
+      ['Journey broken on main: J-a-01', ['regression'], true, 'J-a-01#2, J-a-01#3'],
+      ['Journey broken on main: J-b-01', ['regression'], true, 'J-b-01#1'],
+    ],
+    'fails again alone: one regression issue per journey at once, naming the steps Main trust closes it on',
+  );
+  eq(
+    settle(null).map((n) => [n.labels, n.opens]),
+    [
+      [['main-unknown-red'], true],
+      [['main-unknown-red'], true],
+    ],
+    'a settle run that broke: a labelled main-unknown-red issue, never nothing',
+  );
   // #7936, plant 1's own revert, as it merged.
   eq(
     failingSteps(
@@ -1173,6 +1244,54 @@ export function backNotes({ steps, back, sha, runUrl }) {
   });
 }
 
+/** The settle record (v1): a red no single merge explains, run alone on main's head. One JSON line in each note, which
+ *  project-state tooling/board/event.mjs can read for "settled by code". Pure. */
+export const SETTLE_MARK = 'journeys-settle v1';
+export const flakyStepTitle = (step) => `Flaky step on main: ${step.replace('#', ' #')}`;
+
+/**
+ * What the settle run's result opens (programme lead, 12 Nov 2026: "A red main means a step that fails again when run
+ * alone on main's head"). `back` true: each step passed alone, one `flaky` issue per step, and the red is settled.
+ * false: the steps fail again, one `regression` break issue per journey at once, closed by Main trust when they pass.
+ * null: the run broke before it said, one `main-unknown-red` break issue per journey. Pure.
+ */
+export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at }) {
+  const record = (list) =>
+    `<!-- ${SETTLE_MARK} ${JSON.stringify({ v: 1, steps: list, red_run: Number(/runs\/(\d+)/.exec(redRunUrl)?.[1]) || null, sha, run: runUrl, result: back === true ? 'pass' : back === false ? 'fail' : 'unfinished', at })} -->`;
+  const head = `main's head \`${sha.slice(0, 10)}\``;
+  const tail = '_Posted by tooling/ci/journeys-revert.mjs._';
+  if (back === true)
+    return steps.map((step) => ({
+      title: flakyStepTitle(step),
+      labels: ['flaky'],
+      opens: true,
+      body: `\`${step.replace('#', ' #')}\` failed on main ([red run](${redRunUrl})), traced to no single merge, and passed run alone on ${head} ([settle run](${runUrl})). It is flaky, not broken: main counts it green, and it never counts as proven from the red run. Fix the race in the test or the code it checks, never by weakening the test.\n\n<!-- flaky: ${step} -->\n${record([step])}\n${tail}`,
+    }));
+  return journeysOf(steps).map((journey) => {
+    const list = steps.filter((s) => s.split('#')[0] === journey);
+    const named = list.map((s) => `\`${s.replace('#', ' #')}\``).join(', ');
+    return {
+      title: `${BREAK_ISSUE_PREFIX}${journey}`,
+      labels: back === false ? ['regression'] : [UNKNOWN_LABEL],
+      opens: true,
+      body: `${
+        back === false
+          ? `${named} failed on main ([red run](${redRunUrl})), traced to no single merge, and fail again run alone on ${head} ([settle run](${runUrl})): broken on main. This issue closes itself when main's full run passes them.`
+          : `${named} failed on main ([red run](${redRunUrl})), traced to no single merge, and the run of them alone on ${head} did not finish ([settle run](${runUrl})), so nothing settled it.`
+      }\n\n<!-- steps: ${list.join(', ')} -->\n${record(list)}\n${tail}`,
+    };
+  });
+}
+
+export function parseSettle(body) {
+  const m = new RegExp(`<!-- ${SETTLE_MARK} (\\{.*?\\}) -->`).exec(String(body ?? ''));
+  try {
+    return m ? JSON.parse(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The recovery record (v1): what the repair did, one JSON line in a marked comment on the automatic revert, which
  *  project-state tooling/board/event.mjs reads. The full run's result is not in it: event.mjs reads that from the runs.
  *  Pure. */
@@ -1207,6 +1326,24 @@ async function back(env) {
   need(env, 'GITHUB_REPOSITORY', 'STEPS', 'BAD', 'RUN_URL');
   if (!SHA.test(env.BAD)) throw new Error('BAD must be a full commit sha');
   const back = env.BACK === 'true' ? true : env.BACK === 'false' ? false : null;
+  if (env.SETTLE === 'true') {
+    if (!/^\d+$/.test(env.RED_RUN ?? '')) throw new Error('RED_RUN must be a run id');
+    const steps = parseSteps(env.STEPS);
+    const notes = settleNotes({
+      steps,
+      back,
+      sha: env.BAD,
+      runUrl: env.RUN_URL,
+      redRunUrl: `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${env.RED_RUN}`,
+      at: new Date().toISOString(),
+    });
+    summary([
+      `### Journeys settle: ${back === true ? 'flaky, main counts green' : back === false ? 'broken on main' : 'did not finish'}`,
+      '',
+      ...(await noteBreakIssues(env.GH_TOKEN, env.GITHUB_REPOSITORY, notes)),
+    ]);
+    return;
+  }
   const notes = backNotes({ steps: parseSteps(env.STEPS), back, sha: env.BAD, runUrl: env.RUN_URL });
   const record = [];
   if (/^\d+$/.test(env.REVERT_PR ?? '')) {

@@ -3,12 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signUp, verify } from './desk.mjs';
-import { api, journeyState, tool, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, api, journeyState, tool, toUnits } from './stack.mjs';
+import { signedHeaders } from './developer.mjs';
 import { confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
-// can revoke. This file holds the steps the agent account itself makes green (#1 #3 #4 #5 #13 #14), one test per step,
+// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #13 #14), one test per step,
 // titled "J-agents-21 #<n>", run in order by one signed-in, verified TEST person with one TEST wallet key (kept in this
 // run's state) on the stack's TEST venue simulator (tooling/scripts/local-test-venue.mjs). Every figure the TEST venue
 // reports is TEST.
@@ -19,9 +20,14 @@ import { testWalletKey } from './test-wallet.mjs';
 // design change shown to the owner first. The TEST venue's own record is read directly on loopback for what the venue
 // reports.
 //
-// Not here, under the passing/unbuilt rule: #2 (the Connect your assistant screen) and #6 to #12 and #15 (the agent
-// key, the assistant's trades, its log, revoke and the founder's desk) are later pieces. #13's open perp is opened by
-// the person's own wallet on the agent sub-account, a labelled TEST stand-in for #8's assistant trade.
+// The assistant (#8 #9 #10) is played by this test, calling Edge with the agent API key as an outside assistant would,
+// signing each request with the key's signing secret. Its key is made and connected to the agent account through the
+// API (identity's developerKeys.create with the TEST passkey, then the connection with step-up): a labelled TEST
+// stand-in for #6's Connect screen, which is a later piece. #13 closes against the perp the assistant opened in #8.
+//
+// Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen), #7 (the MCP server's order
+// tool), #11 #12 (the connection's log and revoke), #15 (the founder's desk) and #16 to #19 (the per-order, daily-loss,
+// leverage and expiry caps) are later pieces.
 //
 // Switches: the door is on for this file only (trade restarts with LOCAL_STACK_USER_VENUE=on, and back off after). #1
 // restarts trade once more with LOCAL_STACK_AGENT_ACCOUNT_CEILING=off (tooling/scripts/local-stack-services/trade.mjs),
@@ -322,24 +328,215 @@ async function onSubAccount(session, intent, actionKey = null) {
 }
 const PERP = { kind: 'place_order', symbol: 'BTC-PERP', type: 'market', amount: '0.001', timeInForce: 'IOC', builderFee: null };
 
-test(`${J} #13 Presses Close agent account while the perp is still open: refused, naming the open position; nothing changes`, async () => {
-  test.setTimeout(180_000);
+// ── The assistant (#8 #9 #10): the test plays the person's own outside assistant, holding the agent API key ──────────
+
+/**
+ * TEST stand-in for #6 (its Connect screen is a later piece): the person makes an agent key with trade scopes through
+ * identity's API, answering the fresh-factor check with their TEST passkey, and connects it to the agent account with
+ * step-up. Kept in this run's state; made once.
+ */
+async function assistantKey() {
+  const s = state();
+  if (s.agentKey) return s;
+  const { session, passkey } = await person();
+  const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});
+  const challenge = options.body?.result?.data?.challenge;
+  expect(challenge, JSON.stringify(options.body).slice(0, 300)).toBeTruthy();
+  const asked = { name: 'TEST assistant', scopes: ['trade:read', 'trade:write'], kind: 'agent' };
+  const made = await session.post('/api/identity/trpc/developerKeys.create', {
+    ...asked,
+    requestId: `${J}:${s.accountId}:assistant-key`,
+    factorProof: { webauthn: await passkey.assertion(challenge) },
+  });
+  run.write({ passkey: passkey.saved() });
+  expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
+  const { record, key, signingSecret } = made.body.result.data;
+  expect(record).toMatchObject({ kind: 'agent', scopes: ['trade:read', 'trade:write'] });
+  const fields = { keyId: record.id, accountId: s.accountId };
+  const stepUpApprovalId = await confirmStepUp(session, passkey, {
+    scope: 'trade.step_up.venue.agentConnect',
+    purpose: 'venue.agentConnect',
+    target: record.id,
+    fields,
+  });
+  run.write({ passkey: passkey.saved() });
+  const connected = body200(await session.post(`${BASE}/${s.accountId}/connections`, { keyId: record.id, stepUpApprovalId }));
+  expect(connected).toMatchObject({ keyId: record.id, accountId: s.accountId, subAccount: s.subAccount });
+  run.write({ agentKey: key, agentKeyId: record.id, agentSecret: signingSecret });
+  return state();
+}
+
+/** One call to Edge as the assistant: its agent key, each request signed with the key's signing secret. */
+async function asAssistant(method, route, body) {
+  const { agentKey, agentSecret } = await assistantKey();
+  const raw = body === undefined ? undefined : JSON.stringify(body);
+  const res = await fetch(`${EDGE}${route}`, {
+    method,
+    headers: {
+      origin: ORIGIN,
+      authorization: `Bearer ${agentKey}`,
+      ...(raw ? { 'content-type': 'application/json' } : {}),
+      ...(agentSecret ? signedHeaders(agentSecret, { method, path: route, body: raw ?? '' }) : {}),
+    },
+    body: raw,
+  });
+  const text = await res.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = text;
+  }
+  return { status: res.status, body: parsed };
+}
+
+/** Everything a step must leave as it was: both venue accounts as the venue reports them, and our ledger. */
+async function everything(session) {
+  const { subAccount } = state();
+  return {
+    main: (await venue('/balances', { account: await acct(owner()) })).value,
+    mainPositions: (await venue('/positions', { account: await acct(owner()) })).value,
+    sub: (await venue('/balances', { account: await acct(owner(), subAccount) })).value,
+    subPositions: (await venue('/positions', { account: await acct(owner(), subAccount) })).value,
+    subOrders: (await venue('/open-orders', { account: await acct(owner(), subAccount) })).value,
+    ledger: await session.balances(),
+  };
+}
+const usdcOf = (balances) => balances.find((b) => b.asset === 'USDC') ?? { total: '0', free: '0', locked: '0' };
+
+test(`${J} #8 The assistant opens a TEST perp position: opened isolated on the agent's venue account, its margin taken there by the venue and from nowhere else`, async () => {
+  test.setTimeout(240_000);
   const { session } = await person();
   const { accountId, subAccount } = state();
-  // TEST stand-in for #8 (a later piece): the person's own wallet opens a TEST 0.001 BTC-PERP long on the agent
-  // sub-account. Our builder fee is approved and the leverage set on the sub-account first, each signed by the wallet.
+  // The person's own wallet approves our builder fee on the agent sub-account, once, as on any account they trade
+  // (a perp carries our builder fee; the assistant's key can't sign an approval).
   const status = body200(await session.get('/api/v1/venue/status'));
   await onSubAccount(
     session,
     { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
     `approve:${accountId}:builder`,
   );
-  await onSubAccount(
-    session,
-    { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100000, marginMode: 'isolated' },
-    `leverage:${accountId}:10x`,
+  const { agentKeyId } = await assistantKey();
+  const before = await everything(session);
+  expect(before.subPositions).toEqual([]);
+
+  // The assistant opens a TEST 0.001 BTC-PERP long at 1x through our API with its agent key.
+  const res = await asAssistant('POST', '/api/v1/venue/agent/orders', {
+    clientOrderId: 'perp-open',
+    symbol: 'BTC-PERP',
+    side: 'buy',
+    type: 'market',
+    amount: '0.001',
+    price: '60100',
+    timeInForce: 'IOC',
+    leverage: '1',
+  });
+  expect(res.status, JSON.stringify(res.body).slice(0, 600)).toBe(200);
+  expect(res.body).toMatchObject({ state: 'accepted', origin: `agent:${agentKeyId}`, account: { owner: owner(), subAccount } });
+
+  // Isolated, on the agent's venue account, as the venue reports it: its setting on the market and its one position.
+  const setting = (await venue('/leverage', { account: await acct(owner(), subAccount), symbol: 'BTC-PERP' })).value;
+  expect(setting).toMatchObject({ symbol: 'BTC-PERP', leverageBps: 10000, marginMode: 'isolated' });
+  const positions = (await venue('/positions', { account: await acct(owner(), subAccount) })).value;
+  expect(positions).toHaveLength(1);
+  expect(positions[0]).toMatchObject({ symbol: 'BTC-PERP', side: 'long', leverageBps: 10000, marginMode: 'isolated' });
+  expect(same(positions[0].size, '0.001')).toBe(true);
+  expect(toUnits(positions[0].margin) > 0n).toBe(true);
+  // Its margin taken there by the venue: the sub-account's USDC used as margin is exactly the position's margin, and its
+  // free USDC fell by exactly that margin and the fees on the venue's own fill, no more.
+  const sub = usdcOf((await venue('/balances', { account: await acct(owner(), subAccount) })).value);
+  expect(toUnits(sub.locked) - toUnits(usdcOf(before.sub).locked)).toBe(toUnits(positions[0].margin));
+  // Every fill the agent sub-account has ever had: this one.
+  const fills = (await venue('/fills', { account: await acct(owner(), subAccount), since: '2020-01-01T00:00:00.000Z' })).value;
+  expect(fills.map((f) => [f.symbol, f.side])).toEqual([['BTC-PERP', 'buy']]);
+  expect(fills[0].feeAsset).toBe('USDC');
+  const fees = toUnits(fills[0].venueFee) + toUnits(fills[0].builderFee);
+  expect(toUnits(usdcOf(before.sub).free) - toUnits(sub.free)).toBe(toUnits(positions[0].margin) + fees);
+  // And from nowhere else: the main venue account and our ledger are exactly as they were.
+  expect((await venue('/balances', { account: await acct(owner()) })).value).toEqual(before.main);
+  expect((await venue('/positions', { account: await acct(owner()) })).value).toEqual(before.mainPositions);
+  expect(await session.balances()).toEqual(before.ledger);
+  // The person's own record of it names the assistant's key as its origin.
+  const read = body200(
+    await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:perp-open`)}`),
   );
-  await onSubAccount(session, { ...PERP, side: 'buy', price: '60100', reduceOnly: false, clientOrderKey: `order:${accountId}:perp:open` });
+  expect(read).toMatchObject({ state: 'accepted', origin: `agent:${agentKeyId}` });
+});
+
+test(`${J} #9 The assistant tries to move money, withdraw, read the main account and pay by card: each of the four calls refused auth.scope_denied; no balance changes`, async () => {
+  test.setTimeout(180_000);
+  const { session } = await person();
+  const { accountId, subAccount } = state();
+  const { agentKeyId } = await assistantKey();
+  const before = await everything(session);
+  const agentAddress = body200(await session.get(`${BASE}/${accountId}`)).agentAddress;
+  const calls = {
+    // Move money: the agent account's balance back to the main venue account.
+    'move money': ['POST', `${BASE}/${accountId}/withdraw`, { moveId: randomUUID(), amount: '10' }],
+    // Withdraw: a venue withdrawal from the agent account to the wallet.
+    withdraw: [
+      'POST',
+      '/api/v1/venue/prepare',
+      {
+        owner: owner(),
+        subAccount,
+        signer: { role: 'agent', address: agentAddress },
+        intent: { kind: 'withdraw', asset: 'USDC', amount: '10', destination: owner(), withdrawalKey: `withdraw:${agentKeyId}:try` },
+      },
+    ],
+    // Read the main account: the main venue account's balances.
+    'read the main account': ['GET', `/api/v1/venue/balances?owner=${owner()}`],
+    // Pay by card: confirm a card payment.
+    'pay by card': ['POST', '/api/bank/trpc/cards.threeDS.answer', { cardId: randomUUID(), challengeId: randomUUID(), code: '123456' }],
+  };
+  for (const [what, [method, route, body]] of Object.entries(calls)) {
+    const res = await asAssistant(method, route, body);
+    expect(res.status, `${what}: ${JSON.stringify(res.body).slice(0, 400)}`).toBe(403);
+    expect(res.body?.intafacedCode ?? res.body?.code, what).toBe('auth.scope_denied');
+  }
+  // No balance changes: both venue accounts, the position, and our ledger are exactly as they were.
+  expect(await everything(session)).toEqual(before);
+  // Nothing was kept to sign or send: no move beyond the first funding, and nothing next for the wallet.
+  const view = body200(await session.get(`${BASE}/${accountId}`));
+  expect(view.next).toBeNull();
+  expect(view.moves.map((m) => m.actionKey)).toEqual([`agent:move:${accountId}`]);
+});
+
+test(`${J} #10 The assistant places an order costing more than the agent account holds: the venue's insufficient-margin refusal, shown in words with the venue named; nothing locked; the main venue account never drawn`, async () => {
+  test.setTimeout(180_000);
+  const { session } = await person();
+  await assistantKey();
+  const before = await everything(session);
+  const venueName = (await venue('/venue')).venue.displayName;
+  // TEST 0.0016 BTC-PERP at 1x: about 96 USDC of margin, inside the cap of 200 with the open position and inside the
+  // owner's largest assistant order, but more than the agent account holds free.
+  expect(toUnits(usdcOf(before.sub).free) < toUnits('96.16')).toBe(true);
+  const res = await asAssistant('POST', '/api/v1/venue/agent/orders', {
+    clientOrderId: 'perp-too-big',
+    symbol: 'BTC-PERP',
+    side: 'buy',
+    type: 'market',
+    amount: '0.0016',
+    price: '60100',
+    timeInForce: 'IOC',
+    leverage: '1',
+  });
+  expect(res.status, JSON.stringify(res.body).slice(0, 600)).toBe(422);
+  expect(res.body.intafacedCode).toBe('trade.venue.insufficient_balance');
+  expect(res.body.venue.displayName).toBe(venueName);
+  // In words, with the venue named: the venue's own reason, that its free USDC does not cover the margin.
+  expect(res.body.message).toContain(venueName);
+  expect(res.body.message).toContain('margin');
+  expect(res.body.refusal.detail).toContain('margin');
+  // Nothing locked, and the main venue account never drawn: both accounts, the position and our ledger as they were.
+  expect(await everything(session)).toEqual(before);
+});
+
+test(`${J} #13 Presses Close agent account while the perp is still open: refused, naming the open position; nothing changes`, async () => {
+  test.setTimeout(180_000);
+  const { session } = await person();
+  const { accountId, subAccount } = state();
+  // The perp the assistant opened in #8 is still open on the agent sub-account.
   const positions = (await venue('/positions', { account: await acct(owner(), subAccount) })).value;
   expect(positions).toHaveLength(1);
   const before = { positions, sub: await venue('/balances', { account: await acct(owner(), subAccount) }), main: await venueUsdc(owner()) };

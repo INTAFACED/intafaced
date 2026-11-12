@@ -1343,14 +1343,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
    * Scope is still enforced inside TradeService; this refuses a region that may not trade.
    */
-  function requireTradeJurisdiction(req: FastifyRequest, reply: FastifyReply, principal: Principal): boolean {
+  function tradeAccessDecision(req: FastifyRequest, principal: Principal) {
     const { region } = contextFrom(req);
-    const decision = checkAccess({
-      module: 'trade',
-      plane: 'fiat',
-      region,
-      kycTier: principal.tier,
-    });
+    return checkAccess({ module: 'trade', plane: 'fiat', region, kycTier: principal.tier });
+  }
+
+  function requireTradeJurisdiction(req: FastifyRequest, reply: FastifyReply, principal: Principal): boolean {
+    const decision = tradeAccessDecision(req, principal);
     if (!decision.allowed) {
       // Credentials were fine; this principal may not trade from here. CCXT
       // `PermissionDenied` — a bot must stop, not re-sign and retry. The tier
@@ -1365,14 +1364,23 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
+  // An API key connected to an agent account (J-agents-21 #9) calls the assistant's order route and no other venue route.
+  const agentOrders = deps.agentOrders ?? null;
+  const agentKeyConfined = agentOrders ? (p: Principal) => agentOrders.confined(p) : undefined;
   attachUserVenueRoutes(app, deps.userVenue ?? null, {
     requirePrincipal,
     requireTradeJurisdiction,
+    // J-derivatives-01 #2: the same region and level check, read as a reason on the gated list instead of a refusal.
+    tradeAccessBlocker: (req, principal) => {
+      const decision = tradeAccessDecision(req, principal);
+      return decision.allowed ? null : { code: decision.code, message: decision.reason };
+    },
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
+    agentKeyConfined,
   });
-  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction }, deps.agentOrders ?? null);
-  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction });
+  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined }, agentOrders);
+  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {

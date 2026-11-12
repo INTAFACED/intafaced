@@ -1,7 +1,7 @@
 name: Main bisect
 # The journeys revert's runs carry their commit and steps in their name, so a second start for the same red sees the
 # first (tooling/ci/journeys-revert.mjs startRevert).
-run-name: ${{ inputs.journeys != '' && format('Main bisect {0} {1}{2}', inputs.bad, inputs.journeys, inputs.confirm == 'true' && ' confirm' || '') || 'Main bisect' }}
+run-name: ${{ inputs.journeys != '' && format('Main bisect {0} {1}{2}', inputs.bad, inputs.journeys, inputs.confirm != '' && format(' {0}', inputs.confirm) || '') || 'Main bisect' }}
 
 # Two searches, both started by Main trust; workflow_dispatch can only be started by a person with write access or by
 # Main trust.
@@ -29,6 +29,11 @@ run-name: ${{ inputs.journeys != '' && format('Main bisect {0} {1}{2}', inputs.b
 # journey's break issue; the issue still closes only when main's full run passes them.
 # It also writes the recovery record (journeys-revert.mjs recoveryRecord) as a comment on the revert, which project-state
 # tooling/board/event.mjs reads for "affected journey back".
+#
+# Settle (`confirm: settle`): when a journeys red traces to no single merge (revert-unknown below, or Main trust's trigger
+# when no commit lies between the passing run and the red one), the failing journeys run alone on main's head the same
+# way. Passing: each step gets one `flaky` issue and the red is settled, since a red main is a step that fails again run
+# alone on main's head (the programme lead, 12 Nov 2026). Failing again: one `regression` issue per journey at once.
 on:
   workflow_dispatch:
     inputs:
@@ -59,7 +64,7 @@ on:
         required: false
         default: main
       confirm:
-        description: "'true': run the journeys steps alone on bad (main's head after the revert merged) and note whether they pass"
+        description: "'true': run the journeys steps alone on bad (main's head after the revert merged) and note whether they pass; 'settle': the same for a red no single merge explains"
         required: false
         default: ''
       revert_pr:
@@ -71,7 +76,7 @@ permissions: {}
 
 concurrency:
   # The unit-test bisect keeps its one group; each journeys red gets its own, so one red never replaces another's.
-  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}', inputs.confirm == 'true' && '-confirm' || '', inputs.base, inputs.bad) || 'main-bisect' }}
+  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}{3}', inputs.confirm == 'true' && '-confirm' || inputs.confirm == 'settle' && '-settle' || '', inputs.base, inputs.bad, inputs.confirm == 'settle' && format('-{0}', inputs.journeys) || '') || 'main-bisect' }}
   cancel-in-progress: false
 
 jobs:
@@ -136,7 +141,7 @@ jobs:
 
   revert-find:
     name: 'Journeys revert: find the culprit'
-    if: inputs.journeys != '' && inputs.confirm != 'true'
+    if: inputs.journeys != '' && inputs.confirm == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10 # healthy run: under a minute
     permissions:
@@ -318,7 +323,7 @@ jobs:
   # Confirm: the failing journey files alone on main's head (bad), a fresh stack set up as a shard sets it up, no retry.
   confirm-run:
     name: 'Journeys revert: run the failing journeys on main'
-    if: inputs.journeys != '' && inputs.confirm == 'true'
+    if: inputs.journeys != '' && (inputs.confirm == 'true' || inputs.confirm == 'settle')
     runs-on: ubuntu-24.04
     timeout-minutes: 40 # one journey file on a fresh stack: about 15 minutes
     permissions:
@@ -391,7 +396,7 @@ jobs:
   confirm-note:
     name: 'Journeys revert: note whether the break is back'
     needs: confirm-run
-    if: ${{ !cancelled() && inputs.confirm == 'true' && needs.confirm-run.result != 'skipped' }}
+    if: ${{ !cancelled() && (inputs.confirm == 'true' || inputs.confirm == 'settle') && needs.confirm-run.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     permissions:
@@ -412,6 +417,8 @@ jobs:
           BAD: ${{ inputs.bad }}
           BACK: ${{ needs.confirm-run.outputs.back }}
           REVERT_PR: ${{ inputs.revert_pr }}
+          SETTLE: ${{ inputs.confirm == 'settle' && 'true' || '' }}
+          RED_RUN: ${{ inputs.red_run }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node tooling/ci/journeys-revert.mjs back
 
@@ -452,8 +459,9 @@ jobs:
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs open
 
-  # A confirmed journeys red that traces to no single merge (revert-find names none, or the probe names no culprit):
-  # the journey's one break issue gets `main-unknown-red` and why (OWNER 289 item 6, OWNER 180). Never a new issue.
+  # A journeys red that traces to no single merge (revert-find names none, or the probe names no culprit): start the
+  # settle run of the failing journeys alone on main's head (above). Only when that start fails does a labelled
+  # `main-unknown-red` issue open at once, naming why.
   revert-unknown:
     name: 'Journeys revert: no single merge found'
     needs: [revert-find, revert-probe, revert-control]
@@ -462,7 +470,8 @@ jobs:
     timeout-minutes: 5 # healthy run: seconds
     permissions:
       contents: read
-      issues: write # comment on and label the journey's break issue
+      actions: write # start the settle run (this workflow, confirm: settle)
+      issues: write # open the labelled break issue when the settle run can't start
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -470,7 +479,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-      - name: Note it on the break issue
+      - name: Run the steps alone on main's head
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STEPS: ${{ needs.revert-find.outputs.steps }}

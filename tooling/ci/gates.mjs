@@ -405,9 +405,9 @@ export const NOT_GATES = {
   'factory-switch.test.mjs':
     'not a gate: the node:test file of factory-switch.mjs, its planted cases (only `run` passes; `pause`, blank, other text and a refused read fail). tooling-tests.mjs runs it with every other tooling test.',
   'factory-builder.mjs':
-    "not a gate: the headless builder's steps, run by .github/workflows/builder.yml (check the dispatched journey, read the factory switch, pick the branch, write the prompt, run the CLI watched by the switch and the clock with its output kept in files, the PR's handover line, usage as numbers). It needs the factory token and the CLI, so a laptop verify cannot run it; `tooling/ci/factory-builder.test.mjs` checks it and the workflow's shape.",
+    "not a gate: the headless builder's steps, whose workflow was removed unrun (check the dispatched journey, read the factory switch, pick the branch, write the prompt, run the CLI watched by the switch and the clock with its output kept in files, the PR's handover line, usage as numbers). It needs the factory token and the CLI, so a laptop verify cannot run it; `tooling/ci/factory-builder.test.mjs` checks it and the workflow's shape.",
   'factory-builder.test.mjs':
-    'not a gate: the node:test file of factory-builder.mjs and builder.yml, with planted faults in the workflow and an end-to-end run against a fake CLI and a local switch. tooling-tests.mjs runs it with every other tooling test.',
+    'not a gate: the node:test file of factory-builder.mjs, with an end-to-end run against a fake CLI and a local switch. tooling-tests.mjs runs it with every other tooling test.',
   'gates.test.mjs':
     'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',

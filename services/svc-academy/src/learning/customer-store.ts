@@ -223,7 +223,13 @@ export class AcademyCustomerStore {
     return new Set(rows.map((r) => r.path_slug));
   }
 
-  async enrollCertPath(input: { userId: string; pathSlug: string; catalog?: readonly ProgrammeDefinition[] }): Promise<EnrollmentRow> {
+  async enrollCertPath(input: {
+    userId: string;
+    pathSlug: string;
+    catalog?: readonly ProgrammeDefinition[];
+    /** The course's seat cap; set, the enrolment is refused `full` once the active enrolments fill it. */
+    seatCap?: number | null;
+  }): Promise<EnrollmentRow> {
     const pathSlug = input.pathSlug.trim().toLowerCase();
     if (!PATHS.has(pathSlug as ProgrammeSlug)) {
       throw new AcademyError('pathSlug must be one of foundations | markets | builder | sovereign', 'academy.cert_invalid');
@@ -237,14 +243,45 @@ export class AcademyCustomerStore {
     if (missing.length > 0) {
       throw new AcademyError(`academy.prerequisite_unmet missing=${missing.join(',')}`, 'academy.prerequisite_unmet');
     }
-    const rows = await this.sql<EnrollmentSql[]>`
-      INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at)
-      VALUES (${input.userId}, ${pathSlug}, now())
-      ON CONFLICT (user_id, path_slug) WHERE left_at IS NULL
-      DO UPDATE SET path_slug = EXCLUDED.path_slug
-      RETURNING user_id, path_slug, enrolled_at, left_at
+    if (input.seatCap === undefined || input.seatCap === null) {
+      const rows = await this.sql<EnrollmentSql[]>`
+        INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at)
+        VALUES (${input.userId}, ${pathSlug}, now())
+        ON CONFLICT (user_id, path_slug) WHERE left_at IS NULL
+        DO UPDATE SET path_slug = EXCLUDED.path_slug
+        RETURNING user_id, path_slug, enrolled_at, left_at
+      `;
+      return mapEnrollment(rows[0]!);
+    }
+    const cap = input.seatCap;
+    // Under a seat cap, the count and the insert hold one lock per course, so two learners cannot take the last seat.
+    // A learner already enrolled keeps their seat and gets the same enrolment back, full or not.
+    return transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`academy.course_seats:${pathSlug}`}))`;
+      const mine = await tx<EnrollmentSql[]>`
+        SELECT user_id, path_slug, enrolled_at, left_at FROM academy.cert_enrollments
+         WHERE user_id = ${input.userId} AND path_slug = ${pathSlug} AND left_at IS NULL
+      `;
+      if (mine[0]) return mapEnrollment(mine[0]);
+      const [taken] = await tx<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM academy.cert_enrollments WHERE path_slug = ${pathSlug} AND left_at IS NULL
+      `;
+      if (taken!.n >= cap) throw new AcademyError(`academy.enrolment_closed track=audit reason=full`, 'academy.enrolment_closed');
+      const rows = await tx<EnrollmentSql[]>`
+        INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at)
+        VALUES (${input.userId}, ${pathSlug}, now())
+        RETURNING user_id, path_slug, enrolled_at, left_at
+      `;
+      return mapEnrollment(rows[0]!);
+    });
+  }
+
+  /** The seats a course's active enrolments take. */
+  async seatsTaken(pathSlug: string): Promise<number> {
+    const [row] = await this.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM academy.cert_enrollments WHERE path_slug = ${pathSlug} AND left_at IS NULL
     `;
-    return mapEnrollment(rows[0]!);
+    return row!.n;
   }
 
   async myEnrollments(userId: string): Promise<EnrollmentRow[]> {

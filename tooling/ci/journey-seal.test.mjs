@@ -19,6 +19,8 @@ import {
   judgeSteps,
   mainReference,
   splitInherited,
+  mainsOwn,
+  trackingIssue,
   redKinds,
   kindTitle,
   rangeFromCommits,
@@ -1560,54 +1562,6 @@ test('CI review: a money step red on main too is never passed over, outside ever
   assert.equal(unmarked.blocking.length, 1, 'a red not marked non-money counts as money');
 });
 
-test('OWNER 278: a money step that passed only on its retry, here and on main, stops only the pull requests in its area', async () => {
-  const why = 'failed, then passed on its retry, and a money step is never set aside: failing, not in the baseline';
-  const flakyRed = [{ step: 'J-wallet-05#3', why, money: true, retryFlaky: true }];
-  const main = () => mainRef({ red: new Map([['J-wallet-05#3', why]]) });
-  const outside = await splitInherited({
-    upTo: MAIN_SHA,
-    red: flakyRed,
-    main: main(),
-    touches: area([], ['services/svc-support/src/chat.ts']),
-    rangeOf: range(),
-  });
-  assert.deepEqual(outside.blocking, [], 'outside its journey and its break range: the lane goes on');
-  assert.equal(outside.passed.length, 1);
-  const byJourney = await splitInherited({ upTo: MAIN_SHA, red: flakyRed, main: main(), touches: area(['J-wallet-05']), rangeOf: range() });
-  assert.equal(byJourney.blocking.length, 1, 'a pull request touching its journey is stopped');
-  const byCode = await splitInherited({
-    upTo: MAIN_SHA,
-    red: flakyRed,
-    main: main(),
-    touches: area([], ['services/svc-wallet/src/fees.ts']),
-    rangeOf: range(),
-  });
-  assert.equal(byCode.blocking.length, 1, 'a pull request in its break range is stopped');
-  const shared = await splitInherited({
-    upTo: MAIN_SHA,
-    red: flakyRed,
-    main: main(),
-    touches: { ...area(), shared: true },
-    rangeOf: range(),
-  });
-  assert.equal(shared.blocking.length, 1, 'shared setup: every red counts');
-  // Planted: main failed it outright (another verdict line), so it is not the same red: it stops every pull request.
-  const outright = await splitInherited({ upTo: MAIN_SHA, red: flakyRed, main: mainRef(), touches: area(), rangeOf: range() });
-  assert.equal(outright.blocking.length, 1, 'main failed it outright: not inherited as a retry pass');
-  // Planted: failed outright here, a retry pass on main: still a money red that stops every pull request.
-  const here = await splitInherited({
-    upTo: MAIN_SHA,
-    red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: true }],
-    main: main(),
-    touches: area(),
-    rangeOf: range(),
-  });
-  assert.equal(here.blocking.length, 1, 'failed outright on this head: not passed over');
-  // Planted: a retry pass with no red on main at all is this head's own red.
-  const own = await splitInherited({ upTo: MAIN_SHA, red: flakyRed, main: mainRef({ red: new Map() }), touches: area(), rangeOf: range() });
-  assert.equal(own.blocking.length, 1, "not red on main: this head's own red stops it");
-});
-
 test('recheckTargets: after CI every open pull request on the head is re-sealed; after a journeys run only named ones (R3 C3 piece 2)', async () => {
   const { recheckTargets } = await import('./journey-seal.mjs');
   const sha = 'c'.repeat(40);
@@ -2502,4 +2456,109 @@ test('#7996: a deferred journeys run counts as going, never as a finished run th
   assert.deepEqual(await readGoing({ get: docs, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }] }), []);
   // Planted: unreadable jobs fail closed.
   await assert.rejects(readGoing({ get: at([done(30)], { 30: {} }), repo: 'o/r', sha: HEAD, pulls }), /not a list/);
+});
+
+// ---- The lead's decision of 12 Nov 2026 (OWNER 296/297): a step already red on main, tracked there, is main's ----
+
+const NEW_MAIN = 'e'.repeat(40);
+const reg = (n, title, labels = ['regression'], over = {}) => ({
+  number: n,
+  state: 'open',
+  title,
+  labels: labels.map((name) => ({ name })),
+  ...over,
+});
+
+test("main's own: the tracking issue is an open regression issue for the journey or an open flaky issue for the step", () => {
+  const issues = [
+    reg(1, 'Journey broken on main: J-a-01'),
+    reg(2, 'Flaky step on main: J-b-01 #2 #5', ['flaky']),
+    reg(3, 'Flaky money step on main: J-c-01 #4', ['flaky']),
+    reg(4, 'Journey broken on main: J-d-01', []),
+    reg(5, 'Journey broken on main: J-e-01', ['regression'], { state: 'closed' }),
+    reg(6, 'Journey broken on main: J-f-01', ['regression'], { pull_request: {} }),
+    reg(7, 'Flaky step on main: J-g-01 #1', ['regression']),
+  ];
+  assert.equal(trackingIssue(issues, 'J-a-01#3')?.number, 1);
+  assert.equal(trackingIssue(issues, 'J-b-01#5')?.number, 2);
+  assert.equal(trackingIssue(issues, 'J-b-01#3'), undefined, 'a flaky issue tracks only its own steps');
+  assert.equal(trackingIssue(issues, 'J-b-01#25'), undefined);
+  assert.equal(trackingIssue(issues, 'J-c-01#4')?.number, 3);
+  assert.equal(trackingIssue(issues, 'J-d-01#1'), undefined, 'unlabelled: not tracked');
+  assert.equal(trackingIssue(issues, 'J-e-01#1'), undefined, 'closed: not tracked');
+  assert.equal(trackingIssue(issues, 'J-f-01#1'), undefined, 'a pull request is no issue');
+  assert.equal(trackingIssue(issues, 'J-g-01#1'), undefined, 'a flaky title needs the flaky label');
+  assert.equal(trackingIssue(issues, 'J-a-011#1'), undefined, 'a journey is matched whole');
+});
+
+test("main's own planted: excused only when main's newest run has it red the same way, an issue tracks it and the PR touches no test", () => {
+  const latest = mainRef({ run: mainRun(60, { head_sha: NEW_MAIN }) });
+  const issues = [reg(9, 'Journey broken on main: J-wallet-05')];
+  const go = (over = {}) =>
+    mainsOwn({ blocking: redW, latest, issues, touches: { ...area([], ['tooling/factory/x.mjs']), shared: false }, ...over });
+  const ok = go();
+  assert.deepEqual(ok.blocking, []);
+  assert.match(ok.passed[0].why, /main's: main's newest finished run 60 on eeeeeeeeee has it red too and #9 tracks it/);
+  assert.equal(go({ issues: [] }).blocking.length, 1, 'no open issue: every red counts');
+  assert.equal(go({ latest: null }).blocking.length, 1, 'no main run: every red counts');
+  assert.equal(go({ latest: { ...latest, problems: ['x'] } }).blocking.length, 1, 'main run with unreadable inputs');
+  assert.equal(go({ latest: mainRef({ red: new Map() }) }).blocking.length, 1, "green on main: the PR's own");
+  assert.equal(
+    go({ latest: mainRef({ red: new Map([['J-wallet-05#3', 'passed on its retry']]) }) }).blocking.length,
+    1,
+    "a different verdict line on main: the PR's own",
+  );
+  const red2 = [...redW, { step: 'J-bank-13#1', why: 'failing, not in the baseline', money: false }];
+  const mixed = go({ blocking: red2 });
+  assert.deepEqual(
+    mixed.blocking.map((x) => x.step),
+    ['J-bank-13#1'],
+    'every other red still counts',
+  );
+  const journey = go({ touches: { ...area(['J-wallet-05'], []), shared: false } });
+  assert.equal(journey.blocking.length, 1, "the PR touches the step's journey");
+  assert.match(journey.blocking[0].why, /#9\), but this pull request changes J-wallet-05, so it is this pull request's/);
+  for (const f of [
+    'apps/customer/tests/real-app/J-bank-13.pw.mjs',
+    'apps/customer/tests/real-app/helpers/login.mjs',
+    'apps/customer/playwright.real-app.config.ts',
+  ])
+    assert.equal(go({ touches: { ...area([], [f]), shared: false } }).blocking.length, 1, `a test file the shards read: ${f}`);
+  assert.equal(go({ touches: { ...area([], ['tooling/factory/x.mjs']), shared: true } }).blocking.length, 1, 'shared setup');
+  assert.equal(go({ blocking: [{ ...redW[0], money: true }] }).blocking.length, 1, 'a money step is never passed over (REVIEW.md item 3)');
+  assert.equal(go({ blocking: [{ step: redW[0].step, why: redW[0].why }] }).blocking.length, 1, 'unmarked counts as money');
+});
+
+test("main's own sealPull planted: main's newest run outside the head's history is red and tracked; the PR seals only then", async () => {
+  const io = ({ files, issues = [reg(9, 'Journey broken on main: J-wallet-05')], newest = dirty, mainIssues = true }) => ({
+    pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title: 'gate: drop a folder', body: '' }),
+    runs: async () => [run(1)],
+    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs'] }, 50: fullRep, 60: fullRep }),
+    files: async () => files,
+    text: async () => 'test(`${J} #1 opens`, async () => {}); test(`${J} #3 sends`, async () => {});',
+    verdictOf: async (_rep, r) => (r.id === 60 ? newest : r.id === 50 ? { ...clean, lastPass: {} } : dirty),
+    mainRuns: async () => [mainRun(50), mainRun(60, { head_sha: NEW_MAIN, created_at: '2026-11-12T10:00:00Z' })],
+    contains: async (sha, head) => sha === MAIN_SHA && head === HEAD,
+    mergeBase: async () => MAIN_SHA,
+    rangeOf: async () => ({ files: [], commits: 0, short: false }),
+    ...(mainIssues ? { mainIssues: async () => issues } : {}),
+  });
+  const seal = (o) => sealPull({ repo: REPO, number: 7, sha: HEAD, io: io(o) });
+  const ok = await seal({ files: ['tooling/factory/x.mjs'] });
+  assert.equal(ok.ok, true, ok.lines.join('\n'));
+  assert.match(ok.lines.join('\n'), /J-wallet-05#3 is red on this head and inherited: it is main's: main's newest finished run 60/);
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], issues: [] })).ok, false, 'untracked on main: the PR is held');
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], newest: { ...clean, lastPass: {} } })).ok, false, 'green on main: held');
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], mainIssues: false })).ok, false, 'no issue reader: as before');
+  const tests = await seal({ files: ['tooling/factory/x.mjs', 'apps/customer/tests/real-app/J-bank-13.pw.mjs'] });
+  assert.equal(tests.ok, false, 'a PR that changes a test file: the step is its own');
+  const shared = await seal({ files: ['tooling/scripts/local-test-world.mjs'] });
+  assert.equal(shared.ok, false, 'shared setup: every red counts');
+  const broken = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['tooling/factory/x.mjs'] }), mainIssues: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(broken.ok, false, 'unreadable issues fail closed');
 });

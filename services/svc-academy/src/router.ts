@@ -196,7 +196,8 @@ import { AcademyError } from './errors.js';
 import { learnerDeskProcedures } from './learners/learner-desk-router.js';
 import { gradeReportProcedures } from './curriculum/grade-reports-router.js';
 import { relatedItems } from './curriculum/related.js';
-import { listPublicCourses, searchPublicCurriculum } from './curriculum/public-catalogue.js';
+import { searchPublicCurriculum } from './curriculum/public-catalogue.js';
+import { COURSE_VISIBILITIES } from './curriculum/course-terms.js';
 import { OwnerDecisionError } from './curriculum/lessons.js';
 import { settingsRegister, type SettingsEnv } from './settings/register.js';
 import { userCopy } from './user-copy.js';
@@ -314,6 +315,16 @@ const sessionStatus = z.enum(['scheduled', 'live', 'ended', 'cancelled']);
 /** Matches Blueprint `curriculumPath` — the only paths the catalog knows. */
 const curriculumPath = z.enum(['foundations', 'markets', 'builder', 'sovereign']);
 const curriculumKind = z.enum(['playbook', 'workbook', 'lesson']);
+/** A course's seat cap, enrolment window and visibility as staff left them (AC-enrolment-01). */
+const courseTermsOutput = z.object({
+  slug: z.string(),
+  seatCap: z.number().int().nullable(),
+  opensAt: z.date().nullable(),
+  closesAt: z.date().nullable(),
+  visibility: z.enum(COURSE_VISIBILITIES),
+  reason: z.string(),
+  setAt: z.date(),
+});
 
 const roomOut = z.object({
   id: z.string().guid(),
@@ -1277,7 +1288,7 @@ export function createAcademyRouter(
       .query(() => guard(async () => listAcademyVideos(video).map(({ slug, title, path }) => ({ slug, title, path })))),
 
     /** AC-catalogue-03: one card per course with published items. A course is one curriculum path until courses are rows. */
-    publicCourses: publicProcedure.output(z.array(academyPublicCourseCardSchema)).query(() => listPublicCourses()),
+    publicCourses: publicProcedure.output(z.array(academyPublicCourseCardSchema)).query(() => guard(() => academy.publicCourses())),
 
     /** The public course page. Unknown and unpublished courses give the same `academy.course_not_found`. */
     publicCourse: publicProcedure
@@ -3813,6 +3824,53 @@ export function createAcademyRouter(
             }),
           ),
         ),
+
+      /** AC-enrolment-01 step 1: staff set a course's seat cap with a reason; `seatCap: null` takes it off. */
+      setCourseSeatCap: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z
+            .object({
+              slug: z.string().min(1).max(120),
+              seatCap: z.number().int().positive().max(1_000_000).nullable(),
+              reason: z.string().max(500),
+            })
+            .strict(),
+        )
+        .output(courseTermsOutput)
+        .mutation(({ input, ctx }) => guard(() => academy.setCourseSeatCap({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-enrolment-01 step 1: staff set a course's enrolment window; either end may be null, both null takes it off. */
+      setCourseEnrolmentWindow: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z
+            .object({
+              slug: z.string().min(1).max(120),
+              opensAt: z.string().datetime({ offset: true }).nullable(),
+              closesAt: z.string().datetime({ offset: true }).nullable(),
+              reason: z.string().max(500),
+            })
+            .strict(),
+        )
+        .output(courseTermsOutput)
+        .mutation(({ input, ctx }) =>
+          guard(() =>
+            academy.setCourseEnrolmentWindow({
+              slug: input.slug,
+              opensAt: input.opensAt === null ? null : new Date(input.opensAt),
+              closesAt: input.closesAt === null ? null : new Date(input.closesAt),
+              reason: input.reason,
+              operatorId: ctx.principal!.userId,
+            }),
+          ),
+        ),
+
+      /** AC-catalogue-03: staff publish, hide or unpublish a course; hidden and unpublished leave the catalogue and close enrolment. */
+      setCourseVisibility: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z.object({ slug: z.string().min(1).max(120), visibility: z.enum(COURSE_VISIBILITIES), reason: z.string().max(500) }).strict(),
+        )
+        .output(courseTermsOutput)
+        .mutation(({ input, ctx }) => guard(() => academy.setCourseVisibility({ ...input, operatorId: ctx.principal!.userId }))),
 
       setItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
         .input(z.object({ itemSlug: z.string().min(1).max(120), prerequisites: z.array(z.string().min(1).max(120)).max(40) }))
