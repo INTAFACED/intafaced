@@ -57,6 +57,7 @@ import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
 import { CourseLearners } from './curriculum/course-learners.js';
+import { CoursePurchases, type CoursePurchaseDeps } from './purchases/course-purchases.js';
 import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
@@ -297,6 +298,8 @@ const toSession = (row: SessionRow): SessionRecord => {
 };
 
 export interface AcademyServiceOptions {
+  /** J-academy-07: course payments from the buyer's own wallet. Absent or with any part blank, nothing is sold. */
+  purchases?: CoursePurchaseDeps;
   /**
    * Owner-published operational ceiling. Undefined = unpublished —
    * createRoom refuses `academy.room_capacity_unset`. Never invent 5000.
@@ -428,6 +431,7 @@ export class AcademyService {
   private readonly learnHub: LearnHub;
   private readonly coursePreview: CoursePreview;
   private readonly courseLearners: CourseLearners;
+  private readonly coursePurchases: CoursePurchases;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
@@ -475,7 +479,8 @@ export class AcademyService {
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
     this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
     this.coursePreview = new CoursePreview(sql);
-    this.courseLearners = new CourseLearners(sql, this.coursePreview);
+    this.coursePurchases = new CoursePurchases(sql, options.purchases ?? { settings: null, chain: null, ledger: null, refunds: null });
+    this.courseLearners = new CourseLearners(sql, this.coursePreview, this.coursePurchases);
     this.courseMedia = new CourseMedia(
       sql,
       this.options.mediaStorage ?? null,
@@ -2508,6 +2513,37 @@ export class AcademyService {
 
   leaveAuthoredCourse(input: { userId: string; slug: string; enrolledAt: string; now?: Date }) {
     return this.courseLearners.leave({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** J-academy-07: a course's price, how it can be paid, and the caller's own latest purchase. */
+  coursePurchase(input: { userId: string; slug: string }) {
+    return this.coursePurchases.view(input);
+  }
+
+  /** J-academy-07: Buy. Stores the intent first; asks the wallet to sign only on the answer that opened it. */
+  buyCourse(input: { userId: string; slug: string; wallet: string }) {
+    return this.coursePurchases.buy(input);
+  }
+
+  submitCoursePayment(input: { userId: string; key: string; txHash: string }) {
+    return this.coursePurchases.submitPayment(input);
+  }
+
+  abandonCoursePurchase(input: { userId: string; key: string }) {
+    return this.coursePurchases.abandon(input);
+  }
+
+  staffCoursePurchase(key: string) {
+    return this.coursePurchases.staffRead(key);
+  }
+
+  refundCoursePurchase(input: { key: string; reason: string; actorId: string }) {
+    return this.coursePurchases.refund(input);
+  }
+
+  /** Every open purchase, read against the chain and the ledger once. */
+  reconcileCoursePurchases() {
+    return this.coursePurchases.reconcile();
   }
 
   /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */

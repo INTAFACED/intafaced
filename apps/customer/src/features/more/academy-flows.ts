@@ -201,7 +201,11 @@ export type RefusalKey =
   | 'refTopicNotFound'
   | 'refMessageLimitUnset'
   | 'refMessageTooLong'
-  | 'refConversationNotFound';
+  | 'refConversationNotFound'
+  | 'refPaymentRequired'
+  | 'refPaymentsOff'
+  | 'refPurchaseNotFound'
+  | 'refWalletInvalid';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -259,6 +263,14 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refCourseNotFound';
     case 'academy.enrolment_closed':
       return 'refEnrolmentClosed';
+    case 'academy.payment_required':
+      return 'refPaymentRequired';
+    case 'academy.payments_off':
+      return 'refPaymentsOff';
+    case 'academy.purchase_not_found':
+      return 'refPurchaseNotFound';
+    case 'academy.wallet_invalid':
+      return 'refWalletInvalid';
     case 'academy.window_invalid':
       return 'refItemNotOpen';
     case 'academy.not_released_yet':

@@ -47,6 +47,19 @@ export const RELAY_URL = `http://${HOST}:${CHAIN_PORTS.relay}/relay`;
  * for the signer a production Navigator would hold its session key in; svc-agents holds no key.
  */
 export const NAVIGATOR_SIGNER_URL = `http://${HOST}:${CHAIN_PORTS.relay}/navigator`;
+/**
+ * INTAFACED's TEST receiving address for Academy course payments (J-academy-07): a buyer's TEST wallet pays the course
+ * price in TEST USD here. Nobody holds a key for it; on this anvil the TEST refund signer below sends from it by
+ * impersonation. TEST only: production's receiving address is the owner's ACADEMY_PAYMENT_RECEIVER.
+ */
+export const ACADEMY_TEST_RECEIVER = '0x7e57ac4d00000000000000000000000000000007';
+/**
+ * The TEST refund signer (J-academy-07 #7): POST {key, chainId, token, to, amount} here sends one TEST USD transfer of
+ * `amount` (smallest unit) from ACADEMY_TEST_RECEIVER to `to`, and answers {hash}. The same key answers the same hash and
+ * sends nothing more, as the owner's real signer must. It is the stand-in for the signer that holds INTAFACED's key;
+ * svc-academy holds none.
+ */
+export const ACADEMY_REFUND_SIGNER_URL = `http://${HOST}:${CHAIN_PORTS.relay}/academy-refund`;
 /** SmartAccount.executeWithSession's selector: the one call a session key can make, and the only call this signer sends. */
 export const EXECUTE_WITH_SESSION_SELECTOR = '0xbd210fed';
 /** FeeTokenRelay.swap's selector: the one call the TEST relayer sends. */
@@ -169,9 +182,14 @@ function serve() {
     })
     .listen(CHAIN_PORTS.control, HOST);
   http
-    .createServer(
-      (req, res) => void (new URL(req.url, `http://${HOST}`).pathname === '/navigator' ? navigatorSign(req, res) : relay(req, res)),
-    )
+    .createServer((req, res) => {
+      const pathname = new URL(req.url, `http://${HOST}`).pathname;
+      void (pathname === '/navigator'
+        ? navigatorSign(req, res)
+        : pathname === '/academy-refund'
+          ? academyRefund(req, res)
+          : relay(req, res));
+    })
     .listen(CHAIN_PORTS.relay, HOST);
   // A gate that cannot listen (its port taken after the stack's check) stops the chains with its error, never unhandled.
   Promise.all([gate.open(), second.open()]).catch((err) => {
@@ -313,6 +331,56 @@ async function navigatorSign(req, res) {
     return answer(200, { hash });
   } catch (err) {
     return answer(502, { error: `navigator.send_failed: ${err.message}` });
+  }
+}
+
+/** The refunds the TEST refund signer has sent, by key, so the same key never sends twice (kept for this chain's life). */
+const academyRefunds = new Map();
+
+/**
+ * POST /academy-refund {key, chainId, token, to, amount}: one TEST USD transfer from ACADEMY_TEST_RECEIVER to `to`. Only
+ * the seeded TEST USD token on the TEST chain, a key that names an Academy refund, and a whole positive amount. A key
+ * already sent answers its first hash and sends nothing. Answers {hash} or {error}.
+ */
+async function academyRefund(req, res) {
+  const answer = (status, body) => {
+    res.statusCode = status;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(body));
+  };
+  if (req.method !== 'POST') return answer(404, { error: 'refund.not_found: POST /academy-refund only' });
+  let raw = '';
+  for await (const chunk of req) {
+    raw += chunk;
+    if (raw.length > 8_000) return answer(413, { error: 'refund.too_large' });
+  }
+  let call;
+  try {
+    call = JSON.parse(raw);
+  } catch {
+    return answer(400, { error: 'refund.bad_json' });
+  }
+  if (call?.chainId !== TEST_CHAIN_ID) return answer(400, { error: 'refund.wrong_chain: the TEST chain only' });
+  if (typeof call.key !== 'string' || !/^academy:refund:[^\s]{1,190}$/.test(call.key)) return answer(400, { error: 'refund.bad_key' });
+  const record = fs.existsSync(chainRecordPath()) ? JSON.parse(fs.readFileSync(chainRecordPath(), 'utf8')) : null;
+  const usd = record?.tokens?.USD?.address?.toLowerCase();
+  if (!usd || typeof call.token !== 'string' || call.token.toLowerCase() !== usd)
+    return answer(400, { error: 'refund.wrong_token: the seeded TEST USD only' });
+  if (typeof call.to !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(call.to)) return answer(400, { error: 'refund.bad_to' });
+  if (typeof call.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(call.amount)) return answer(400, { error: 'refund.bad_amount' });
+  const sent = academyRefunds.get(call.key);
+  if (sent) return answer(200, { hash: sent });
+  const pad = (hex) => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0');
+  const data = `0xa9059cbb${pad(call.to)}${pad(BigInt(call.amount).toString(16))}`;
+  try {
+    await anvilRpc('anvil_impersonateAccount', [ACADEMY_TEST_RECEIVER]);
+    // TEST ETH for gas only; the call itself carries no value.
+    await anvilRpc('anvil_setBalance', [ACADEMY_TEST_RECEIVER, '0x56bc75e2d63100000']);
+    const hash = await anvilRpc('eth_sendTransaction', [{ from: ACADEMY_TEST_RECEIVER, to: usd, data, value: '0x0' }]);
+    academyRefunds.set(call.key, hash);
+    return answer(200, { hash });
+  } catch (err) {
+    return answer(502, { error: `refund.send_failed: ${err.message}` });
   }
 }
 

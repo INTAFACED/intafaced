@@ -1,3 +1,4 @@
+import { ACADEMY_REFUND_SIGNER_URL, ACADEMY_TEST_RECEIVER, TEST_CHAIN_ID } from '../local-test-chain.mjs';
 import { VIDEO_STORE_ACCESS_KEY, VIDEO_STORE_BUCKET, VIDEO_STORE_REGION } from '../local-video-store.mjs';
 
 // LOCAL TEST video storage: the stack's own TEST video store (local-video-store.mjs) plays one TEST video behind signed,
@@ -80,7 +81,31 @@ const postLimits = () =>
     ? {}
     : { ACADEMY_POST_MAX_CHARS: '4000', ACADEMY_POST_IMAGE_MAX_BYTES: '262144', ACADEMY_MESSAGE_MAX_CHARS: '4000' };
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+/**
+ * LOCAL TEST course payments (J-academy-07): with the stack's LOCAL TEST chain (tooling/scripts/local-test-chain.mjs,
+ * chain id 84532), its gate as the payment node, the seeded TEST USD token (6 decimals, services/svc-protocol/scripts/
+ * seed-test-chain.ts) as the payment token under the ledger asset USDC, INTAFACED's TEST receiving address, two
+ * confirmations (a payment in the newest block is not counted yet, so J-academy-07 #4 sees it wait), and the chain's TEST refund signer. TEST values only, never a real chain, token or key. With no chain,
+ * or `LOCAL_STACK_ACADEMY_PAYMENTS=off`, all stay blank, as in production until the owner sets them: the paid track
+ * stays closed `payments_off` and nothing is sold.
+ */
+const coursePayments = (testChain) => {
+  const chain = testChain?.();
+  if (process.env.LOCAL_STACK_ACADEMY_PAYMENTS === 'off' || !chain?.usdToken) return {};
+  return {
+    ACADEMY_PAYMENT_RPC_URL: chain.rpcUrl,
+    ACADEMY_PAYMENT_CHAIN_ID: String(TEST_CHAIN_ID),
+    ACADEMY_PAYMENT_TOKEN_ADDRESS: chain.usdToken,
+    ACADEMY_PAYMENT_TOKEN_DECIMALS: '6',
+    ACADEMY_PAYMENT_ASSET: 'USDC',
+    ACADEMY_PAYMENT_RECEIVER: ACADEMY_TEST_RECEIVER,
+    ACADEMY_PAYMENT_CONFIRMATIONS: '2',
+    ACADEMY_PURCHASE_RECONCILE_SECONDS: '2',
+    ...(process.env.LOCAL_STACK_ACADEMY_REFUND_SIGNER === 'off' ? {} : { ACADEMY_REFUND_SIGNER_URL }),
+  };
+};
+
+export default ({ c, secrets, dbUrl, urlOf, PORTS, testChain }) => ({
   name: 'academy',
   env: () => ({
     ...c('svc-academy', PORTS.academy),
@@ -88,6 +113,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     TOKEN_URL: urlOf('token'),
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),
+    // The ledger door for the two Academy posts (J-academy-07: academyPurchase, academyPurchaseRefund), signed with the
+    // stack's shared service secret from c(). Both record INTAFACED's own money only.
+    LEDGER_URL: urlOf('ledger'),
+    ...coursePayments(testChain),
     ACADEMY_STREAM_PROVIDER: 'none', // no LiveKit: live classes stay unconnected
     ACADEMY_PLANNER_TODO_LIMIT: '50', // TEST: the owner sets the real cap; the stack needs one so the planner journey can add
     ...videoStorage({ secrets, urlOf }),

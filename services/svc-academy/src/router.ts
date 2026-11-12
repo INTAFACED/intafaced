@@ -106,6 +106,12 @@ import {
   academyClearFeaturedInputSchema,
   academyTopicListSchema,
   academyAuthoredCourseEnrolmentSchema,
+  academyCoursePurchaseViewSchema,
+  academyBuyCourseInputSchema,
+  academyPurchasePaymentInputSchema,
+  academyPurchaseKeyInputSchema,
+  academyRefundPurchaseInputSchema,
+  academyStaffPurchaseSchema,
   academyAuthoredCourseInputSchema,
   academyCourseByLinkInputSchema,
   academyLeaveAuthoredCourseInputSchema,
@@ -1013,14 +1019,18 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.review_already_sent':
     case 'academy.grader_locked':
     case 'academy.grant_active':
+    case 'academy.purchase_state':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.enrolment_required':
     case 'academy.permission_denied':
     case 'academy.grant_expired':
+    case 'academy.payment_required':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.price_unset':
+    case 'academy.payments_off':
+    case 'academy.refund_sender_unset':
     case 'academy.course_outline_empty':
     case 'academy.courses_list_limit_unset':
     case 'academy.outline_limits_unset':
@@ -1041,11 +1051,13 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.programme_not_found':
+    case 'academy.purchase_not_found':
     case 'academy.post_not_found':
     case 'academy.conversation_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.outline_too_large':
+    case 'academy.wallet_invalid':
     case 'academy.programme_too_large':
     case 'academy.post_too_long':
     case 'academy.message_too_long':
@@ -2604,6 +2616,33 @@ export function createAcademyRouter(
         guard(() => academy.enrolAuthoredCourse({ userId: ctx.principal!.userId, slug: input.slug, track: input.track })),
       ),
 
+    /** J-academy-07: a course's price, how it can be paid (wallet; card needs a partner), and the caller's own latest purchase. */
+    coursePurchase: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyAuthoredCourseInputSchema)
+      .output(academyCoursePurchaseViewSchema)
+      .query(({ input, ctx }) => guard(() => academy.coursePurchase({ userId: ctx.principal.userId, slug: input.slug }))),
+
+    /**
+     * J-academy-07: Buy from the caller's own wallet. The intent `academy:purchase:<course>:<learner>:<n>` is stored first;
+     * `request` (the one transfer the wallet signs) is set only on the answer that opened it, never on a repeat.
+     */
+    buyCourse: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyBuyCourseInputSchema)
+      .output(academyCoursePurchaseViewSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.buyCourse({ userId: ctx.principal!.userId, ...input }))),
+
+    /** J-academy-07: the wallet sent the payment; its hash is stored and read against the chain. */
+    submitCoursePayment: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyPurchasePaymentInputSchema)
+      .output(academyCoursePurchaseViewSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.submitCoursePayment({ userId: ctx.principal!.userId, ...input }))),
+
+    /** J-academy-07: the wallet refused to sign; the intent is set aside and no purchase shows. */
+    abandonCoursePurchase: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyPurchaseKeyInputSchema)
+      .output(academyCoursePurchaseViewSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.abandonCoursePurchase({ userId: ctx.principal!.userId, key: input.key }))),
+
     /** AC-enrolment-01: leave the enrolment that began at `enrolledAt`; a repeat is the same leave. */
     leaveAuthoredCourse: scopedProcedure('academy:write', { module: 'academy' })
       .input(academyLeaveAuthoredCourseInputSchema)
@@ -3329,6 +3368,25 @@ export function createAcademyRouter(
         .input(academySetCourseStateInputSchema)
         .output(academyCourseSchema)
         .mutation(({ input, ctx }) => guard(() => academy.setCourseState({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** J-academy-07: one course purchase by its key, with whose it is and its ledger transactions, read against the chain first. */
+      coursePurchase: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyPurchaseKeyInputSchema)
+        .output(academyStaffPurchaseSchema)
+        .query(({ input }) => guard(() => academy.staffCoursePurchase(input.key))),
+
+      /**
+       * J-academy-07 #7: refund a recorded purchase from INTAFACED's own funds, with a reason. The refund permission is
+       * `admin:write` on academy. Stored first under `academy:refund:<course>:<learner>:<n>`, sent once by the owner's
+       * refund signer, posted once as the reverse, and the grant revoked with the reason. Blank signer:
+       * `academy.refund_sender_unset`, nothing sent.
+       */
+      refundCoursePurchase: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRefundPurchaseInputSchema)
+        .output(academyStaffPurchaseSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.refundCoursePurchase({ key: input.key, reason: input.reason, actorId: ctx.principal!.userId })),
+        ),
 
       /** J-academy-01 #5: withdraw a published paid course's price with a reason; it stays published and shows with no price. */
       withdrawCoursePrice: scopedProcedure('admin:write', { module: 'academy' })

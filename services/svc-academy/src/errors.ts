@@ -205,6 +205,18 @@ export type AcademyErrorCode =
   | 'academy.item_transition_illegal'
   /** A paid course has no price, so it is not published. */
   | 'academy.price_unset'
+  /** J-academy-07: the paid certificate track needs a purchase that the chain confirmed and the ledger recorded. */
+  | 'academy.payment_required'
+  /** J-academy-07: course payments are not set up (an owner value is blank), so nothing is sold. */
+  | 'academy.payments_off'
+  /** J-academy-07: no purchase of the caller's (or, for staff, at all) with that key. */
+  | 'academy.purchase_not_found'
+  /** J-academy-07: the purchase is not in a state that allows this (a refund of an unrecorded purchase). */
+  | 'academy.purchase_state'
+  /** J-academy-07: the wallet address or chain transaction given is not a valid one. */
+  | 'academy.wallet_invalid'
+  /** J-academy-07: no refund signer is set, so INTAFACED cannot send a refund and nothing is sent. */
+  | 'academy.refund_sender_unset'
   /** The course's outline is empty, so it is not published. */
   | 'academy.course_outline_empty'
   | 'academy.courses_list_limit_unset'
@@ -486,6 +498,12 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.course_not_editable',
   'academy.item_transition_illegal',
   'academy.price_unset',
+  'academy.payment_required',
+  'academy.payments_off',
+  'academy.purchase_not_found',
+  'academy.purchase_state',
+  'academy.wallet_invalid',
+  'academy.refund_sender_unset',
   'academy.course_outline_empty',
   'academy.courses_list_limit_unset',
   'academy.outline_limits_unset',

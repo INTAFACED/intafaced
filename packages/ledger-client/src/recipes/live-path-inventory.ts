@@ -118,6 +118,8 @@ export const RECIPE_MATRIX = {
     reason:
       "§13 — a charge collected: the customer's payment arrives at one of our own-funds places, keyed on the chain's or partner's payment id, refused above what they owe. No production writer and no grant until charges can be earned (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
   },
+  academyPurchase: { kind: 'live', module: 'academy', proof: 'services/svc-academy/src/purchases/purchase-ledger.ts' },
+  academyPurchaseRefund: { kind: 'live', module: 'academy', proof: 'services/svc-academy/src/purchases/purchase-ledger.ts' },
   partnerFeeEarn: {
     kind: 'socket',
     socket: '§13',
