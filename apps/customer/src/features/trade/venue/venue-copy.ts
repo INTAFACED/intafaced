@@ -141,4 +141,20 @@ export const venueCopy = defineCopy('trade.venue', {
   withdrawal_done: 'Done',
   withdrawal_failed: 'Failed on the venue',
   'Withdrawal fee': 'Venue withdrawal fee',
+
+  // Your own sub-accounts (J-portfolio-04 #2)
+  'Sub-accounts': 'Your sub-accounts',
+  'Sub-accounts why':
+    'A sub-account is a second account on the venue under your same wallet. Moving coins between your accounts is not a sale: each coin keeps its acquired date and cost.',
+  'Sub-accounts not offered': 'This venue offers no sub-accounts: {detail}',
+  'No sub-accounts': 'You have no sub-accounts on this venue.',
+  'Sub-account name': 'Name for a new sub-account',
+  'Open sub-account': 'Open sub-account',
+  'Sub-account': 'Sub-account',
+  'Move asset': 'Coin to move',
+  'Move amount': 'Amount to move',
+  'Move to sub-account': 'Move to sub-account',
+  'Sub-account balances': 'Balances in {name}',
+  'Enter name': 'Enter a name.',
+  'Choose sub-account': 'Choose a sub-account.',
 });

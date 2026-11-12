@@ -217,4 +217,50 @@ describe('venue.ownActivity against the TEST simulator', () => {
       message: expect.stringContaining('trade.venue.venue_down'),
     });
   });
+
+  it("J-portfolio-04 #2: a move into the person's own sub-account is listed on the main account as the venue recorded it, and the sub-account it reached is theirs", async () => {
+    const name = 'TEST own activity';
+    const opened = await door.prepare(principal(USER), {
+      owner,
+      signer,
+      intent: { kind: 'create_sub_account', name, subAccountKey: `own:sub-account:${owner}:${name}` },
+    });
+    const sub = ((await door.submit(principal(USER), opened.actionKey, await sign(opened.prepared))).outcome as { venueRef: string })
+      .venueRef;
+    const move = (n: number, amount: string) =>
+      door.prepare(principal(USER), {
+        owner,
+        signer,
+        intent: {
+          kind: 'sub_account_transfer',
+          subAccount: sub,
+          direction: 'into_sub_account',
+          asset: 'BTC',
+          amount: a(amount),
+          moveKey: `own:move:${owner}:${n}`,
+        },
+      });
+    const signed = await move(1, '0.02');
+    await door.submit(principal(USER), signed.actionKey, await sign(signed.prepared));
+    // Prepared and never signed: it moved nothing, so it is not listed.
+    await move(2, '0.01');
+
+    const answer = await read(USER);
+    if (answer.state !== 'read') throw new Error(answer.state);
+    const main = answer.accounts.find((x) => x.subAccount === null)!;
+    const record = (await sim.transfer({ venueId: sim.venue.id, owner, subAccount: null }, signed.prepared.nonce)).value!;
+    expect(main.transfers).toEqual([
+      {
+        moveId: signed.prepared.nonce,
+        subAccount: sub,
+        direction: 'into_sub_account',
+        asset: 'BTC',
+        amount: '0.02',
+        settledAt: record.settledAt.toISOString(),
+      },
+    ]);
+    const reached = answer.accounts.find((x) => x.subAccount === sub)!;
+    expect(reached).toMatchObject({ owner, subAccount: sub, fills: [], balances: [{ asset: 'BTC', total: '0.02' }] });
+    expect(reached.transfers).toBeUndefined();
+  });
 });
