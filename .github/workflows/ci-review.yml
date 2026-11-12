@@ -175,7 +175,7 @@ jobs:
           # changes no verdict: with no second key it does nothing, and unset (the default) nothing here changes.
           if [ -n "$KEY_DRILL_PR" ] && [ "$KEY_DRILL_PR" = "$PR_NUMBER" ] && [ -n "$second" ]; then
             echo "::warning::key drill for #$PR_NUMBER (repository variable CI_REVIEW_KEY_DRILL_PR): the first call is sent with a refused key, so the second key must answer"
-            CLAUDE_CODE_OAUTH_TOKEN="key-drill-refused"
+            CLAUDE_CODE_OAUTH_TOKEN="placeholder-the-api-refuses"
           fi
           if [ -f "$dir/skip-reviewer" ]; then
             echo "the diff step already decided (too large to review even in parts)"
