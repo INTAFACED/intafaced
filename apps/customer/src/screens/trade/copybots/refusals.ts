@@ -455,7 +455,7 @@ const GRID: Readonly<Record<string, Words>> = {
   },
   'trade.bots_grid_topup_exceeds_free': {
     title: 'More than you have free',
-    body: 'A top-up can use only what is free after your other bots and copies. Lower the amount. Nothing was changed.',
+    body: 'A top-up can use only what is free after your other bots and copies, shown as Free to add. Lower the amount. Nothing was changed.',
   },
   'trade.bots_grid_topup_conflict': {
     title: 'That request was already used for a different top-up',

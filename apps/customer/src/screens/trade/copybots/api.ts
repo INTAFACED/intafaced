@@ -351,6 +351,8 @@ export function createRoomApi(api: ApiClient) {
     gridGet: (botId: string, signal?: AbortSignal) => api.query('trade', 'bots.grid.get', { botId }, gridBotSchema, { signal }),
     gridList: (signal?: AbortSignal) => api.query('trade', 'bots.grid.list', undefined, z.array(gridBotSchema), { signal }),
     gridStop: (botId: string) => api.mutate('trade', 'bots.grid.stop', { botId }, gridBotSchema),
+    gridTopUpFree: (botId: string, signal?: AbortSignal) =>
+      api.query('trade', 'bots.grid.topUpFree', { botId }, z.object({ asset: z.string(), free: decimalSchema }), { signal }),
     gridTopUp: (input: GridTopUpRequest) => api.mutate('trade', 'bots.grid.topUp', input, gridTopUpSchema),
     gridModify: (input: GridModifyRequest) => api.mutate('trade', 'bots.grid.modify', input, gridBotSchema),
     gridWithdraw: (input: GridWithdrawRequest) => api.mutate('trade', 'bots.grid.withdrawProfit', input, gridWithdrawalSchema),

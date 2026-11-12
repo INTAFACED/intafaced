@@ -82,6 +82,9 @@ export function gridRouter(grid?: GridService) {
         }),
       )
       .mutation(({ ctx, input }) => call((g) => g.withdrawProfit(ctx.principal, input))),
+    topUpFree: scopedProcedure('trade:read', { module: 'trade' })
+      .input(z.object({ botId: z.string().min(1).max(64) }))
+      .query(({ ctx, input }) => call((g) => g.topUpFree(ctx.principal, input.botId))),
     topUp: scopedProcedure('trade:write', { module: 'trade' })
       .input(
         z.object({

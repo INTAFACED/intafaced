@@ -744,9 +744,7 @@ export class GridService {
         if (!isLive(current.status) || !reserve || reserve.releasedAt !== null) {
           throw new GridError('This grid bot is not running', 'trade.grid_not_running');
         }
-        const free = await this.ports.freeBalance(principal.userId, asset);
-        const rest = free - (await this.ports.copyUnusedReserves(principal.userId, asset)) - gridUnused;
-        const left = rest > 0n ? rest : 0n;
+        const left = await this.freeForTopUp(principal.userId, asset, gridUnused);
         if (amount > left) {
           throw new GridError(
             `Top-up ${formatAmount(amount)} ${asset} is more than the ${formatAmount(left)} ${asset} free`,
@@ -783,6 +781,26 @@ export class GridService {
     // The re-initialisation; a failure here leaves it to the next tick, which re-sizes the same open buys.
     if (isLive(after.status)) await this.tick(after).catch(() => undefined);
     return this.topUpView(saved.topUp);
+  }
+
+  /** The owner's free quote less every copy reserve and the unused part of every grid reserve; never below zero. */
+  private async freeForTopUp(userId: string, asset: string, gridUnused: Amount): Promise<Amount> {
+    const free = await this.ports.freeBalance(userId, asset);
+    const rest = free - (await this.ports.copyUnusedReserves(userId, asset)) - gridUnused;
+    return rest > 0n ? rest : 0n;
+  }
+
+  /**
+   * What a top-up of this bot may use now (CB-bots-04): the same figure the top-up is checked against, read outside the
+   * lock, so the sheet can name it before and after a refusal. The top-up itself checks it again under the lock.
+   */
+  async topUpFree(principal: Principal, botId: string): Promise<{ readonly asset: string; readonly free: string }> {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    const bot = await this.ports.store.findBot(botId);
+    if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    const asset = bot.quoteAsset;
+    const unused = await this.ports.store.sumUnusedReserves(principal.userId, asset);
+    return { asset, free: formatAmount(await this.freeForTopUp(principal.userId, asset, unused)) };
   }
 
   private async sameTopUp(stored: GridTopUp, hash: string): Promise<GridTopUpView> {

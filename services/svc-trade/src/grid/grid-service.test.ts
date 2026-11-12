@@ -987,6 +987,8 @@ describe('grid top-up (CB-bots-04; J-copy-bots-otc-15 #1)', () => {
     expect(r.code).toBe('trade.bots_grid_topup_exceeds_free');
     expect(r.data).toMatchObject({ field: 'Amount', asset: 'USDT', free });
     expect(r.message).toBe(`Top-up ${over} USDT is more than the ${free} USDT free`);
+    // The sheet's read names the same figure.
+    expect(await service.topUpFree(verified(), bot.botId)).toEqual({ asset: 'USDT', free });
     const after = await service.get(verified(), bot.botId);
     expect(after.investment).toBe(bot.investment);
     expect(after.reserve!.amount).toBe(bot.reserve!.amount);

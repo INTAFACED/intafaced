@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Field, Input, Switch } from '@intafaced/ui';
 import { displayAmount } from '../../../shared/money';
 import type { createRoomApi, GridBot } from './api';
@@ -8,12 +8,6 @@ import { RefusalNote } from './parts';
 
 // One key per top-up intent: kept while a reply is lost, so a resend is the same top-up; renewed after any answer.
 const newRequestKey = () => `topup-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-
-/** The service's own words for a refusal that names a figure (the free balance a top-up was checked against). */
-function FigureNote({ failure }: { failure: Failure }) {
-  if (failure.code !== 'trade.bots_grid_topup_exceeds_free') return null;
-  return <p className="cb-note-body">{failure.message}</p>;
-}
 
 /**
  * Top up a running grid's quote (CB-bots-04; J-copy-bots-otc-15 #1). The investment, which is the bot's cap, rises by
@@ -29,6 +23,17 @@ export function GridTopUp({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [done, setDone] = useState<{ amount: string; investment: string } | null>(null);
+  // The free figure a top-up is checked against, read from the service when the sheet opens and after every answer.
+  const [free, setFree] = useState<string | null>(null);
+  const [freeRead, setFreeRead] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const ctl = new AbortController();
+    void api.gridTopUpFree(bot.botId, ctl.signal).then((r) => {
+      if (!ctl.signal.aborted) setFree(r.ok ? r.data.free : null);
+    });
+    return () => ctl.abort();
+  }, [open, freeRead, api, bot.botId]);
 
   const reset = () => {
     setAsset(bot.quoteAsset);
@@ -36,6 +41,7 @@ export function GridTopUp({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
     setRequestId(newRequestKey());
     setFailure(null);
     setDone(null);
+    setFree(null);
   };
 
   async function send() {
@@ -44,6 +50,7 @@ export function GridTopUp({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
     setFailure(null);
     const result = await api.gridTopUp({ botId: bot.botId, requestId, asset, amount });
     setBusy(false);
+    setFreeRead((n) => n + 1);
     if (result.ok) {
       setDone({ amount: result.data.amount, investment: result.data.investmentAfter });
       setRequestId(newRequestKey());
@@ -92,6 +99,11 @@ export function GridTopUp({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
             <p className="cb-note-body">
               {t('Investment now: {amount} {asset}', { amount: displayAmount(bot.investment), asset: bot.quoteAsset })}
             </p>
+            <p className="cb-note-body" data-testid="grid-topup-free">
+              {free === null
+                ? t('Free to add: Checking')
+                : t('Free to add: {amount} {asset}', { amount: displayAmount(free), asset: bot.quoteAsset })}
+            </p>
             <Button disabled={busy} onClick={() => void send()}>
               {t('Top up')}
             </Button>
@@ -104,12 +116,7 @@ export function GridTopUp({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
                 })}
               </p>
             ) : null}
-            {failure ? (
-              <>
-                <RefusalNote failure={failure} />
-                <FigureNote failure={failure} />
-              </>
-            ) : null}
+            {failure ? <RefusalNote failure={failure} /> : null}
           </div>
         </DialogContent>
       </Dialog>
@@ -167,7 +174,7 @@ export function GridSettings({ bot, api }: { bot: GridBot; api: ReturnType<typeo
         <Input kind="decimal" value={shiftLimit} onValueChange={setShiftLimit} precision={2} disabled={busy} />
       </Field>
       <Field label={t('Minimum grid count')}>
-        <Input value={minCount} onValueChange={setMinCount} inputMode="numeric" disabled={busy} />
+        <Input value={minCount} onValueChange={setMinCount} disabled={busy} />
       </Field>
       <p className="cb-note-body">{t('This grid has {count} grids.', { count: String(bot.gridCount) })}</p>
       <div className="cb-action-row">

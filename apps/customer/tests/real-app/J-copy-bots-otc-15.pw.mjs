@@ -34,6 +34,8 @@ async function getBot(who, botId) {
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
   return body.result.data;
 }
+/** A decimal string as the room shows it: the whole part grouped by thousands. */
+const grouped = (d) => d.replace(/^\d+/, (w) => w.replace(/\B(?=(\d{3})+(?!\d))/g, ','));
 const openBuys = (bot) => bot.orders.filter((o) => o.side === 'buy' && o.status === 'open');
 
 /** The bot's own detail in the grid room. */
@@ -112,7 +114,8 @@ test(`${J} #1 tops up the quote by TEST 50: the investment rises by 50 and the g
   expect(over.status).toBe(400);
   expect(codeOf(over.body)).toBe('trade.bots_grid_topup_exceeds_free');
   await expect(sheet.getByRole('alert')).toContainText('More than you have free');
-  await expect(sheet).toContainText(`is more than the ${fromUnits(free)} USDT free`);
+  // The sheet names the free figure, read from the service: the same one the refusal was checked against.
+  await expect(sheet.getByTestId('grid-topup-free')).toHaveText(`Free to add: ${grouped(fromUnits(free))} USDT`);
   expect(await getBot(trader, bot.botId)).toMatchObject({ investment: '500', reinitCount: 0 });
 
   // The quote top-up by TEST 50.

@@ -173,6 +173,8 @@ const messages = {
   'Follow by leader ID': 'Follow by leader ID',
   'Follow of {leader}': 'Follow of {leader}',
   'Follow {name}': 'Follow {name}',
+  'Free to add: Checking': 'Free to add: Checking',
+  'Free to add: {amount} {asset}': 'Free to add: {amount} {asset}',
   'Free {asset} now': 'Free {asset} now',
   'From the trading fee, never from your profit': 'From the trading fee, never from your profit',
   'Funds are held': 'Funds are held',
