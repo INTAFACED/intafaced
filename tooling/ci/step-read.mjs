@@ -82,6 +82,22 @@ export const READ_SCHEMA = { type: 'object', properties: { reads: READ_ITEMS }, 
 const norm = (s) => String(s).replace(/\s+/g, ' ').replace(/ ?# ?/, ' #').trim();
 
 /**
+ * In a serial file (`mode: 'serial'`) each step runs after the ones above it, so the count of record takes every earlier
+ * step's test as part of a step's own test (project-state tooling/scoreboard/test-hash.mjs): a change to one step's test
+ * changes the own test of every step below it. Those steps are read too, or the change leaves them unread on main (12 Nov
+ * 2026: of 28 green steps short only of a read after an "own test changed", 27 sat below the step a PR changed in a
+ * serial file). `touched`: the steps whose own lines changed. Returns the steps at or below the first of them.
+ */
+export function laterInSerial(text, journey, touched) {
+  if (!touched.size || !/mode:\s*['"]serial['"]/.test(String(text ?? ''))) return [];
+  const tests = testsIn(text, journey);
+  const starts = tests.filter((t) => touched.has(t.step)).map((t) => t.start);
+  if (!starts.length) return [];
+  const first = Math.min(...starts);
+  return tests.filter((t) => t.start >= first).map((t) => t.step);
+}
+
+/**
  * The read's input for one pull request at `head`. `src` is test-judge.mjs's source (ciSource or gitSource); the words
  * are loaded only when a step needs reading. Returns { applicable, why } when nothing is read, else { prompt, second,
  * required, secondRequired, read, shingleTexts, wordsRef }.
@@ -124,6 +140,7 @@ export async function buildReads({
       added: f.whole === 'new' ? lines(now) : f.added,
     });
     for (const s of t.own) own.add(s);
+    for (const s of laterInSerial(now, j, t.own)) own.add(s);
   }
   if (own.size === 0 && claimed.size === 0) return { applicable: false, why: 'the title claims no step and no step’s own test changed' };
 

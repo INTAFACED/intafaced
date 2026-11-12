@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseStepWords } from './test-judge.mjs';
-import { READ_SCHEMA, buildReads, cmdRead, countSample, localImports, readStatus, secondReason, writeReads } from './step-read.mjs';
+import { READ_SCHEMA, buildReads, cmdRead, countSample, laterInSerial, localImports, readStatus, secondReason, writeReads } from './step-read.mjs';
 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
@@ -290,4 +290,24 @@ test("the workflow: the read is a job of its own after the review, never fails a
   assert.equal(models.length, 2);
   assert.equal(models[1], models[0]);
   assert.equal(/\n {6}READER_MODEL: (\S+)\n/.exec(job)[1], models[0]);
+});
+
+// In a serial file a step's own test, for the count, holds every step above it (project-state test-hash.mjs), so a
+// change to #1 is a change to #2's own test too: both are read, or #2 is left unread on main.
+test('in a serial file, a change to one step reads it and every step below it; not one above, not in a parallel file', async () => {
+  const SERIAL = JFILE.replace("const J = 'J-x-01';", "const J = 'J-x-01';\ntest.describe.configure({ mode: 'serial' });");
+  const changeOne = [
+    `diff --git a/${RA}/J-x-01.pw.mjs b/${RA}/J-x-01.pw.mjs`, `--- a/${RA}/J-x-01.pw.mjs`, `+++ b/${RA}/J-x-01.pw.mjs`,
+    '@@ -5,1 +5,1 @@', '-  expect(widget).toHaveCount(1);', '+  expect(widget).toHaveCount(2);', '',
+  ].join('\n');
+  const src = (file, diff) => {
+    const base = { [`${RA}/J-x-01.pw.mjs`]: file, [`${RA}/J-wallet-01.pw.mjs`]: WFILE };
+    const at = { ...base, [`${RA}/J-x-01.pw.mjs`]: file.replace('toHaveCount(1)', 'toHaveCount(2)') };
+    return { diff: async () => ({ diff, mergeBase: BASE }), read: async (sha, p) => (sha === HEAD ? at : base)[p] ?? null, journeys: async () => Object.keys(base).sort() };
+  };
+  const read = async (file) => (await buildReads({ src: src(file, changeOne), base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN })).required;
+  assert.deepEqual(await read(SERIAL), ['J-x-01 #1', 'J-x-01 #2']);
+  assert.deepEqual(await read(JFILE), ['J-x-01 #1'], 'a parallel file: only the step changed');
+  assert.deepEqual(laterInSerial(SERIAL, 'J-x-01', new Set(['J-x-01 #2'])), ['J-x-01 #2'], 'nothing above the change');
+  assert.deepEqual(laterInSerial(SERIAL, 'J-x-01', new Set()), []);
 });
