@@ -140,9 +140,9 @@ test(`${J} #3 filters by status and date and presses Refresh: only matching rows
 
   // Status 403, today: the refused order only (the outside call was answered 401, so it does not match).
   const today = new Date().toISOString().slice(0, 10);
-  await page.getByLabel('Status').selectOption('403', UNBUILT);
-  await page.getByLabel('From').fill(today, UNBUILT);
-  await page.getByLabel('To').fill(today, UNBUILT);
+  await page.getByLabel('Status', { exact: true }).selectOption('403', UNBUILT);
+  await page.getByLabel('From', { exact: true }).fill(today, UNBUILT);
+  await page.getByLabel('To', { exact: true }).fill(today, UNBUILT);
   await page.waitForTimeout(1_100);
   await page.getByRole('button', { name: 'Refresh', exact: true }).click(UNBUILT);
   const refused = calls.filter((c) => c.status === 403).map((c) => c.requestId);
@@ -153,14 +153,14 @@ test(`${J} #3 filters by status and date and presses Refresh: only matching rows
   expect(Date.parse(after ?? '')).toBeGreaterThan(Date.parse(before ?? ''));
 
   // Status 200: the answered call only.
-  await page.getByLabel('Status').selectOption('200');
+  await page.getByLabel('Status', { exact: true }).selectOption('200');
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(logRows()).toHaveCount(1);
   await expect(logRows().first()).toHaveAttribute('data-request-id', calls[0].requestId);
 
   // A day with no calls: no rows.
-  await page.getByLabel('From').fill('2020-01-01');
-  await page.getByLabel('To').fill('2020-01-02');
+  await page.getByLabel('From', { exact: true }).fill('2020-01-01');
+  await page.getByLabel('To', { exact: true }).fill('2020-01-02');
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(logRows()).toHaveCount(0);
 });
