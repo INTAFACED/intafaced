@@ -31,8 +31,9 @@
  *   - every row the verdict printed as red is an `(input)` row about main's inputs (MAIN_INPUTS: the baseline's named
  *     run's report, the pass history, the last set-aside list). One step row, or a row about this run's own report, and
  *     it stays red. No summary found in the log (the verdict threw, or its wording changed) is never re-run;
- *   - main is back (mainBack): every main run a row names, and every red main run in the window, has its report, and no
- *     main run's re-run attempt is still going.
+ *   - main is back (mainBack): no main run's re-run attempt is still going, the baseline's named run has its report, every
+ *     other main run a row names has finished (with no report it is skipped by the verdict since 12 Nov, run 4084), and,
+ *     when a row says the API rate limit was hit, the budget has VERDICT_CALLS left.
  * It runs after each Real-app journeys run on main ends (main-trust.yml post-merge, `prs`), so it follows main's
  * report coming back within minutes, and on the hourly `revive` tick after the main pass, for any other input outage.
  *
@@ -157,27 +158,44 @@ export function verdictReds(log) {
   return rows.length === n ? rows : null;
 }
 
-/** Red only on main's inputs: every row is an `(input)` row MAIN_INPUTS names. Returns the main run ids the rows name. */
+/**
+ * Red only on main's inputs: every row is an `(input)` row MAIN_INPUTS names. Returns the main run ids the rows name
+ * (`runIds`), the baseline's named run among them (`namedIds`: the verdict needs its report), and whether a row says the
+ * API budget was spent (`rateLimited`).
+ */
 export function mainInputOnly(rows) {
   if (!rows?.length) return null;
   const ids = new Set();
+  const named = new Set();
+  let rateLimited = false;
   for (const row of rows) {
     const m = row.match(/^\(input\) \(money\): (.*)$/);
     if (!m || !MAIN_INPUTS.some((re) => re.test(m[1]))) return null;
     for (const id of m[1].matchAll(/\b(\d{9,})\b/g)) ids.add(Number(id[1]));
+    const n = m[1].match(/^the baseline's named run \S+ \((\d{9,})\)/);
+    if (n) named.add(Number(n[1]));
+    if (/rate limit/i.test(m[1])) rateLimited = true;
   }
-  return { runIds: [...ids] };
+  return { runIds: [...ids], namedIds: [...named], rateLimited };
 }
 
-/** Is main back: no main re-run attempt still going, and every red main run in the window has its report. */
-export async function mainBack({ repo, now, io }) {
+/**
+ * Is main back: no main re-run attempt still going. A finished main run with no report no longer holds the pull requests:
+ * the verdict skips it in the pass history (journey-verdict.mjs readHistory), so re-running their verdict is enough. Until
+ * 12 Nov this also waited for every red main run in the window to get its report, and run 4084, whose re-run was then
+ * cancelled, would never have had one.
+ */
+export async function mainBack({ repo, io }) {
   const runs = await io.listRuns();
   const going = runs.filter((r) => isMainRun(r, repo) && r.status !== 'completed' && Number(r.run_attempt) > 1);
-  if (going.length) return { back: false, why: `main run ${going[0].run_number}'s re-run is still going` };
-  for (const r of candidates(runs, { repo, now }))
-    if (!(await io.hasReport(r))) return { back: false, why: `main run ${r.run_number} has no report` };
-  return { back: true };
+  if (going.length) return { back: false, why: `main run ${going[0].run_number}'s re-run is still going`, runs };
+  return { back: true, runs };
 }
+
+/** API calls one verdict's inputs spend, with room (98 history runs read on 12 Nov 2026: 208 calls; it grows by two
+ *  per main run until the baseline is rewritten, HISTORY_MAX 150 runs). A re-run asked with less left would only spend
+ *  one of the run's re-runs on the same limit. */
+export const VERDICT_CALLS = 400;
 
 /** The pull request runs worth reading: this repository's, finished red, in the window, attempts left. */
 export function prCandidates(runs, { repo, now }) {
@@ -227,10 +245,21 @@ export async function prTick({ repo, now, io }) {
       continue;
     }
     back ??= await mainBack({ repo, now, io });
+    // The baseline's named run must have its report; any other run a row names need only have finished: one with no
+    // report is skipped by the verdict now, and one cancelled has left the history.
     let missing = null;
-    for (const id of input.runIds) if (!(await io.hasReport({ id }))) missing ??= id;
+    for (const id of input.namedIds) if (!(await io.hasReport({ id }))) missing ??= `run ${id} has no report yet`;
+    for (const id of input.runIds) {
+      const r = back.runs.find((x) => x.id === id);
+      if (r && r.status !== 'completed') missing ??= `run ${r.run_number} is still going`;
+    }
+    if (!missing && input.rateLimited) {
+      const b = await io.budget();
+      if (b.remaining < VERDICT_CALLS)
+        missing = `the API budget has ${b.remaining} of ${b.limit} calls left, under ${VERDICT_CALLS}, until ${new Date(b.reset * 1000).toISOString()}`;
+    }
     if (!back.back || missing) {
-      out.push(`${name} (#${n}): red only on main's inputs, waiting (${missing ? `run ${missing} has no report yet` : back.why})`);
+      out.push(`${name} (#${n}): red only on main's inputs, waiting (${back.back ? missing : back.why})`);
       continue;
     }
     const r = await io.rerun(run);
@@ -301,6 +330,8 @@ export function githubIo(repo) {
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?head_sha=${sha}&per_page=100`)).json.workflow_runs,
     jobs: async (run) =>
       (await gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=100`)).json.jobs,
+    // GET /rate_limit spends no budget.
+    budget: async () => (await gh('GET', '/rate_limit')).json.resources.core,
     jobLog: async (job) => (await gh('GET', `/repos/${repo}/actions/jobs/${job.id}/logs`, undefined, true)).text,
   };
 }

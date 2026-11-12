@@ -180,6 +180,12 @@ const summary = (rows) =>
     .join('\n');
 const HISTORY =
   "(input) (money): the pass history couldn't be read: run 4005's report couldn't be read (run 43037279979's real-app-journeys artifact has no report.json), so a pass in it can't be ruled out";
+// Run 4084's own verdict (43127556856, 12 Nov 2026 01:09 UTC), shortened: the installation's API budget was spent.
+const NAMED_LIMITED =
+  "(input) (money): the baseline's named run 1719 (42357098806) report couldn't be read: Command failed: gh run download 42357098806 --repo INTAFACED/intafaced --name real-app-journeys --dir /tmp/verdict-ON5QHZ: error fetching artifacts: HTTP 403: API rate limit exceeded for installation.";
+// Every pull request's verdict after it, until its re-run was cancelled at 02:11 UTC (#8025, run 43134112457).
+const HISTORY_4084 =
+  "(input) (money): the pass history couldn't be read: run 4084's report couldn't be read (run 43127556856's real-app-journeys artifact has no report.json), so a pass in it can't be ruled out";
 const OWN_STEP = 'J-portfolio-06#1 (money): failing, not in the baseline';
 const UNBUILT = "J-agents-08#2 (money): called unbuilt, but passed on main in run 4005, after the baseline's run 1719";
 
@@ -218,6 +224,7 @@ function prIo({
   rows = { 43113864635: [HISTORY] },
   pr = {},
   newer = [],
+  budget = { limit: 15000, used: 100, remaining: 14900, reset: 1794452400 },
 } = {}) {
   const calls = { rerun: [], logs: 0 };
   return {
@@ -228,6 +235,7 @@ function prIo({
       listPrRuns: async () => runs,
       pull: async () => ({ state: 'open', draft: false, head: { sha: 'dcfd924764' }, ...pr }),
       headRuns: async () => newer,
+      budget: async () => budget,
       jobs: async () => jobs,
       jobLog: async () => {
         calls.logs++;
@@ -249,7 +257,8 @@ test("the verdict's red rows are read from its job log, and nothing is read when
 });
 
 test("only rows about main's inputs count as input-only; a step row or this run's own report never does", () => {
-  assert.deepEqual(mainInputOnly([HISTORY]), { runIds: [43037279979] });
+  assert.deepEqual(mainInputOnly([HISTORY]), { runIds: [43037279979], namedIds: [], rateLimited: false });
+  assert.deepEqual(mainInputOnly([NAMED_LIMITED]), { runIds: [42357098806], namedIds: [42357098806], rateLimited: true });
   assert.ok(mainInputOnly(["(input) (money): the baseline's named run 1719 (40200000000) report couldn't be read: HTTP 502"]));
   assert.ok(mainInputOnly(["(input) (money): the last run on main's set-aside list couldn't be read: HTTP 502"]));
   assert.equal(mainInputOnly([HISTORY, OWN_STEP]), null);
@@ -266,14 +275,17 @@ test('a run red only on main inputs is re-run once main is back', async () => {
   assert.match(lines[0], /#7990.*main is back, re-run of failed jobs requested/);
 });
 
-test('it waits while main is not back: the named run has no report, a red main run has none, or a main re-run is going', async () => {
+test("it waits while main is not back: the baseline's named run has no report, a run a row names is still going, a main re-run is going, or the API budget a rate-limited row hit is still short", async () => {
   const cases = [
-    { reports: new Set(), why: /run 43037279979 has no report yet/ },
-    {
-      main: [run({ id: 1, run_number: 4010, conclusion: 'failure', created_at: '2026-11-11T20:00:00Z' })],
-      why: /main run 4010 has no report/,
-    },
+    { rows: { 43113864635: [NAMED_LIMITED] }, reports: new Set(), why: /run 42357098806 has no report yet/ },
+    { main: [run({ status: 'queued', conclusion: null, run_attempt: 1 })], why: /run 4005 is still going/ },
     { main: [run({ status: 'in_progress', conclusion: null, run_attempt: 3 })], why: /re-run is still going/ },
+    {
+      rows: { 43113864635: [NAMED_LIMITED] },
+      reports: new Set([42357098806]),
+      budget: { limit: 1000, used: 990, remaining: 10, reset: 1794452400 },
+      why: /the API budget has 10 of 1000 calls left/,
+    },
   ];
   for (const c of cases) {
     const { io, calls } = prIo(c);
@@ -281,6 +293,29 @@ test('it waits while main is not back: the named run has no report, a red main r
     assert.deepEqual(calls.rerun, []);
     assert.match(lines[0], c.why);
   }
+});
+
+test('12 Nov replayed: a main run that finished with no report (4084) or was cancelled no longer holds the pull requests; a rate-limited row waits for the budget, then re-runs', async () => {
+  const r4084 = run({
+    id: 43127556856,
+    run_number: 4084,
+    run_attempt: 1,
+    created_at: '2026-11-12T00:28:41Z',
+    updated_at: '2026-11-12T01:09:48Z',
+  });
+  for (const main of [[r4084], [{ ...r4084, run_attempt: 2, conclusion: 'cancelled' }], []]) {
+    const { io, calls } = prIo({ main, rows: { 43113864635: [HISTORY_4084] }, reports: new Set() });
+    const lines = await prTick({ repo: REPO, now: Date.parse('2026-11-12T01:30:00Z'), io });
+    assert.deepEqual(calls.rerun, [43113864635], JSON.stringify(main).slice(0, 80));
+    assert.match(lines[0], /main is back, re-run of failed jobs requested/);
+  }
+  const { io, calls } = prIo({
+    rows: { 43113864635: [NAMED_LIMITED] },
+    reports: new Set([42357098806]),
+    budget: { limit: 1000, used: 500, remaining: 500, reset: 1794452400 },
+  });
+  await prTick({ repo: REPO, now: Date.parse('2026-11-12T02:30:00Z'), io });
+  assert.deepEqual(calls.rerun, [43113864635]);
 });
 
 test("a red of the pull request's own stays red: a step row, another failed step or job, or no summary", async () => {
@@ -324,7 +359,7 @@ test('bounded: per head (a moved head, a newer run, a closed or draft pull reque
   assert.equal(prCandidates([prRun({ run_attempt: 2 })], { repo: REPO, now: PR_NOW }).length, 1);
 });
 
-test('11 Nov replayed on the recorded verdict rows: five of six re-run at 23:51, none at 23:00; the two red ones stop', async () => {
+test('11 Nov replayed on the recorded verdict rows: five of six re-run at 23:00 and at 23:51; the two red ones stop', async () => {
   // Each run's rows at attempt 1 and attempt 2, as the job logs printed them (journey runs 4030 to 4048).
   const record = [
     { id: 43113864635, n: 4047, a1: [HISTORY], a2: null }, // green after the re-run
@@ -349,7 +384,12 @@ test('11 Nov replayed on the recorded verdict rows: five of six re-run at 23:51,
     }
     return reruns;
   };
-  assert.deepEqual(await tickAt(Date.parse('2026-11-11T23:00:00Z'), 1, false), [], 'main not back: nothing re-run');
+  // Since 12 Nov a finished main run with no report no longer holds them: its verdict skips run 4005, so the five are
+  // re-run at 23:00 already, without waiting for 4005's report (journey-verdict.mjs readHistory).
+  assert.deepEqual(
+    await tickAt(Date.parse('2026-11-11T23:00:00Z'), 1, false),
+    [43113864635, 43114148199, 43109619673, 43106935427, 43107761724],
+  );
   assert.deepEqual(await tickAt(PR_NOW, 1, true), [43113864635, 43114148199, 43109619673, 43106935427, 43107761724]);
   assert.deepEqual(await tickAt(Date.parse('2026-11-12T00:30:00Z'), 2, true), [], 'the two red at attempt 2 are their own');
 });

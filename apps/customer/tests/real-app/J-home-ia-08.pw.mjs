@@ -162,10 +162,20 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
   const gap = note.locator(':scope > .empty-state');
   await expect(gap).toHaveCount(1);
   await expect(gap.getByRole('heading')).toHaveText(/^Blocked: .+/);
-  // The blocker it names is the one the disabled Swap names.
-  const title = await button.getAttribute('title');
-  const said = (await gap.getByRole('heading').innerText()).replace(/\s+/g, ' ').trim();
-  expect(said.toLowerCase()).toBe(`Blocked: ${title}`.replace(/\s+/g, ' ').trim().toLowerCase());
+  // The blocker it names is the one the disabled Swap names, once the room has read its sources: while a source is still
+  // being read the blocker moves on from one "still checking" to the next, so both are read together, from one render,
+  // and only a settled blocker counts.
+  const reading = async () => {
+    const { title, said } = await swap.evaluate((row) => ({
+      title: row.querySelector('button')?.getAttribute('title') ?? '',
+      said: row.querySelector('[role="note"] > .empty-state :is(h1, h2, h3, h4, h5, h6, [role="heading"])')?.textContent ?? '',
+    }));
+    const tidy = (text) => text.replace(/\s+/g, ' ').trim().toLowerCase();
+    return { said: tidy(said), named: tidy(`Blocked: ${title}`) };
+  };
+  await expect.poll(async () => (await reading()).said, { timeout: 30_000 }).not.toMatch(/still checking/);
+  const settled = await reading();
+  expect(settled.said).toBe(settled.named);
   // No code: no service-off notice, no allowlist code and no dotted refusal code in its words.
   await expect(page.locator('[data-not-connected]')).toHaveCount(0);
   await expect(note.locator('[data-code], .service-off')).toHaveCount(0);

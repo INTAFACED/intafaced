@@ -810,7 +810,7 @@ jobs:
     needs: [touch, journeys]
     if: always()
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 80 # healthy run: a few minutes; the shard download may wait up to 65 for a spent API budget to reset
     env:
       JOURNEYS_TARGET: ${{ needs.touch.outputs.target }}
       NOTHING: ${{ needs.touch.outputs.mode == 'none' }}
@@ -855,9 +855,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHARD_COUNT: ${{ needs.touch.outputs.count || 8 }}
+          WAIT_BUDGET_MINUTES: 65 # the job's timeout-minutes less the time the later steps need
+        # A spent API budget is waited out until its reset, never swallowed: run 4084 (12 Nov 2026) hit "API rate limit
+        # exceeded for installation" here, saved a report with no report.json, and every pull request's verdict failed on
+        # it. Any other refusal fails this step by name (tooling/ci/shard-download.mjs). It prints the token's budget.
         run: |
           mkdir -p "$RUNNER_TEMP/shards" "$RUNNER_TEMP/blobs" "$RUNNER_TEMP/journeys"
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'real-app-journeys-shard-*' --dir "$RUNNER_TEMP/shards" || true
+          node tooling/ci/shard-download.mjs "$RUNNER_TEMP/shards"
           # One folder per shard artifact; the blob keeps its own name, prefixed so two shards never collide.
           for d in "$RUNNER_TEMP"/shards/real-app-journeys-shard-*; do
             [ -d "$d" ] || continue

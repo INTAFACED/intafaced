@@ -498,6 +498,31 @@ export function historyRuns(runs, { repo, namedCreated, thisCreated, thisId }) {
     .sort((a, b) => a.run_number - b.run_number);
 }
 
+/**
+ * The pass history's reports: `read(run)` gives a run's report, or null when the finished run kept none (its journeys
+ * artifact is missing or has no report.json). A run with no report is skipped, named in `skipped`, never thrown on: a
+ * finished main run that saved no report (run 4084, 12 Nov 2026: its shard merge hit GitHub's API rate limit; run 4005,
+ * 11 Nov: no shard started) would otherwise fail every pull request's verdict until someone re-ran it. What a skip can let
+ * through: a step that passed only in the skipped run, and fails now, counts as not built yet instead of red; main's own
+ * next runs, which run every journey, catch it there. A report that can't be read (a refusal, a rate limit, a malformed
+ * file) still throws: unreadable is red.
+ */
+export function readHistory(runs, read) {
+  const reports = [];
+  const skipped = [];
+  for (const r of runs) {
+    let report;
+    try {
+      report = read(r);
+    } catch (e) {
+      throw new Error(`run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}), so a pass in it can't be ruled out`);
+    }
+    if (report) reports.push([r.run_number, report]);
+    else skipped.push(r.run_number);
+  }
+  return { reports, skipped };
+}
+
 // ── CLI ────────────────────────────────────────────────────────────────────
 const arg = (name) => {
   const i = process.argv.indexOf(name);
@@ -606,16 +631,18 @@ export function rootInputs(root, baselineFile) {
 /**
  * The verdict's inputs read from GitHub, GET only: the baseline's named run's report, the pass history on main after it
  * and before the run judged (`thisRunId`, or `thisRun` when already read), and the regression issues the baseline names.
- * Returns { named, passedSince, issues, problems, shas }; each input that can't be read is a problem, which is red, never
+ * Returns { named, passedSince, issues, problems, shas, skipped }; `skipped` lists the history runs that finished with no
+ * report (readHistory). Each input that can't be read is a problem, which is red, never
  * green. `shas` maps the run number of the named run and of each history run to its head commit (the merge seal reads
  * where a step last passed from it). `reports` caches downloaded reports by run id, so the merge seal reading several runs downloads each once.
  */
 export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new Map(), log = console.log }) {
   const problems = [];
-  const reportOf = (id) => {
-    if (!reports.has(id)) reports.set(id, readReport(downloadReport(repo, id)));
+  const reportOf = (id, raw) => {
+    if (!reports.has(id)) reports.set(id, readReport(raw ?? downloadReport(repo, id)));
     return reports.get(id);
   };
+  let skipped = [];
   let named = null;
   let passedSince = {};
   const issues = {};
@@ -639,16 +666,18 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       throw new Error(
         `${runs.length} finished runs on main since run ${baseline.run.number}, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
       );
-    const read = [];
-    for (const r of runs) {
-      try {
-        read.push([r.run_number, reportOf(r.id)]);
-      } catch (e) {
-        throw new Error(`run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}), so a pass in it can't be ruled out`);
-      }
-    }
-    log(`pass history: ${read.length} finished run(s) on main after run ${baseline.run.number}`);
-    passedSince = passesSince(read);
+    // A finished run that kept no report is skipped (readHistory), only in the history: the named run must have one.
+    const history = readHistory(runs, (r) => {
+      if (reports.has(r.id)) return reports.get(r.id);
+      const got = downloadReport(repo, r.id, 'report.json', true);
+      return got ? reportOf(r.id, got) : null;
+    });
+    skipped = history.skipped;
+    log(
+      `pass history: ${history.reports.length} finished run(s) on main after run ${baseline.run.number}` +
+        (skipped.length ? `; skipped, finished with no report: run ${skipped.join(', run ')}` : ''),
+    );
+    passedSince = passesSince(history.reports);
   } catch (e) {
     problems.push(`the pass history couldn't be read: ${e.message}`);
   }
@@ -659,7 +688,7 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       issues[n] = { problem: e.message.split('\n')[0] };
     }
   }
-  return { named, passedSince, issues, problems, shas };
+  return { named, passedSince, issues, problems, shas, skipped };
 }
 
 function main() {
@@ -687,13 +716,14 @@ function main() {
   let named = null;
   let passedSince = {};
   let issues = {};
+  let skipped = [];
   let thisRun = {
     number: Number(arg('--run-number') ?? process.env.GITHUB_RUN_NUMBER) || null,
     at: arg('--now') ?? new Date().toISOString(),
   };
   if (fetch) {
     const got = fetchInputs({ repo, baseline, thisRunId: process.env.GITHUB_RUN_ID });
-    ({ named, passedSince, issues } = got);
+    ({ named, passedSince, issues, skipped } = got);
     for (const why of got.problems) problem(why);
   } else {
     try {
@@ -813,6 +843,12 @@ function main() {
     '### Verdict against the list of steps not built yet',
     '',
     `Baseline: run ${baseline.run?.number} (\`${BASELINE_PATH}\`).${target ? ` Targeted run: ${[...target].join(', ')}.` : ''}`,
+    ...(skipped.length
+      ? [
+          '',
+          `Pass history: skipped main run ${skipped.join(', run ')}, finished with no report. A step that passed only there and fails here counts as not built yet; main's next full run catches it.`,
+        ]
+      : []),
     `Failing or missing steps: ${verdict.failing}; outside the list or against its rules: **${verdict.red.length}**.`,
     '',
     ...(verdict.red.length
