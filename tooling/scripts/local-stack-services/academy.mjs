@@ -80,6 +80,10 @@ const postLimits = () =>
     ? {}
     : { ACADEMY_POST_MAX_CHARS: '4000', ACADEMY_POST_IMAGE_MAX_BYTES: '262144', ACADEMY_MESSAGE_MAX_CHARS: '4000' };
 
+// LOCAL TEST room size ceiling (a TEST owner value): a host may open a room of up to 500 seats, so a host can open the
+// specialist rooms J-academy-19 #4 reads. `LOCAL_STACK_ACADEMY_ROOM_CAPACITY=off` leaves it blank (createRoom refuses).
+const roomCapacity = () => (process.env.LOCAL_STACK_ACADEMY_ROOM_CAPACITY === 'off' ? {} : { ACADEMY_MAX_ROOM_CAPACITY: '500' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -103,5 +107,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...programmeMax(),
     ...postLimits(),
     ...verifyRate(),
+    ...roomCapacity(),
   }),
 });

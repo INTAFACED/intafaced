@@ -1797,7 +1797,7 @@ export function createAcademyRouter(
     /** A room, its terms, and what is on in it. `seated` and `role` are the caller's. */
     room: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ roomId: z.string().guid(), limit: z.number().optional() }))
-      .output(z.object({ room: roomOut, sessions: z.array(sessionOut) }))
+      .output(z.object({ room: roomOut, sessions: z.array(sessionOut), pinnedLessons: z.array(curriculumSummaryOut) }))
       .query(({ ctx, input }) =>
         guard(async () => {
           const seats = await academy.callerLiveSeats(ctx.principal.userId);
@@ -1806,6 +1806,7 @@ export function createAcademyRouter(
             sessions: (await academy.listSessions({ roomId: input.roomId, limit: input.limit })).map((session) =>
               serialiseSession(session, seatFor(seats, session.id, 'session')),
             ),
+            pinnedLessons: await academy.pinnedLessons(input.roomId),
           };
         }),
       ),
@@ -1906,6 +1907,27 @@ export function createAcademyRouter(
             userId: input.userId,
             expiresAt: input.expiresAt ?? null,
           });
+          return { ok: true as const };
+        }),
+      ),
+
+    /** Pin a curriculum lesson to the room page (RC-academy-06). Host only; a repeat keeps its first place. */
+    pinLesson: scopedProcedure('academy:write', { module: 'academy' })
+      .input(z.object({ roomId: z.string().guid(), itemSlug: z.string().min(1).max(120) }))
+      .output(z.object({ ok: z.literal(true) }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          await academy.pinLesson({ ...input, hostId: ctx.principal.userId });
+          return { ok: true as const };
+        }),
+      ),
+
+    unpinLesson: scopedProcedure('academy:write', { module: 'academy' })
+      .input(z.object({ roomId: z.string().guid(), itemSlug: z.string().min(1).max(120) }))
+      .output(z.object({ ok: z.literal(true) }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          await academy.unpinLesson({ ...input, hostId: ctx.principal.userId });
           return { ok: true as const };
         }),
       ),
