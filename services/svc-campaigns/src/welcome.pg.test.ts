@@ -508,10 +508,12 @@ if (!db) {
       venueSays(deposit('84532:0xbb:0', '25', at), deposit('84532:0xcc:0', '5', ago(1_000)));
       expect((await depositTask()).task).toEqual(first.task);
       expect(await db.sql`SELECT 1 FROM campaigns.welcome_events WHERE account_id = ${ME} AND event = 'pay.deposit'`).toHaveLength(1);
-      // Once ticked, the venue is not read again for it.
+      // Every look reads the venue again (the same fact delivered again): the tick stays the first one.
       const before = reads;
-      await depositTask();
-      expect(reads).toBe(before);
+      const again = await depositTask();
+      expect(reads).toBe(before + 1);
+      expect(again.task).toEqual(first.task);
+      expect(again.deposit).toMatchObject({ source: 'read' });
     });
 
     it('counts a deposit only above what we paid that wallet as rewards', async () => {

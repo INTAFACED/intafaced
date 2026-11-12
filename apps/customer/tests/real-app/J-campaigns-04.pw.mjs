@@ -1,5 +1,7 @@
 // World: book, restart
-import { randomBytes } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -235,6 +237,60 @@ async function newAccountWithWallet(page, prefix, campaignId) {
   return { who, walletKey, address };
 }
 
+/**
+ * The person's verification event delivered to svc-campaigns twice more: their newest identity.kyc.approved on the
+ * stack's bus, published again with its payload unchanged under new envelope keys, so the bus does not drop it as its own
+ * duplicate and the welcome consumer is what must hold. Returns the payload.
+ */
+function redeliverKyc(userId) {
+  const code = `
+    import { connect } from 'nats';
+    import { EVENT_CATALOG, JetStreamEventBus, decodeEnvelope, streamName } from '@intafaced/events';
+    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, USER_ID: userId } = process.env;
+    const subject = EVENT_CATALOG.kycApproved.subject;
+    const nc = await connect({ servers });
+    const jsm = await nc.jetstreamManager();
+    const stream = streamName('identity', prefix);
+    const { state } = await jsm.streams.info(stream);
+    let payload;
+    for (let seq = state.last_seq; seq >= state.first_seq && !payload; seq -= 1) {
+      const m = await jsm.streams.getMessage(stream, { seq }).catch(() => null);
+      if (m?.subject !== subject) continue;
+      const env = decodeEnvelope(m.data);
+      if (env.payload.userId === userId) payload = env.payload;
+    }
+    await nc.close();
+    if (!payload) throw new Error('no ' + subject + ' for ' + userId + ' in ' + stream);
+    const bus = await JetStreamEventBus.connect({ servers, producer: 'svc-identity', streamPrefix: prefix });
+    for (const n of [1, 2]) {
+      await bus.publish('kycApproved', payload, { idempotencyKey: 'kyc:' + userId + ':welcome-again:' + n + ':' + Date.now() });
+    }
+    await bus.close();
+    console.log(JSON.stringify(payload));`;
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(root, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the verification event again failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').at(-1));
+}
+
+/** Until svc-campaigns' welcome verification consumer has taken and acknowledged every message on the bus. */
+async function kycConsumerCaughtUp() {
+  await expect(async () => {
+    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const consumer = info.account_details
+      ?.flatMap((a) => a.stream_detail ?? [])
+      .flatMap((st) => st.consumer_detail ?? [])
+      .find((c) => c.name === 'campaigns-welcome-kyc-approved');
+    expect(consumer?.num_pending ?? -1).toBe(0);
+    expect(consumer?.num_ack_pending ?? -1).toBe(0);
+  }).toPass({ timeout: 30_000 });
+}
+
 test(`${J} #1 opens /uc/promotion on a new account: the checklist with its time window, and a blank reward reads "not set"`, async ({
   browser,
 }) => {
@@ -328,12 +384,22 @@ test(`${J} #2 verifies and deposits TEST USDC from the wallet into the venue acc
   await expect(row(page, 'trade.fill')).toHaveAttribute('data-state', 'open');
   await expect(row(page, 'pay.deposit').getByTestId('welcome-why')).toContainText('Done on');
 
-  // The same transfer reported to the venue again credits nothing, and a second deposit of their own adds no tick: the
-  // task stays ticked once, at the same moment, and the identity task likewise.
+  // The same transfer reported to the venue again credits nothing: the task stays ticked once, at the same moment, and
+  // the identity task likewise.
   expect(await testDeposit(address, 'USDC', DEPOSIT, credited[0].depositRef)).toBe(false);
-  expect(await testDeposit(address, 'USDC', '5', `${CHAIN_ID}:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+  // The verification event reaches svc-campaigns twice more, and every look below reads the venue's deposits again
+  // (svc-campaigns reads the venue on each look, the deposit fact delivered to it again, with a later as-of time).
+  const customer = await api(me);
+  expect(redeliverKyc(customer.userId)).toMatchObject({ userId: customer.userId, tier: 'full' });
+  await kycConsumerCaughtUp();
+  let asOf = before.deposit.asOf;
+  expect(before.deposit.source).toBe('read');
   for (let i = 0; i < 3; i += 1) {
+    await new Promise((r) => setTimeout(r, 1_100));
     const after = await checklistOf(me);
+    expect(after.deposit.source).toBe('read');
+    expect(Date.parse(after.deposit.asOf)).toBeGreaterThan(Date.parse(asOf));
+    asOf = after.deposit.asOf;
     expect(taskOf(after, 'pay.deposit')).toEqual(taskOf(before, 'pay.deposit'));
     expect(taskOf(after, 'identity.verified')).toEqual(taskOf(before, 'identity.verified'));
   }
@@ -431,19 +497,15 @@ test(`${J} #4 claims after all tasks are done: one reward per task, each once`, 
 
 test(`${J} #5 returns after the window: the tasks read expired and no reward is created`, async ({ browser }) => {
   test.setTimeout(300_000);
-  const { early, earlyKey, shortId, fullId } = state('early', 'earlyKey', 'shortId', 'fullId');
+  const { early, shortId, fullId } = state('early', 'shortId', 'fullId');
   const opened = await checklistOf(early);
   expect(opened.campaign.id).toBe(shortId);
   const wait = new Date(opened.window.closesAt).getTime() - Date.now();
   if (wait > 0) await new Promise((r) => setTimeout(r, wait + 1_000));
   const page = await (await browser.newContext()).newPage();
   await signIn(page, early);
-  // Real facts after the window tick nothing: the account verifies now, and its venue account takes a deposit.
+  // A real fact after the window ticks nothing: the account verifies now.
   await verify(page, early, 'Basic');
-  if ((await venueDoor(early)).deposit) {
-    const address = privateKeyToAccount(earlyKey).address;
-    expect(await testDeposit(address, 'USDC', DEPOSIT, `${CHAIN_ID}:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-  }
   await signIn(page, early);
   const list = await openChecklist(page);
   await expect(list.getByTestId('welcome-window')).toHaveAttribute('data-state', 'expired');

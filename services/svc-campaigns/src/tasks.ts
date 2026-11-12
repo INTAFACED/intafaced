@@ -930,7 +930,8 @@ export class TaskService {
   ): Promise<WelcomeDepositSource | null> {
     const { account, campaign, events } = found;
     if (!campaign.tasks.steps.some((s) => s.event === 'pay.deposit')) return null;
-    if (events.has('pay.deposit')) return { source: 'read', asOf: null };
+    // Read on every look, ticked or not: the venue's record is the fact, and reading it again (its redelivery here) keeps
+    // the first deposit that counted (`onWelcomeEvent` keeps the earliest), so it never moves or ticks twice.
     if (!this.venueDeposits) return { source: 'unread', asOf: null };
     const wallets = await this.venueDeposits.wallets(forwarded);
     if (wallets === null) return { source: 'unread', asOf: null };
