@@ -31,8 +31,9 @@ export const ISSUE_TITLE = 'Judge down: CI review';
 export const LABEL = 'judge-down';
 /** The most CI review runs one success re-runs: each re-run spends the App's and Actions' quota (and one review call). */
 export const CATCH_UP_CAP = 10;
-/** The most heads' jobs read to find them: one GET each. */
-const JOBS_READ_CAP = 40;
+/** The most heads' jobs read to find them: one GET each. Every open head costs a read or two (an `edited` run on top),
+ *  so 40 stopped short of the newest heads with 60 open PRs on 11 Nov; it runs only when the judge is back. */
+export const JOBS_READ_CAP = 150;
 /** For a sign-in: the reviewer account's sign-in page (`signInUrl`, ci-review.yml's SIGN_IN_URL, where the vendor may be named), then the key. */
 const signInLines = (signInUrl) =>
   `Sign in: ${signInUrl || '(no SIGN_IN_URL set in ci-review.yml)'}. Then an agent makes a new key with the reviewer CLI's \`setup-token\` and sets it as the \`CLAUDE_CODE_OAUTH_TOKEN\` secret of the \`ci-review\` environment: https://github.com/INTAFACED/intafaced/settings/environments`;
@@ -56,7 +57,7 @@ export function issueBody({ source, line, action, signIn, signInUrl, runUrl, now
     `- **One action:** ${action}`,
     ...(signIn ? [`- ${signInLines(signInUrl)}`] : []),
     '',
-    `Later down runs add nothing here. The first CI review whose reviewer call succeeds closes this and re-runs the CI review on the oldest ${CATCH_UP_CAP} open PR heads that have no verdict (tooling/ci/judge-down.mjs).`,
+    `Later down runs add nothing here. The first CI review whose reviewer call succeeds closes this and re-runs the CI review on the oldest ${CATCH_UP_CAP} open PR heads that have no verdict, and each re-run that succeeds takes the next ${CATCH_UP_CAP} until none is left (tooling/ci/judge-down.mjs).`,
   ].join('\n');
 }
 
@@ -226,7 +227,7 @@ async function backCatchUp(source) {
       done.length
         ? `Re-ran the CI review on the oldest ${done.length} open PR heads with no verdict: ${done.join(', ')}.`
         : 'No open PR head was left without a verdict.',
-      left ? `${left} more head(s) have no verdict past the cap of ${CATCH_UP_CAP}; each is reviewed on its next push.` : '',
+      left ? `${left} more head(s) have no verdict past the cap of ${CATCH_UP_CAP}; the re-runs' own catch-ups take them.` : '',
     ]
       .filter(Boolean)
       .join(' '),
