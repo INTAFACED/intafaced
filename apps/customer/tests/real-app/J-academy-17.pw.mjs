@@ -212,8 +212,11 @@ async function saveDesign(page, { title, signatories, disclaimer, reason }) {
   }
   await form.getByLabel('Design disclaimer').fill(disclaimer);
   await form.getByLabel('Design reason').fill(reason);
+  const before = (await designCard(page).getByTestId('cert-design-now').textContent()) ?? '';
   await form.getByRole('button', { name: 'Save design' }).click();
-  await expect(outcome(page)).toBeVisible();
+  // The save's own answer: the outcome names the new revision, and the card reads back from svc-academy after it.
+  await expect(outcome(page)).toContainText(/^Done: revision \d+ saved/);
+  await expect(designCard(page).getByTestId('cert-design-now')).not.toHaveText(before);
 }
 
 async function staffRead(procedure, input) {

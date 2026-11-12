@@ -267,10 +267,11 @@ function useDesk<T>(initial: T | null, reload: () => Promise<T | null>) {
   const send = async (body: Record<string, unknown>) => {
     setBusy(true);
     const answer = await postCertDeskChange(body);
+    // Whatever the answer, the page shows what svc-academy holds now. The outcome shows once that read is in, so the
+    // forms it rebuilds never drop what is typed after the outcome appears.
+    await read();
     setReply(answer);
     setBusy(false);
-    // Whatever the answer, the page shows what svc-academy holds now.
-    await read();
   };
   return { view, busy, reply, send };
 }
