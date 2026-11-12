@@ -174,7 +174,8 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   const window = await tapeWindow(60);
   const room = await backtest(page, 'TEST both exits', window);
 
-  // Each stop-loss exit is paired with the entry before it; on the bar it filled, the tape reached the take profit too.
+  // Each exit is paired with the entry before it; a bar that reached both its stop loss and its take profit must
+  // exit by the stop loss, so an exit of either kind on such a bar is collected and judged.
   const bars = new Map((await closedBarsSince(window.from)).map(([at, open, high, low]) => [at, { open, high, low }]));
   await view(room, 'Orders and trades');
   const rows = await room
@@ -185,7 +186,7 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   const both = [];
   for (let i = 1; i < rows.length; i++) {
     const [entry, exit] = [rows[i - 1], rows[i]];
-    if (entry.side !== 'buy' || exit.side !== 'sell' || exit.cells[2] !== 'Stop loss') continue;
+    if (entry.side !== 'buy' || exit.side !== 'sell' || !['Stop loss', 'Take profit'].includes(exit.cells[2])) continue;
     const bar = bars.get(Date.parse(exit.ts));
     if (!bar) continue;
     const entered = Number(entry.cells[5]);
@@ -198,6 +199,7 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   // The stop filled first: the exit on that bar is the stop loss, at the stop (or the open, had the bar gapped past
   // it), and no take-profit exit shares its bar.
   for (const { exit, stop, bar } of both) {
+    expect(exit.cells[2], `the exit at ${exit.ts}, on a bar that reached both levels, was not the stop loss`).toBe('Stop loss');
     const price = Number(exit.cells[5]);
     expect(price).toBeCloseTo(bar.open <= stop ? bar.open : stop, 6);
     expect(rows.filter((r) => r.ts === exit.ts && r.cells[2] === 'Take profit')).toHaveLength(0);
