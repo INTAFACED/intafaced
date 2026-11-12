@@ -71,6 +71,11 @@
       "value": "60",
       "note": "TEST wait of 60 seconds before a rejected lead applicant may apply again, so J-copy-bots-otc-10 #4 sees the wait refuse and then end on the real clock."
     },
+    "TRADE_COPY_LEAD_MIN_VENUE_USDC": {
+      "service": "trade",
+      "value": "1000",
+      "note": "TEST least venue balance of 1000 USDC to apply to lead, so J-copy-bots-otc-04 #1 and J-copy-bots-otc-10 applicants with TEST USDC on the TEST venue may apply. Not an owner decision."
+    },
     "TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS": {
       "service": "trade",
       "value": "20",

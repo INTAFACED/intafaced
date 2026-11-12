@@ -1,7 +1,9 @@
+import { keccak256, toHex } from 'viem';
 import { expect } from './journey.mjs';
 import { approverSessions, makeContext, refusalText } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, api, bestPrices, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
+import { otherTraderKey, testDeposit } from './venue.mjs';
 
 // The copy journeys' other actors: the operator who lists a leader (the stack's TEST founder, through svc-trade's own
 // operator door, as the founder console would), and the leader's own orders on the real book.
@@ -192,3 +194,37 @@ export const copiedOrders = (detail) =>
     .locator('tbody tr:not([data-slot="table-empty-row"])')
     // Rows with a market only: while the list loads, its placeholder rows have none.
     .filter({ hasText: /\w\/\w/ });
+
+/**
+ * Gives `who` their own venue account on the stack's LOCAL TEST venue, as a lead applicant has one (J-copy-bots-otc-04
+ * #1): a TEST wallet derived from a public `name` is credited TEST `usdc` by the venue's TEST deposit control, keyed by
+ * a chain-transfer-shaped reference so a replay credits nothing, and signs one action through svc-trade's user-venue
+ * door (approving our builder fee), which makes that account the person's own. Needs the door on for the file
+ * (venue.mjs `venueForThisFile`). INTAFACED holds none of it. Returns the wallet's address, lowercase.
+ */
+export async function leadVenueAccount(who, name, usdc) {
+  const key = otherTraderKey(name);
+  const owner = key.address.toLowerCase();
+  if (Number(usdc) > 0) await testDeposit(owner, 'USDC', usdc, `84532:${keccak256(toHex(`lead venue ${name}`))}:0`);
+  const client = await api(who);
+  const status = (await client.get('/api/v1/venue/status')).body;
+  expect(status, JSON.stringify(status).slice(0, 300)).toMatchObject({ enabled: true, test: true, label: 'TEST' });
+  expect(status.builder, 'the TEST builder fee is set on the door').toBeTruthy();
+  const actionKey = `approve-builder:${owner}:lead`;
+  const prepared = await client.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent: { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
+    actionKey,
+  });
+  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 300)).toBe(200);
+  const t = prepared.body.prepared.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await client.post('/api/v1/venue/submit', {
+    actionKey: prepared.body.actionKey,
+    signature: { digest: prepared.body.prepared.digest, signature, signedBy: owner },
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  expect(sent.body.outcome).toMatchObject({ definite: true, accepted: true });
+  return owner;
+}

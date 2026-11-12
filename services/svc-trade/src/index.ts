@@ -43,7 +43,8 @@ import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './f
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
-import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { LeadDesk, parseLeadMinVenueUsdc, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { leadFollowing, leadVenueUsdc } from './copy/lead-conditions.js';
 import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
 import { createLiveTierClient } from './signals/live-tier.js';
@@ -810,6 +811,9 @@ export const appRouter = createTradeRouter(
     directory: leaderDirectory,
     now: () => new Date(),
     reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
+    minVenueUsdc: parseLeadMinVenueUsdc(env.TRADE_COPY_LEAD_MIN_VENUE_USDC),
+    following: (userId) => leadFollowing({ follows: copyStore, directory: leaderDirectory }, userId),
+    venueUsdc: (userId) => leadVenueUsdc({ venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore }, userId),
   }),
   grid,
   platformPauses,

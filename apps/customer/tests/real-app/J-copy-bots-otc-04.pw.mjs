@@ -1,27 +1,39 @@
-// World: book
+// World: book, restart
+import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, journeyState, signOutBrowser } from './stack.mjs';
+import { api, journeyState, signOutBrowser, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { copiedOrdersLoaded, followOnScreen, listLeader, openFollow, takeBest } from './copy.mjs';
+import { copiedOrdersLoaded, followOnScreen, leadVenueAccount, listLeader, openFollow, takeBest } from './copy.mjs';
+import { venueForThisFile } from './venue.mjs';
 
 // J-copy-bots-otc-04, in the running app (docs/roadmap/journeys.json): become a lead trader and place my first lead trade.
 // One test per step, titled "J-copy-bots-otc-04 #<n>", run in order. The applicant is a verified TEST account with TEST
-// 3000 USDT; a second TEST leader (listed by the stack's TEST founder) is the master the applicant first follows. The
-// lead criteria, balance threshold, leading instrument list and lead limits are the stack's TEST copy-lead terms; the
-// founders approve on the console. Lead orders are the applicant's own orders on the TEST book.
+// 3000 USDT on the TEST book (to follow with) and a TEST wallet whose account on the stack's LOCAL TEST venue holds TEST
+// 3000 USDC, made the applicant's own by one action their wallet signs through svc-trade's user-venue door, switched on
+// for this file. A second TEST leader (listed by the stack's TEST founder) is the master the applicant first follows.
+// The least venue balance to lead is the stack's TEST value (tooling/profiles/test-owner-values/trade.json), blanked for
+// one restart of svc-trade in #1; the founders reject and approve on the console. Lead orders are the applicant's own.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1, #2: the Copy room has no "Become a lead trader" door, so there is no application.
 // - #3: no new-trader missions; #4: no lead account, level or lead trading screen.
 // - #5 to #7: the order form has no lead-trade toggle, leading instrument list or lead limits.
 // - #8: no lead trade views with counters and copiers.
 const J = 'J-copy-bots-otc-04';
-const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
+const run = journeyState(`${J}-${RUN}`);
 const UNBUILT = { timeout: 5_000 };
+const PROFILE = JSON.parse(
+  readFileSync(new URL('../../../../tooling/profiles/test-owner-values/trade.json', import.meta.url), 'utf8'),
+).values;
+/** The owner's wait before a rejected applicant may apply again, as the stack's TEST profile sets it, in milliseconds. */
+const REAPPLY_WAIT_MS = Number(PROFILE.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS.value) * 1000;
+/** The least venue USDC to lead, as the stack's TEST profile sets it. */
+const THRESHOLD = PROFILE.TRADE_COPY_LEAD_MIN_VENUE_USDC.value;
 
 test.describe.configure({ mode: 'default' });
 // An action on a part that never appears fails in 15 s, not at the test's time limit.
 test.use({ actionTimeout: 15_000 });
+venueForThisFile(test);
 
 function state(key) {
   const value = run.read()[key];
@@ -29,60 +41,154 @@ function state(key) {
   return value;
 }
 
-const applySheet = (page) => page.getByRole('dialog', { name: 'Apply to lead' });
+const codeOf = (body) => body?.error?.data?.cause?.code;
 
-async function openApply(page) {
-  await page.goto('/trade/copy');
-  await page.getByRole('button', { name: 'Become a lead trader' }).click(UNBUILT);
-  await expect(applySheet(page)).toBeVisible();
+/** The applicant's own application, as svc-trade answers `copy.myLeadApplication`. */
+async function mineOf(who) {
+  const res = await (await api(who)).get('/api/trade/trpc/copy.myLeadApplication');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body?.result?.data ?? null;
 }
 
-/** The lead trading screen: the spot desk with the lead-trade switch on. */
-async function leadDesk(page) {
-  await page.goto('/trade/spot/BTC-USDT?lead=1');
-  const toggle = page.getByRole('switch', { name: 'Lead trade' });
-  await expect(toggle).toBeVisible(UNBUILT);
-  return toggle;
+/** svc-trade restarted with the user-venue door on and the least venue balance to lead blank or back on its TEST value. */
+function leadBalance(value) {
+  const saved = { door: process.env.LOCAL_STACK_USER_VENUE, balance: process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE };
+  process.env.LOCAL_STACK_USER_VENUE = 'on';
+  if (value === 'blank') process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = 'blank';
+  else delete process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    for (const [key, before] of [
+      ['LOCAL_STACK_USER_VENUE', saved.door],
+      ['LOCAL_STACK_TRADE_COPY_LEAD_BALANCE', saved.balance],
+    ]) {
+      if (before === undefined) delete process.env[key];
+      else process.env[key] = before;
+    }
+  }
 }
 
-test(`${J} #1 applies to lead while following another master: refused naming the master`, async ({ page }) => {
-  test.setTimeout(360_000);
+const terms = (page) => page.getByRole('region', { name: 'What leading needs' });
+
+/** Opens Apply to lead, fills the display name and presses Apply; returns svc-trade's answer to the submit. */
+async function applyOnScreen(page, displayName) {
+  await page.goto('/copy/lead/apply');
+  await page.getByRole('textbox', { name: 'Display name' }).fill(displayName);
+  const sent = page.waitForResponse((res) => res.url().includes('copy.applyToLead') && res.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Apply to lead' }).click();
+  const answer = await sent;
+  return { status: answer.status(), body: await answer.json(), request: answer.request().postDataJSON() };
+}
+
+async function openDesk(page, founder = 'a') {
+  await founderSignIn(page, founder);
+  await page.goto(`${ADMIN}/trade-ops/copy`);
+  await expect(page.getByRole('heading', { name: 'Copy trading', level: 1 })).toBeVisible();
+}
+
+test(`${J} #1 applies to lead while following another master: refused naming the master; with the balance threshold blank, refused naming the threshold`, async ({
+  page,
+}) => {
+  test.setTimeout(480_000);
   const tag = Date.now().toString(36);
   const master = await fundedTrader(page, 'jcm4', '10');
   const masterName = `Journey Master ${tag}`;
   const masterRef = await listLeader(master, masterName);
   const applicant = await fundedTrader(page, 'jca4', '3000');
-  run.reset({ tag, master, masterName, masterRef, applicant });
+  const owner = await leadVenueAccount(applicant, `${J} ${RUN} ${tag} applicant`, '3000');
+  const displayName = `TEST lead ${tag}`;
+  run.reset({ tag, master, masterName, masterRef, applicant, owner, displayName });
   await signIn(page, applicant);
   await followOnScreen(page, applicant, masterRef, { perOrder: '20', total: '40', fixed: '10' });
 
-  await openApply(page);
-  await applySheet(page).getByLabel('Display name').fill(`TEST lead ${tag}`);
-  await applySheet(page).getByRole('button', { name: 'Send application' }).click();
-  await expect(applySheet(page).getByText(`You are following ${masterName}. Leave that leader before you apply to lead.`)).toBeVisible();
-  // Leave the master so #2 can apply.
-  await page.keyboard.press('Escape');
+  // Following the master: the room says whom, and the application is refused naming them. Nothing is written.
+  const following = await applyOnScreen(page, displayName);
+  expect([following.status, codeOf(following.body)], JSON.stringify(following.body).slice(0, 300)).toEqual([
+    400,
+    'trade.copy_lead_following',
+  ]);
+  await expect(page.getByText(`You are following ${masterName}. Leave that leader before you apply to lead.`)).toBeVisible();
+  await expect(terms(page)).toContainText(`You are following ${masterName}`);
+  // The venue balance the room shows is the venue's own figure for the wallet's account, labelled TEST.
+  await expect(terms(page)).toContainText('3,000 USDC TEST');
+  expect(await mineOf(applicant), 'a refused application writes nothing').toBeNull();
+
+  // Leave the master on screen.
   const detail = await openFollow(page, masterRef);
   await detail.getByRole('button', { name: 'Leave leader', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Leave leader', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+
+  // With the least venue balance to lead blank, the application is refused naming the threshold, which reads Not set.
+  leadBalance('blank');
+  try {
+    const blank = await applyOnScreen(page, displayName);
+    expect([blank.status, codeOf(blank.body)], JSON.stringify(blank.body).slice(0, 300)).toEqual([
+      400,
+      'trade.copy_lead_balance_threshold_unset',
+    ]);
+    await expect(page.getByText('The least venue balance to lead is not set by the platform')).toBeVisible();
+    await expect(terms(page)).toContainText('No leader');
+    await expect(terms(page)).toContainText(/Least venue balance\s*Not set/);
+    expect(await mineOf(applicant), 'a refused application writes nothing').toBeNull();
+  } finally {
+    leadBalance('test');
+  }
 });
 
-test(`${J} #2 submits a valid application: submitted, and a second submit with the same key returns the same row`, async ({ page }) => {
+test(`${J} #2 submits a valid application: submitted, the same submit again returns the same row; a rejected one shows its reason and may be resubmitted after the owner's wait`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(REAPPLY_WAIT_MS + 300_000);
   const applicant = state('applicant');
+  const displayName = state('displayName');
   await signIn(page, applicant);
-  await openApply(page);
-  await applySheet(page)
-    .getByLabel('Display name')
-    .fill(`TEST lead ${state('tag')}`);
-  const sent = page.waitForResponse((res) => res.url().includes('copy.applyToLead') && res.request().method() === 'POST');
-  await applySheet(page).getByRole('button', { name: 'Send application' }).click();
-  const answer = await sent;
-  expect(answer.status(), (await answer.text()).slice(0, 300)).toBe(200);
-  const first = (await answer.json()).result.data;
-  expect(first.state).toBe('submitted');
-  const again = await (await api(applicant)).post('/api/trade/trpc/copy.applyToLead', answer.request().postDataJSON());
-  expect(again.body.result.data.applicationId).toBe(first.applicationId);
-  run.write({ applicationId: first.applicationId });
+  // Following no one, with the TEST threshold set and the venue's figure above it.
+  await page.goto('/copy/lead/apply');
+  await expect(terms(page)).toContainText('No leader');
+  await expect(terms(page)).toContainText(`${Number(THRESHOLD).toLocaleString('en-US')} USDC`);
+  const answer = await applyOnScreen(page, displayName);
+  expect(answer.status, JSON.stringify(answer.body).slice(0, 300)).toBe(200);
+  const first = answer.body.result.data;
+  expect(first).toMatchObject({ state: 'submitted', displayName });
+  await expect(page.getByRole('status').filter({ hasText: 'Application sent' })).toBeVisible();
+  // The same submit again (the same person and name: the application's key) answers with the same row.
+  const again = await (await api(applicant)).post('/api/trade/trpc/copy.applyToLead', answer.request);
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body.result.data).toEqual(first);
+  expect(await mineOf(applicant)).toEqual(first);
+
+  // A founder rejects it with a reason on the console.
+  const reason = `TEST: track record not shown ${state('tag')}`;
+  const founder = await (await browser.newContext()).newPage();
+  await openDesk(founder);
+  const row = founder.getByRole('table', { name: 'Lead applications' }).locator('tbody tr').filter({ hasText: displayName });
+  await row.getByRole('button', { name: 'Reject' }).click();
+  await founder.getByRole('dialog').getByRole('textbox', { name: 'Reason' }).fill(reason);
+  await founder.getByRole('dialog').getByRole('button', { name: 'Reject' }).click();
+  await expect(founder.getByRole('status').filter({ hasText: 'Rejected' })).toBeVisible();
+  await founder.context().close();
+
+  // The applicant sees the reason and when the owner's wait ends, and no application is offered while it runs.
+  const decided = await mineOf(applicant);
+  expect(decided).toMatchObject({ applicationId: first.applicationId, state: 'disapproved', reason });
+  await page.goto('/copy/lead/apply');
+  await expect(page.getByText(reason)).toBeVisible();
+  await expect(page.getByTestId('reapply-after')).toHaveAttribute('datetime', decided.reapplyAfter);
+  await expect(page.getByRole('button', { name: 'Apply to lead' })).toHaveCount(0);
+  // After the wait, on the real clock, the room offers the application again and a new one is submitted.
+  const left = Date.parse(decided.reapplyAfter) - Date.now();
+  if (left > 0) await page.waitForTimeout(left + 1_000);
+  await page.reload();
+  await expect(page.getByText('The waiting period has ended')).toBeVisible();
+  const resubmit = await applyOnScreen(page, displayName);
+  expect(resubmit.status, JSON.stringify(resubmit.body).slice(0, 300)).toBe(200);
+  const second = resubmit.body.result.data;
+  expect(second).toMatchObject({ state: 'submitted', displayName, reason: null });
+  expect(second.applicationId).not.toBe(first.applicationId);
+  run.write({ applicationId: second.applicationId });
 });
 
 test(`${J} #3 completes a new-trader mission: its progress is shown`, async ({ page }) => {

@@ -1959,6 +1959,11 @@ export function createTradeRouter(
         .input(z.object({ displayName: z.string().max(200) }))
         .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
 
+      /** What applying to lead is measured by for the caller: whom they follow, the threshold and their venue USDC. */
+      leadEligibility: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
+        lead((desk) => desk.eligibility(ctx.principal)),
+      ),
+
       /** The caller's newest lead application, or null. */
       myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
 

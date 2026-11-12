@@ -164,6 +164,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
     TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: testValue('TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS'),
+    // `LOCAL_STACK_TRADE_COPY_LEAD_BALANCE=blank` on a restart leaves the least venue balance to lead blank, so
+    // J-copy-bots-otc-04 #1 sees every application refused naming the threshold.
+    TRADE_COPY_LEAD_MIN_VENUE_USDC:
+      process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE === 'blank' ? '' : testValue('TRADE_COPY_LEAD_MIN_VENUE_USDC'),
     TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: testValue('TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS'),
     TRADE_SIGNAL_WEBHOOK_DAYS: testValue('TRADE_SIGNAL_WEBHOOK_DAYS'),
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot

@@ -1,4 +1,4 @@
-// World: book
+// World: book, restart
 // Stack: fresh
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -6,6 +6,8 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, journeyState, signOutBrowser } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
+import { leadVenueAccount } from './copy.mjs';
+import { venueForThisFile } from './venue.mjs';
 
 // J-copy-bots-otc-10, in the running app (docs/roadmap/journeys.json): vet lead applications and pooled masters in the
 // founder console. One test per step, titled "J-copy-bots-otc-10 #<n>". Founders A and B are the stack's LOCAL TEST founder
@@ -24,6 +26,10 @@ const REAPPLY_WAIT_MS =
   ) * 1000;
 
 test.describe.configure({ mode: 'default' });
+// An applicant's own venue account holds TEST USDC at the least venue balance to lead (J-copy-bots-otc-04 #1), read
+// through svc-trade's user-venue door, on for this file.
+venueForThisFile(test);
+const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 
 const queue = (page) => tableIn(page, 'Lead applications');
 
@@ -39,6 +45,7 @@ const rowOf = (table, name) => bodyRows(table).filter({ hasText: name });
 /** A TEST trader with a funded account applies to lead under `name`, through the customer app, so the queue has a row to vet. */
 async function apply(page, name) {
   const who = await fundedTrader(page, 'ld', '100');
+  await leadVenueAccount(who, `${J} ${RUN} ${name}`, '1000');
   await signIn(page, who);
   await page.goto('/copy/lead/apply');
   await page.getByRole('textbox', { name: 'Display name' }).fill(name, UNBUILT);

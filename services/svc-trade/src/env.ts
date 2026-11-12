@@ -868,6 +868,16 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * The least USDC a lead applicant's own venue account must hold, as the venue reports it, in a decimal string
+       * (CB-copy-12, J-copy-bots-otc-04 #1). Read from the account the person's own wallet signed for through the
+       * user-venue door; INTAFACED holds none of it.
+       *
+       * Empty (default) = unset → every application to lead refuses `trade.copy_lead_balance_threshold_unset`.
+       * Owner value. Never invent a threshold; blank never means zero.
+       */
+      TRADE_COPY_LEAD_MIN_VENUE_USDC: z.string().default(''),
+
+      /**
        * The oldest chart alert a webhook accepts, in whole seconds (1 to 3600): server time minus the alert's time
        * (CB-bots-api-signal-01, J-copy-bots-otc-20 #2). Empty (default) = unset → every alert refuses
        * `trade.signal_latency_not_set`. Owner value; never invented.

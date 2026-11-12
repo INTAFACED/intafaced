@@ -254,6 +254,12 @@ export class LeaderDirectory {
     return { leaderRef: row.leaderRef, state: row.state };
   }
 
+  /** The public ref and display name a leader user id is listed under, or null when no row exists. */
+  async listingName(leaderUserId: string): Promise<{ readonly leaderRef: string; readonly displayName: string } | null> {
+    const row = await this.backend.getByUser(leaderUserId, false);
+    return row ? { leaderRef: row.leaderRef, displayName: row.displayName } : null;
+  }
+
   async leaderStatus(leaderUserId: string): Promise<CopyLeaderCustomerStatus> {
     return customerStatus((await this.listingIdentity(leaderUserId))?.state);
   }

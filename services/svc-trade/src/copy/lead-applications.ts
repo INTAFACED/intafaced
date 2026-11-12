@@ -26,6 +26,7 @@ import {
   writeOperatorAudit,
   type ApprovalBook,
 } from '../admin/common.js';
+import { compare, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { CopyError } from './errors.js';
 import type { LeaderDirectory } from './leader-directory.js';
 
@@ -105,6 +106,56 @@ export interface LeadDeskDeps {
    * `trade.copy_lead_reapply_wait_unset`. Blank never means no wait.
    */
   readonly reapplyWaitSeconds?: number | null;
+  /**
+   * The least USDC the applicant's own venue account must hold, as the venue reports it
+   * (TRADE_COPY_LEAD_MIN_VENUE_USDC). Null or omitted: unset, and every application refuses
+   * `trade.copy_lead_balance_threshold_unset`.
+   */
+  readonly minVenueUsdc?: Amount | null;
+  /** The leader this person follows now, or null (svc-trade's own follows and leader directory). */
+  readonly following: (userId: string) => Promise<LeadFollowing | null>;
+  /** The person's own venue account's USDC, as the venue reports it. Throws when the venue does not answer. */
+  readonly venueUsdc: (userId: string) => Promise<LeadVenueRead>;
+}
+
+/**
+ * The applicant's own venue account, as the venue reports it (J-copy-bots-otc-04 #1): the door is off, no account was
+ * signed for by the person's own wallet, or the USDC of the richest such account with the venue's as-of time. A venue
+ * that does not answer throws, and the desk refuses by `trade.copy_lead_venue_unreadable`.
+ */
+export type LeadVenueRead =
+  | { readonly state: 'off' }
+  | { readonly state: 'none' }
+  | { readonly state: 'read'; readonly owner: string; readonly test: boolean; readonly usdc: Amount; readonly asOf: Date };
+
+/** The leader the applicant follows now (any follow not left), by its public listing. */
+export interface LeadFollowing {
+  readonly leaderRef: string | null;
+  readonly displayName: string;
+}
+
+/** What applying to lead is measured by, read for the room before anyone submits (CB-copy-12). */
+export interface LeadEligibility {
+  readonly following: LeadFollowing | null;
+  /** The owner's least venue USDC to lead, a decimal string; null while unset. */
+  readonly threshold: string | null;
+  readonly venue:
+    | { readonly state: 'off' | 'none' | 'unreadable' }
+    | { readonly state: 'read'; readonly owner: string; readonly test: boolean; readonly usdc: string; readonly asOf: string };
+}
+
+/** The owner's least venue USDC from its env value: blank is unset (null); anything but a decimal above zero throws. */
+export function parseLeadMinVenueUsdc(raw: string | undefined): Amount | null {
+  const value = (raw ?? '').trim();
+  if (!value) return null;
+  let amount: Amount;
+  try {
+    amount = parseAmount(value);
+  } catch {
+    throw new Error('TRADE_COPY_LEAD_MIN_VENUE_USDC must be a decimal amount above zero, or blank');
+  }
+  if (amount <= 0n) throw new Error('TRADE_COPY_LEAD_MIN_VENUE_USDC must be a decimal amount above zero, or blank');
+  return amount;
 }
 
 /** The largest wait the owner may set: one year. */
@@ -231,6 +282,13 @@ export class LeadDesk {
   async apply(principal: Principal, input: { displayName: string }): Promise<MyLeadApplication> {
     const displayName = displayNameOf(input.displayName);
     const userId = principal.userId;
+    // A new application must meet the lead conditions first; an open or approved one answers below as it always did,
+    // so the same submit again returns the same row even while the venue is down. The venue is read outside the
+    // transaction: no lock is held across a call to the outside.
+    const [before] = await this.deps.sql<Array<{ status: LeadApplicationStatus }>>`
+      SELECT status FROM trade.copy_lead_applications WHERE user_id = ${userId} ORDER BY created_at DESC, id DESC LIMIT 1`;
+    const fresh = !before || before.status === 'rejected';
+    if (fresh) await this.refuseUnlessEligible(userId);
     return this.deps.sql.begin(async (tx) => {
       // One applicant at a time per person: the lock key is the person, so two submits cannot both insert.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`copy-lead-apply:${userId}`}))`;
@@ -256,12 +314,65 @@ export class LeadDesk {
           throw new CopyError(`You may apply again after ${opens.toISOString()}`, 'trade.copy_lead_reapply_wait');
         }
       }
+      // Another submit decided the state between the check above and this lock: measure this one now.
+      if (!fresh) await this.refuseUnlessEligible(userId);
       const [row] = await tx<ApplicationRow[]>`
         INSERT INTO trade.copy_lead_applications (id, user_id, display_name, status, created_at, updated_at)
         VALUES (${randomUUID()}, ${userId}, ${displayName}, 'pending', ${now.toISOString()}, ${now.toISOString()})
         RETURNING *`;
       return mine(row!, this.waitSeconds);
     });
+  }
+
+  /** What applying to lead is measured by for this person now: whom they follow, the threshold and their venue USDC. */
+  async eligibility(principal: Principal): Promise<LeadEligibility> {
+    const userId = principal.userId;
+    const following = await this.deps.following(userId);
+    const threshold = this.deps.minVenueUsdc ?? null;
+    let venue: LeadEligibility['venue'];
+    try {
+      const read = await this.deps.venueUsdc(userId);
+      venue =
+        read.state === 'read'
+          ? { state: 'read', owner: read.owner, test: read.test, usdc: formatAmount(read.usdc), asOf: read.asOf.toISOString() }
+          : { state: read.state };
+    } catch {
+      venue = { state: 'unreadable' };
+    }
+    return { following, threshold: threshold === null ? null : formatAmount(threshold), venue };
+  }
+
+  /**
+   * The lead conditions, in the order the room names them: not following anyone, the owner's threshold set, an own
+   * venue account read, and its USDC at or above the threshold.
+   */
+  private async refuseUnlessEligible(userId: string): Promise<void> {
+    const following = await this.deps.following(userId);
+    if (following) {
+      throw new CopyError(
+        `You are following ${following.displayName}. Leave that leader before you apply to lead`,
+        'trade.copy_lead_following',
+      );
+    }
+    const threshold = this.deps.minVenueUsdc ?? null;
+    if (threshold === null) {
+      throw new CopyError('The least venue balance to lead is not set by the platform', 'trade.copy_lead_balance_threshold_unset');
+    }
+    let read: LeadVenueRead;
+    try {
+      read = await this.deps.venueUsdc(userId);
+    } catch {
+      throw new CopyError('Your venue account could not be read', 'trade.copy_lead_venue_unreadable');
+    }
+    if (read.state !== 'read') {
+      throw new CopyError('Connect the wallet whose venue account you will lead from', 'trade.copy_lead_venue_account_missing');
+    }
+    if (compare(read.usdc, threshold) < 0) {
+      throw new CopyError(
+        `Your venue account holds ${formatAmount(read.usdc)} USDC, under the ${formatAmount(threshold)} USDC needed to lead`,
+        'trade.copy_lead_balance_below',
+      );
+    }
   }
 
   /** Open applications oldest first, with the criteria in force (null: unset). */
