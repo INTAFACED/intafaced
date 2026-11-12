@@ -177,6 +177,25 @@ const en = {
   fundsRejected: 'You cancelled in your wallet. Nothing more was sent.',
   fundsFailed: 'Not sent: {reason}',
   fundsEarlier: 'Already sent before this: {hashes}.',
+  linkTitle: 'Asset link review',
+  linkLead:
+    "Check whether a token is one of the trading venue's own assets. The review reads the token and the venue contract on chain; nothing is stored or signed.",
+  linkOpen: 'Request an asset link review',
+  linkToken: 'Token address',
+  linkRequest: 'Request review',
+  linkRequesting: 'Reviewing…',
+  linkResult: 'Review result',
+  linkDecimals: 'Decimals {decimals}',
+  linkVerdict: 'Verdict: {verdict}',
+  linkLinked: 'linked',
+  linkNotLinked: 'not linked',
+  linkAt: 'Read from the venue contract {venue} at block {block}.',
+  readsLink: 'Contract-read docs',
+  readsTitle: 'Read-only calls',
+  readsLead:
+    "The venue contract's public getters: any contract or client can read them, with no signature. Each example targets the venue contract {venue} on network {chainId}. Amounts and prices have 18 decimals.",
+  readsCore:
+    'Reads of the trading core itself, and delayed core actions, wait on the core network publishing its interface (owner decision). None is offered here.',
   // Protocol
   relayEnabled: 'Relay switched on',
   factoryConfigured: 'Account factory configured',
