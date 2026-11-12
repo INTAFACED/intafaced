@@ -490,6 +490,7 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
     await other.getByLabel('Handle').fill(`${who.handle}x`);
     await other.getByLabel('Password').fill(`TEST-${randomBytes(9).toString('base64url')}-9b`);
     await other.getByLabel('Country you live in').selectOption('DE');
+    await other.getByRole('radio', { name: 'No, I am not a US person' }).check();
     await other.getByLabel('Date of birth').fill('1990-05-01');
     await other.getByRole('button', { name: 'Create account' }).click();
     await other.getByRole('heading', { name: 'Check your email' }).waitFor();
