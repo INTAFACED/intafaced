@@ -155,7 +155,8 @@ export async function markRequested(
   const rows = await locked(tx, record.userId, wanted);
   for (const cap of wanted) {
     const prior = rows.get(cap);
-    if (prior?.state === 'inactive' || prior?.state === 'pending') continue;
+    // An active one stays active (a trading clear's `trade_crypto` while the bank's request is reviewed).
+    if (prior?.state === 'inactive' || prior?.state === 'pending' || prior?.state === 'active') continue;
     await write(tx, record.userId, cap, prior, { state: 'pending', caseId: record.caseId, by: null, reasonCode: null, at: record.at });
   }
 }

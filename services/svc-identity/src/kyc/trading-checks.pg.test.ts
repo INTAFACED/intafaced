@@ -187,6 +187,33 @@ if (!available) {
       expect(await authority()).toMatchObject({ status: 'eligible', account: { kycTier: 'basic' } });
     });
 
+    it("after a clear, the bank's verification still opens its own request, and trading stays open while it is reviewed", async () => {
+      const userId = await person();
+      expect(await desk().run(userId, { legalName: 'TEST Trader One', country: 'DE', confirmed: true })).toMatchObject({
+        outcome: 'cleared',
+      });
+      const request = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      // A new pending request, not the trading clear handed back as if the bank's level were held.
+      expect(request).toMatchObject({ tier: 'basic', status: 'pending' });
+      expect(await records(userId)).toEqual(
+        expect.arrayContaining([
+          { tier: 'basic', status: 'approved', reviewed_by: TRADING_CHECKS_REVIEWER, jurisdiction: 'DE' },
+          { tier: 'basic', status: 'pending', reviewed_by: null, jurisdiction: 'DE' },
+        ]),
+      );
+      expect(await db.sql`SELECT count(*)::int AS n FROM kyc_cases WHERE user_id = ${userId}`).toEqual([{ n: 2 }]);
+      // What the bank's level adds waits for its review; the trading clear's own capability stays active.
+      expect(await capability(userId, 'custody_crypto')).toBe('pending');
+      expect(await capability(userId, 'transfer_crypto')).toBe('pending');
+      expect(await capability(userId)).toBe('active');
+      expect(await db.sql`SELECT state FROM kyc_capabilities WHERE user_id = ${userId} AND capability = 'trade_crypto'`).toEqual([
+        { state: 'active' },
+      ]);
+      expect(await auth.sessionTier(userId)).toEqual({ tier: 'none', tradingCleared: true });
+      // A second press is the same request.
+      expect((await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' })).id).toBe(request.id);
+    });
+
     it('a hit holds the account under review: a pending record for a person, nothing granted', async () => {
       const userId = await person('1970-01-01');
       const result = await desk().run(userId, { legalName: '  test listed   person ', country: 'DE', confirmed: true });

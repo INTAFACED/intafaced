@@ -541,6 +541,38 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     expect((await d.prepare(cleared, { owner, signer, intent: order(8) })).actionKey).toBe(order(8).clientOrderKey);
   });
 
+  it('a person cleared by the trading checks alone withdraws only to their own wallet; elsewhere is refused before anything is stored (OWNER 298)', async () => {
+    const { d, store, connects } = door();
+    const cleared = { ...principal, tier: 'none', trd: true } as Principal;
+    const elsewhere: VenueIntent = {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('10'),
+      destination: '0x00000000000000000000000000000000000000e1',
+      withdrawalKey: `withdraw:${USER}:elsewhere`,
+    };
+    await expect(d.prepare(cleared, { owner, signer, intent: elsewhere, stepUpApprovalId: 'appr-1' })).rejects.toMatchObject({
+      code: 'trade.venue.withdraw_own_wallet_only',
+      status: 403,
+    });
+    expect(await store.find(USER, elsewhere.withdrawalKey)).toBeNull();
+    expect(connects()).toBe(0);
+    // To their own wallet, the account's owner (any case), it is prepared.
+    const own: VenueIntent = { ...elsewhere, destination: owner.toUpperCase().replace('0X', '0x'), withdrawalKey: `withdraw:${USER}:own` };
+    expect((await d.prepare(cleared, { owner, signer, intent: own, stepUpApprovalId: 'appr-1' })).actionKey).toBe(own.withdrawalKey);
+    // An approved level keeps the door's other rules for any destination: this check does not refuse it.
+    expect(
+      (
+        await d.prepare(principal, {
+          owner,
+          signer,
+          intent: { ...elsewhere, withdrawalKey: `withdraw:${USER}:lvl` },
+          stepUpApprovalId: 'appr-1',
+        })
+      ).actionKey,
+    ).toBe(`withdraw:${USER}:lvl`);
+  });
+
   it('a withdrawal prepared in the session cannot be submitted from an API key', async () => {
     const { d } = door();
     const withdraw: VenueIntent = {

@@ -3312,9 +3312,12 @@ export class AuthService {
       const existing = await tx<
         KycRow[]
       >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE user_id = ${input.userId} AND ((status = 'approved' AND (expires_at IS NULL OR expires_at > now())) OR (status = 'pending' AND tier = ${input.tier})) ORDER BY created_at DESC`;
-      const approved = existing.find((r) => r.status === 'approved' && TIER_ORDER[r.tier] >= TIER_ORDER[input.tier]);
+      // A trading-checks clear is never an approved level (OWNER 258 (4)): it never answers a request for the bank's own
+      // verification, and never counts as the level held.
+      const levels = existing.filter((r) => r.status !== 'approved' || r.reviewed_by !== TRADING_CHECKS_REVIEWER);
+      const approved = levels.find((r) => r.status === 'approved' && TIER_ORDER[r.tier] >= TIER_ORDER[input.tier]);
       if (approved) return toKycRecord(approved);
-      const pending = existing.find((r) => r.status === 'pending');
+      const pending = levels.find((r) => r.status === 'pending');
       if (pending) return toKycRecord(pending);
       // Inactive is a compliance decision: a request whose level would grant it again is refused (I-kyc-compliance-07).
       await assertRequestable(tx, this.kycCapabilities, input.userId, input.tier);
@@ -3326,7 +3329,7 @@ export class AuthService {
       const record = toKycRecord(inserted[0]!);
       // The case opens with the record, in this transaction (I-kyc-compliance-01).
       const caseId = await openKycCase(tx, record);
-      const heldTier = existing
+      const heldTier = levels
         .filter((r) => r.status === 'approved')
         .reduce<KycTier>((best, r) => (TIER_ORDER[r.tier] > TIER_ORDER[best] ? r.tier : best), 'none');
       await markRequested(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, heldTier, caseId, at: record.createdAt });

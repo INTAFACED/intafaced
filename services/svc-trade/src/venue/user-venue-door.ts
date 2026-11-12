@@ -2,7 +2,7 @@ import { venueGatedList, type VenueGatedBlocker, type VenueGatedContract } from 
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
-import { AuthError, isApiKeyPrincipal, requireTradeTier, type Principal } from '@intafaced/auth';
+import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
   OWNER_ONLY_INTENTS,
@@ -78,6 +78,22 @@ export function assertTradingLevel(principal: Principal, kind: VenueIntent['kind
   if (kind === 'place_order' || kind === 'amend_order') requireTradeTier(principal, 'basic');
 }
 
+/**
+ * A person cleared by the trading checks alone (no approved level) withdraws only to their own wallet, the venue
+ * account's owner (OWNER 298); a withdrawal to any other address keeps the approved level. Refused before anything is
+ * stored or asked of the venue.
+ */
+export function assertOwnWalletWithdrawal(principal: Principal, owner: string, intent: VenueIntent): void {
+  if (intent.kind !== 'withdraw' || TIER_ORDER[principal.tier] >= TIER_ORDER.basic) return;
+  if (String(intent.destination ?? '').toLowerCase() !== owner.toLowerCase()) {
+    throw new UserVenueDoorError(
+      'until your identity is verified, a withdrawal goes only to your own wallet, the one this venue account belongs to',
+      'trade.venue.withdraw_own_wallet_only',
+      403,
+    );
+  }
+}
+
 const MARKET_KINDS_TTL_MS = 60_000;
 /** On a symbol the list doesn't hold, the list is read again at most this often, so unlisted symbols can't each cost a venue read. */
 const MARKET_MISS_REREAD_MS = 5_000;
@@ -148,6 +164,7 @@ const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
 export type UserVenueDoorCode =
   | 'trade.user_venue_off'
+  | 'trade.venue.withdraw_own_wallet_only'
   | 'trade.venue_request_invalid'
   | 'trade.venue_action_key_invalid'
   | 'idempotency.conflict'
@@ -739,6 +756,7 @@ export class UserVenueDoor {
     }
     assertInteractive(principal, intent.kind);
     assertTradingLevel(principal, intent.kind);
+    assertOwnWalletWithdrawal(principal, req.owner, intent);
     if (intent.kind === 'place_order') assertPlaceIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
     assertDoorMay(intent.kind, caller, key);
