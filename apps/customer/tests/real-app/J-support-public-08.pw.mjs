@@ -167,6 +167,21 @@ test(`${J} #5 /app with nothing set: the honest state, no store link and no vers
   await expect(main.locator('a[href*="apps.apple.com"], a[href*="play.google.com"]')).toHaveCount(0);
   await expect(main.getByText(/\bv?\d+\.\d+\.\d+\b/)).toHaveCount(0);
   await expect(main.getByRole('link', { name: 'Open the web app' })).toHaveAttribute('href', '/money');
+
+  // The owner sets an https store link: the page shows one store button, to exactly that link, and the honest none-state
+  // is gone. The owner's setting is put back after, so the stack keeps what it had.
+  const STORE = 'https://apps.apple.com/app/id0000000000';
+  const { appStoreUrl: before = null } = await publicSettings();
+  await setPublicSettings({ appStoreUrl: STORE }, `TEST journey ${J} #5: a store link`);
+  try {
+    await page.goto('/app');
+    const store = main.locator(`a[href="${STORE}"]`);
+    await expect(store).toHaveCount(1);
+    await expect(main.locator('a[href*="apps.apple.com"], a[href*="play.google.com"]')).toHaveCount(1);
+    await expect(main.getByRole('heading', { name: 'There is no store app' })).toHaveCount(0);
+  } finally {
+    await setPublicSettings({ appStoreUrl: before }, `TEST journey ${J} #5: the store link put back`);
+  }
   await page.context().close();
 });
 
