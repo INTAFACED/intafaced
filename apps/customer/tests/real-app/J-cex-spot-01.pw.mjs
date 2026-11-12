@@ -58,6 +58,9 @@ async function desk(page) {
   await openDesk(page, account());
 }
 
+/** The journey stack's owner market price protection: TEST 50 bps (tooling/scripts/local-stack-services/trade.mjs). */
+const STACK_PROTECTION_BPS = 50n;
+
 /** A number as the room draws it ("65,000.10", "60.12 USDT", "$1.20"), as scaled units, so it compares to the service's. */
 function shownUnits(text) {
   const found = /[+−-]?[\d,]+(\.\d+)?/.exec(text.replace(/\$/g, ''));
@@ -737,10 +740,20 @@ test(`${J} #9 places a market buy: it fills on the venue inside its slippage lim
   page.on('request', (r) => {
     if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/prepare') prepares.push(r.postDataJSON());
   });
+  // The bound, fixed outside the app: the TEST venue's own best ask, read from its makers' orders on the venue, widened
+  // by the journey stack's owner price protection, TEST 50 bps (tooling/scripts/local-stack-services/trade.mjs).
+  const { ask } = await venueBook(VENUE_SPOT);
+  // Rounded up to the market's own tick on the venue, as a buy's worst price is.
+  const { body: listed } = await testVenue('/markets', {});
+  const tick = toUnits(listed.value.find((m) => m.symbol === VENUE_SPOT).tickSize);
+  const bound = (((ask * (10_000n + STACK_PROTECTION_BPS)) / 10_000n + tick - 1n) / tick) * tick;
   await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
   await page.getByRole('button', { name: 'Buy BTC' }).click();
   await expect(reviewSheet(page)).toBeVisible();
+  // The review shows the worst price the order accepts, and it is inside that bound.
+  const shown = shownUnits(await reviewSheet(page).locator('[data-line="worst"]').innerText());
+  expect(shown <= bound, `shown worst ${fromUnits(shown)} within ${fromUnits(bound)}`).toBe(true);
   const asked = wallet.requests.length;
   await confirm(page, 'buy');
   await continueInWallet(page);
@@ -752,12 +765,13 @@ test(`${J} #9 places a market buy: it fills on the venue inside its slippage lim
     side: 'buy',
     type: 'market',
   });
-  // The slippage limit is the worst price the order accepts; every fill is at or inside it.
-  const limit = toUnits(intent.price);
+  // What was sent is what the review showed; every fill is at or inside it.
+  expect(toUnits(intent.price), 'the prepared worst price is the one the review showed').toBe(shown);
+  const limit = shown;
   const filledAmount = async () => (await venueFills(who, owner, since)).reduce((s, f) => s + wireUnits(f.amount), 0n);
   await expect.poll(filledAmount, { timeout: 20_000 }).toBe(toUnits('0.001'));
   const fills = await venueFills(who, owner, since);
-  for (const f of fills) expect(wireUnits(f.price) <= limit, `${f.price} within ${intent.price}`).toBe(true);
+  for (const f of fills) expect(wireUnits(f.price) <= limit, `${f.price} within ${fromUnits(limit)}`).toBe(true);
   expect(fills.reduce((s, f) => s + wireUnits(f.amount), 0n)).toBe(toUnits('0.001'));
   // Nothing stays locked on the venue.
   expect(await venueOpenOrders(who, owner)).toHaveLength(0);

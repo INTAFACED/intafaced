@@ -59,7 +59,8 @@ import { CoursePreview } from './curriculum/course-preview.js';
 import { CourseLearners } from './curriculum/course-learners.js';
 import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
-import { publicCourse } from './curriculum/public-catalogue.js';
+import { courseClosedReason, CourseTermsStore, type CourseVisibility } from './curriculum/course-terms.js';
+import { listPublicCourses, publicCourse } from './curriculum/public-catalogue.js';
 import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
 import type {
   AcademyAccessGrant,
@@ -112,7 +113,7 @@ import type {
   AcademyProgrammeRecord,
   AcademySaveProgrammeInput,
 } from '@intafaced/contracts';
-import { academyProgrammeCertId } from '@intafaced/contracts';
+import { academyProgrammeCertId, ACADEMY_CURRICULUM_PATHS } from '@intafaced/contracts';
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
 import { ProgrammeRecords } from './curriculum/programme-records.js';
 import { CourseDiscussion } from './curriculum/discussion.js';
@@ -147,7 +148,7 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { getCurriculumItem, hasCurriculumSlug, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug, itemType, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { type ProgrammeDefinition } from './curriculum/programmes.js';
 import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
@@ -429,6 +430,7 @@ export class AcademyService {
   private readonly coursePreview: CoursePreview;
   private readonly courseLearners: CourseLearners;
   private readonly courseStarts: CourseStarts;
+  private readonly courseTerms: CourseTermsStore;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
   private readonly issueRules: CertIssueRules;
@@ -495,6 +497,7 @@ export class AcademyService {
     this.grading = new AssignmentGrading(sql, this.courseAssignments, this.options.graderLeaseSeconds ?? null);
     this.peerReviews = new PeerReviews(sql, this.courseAssignments, this.options.mediaStorage ?? null, this.options.assignmentGet);
     this.courseStarts = new CourseStarts(sql);
+    this.courseTerms = new CourseTermsStore(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
     this.issueRules = new CertIssueRules(sql);
@@ -1903,36 +1906,64 @@ export class AcademyService {
 
   async enrollCertPath(input: { userId: string; pathSlug: string }): Promise<EnrollmentRecord> {
     this.refuseUnpublishedPath(input.pathSlug);
-    const row = await this.customer.enrollCertPath({
-      userId: input.userId,
-      pathSlug: input.pathSlug,
-      ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
-    });
+    const path = input.pathSlug.trim().toLowerCase();
+    // A path is also a course: Programmes enrol through the same cap, window and visibility as the course page.
+    const row = (ACADEMY_CURRICULUM_PATHS as readonly string[]).includes(path)
+      ? await this.enrolWithinTerms(input.userId, publishedCourse(path), new Date())
+      : await this.customer.enrollCertPath({
+          userId: input.userId,
+          pathSlug: input.pathSlug,
+          ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
+        });
     return { userId: row.userId, pathSlug: row.pathSlug, enrolledAt: row.enrolledAt };
   }
 
   /** AC-enrolment-01: the terms of enrolling in a course and the caller's own active enrolment in it. */
-  async courseEnrolment(input: { userId: string; slug: string }): Promise<AcademyCourseEnrolment> {
+  async courseEnrolment(input: { userId: string; slug: string; now?: Date }): Promise<AcademyCourseEnrolment> {
     const path = publishedCourse(input.slug);
-    const [enrolments, startsAt] = await Promise.all([this.customer.myEnrollments(input.userId), this.courseStarts.startsAt(path)]);
+    const [enrolments, startsAt, terms, taken] = await Promise.all([
+      this.customer.myEnrollments(input.userId),
+      this.courseStarts.startsAt(path),
+      this.courseTerms.read(path),
+      this.customer.seatsTaken(path),
+    ]);
     const active = enrolments.find((row) => row.pathSlug === path) ?? null;
-    return courseEnrolmentView(path, active, startsAt);
+    return courseEnrolmentView(path, active, startsAt, terms, taken, input.now ?? new Date());
   }
 
   /**
    * Enrol now on the free track. The certificate needs no published definition for this: the free track is the course
-   * itself. A repeat while enrolled returns the same enrolment (one active row per learner and course); programme
-   * prerequisites still apply.
+   * itself. A repeat while enrolled returns the same enrolment (one active row per learner and course), even once the
+   * course has closed; programme prerequisites still apply. A course closed by staff (hidden, unpublished, outside its
+   * window, or full under its cap) refuses with `academy.enrolment_closed` naming the reason.
    */
-  async enrolCourse(input: { userId: string; slug: string; track: AcademyEnrolmentTrack }): Promise<AcademyCourseEnrolment> {
+  async enrolCourse(input: { userId: string; slug: string; track: AcademyEnrolmentTrack; now?: Date }): Promise<AcademyCourseEnrolment> {
     const path = publishedCourse(input.slug);
     assertTrackOpen(input.track);
-    const row = await this.customer.enrollCertPath({
-      userId: input.userId,
+    await this.enrolWithinTerms(input.userId, path, input.now ?? new Date());
+    return this.courseEnrolment({ userId: input.userId, slug: path, ...(input.now ? { now: input.now } : {}) });
+  }
+
+  /** The one enrolment door under a course's cap, window and visibility, shared by the course page and Programmes. */
+  private async enrolWithinTerms(userId: string, path: CurriculumPath, now: Date) {
+    const [terms, mine] = await Promise.all([this.courseTerms.read(path), this.customer.myEnrollments(userId)]);
+    const active = mine.find((row) => row.pathSlug === path);
+    if (active) return active;
+    // Fullness is decided under the cap's lock in the store; every other reason is read here.
+    const closed = courseClosedReason(terms, 0, now);
+    if (closed) throw new AcademyError(`academy.enrolment_closed track=audit reason=${closed}`, 'academy.enrolment_closed');
+    return this.customer.enrollCertPath({
+      userId,
       pathSlug: path,
+      seatCap: terms.seatCap,
       ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
     });
-    return courseEnrolmentView(path, row, await this.courseStarts.startsAt(path));
+  }
+
+  /** AC-catalogue-03: the published courses the catalogue lists; a course staff hid or unpublished is left out. */
+  async publicCourses() {
+    const unlisted = await this.courseTerms.unlisted();
+    return listPublicCourses().filter((card) => !unlisted.has(card.slug));
   }
 
   /** AC-catalogue-02: My learning, one row per course the caller is enrolled in and that is still published. */
@@ -1976,6 +2007,7 @@ export class AcademyService {
         slug: row.slug,
         title: row.title,
         kind: row.kind,
+        type: itemType(row.kind, quizzes.has(row.slug)),
         state: view.state,
         lock: view.lock,
         missing: [...view.missing],
@@ -2335,11 +2367,12 @@ export class AcademyService {
   }
 
   /** The public course page (AC-catalogue-03), with the path's published certificate title when there is one. */
-  publicCourse(slug: string, now?: Date) {
+  async publicCourse(slug: string, now?: Date) {
     return publicCourse(
       slug,
       (path) => this.certs().find((row) => row.path === path)?.title ?? null,
       (itemSlug) => this.opensSignedOut(itemSlug, now),
+      await this.assessments.publishedSlugs(),
     );
   }
 
@@ -2607,6 +2640,26 @@ export class AcademyService {
   /** AC-enrolment-01 step 4: staff set or clear a course's start date with a reason. */
   setCourseStart(input: { slug: string; startsAt: Date | null; reason: string; operatorId: string; now?: Date }) {
     return this.courseStarts.set(input);
+  }
+
+  /** AC-enrolment-01 step 1: staff set or take off a course's seat cap, enrolment window and visibility, each with a reason. */
+  setCourseSeatCap(input: { slug: string; seatCap: number | null; reason: string; operatorId: string; now?: Date }) {
+    return this.courseTerms.setSeatCap(input);
+  }
+
+  setCourseEnrolmentWindow(input: {
+    slug: string;
+    opensAt: Date | null;
+    closesAt: Date | null;
+    reason: string;
+    operatorId: string;
+    now?: Date;
+  }) {
+    return this.courseTerms.setWindow(input);
+  }
+
+  setCourseVisibility(input: { slug: string; visibility: CourseVisibility; reason: string; operatorId: string; now?: Date }) {
+    return this.courseTerms.setVisibility(input);
   }
 
   /** The reader for a signed-out visitor (AC-catalogue-01): the same item, nothing about any learner, no touch written. */

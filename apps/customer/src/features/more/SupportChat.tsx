@@ -39,15 +39,17 @@ function ChatRefusal({ refusal, t }: { refusal: Refusal; t: ChatT }) {
           ? t('closed')
           : code === 'support.chat_not_found'
             ? t('notFound')
-            : code === 'support.chat_message_conflict'
-              ? t('conflict')
-              : code === 'support.chat_prechat_invalid'
-                ? t('prechatInvalid')
-                : code === 'support.chat_agent_unavailable'
-                  ? t('agentUnavailable')
-                  : code === 'support.comment_secret_refused'
-                    ? t('secretRefused')
-                    : t('failed');
+            : code === 'support.chat_email_unproved'
+              ? t('emailUnproved')
+              : code === 'support.chat_message_conflict'
+                ? t('conflict')
+                : code === 'support.chat_prechat_invalid'
+                  ? t('prechatInvalid')
+                  : code === 'support.chat_agent_unavailable'
+                    ? t('agentUnavailable')
+                    : code === 'support.comment_secret_refused'
+                      ? t('secretRefused')
+                      : t('failed');
   return (
     <p role="alert" className="support-warning" data-testid="support-chat-refusal" data-code={code ?? undefined}>
       {sentence} {code ? <small lang="zxx">{code}</small> : null}
@@ -81,7 +83,7 @@ export function SupportChatRoom() {
   const [chat, setChat] = useState<SupportChatSession | null>(null);
   const [messages, setMessages] = useState<SupportChatMessage[]>([]);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
-  const [emailNotice, setEmailNotice] = useState(false);
+  const [emailNotice, setEmailNotice] = useState<'emailed' | 'not_connected' | null>(null);
   const [busy, setBusy] = useState<'start' | 'send' | 'end' | 'email' | null>(null);
   const [form, setForm] = useState({ name: '', email: '', message: '' });
   const [draft, setDraft] = useState('');
@@ -209,7 +211,7 @@ export function SupportChatRoom() {
     setBusy(null);
     if (!answer.ok) return setRefusal(answer);
     setChat(answer.data.session);
-    setEmailNotice(true);
+    setEmailNotice(answer.data.status);
   };
 
   const restart = () => {
@@ -217,7 +219,7 @@ export function SupportChatRoom() {
     setKept(null);
     setChat(null);
     setMessages([]);
-    setEmailNotice(false);
+    setEmailNotice(null);
     setRefusal(null);
     setForm({ name: '', email: '', message: '' });
     void loadAvailability();
@@ -259,8 +261,15 @@ export function SupportChatRoom() {
         </ol>
         {refusal && <ChatRefusal refusal={refusal} t={t} />}
         {emailNotice && !closed && (
-          <div role="status" data-testid="support-chat-email-notice">
-            <ServiceOffNotice code="vendor.email" action={t('continueEmailAction')} />
+          <div role="status" data-testid="support-chat-email-notice" data-email-status={emailNotice}>
+            {emailNotice === 'emailed' ? (
+              <>
+                <h3>{t('emailedTitle')}</h3>
+                <p className="muted">{t('emailedBody')}</p>
+              </>
+            ) : (
+              <ServiceOffNotice code="vendor.email" action={t('continueEmailAction')} />
+            )}
             <p className="muted">{t('continueEmailNote')}</p>
           </div>
         )}

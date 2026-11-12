@@ -85,7 +85,7 @@ export type AgentAccountCode =
   | 'agents.key_not_connected'
   | 'agents.order_needs_agent_key'
   | 'agents.order_request_invalid'
-  | 'agents.order_perp_not_yet'
+  | 'agents.order_leverage_unknown'
   | 'agents.order_cap_exceeded'
   | 'agents.order_cap_refused'
   | 'agents.order_bound_unset'
@@ -121,6 +121,8 @@ export interface AgentAccountValues {
 }
 
 export const AGENT_ACCOUNT_STEP_UP_SCOPE = 'trade.step_up.venue.agentAccount' as const;
+/** The step-up that connects one of the person's agent keys to one of their agent accounts (J-agents-21 #6). */
+export const AGENT_CONNECT_STEP_UP_SCOPE = 'trade.step_up.venue.agentConnect' as const;
 
 export interface AgentAccountsDeps {
   readonly door: UserVenueDoor;

@@ -397,6 +397,22 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     },
   },
   {
+    // svc-trade (J-agents-21 #6): one of the caller's own agent API keys connected to one of their agent accounts. The
+    // request id is `venue.agentConnect:<keyId>`, so one confirmation connects one key. It moves no value: no amount.
+    scope: 'trade.step_up.venue.agentConnect',
+    purpose: 'venue.agentConnect',
+    clientFields: ['keyId', 'accountId'],
+    targetField: 'keyId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+    shapes: {
+      keyId: (value) => UUID_RE.test(value),
+      accountId: (value) => UUID_RE.test(value),
+    },
+  },
+  {
     // svc-token (MC-token-02, J-more-catalogue-10 #6): the founder who runs a two-founder governance role change proves a
     // fresh second factor for exactly that account, role (empty for a revoke) and role revision. One confirmation
     // approves one role move.

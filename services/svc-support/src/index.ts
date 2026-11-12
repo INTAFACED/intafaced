@@ -28,6 +28,7 @@ import { DeskMacros, SqlMacroBook } from './desk-macros.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { JetStreamEventBus } from '@intafaced/events';
+import { createIdentityChatMail, NO_CHAT_MAIL } from './chat-email.js';
 import { eventRatingRequestSink, RatingRequestOutbox, SqlRatingRequestBook } from './rating-request.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { UNCONFIGURED_ATTACHMENTS } from './attachments.js';
@@ -261,6 +262,9 @@ const chat = new SupportChat(
     claimSecret: createHmac('sha256', env.INTERNAL_SERVICE_SECRET).update('svc-support.chat.v1').digest('hex'),
   },
   async () => (await contactBook.get()).chatHours,
+  undefined,
+  // Continue by email (chat-email.ts): identity mails the customer's own proved address. Blank answers vendor.email.
+  env.SUPPORT_CHAT_EMAIL === 'identity' ? createIdentityChatMail(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : NO_CHAT_MAIL,
 );
 const loop = createTicketKbLoopObserver();
 // A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay whose

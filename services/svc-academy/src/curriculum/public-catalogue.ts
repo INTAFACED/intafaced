@@ -6,7 +6,14 @@
  */
 import { ACADEMY_CURRICULUM_PATHS, type AcademyPublicCatalogueSort as PublicCatalogueSort } from '@intafaced/contracts';
 import { publishedCourse } from './course-enrolment.js';
-import { getCurriculumItem, listCurriculum, type CurriculumItemSummary, type CurriculumKind, type CurriculumPath } from './catalog.js';
+import {
+  getCurriculumItem,
+  itemType,
+  listCurriculum,
+  type CurriculumItemSummary,
+  type CurriculumKind,
+  type CurriculumPath,
+} from './catalog.js';
 
 export function searchPublicCurriculum(input: {
   readonly q?: string;
@@ -46,12 +53,13 @@ export async function publicCourse(
   slug: string,
   certificateTitle: (path: CurriculumPath) => string | null,
   opensSignedOut: (itemSlug: string) => Promise<boolean>,
+  quizzes: ReadonlySet<string> = new Set(),
 ): Promise<{
   slug: CurriculumPath;
   summary: null;
   instructor: null;
   outcomes: string[];
-  syllabus: CurriculumItemSummary[];
+  syllabus: (CurriculumItemSummary & { type: ReturnType<typeof itemType> })[];
   certificate: string | null;
 }> {
   const path = publishedCourse(slug);
@@ -59,5 +67,6 @@ export async function publicCourse(
   // A lesson the signed-out reader would refuse keeps its objectives behind that refusal; its title stays in the syllabus.
   const open = await Promise.all(syllabus.map((row) => opensSignedOut(row.slug)));
   const outcomes = [...new Set(syllabus.flatMap((row, i) => (open[i] ? (getCurriculumItem(row.slug)?.objectives ?? []) : [])))];
-  return { slug: path, summary: null, instructor: null, outcomes, syllabus, certificate: certificateTitle(path) };
+  const typed = syllabus.map((row) => ({ ...row, type: itemType(row.kind, quizzes.has(row.slug)) }));
+  return { slug: path, summary: null, instructor: null, outcomes, syllabus: typed, certificate: certificateTitle(path) };
 }

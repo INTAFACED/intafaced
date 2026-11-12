@@ -224,6 +224,53 @@ describe('/api/v1/venue/*', () => {
     expect(outside.json().intafacedCode).toBe('trade.venue.price_outside_protection');
   });
 
+  it('funding-history is public: no sign-in or verification; the listed perpetual on the asset, rates as decimal strings', async () => {
+    app = Fastify();
+    const router = new UserVenueRouter({ doors: [door()], store: new InMemoryPreparedActionStore(), now: () => new Date() });
+    attachUserVenueRoutes(app, router, {
+      // Signed out: every private route would refuse here; this one never asks.
+      requirePrincipal: (_req, reply) => {
+        void reply.code(401).send({ code: 'AuthenticationError', message: 'signed out', intafacedCode: 'auth.required' });
+        return null;
+      },
+      requireTradeJurisdiction: () => false,
+      slippageCapBps: null,
+    });
+    await app.ready();
+    const since = new Date(Date.now() - 3 * 3_600_000).toISOString();
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/funding-history?base=btc&since=${encodeURIComponent(since)}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ symbol: 'BTC-PERP', intervalSeconds: 3600, test: true });
+    expect(body.value.length).toBeGreaterThanOrEqual(2);
+    for (const row of body.value) {
+      expect(row.rate).toBe('0.0000125');
+      expect(Date.parse(row.fundingAt) % 3_600_000).toBe(0);
+      expect(Date.parse(row.fundingAt)).toBeGreaterThanOrEqual(Date.parse(since));
+    }
+    // An asset with no listed perpetual, and a bad request, are refused by name; the private routes still refuse.
+    const eth = await app.inject({ method: 'GET', url: `/api/v1/venue/funding-history?base=ETH&since=${encodeURIComponent(since)}` });
+    expect(eth.statusCode).toBe(422);
+    expect(eth.json().intafacedCode).toBe('trade.venue.not_offered');
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/funding-history?base=BTC' })).json().intafacedCode).toBe(
+      'trade.venue_request_invalid',
+    );
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/markets' })).statusCode).toBe(401);
+  });
+
+  it('funding-history refuses not_offered on a listed perpetual with no published funding, and when the door is off', async () => {
+    await mount(door());
+    const since = encodeURIComponent(new Date(Date.now() - 3_600_000).toISOString());
+    const gold = await app.inject({ method: 'GET', url: `/api/v1/venue/funding-history?base=XAU&since=${since}` });
+    expect(gold.statusCode).toBe(422);
+    expect(gold.json().intafacedCode).toBe('trade.venue.not_offered');
+    await app.close();
+    await mount(null);
+    const off = await app.inject({ method: 'GET', url: `/api/v1/venue/funding-history?base=BTC&since=${since}` });
+    expect(off.statusCode).toBe(404);
+    expect(off.json().intafacedCode).toBe('trade.user_venue_off');
+  });
+
   it("best-prices carries the owner's market price protection as svc-trade holds it", async () => {
     await mount(door(), 150);
     const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
