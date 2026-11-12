@@ -18,6 +18,13 @@
  *                                    and returns once a cycle has passed it by, so a journey's own orders meet only each other.
  *   node tooling/scripts/local-test-market.mjs release <symbol>
  *                                    quotes that market again from its next cycle.
+ *   node tooling/scripts/local-test-market.mjs still
+ *                                    stops every walk and every test_taker crossing from the next cycle on: the maker keeps
+ *                                    quoting the same ladder at the same TEST PRICE (a `move` still shifts it), so nothing on
+ *                                    the books moves unless someone trades. Returns once a still cycle has started. The
+ *                                    journeys ask for it before every file that has no `// Market: live` line.
+ *   node tooling/scripts/local-test-market.mjs live
+ *                                    walks and crosses again from the next cycle on, and returns once a live cycle has started.
  *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
  *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
  *                                    past (fill times only) so charts have history. Skips any market that already traded.
@@ -88,6 +95,7 @@ export function stackPaths(home = os.homedir()) {
     shiftFile: path.join(stateDir, 'run', 'market-shift.json'),
     holdFile: path.join(stateDir, 'run', 'market-hold.json'),
     heldFile: path.join(stateDir, 'run', 'market-held.json'),
+    stillFile: path.join(stateDir, 'run', 'market-still.json'),
     cycleFile: path.join(stateDir, 'run', 'market-cycle.json'),
     log: path.join(stateDir, 'logs', 'market.log'),
   };
@@ -416,6 +424,52 @@ export function writeCycleRecord(p, record) {
   const tmp = `${p.cycleFile}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(record), { mode: 0o600 });
   fs.renameSync(tmp, p.cycleFile);
+}
+
+/**
+ * The still market (exported for tests). While it is asked for, the loop quotes every walked market at the walk's
+ * current price without stepping it (a `move` shift still applies), and test_taker crosses nothing: no price, mark,
+ * margin tier, candle, last price or fee total on the stack changes unless someone else trades. It lives in a file
+ * (`stillFile`) like a hold, so it lapses after STILL_MAX_MS if nobody asks for it again, and a stack a killed journey
+ * run left still walks again on its own. The journeys ask for it before every file (world-restore.mjs), and a journey
+ * file takes under an hour (JOURNEY_GLOBAL_TIMEOUT_MS), so it never lapses part-way through one.
+ *
+ * Failure class it removes (project-state #2065, 11 Nov): 19 of the 51 `flaky` issues opened from 4 to 11 Nov were a step
+ * whose two reads or two orders the walk (up to 12 bps every 8 s cycle) or a crossing moved apart: a perpetual's margin
+ * tier changed between review and order (#7885, #7625, #7451, #7215, #7527, #7638), a copy's ask was re-quoted away
+ * (#7507, #7543), a candle, fee total or own-funds sum changed between two reads (#7871, #7907, #7868, #7745), a chart
+ * moved under a click or a drag (#7791, #7814, #7641), the book jumped (#7640, #7546), the spread or band moved (#7912,
+ * #7354). Each was fixed in its own file, with a `hold` around the step; this makes still the default for every file.
+ */
+export const STILL_MAX_MS = 3_600_000;
+
+/** Whether this cycle is still: a still request asked for no more than STILL_MAX_MS ago (exported for tests). */
+export function stillThisCycle(asked, now = Date.now()) {
+  return Number.isFinite(asked?.askedAt) && now - asked.askedAt <= STILL_MAX_MS;
+}
+
+/** The saved still request, `{ askedAt }`, or null for a live market; unreadable or absent is live. */
+function readStill(p) {
+  try {
+    return JSON.parse(fs.readFileSync(p.stillFile, 'utf8')) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The mid a walked market is quoted at this cycle: a still cycle does not step the walk (exported for tests). */
+export function walkedMid(walk, { still, shift, tick }) {
+  return shiftedMid(still ? walk.current() : walk.next(), shift, tick);
+}
+
+/** Whether test_taker crosses `symbol` this cycle: never on a still cycle; otherwise on its turn (`crossesOn`) when the market crosses and quotes rest (exported for tests). */
+export function takerCrosses({ still, cross, rested, cycle, symbol }) {
+  return !still && cross !== false && rested > 0 && crossesOn(cycle, symbol);
+}
+
+/** Whether a cycle record of the running maker shows `still` (true or false) in a cycle started after `askedAt` (exported for tests). */
+export function stillTaken(cycle, { still, askedAt, pid }) {
+  return Boolean(cycle && cycle.pid === pid && cycle.startedAt > askedAt && Boolean(cycle.still) === still);
 }
 
 /** Whether a cycle that started after a hold was asked for has passed the market by (exported for tests). */
@@ -820,7 +874,7 @@ function parseArgs(argv) {
     else if (!a.startsWith('--'))
       // Failure it prevents: `pnpm local:market status` used to be `start status` and started a second copy.
       die(
-        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move | unshift | hold | release (for example: pnpm local:market ${a})`,
+        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move | unshift | hold | release | still | live (for example: pnpm local:market ${a})`,
         2,
       );
   }
@@ -977,6 +1031,8 @@ async function runLoop(opts, home) {
     const asked = readHolds(p);
     const cycleAt = Date.now();
     const holds = new Map([...asked].filter(([k]) => !quotesThisCycle(k, asked, cycleAt)));
+    // Named apart from the per-market `still` set of standing quotes below (CI review on #7969: one name shadowed the other).
+    const stillCycle = stillThisCycle(readStill(p), cycleAt);
     /** What this cycle did to each market, written once the cycle has gone through every market (`cycleFile`). */
     const done = {};
     if (holds.size > 0) {
@@ -1004,7 +1060,7 @@ async function runLoop(opts, home) {
           mid = (book?.status === 200 ? bookMid(book.json) : null) ?? mids.get(leader) ?? walks.get(m.symbol).next();
         } else {
           // A `move` shift applies to a walked market; a follower is quoted round its leader's book, so it moves with it.
-          mid = shiftedMid(walks.get(m.symbol).next(), shifts.get(m.symbol), m.tick);
+          mid = walkedMid(walks.get(m.symbol), { still: stillCycle, shift: shifts.get(m.symbol), tick: m.tick });
         }
         mids.set(m.symbol, mid);
         const cfg = TEST_PRICES[m.symbol];
@@ -1115,11 +1171,11 @@ async function runLoop(opts, home) {
         standingQuotes.set(m.symbol, [...placed, ...standing.filter((q) => kept.has(q.id))]);
         const rested = resting.length;
         log(
-          `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
+          `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}${stillCycle ? ' (still)' : ''}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
         );
         if (newShift) log(`${m.symbol} TEST PRICE shift ${shift} bps quoted`);
         done[m.symbol] = { held: false, resting: rested, ladder: ladder.length, shiftBps: shift === undefined ? null : String(shift) };
-        if (cfg.cross !== false && rested > 0 && crossesOn(cycle, m.symbol)) {
+        if (takerCrosses({ still: stillCycle, cross: cfg.cross, rested, cycle, symbol: m.symbol })) {
           // Alternate per market (failure it prevents: every symbol here has the same name length, so a
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
           // every crossing then failed with 400 ledger.insufficient_funds).
@@ -1148,7 +1204,7 @@ async function runLoop(opts, home) {
       }
       inactiveSince = null;
       try {
-        writeCycleRecord(p, { pid: process.pid, runId, cycle, startedAt: readAt, endedAt: Date.now(), markets: done });
+        writeCycleRecord(p, { pid: process.pid, runId, cycle, startedAt: readAt, endedAt: Date.now(), still: stillCycle, markets: done });
       } catch (err) {
         log(`cycle record not written (${err.message}); quoting goes on`);
       }
@@ -1266,6 +1322,24 @@ export function laterEdgeBudget(prev, next) {
  * well inside Edge's budget (one per request, six lanes, would send 5040 and end waiting for Edge's window).
  */
 export const HISTORY_MARKETS_PER_REQUEST = 2;
+
+/**
+ * The waits before each new try of a tape trade a service refused as unavailable (failure it prevents: on 10 Nov,
+ * a few seconds' stall on a CI runner made svc-identity answer svc-trade's operation check after its 3 s limit
+ * (`authority.unavailable`), or Edge's check of matching after its 5 s limit (`edge.venue_halt_unavailable`). The writer
+ * stopped that market at its first refusal, so the market came up short and the journeys shard's setup failed before any
+ * journey ran: shard 11 of main's run 42745917050, and shard 22 of run 42760091859 on both attempts).
+ */
+export const TAPE_RETRY_WAITS_MS = [2000, 5000, 10000];
+
+/**
+ * Whether a refused tape order is worth another try: a service answered that it, or a service it asks, was unavailable,
+ * or the request got a 5xx or no result. A refusal about the order itself (a price band, funds, a rule) is not, and stops
+ * the market as before.
+ */
+export function transientTapeRefusal(reason) {
+  return /unavailable|\bHTTP 5\d\d\b|^no result|^unknown\b/i.test(String(reason ?? ''));
+}
 
 /**
  * Where `trades` tape trades go, `perBar` to a bar of `stepMs`: evenly spaced, the last one in the newest closed bar,
@@ -1448,8 +1522,31 @@ async function runHistory(opts, home) {
         await stopMarket(b);
       }
     }
-    const live = lane.filter((b) => b.writing);
-    if (live.length === 0) return false;
+    if (!lane.some((b) => b.writing)) return false;
+    // Trade n, tried again at the same level and side for each market a service refused as unavailable, after that
+    // market's tape orders are taken off the book (an `unknown` outcome may have rested after all).
+    let todo = lane.filter((b) => b.writing);
+    for (let attempt = 0; todo.length > 0; attempt += 1) {
+      const failed = await placeTrade(n, todo);
+      todo = [];
+      for (const { b, what, reason } of failed) {
+        const wait = TAPE_RETRY_WAITS_MS[attempt];
+        if (wait !== undefined && transientTapeRefusal(reason)) {
+          log(`${b.m.symbol}: TEST tape ${what} ${n} refused (${reason}); trying it again in ${wait / 1000}s`);
+          await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(b.m.symbol)}`).catch(() => null);
+          todo.push(b);
+          continue;
+        }
+        log(`${b.m.symbol}: TEST tape ${what} ${n} refused (${reason}); stopping this market`);
+        await stopMarket(b);
+      }
+      if (todo.length > 0) await sleep(TAPE_RETRY_WAITS_MS[attempt]);
+    }
+    return true;
+  };
+  /** One try of trade n on each market given: the maker's order, then the taker's. Resolves the markets that failed. */
+  const placeTrade = async (n, live) => {
+    const failed = [];
     const rested = resultsOf(
       await placeBatch(
         maker,
@@ -1459,15 +1556,10 @@ async function runHistory(opts, home) {
     );
     const crossing = [];
     for (const [i, b] of live.entries()) {
-      if (rested[i]?.status === 'success') {
-        crossing.push(b);
-        continue;
-      }
-      // An `unknown` outcome may have rested after all, so the market's tape orders are cancelled either way.
-      log(`${b.m.symbol}: TEST tape maker order ${n} refused (${itemRefusal(rested[i])}); stopping this market`);
-      await stopMarket(b);
+      if (rested[i]?.status === 'success') crossing.push(b);
+      else failed.push({ b, what: 'maker order', reason: itemRefusal(rested[i]) });
     }
-    if (crossing.length === 0) return true;
+    if (crossing.length === 0) return failed;
     const hits = resultsOf(
       await placeBatch(
         taker,
@@ -1481,10 +1573,14 @@ async function runHistory(opts, home) {
         b.made += 1;
         continue;
       }
-      log(`${b.m.symbol}: TEST tape trade ${n} did not fill (${itemRefusal(hit)}); stopping this market`);
-      await stopMarket(b);
+      // A taker order that was accepted but filled short is about the book, not a stall: it stops the market.
+      failed.push({
+        b,
+        what: 'trade',
+        reason: hit?.status === 'success' ? `filled ${hit.order?.filled ?? '0'} of ${b.level.amount}` : itemRefusal(hit),
+      });
     }
-    return true;
+    return failed;
   };
   const writing = books.filter((b) => b.writing);
   const laneCount = Math.ceil(writing.length / HISTORY_MARKETS_PER_REQUEST);
@@ -1838,6 +1934,34 @@ async function main() {
     console.log(cleared.length ? `TEST PRICE shift cleared for ${cleared.join(', ')}` : 'no TEST PRICE shift to clear');
     return console.log(released.length ? `hold released for ${released.join(', ')}` : 'no hold to release');
   }
+  if (cmd === 'still' || cmd === 'live') {
+    const want = cmd === 'still';
+    const readCycle = () => {
+      try {
+        return JSON.parse(fs.readFileSync(p.cycleFile, 'utf8'));
+      } catch {
+        return null;
+      }
+    };
+    const pid = runningPid(p);
+    const now = Date.now();
+    const newest = readCycle();
+    // Already so in the running maker's newest cycle: the request is renewed (or stays cleared) with nothing to wait for.
+    const already = Boolean(pid) && newest?.pid === pid && Boolean(newest.still) === want && stillThisCycle(readStill(p), now) === want;
+    fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+    if (want) fs.writeFileSync(p.stillFile, JSON.stringify({ askedAt: now }), { mode: 0o600 });
+    else fs.rmSync(p.stillFile, { force: true });
+    if (!pid) return console.log(`the test market is not running; it starts ${cmd} when it does`);
+    if (already) return console.log(`the test market is ${cmd}`);
+    const until = now + 4 * opts.seconds * 1000 + 60_000;
+    while (!stillTaken(readCycle(), { still: want, askedAt: now, pid })) {
+      if (Date.now() > until || !runningPid(p)) die(`no cycle of the running test market went ${cmd} in time (see ${p.log})`);
+      await sleep(250);
+    }
+    return console.log(
+      want ? 'the test market is still: no walk and no crossing until live, or an hour without a new still' : 'the test market is live',
+    );
+  }
   if (cmd === 'hold' || cmd === 'release') {
     const [symbol] = rest;
     if (!TEST_PRICES[symbol]) die(`${cmd} needs a TEST market (${Object.keys(TEST_PRICES).join(', ')})`, 2);
@@ -1889,7 +2013,10 @@ async function main() {
     return startBackground(p, rec.args ?? [], { wait: false });
   }
   if (cmd !== 'start')
-    die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move | unshift | hold | release`, 2);
+    die(
+      `unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move | unshift | hold | release | still | live`,
+      2,
+    );
   await startBackground(p, rest, { wait: true });
 }
 

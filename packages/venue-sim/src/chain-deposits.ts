@@ -9,7 +9,7 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
-import { SCALE, compare, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { SCALE, compare, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { venueDepositRef, type UserVenueAccount, type UserVenueDepositRoute } from '@intafaced/venue-contracts';
 import type { TestVenueSimulator } from './simulator.js';
 
@@ -20,7 +20,10 @@ import type { TestVenueSimulator } from './simulator.js';
  *   · DEPOSITS. The customer's own wallet sends the route's token to the route's deposit address. The watcher reads the
  *     token's `Transfer` logs to that address and credits the SENDER's venue account by the transfer's own id
  *     (`venueDepositRef`: `<chainId>:<txHash>:<logIndex>`), so a log read twice, or a watcher restarted from an earlier
- *     block, credits nothing more (`creditDepositLogs`).
+ *     block, credits nothing more (`creditDepositLogs`). It keeps the route's published terms (J-dex-protocol-05 #2):
+ *     a transfer is confirming until its block has the route's `confirmations`, then credited; one below the route's
+ *     `minimum` is never credited, and the venue's record says so. Every transfer it has seen is on the venue's deposit
+ *     list (`TestVenueSimulator.deposits`).
  *   · WITHDRAWALS. A withdrawal the customer signed is pending on the venue; after `settleAfterMs` the sender pays what
  *     arrives (the amount less the network fee taken) from the deposit address to the destination on chain, and only
  *     when that transfer's receipt succeeds settles it `done` (`payPendingWithdrawals`). One payment per withdrawal: the
@@ -47,6 +50,19 @@ export interface DepositLog {
   readonly value: bigint;
   /** A log from a block the node has since dropped (a reorg). Never credited. */
   readonly removed?: boolean;
+  /** The block the transfer is in; with the chain's head it gives the confirmations. Unknown counts as confirmed. */
+  readonly blockNumber?: bigint;
+}
+
+/** The route's published minimum as an Amount, or null when it publishes none. */
+function minimumOf(route: UserVenueDepositRoute): Amount | null {
+  return route.minimum === null || route.minimum === undefined ? null : parseAmount(route.minimum);
+}
+
+/** The confirmations the route waits for: at least 1 (the block the transfer is in). */
+export function requiredConfirmations(route: UserVenueDepositRoute): number {
+  const n = route.confirmations;
+  return typeof n === 'number' && Number.isSafeInteger(n) && n > 1 ? n : 1;
 }
 
 /** Token base units to a scaled Amount. Exact: the token has at most the Amount's 18 decimals. */
@@ -63,16 +79,24 @@ export function amountToTokenUnits(amount: Amount, decimals: number): bigint {
 }
 
 /**
- * Credit every log that is a transfer of the route's token INTO the deposit address, to its sender's main account.
- * Idempotent by `depositRef`: a log already credited adds nothing. Returns what was credited and what was a replay.
+ * Credit every log that is a transfer of the route's token INTO the deposit address, to its sender's main account, once
+ * it has the route's confirmations at `head` (a log with no block, or no head given, counts as confirmed). Idempotent by
+ * `depositRef`: a log already credited adds nothing. A transfer below the route's minimum is never credited. Each one is
+ * put on the venue's deposit list with its state. Returns what was credited, what was a replay, what is still
+ * confirming (to be read again at a later head) and what was not credited.
  */
 export function creditDepositLogs(
   sim: TestVenueSimulator,
   route: UserVenueDepositRoute,
   logs: readonly DepositLog[],
-): { credited: string[]; replayed: string[] } {
+  head: bigint | null = null,
+): { credited: string[]; replayed: string[]; confirming: string[]; notCredited: string[] } {
   const credited: string[] = [];
   const replayed: string[] = [];
+  const confirming: string[] = [];
+  const notCredited: string[] = [];
+  const required = requiredConfirmations(route);
+  const minimum = minimumOf(route);
   for (const log of logs) {
     if (log.removed) continue;
     if (log.to.toLowerCase() !== route.address.toLowerCase() || log.value <= 0n) continue;
@@ -80,10 +104,25 @@ export function creditDepositLogs(
     if (log.from.toLowerCase() === route.address.toLowerCase()) continue;
     const ref = venueDepositRef(route.chainId, log.transactionHash, log.logIndex);
     const account: UserVenueAccount = { venueId: sim.venue.id, owner: log.from.toLowerCase(), subAccount: null };
-    if (sim.deposit(account, route.asset, tokenUnitsToAmount(log.value, route.tokenDecimals), ref)) credited.push(ref);
+    const amount = tokenUnitsToAmount(log.value, route.tokenDecimals);
+    const deep = head === null || log.blockNumber === undefined ? required : Number(head - log.blockNumber + 1n);
+    const confirmations = Math.max(0, Math.min(deep, required));
+    const seen = { depositRef: ref, txHash: log.transactionHash.toLowerCase(), asset: route.asset, amount, confirmations, required };
+    if (minimum !== null && compare(amount, minimum) < 0) {
+      sim.trackChainDeposit(account, { ...seen, status: 'not_credited', reason: 'below_minimum' });
+      notCredited.push(ref);
+      continue;
+    }
+    if (confirmations < required) {
+      sim.trackChainDeposit(account, { ...seen, status: 'confirming', reason: null });
+      confirming.push(ref);
+      continue;
+    }
+    if (sim.deposit(account, route.asset, amount, ref)) credited.push(ref);
     else replayed.push(ref);
+    sim.trackChainDeposit(account, { ...seen, status: 'credited', reason: null });
   }
-  return { credited, replayed };
+  return { credited, replayed, confirming, notCredited };
 }
 
 /** A log as the node returns it: a pending one may lack its transaction hash, index or block. */
@@ -288,6 +327,8 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
   const paid = new Map<string, WithdrawalPayment>();
   // From the start of this chain: a fresh anvil per stack, and the ref makes a re-read credit nothing.
   let fromBlock = 0n;
+  /** Transfers still short of the route's confirmations, read again at each new head until they are credited. */
+  const waiting = new Map<string, DepositLog>();
   let running = false;
   const tick = async () => {
     if (running) return;
@@ -308,19 +349,26 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
           toBlock: head,
         });
         const { complete, nextFromBlock } = completeLogs(logs, fromBlock, head);
-        const result = creditDepositLogs(
-          opts.sim,
-          opts.route,
-          complete.map((l) => ({
-            transactionHash: l.transactionHash as string,
-            logIndex: l.logIndex as number,
-            from: l.args.from ?? '',
-            to: l.args.to ?? '',
-            value: l.args.value ?? 0n,
-            removed: l.removed,
-          })),
-        );
+        const fresh: DepositLog[] = complete.map((l) => ({
+          transactionHash: l.transactionHash as string,
+          logIndex: l.logIndex as number,
+          from: l.args.from ?? '',
+          to: l.args.to ?? '',
+          value: l.args.value ?? 0n,
+          removed: l.removed,
+          ...(l.blockNumber != null ? { blockNumber: l.blockNumber } : {}),
+        }));
+        const refOf = (l: DepositLog) => venueDepositRef(opts.route.chainId, l.transactionHash, l.logIndex);
+        for (const l of fresh) waiting.delete(refOf(l));
+        const result = creditDepositLogs(opts.sim, opts.route, [...waiting.values(), ...fresh], head);
+        const still = new Set(result.confirming);
+        for (const l of [...waiting.values(), ...fresh]) {
+          const ref = refOf(l);
+          if (still.has(ref)) waiting.set(ref, l);
+          else waiting.delete(ref);
+        }
         if (result.credited.length) log({ msg: 'test-venue.deposit_credited', label: 'TEST', refs: result.credited });
+        if (result.notCredited.length) log({ msg: 'test-venue.deposit_below_minimum', label: 'TEST', refs: result.notCredited });
         fromBlock = nextFromBlock;
       }
       const settled = await payPendingWithdrawals(opts.sim, opts.route, payer, paid, clock(), opts.settleAfterMs ?? 4000, (nonce, err) =>

@@ -23,7 +23,17 @@ import {
   reviewJob,
 } from './review-marker.mjs';
 import { inputsGoing, readGoing, sealNow, CI_JOBS_NAME } from './journey-seal.mjs';
-import { CATCH_UP_CAP, KEY_ISSUE_TITLE, KEY_LABEL, LABEL, catchUpTargets, describe, issueBody, keyIssueBody } from './judge-down.mjs';
+import {
+  CATCH_UP_CAP,
+  JOBS_READ_CAP,
+  KEY_ISSUE_TITLE,
+  KEY_LABEL,
+  LABEL,
+  catchUpTargets,
+  describe,
+  issueBody,
+  keyIssueBody,
+} from './judge-down.mjs';
 
 const WF = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
 const REVIEW = WF.slice(WF.indexOf('\n  review:\n'), WF.indexOf('\n  # The proof read, a check'));
@@ -426,14 +436,19 @@ test('a sign-off the seal finds missing because the judge was down is titled jud
   assert.equal(missingTitle(undefined), 'Review sign-off missing');
 });
 
-test('the catch-up re-runs are the Start the seal job’s, after the review job closed the issue; the review job re-runs nothing', () => {
+test('the catch-up re-runs are the Start the seal job’s, after the review job closed the issue or on a re-run that reviewed; the review job re-runs nothing', () => {
   const review = WF.slice(WF.indexOf('\n  review:\n'), WF.indexOf('\n  read:\n'));
   const start = WF.slice(WF.indexOf('\n  seal-start:\n'));
   assert.doesNotMatch(review, /catchup|permission-actions|RERUN_TOKEN/);
   assert.match(review, /judge-closed: \$\{\{ steps\.judge-back\.outputs\.closed \}\}/);
   assert.match(
     start,
-    /if: \$\{\{ !cancelled\(\) && needs\.review\.outputs\.judge-closed == 'true' \}\}[\s\S]*judge-down\.mjs back "CI review" catchup/,
+    /if: \$\{\{ !cancelled\(\) && \(needs\.review\.outputs\.judge-closed == 'true' \|\| \(github\.run_attempt != '1' && needs\.review\.outputs\.judge == 'back'\)\) \}\}[\s\S]*judge-down\.mjs back "CI review" catchup/,
+  );
+  // 11 Nov: the one catch-up left heads past its cap; a re-run attempt that reviewed carries it on, a push never does.
+  assert.match(
+    WF,
+    /judge: \$\{\{ steps\.review\.outputs\.kind == 'down' && 'down' \|\| \(steps\.review\.outputs\.called == 'true' && 'back' \|\| ''\) \}\}/,
   );
   assert.match(start, /actions: write/);
 });
@@ -450,4 +465,60 @@ test("the second-key issue names the first key's error, the time and the one act
   assert.match(body, /renew the first key before the second runs out too/);
   assert.equal(KEY_ISSUE_TITLE, 'CI review on its second key');
   assert.notEqual(KEY_LABEL, LABEL, 'a second key in use is not the judge down');
+});
+
+test('11 Nov replayed: the catch-up drains every head without a verdict through its own re-runs, past the cap and the read cap', async () => {
+  // 60 open PRs (as at 00:11 UTC on 12 Nov): 44 heads with a verdict, 16 down heads with a skipped `edited` run on top.
+  const repo = 'o/r';
+  const sha = (i) => String(i).padStart(40, '0');
+  const pulls = Array.from({ length: 60 }, (_, i) => ({
+    number: 7800 + i,
+    state: 'open',
+    base: { ref: 'main' },
+    head: { sha: sha(i), repo: { full_name: repo } },
+  }));
+  const down = new Set(Array.from({ length: 16 }, (_, i) => 44 + i)); // the newest heads, as #8003 and #8000 were
+  let runs = [];
+  pulls.forEach((p, i) => {
+    const at = `2026-11-11T${String(10 + Math.floor(i / 6)).padStart(2, '0')}:${String((i % 6) * 10).padStart(2, '0')}:00Z`;
+    runs.push({
+      id: 1000 + i,
+      path: REVIEW_WORKFLOW,
+      event: 'pull_request_target',
+      head_sha: p.head.sha,
+      status: 'completed',
+      created_at: at,
+    });
+    if (down.has(i))
+      runs.push({
+        id: 5000 + i,
+        path: REVIEW_WORKFLOW,
+        event: 'pull_request_target',
+        head_sha: p.head.sha,
+        status: 'completed',
+        created_at: at.replace(':00Z', ':30Z'),
+      });
+  });
+  const reviewed = new Set();
+  const jobsOf = async (r) => {
+    if (r.id >= 5000) return [SKIPPED];
+    const i = r.id - 1000;
+    return [down.has(i) && !reviewed.has(i) ? jobAfter({ kind: 'down' }) : reviewJob(r.head_sha, 'success')];
+  };
+  const rounds = [];
+  for (let round = 0; round < 5; round++) {
+    const { targets, left } = await catchUpTargets({ pulls, runs, jobsOf, repo, skipSha: 'x' });
+    rounds.push([targets.length, left]);
+    if (!targets.length) break;
+    // Each re-run reviews (the judge is back), and its own success carries the catch-up on.
+    for (const t of targets) reviewed.add(t.run.id - 1000);
+    runs = runs.map((r) => ({ ...r }));
+  }
+  assert.deepEqual(rounds, [
+    [10, 6],
+    [6, 0],
+    [0, 0],
+  ]);
+  assert.equal(reviewed.size, 16);
+  assert.ok(JOBS_READ_CAP >= 60 + 16, 'every open head and its edited run can be read');
 });

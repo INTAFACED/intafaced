@@ -64,6 +64,8 @@ const en = {
   decline_bank_card_pin_wrong: 'Wrong PIN. Too many wrong tries in a row block the PIN; you can view it under PIN.',
   decline_bank_card_pin_blocked: 'The PIN is blocked after too many wrong tries. Set a new PIN under PIN to use it again.',
   decline_ledger_insufficient_funds: 'Not enough money for this purchase. Add money, then try again.',
+  decline_bank_card_partner_insufficient_funds:
+    'Not enough money at the card partner for this purchase. Add money to the card partner balance, or pay less.',
   declineUnknown: 'Declined. This code has no plain words here yet: keep it if you contact support.',
 };
 const es = {
@@ -128,6 +130,8 @@ const es = {
   decline_bank_card_pin_wrong: 'PIN incorrecto. Demasiados intentos fallidos seguidos bloquean el PIN; puedes verlo en PIN.',
   decline_bank_card_pin_blocked: 'El PIN está bloqueado tras demasiados intentos fallidos. Pon un PIN nuevo en PIN para volver a usarlo.',
   decline_ledger_insufficient_funds: 'No hay dinero suficiente para esta compra. Añade dinero y vuelve a intentarlo.',
+  decline_bank_card_partner_insufficient_funds:
+    'No hay dinero suficiente en el socio de la tarjeta para esta compra. Añade dinero al saldo del socio o paga menos.',
   declineUnknown: 'Rechazada. Este código aún no tiene palabras aquí: guárdalo si contactas con soporte.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -195,6 +199,8 @@ const fr = {
   decline_bank_card_pin_blocked:
     'Le code PIN est bloqué après trop d’essais erronés. Définissez un nouveau code PIN sous Code PIN pour l’utiliser de nouveau.',
   decline_ledger_insufficient_funds: 'Pas assez d’argent pour cet achat. Ajoutez de l’argent, puis réessayez.',
+  decline_bank_card_partner_insufficient_funds:
+    'Pas assez d’argent chez le partenaire de la carte pour cet achat. Ajoutez de l’argent au solde du partenaire, ou payez moins.',
   declineUnknown: 'Refusé. Ce code n’a pas encore de mots ici : gardez-le si vous contactez le support.',
 } satisfies Record<keyof typeof en, string>;
 export const cardBlocksCopy = defineCopy('customer.bank.card-blocks', en, { es, fr });
