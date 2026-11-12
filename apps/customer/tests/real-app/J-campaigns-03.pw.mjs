@@ -445,15 +445,17 @@ test(`${J} #2 opens it with rewards in each state: owed, on hold and still open,
   await expect(due.getByTestId('reward-status')).toHaveText('Owed');
   await expect(due.getByTestId('reward-amount')).toHaveText(`${REWARD} ${ASSET}`);
   await expect(due.getByTestId('reward-why')).toContainText('Owed to you by INTAFACED since');
-  await expect(due.getByTestId('reward-why')).toContainText('It is not in your wallet and not part of any balance');
+  await expect(due.getByTestId('reward-why')).toContainText('It is not in your wallet and is not part of any balance');
   await expect(due.getByTestId('reward-tx')).toHaveCount(0);
 
   // On hold: owed, with the time left on its hold.
   const waiting = row(hub, held.id);
   await expect(waiting).toHaveAttribute('data-status', 'on_hold');
   await expect(waiting.getByTestId('reward-status')).toHaveText('On hold');
-  await expect(waiting.getByTestId('reward-why')).toContainText('Owed to you by INTAFACED. It is paid to your connected wallet once');
-  await expect(waiting.getByTestId('reward-why')).toContainText(/(59 minutes|1 hour) left, until/);
+  await expect(waiting.getByTestId('reward-why')).toContainText('Owed to you by INTAFACED. The campaign’s review hold ends in');
+  await expect(waiting.getByTestId('reward-why')).toContainText(
+    /ends in (59 minutes|1 hour), on .*; it is paid to your connected wallet after that/,
+  );
   await expect(waiting.getByTestId('reward-tx')).toHaveCount(0);
 
   // Still open: retried under the same reference, with the real reason.
@@ -626,7 +628,9 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   await due.getByRole('button', { name: 'Spend or withdraw' }).click();
   const note = due.getByTestId('reward-spend-note');
   await expect(note).toHaveAttribute('role', 'status');
-  await expect(note).toContainText('This reward is owed to you by INTAFACED and is not in your wallet yet');
+  await expect(note).toContainText(
+    'This reward is owed to you by INTAFACED and is not in your wallet, so there is nothing to spend or withdraw.',
+  );
   await expect(note).toContainText('Nothing was sent.');
   await page.waitForTimeout(2_000);
   expect(sent).toEqual([]);
