@@ -28,7 +28,7 @@ import { namesVendor } from './kb-catalog.js';
 import type { KbReview, KbReviewBook, KbReviewResult } from './kb-review.js';
 import type { KbDraft, SupportStore } from './store.js';
 
-export const SUPPORT_KB_REVISION_STALE = 'support.kb.revision_stale';
+export const SUPPORT_KB_REVISION_STALE = 'support.kb_revision_stale';
 const ALREADY_IN_REVIEW = 'support.kb_already_in_review';
 
 /** A refusal with its code; the router maps it to a status. */

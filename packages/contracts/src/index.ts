@@ -37,6 +37,8 @@ export * from './identity-watchlists.js';
 export * from './identity-watchlists-client.js';
 export * from './pay-custody-deposit.js';
 export * from './pay-custody-deposit-client.js';
+export * from './pay-withdrawal-addresses.js';
+export * from './pay-withdrawal-addresses-client.js';
 export * from './ops-analytics.js';
 export * from './ops-analytics-cube.js';
 export * from './ops-analytics-consume.js';

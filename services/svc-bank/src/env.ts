@@ -1,4 +1,5 @@
 import { TEST_PARTNER_SETTINGS } from './partner/test-partner.js';
+import { TAX_EFFECTS_SETTINGS } from './activity/tax-effects.js';
 import { z } from 'zod';
 import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
@@ -249,6 +250,14 @@ const schema = serviceEnvSchema
        * Refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production (`partner/test-partner.ts`).
        */
       BANK_TEST_PARTNER: z.enum(TEST_PARTNER_SETTINGS).default('off'),
+
+      /**
+       * THE TEST TAX-EFFECT MAP (J-portfolio-03 #7): `off` (default) | `test`. What each kind of activity line means for tax
+       * is the owner's and counsel's call, blank until set, and `activity.taxEffects` refuses it by name. `test` stands in
+       * a labelled TEST map on test stacks only; refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production
+       * (`activity/tax-effects.ts`).
+       */
+      BANK_TAX_EFFECTS: z.enum(TAX_EFFECTS_SETTINGS).default('off'),
 
       /**
        * THE CUSTODY SWITCH (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any

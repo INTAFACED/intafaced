@@ -5,6 +5,12 @@ import assert from 'node:assert/strict';
 import {
   SET_ASIDE_DAYS,
   historyRuns,
+  readHistory,
+  historyThrough,
+  findStored,
+  storedRuns,
+  passedSteps,
+  HISTORY_VERSION,
   issueProblem,
   judge,
   moneyRule,
@@ -245,6 +251,117 @@ test("history: only main's own finished runs between the named run and this one"
     historyRuns(runs, { repo, namedCreated: r(1, 1).created_at, thisCreated: r(7, 7).created_at, thisId: 7 }).map((x) => x.run_number),
     [2, 6],
   );
+});
+
+// Run 4084 (43127556856, 12 Nov 2026) finished `failure` with a report artifact that had no report.json, after its shard
+// merge hit the API rate limit; run 4005 (11 Nov) finished with none after no shard started. Each failed every pull
+// request's verdict ("the pass history couldn't be read") until it was re-run or cancelled. A finished run with no report
+// is skipped and named; a report that can't be read (a refusal, a rate limit) still fails the read.
+test('the pass history skips a finished main run that kept no report, and still fails on one it cannot read', () => {
+  const hr = (n) => ({ id: 43127556000 + n, run_number: n });
+  const report = (states) => ({ states });
+  const reports = { 4083: report({ 'J-a-01#1': 'passed' }), 4085: report({ 'J-a-02#1': 'flaky' }) };
+  const got = readHistory([hr(4083), hr(4084), hr(4085)], (r) => reports[r.run_number] ?? null);
+  assert.deepEqual(got.skipped, [4084]);
+  assert.deepEqual(passesSince(got.reports), { 'J-a-01#1': 4083, 'J-a-02#1': 4085 });
+  // What a skip lets through: a step that passed only in the skipped run is not in the pass history.
+  const only = readHistory([hr(4084)], () => null);
+  assert.deepEqual(passesSince(only.reports), {});
+  // Unreadable stays red: a rate-limited or refused download throws, named by run.
+  assert.throws(
+    () =>
+      readHistory([hr(4083), hr(4084)], (r) => {
+        if (r.run_number === 4084)
+          throw new Error('Command failed: gh run download: error fetching artifacts: HTTP 403: API rate limit exceeded for installation.');
+        return reports[r.run_number];
+      }),
+    /run 4084's report couldn't be read \(Command failed: gh run download: error fetching artifacts: HTTP 403: API rate limit exceeded/,
+  );
+});
+
+test("fetchInputs reads the history with the optional reader, so only a missing artifact or a missing report.json skips, and the named run's report stays required", () => {
+  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
+  assert.match(body, /historyThrough\(runs, \{[\s\S]*downloadReport\(repo, r\.id, 'report\.json', true\)/);
+  assert.match(body, /named = reportOf\(baseline\.run\.id\);/);
+  assert.match(body, /readReport\(raw \?\? downloadReport\(repo, id\)\)/);
+});
+
+// The stored pass history: a verdict reads the newest main run's pass-history.json and downloads only what it doesn't
+// cover, and gets the same pass history as reading every run (12 Nov 2026: 208 calls and about 10 minutes per verdict).
+const STATES = ['passed', 'flaky', 'failed', 'skipped', 'missing'];
+const seeded = (seed) => () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+const fakeHistory = (n, rnd) =>
+  Array.from({ length: n }, (_, i) => {
+    const states = {};
+    for (let k = 1; k <= 12; k++) states[`J-a-${String(k).padStart(2, '0')}#1`] = STATES[Math.floor(rnd() * STATES.length)];
+    return { run: { id: 9000 + i, run_number: 100 + i, run_attempt: 1 }, report: rnd() < 0.1 ? null : { states } };
+  });
+const entriesOf = (list) =>
+  Object.fromEntries(
+    list.filter((x) => x.report).map((x) => [String(x.run.id), { number: x.run.run_number, attempt: 1, passed: passedSteps(x.report) }]),
+  );
+
+test('the stored pass history gives exactly the pass history of reading every run, and downloads only what it lacks', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const rnd = seeded(seed);
+    const list = fakeHistory(30, rnd);
+    const runs = list.map((x) => x.run);
+    const byId = new Map(list.map((x) => [x.run.id, x.report]));
+    const full = readHistory(runs, (r) => byId.get(r.id));
+    // The file a run part-way along wrote, one run it read at an attempt since re-run, and runs newer than it.
+    const cut = 5 + Math.floor(rnd() * 20);
+    const stored = { from: runs[cut - 1].run_number, runs: entriesOf(list.slice(0, cut)) };
+    const rerun = runs[Math.floor(rnd() * cut)];
+    const now = runs.map((r) => (r === rerun ? { ...r, run_attempt: 2 } : r));
+    const via = historyThrough(now, { stored, read: (r) => byId.get(r.id) });
+    assert.deepEqual(passesSince(via.reports), passesSince(full.reports), `seed ${seed}`);
+    assert.deepEqual(via.skipped, full.skipped, `seed ${seed}: a run with no report is skipped either way`);
+    const expectRead = now.filter((r, i) => i >= cut || r === now[runs.indexOf(rerun)] || !byId.get(r.id)).map((r) => r.run_number);
+    assert.deepEqual(via.read, expectRead, `seed ${seed}: downloads only runs the file doesn't cover`);
+    // The next file holds every run with a report, the re-run at its new attempt.
+    assert.equal(Object.keys(via.entries).length, list.filter((x) => x.report).length);
+    if (byId.get(rerun.id)) assert.equal(via.entries[rerun.id].attempt, 2);
+  }
+});
+
+test('a stored file is read only when it is whole: newest first, within the lookback, a refusal stays red', () => {
+  const runs = [1, 2, 3, 4, 5, 6, 7].map((n) => ({ id: n, run_number: n }));
+  const good = { version: HISTORY_VERSION, runs: { 1: { number: 1, attempt: 1, passed: ['J-a-01#1'] } } };
+  assert.equal(storedRuns(good), good.runs);
+  for (const bad of [null, {}, { version: 99, runs: {} }, { version: HISTORY_VERSION, runs: { 1: { number: 1, attempt: 1 } } }])
+    assert.equal(storedRuns(bad), null, JSON.stringify(bad));
+  // Newest first: run 7 has none, run 6 a malformed one, run 5 a good one.
+  const files = { 7: null, 6: { version: HISTORY_VERSION, runs: { 1: { passed: 'x' } } }, 5: good };
+  assert.deepEqual(
+    findStored(runs, (r) => files[r.run_number] ?? null),
+    { from: 5, runs: good.runs },
+  );
+  // Only within the lookback; past it the verdict reads every run, as before.
+  assert.equal(
+    findStored(runs, (r) => (r.run_number === 1 ? good : null)),
+    null,
+  );
+  // A failed download that isn't a refusal passes the file over; a refusal is thrown on.
+  const broken = (r) => {
+    if (r.run_number === 7) throw Object.assign(new Error('malformed'), { stderr: 'unexpected end of JSON' });
+    return files[r.run_number] ?? null;
+  };
+  assert.equal(findStored(runs, broken).from, 5);
+  const limited = () => {
+    throw Object.assign(new Error('Command failed'), { stderr: 'HTTP 403: API rate limit exceeded for installation.' });
+  };
+  assert.throws(() => findStored(runs, limited), /Command failed/);
+});
+
+test("fetchInputs finds the stored history among main's own history runs and writes only on main from a whole read", () => {
+  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
+  assert.match(body, /readStored = \(r\) => downloadReport\(repo, r\.id, HISTORY_FILE, true, \{ artifact: HISTORY_ARTIFACT \}\)/);
+  assert.match(body, /const stored = findStored\(runs, readStored\);/);
+  assert.match(body, /historyThrough\(runs, \{\s*stored,/);
+  const main = src.slice(src.indexOf('function main()'));
+  assert.match(main, /if \(arg\('--history-out'\) && onMain && entries\)/);
 });
 
 // The set-aside (OWNER 225, 227): a step that failed, then passed on its retry, on main, is set aside by the machine for

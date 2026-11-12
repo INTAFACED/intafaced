@@ -7,6 +7,7 @@ import {
   networkLabel,
   plainReason,
   PROTOCOL_ACTIONS,
+  standingBlockers,
   type Blocker,
   type BlockerCode,
   type BlockerSource as Source,
@@ -31,6 +32,7 @@ export {
   networkLabel,
   plainReason,
   PROTOCOL_ACTIONS,
+  standingBlockers,
 };
 export type { Blocker, BlockerCode, ProtocolAction, ProtocolSnapshot, Source };
 
@@ -67,4 +69,13 @@ export function tabFromSubPath(slug: Slug, subPath: string | undefined): string 
   const parts = (subPath ?? '').split('/').filter(Boolean);
   const first = parts[0] === slug ? parts[1] : parts[0];
   return SUBNAV[slug].find((tab) => tab.id === first)?.id ?? SUBNAV[slug][0]!.id;
+}
+
+/**
+ * The blockers no source can clear for any action of a room, each once, in the order its tabs list them: what the room can
+ * be said to wait on before anything is read (More's Web3 tiles, J-home-ia-02 #2).
+ */
+export function roomStandingBlockers(slug: Slug): BlockerCode[] {
+  const codes = SUBNAV[slug].flatMap((tab) => tab.actions.flatMap((action) => standingBlockers(action).map((found) => found.code)));
+  return [...new Set(codes)];
 }

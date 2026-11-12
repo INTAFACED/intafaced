@@ -2331,6 +2331,61 @@
         }
       }
     },
+    "/api/v1/venue/agent-accounts/connections": {
+      "get": {
+        "operationId": "venueAgentConnections",
+        "summary": "Which of your agent API keys is connected to which agent account; a key trades only the account it is connected to",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/venue/agent-accounts/{id}/connections": {
+      "post": {
+        "operationId": "venueAgentConnect",
+        "summary": "Connect one of your agent API keys to this agent account, from your own sign-in after step-up, never from a key; a key already connected elsewhere is refused",
+        "tags": ["accounts"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/venue/agent/orders": {
+      "post": {
+        "operationId": "venueAgentOrder",
+        "summary": "Your assistant's spot order, from its agent key: placed only on the agent account the key is connected to, held to your cap first, and sent once per clientOrderId; an answer that is not definite is 202, retried with the same id",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/venue/orders": {
       "get": {
         "operationId": "venueOrders",

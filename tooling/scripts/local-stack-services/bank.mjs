@@ -41,6 +41,19 @@ function offrampCooling() {
   throw new Error(`LOCAL_STACK_BANK_OFFRAMP_COOLING is "${asked}"; leave it unset for the TEST 24 hours, or set it to off.`);
 }
 
+/**
+ * The owner's address-book cap (J-wallet-04 #2): the stack's TEST 10, a smaller whole number so a journey can fill the book
+ * and see the refusal name the cap (bank.address_book_full), or blank when the stack is asked to show it unset, so every
+ * address save refuses bank.address_book_cap_unset.
+ */
+function addressBookCap() {
+  const asked = process.env.LOCAL_STACK_BANK_ADDRESS_BOOK_CAP;
+  if (asked === undefined || asked === '') return { BANK_ADDRESS_BOOK_CAP: '10' };
+  if (asked === 'off') return {};
+  if (/^[1-9]$/.test(asked)) return { BANK_ADDRESS_BOOK_CAP: asked };
+  throw new Error(`LOCAL_STACK_BANK_ADDRESS_BOOK_CAP is "${asked}"; leave it unset for the TEST 10, set it to 1 to 9, or set it to off.`);
+}
+
 /** The lending policy (BK-loan-01, J-bank-09 #1): new loans open, or switched off when the stack is asked to show it. */
 function lendingPolicy() {
   const asked = process.env.LOCAL_STACK_BANK_LOANS;
@@ -264,7 +277,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_PLANS_JSON: testValue('BANK_PLANS_JSON'),
     BANK_DORMANCY_RULES_JSON: testValue('BANK_DORMANCY_RULES_JSON'),
     BANK_CARD_SIM_CASHBACK: 'test',
-    BANK_ADDRESS_BOOK_CAP: '10',
+    ...addressBookCap(),
     ...offrampCooling(),
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a
     // listed address refused by name (bank.destination_sanctions_listed). Set only here, never in a deploy; unset, every
@@ -295,6 +308,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
+    // LOCAL TEST tax-effect map (J-portfolio-03 #7; refused at boot outside dev/test): made up for test stacks, not the
+    // owner's or counsel's call, and the answer and the screen say TEST.
+    BANK_TAX_EFFECTS: 'test',
     // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
     // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
     // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is

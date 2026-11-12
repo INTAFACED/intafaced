@@ -80,7 +80,7 @@ if (!url) {
       expect(draft).toMatchObject({ revision: 1, state: 'draft', authorId: AUTHOR });
       expect(await store.getPublishedKb('withdraw-time')).toBeNull();
       expect(await store.listKbVersions('withdraw-time')).toEqual([]);
-      await expect(kb.saveDraft(AUTHOR, text({ body: 'Stale.' }))).rejects.toMatchObject({ code: 'support.kb.revision_stale' });
+      await expect(kb.saveDraft(AUTHOR, text({ body: 'Stale.' }))).rejects.toMatchObject({ code: 'support.kb_revision_stale' });
       await expect(db.sql`UPDATE support.kb_article_versions SET body = 'x' WHERE id = 'withdraw-time'`).rejects.toThrow(/immutable/);
       expect((await kb.history('withdraw-time')).versions.map((v) => [v.revision, v.draft, v.state])).toEqual([[1, true, 'draft']]);
     });
@@ -119,7 +119,7 @@ if (!url) {
       await kb.approve(REVIEWER, { id: 'withdraw-time', revision: 1 });
       const edited = await kb.saveDraft(AUTHOR, text({ body: 'Edited.', baseRevision: 1 }));
       expect(edited).toMatchObject({ revision: 2, state: 'draft' });
-      await expect(kb.publish(AUTHOR, { id: 'withdraw-time', revision: 1 })).rejects.toMatchObject({ code: 'support.kb.revision_stale' });
+      await expect(kb.publish(AUTHOR, { id: 'withdraw-time', revision: 1 })).rejects.toMatchObject({ code: 'support.kb_revision_stale' });
       expect(await store.getPublishedKb('withdraw-time')).toBeNull();
     });
 

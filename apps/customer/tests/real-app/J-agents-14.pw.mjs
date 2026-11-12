@@ -84,6 +84,13 @@ async function expectNewSessionRefused(id) {
   expect(opened.code).toBe('agents.agent.disabled');
 }
 
+/** The agent's newest background run, as svc-agents lists it for the customer. */
+async function newestServiceRun(id) {
+  const read = await ownCall('GET', 'backgroundRuns', { id, limit: 1 });
+  expect(read.status, JSON.stringify(read)).toBe(200);
+  return (read.data?.json ?? read.data)?.[0];
+}
+
 /** One CSV line into its cells, quoted cells ("a,b", "say ""x""") included. */
 function csvCells(line) {
   const cells = [];
@@ -156,11 +163,15 @@ test(`${J} #1 opens the registry: total, ownerless and unmanaged counts and a ro
 test(`${J} #2 filters by risk signal and exports: a CSV of the filtered rows over the full range and one audit row`, async ({ page }) => {
   const founder = await openFleet(page);
   await page.getByRole('combobox', { name: 'Risk signal' }).selectOption({ label: 'Enabled with no owner' }, UNBUILT);
+  await expect(page.getByTestId('fleet-filtered')).toHaveText(/^\d+$/);
   const shown = Number(await page.getByTestId('fleet-filtered').innerText());
   expect(shown, 'the stack has ownerless product agents').toBeGreaterThan(0);
-  // Every row the filter leaves carries the chosen risk signal.
+  // Every row the filter leaves carries the chosen risk signal, and one read shows them all.
+  await expect(page.getByText(/^More agents match than one read shows/)).toHaveCount(0);
   await expect(fleetRows(page)).toHaveCount(shown);
   await expect(fleetRows(page).filter({ hasNotText: 'Enabled with no owner' })).toHaveCount(0);
+  const filteredRefs = (await fleetRows(page).evaluateAll((rows) => rows.map((r) => r.getAttribute('data-agent-ref')))).sort();
+  expect(new Set(filteredRefs).size, 'each filtered row names one agent').toBe(shown);
 
   const sent = nextRequestId(page, 'export');
   const download = page.waitForEvent('download');
@@ -170,13 +181,17 @@ test(`${J} #2 filters by risk signal and exports: a CSV of the filtered rows ove
     .trim()
     .split('\n');
   const columns = csvCells(header);
-  expect(columns).toContain('risk_signals');
+  expect(columns).toEqual(['agent', 'name', 'kind', 'owner', 'publisher', 'channels', 'status', 'risk_signals', 'last_run_at']);
   expect(lines, 'one line per matching agent, over the full range').toHaveLength(shown);
   for (const line of lines) {
     const cells = csvCells(line);
     expect(cells).toHaveLength(columns.length);
     expect(cells[columns.indexOf('risk_signals')].split(' '), line).toContain('no_owner');
+    expect(cells[columns.indexOf('owner')], `${line}: the filter is ownerless agents`).toBe('not set');
   }
+  // The CSV holds exactly the filtered rows: the same agents, by the reference svc-agents stores, none left out or added.
+  const csvRefs = lines.map((line) => csvCells(line)[columns.indexOf('agent')]).sort();
+  expect(csvRefs, 'the CSV is the filtered rows').toEqual(filteredRefs);
   await expect(page.getByRole('status')).toContainText('Export recorded in the audit log');
 
   // svc-agents' audit log holds exactly one row for this export, naming the operator, the filter and the count.
@@ -204,6 +219,13 @@ test(`${J} #3 quarantines one agent with a reason: new sessions refuse as disabl
     await panel.getByRole('textbox', { name: /^Ask the agent/ }).fill('TEST: check every market one by one', UNBUILT);
     await panel.getByRole('checkbox', { name: 'Run in the background' }).check();
     await panel.getByRole('button', { name: 'Run a test' }).click();
+    // svc-agents holds that run as running, part-way, before any switch is touched.
+    let before;
+    await expect(async () => {
+      before = await newestServiceRun(id);
+      expect(before?.state, JSON.stringify(before)).toBe('running');
+    }).toPass({ timeout: 15_000 });
+    expect(before.stepsDone, 'the run has steps left when the quarantine lands').toBeLessThan(before.stepsTotal);
 
     const founder = await openFleet(page);
     await ownRow(page).getByRole('button', { name: 'Quarantine' }).click(UNBUILT);
@@ -251,7 +273,14 @@ test(`${J} #3 quarantines one agent with a reason: new sessions refuse as disabl
       expect(latest.state).toBe('stopped');
     }).toPass({ timeout: 10_000 });
     expect(latest.id, 'the same run').toBe(atQuarantine.id);
+    expect(latest.id, 'the run that was in flight before the quarantine').toBe(before.id);
     expect(latest.stopCode).toBe('agents.agent.quarantined');
+    expect(latest.stepsDone, 'killed before it finished').toBeLessThan(latest.stepsTotal);
+    // The service itself holds the run stopped by the quarantine, not only the page.
+    const held = await newestServiceRun(id);
+    expect(held.id).toBe(before.id);
+    expect(held.state).toBe('stopped');
+    expect(held.stopCode).toBe('agents.agent.quarantined');
     expect(latest.stepsDone, 'it stopped at its next step, not later').toBeLessThanOrEqual(atQuarantine.stepsDone + 1);
     await expect(tableIn(own.getByRole('main'), 'Live runs').getByRole('row').nth(1)).toContainText('Stopped: agent quarantined');
   } finally {
@@ -262,7 +291,7 @@ test(`${J} #3 quarantines one agent with a reason: new sessions refuse as disabl
 test(`${J} #4 restores it as one founder: refused until two distinct founders restore it`, async ({ browser, page }) => {
   test.setTimeout(180_000);
   const id = await ownAgentId();
-  await openFleet(page, 'a');
+  const first = await openFleet(page, 'a');
   await ownRow(page).getByRole('button', { name: 'Restore' }).click(UNBUILT);
   await expect(ownRow(page)).toContainText('Restore waiting for a second founder');
   // One founder's restore lifts nothing: the agent is still quarantined, in the registry and in svc-agents.
@@ -284,12 +313,14 @@ test(`${J} #4 restores it as one founder: refused until two distinct founders re
   await page.reload();
   await expect(statusOf(ownRow(page))).toHaveText(/^Quarantined/);
   expect(await serviceStatus(id)).toBe('quarantined');
+  await expectNewSessionRefused(id);
 
   // A second, distinct founder confirms, and the agent is active again.
   const other = await browser.newContext();
   try {
     const b = await other.newPage();
     const second = await openFleet(b, 'b');
+    expect(second.handle, 'two distinct founders').not.toBe(first.handle);
     const sent = nextRequestId(b, 'restore');
     await tableIn(b.getByRole('main'), 'Agents on the platform')
       .getByRole('row')
@@ -298,6 +329,7 @@ test(`${J} #4 restores it as one founder: refused until two distinct founders re
       .getByRole('button', { name: 'Confirm restore' })
       .click();
     const requestId = await sent;
+    await expect(b.getByRole('status')).toContainText('Agent restored.');
     const audit = auditRows(b, requestId);
     await expect(audit).toHaveCount(1);
     await expect(audit.getByTestId('audit-row-operator')).toHaveText(second.handle);
@@ -378,8 +410,13 @@ test(`${J} #5 kills a whole kind: every agent of the kind disabled in one audite
 
 test(`${J} #6 reassigns an ownerless agent: the owner column and counts update`, async ({ page }) => {
   await openFleet(page);
+  await expect(page.getByTestId('fleet-ownerless')).toHaveText(/^\d+$/);
   const before = Number(await page.getByTestId('fleet-ownerless').innerText());
   const unmanaged = await page.getByTestId('fleet-unmanaged').innerText();
+  const total = await page.getByTestId('fleet-total').innerText();
+  const noOwner = () => fleetRows(page).filter({ has: page.getByTestId('fleet-owner').getByText('No owner', { exact: true }) });
+  await expect(page.getByText(/^More agents match than one read shows/)).toHaveCount(0);
+  await expect(noOwner(), 'the ownerless count is held to the rows').toHaveCount(before);
   const ownerless = fleetRows(page)
     .filter({ has: page.getByRole('button', { name: 'Reassign' }) })
     .first();
@@ -400,12 +437,17 @@ test(`${J} #6 reassigns an ownerless agent: the owner column and counts update`,
   await expect(row.getByTestId('fleet-owner')).toHaveText(agents.account().handle);
   await expect(row.getByRole('button', { name: 'Reassign' })).toHaveCount(0);
   await expect(page.getByTestId('fleet-ownerless')).toHaveText(String(before - 1));
-  // A product agent is never unmanaged, so that count stays.
+  await expect(noOwner()).toHaveCount(before - 1);
+  // A product agent is never unmanaged, so that count stays, and no agent was added or removed.
   await expect(page.getByTestId('fleet-unmanaged')).toHaveText(unmanaged);
+  await expect(page.getByTestId('fleet-total')).toHaveText(total);
   // Read again from svc-agents, not the page's memory.
   await page.reload();
   await expect(row.getByTestId('fleet-owner')).toHaveText(agents.account().handle);
   await expect(page.getByTestId('fleet-ownerless')).toHaveText(String(before - 1));
+  await expect(noOwner()).toHaveCount(before - 1);
+  await expect(page.getByTestId('fleet-unmanaged')).toHaveText(unmanaged);
+  await expect(page.getByTestId('fleet-total')).toHaveText(total);
 });
 
 test(`${J} #7 checks as the customer: the quarantined agent shows its disabled status and the open button off`, async ({

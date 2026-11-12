@@ -25,7 +25,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB } from './main-first.mjs';
+import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB, RELEASE_JOB } from './main-first.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -478,6 +478,8 @@ export function mainFirstProblems(text) {
     );
   if (!new RegExp(`\n {4}name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
     problems.push(`no job is named "${PLAN_JOB}", the name main-first.mjs reads to know main's shards are queued`);
+  if (!new RegExp(`\n  release:\n    name: ${RELEASE_JOB}\n`).test(text))
+    problems.push(`no release job is named "${RELEASE_JOB}", the name main-first.mjs reads to know main already let deferred runs go`);
   return problems;
 }
 

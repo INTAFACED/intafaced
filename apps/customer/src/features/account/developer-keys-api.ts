@@ -256,7 +256,7 @@ const REFUSALS = new Set<string>([
   'identity.key_org_denied',
   'identity.portfolio_key_cap_unset',
   'identity.portfolio_key_cap_reached',
-  'identity.agent_scope_forbidden',
+  'auth.agent_scope_forbidden',
   'identity.developer_roles_unset',
   'identity.developer_role_read_only',
   'identity.developer_role_none',

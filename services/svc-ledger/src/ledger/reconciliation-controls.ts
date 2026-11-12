@@ -532,10 +532,15 @@ interface AccountHit {
  * In the set at readAt: created by then on the database clock, or holding an entry posted by then on the posting clock.
  * The two clocks can disagree by a millisecond or more (created_at is the post's transaction start in microseconds,
  * posted_at the app's clock in milliseconds), and an account funded at readAt must be counted with its counter-leg.
+ *
+ * The posted side is one uncorrelated `IN`, never a per-account `EXISTS`: Postgres hashes it once. A correlated
+ * `EXISTS` is planned per account on a table with no statistics yet (a young database), and for a past readAt that
+ * precedes every posting it walks every entry of every account in the set with a ledger_tx lookup each, slow enough
+ * that the edge gave up on the run (issue #8044).
  */
-function existedAt(sql: Db, readAt: Date) {
-  return sql`(created_at <= ${readAt} OR EXISTS (
-    SELECT 1 FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id WHERE e.account_id = accounts.id AND t.posted_at <= ${readAt}
+export function existedAt(sql: Db, readAt: Date) {
+  return sql`(created_at <= ${readAt} OR id IN (
+    SELECT e.account_id FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id WHERE t.posted_at <= ${readAt}
   ))`;
 }
 
