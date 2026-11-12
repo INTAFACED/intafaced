@@ -16,6 +16,7 @@ import { QuantRooms } from './QuantRooms';
 import { strategiesCopy } from './strategies-copy';
 import { MorePages, useStrategyPages } from './strategy-pages';
 import { QuotaAwareFailure } from './quota-refusal';
+import { PlanTiers } from './PlanTiers';
 import { UsagePanel } from './UsagePanel';
 import './algo.css';
 
@@ -76,6 +77,7 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
         </div>
       </Panel>
       <UsagePanel revision={revision} />
+      <PlanTiers revision={revision} />
     </>
   );
 }

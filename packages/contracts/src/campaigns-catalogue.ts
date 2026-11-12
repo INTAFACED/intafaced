@@ -82,6 +82,8 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.attempt_limit_reached',
   'campaigns.window_unset',
   'campaigns.welcome_none',
+  'campaigns.referral_invalid',
+  'campaigns.criteria_unset',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -313,7 +315,10 @@ export const campaignWindowsSchema = z.object({
  * Bus events a task step can complete from. `trade.fill`: a spot fill svc-trade settled for the account. A welcome
  * checklist (CM-rewards-hub-03) also has `identity.verified`, a verification tier svc-identity granted
  * (`identity.kyc.approved`), and `pay.deposit`, a crypto deposit svc-pay credited (`pay.deposit_credit.posted`); a
- * credit funded by a bonus, a trial fund or a gift is no deposit and never sends that event.
+ * credit funded by a bonus, a trial fund or a gift is no deposit and never sends that event. In a welcome checklist,
+ * `pay.deposit` is read from the venue instead (J-campaigns-04 #2): a USDC deposit from a wallet the person connected
+ * into the venue account it owns, as the venue reports it credited, counted only above what INTAFACED has paid that
+ * wallet as rewards.
  */
 export const TASK_EVENTS = ['trade.fill', 'identity.verified', 'pay.deposit'] as const;
 export type TaskEvent = (typeof TASK_EVENTS)[number];
@@ -398,6 +403,69 @@ export const campaignTasksSchema = z
   .strict();
 export type CampaignTasks = z.infer<typeof campaignTasksSchema>;
 
+// ── Referral programmes (CM-referral-02, J-campaigns-06) ─────────────────────────────────────────────────────────────
+
+/**
+ * What makes an invitee qualified under a referral programme (ENGINE EL-8, RF-5): the verification tier they reach, a
+ * crypto deposit of at least `depositMin` and spot trades worth at least `tradeVolumeMin` (in fills quoted in `asset`),
+ * each inside `windowSeconds` from the moment they were attached to their referrer. A deposit is only a crypto deposit
+ * svc-pay credited (`pay.deposit_credit.posted`); moving money between the invitee's own wallet and venue accounts, or a
+ * bonus, trial fund or gift, is no deposit and never counts. Every value is the operator's per programme: blank refuses
+ * activation `campaigns.criteria_unset`, never a default.
+ */
+export const referralCriteriaSchema = z
+  .object({
+    verification: z.enum(['basic', 'full']).nullable(),
+    asset: asset.nullable(),
+    depositMin: campaignDecimal.nullable(),
+    tradeVolumeMin: campaignDecimal.nullable(),
+    windowSeconds: z.number().int().min(60).max(31_536_000).nullable(),
+  })
+  .strict();
+export type ReferralCriteria = z.infer<typeof referralCriteriaSchema>;
+
+/**
+ * A `referral` campaign's programme: single sided (the referrer is rewarded) or double sided (both are), its criteria,
+ * and each side's reward (CM-referral-03 pays them). A blank reward a side needs refuses activation `campaigns.reward_unset`.
+ */
+export const campaignReferralSchema = z
+  .object({
+    sides: z.enum(['single', 'double']),
+    criteria: referralCriteriaSchema,
+    rewards: z.object({ referrer: campaignRewardSchema.nullable(), referee: campaignRewardSchema.nullable() }).strict(),
+  })
+  .strict();
+export type CampaignReferral = z.infer<typeof campaignReferralSchema>;
+
+/** The steps a referrer sees for each invitee: done or not, never an amount, an event or who the invitee is. */
+export const REFERRAL_STEPS = ['verified', 'deposited', 'traded'] as const;
+export type ReferralStep = (typeof REFERRAL_STEPS)[number];
+
+/**
+ * One invitee as their referrer sees them (the bounded summary, ENGINE EL-6): their place in the order they joined, when
+ * they were attached, each step done or not, and the summary state. `qualified` is reached once and never undone;
+ * `window_closed`: the window passed before every step was done; `no_programme`: no referral programme was live when they
+ * were attached, so nothing is tracked for them. No id, handle, email, amount or event detail of the invitee is returned.
+ */
+export const INVITEE_STATES = ['in_progress', 'qualified', 'window_closed', 'no_programme'] as const;
+export const myInviteeSchema = z
+  .object({
+    place: z.number().int().positive(),
+    attachedAt: iso,
+    state: z.enum(INVITEE_STATES),
+    steps: z.object({ verified: z.boolean(), deposited: z.boolean(), traded: z.boolean() }).strict(),
+    qualifiedAt: iso.nullable(),
+    windowClosesAt: iso.nullable(),
+    programme: z.object({ id, name: z.string() }).nullable(),
+  })
+  .strict();
+export type MyInvitee = z.infer<typeof myInviteeSchema>;
+/** The most invitees one read lists, in the order they joined; `total` says when there are more. */
+export const INVITEE_LIST_LIMIT = 200;
+export const myInviteesSchema = z.object({ invitees: z.array(myInviteeSchema).max(INVITEE_LIST_LIMIT), total: z.number().int().min(0) });
+export type MyInvitees = z.infer<typeof myInviteesSchema>;
+export const myInviteesInputSchema = z.object({}).strict();
+
 /** The full stored definition, as operators see it. */
 export const campaignSchema = z.object({
   id,
@@ -420,6 +488,8 @@ export const campaignSchema = z.object({
   tasks: campaignTasksSchema.nullable(),
   /** How often one customer, and everyone together, may take this campaign's reward (CM-eligibility-rules-03). */
   limits: z.lazy(() => campaignLimitsSchema).nullish(),
+  /** A referral campaign's programme (CM-referral-02); absent or null for any other campaign. */
+  referral: campaignReferralSchema.nullish(),
   /** A voucher campaign's claim-by and use-by times; absent or null for any other campaign. */
   vouchers: z.lazy(() => voucherWindowSchema).nullish(),
   /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
@@ -552,6 +622,8 @@ export const campaignDefinitionInputSchema = z
       .nullish(),
     /** The campaign's limits; a blank per-customer limit refuses activation `campaigns.per_customer_limit_unset`. */
     limits: z.lazy(() => campaignLimitsSchema).nullish(),
+    /** Only for a `referral` campaign (anything else refuses `campaigns.referral_invalid`): its programme. */
+    referral: campaignReferralSchema.nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
@@ -923,6 +995,12 @@ export const welcomeChecklistSchema = z.object({
       record: rewardRecordSchema.nullable(),
     }),
   ),
+  /**
+   * How the deposit task was read from the venue just now (J-campaigns-04 #2): `read` (with the venue's as-of time when
+   * it was read now), `unread` (the venue or the connected wallets could not be read: nothing changed, and it is never
+   * "no deposit"), or `no_wallet` (no wallet is connected, so there is no venue account to read). Null: no deposit task.
+   */
+  deposit: z.object({ source: z.enum(['read', 'unread', 'no_wallet']), asOf: iso.nullable() }).nullable(),
 });
 export type WelcomeChecklist = z.infer<typeof welcomeChecklistSchema>;
 export const welcomeListInputSchema = z.object({}).strict();

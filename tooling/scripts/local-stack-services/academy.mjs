@@ -94,6 +94,28 @@ const postLimits = () =>
 // specialist rooms J-academy-19 #4 reads. `LOCAL_STACK_ACADEMY_ROOM_CAPACITY=off` leaves it blank (createRoom refuses).
 const roomCapacity = () => (process.env.LOCAL_STACK_ACADEMY_ROOM_CAPACITY === 'off' ? {} : { ACADEMY_MAX_ROOM_CAPACITY: '500' });
 
+// LOCAL TEST learner summaries page size and report task list size (TEST owner values): 50 each (J-academy-16 #2, #3).
+// `LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES=off` leaves the summaries' page size blank, so its refusal can be seen too.
+const analyticsPages = () => ({
+  ...(process.env.LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES === 'off' ? {} : { ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE: '50' }),
+  ACADEMY_REPORT_TASKS_PAGE_SIZE: '50',
+});
+
+// LOCAL TEST reports centre (TEST owner values): the report sweep runs every 30 seconds, so a requested report waits and
+// then runs for one sweep each (long enough to see and abort it) and is done on the next (J-academy-16 #3, #4); a file is
+// kept 1440 minutes (24 hours). A report shares the learner export's row limit above (ACADEMY_LEARNER_EXPORT_ROWS).
+// `LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION=off` leaves the retention blank, so a request refuses by name; a whole
+// number of minutes there keeps a file that long instead, so a journey can watch one expire (J-academy-16 #4).
+const centreRetention = () => {
+  const v = process.env.LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION;
+  if (v === 'off') return {};
+  return { ACADEMY_REPORT_CENTRE_RETENTION_MINUTES: v && /^[1-9][0-9]*$/.test(v) ? v : '1440' };
+};
+const reportsCentre = () => ({
+  ACADEMY_REPORT_SWEEP_SECONDS: '30',
+  ...centreRetention(),
+});
+
 // LOCAL TEST custom role limit (a TEST owner value): 50 custom roles, room for the journey's one role per run on a kept
 // stack (J-academy-18 #6). `LOCAL_STACK_ACADEMY_ROLE_LIMIT=off` leaves it blank, so the "limit not set" refusal can be seen.
 const roleLimit = () => (process.env.LOCAL_STACK_ACADEMY_ROLE_LIMIT === 'off' ? {} : { ACADEMY_CUSTOM_ROLE_LIMIT: '50' });
@@ -123,6 +145,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...postLimits(),
     ...verifyRate(),
     ...roomCapacity(),
+    ...analyticsPages(),
+    ...reportsCentre(),
     ...roleLimit(),
   }),
 });

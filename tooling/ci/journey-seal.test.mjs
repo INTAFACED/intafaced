@@ -2562,3 +2562,36 @@ test("main's own sealPull planted: main's newest run outside the head's history 
   });
   assert.equal(broken.ok, false, 'unreadable issues fail closed');
 });
+
+// ---- A merged pull request has nothing left to seal (12 of the 66 failed seals, 12 Nov 2026) ----
+
+test('merged: a seal on a pull request that already merged passes, unless another open pull request has its head', async () => {
+  const { mergedNothingToSeal } = await import('./review-marker.mjs');
+  const pull = { number: 7, state: 'closed', merged_at: '2026-11-12T12:19:33Z', head: { sha: HEAD } };
+  const mine = [{ number: 7, state: 'closed' }];
+  assert.match(mergedNothingToSeal(pull, HEAD, mine), /#7 merged at 2026-11-12T12:19:33Z; a merged pull request has nothing left to seal/);
+  assert.equal(mergedNothingToSeal({ ...pull, merged_at: null }, HEAD, mine), null, 'closed, not merged: as before');
+  assert.equal(mergedNothingToSeal({ ...pull, state: 'open', merged_at: null }, HEAD, mine), null, 'open: as before');
+  assert.equal(mergedNothingToSeal(pull, 'b'.repeat(40), mine), null, 'another head');
+  assert.equal(mergedNothingToSeal(pull, HEAD, [...mine, { number: 8, state: 'open' }]), null, 'another open PR on this head');
+  assert.equal(mergedNothingToSeal(pull, HEAD, [...mine, { number: 8, state: 'closed' }]) === null, false, 'a closed one is no matter');
+  assert.equal(mergedNothingToSeal(pull, HEAD, null), null, 'unreadable list: as before');
+  const io = (over = {}) => ({
+    pull: async () => ({ ...pull, title: 'x (J-a-01 #1)', body: '', base: { sha: MAIN_SHA }, ...over }),
+    pullsOn: async () => mine,
+    files: async () => {
+      throw new Error('a merged pull request is not read further');
+    },
+  });
+  const ok = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io() });
+  assert.equal(ok.ok, true, ok.lines.join('\n'));
+  const closed = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ merged_at: null }) });
+  assert.deepEqual(closed, { ok: false, lines: ['#7: is closed'] }, 'planted: closed without a merge still fails');
+  const shared = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io(), pullsOn: async () => [...mine, { number: 8, state: 'open' }] },
+  });
+  assert.equal(shared.ok, false, 'planted: another open PR on the head still fails');
+});
