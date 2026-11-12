@@ -556,7 +556,7 @@ test(`${J} #8 chooses a plan with more data freshness or execution priority: the
   // With no tier published, the plan page says so and offers nothing to choose.
   await page.goto('/quant/strategies');
   await expect(tiers).toHaveAttribute('aria-label', 'Plan tiers');
-  await expect(empty).toHaveText('No plan tier is published yet, so there is no other plan to choose.');
+  await expect(empty).toHaveText('No plan tier is published, so there is no other plan to choose.');
   await expect(tiers.getByRole('button', { name: /^Choose / })).toHaveCount(0);
 
   // Two TEST tiers on their own TEST profiles: one with fresher data, one with a higher execution priority class.

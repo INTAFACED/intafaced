@@ -5,7 +5,7 @@ const en = {
   title: 'Plan tiers',
   intro:
     'What each published tier changes: how fresh the data a run reads is, its execution priority and its limits. A tier is a name, not a price.',
-  empty: 'No plan tier is published yet, so there is no other plan to choose.',
+  empty: 'No plan tier is published, so there is no other plan to choose.',
   changes: 'What it changes',
   freshness: 'Data freshness',
   freshnessValue: '{seconds} seconds behind the exchange',
@@ -20,7 +20,7 @@ const en = {
   choiceRow: '{what}: {from} now, {to} on this tier',
   choiceSame: 'Nothing changes: this tier holds the same values as your plan.',
   choiceIsYours: 'This is your plan.',
-  move: 'Moving to a tier is not open on this page: an operator assigns the plan. Runs do not read the freshness or priority class yet, so every run starts in arrival order.',
+  move: 'Moving to a tier is not open on this page: an operator assigns the plan. Runs do not read the freshness or priority class: every run starts in arrival order.',
 } as const;
 
 export const tierCopy = defineCopy('quant.tiers', en);
