@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { api, fund, journeyState, mailedCodes, nextMailedCode, restartWithSetting, signOutBrowser, tool } from './stack.mjs';
-import { otherTraderKey, testDeposit } from './venue.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
+import { CHAIN_ID, testChain } from './dex.mjs';
+import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { sameDecimal, testDeposit, venueBalance } from './venue.mjs';
 
 // J-campaigns-06, in the running app (docs/roadmap/journeys.json): I watch my invitees qualify and get paid. One test per
 // step, titled "J-campaigns-06 #<n>", run in order. The referral programme is this run's TEST referral campaign, made by
@@ -16,8 +19,9 @@ import { otherTraderKey, testDeposit } from './venue.mjs';
 // signs up from the referrer's invitation link in a browser of their own, which attaches them (identity.referral.created).
 // Each step of the friend's progress ticks only from their own real event: verification approved (identity.kyc.approved),
 // a crypto deposit credited on the TEST chain (pay.deposit_credit.posted) and a spot fill against the stack's market
-// maker (trade.fill.settled). #2's move between the friend's own wallet and venue account is the stack's TEST venue's
-// deposit control, with svc-trade's user-venue door switched on for that moment only and off again after.
+// maker (trade.fill.settled). #2's move between the friend's own wallet and venue account: the friend connects their own
+// TEST wallet to their account in the venue room, then the stack's TEST venue credits 25 TEST USDT from it to their venue
+// account (its TEST deposit control), with svc-trade's user-venue door switched on for that moment only and off after.
 // #3 to #8 (rewards, rebate share, commissions, tiers and caps, a frozen beneficiary, the statement) are added in full by
 // the slices that build them (CM-referral-03, CM-referral-04).
 const J = 'J-campaigns-06';
@@ -267,11 +271,25 @@ test(`${J} #2 an invitee finishes the last step: the summary moves from in progr
   await verify(page, friend, 'Full');
   await waitForInvitee(referrer, (row) => row?.steps.verified === true);
 
-  // A move between the friend's own wallet and their venue account is no deposit: the step stays undone.
-  const wallet = otherTraderKey(`jc06-${friend.handle}`).address;
+  // A move between the friend's own wallet and their venue account is no deposit: the step stays undone. The friend
+  // connects their own TEST wallet to their account in the venue room (signing the connection in it), then moves 25 TEST
+  // USDT, the programme's asset and above its deposit minimum, from that wallet into their venue account.
+  const walletKey = testWalletKey();
+  const wallet = privateKeyToAccount(walletKey).address;
   restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
   try {
-    await testDeposit(wallet, 'USDC', '25', `${Date.now()}:0x${randomBytes(32).toString('hex')}:0`);
+    const venuePage = await (await browser.newContext()).newPage();
+    await installTestWallet(venuePage, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+    await signIn(venuePage, friend);
+    await venuePage.goto('/wallet/venue');
+    await venuePage.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+    await venuePage.getByRole('button', { name: 'Connect to my account' }).click();
+    await venuePage.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+    await expect(venuePage.getByRole('heading', { name: 'Connected' })).toBeVisible();
+    await expect(venuePage.locator('[data-venue-address]')).toHaveText(wallet);
+    expect(await testDeposit(wallet, 'USDT', '25', `${CHAIN_ID}:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+    expect(sameDecimal((await venueBalance(wallet, 'USDT')).free, '25')).toBe(true);
+    await signOutBrowser(venuePage.context());
   } finally {
     restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'off');
   }
