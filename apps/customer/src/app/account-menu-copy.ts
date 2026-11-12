@@ -8,6 +8,7 @@ const en = {
   summaryVerification: 'Verification: {level}',
   levelNone: 'Not verified',
   levelBasic: 'Basic',
+  levelBasicTrading: 'Basic, for trading',
   levelFull: 'Full',
   levelInstitutional: 'Institutional',
   profilesTitle: 'Profile',

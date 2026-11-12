@@ -47,6 +47,17 @@ const schema = serviceEnvSchema
       /** NO DEFAULT drain bound: the markets an assistant may trade, comma-separated venue symbols. Blank refuses `agents.markets_unset`. */
       TRADE_AGENT_MARKETS: z.string().default(''),
       /**
+       * NO DEFAULT (J-agents-21 #16): the highest leverage cap a person may set on an agent account, whole times ("5" is
+       * 5x). Blank refuses every leverage cap `agents.limit_ceiling_unset`. The per-order cap's ceiling is
+       * TRADE_AGENT_MAX_ORDER_NOTIONAL.
+       */
+      TRADE_AGENT_MAX_LEVERAGE: z.string().default(''),
+      /**
+       * NO DEFAULT (J-agents-21 #16): the highest daily-loss cap a person may set on an agent account, a decimal in
+       * TRADE_AGENT_ACCOUNT_ASSET. Blank refuses every daily-loss cap `agents.limit_ceiling_unset`.
+       */
+      TRADE_AGENT_MAX_DAILY_LOSS: z.string().default(''),
+      /**
        * Owner value: the largest page of GET /api/v1/venue/orders (J-developer-05 #6), a whole number 1 to 1000. Blank
        * refuses every list `trade.venue_orders_page_max_unset`, never a guessed page size.
        */

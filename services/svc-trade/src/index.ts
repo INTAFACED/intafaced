@@ -519,6 +519,7 @@ const userVenueDoors = userVenueUrls.map(
       store: userVenueStore,
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
       ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
@@ -761,11 +762,11 @@ const signalDesk = new SignalDesk({
   prepareOrder: async (principal, input) => {
     if (!userVenue) return { ok: false, code: 'trade.user_venue_off' };
     try {
-      const answer = await userVenue.prepare(principal, {
-        owner: input.owner,
-        signer: { role: 'owner', address: input.owner },
-        intent: input.intent,
-      });
+      const answer = await userVenue.prepare(
+        principal,
+        { owner: input.owner, signer: { role: 'owner', address: input.owner }, intent: input.intent },
+        { ownWorstPrice: true },
+      );
       return { ok: true, actionKey: answer.actionKey, venueClientOrderId: answer.prepared.venueClientOrderId ?? null };
     } catch (err) {
       if (err instanceof UserVenueDoorError) return { ok: false, code: err.code };
