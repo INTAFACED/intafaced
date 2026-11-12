@@ -81,6 +81,11 @@
       "value": "30",
       "note": "TEST life of 30 days for a chart alert webhook's place grant, so J-copy-bots-otc-20 can create one. Not an owner decision."
     },
+    "TRADE_SIGNAL_FAILURE_COUNT": {
+      "service": "trade",
+      "value": "3",
+      "note": "TEST count of 3 failed chart alerts in a row before a webhook ends, so J-copy-bots-otc-20 #6 sees it end after three refused orders. Not an owner decision."
+    },
     "TRADE_BOTS_VERIFICATION_LEVEL": {
       "service": "trade",
       "value": "full",

@@ -168,6 +168,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row trade.copy.stopped for the follower, the reason in words, once per follow and close-only',
   },
   {
+    event: 'signalNoteCreated',
+    durable: 'notify-signal-note-created',
+    subject: 'intafaced.trade.signal_note.created',
+    effect:
+      "Inbox row trade.signal_note.created for the person, the chart alert's own text, once per notification URL and alert id; never an order",
+  },
+  {
     event: 'agentUsageAlertCrossed',
     durable: 'notify-agent-usage-alert',
     subject: 'intafaced.agents.usage_alert.crossed',

@@ -22,16 +22,22 @@ const messages = {
   'A strategy can’t trade live. It runs on paper.': 'A strategy can’t trade live. It runs on paper.',
   'About this leader': 'About this leader',
   Action: 'Action',
+  Actions: 'Actions',
   Active: 'Active',
   Address: 'Address',
+  'After failed alerts in a row': 'After failed alerts in a row',
+  'After the platform’s count of failed alerts in a row, a webhook ends by itself. You can pause, resume or end it here.':
+    'After the platform’s count of failed alerts in a row, a webhook ends by itself. You can pause, resume or end it here.',
   'After this time no new trades are copied.': 'After this time no new trades are copied.',
   'All copied orders together can never go past this.': 'All copied orders together can never go past this.',
   'All leaders': 'All leaders',
   'All-in before you start': 'All-in before you start',
   Amount: 'Amount',
   'Amount, {asset}': 'Amount, {asset}',
-  'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell), an amount and the worst price you accept.':
-    'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell), an amount and the worst price you accept.',
+  'An alert sends JSON with your token, an alert id, the time it fired, a side (buy, sell or reverse), an amount and the worst price you accept.':
+    'An alert sends JSON with your token, an alert id, the time it fired, a side (buy, sell or reverse), an amount and the worst price you accept.',
+  'An alert to this address sends JSON with its token, an alert id, the time it fired and a message. It shows as one notice and never places an order.':
+    'An alert to this address sends JSON with its token, an alert id, the time it fired and a message. It shows as one notice and never places an order.',
   'An amount, a schedule, and a recurring-order service': 'An amount, a schedule, and a recurring-order service',
   'An earlier request has no confirmed result': 'An earlier request has no confirmed result',
   Asset: 'Asset',
@@ -68,6 +74,7 @@ const messages = {
   'Buys at each level below the price and sells one level up, inside a range you set.':
     'Buys at each level below the price and sells one level up, inside a range you set.',
   'Buys low and sells high inside a price range': 'Buys low and sells high inside a price range',
+  'By you': 'By you',
   Cancelled: 'Cancelled',
   Catalogue: 'Catalogue',
   'Change this follow': 'Change this follow',
@@ -137,6 +144,7 @@ const messages = {
   'Each webhook prepares orders on one venue market, for your venue account.':
     'Each webhook prepares orders on one venue market, for your venue account.',
   Earlier: 'Earlier',
+  End: 'End',
   Ended: 'Ended',
   'Enter 1 to 10000': 'Enter 1 to 10000',
   'Enter a price above zero, or leave it empty': 'Enter a price above zero, or leave it empty',
@@ -155,6 +163,7 @@ const messages = {
   'Expected to finish': 'Expected to finish',
   Expired: 'Expired',
   'Extra charge on your profit': 'Extra charge on your profit',
+  'Failed in a row': 'Failed in a row',
   'Fee on each copied order': 'Fee on each copied order',
   'Fee share': 'Fee share',
   'Fees paid': 'Fees paid',
@@ -227,6 +236,7 @@ const messages = {
   'Lot size {lot}': 'Lot size {lot}',
   'Lower price': 'Lower price',
   'Make one for the market your alert watches.': 'Make one for the market your alert watches.',
+  'Make one to get alerts as notices.': 'Make one to get alerts as notices.',
   Manage: 'Manage',
   Margin: 'Margin',
   Market: 'Market',
@@ -253,6 +263,7 @@ const messages = {
     'New actions stay locked until your browser can keep a request safe.',
   'New bots can’t be created right now': 'New bots can’t be created right now',
   'New copies stop; open positions stay yours': 'New copies stop; open positions stay yours',
+  'New notification URL': 'New notification URL',
   'New trades are being copied': 'New trades are being copied',
   'New trades are not being copied': 'New trades are not being copied',
   'New trades stop being copied right away. Positions already open stay as they are. You can resume any time.':
@@ -305,6 +316,8 @@ const messages = {
   'Not verified': 'Not verified',
   'Nothing skipped': 'Nothing skipped',
   'Nothing you copied was left open to close': 'Nothing you copied was left open to close',
+  'Notification URL': 'Notification URL',
+  'Notification URLs': 'Notification URLs',
   Off: 'Off',
   Older: 'Older',
   On: 'On',
@@ -472,6 +485,8 @@ const messages = {
     'That request belongs to the spot desk or another room. Check it there; it stays locked until then.',
   'The 6-digit code from your authenticator app': 'The 6-digit code from your authenticator app',
   'The ID the leader shares with you': 'The ID the leader shares with you',
+  'The amount is a quantity, or a percent of what you hold on the market, such as 50%. A reverse closes what you hold and opens the other way; a spot market holds no short, so there it only closes.':
+    'The amount is a quantity, or a percent of what you hold on the market, such as 50%. A reverse closes what you hold and opens the other way; a spot market holds no short, so there it only closes.',
   'The amount is below one lot after it is split into slices': 'The amount is below one lot after it is split into slices',
   'The bot service did not answer. Try again in a moment.': 'The bot service did not answer. Try again in a moment.',
   'The bot trades with your real balance on this market. Each slice is an ordinary order.':
@@ -583,6 +598,7 @@ const messages = {
   'You had paused this follow': 'You had paused this follow',
   'You had stopped this follow': 'You had stopped this follow',
   'You have already left this leader': 'You have already left this leader',
+  'You have no notification URL': 'You have no notification URL',
   'You have no passkey or authenticator app, so closing everything cannot be confirmed.':
     'You have no passkey or authenticator app, so closing everything cannot be confirmed.',
   'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.':

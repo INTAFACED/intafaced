@@ -510,6 +510,19 @@
           }
         },
         {
+          "name": "postSignalNote",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/signals/notify/:webhookId",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "signals", "notify", ":webhookId"],
+              "variable": [{ "key": "webhookId", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "fetchGridBots",
           "request": {
             "method": "GET",

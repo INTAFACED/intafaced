@@ -10,6 +10,7 @@ import {
   bankScheduledFailed,
   copySkipped,
   copyStopped,
+  signalNoteCreated,
   agentUsageAlertCrossed,
   agentApprovalRequested,
   supportTicketResolved,
@@ -963,6 +964,27 @@ export async function subscribeNotificationEvents(
           sourceSubject: copyStopped.subject,
           // A stop is one-way, so one notice per follow and close-only.
           sourceIdempotencyKey: `${payload.followId}:${payload.closeOnly}`,
+          outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  // A chart alert to the person's notification URL (J-copy-bots-otc-20 #7): one inbox notice with the alert's own text,
+  // once per webhook and alert id however often svc-trade sends it. Never an order. Inbox only.
+  attachments.push(
+    await attach(bus, 'signalNoteCreated', signalNoteCreated.subject, 'notify-signal-note-created', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'trade.signal_note.created',
+          titleKey: 'notify.trade.signal_note.title',
+          bodyKey: 'notify.trade.signal_note.body',
+          params: { message: payload.message },
+          href: '/trade/bots/webhooks',
+          severity: 'info',
+          sourceSubject: signalNoteCreated.subject,
+          sourceIdempotencyKey: `${payload.webhookId}:${payload.alertId}`,
           outOfApp: false,
         }),
       );

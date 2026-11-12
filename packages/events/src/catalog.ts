@@ -1354,6 +1354,26 @@ export const copySkipped = defineEvent(
   'A follow did not copy one leader fill. svc-trade writes the skip row first and publishes after commit; there is one per follow and leader fill, so consumers dedupe on (followId, leaderFillId). The follower is told the reason.',
 );
 
+/**
+ * One alert to a person's chart alert notification URL (CB-bots-api-signal-03, J-copy-bots-otc-20 #7). svc-trade checks
+ * the URL's token, the alert's age and its id, then publishes under `signal.note:<webhookId>:<alertId>`; svc-notify writes
+ * one inbox notice per webhook and alert id. No order is ever planned from it.
+ */
+export const signalNoteCreated = defineEvent(
+  'trade',
+  'signal_note',
+  'created',
+  1,
+  z.object({
+    userId: userIdSchema,
+    webhookId: z.string().uuid(),
+    alertId: z.string().min(1).max(120),
+    message: z.string().trim().min(1).max(280),
+    receivedAt: z.string().datetime({ offset: true }),
+  }),
+  "A chart alert to a person's notification URL: one in-app notice, never an order. svc-trade publishes it after the URL's token, the alert's age and its id are checked; consumers dedupe on (webhookId, alertId).",
+);
+
 export const copyFailed = defineEvent(
   'trade',
   'copy',
@@ -2152,6 +2172,7 @@ export const EVENT_CATALOG = {
   copySkipped,
   copyFailed,
   copyStopped,
+  signalNoteCreated,
   venueDelistingScheduled,
   projectionUpdated,
 } as const;

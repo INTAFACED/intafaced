@@ -18,7 +18,9 @@ function signalTrpcError(error: unknown): unknown {
           ? 'PRECONDITION_FAILED'
           : error.status === 401
             ? 'UNAUTHORIZED'
-            : 'BAD_REQUEST';
+            : error.status === 409
+              ? 'CONFLICT'
+              : 'BAD_REQUEST';
     return new TRPCError({ code, message: error.message, cause: error });
   }
   // Who may place at all (spot/place-eligibility.ts): refused as a signed-in order is, by its own code.
@@ -27,6 +29,8 @@ function signalTrpcError(error: unknown): unknown {
   if (error instanceof TradeError) return new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error });
   return error;
 }
+
+const webhookInput = z.object({ webhookId: z.string().min(1).max(64) }).strict();
 
 export function signalsRouter(desk?: SignalDesk) {
   async function call<T>(fn: (desk: SignalDesk) => Promise<T>): Promise<T> {
@@ -51,6 +55,22 @@ export function signalsRouter(desk?: SignalDesk) {
         )
         .mutation(({ ctx, input }) => call((d) => d.create(ctx.principal, input, ctx.region))),
       list: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => call((d) => d.list(ctx.principal))),
+      // The person's own controls (CB-bots-api-signal-02): pause, resume a paused one, or end it for good.
+      pause: scopedProcedure('trade:write', { module: 'trade' })
+        .input(webhookInput)
+        .mutation(({ ctx, input }) => call((d) => d.pause(ctx.principal, input.webhookId))),
+      resume: scopedProcedure('trade:write', { module: 'trade' })
+        .input(webhookInput)
+        .mutation(({ ctx, input }) => call((d) => d.resume(ctx.principal, input.webhookId))),
+      end: scopedProcedure('trade:write', { module: 'trade' })
+        .input(webhookInput)
+        .mutation(({ ctx, input }) => call((d) => d.end(ctx.principal, input.webhookId))),
+    }),
+    // A notification URL (CB-bots-api-signal-03): its alerts become notices only, never orders.
+    notifyUrls: router({
+      create: scopedProcedure('trade:write', { module: 'trade' })
+        .input(z.object({ clientRequestId: z.string().min(1).max(120) }).strict())
+        .mutation(({ ctx, input }) => call((d) => d.createNotify(ctx.principal, input, ctx.region))),
     }),
     intents: scopedProcedure('trade:read', { module: 'trade' })
       .input(z.object({ webhookId: z.string().min(1).max(64) }).strict())

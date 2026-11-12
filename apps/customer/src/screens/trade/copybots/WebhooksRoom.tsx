@@ -30,6 +30,10 @@ import { roomRefusal } from './refusals';
  * turns a chart alert into an order prepared on the venue, for the person's own wallet to sign and send (svc-trade's
  * user-venue door; INTAFACED holds no key that can sign). The token is shown once, when the webhook is made; afterwards
  * only its first six characters. The account is prefilled with the person's live connected wallet, when there is one.
+ *
+ * Each order webhook can be paused, resumed and ended (CB-bots-api-signal-02); after the platform's count of failed
+ * alerts in a row it ends by itself, and says so. A notification URL (CB-bots-api-signal-03) has its own token and turns
+ * each alert into one notice, never an order.
  */
 /** The address a chart alert posts to: this site's origin and the webhook's path. Data, not words. */
 const webhookAddress = (origin: string, path: string) => origin + path;
@@ -54,6 +58,13 @@ export function WebhooksRoom() {
   const [busy, setBusy] = useState(false);
   const [made, setMade] = useState<SignalWebhook | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
+  const [rowRefused, setRowRefused] = useState<string | null>(null);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<SignalWebhook | null>(null);
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteRefused, setNoteRefused] = useState<string | null>(null);
+  const orderHooks = (hooks.data ?? []).filter((w) => w.kind === 'order');
+  const noteHooks = (hooks.data ?? []).filter((w) => w.kind === 'notify');
   const spot = (markets.data?.value ?? []).filter((m) => m.kind === 'spot');
   const liveWallet = (connected.data?.connections ?? []).find((c) => c.status === 'live')?.address ?? '';
   const account = owner || liveWallet;
@@ -73,21 +84,73 @@ export function WebhooksRoom() {
     hooks.reload();
   }
 
+  async function change(w: SignalWebhook, to: 'pause' | 'resume' | 'end') {
+    setRowBusy(w.webhookId);
+    setRowRefused(null);
+    const out = await api.setWebhookState(w.webhookId, to);
+    setRowBusy(null);
+    if (!out.ok) setRowRefused(roomRefusal(out).title);
+    hooks.reload();
+  }
+
+  async function createNote() {
+    setNoteBusy(true);
+    setNoteRefused(null);
+    // One key per click: the URL is made once however often a lost answer is retried within this click.
+    const out = await api.createNotifyUrl({ clientRequestId: `nu-${crypto.randomUUID()}` });
+    setNoteBusy(false);
+    if (!out.ok) {
+      setNoteRefused(roomRefusal(out).title);
+      return;
+    }
+    setNote(out.data);
+    hooks.reload();
+  }
+
+  const stateCell = (w: SignalWebhook) => (
+    <span className="cb-wrap">
+      <Badge tone={w.state === 'active' ? 'lime' : 'warn'}>
+        {w.state === 'active' ? t('Active') : w.state === 'paused' ? t('Paused') : t('Ended')}
+      </Badge>{' '}
+      {w.state === 'ended' ? (w.endedReason === 'failures' ? t('After failed alerts in a row') : t('By you')) : null}
+    </span>
+  );
+
   const columns: TableColumn<SignalWebhook>[] = [
-    { id: 'market', header: t('Market'), value: (w) => w.symbol, width: 140 },
+    { id: 'market', header: t('Market'), value: (w) => w.symbol ?? '', width: 140 },
     { id: 'account', header: t('Venue account'), cell: (w) => <code className="cb-wrap">{w.venueOwner}</code>, width: 200 },
     { id: 'url', header: t('Address'), cell: (w) => <code className="cb-wrap">{webhookAddress(origin, w.path)}</code>, width: 420 },
     { id: 'token', header: t('Token'), cell: (w) => <code>{tokenShown(w.tokenPrefix)}</code>, width: 120 },
+    { id: 'state', header: t('State'), cell: stateCell, width: 200 },
+    { id: 'failures', header: t('Failed in a row'), value: (w) => String(w.consecutiveFailures), width: 120 },
     {
-      id: 'state',
-      header: t('State'),
-      cell: (w) => (
-        <Badge tone={w.state === 'active' ? 'lime' : 'warn'}>
-          {w.state === 'active' ? t('Active') : w.state === 'paused' ? t('Paused') : t('Ended')}
-        </Badge>
-      ),
-      width: 120,
+      id: 'actions',
+      header: t('Actions'),
+      cell: (w) =>
+        w.state === 'ended' ? null : (
+          <div className="cb-action-row">
+            {w.state === 'active' ? (
+              <Button variant="secondary" disabled={rowBusy === w.webhookId} onClick={() => void change(w, 'pause')}>
+                {t('Pause')}
+              </Button>
+            ) : (
+              <Button variant="secondary" disabled={rowBusy === w.webhookId} onClick={() => void change(w, 'resume')}>
+                {t('Resume')}
+              </Button>
+            )}
+            <Button variant="secondary" disabled={rowBusy === w.webhookId} onClick={() => void change(w, 'end')}>
+              {t('End')}
+            </Button>
+          </div>
+        ),
+      width: 200,
     },
+  ];
+
+  const noteColumns: TableColumn<SignalWebhook>[] = [
+    { id: 'url', header: t('Address'), cell: (w) => <code className="cb-wrap">{webhookAddress(origin, w.path)}</code>, width: 420 },
+    { id: 'token', header: t('Token'), cell: (w) => <code>{tokenShown(w.tokenPrefix)}</code>, width: 120 },
+    { id: 'state', header: t('State'), cell: stateCell, width: 200 },
   ];
 
   return (
@@ -125,7 +188,7 @@ export function WebhooksRoom() {
             <Table
               label={t('Webhooks')}
               columns={columns}
-              rows={hooks.data ?? []}
+              rows={orderHooks}
               getRowId={(w) => w.webhookId}
               status={hooks.status === 'loading' ? 'loading' : hooks.status === 'error' ? 'error' : 'ready'}
               onRetry={hooks.reload}
@@ -133,12 +196,21 @@ export function WebhooksRoom() {
               emptyState={
                 <EmptyState size="inline" title={t('You have no webhooks')} reason={t('Make one for the market your alert watches.')} />
               }
-              minWidth={800}
+              minWidth={1100}
             />
+            {rowRefused ? <p role="alert">{rowRefused}</p> : null}
             <InfoNote>
               {t(
-                'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell), an amount and the worst price you accept.',
+                'An alert sends JSON with your token, an alert id, the time it fired, a side (buy, sell or reverse), an amount and the worst price you accept.',
               )}
+            </InfoNote>
+            <InfoNote>
+              {t(
+                'The amount is a quantity, or a percent of what you hold on the market, such as 50%. A reverse closes what you hold and opens the other way; a spot market holds no short, so there it only closes.',
+              )}
+            </InfoNote>
+            <InfoNote>
+              {t('After the platform’s count of failed alerts in a row, a webhook ends by itself. You can pause, resume or end it here.')}
             </InfoNote>
             <InfoNote>
               {t(
@@ -148,6 +220,44 @@ export function WebhooksRoom() {
           </>
         )}
       </PageSection>
+      {session ? (
+        <PageSection title={t('Notification URL')} headingLevel={2}>
+          <div className="cb-action-row">
+            <Button disabled={noteBusy} onClick={() => void createNote()}>
+              {t('New notification URL')}
+            </Button>
+          </div>
+          {noteRefused ? <p role="alert">{noteRefused}</p> : null}
+          {note?.token ? (
+            <InfoNote>
+              <span style={{ display: 'block' }}>{t('Copy these now. The token is shown only this once.')}</span>
+              <span style={{ display: 'block' }}>
+                {t('Address')}: <code data-testid="notify-url">{webhookAddress(origin, note.path)}</code>
+              </span>
+              <span style={{ display: 'block' }}>
+                {t('Token')}: <code data-testid="notify-token">{note.token}</code>
+              </span>
+            </InfoNote>
+          ) : null}
+          <Table
+            label={t('Notification URLs')}
+            columns={noteColumns}
+            rows={noteHooks}
+            getRowId={(w) => w.webhookId}
+            status={hooks.status === 'loading' ? 'loading' : hooks.status === 'error' ? 'error' : 'ready'}
+            onRetry={hooks.reload}
+            emptyState={
+              <EmptyState size="inline" title={t('You have no notification URL')} reason={t('Make one to get alerts as notices.')} />
+            }
+            minWidth={700}
+          />
+          <InfoNote>
+            {t(
+              'An alert to this address sends JSON with its token, an alert id, the time it fired and a message. It shows as one notice and never places an order.',
+            )}
+          </InfoNote>
+        </PageSection>
+      ) : null}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="cb-dialog">
           <DialogHeader>

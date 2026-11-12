@@ -1470,6 +1470,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     copySkipped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'paused', skippedAt: ts() },
     copyFailed: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'order_rejected', failedAt: ts() },
     copyStopped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), reason: 'follower', closeOnly: true, stoppedAt: ts() },
+    signalNoteCreated: { userId: uid(), webhookId: uid(), alertId: 'alert-1', message: 'TEST alert', receivedAt: ts() },
     venueDelistingScheduled: {
       venueId: 'test-venue-sim',
       symbol: 'BTC-USDC',

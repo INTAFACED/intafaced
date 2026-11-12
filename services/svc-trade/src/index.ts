@@ -44,7 +44,14 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
-import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
+import {
+  SignalDesk,
+  SignalError,
+  parseSignalFailureCount,
+  parseSignalMaxAge,
+  parseSignalWebhookDays,
+  signalNoteKey,
+} from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
 import { createLiveTierClient } from './signals/live-tier.js';
 import { PlatformPauseDesk } from './copy/platform-pauses.js';
@@ -757,6 +764,36 @@ const signalDesk = new SignalDesk({
       throw err;
     }
   },
+  // A percent of the position or a reversal reads the venue account's own position: spot, the base asset free to sell;
+  // a perpetual, its signed size. The venue is the record; nothing here keeps a position of its own.
+  position: async (owner, symbol) => {
+    if (!userVenue) throw new SignalError('Venue trading is not switched on', 'trade.user_venue_off', 503);
+    const venue = await userVenue.venue();
+    const account = await userVenue.account(owner);
+    const market = (await venue.markets(null)).value.find((m) => m.symbol === symbol);
+    if (!market) throw new SignalError(`${symbol} is not listed on the venue`, 'venue.unknown_market', 503);
+    if (market.kind === 'spot') {
+      const held = (await venue.balances(account)).value.find((b) => b.asset === market.baseAsset);
+      return { kind: 'spot', size: held?.free ?? 0n, lotSize: market.lotSize };
+    }
+    const open = (await venue.positions(account)).value.find((p) => p.symbol === symbol);
+    return { kind: 'perpetual', size: open ? (open.side === 'long' ? open.size : -open.size) : 0n, lotSize: market.lotSize };
+  },
+  // A notification URL's alert: one notice through svc-notify, keyed by the webhook and alert id, so a resend is one notice.
+  publishNote: async (note) => {
+    await bus.publish(
+      'signalNoteCreated',
+      {
+        userId: note.userId,
+        webhookId: note.webhookId,
+        alertId: note.alertId,
+        message: note.message,
+        receivedAt: note.receivedAt.toISOString(),
+      },
+      { idempotencyKey: signalNoteKey(note.webhookId, note.alertId) },
+    );
+  },
+  failureCount: parseSignalFailureCount(env.TRADE_SIGNAL_FAILURE_COUNT),
   maxAlertAgeSeconds: parseSignalMaxAge(env.TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS),
   webhookDays: parseSignalWebhookDays(env.TRADE_SIGNAL_WEBHOOK_DAYS),
 });

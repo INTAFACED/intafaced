@@ -418,6 +418,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     access: 'public',
     summary: "A chart alert for one of your webhooks; the webhook's own token in the body, never an API key",
   },
+  {
+    name: 'postSignalNote',
+    method: 'POST',
+    path: '/api/v1/signals/notify/:webhookId',
+    product: 'spot',
+    access: 'public',
+    summary: "A chart alert for your notification URL: one in-app notice, never an order; the URL's own token in the body",
+  },
   // Derivatives
   {
     name: 'fetchFundingRate',

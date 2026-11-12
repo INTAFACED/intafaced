@@ -243,6 +243,8 @@ export const en = {
   'notify.trade.copy_skipped.body.position_closed':
     'The leader closed a trade you no longer hold, so nothing was sold for you. You can see your positions on the follow.',
   'notify.trade.copy_skipped.body.refused': 'A copy of the leader’s trade could not be placed. You can see why in the follow’s skip log.',
+  'notify.trade.signal_note.title': 'Chart alert',
+  'notify.trade.signal_note.body': '{message}',
   'notify.trade.copy_stopped.title': 'Your follow stopped copying',
   'notify.trade.copy_stopped.body.follower': 'You stopped this follow. No new trades are copied for you. You can follow again any time.',
   'notify.trade.copy_stopped.body.follower_close_only':

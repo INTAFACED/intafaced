@@ -757,6 +757,7 @@ services:
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
       TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
       TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
+      TRADE_SIGNAL_FAILURE_COUNT: ${TRADE_SIGNAL_FAILURE_COUNT:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}

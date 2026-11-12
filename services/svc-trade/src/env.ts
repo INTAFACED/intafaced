@@ -881,6 +881,13 @@ const schema = serviceEnvSchema
       TRADE_SIGNAL_WEBHOOK_DAYS: z.string().default(''),
 
       /**
+       * How many chart alerts in a row whose every order was refused end a webhook, once (1 to 100;
+       * CB-bots-api-signal-02, J-copy-bots-otc-20 #6). Empty (default) = unset → every alert refuses
+       * `trade.signal_failure_count_not_set` ("Not set"). Owner value; never invented.
+       */
+      TRADE_SIGNAL_FAILURE_COUNT: z.string().default(''),
+
+      /**
        * How often the limit-convert sweep prices each waiting limit convert (J-cex-spot-11 #8). Blank (default): no
        * sweep runs, and placing a limit convert refuses `trade.convert_limit_unset`; nothing is ever held unwatched.
        */

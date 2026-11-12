@@ -17,14 +17,21 @@ export type CopyDesk = z.infer<typeof copyDeskSchema>;
 
 const ackSchema = z.object({ followId: z.string(), relationshipState: z.string(), newIntentFenced: z.boolean(), disposition: z.string() });
 
-/** A chart alert webhook (svc-trade `signals.webhooks.*`): one venue market and account. `token` is in the create reply only, once. */
+/**
+ * A chart alert webhook (svc-trade `signals.webhooks.*`): an order webhook names one venue market and account; a
+ * notification URL (`kind: notify`) names neither, and its alerts become notices only. `token` is in the create reply
+ * only, once.
+ */
 export const signalWebhookSchema = z.object({
   webhookId: z.string(),
-  symbol: z.string(),
-  venueOwner: z.string(),
+  kind: z.enum(['order', 'notify']).default('order'),
+  symbol: z.string().nullable(),
+  venueOwner: z.string().nullable(),
   path: z.string(),
   tokenPrefix: z.string(),
   state: z.enum(['active', 'paused', 'ended']),
+  endedReason: z.enum(['failures', 'owner']).nullable().default(null),
+  consecutiveFailures: z.number().int().nonnegative().default(0),
   createdAt: z.string(),
   token: z.string().nullable().optional(),
 });
@@ -324,6 +331,9 @@ export function createRoomApi(api: ApiClient) {
     webhooks: (signal?: AbortSignal) => api.query('trade', 'signals.webhooks.list', undefined, z.array(signalWebhookSchema), { signal }),
     createWebhook: (input: { symbol: string; venueOwner: string; clientRequestId: string }) =>
       api.mutate('trade', 'signals.webhooks.create', input, signalWebhookSchema),
+    setWebhookState: (webhookId: string, change: 'pause' | 'resume' | 'end') =>
+      api.mutate('trade', `signals.webhooks.${change}`, { webhookId }, signalWebhookSchema),
+    createNotifyUrl: (input: { clientRequestId: string }) => api.mutate('trade', 'signals.notifyUrls.create', input, signalWebhookSchema),
     platformPauses: (signal?: AbortSignal) => api.query('trade', 'copy.platformPauses', undefined, platformPausesSchema, { signal }),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),
     algoList: (limit: number, signal?: AbortSignal) => api.query('trade', 'algo.list', { limit }, botListSchema, { signal }),

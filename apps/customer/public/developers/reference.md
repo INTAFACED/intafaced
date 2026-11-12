@@ -57,6 +57,7 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `POST /api/v1/promotions`                           | `previewPromotion`        | trade:write                    |
 | `POST /api/v1/quant/live-deploy`                    | `previewLiveDeploy`       | trade:write                    |
 | `POST /api/v1/signals/webhook/:webhookId`           | `postSignalAlert`         | public; with a key trade:write |
+| `POST /api/v1/signals/notify/:webhookId`            | `postSignalNote`          | public; with a key trade:write |
 | `GET /api/v1/bots/grid`                             | `fetchGridBots`           | trade:read                     |
 | `GET /api/v1/bots/grid/:id`                         | `fetchGridBot`            | trade:read                     |
 | `POST /api/v1/bots/grid`                            | `createGridBot`           | trade:write                    |

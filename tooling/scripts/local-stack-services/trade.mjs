@@ -166,6 +166,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: testValue('TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS'),
     TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: testValue('TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS'),
     TRADE_SIGNAL_WEBHOOK_DAYS: testValue('TRADE_SIGNAL_WEBHOOK_DAYS'),
+    TRADE_SIGNAL_FAILURE_COUNT: testValue('TRADE_SIGNAL_FAILURE_COUNT'),
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
     // (trade.bots_verification_level_not_set, algo/bots-verification.ts), which a unit test keeps proving.
     // `LOCAL_STACK_TRADE_BOTS_LEVEL=blank` on a restart leaves it blank, so J-copy-bots-otc-14 #2 sees every bot refused.
