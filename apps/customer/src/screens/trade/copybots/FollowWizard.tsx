@@ -288,7 +288,7 @@ export function FollowWizard({
             <InfoNote>
               {desk?.minInvestment
                 ? t('Minimum investment: {min} {asset}', { min: displayAmount(desk.minInvestment), asset })
-                : t('The platform hasn’t set a minimum investment, so a copy can’t start yet.')}
+                : t('The platform hasn’t set a minimum investment, so no copy can start.')}
             </InfoNote>
             {show(problems.belowMin) ? (
               <p className="cb-error" role="alert">

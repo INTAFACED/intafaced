@@ -107,7 +107,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
     // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
     // A moderator's deletion of a learner's discussion post (J-academy-18 #2) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(322);
+    // A copy skipped at the follower's most per contract or most per day (J-copy-bots-otc-02 #3) adds two reason bodies.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(324);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

@@ -216,7 +216,7 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'The leader holds nothing in this asset right now, so there is nothing to scale by. Use a fixed amount. Nothing was followed.',
   },
   'trade.copy_min_not_set': {
-    title: 'Copy trading has no minimum investment yet',
+    title: 'Copy trading has no minimum investment set',
     body: 'The platform hasn’t set the smallest amount a copy may use, so no copy can start. Nothing was followed.',
   },
   'trade.copy_below_min_investment': {
@@ -224,8 +224,8 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'Raise the most in total to at least the minimum shown. Nothing was followed.',
   },
   'trade.copy_day_not_set': {
-    title: 'A daily limit can’t be counted yet',
-    body: 'The platform hasn’t set when a copy day starts. Leave the most per day blank for now. Nothing was changed.',
+    title: 'A daily limit can’t be counted',
+    body: 'The platform hasn’t set when a copy day starts. Leave the most per day blank. Nothing was changed.',
   },
   'trade.copy_market_cap_reached': {
     title: 'That copy would pass your most per contract',

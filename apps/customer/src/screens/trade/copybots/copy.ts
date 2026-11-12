@@ -514,8 +514,8 @@ const messages = {
     'The list of countries where copy trading is offered has not been approved',
   'The minimum investment is {min} {asset}': 'The minimum investment is {min} {asset}',
   'The most per order is {cap} {asset}': 'The most per order is {cap} {asset}',
-  'The platform hasn’t set a minimum investment, so a copy can’t start yet.':
-    'The platform hasn’t set a minimum investment, so a copy can’t start yet.',
+  'The platform hasn’t set a minimum investment, so no copy can start.':
+    'The platform hasn’t set a minimum investment, so no copy can start.',
   'The price moved past your slippage limit': 'The price moved past your slippage limit',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',

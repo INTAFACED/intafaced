@@ -95,6 +95,12 @@ const start = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+/** A mirror request for a leader fill; the service reads market, side, qty and notional from the fill itself. */
+function mirror(followId: string, fillId: string) {
+  const [marketId, side, qty, notional] = fillId.split(':');
+  return { followId, fillId, marketId: marketId!, side: side as 'buy' | 'sell', qty: qty!, notional: notional! };
+}
+
 async function journalOf(ledger: MemoryLedger) {
   return (await ledger.balances('user', FOLLOWER)).map((b) => `${b.accountId}:${b.amount}`);
 }
@@ -121,7 +127,7 @@ describe('sizing mode (CB-copy-05)', () => {
       leaderEquity: parseAmount('3000'),
     });
     // The leader buys 0.01 BTC for 300 USDT: a tenth of that is 0.001 BTC for 30 USDT.
-    const plan = await ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:buy:0.01:300' });
+    const plan = await ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:buy:0.01:300'));
     expect(plan).toMatchObject({ qty: '0.001', notional: '30' });
   });
 
@@ -186,13 +192,14 @@ describe('most per contract and most per day (CB-copy-06)', () => {
     const ctx = await setup();
     const follow = await ctx.copy.startFollow(principal(), start());
     await ctx.copy.amendFollow(principal(), { followId: follow.followId, maxPerMarket: '25' });
-    await ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:buy:0.001:20' });
-    const refused = ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:buy:0.002:40' });
+    await ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:buy:0.001:20'));
+    const refused = ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:buy:0.002:40'));
     await expect(refused).rejects.toMatchObject({ code: 'trade.copy_market_cap_reached' });
     expect(copySkipReasonFor(await refused.catch((e: unknown) => e))).toBe('per_contract_cap');
-    await expect(
-      ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'ETH/USDT:buy:0.01:20' }),
-    ).resolves.toMatchObject({ marketId: 'ETH/USDT', notional: '20' });
+    await expect(ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'ETH/USDT:buy:0.01:20'))).resolves.toMatchObject({
+      marketId: 'ETH/USDT',
+      notional: '20',
+    });
     // The refused copy claimed nothing.
     expect(await ctx.store.getMirroredFill(follow.followId, 'BTC/USDT:buy:0.002:40')).toBeNull();
     expect(await ctx.store.sumCopiedBuys(follow.followId, { marketId: 'BTC/USDT' })).toBe(parseAmount('20'));
@@ -202,13 +209,14 @@ describe('most per contract and most per day (CB-copy-06)', () => {
     const ctx = await setup();
     const follow = await ctx.copy.startFollow(principal(), start());
     await ctx.copy.amendFollow(principal(), { followId: follow.followId, maxPerMarket: '20', maxPerDay: '20' });
-    await ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:buy:0.001:20' });
-    await expect(
-      ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:buy:0.001:20:b' }),
-    ).rejects.toMatchObject({ code: 'trade.copy_market_cap_reached' });
-    await expect(
-      ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:sell:0.001:20' }),
-    ).resolves.toMatchObject({ side: 'sell', notional: '20' });
+    await ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:buy:0.001:20'));
+    await expect(ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:buy:0.001:20:b'))).rejects.toMatchObject({
+      code: 'trade.copy_market_cap_reached',
+    });
+    await expect(ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:sell:0.001:20'))).resolves.toMatchObject({
+      side: 'sell',
+      notional: '20',
+    });
   });
 
   it('refuses past the daily cap and resumes at the next owner day', async () => {
@@ -216,16 +224,16 @@ describe('most per contract and most per day (CB-copy-06)', () => {
     const ctx = await setup({ ownerDay: '480' });
     const follow = await ctx.copy.startFollow(principal(), start());
     await ctx.copy.amendFollow(principal(), { followId: follow.followId, maxPerDay: '40' });
-    await ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:buy:0.001:20' });
-    await ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'ETH/USDT:buy:0.01:20' });
+    await ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:buy:0.001:20'));
+    await ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'ETH/USDT:buy:0.01:20'));
     ctx.at('2026-11-13T15:59:59.000Z');
-    await expect(
-      ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:buy:0.001:20:c' }),
-    ).rejects.toMatchObject({ code: 'trade.copy_daily_cap_reached' });
+    await expect(ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:buy:0.001:20:c'))).rejects.toMatchObject({
+      code: 'trade.copy_daily_cap_reached',
+    });
     ctx.at('2026-11-13T16:00:00.000Z');
-    await expect(
-      ctx.copy.planMirrorForFollow(principal(), { followId: follow.followId, fillId: 'BTC/USDT:buy:0.001:20:d' }),
-    ).resolves.toMatchObject({ notional: '20' });
+    await expect(ctx.copy.planMirrorForFollow(principal(), mirror(follow.followId, 'BTC/USDT:buy:0.001:20:d'))).resolves.toMatchObject({
+      notional: '20',
+    });
   });
 
   it('a daily cap with no owner day refuses before it is saved; a blank cap clears', async () => {

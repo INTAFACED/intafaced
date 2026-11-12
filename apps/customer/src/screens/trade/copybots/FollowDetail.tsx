@@ -328,7 +328,7 @@ function EditLimits({
       <InfoNote>
         {desk?.minInvestment
           ? t('Minimum investment: {min} {asset}', { min: displayAmount(desk.minInvestment), asset })
-          : t('The platform hasn’t set a minimum investment, so a copy can’t start yet.')}
+          : t('The platform hasn’t set a minimum investment, so no copy can start.')}
       </InfoNote>
       <InfoNote>{t('Spot copying uses no leverage, so there is no leverage limit to set.')}</InfoNote>
       <div className="cb-action-row">
