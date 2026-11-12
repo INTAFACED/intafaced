@@ -117,6 +117,8 @@ import { academyProgrammeCertId, ACADEMY_CURRICULUM_PATHS } from '@intafaced/con
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
 import { ProgrammeRecords } from './curriculum/programme-records.js';
 import { CourseDiscussion } from './curriculum/discussion.js';
+import { DiscussionModeration, type ModerationNoticePublisher } from './curriculum/moderation.js';
+import { CourseTeam } from './team/course-team.js';
 import { CourseMessages } from './curriculum/course-messages.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
@@ -355,6 +357,12 @@ export interface AcademyServiceOptions {
   certIssueSweepSeconds?: number;
   /** AC-programmes-01: owner-set courses per learning programme (`ACADEMY_PROGRAMME_MAX_COURSES`). Undefined: a save with courses refuses. */
   programmeMaxCourses?: number;
+  /** AC-roles-01: owner-set number of custom roles (`ACADEMY_CUSTOM_ROLE_LIMIT`). Undefined: creating one refuses. */
+  customRoleLimit?: number;
+  /** AC-rooms-02: where a deleted post's author notice goes; undefined or null leaves it waiting in the outbox. */
+  moderationNotices?: ModerationNoticePublisher | null;
+  /** AC-rooms-02: logs a notice the bus did not take (it stays waiting). */
+  onModerationNoticeError?: (err: unknown, eventId: string) => void;
   /** AC-rooms-01: owner-set characters per discussion post (`ACADEMY_POST_MAX_CHARS`). Undefined: posting refuses. */
   postMaxChars?: number;
   /** AC-rooms-01: owner-set bytes per post image (`ACADEMY_POST_IMAGE_MAX_BYTES`). Undefined: a post with an image refuses. */
@@ -437,6 +445,10 @@ export class AcademyService {
   private readonly programmeRecords: ProgrammeRecords;
   /** AC-rooms-01: course discussions. The router calls it directly; it decides nothing about any other record. */
   readonly discussion: CourseDiscussion;
+  /** AC-roles-01: course team roles, custom roles and the per-course permission check. */
+  readonly team: CourseTeam;
+  /** AC-rooms-02: reports, the moderation queue and deleting posts with a reason. */
+  readonly moderation: DiscussionModeration;
   /** AC-rooms-04: conversations with course teams. The router calls it directly. */
   readonly courseMessages: CourseMessages;
   /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly (AC-quizzes-02: its own attempts). */
@@ -510,6 +522,13 @@ export class AcademyService {
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);
     this.gradeReports = new GradeReports(sql, this.courseGradebook, this.options.gradeReportRows ?? null);
+    this.team = new CourseTeam(sql, this.options.customRoleLimit ?? null);
+    this.moderation = new DiscussionModeration(
+      sql,
+      this.team,
+      this.options.moderationNotices ?? null,
+      this.options.onModerationNoticeError,
+    );
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,

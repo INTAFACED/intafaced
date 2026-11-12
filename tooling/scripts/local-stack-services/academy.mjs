@@ -80,6 +80,10 @@ const postLimits = () =>
     ? {}
     : { ACADEMY_POST_MAX_CHARS: '4000', ACADEMY_POST_IMAGE_MAX_BYTES: '262144', ACADEMY_MESSAGE_MAX_CHARS: '4000' };
 
+// LOCAL TEST custom role limit (a TEST owner value): 50 custom roles, room for the journey's one role per run on a kept
+// stack (J-academy-18 #6). `LOCAL_STACK_ACADEMY_ROLE_LIMIT=off` leaves it blank, so the "limit not set" refusal can be seen.
+const roleLimit = () => (process.env.LOCAL_STACK_ACADEMY_ROLE_LIMIT === 'off' ? {} : { ACADEMY_CUSTOM_ROLE_LIMIT: '50' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -103,5 +107,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...programmeMax(),
     ...postLimits(),
     ...verifyRate(),
+    ...roleLimit(),
   }),
 });

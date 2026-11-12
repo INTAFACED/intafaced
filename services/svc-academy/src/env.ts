@@ -130,6 +130,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-roles-01: how many custom roles the academy may hold. Blank / unset is unpublished: creating a custom role
+       * refuses `academy.role_limit_unset`.
+       */
+      ACADEMY_CUSTOM_ROLE_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),
+      ),
+
+      /**
        * AC-rooms-01: the longest discussion post or reply, in characters. Blank / unset is unpublished: posting refuses
        * `academy.post_limit_unset`.
        */
