@@ -53,6 +53,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     DATABASE_URL: dbUrl('svc_trade', secrets),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
+    AGENTS_URL: urlOf('agents'), // the own agent's gate before its allowance or order (J-agents-08 #4 #6)
     MATCHING_URL: urlOf('matching'),
     // Our own order book's spot plane follows the custody switch (OWNER 288): unset, TRADE_SPOT_ENABLED is on only with
     // LEDGER_CUSTODY_LAYER on. The same value as svc-ledger's (ledger.mjs), as matching.mjs carries.
