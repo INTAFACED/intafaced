@@ -45,6 +45,7 @@ function setup(defaultProfile: string | null = 'TEST default') {
   const app = createQuantRouter({
     wired: true,
     venueVaultSet: false,
+    paperFeeBps: '0',
     limits: { maxOps: 5_000, maxSource: 8_000 },
     strategies: createMemoryStrategyRepository(quota.gate),
     runs: createMemoryRunRepository(RUN_RESULT_MAX_BYTES, quota.gate),
