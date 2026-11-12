@@ -391,7 +391,7 @@ describe('POST desk writes', () => {
   it('turns a stale audience change into plain words and says nothing changed', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => trpcErr(409, 'support.kb.revision_stale')),
+      vi.fn(async () => trpcErr(409, 'support.kb_revision_stale')),
     );
     const res = await post({ action: 'kb_audience', id: 'kb-a', baseRevision: 1, audience: 'staff' });
     expect(res.status).toBe(409);
@@ -471,7 +471,7 @@ describe('POST desk writes', () => {
   it('a stale article revision is a conflict that overwrote nothing', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => trpcErr(409, 'support.kb.revision_stale')),
+      vi.fn(async () => trpcErr(409, 'support.kb_revision_stale')),
     );
     const json = await (await post({ action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: 1 })).json();
     expect(json.refusal).toMatchObject({ title: 'Someone changed this article first', changed: 'no' });

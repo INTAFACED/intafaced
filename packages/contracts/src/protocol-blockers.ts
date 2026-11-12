@@ -221,10 +221,13 @@ function needs<K extends ProtocolSourceKey>(
 }
 
 const p1: Check = (_snap, p1Go) => (p1Go ? null : blocker('p1_go'));
-const always =
-  (code: BlockerCode): Check =>
-  () =>
-    blocker(code);
+/** The checks that block whatever any source says: the standing blockers (`standingBlockers`). */
+const STANDING = new Set<Check>();
+const always = (code: BlockerCode): Check => {
+  const check: Check = () => blocker(code);
+  STANDING.add(check);
+  return check;
+};
 const chainUp = needs('chain', (c) => {
   if (!c.reachable) return blocker('chain_unreachable', { reason: chainReasonWords(c.refusalCode) });
   if (c.observedChainId !== null && c.observedChainId !== c.configuredChainId)
@@ -267,6 +270,14 @@ const CHECKS: Record<ProtocolAction, readonly Check[]> = {
   stake: [p1, always('no_chain_service'), always('not_audited'), network],
   unstake: [p1, always('no_chain_service'), always('not_audited'), network],
 };
+
+/**
+ * The blockers in front of `action` that no source can clear, in the engine's order: the ones a page can name before it has
+ * read anything (More's Web3 tiles, J-home-ia-02 #2). Each one is also in `blockersFor`'s answer for any snapshot.
+ */
+export function standingBlockers(action: ProtocolAction): Blocker[] {
+  return CHECKS[action].filter((check) => STANDING.has(check)).map((check) => check(undefined as never, INTACHAIN_P1_GO) as Blocker);
+}
 
 /** Every blocker standing in front of `action`, first failing one first. Never empty. */
 export function blockersFor(action: ProtocolAction, snapshot: ProtocolSnapshot, p1Go: boolean = INTACHAIN_P1_GO): Blocker[] {

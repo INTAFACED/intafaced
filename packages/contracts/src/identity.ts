@@ -387,6 +387,29 @@ export const linkedWalletsSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('account_inactive') }).strict(),
 ]);
 export type LinkedWallets = z.infer<typeof linkedWalletsSchema>;
+
+/**
+ * One of a person's own API keys, as svc-trade reads it before binding it to an agent account (J-agents-21 #6): its kind,
+ * its scopes and whether it is live. Asked with the person's id, so a key of anyone else answers `none`, the same as a key
+ * that does not exist: no other person's key is ever confirmed. Only the services identity lists may ask. Nothing is written.
+ */
+export const AGENT_KEY_READ_PATH = '/internal/agent-keys/read' as const;
+export const agentKeyReadRequestSchema = z.object({ userId: z.string().guid(), keyId: z.string().guid() }).strict();
+export type AgentKeyReadRequest = z.infer<typeof agentKeyReadRequestSchema>;
+export const agentKeyReadSchema = z.discriminatedUnion('state', [
+  z
+    .object({
+      state: z.literal('found'),
+      keyId: z.string().guid(),
+      kind: z.enum(['personal', 'agent']),
+      scopes: z.array(z.string().min(1).max(64)).max(200),
+      /** Revoked, or past its end date. */
+      revoked: z.boolean(),
+    })
+    .strict(),
+  z.object({ state: z.literal('none') }).strict(),
+]);
+export type AgentKeyRead = z.infer<typeof agentKeyReadSchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;
