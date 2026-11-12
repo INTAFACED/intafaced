@@ -248,7 +248,6 @@ test(`${J} #2 ledger.frozen shows the platform message and never "account restri
   try {
     freezeOn = true;
     await setPostingFreeze(browser, true);
-    const sent = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/transfers.toUser') && r.request().method() === 'POST');
     await page.goto('/pay');
     const to = page.getByRole('textbox', { name: 'Handle', exact: true });
     await to.fill(recipient.handle);
@@ -256,6 +255,7 @@ test(`${J} #2 ledger.frozen shows the platform message and never "account restri
     await expect(page.getByTestId('recipient-handle').first()).toHaveText(`@${recipient.handle}`);
     await page.getByLabel('Amount to send').fill('5');
     await page.getByTestId('pay-review').click();
+    const sent = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/transfers.toUser') && r.request().method() === 'POST');
     await page.getByTestId('pay-send').click();
     const answer = await sent;
     expect(JSON.stringify(await answer.json())).toContain('ledger.frozen');
@@ -319,10 +319,11 @@ test(`${J} #3 files an appeal: one open appeal at a time, a second is refused, a
   await expect(page.getByText('This account is closed.')).toBeVisible();
   const appeal = page.getByRole('button', { name: 'Appeal this closure' });
   await expect(appeal).toBeVisible();
-  const refused = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/accountAppeal.submit'));
+  // Signed out, identity proves the account with the sign-in details and refuses a closed one by name.
+  const refused = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/accountAppeal.submitSignedOut'));
   await appeal.click();
   const answer = await refused;
-  expect(answer.status()).toBe(403);
+  expect(answer.status()).toBe(412);
   expect(JSON.stringify(await answer.json())).toContain('identity.appeal_not_allowed');
   await expect(page.getByRole('alert')).toContainText('Appeal not allowed');
 });
