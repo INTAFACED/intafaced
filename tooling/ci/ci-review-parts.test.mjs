@@ -190,6 +190,12 @@ test('exactReverse: the same lines the other way in every file, and nothing else
   assert.equal(exactReverse(REVERT_DIFF.slice(0, REVERT_DIFF.indexOf('diff --git a/docs')), CULPRIT_DIFF), false);
   assert.equal(exactReverse(`${REVERT_DIFF}diff --git a/z.ts b/z.ts\n--- a/z.ts\n+++ b/z.ts\n@@ -1 +1 @@\n-a\n+b\n`, CULPRIT_DIFF), false);
   assert.equal(exactReverse(CULPRIT_DIFF, CULPRIT_DIFF), false);
+  // Planted (the CI review's note on #8019): the right lines in another order are not the revert.
+  const two = (a, b) => `diff --git a/t.mjs b/t.mjs\n--- a/t.mjs\n+++ b/t.mjs\n@@ -1,2 +1,2 @@\n${a}\n${b}\n`;
+  assert.equal(exactReverse(two('-y', '+x'), two('-x', '+y')), true);
+  const pair = (l) => `diff --git a/t.mjs b/t.mjs\n--- a/t.mjs\n+++ b/t.mjs\n@@ -1,2 +1,2 @@\n${l.join('\n')}\n`;
+  assert.equal(exactReverse(pair(['-c', '-d', '+a', '+b']), pair(['-a', '-b', '+c', '+d'])), true);
+  assert.equal(exactReverse(pair(['-c', '-d', '+b', '+a']), pair(['-a', '-b', '+c', '+d'])), false);
   const bin = 'diff --git a/p.png b/p.png\nBinary files a/p.png and b/p.png differ\n';
   assert.equal(exactReverse(REVERT_DIFF + bin, CULPRIT_DIFF + bin), false);
   assert.equal(exactReverse('', ''), false);

@@ -294,14 +294,8 @@ function changedLines(diff) {
     const at = lines.findIndex((l) => l.startsWith('@@ '));
     const body = at < 0 ? [] : lines.slice(at);
     out.set(`${f.oldPath}\0${f.newPath}`, {
-      plus: body
-        .filter((l) => l.startsWith('+'))
-        .map((l) => l.slice(1))
-        .sort(),
-      minus: body
-        .filter((l) => l.startsWith('-'))
-        .map((l) => l.slice(1))
-        .sort(),
+      plus: body.filter((l) => l.startsWith('+')).map((l) => l.slice(1)),
+      minus: body.filter((l) => l.startsWith('-')).map((l) => l.slice(1)),
     });
   }
   return out;
@@ -309,7 +303,7 @@ function changedLines(diff) {
 
 /**
  * Whether `diff` is exactly the reverse of `culpritDiff`: the same files, each with the other's removed lines added and
- * its added lines removed (as multisets, so a hunk's offset may differ after main moved on). Any binary file: false.
+ * its added lines removed, in the same order (a hunk's offset may differ after main moved on). Any binary file: false.
  */
 export function exactReverse(diff, culpritDiff) {
   const a = changedLines(diff);
