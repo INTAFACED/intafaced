@@ -11,6 +11,7 @@ import {
   type AgentCapMarks,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
+  type UpdateLeverageIntent,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueOrder,
@@ -18,7 +19,7 @@ import {
   type VenueSignature,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
-import { AGENT_ACCOUNT_STEP_UP_SCOPE, AgentAccountError, assertPerson, capErrorAs, type AgentAccountValues } from './agent-account.js';
+import { AGENT_CONNECT_STEP_UP_SCOPE, AgentAccountError, assertPerson, capErrorAs, type AgentAccountValues } from './agent-account.js';
 import type { AgentAccountRecord, AgentAccountStore } from './agent-account-store.js';
 import type { AgentConnectionRecord, AgentConnectionStore } from './agent-connection-store.js';
 import type { AgentKeyReader } from './agent-key-read-client.js';
@@ -26,7 +27,7 @@ import { agentKeyFor } from './agent-key.js';
 import { AGENT_ORDER_PREFIX, orderOriginOf, UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
 
 /**
- * THE ASSISTANT'S TRADE PATH (J-agents-21 #6 #7 #10; piece 1: svc-trade). The person's own outside assistant calls our
+ * THE ASSISTANT'S TRADE PATH (J-agents-21 #6 #7 #8 #10; piece 1: svc-trade, spot; piece 2: perpetuals). The person's own outside assistant calls our
  * API with an `agent` API key the person made; the person binds that key to one of their open agent accounts; from then on
  * every order from that key is placed on that account's venue sub-account and nowhere else.
  *
@@ -36,6 +37,12 @@ import { AGENT_ORDER_PREFIX, orderOriginOf, UserVenueDoorError, type UserVenueDo
  * agent key derived for that account (agent-key.ts), which the venue lets trade that sub-account and nothing else (no
  * move, no withdrawal). The main venue account is never named: the account an order is prepared on is read from the
  * connection's agent account, never from the request.
+ *
+ * A perpetual (#8) opens isolated on the agent's venue account, at the leverage the assistant names: before the order,
+ * the agent key sets that market's leverage and isolated margin on the sub-account (`update_leverage`, held to the cap and
+ * the owner's market list like an order, sent once under `agent:leverage:<keyId>:<clientOrderId>`), unless the venue's
+ * record already shows exactly that setting. The venue then takes the margin on the sub-account and nowhere else. A
+ * reduce-only order (a close) changes no setting.
  *
  * Each order is sent once: it is stored under `agent:order:<keyId>:<clientOrderId>`, the assistant's own client order id
  * as the business key, and the venue's client order id derives from it. A retry with the same id reads the venue's record
@@ -54,6 +61,11 @@ import { AGENT_ORDER_PREFIX, orderOriginOf, UserVenueDoorError, type UserVenueDo
 export const AGENT_KEY_TRADE_SCOPES: ReadonlySet<string> = new Set(['trade:read', 'trade:write']);
 
 export const agentOrderKey = (keyId: string, clientOrderId: string) => `${AGENT_ORDER_PREFIX}${keyId}:${clientOrderId}`;
+/** The business key of the leverage setting an assistant's perpetual order needs first (#8). */
+export const agentLeverageKey = (keyId: string, clientOrderId: string) => `agent:leverage:${keyId}:${clientOrderId}`;
+/** 1x in basis points of 1x, the unit a venue's leverage travels in. */
+const ONE_X_BPS = 10_000;
+const LEVERAGE_RE = /^[1-9][0-9]{0,2}$/;
 export { orderOriginOf };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -200,7 +212,7 @@ export class AgentOrders {
     const existing = await this.deps.connections.active(keyId);
     if (existing) return this.connectedOrRefused(existing, principal.userId, id, account);
     await this.deps.stepUp.require({
-      scope: AGENT_ACCOUNT_STEP_UP_SCOPE,
+      scope: AGENT_CONNECT_STEP_UP_SCOPE,
       userId: principal.userId,
       sessionId: principal.sid,
       approvalId: req.stepUpApprovalId,
@@ -234,6 +246,19 @@ export class AgentOrders {
       out.push({ keyId: c.keyId, accountId: c.accountId, subAccount: a?.subAccount ?? null, connectedAt: c.createdAt });
     }
     return out;
+  }
+
+  /**
+   * #9: true when `principal` is an API key connected to one of its person's agent accounts. Such a key calls the
+   * assistant's order route and nothing else on the venue door: no move, withdrawal, or read or action on any other
+   * account (user-venue-rest.ts `refusedAgentKey`).
+   */
+  async confined(principal: Principal): Promise<boolean> {
+    if (!isApiKeyPrincipal(principal) || principal.sub_account) return false;
+    const keyId = (principal.kid ?? '').toLowerCase();
+    if (!UUID_RE.test(keyId)) return false;
+    const c = await this.deps.connections.active(keyId);
+    return c !== null && c.userId === principal.userId;
   }
 
   // ── the assistant's order (#7 #10) ─────────────────────────────────────────────────────────────────────────────
@@ -317,9 +342,10 @@ export class AgentOrders {
   }
 
   /**
-   * #7 #10: the assistant places a spot order. Only on the connected key's own agent sub-account; held to the cap and the
-   * owner's bounds before the agent key signs; sent once under `agent:order:<keyId>:<clientOrderId>`. A venue refusal
-   * (not enough funds) is the venue's, named, and nothing is open.
+   * #7 #8 #10: the assistant places a spot or perpetual order. Only on the connected key's own agent sub-account; held to
+   * the cap and the owner's bounds before the agent key signs; sent once under `agent:order:<keyId>:<clientOrderId>`. An
+   * opening perpetual names its leverage and opens isolated (`isolatedAt`). A venue refusal (not enough funds or margin)
+   * is the venue's, named, and nothing is open.
    */
   async place(principal: Principal, req: Record<string, unknown>): Promise<AgentOrderView> {
     const { keyId, account: a } = await this.boundAccount(principal);
@@ -343,7 +369,11 @@ export class AgentOrders {
     if (!/^\S{1,64}$/.test(symbol)) orderInvalid('symbol must be a venue market symbol');
     const amount = amountOf(req.amount, 'amount');
     const price = amountOf(req.price, 'price (on a market order, the worst price accepted)');
-    if (req.reduceOnly !== undefined && req.reduceOnly !== false) orderInvalid('reduceOnly is not taken on a spot order');
+    if (req.reduceOnly !== undefined && typeof req.reduceOnly !== 'boolean') orderInvalid('reduceOnly must be true or false');
+    const reduceOnly = req.reduceOnly === true;
+    if (req.leverage !== undefined && (typeof req.leverage !== 'string' || !LEVERAGE_RE.test(req.leverage.trim())))
+      orderInvalid('leverage must be a whole number of times, as a string ("3" is 3x)');
+    const leverageBps = typeof req.leverage === 'string' ? Number(req.leverage.trim()) * ONE_X_BPS : null;
 
     const key = agentOrderKey(keyId, clientOrderId);
     const venue = await this.deps.door.venue();
@@ -364,7 +394,8 @@ export class AgentOrders {
         was.type === type &&
         was.amount === amount &&
         was.price === price &&
-        was.timeInForce === timeInForce;
+        was.timeInForce === timeInForce &&
+        was.reduceOnly === reduceOnly;
       if (!same) {
         throw new UserVenueDoorError(
           `the clientOrderId ${clientOrderId} was already used for a different order; a new order needs a new clientOrderId`,
@@ -382,13 +413,13 @@ export class AgentOrders {
         code: 'unknown_market',
         detail: `${symbol} is not listed on ${venue.venue.displayName}`,
       });
-    if (market.kind !== 'spot') {
-      throw new AgentAccountError(
-        'agents.order_perp_not_yet',
-        "an assistant's order is spot only for now; perpetuals come in a later piece",
-        422,
-      );
-    }
+    const perp = market.kind === 'perpetual';
+    if (!perp && market.kind !== 'spot') orderInvalid(`${symbol} is a ${market.kind} market; an assistant trades spot and perpetuals`);
+    if (!perp && reduceOnly) orderInvalid('reduceOnly is not taken on a spot order');
+    if (!perp && leverageBps !== null) orderInvalid('leverage is not taken on a spot order');
+    if (perp && !reduceOnly && leverageBps === null)
+      orderInvalid('an opening perpetual order names its leverage ("leverage": "3"); it opens isolated on the agent account');
+    if (perp && reduceOnly && leverageBps !== null) orderInvalid("a reduce-only order closes at the position's own leverage");
     const intent: PlaceUserOrderIntent = {
       kind: 'place_order',
       symbol,
@@ -397,10 +428,31 @@ export class AgentOrders {
       amount,
       price,
       timeInForce,
-      reduceOnly: false,
+      reduceOnly,
       clientOrderKey: key,
       builderFee: null,
     };
+    const signer = this.signerFor(a, venue, seed);
+    const cap: AgentCap = { account: sub, agentAddress: a.agentAddress, asset: a.asset, cap: a.cap, validUntil: null, revokedAt: null };
+    // #8: an opening perpetual is isolated at the named leverage on the sub-account, set first by the agent key.
+    if (perp && leverageBps !== null) {
+      await this.refreshMarks(a, venue, sub, symbol, market.baseAsset);
+      await this.isolatedAt(
+        principal,
+        a,
+        signer,
+        cap,
+        venue,
+        sub,
+        {
+          kind: 'update_leverage',
+          symbol,
+          leverageBps,
+          marginMode: 'isolated',
+        },
+        agentLeverageKey(keyId, clientOrderId),
+      );
+    }
     let prepared: PreparedVenueAction;
     try {
       prepared = (
@@ -424,25 +476,93 @@ export class AgentOrders {
       throw new Error(`agent order ${key} was prepared outside its agent sub-account; nothing is signed`);
     }
 
-    const signer = this.signerFor(a, venue, seed);
     await this.refreshMarks(a, venue, sub, symbol, market.baseAsset);
-    const cap: AgentCap = { account: sub, agentAddress: a.agentAddress, asset: a.asset, cap: a.cap, validUntil: null, revokedAt: null };
     let signature: VenueSignature;
     try {
       ({ signature } = await signer.sign(prepared, cap));
     } catch (error) {
-      if (error instanceof AgentCapError) capErrorAs(error);
-      if (error instanceof VenueRefusalError && error.refusal.code.startsWith('agent_cap')) {
-        throw new AgentAccountError(
-          error.refusal.code === 'agent_cap_exceeded' ? 'agents.order_cap_exceeded' : 'agents.order_cap_refused',
-          error.refusal.detail,
-          422,
-          { capCode: error.refusal.code },
-        );
-      }
-      throw this.venueNamed(error, venue, key);
+      throw this.signRefusal(error, venue, key);
     }
     return this.send(principal, a, keyId, clientOrderId, key, signature, venue, false);
+  }
+
+  /** A refusal before the agent key signs: the cap's and the bounds' own codes, else the venue's, named. */
+  private signRefusal(error: unknown, venue: UserVenue, key: string): unknown {
+    if (error instanceof AgentCapError) capErrorAs(error);
+    if (error instanceof VenueRefusalError && error.refusal.code.startsWith('agent_cap')) {
+      return new AgentAccountError(
+        error.refusal.code === 'agent_cap_exceeded' ? 'agents.order_cap_exceeded' : 'agents.order_cap_refused',
+        error.refusal.detail,
+        422,
+        { capCode: error.refusal.code },
+      );
+    }
+    return this.venueNamed(error, venue, key);
+  }
+
+  /**
+   * #8: the market's leverage and isolated margin on the agent sub-account, as `want` names them, before an opening
+   * perpetual order. Nothing is signed when the venue's record already shows exactly that. Otherwise the agent key signs
+   * `update_leverage` (held to the cap and the owner's markets first) under `key`, stored before it is sent; a retry
+   * re-sends the stored bytes, never a new signature. The order goes on only once the venue has accepted the setting.
+   */
+  private async isolatedAt(
+    principal: Principal,
+    a: AgentAccountRecord & { subAccount: string },
+    signer: CappedAgentSigner,
+    cap: AgentCap,
+    venue: UserVenue,
+    sub: UserVenueAccount,
+    want: UpdateLeverageIntent,
+    key: string,
+  ): Promise<void> {
+    const now = (await venue.leverage(sub, want.symbol)).value;
+    if (now && now.leverageBps === want.leverageBps && now.marginMode === want.marginMode) return;
+    let signature = (await this.deps.door.stored(principal, key))?.signature ?? null;
+    if (!signature) {
+      let prepared: PreparedVenueAction;
+      try {
+        prepared = (
+          await this.deps.door.prepare(
+            principal,
+            { owner: a.owner, subAccount: a.subAccount, signer: { role: 'agent', address: a.agentAddress }, intent: want, actionKey: key },
+            { agentAccount: true },
+          )
+        ).prepared;
+      } catch (error) {
+        throw this.venueNamed(error, venue, key);
+      }
+      if (
+        prepared.account.venueId !== sub.venueId ||
+        prepared.account.owner.toLowerCase() !== a.owner ||
+        prepared.account.subAccount !== a.subAccount ||
+        prepared.signer.role !== 'agent' ||
+        prepared.signer.address.toLowerCase() !== a.agentAddress
+      ) {
+        throw new Error(`agent leverage ${key} was prepared outside its agent sub-account; nothing is signed`);
+      }
+      try {
+        ({ signature } = await signer.sign(prepared, cap));
+      } catch (error) {
+        throw this.signRefusal(error, venue, key);
+      }
+    }
+    let outcome: VenueSubmitOutcome;
+    try {
+      outcome = (await this.deps.door.submit(principal, key, signature, { agentAccount: true })).outcome;
+    } catch (error) {
+      throw this.venueNamed(error, venue, key);
+    }
+    const nonce = (await this.deps.door.stored(principal, key))?.prepared.nonce;
+    if (!outcome.definite) {
+      throw new AgentAccountError(
+        'agents.order_leverage_unknown',
+        `${venue.venue.displayName} has not answered the leverage setting yet; nothing was ordered. Send the same clientOrderId again`,
+        503,
+      );
+    }
+    if (nonce) signer.settle(nonce);
+    if (!outcome.accepted) throw new AgentVenueRefusal(outcome.refusal, venue.venue.displayName, key);
   }
 
   private async send(

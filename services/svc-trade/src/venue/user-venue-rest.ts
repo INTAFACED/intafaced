@@ -76,6 +76,43 @@ export interface UserVenueRestDeps {
   slippageCapBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
   sellQuotes?: VenueSellQuotes | null;
+  /**
+   * True when `principal` is an API key connected to an agent account (J-agents-21 #9; agent-orders.ts `confined`). Such
+   * a key trades its agent account through the assistant's own route and nothing else: every other venue route refuses it
+   * 403 `auth.scope_denied` (no move, withdraw or read of another account). Absent: no key is confined.
+   */
+  agentKeyConfined?: (principal: Principal) => Promise<boolean>;
+}
+
+/** The refusal a connected agent key gets on any venue route but the assistant's own (J-agents-21 #9). */
+export const AGENT_KEY_CONFINED_CODE = 'auth.scope_denied' as const;
+
+/**
+ * Refuse a connected agent key here, answering 403 `auth.scope_denied`; true when it was refused. Nothing is read or
+ * prepared first, so the call changes nothing. A failed check refuses too (`trade.agent_key_check_unavailable`, 503).
+ */
+export async function refusedAgentKey(reply: FastifyReply, principal: Principal, deps: Pick<UserVenueRestDeps, 'agentKeyConfined'>) {
+  if (!deps.agentKeyConfined || !principal.kid) return false;
+  let confined: boolean;
+  try {
+    confined = await deps.agentKeyConfined(principal);
+  } catch {
+    reply.header('retry-after', '1');
+    void reply.code(503).send({
+      code: 'ExchangeNotAvailable',
+      message: 'whether this key is an agent account key could not be read just now; nothing was done',
+      intafacedCode: 'trade.agent_key_check_unavailable',
+    });
+    return true;
+  }
+  if (!confined) return false;
+  void reply.code(403).send({
+    code: 'PermissionDenied',
+    message:
+      "this key is your assistant's: it trades its agent account and can't move money, withdraw, or read or act on any other account",
+    intafacedCode: AGENT_KEY_CONFINED_CODE,
+  });
+  return true;
 }
 
 type Query = {
@@ -131,9 +168,10 @@ export function venueRefusalReply(reply: FastifyReply, err: unknown) {
 }
 
 export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRouter | null, deps: UserVenueRestDeps): void {
-  function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
+  async function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Promise<Principal | null> {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
+    if (await refusedAgentKey(reply, principal, deps)) return null;
     try {
       requireScope(principal, scope);
     } catch (error) {
@@ -186,7 +224,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   });
 
   app.get('/api/v1/venue/markets', privateRead, async (req, reply) => {
-    if (!admit(req, reply, 'trade:read')) return;
+    if (!(await admit(req, reply, 'trade:read'))) return;
     // Only the markets two operators listed, each with our listing beside the venue's own state (J-cex-spot-16).
     return answer(reply, async (d) => d.markets(), (req.query as Query).venueId);
   });
@@ -208,14 +246,14 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   // J-derivatives-28 #1: every configured venue for one market, with its own price, depth and fees, our builder fee,
   // whether the person can sign there, and its health. A down venue is a row with since when and why.
   app.get<{ Params: { symbol: string }; Querystring: Query }>('/api/v1/venue/markets/:symbol/venues', privateRead, async (req, reply) => {
-    if (!admit(req, reply, 'trade:read')) return;
+    if (!(await admit(req, reply, 'trade:read'))) return;
     const side = req.query.side === 'sell' ? 'sell' : 'buy';
     return answer(reply, async (_d, r) => r.marketVenues(req.query.owner ?? null, req.params.symbol, side));
   });
 
   // J-derivatives-28 #2 and #4: which venue this order goes to, its expected fill and fees, and why.
   app.post('/api/v1/venue/route-preview', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (_d, r) => {
       const b = body<{ owner?: string; intent?: VenueIntent }>(req);
@@ -224,7 +262,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   });
 
   app.get<{ Querystring: Query }>('/api/v1/venue/best-prices', privateRead, async (req, reply) => {
-    if (!admit(req, reply, 'trade:read')) return;
+    if (!(await admit(req, reply, 'trade:read'))) return;
     return answer(reply, async (d) => {
       if (!req.query.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();
@@ -339,7 +377,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   ]) {
     const read = accountReads[path]!;
     app.get<{ Querystring: Query }>(path, privateRead, async (req, reply) => {
-      if (!admit(req, reply, 'trade:read')) return;
+      if (!(await admit(req, reply, 'trade:read'))) return;
       return answer(
         reply,
         async (d) => read(d, req.query, await d.account(req.query.owner ?? '', req.query.subAccount ?? null)),
@@ -349,7 +387,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   }
 
   app.get<{ Params: { nonce: string }; Querystring: Query }>('/api/v1/venue/withdrawals/:nonce', privateRead, async (req, reply) => {
-    if (!admit(req, reply, 'trade:read')) return;
+    if (!(await admit(req, reply, 'trade:read'))) return;
     return answer(
       reply,
       async (d) => (await d.venue()).withdrawal(await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.params.nonce),
@@ -368,7 +406,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   }
 
   app.post('/api/v1/venue/preview', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null }>(req, reply);
     if (!b) return;
@@ -378,7 +416,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   // A Convert sell priced by the venue's own preview on the customer's account, stored under its business key. Sends
   // nothing to the venue and moves no money; a trade:write scope, as the preview it is made from.
   app.post('/api/v1/venue/convert/sell-quote', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async () => {
       if (!deps.sellQuotes)
@@ -395,7 +433,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   });
 
   app.post('/api/v1/venue/prepare', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     const b = bodyOr<{
       owner?: string;
@@ -431,7 +469,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   const session = (run: (s: SessionKeys) => Promise<unknown>) => () => run(sessions!);
 
   app.get<{ Querystring: Query }>('/api/v1/venue/session', privateRead, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:read');
+    const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(
       reply,
@@ -440,7 +478,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   });
 
   app.post('/api/v1/venue/session/start', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(
       reply,
@@ -452,7 +490,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   });
 
   app.post('/api/v1/venue/session/end', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(
       reply,
@@ -462,7 +500,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
 
   // Sent on the venue the stored action was prepared for, whatever venue the request names (venue-router.ts submit).
   app.post('/api/v1/venue/submit', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     const b = bodyOr<{ actionKey?: string; signature?: VenueSignature }>(req, reply);
     if (!b) return;
@@ -484,14 +522,14 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   });
 
   app.get<{ Querystring: Query }>('/api/v1/venue/orders', privateRead, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:read');
+    const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (d) => d.orders(principal, req.query.owner ?? '', req.query.cursor, req.query.limit), req.query.venueId);
   });
 
   // Read on the venue the order was prepared for (venue-router.ts doorOfAction).
   app.get<{ Querystring: Query }>('/api/v1/venue/orders/by-key', privateRead, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:read');
+    const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (_d, r) => {
       const { idempotencyKey, actionKey } = req.query;

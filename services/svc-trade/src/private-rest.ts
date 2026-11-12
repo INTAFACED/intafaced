@@ -1364,6 +1364,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
+  // An API key connected to an agent account (J-agents-21 #9) calls the assistant's order route and no other venue route.
+  const agentOrders = deps.agentOrders ?? null;
+  const agentKeyConfined = agentOrders ? (p: Principal) => agentOrders.confined(p) : undefined;
   attachUserVenueRoutes(app, deps.userVenue ?? null, {
     requirePrincipal,
     requireTradeJurisdiction,
@@ -1374,9 +1377,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     },
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
+    agentKeyConfined,
   });
-  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction }, deps.agentOrders ?? null);
-  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction });
+  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined }, agentOrders);
+  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {
