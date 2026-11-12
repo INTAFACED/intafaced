@@ -140,6 +140,7 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
         }) as UserVenue;
       },
       appEnv: 'test',
+      slippageCapBps: null,
       store: new InMemoryPreparedActionStore(),
       stepUp: noStepUp,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
