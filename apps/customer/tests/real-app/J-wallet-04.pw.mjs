@@ -400,6 +400,41 @@ test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing 
     `TEST renamed wallet is a new address. Money can be sent to it from ${ends}, when its cooling-off ends.`,
   );
 
+  // The step-up is the bank's, not only the page's: a remove sent to svc-bank with the signed-in session's own token and
+  // no fresh confirmation is refused for want of the step-up scope (`trade:withdraw`, minted only by auth.stepUp), and
+  // the bank's book still holds the entry. The token is the reloaded page's own, from a bank call it makes after the
+  // reload committed, so it is a live session token and not one the old page held.
+  let session = null;
+  let committed = false;
+  const onCommit = (frame) => {
+    if (frame === page.mainFrame()) committed = true;
+  };
+  const onRequest = (req) => {
+    if (committed && !req.serviceWorker() && /\/api\/bank\/trpc\//.test(req.url()) && req.headers().authorization) {
+      session = req.headers().authorization;
+    }
+  };
+  page.on('framenavigated', onCommit);
+  page.on('request', onRequest);
+  const unconfirmed = await bankBookOnReload(page).finally(() => {
+    page.off('framenavigated', onCommit);
+    page.off('request', onRequest);
+  });
+  const target = unconfirmed.find((row) => row.label === 'TEST renamed wallet');
+  expect(target, "the renamed entry is in the bank's book before the remove").toBeTruthy();
+  expect(session, 'the reloaded page called the bank with its session token').toBeTruthy();
+  const bare = await page.request.post('/api/bank/trpc/ramps.destinations.remove', {
+    headers: { authorization: session, origin: new URL(page.url()).origin },
+    data: { destinationId: target.destinationId, idempotencyKey: `destination-remove-unconfirmed:${target.destinationId}` },
+  });
+  const bareBody = await bare.json().catch(() => null);
+  expect(bare.status(), JSON.stringify(bareBody)).toBe(403);
+  expect(bareBody?.error?.message).toBe('Scope "trade:withdraw" is required');
+  expect(bareBody?.error?.data?.intafacedCode).toBe('scope.denied');
+  const still = await bankBookOnReload(page);
+  expect(still.map((row) => row.destinationId).sort()).toEqual(unconfirmed.map((row) => row.destinationId).sort());
+  await expect(savedRows(page).filter({ hasText: 'TEST renamed wallet' })).toHaveCount(1);
+
   // Remove both entries, one at a time: each asks "Confirm it's you" first.
   await page.reload();
   for (const label of ['TEST renamed wallet', 'TEST look-alike']) {
