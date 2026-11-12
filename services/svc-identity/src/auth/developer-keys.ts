@@ -69,7 +69,7 @@ export type DeveloperKeyRefusal =
   | 'identity.key_org_denied'
   | 'identity.portfolio_key_cap_unset'
   | 'identity.portfolio_key_cap_reached'
-  | 'identity.agent_scope_forbidden'
+  | 'auth.agent_scope_forbidden'
   | 'identity.developer_roles_unset'
   | 'identity.developer_role_read_only'
   | 'identity.developer_role_none';
@@ -183,7 +183,7 @@ export function checkCreate(input: Omit<ApiKeyCreateInput, 'requestId'>, session
   if (kind === 'agent' && scopes.some((scope) => (AGENT_KEY_FORBIDDEN_SCOPES as readonly string[]).includes(scope))) {
     throw new DeveloperKeyError(
       'An agent key cannot hold refund, payout, withdrawal or settings permissions',
-      'identity.agent_scope_forbidden',
+      'auth.agent_scope_forbidden',
     );
   }
   if (scopes.some((scope) => blockOf(scope as Scope) !== null)) {

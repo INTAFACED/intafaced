@@ -34,7 +34,7 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_org_denied',
   'identity.portfolio_key_cap_unset',
   'identity.portfolio_key_cap_reached',
-  'identity.agent_scope_forbidden',
+  'auth.agent_scope_forbidden',
 ] as const;
 export type ApiKeyCreateRefusal = (typeof API_KEY_CREATE_REFUSALS)[number];
 
@@ -46,7 +46,7 @@ export type ApiKeyKind = (typeof API_KEY_KINDS)[number];
  * The permissions an agent key never holds (DV-keys-05: "cannot hold refund, payout or configuration scopes"): refunds,
  * payouts, withdrawals and bank writes (loan repayments, transfers, address changes) move money off the account or
  * change where it goes, and the identity and merchant write scopes change its settings.
- * Asking for one on an agent key refuses `identity.agent_scope_forbidden` at create.
+ * Asking for one on an agent key refuses `auth.agent_scope_forbidden` at create.
  */
 export const AGENT_KEY_FORBIDDEN_SCOPES = [
   'pay:refund',
