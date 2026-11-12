@@ -13,6 +13,8 @@
  *   node tooling/ci/judge-down.mjs second|first "CI review" key
  *                                                          the "CI review on its second key" issue opened (once) when the
  *                                                          second key answered, closed when the first answers again
+ *   node tooling/ci/judge-down.mjs merged "CI review" issue a FAIL on a pull request that merged while the judge was
+ *                                                            down opens one intafaced fix issue (afterMergeIssue)
  *   node tooling/ci/judge-down.mjs back "CI review" catchup the heads left without a verdict re-run (the Start the seal
  *                                                            job, which alone holds actions: write; the review job can't
  *                                                            re-run a run, ci-review.test.mjs)
@@ -26,7 +28,7 @@
  */
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { VERDICT_STEPS, reviewRan } from './review-marker.mjs';
+import { VERDICT_STEPS, isJudgeDown, reviewRan } from './review-marker.mjs';
 
 export const CONTEXT = 'judge';
 export const ISSUE_REPO = 'INTAFACED/project-state';
@@ -75,7 +77,9 @@ export const hasVerdict = (job) =>
  * The CI review runs to re-run when the judge is back: for each open in-repo pull request into main (`pulls`), the
  * newest pull_request_target run on its head that actually reviewed (`runs`; `jobsOf(run)` gives its latest attempt's
  * jobs; a title or body edit's run, whose job is skipped, is passed over: review-marker.mjs reviewRan), when it has no
- * verdict; heads in the order their newest run was made, oldest first, at most `cap`. Heads whose newest run is still
+ * verdict; and for each one in `pulls` that merged, when that run had none because the judge was down (it merged on its
+ * tests and its journeys, and the judge reads it now: project-state OWNER 302; a FAIL there opens a fix issue,
+ * afterMergeIssue); heads in the order their newest run was made, oldest first, at most `cap`. Heads whose newest run is still
  * going, heads with no run, and this run's own head are left. Returns { targets, left }: `left` counts heads past the cap
  * found without a verdict (heads not reached within JOBS_READ_CAP job reads are not counted).
  */
@@ -87,7 +91,10 @@ export async function catchUpTargets({ pulls, runs, jobsOf, repo, skipSha, cap =
   }
   for (const list of byHead.values()) list.sort((a, b) => b.id - a.id);
   const heads = (pulls ?? [])
-    .filter((p) => p?.state === 'open' && p?.base?.ref === 'main' && p?.head?.repo?.full_name === repo && p?.head?.sha !== skipSha)
+    .filter(
+      (p) =>
+        (p?.state === 'open' || p?.merged_at) && p?.base?.ref === 'main' && p?.head?.repo?.full_name === repo && p?.head?.sha !== skipSha,
+    )
     .map((p) => ({ pull: p, runs: byHead.get(p.head.sha) ?? [] }))
     .filter((h) => h.runs[0]?.status === 'completed')
     .sort((a, b) => String(a.runs[0].created_at).localeCompare(String(b.runs[0].created_at)) || a.runs[0].id - b.runs[0].id);
@@ -106,7 +113,7 @@ export async function catchUpTargets({ pulls, runs, jobsOf, repo, skipSha, cap =
       }
     }
     if (reads >= JOBS_READ_CAP && !found) break;
-    if (!found || hasVerdict(found.job)) continue;
+    if (!found || hasVerdict(found.job) || (h.pull.state !== 'open' && !isJudgeDown(found.job))) continue;
     if (targets.length < cap) targets.push({ pull: h.pull, run: found.run });
     else left++;
   }
@@ -256,10 +263,13 @@ async function backCatchUp(source) {
   const { GH_TOKEN, REPO, HEAD_SHA } = process.env;
   if (source !== 'CI review') return;
   const pulls = await call(GH_TOKEN, 'GET', `/repos/${REPO}/pulls?state=open&base=main&sort=created&direction=asc&per_page=100`);
+  // The pull requests closed most recently: those that merged while the judge was down are read now too (OWNER 302).
+  const closed = await call(GH_TOKEN, 'GET', `/repos/${REPO}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100`);
   const runs = await call(GH_TOKEN, 'GET', `/repos/${REPO}/actions/workflows/ci-review.yml/runs?event=pull_request_target&per_page=100`);
-  if (pulls.status !== 200 || runs.status !== 200) throw new Error(`could not list the open PRs or the review runs`);
+  if (pulls.status !== 200 || closed.status !== 200 || runs.status !== 200)
+    throw new Error(`could not list the open or closed PRs or the review runs`);
   const { targets, left } = await catchUpTargets({
-    pulls: pulls.json,
+    pulls: [...(pulls.json ?? []), ...(closed.json ?? []).filter((p) => p?.merged_at)],
     runs: runs.json?.workflow_runs,
     repo: REPO,
     skipSha: HEAD_SHA,
@@ -275,13 +285,55 @@ async function backCatchUp(source) {
   console.log(
     [
       done.length
-        ? `Re-ran the CI review on the oldest ${done.length} open PR heads with no verdict: ${done.join(', ')}.`
-        : 'No open PR head was left without a verdict.',
+        ? `Re-ran the CI review on the oldest ${done.length} PR heads with no verdict (open, or merged while the judge was down): ${done.join(', ')}.`
+        : 'No open PR head, and no PR merged while the judge was down, was left without a verdict.',
       left ? `${left} more head(s) have no verdict past the cap of ${CATCH_UP_CAP}; the re-runs' own catch-ups take them.` : '',
     ]
       .filter(Boolean)
       .join(' '),
   );
+}
+
+/** The fix issue's label: the one a builder's pick rule reads for a break (post-merge-trust.mjs ISSUE_LABELS.break). */
+export const AFTER_MERGE_LABEL = 'regression';
+export const afterMergeTitle = (number) => `CI review after merge: #${number}`;
+
+/**
+ * A pull request that merged while the judge was down is read when it is back (catchUpTargets); when that review FAILs,
+ * its findings become a fix (project-state OWNER 302: "the reviewer reads it when it is back and anything it finds
+ * becomes a fix"): one intafaced issue per pull request, labelled for a builder to pick. `failed` is whether the run's
+ * Verdict or Test verdict step failed. Returns the POST /issues payload, or null when nothing is owed: the pull request
+ * has not merged, or the review found nothing that blocks. Pure.
+ */
+export function afterMergeIssue({ pull, head, runUrl, failed }) {
+  if (!failed || !pull?.merged_at) return null;
+  return {
+    title: afterMergeTitle(pull.number),
+    labels: [AFTER_MERGE_LABEL],
+    body: [
+      `#${pull.number} merged at ${pull.merged_at} on its tests and its journeys while the CI review was down. The review read it when the judge was back and found something: ${runUrl} (head \`${head}\`).`,
+      '',
+      'Fix each finding in a new pull request, or answer it here with why not, then close this issue (project-state OWNER 302; tooling/ci/judge-down.mjs afterMergeIssue).',
+    ].join('\n'),
+  };
+}
+
+async function afterMerge() {
+  const { GH_TOKEN, REPO, PR_NUMBER, HEAD_SHA, RUN_URL, VERDICT, TESTS } = process.env;
+  const failed = VERDICT === 'failure' || TESTS === 'failure';
+  if (!failed) return console.log('the review found nothing that blocks: no fix issue');
+  const pull = await call(GH_TOKEN, 'GET', `/repos/${REPO}/pulls/${PR_NUMBER}`);
+  if (pull.status !== 200) throw new Error(`could not read #${PR_NUMBER}: HTTP ${pull.status}`);
+  const issue = afterMergeIssue({ pull: pull.json, head: HEAD_SHA, runUrl: RUN_URL, failed });
+  if (!issue) return console.log(`#${PR_NUMBER} has not merged: its FAIL holds it, so no fix issue`);
+  const open = await call(GH_TOKEN, 'GET', `/repos/${REPO}/issues?state=open&labels=${AFTER_MERGE_LABEL}&per_page=100`);
+  if (open.status !== 200) throw new Error(`could not list ${REPO}'s ${AFTER_MERGE_LABEL} issues: HTTP ${open.status}`);
+  const same = (open.json ?? []).find((i) => !i.pull_request && i.title === issue.title);
+  const r = same
+    ? await call(GH_TOKEN, 'POST', `/repos/${REPO}/issues/${same.number}/comments`, { body: issue.body })
+    : await call(GH_TOKEN, 'POST', `/repos/${REPO}/issues`, issue);
+  if (r.status !== 201) throw new Error(`could not record the fix for #${PR_NUMBER}: HTTP ${r.status}`);
+  console.log(same ? `commented on #${same.number}` : `opened ${r.json?.html_url}`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -292,11 +344,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     'back status': backStatus,
     'back issue': backIssue,
     'back catchup': backCatchUp,
+    'merged issue': afterMerge,
     'second key': () => keyIssue('second'),
     'first key': () => keyIssue('first'),
   }[`${cmd} ${part}`];
   if (!run || !source) {
-    console.error('usage: judge-down.mjs down|back "<source>" status|issue|catchup, or second|first "<source>" key');
+    console.error(
+      'usage: judge-down.mjs down|back "<source>" status|issue|catchup, second|first "<source>" key, or merged "CI review" issue',
+    );
     process.exit(1);
   }
   // Exits 0 even when it fails: the Judge down step is the seal's marker (review-marker.mjs isJudgeDown reads that it

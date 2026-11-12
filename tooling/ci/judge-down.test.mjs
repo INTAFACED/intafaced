@@ -29,6 +29,8 @@ import {
   KEY_ISSUE_TITLE,
   KEY_LABEL,
   LABEL,
+  AFTER_MERGE_LABEL,
+  afterMergeIssue,
   catchUpTargets,
   describe,
   issueBody,
@@ -286,7 +288,7 @@ test('the seal waits on a down judge, as for a review still running, only for a 
   assert.deepEqual(inputsGoing({ sha: HEAD, runsOf, needJourneys: false, needJudge: true }), []);
 });
 
-test('readGoing finds the judge down for every change, gate file or not: no PR merges without its judge', async () => {
+test('readGoing holds a down judge only for a change it could stop: a gate file waits, a product change merges (OWNER 302)', async () => {
   const asked = [];
   const fake = (files) => async (p) => {
     asked.push(p);
@@ -305,8 +307,69 @@ test('readGoing finds the judge down for every change, gate file or not: no PR m
   const pulls = [{ number: 7, title: 'ci: x' }];
   const gate = await readGoing({ get: fake(['.github/workflows/ci-review.yml']), repo: 'o/r', sha: HEAD, pulls });
   assert.deepEqual(gate, ['the CI review run 9 (judge down: no verdict; it re-runs when the judge is back)']);
-  const plain = await readGoing({ get: fake(['docs/x.md']), repo: 'o/r', sha: HEAD, pulls });
-  assert.deepEqual(plain, gate, 'a change that needs no verdict still waits on a down judge (CI review on 0cef53f9b, item 3)');
+  const test = await readGoing({ get: fake(['apps/customer/tests/real-app/J-x-01.pw.mjs']), repo: 'o/r', sha: HEAD, pulls });
+  assert.deepEqual(test, gate, 'a journey test change waits on a down judge: its Test verdict can stop it');
+  const plain = await readGoing({ get: fake(['services/svc-x/src/a.ts']), repo: 'o/r', sha: HEAD, pulls });
+  assert.deepEqual(plain, [], 'a product change, which the review only advises on, does not wait on a down judge (OWNER 302)');
+});
+
+test('catch-up: a pull request merged while the judge was down is read when it is back; one merged with a verdict, or without one for another reason, is not', async () => {
+  const repo = 'o/r';
+  const sha = (i) => String(i).padStart(40, '0');
+  const pull = (n, i, extra) => ({ number: n, base: { ref: 'main' }, head: { sha: sha(i), repo: { full_name: repo } }, ...extra });
+  const pulls = [
+    pull(1, 1, { state: 'closed', merged_at: '2026-11-11T16:00:00Z' }), // merged, its review down: read now
+    pull(2, 2, { state: 'closed', merged_at: '2026-11-11T16:05:00Z' }), // merged with a verdict
+    pull(3, 3, { state: 'closed', merged_at: '2026-11-11T16:10:00Z' }), // merged, its review errored (not down)
+    pull(4, 4, { state: 'closed', merged_at: null }), // closed unmerged
+    pull(5, 5, { state: 'open' }), // open, its review down: read now, as before
+  ];
+  const runs = pulls.map((p, i) => ({
+    id: 10 + i,
+    path: REVIEW_WORKFLOW,
+    event: 'pull_request_target',
+    head_sha: p.head.sha,
+    status: 'completed',
+    created_at: `2026-11-11T16:0${i}:00Z`,
+  }));
+  const errored = { ...reviewJob(sha(3), 'skipped'), steps: [{ name: 'Review', status: 'completed', conclusion: 'failure' }] };
+  const jobs = {
+    10: jobAfter({ kind: 'down' }),
+    11: reviewJob(sha(2), 'failure'),
+    12: errored,
+    13: jobAfter({ kind: 'down' }),
+    14: jobAfter({ kind: 'down' }),
+  };
+  const { targets } = await catchUpTargets({ pulls, runs, repo, skipSha: 'x', jobsOf: async (r) => [jobs[r.id]] });
+  assert.deepEqual(
+    targets.map((t) => t.pull.number),
+    [1, 5],
+  );
+});
+
+test('a FAIL on a pull request that merged while the judge was down becomes one fix issue; an open or clean one opens none (OWNER 302)', () => {
+  const merged = { number: 42, merged_at: '2026-11-11T16:00:00Z' };
+  const issue = afterMergeIssue({ pull: merged, head: HEAD, runUrl: 'https://x/run/1', failed: true });
+  assert.equal(issue.title, 'CI review after merge: #42');
+  assert.deepEqual(issue.labels, [AFTER_MERGE_LABEL]);
+  assert.equal(AFTER_MERGE_LABEL, 'regression', "the label a builder's pick rule reads (post-merge-trust.mjs ISSUE_LABELS.break)");
+  assert.match(issue.body, /https:\/\/x\/run\/1/);
+  assert.match(issue.body, new RegExp(HEAD));
+  assert.equal(afterMergeIssue({ pull: merged, head: HEAD, runUrl: 'u', failed: false }), null, 'nothing found: no issue');
+  assert.equal(
+    afterMergeIssue({ pull: { number: 42, merged_at: null }, head: HEAD, runUrl: 'u', failed: true }),
+    null,
+    'open: its FAIL holds it',
+  );
+});
+
+test('the fix issue job holds issues: write, needs the review, and Start the seal waits for it', () => {
+  const job = WF.slice(WF.indexOf('\n  after-merge:\n'), WF.indexOf('\n  seal-start:\n'));
+  assert.match(job, /\n    needs: review\n/);
+  assert.match(job, /\n      issues: write /);
+  assert.doesNotMatch(job, /\n      (contents|actions|statuses|checks|id-token): write/);
+  assert.match(job, /run: node tooling\/ci\/judge-down\.mjs merged "CI review" issue/);
+  assert.match(WF, /\n    needs: \[review, read, after-merge\]\n/);
 });
 
 test('judgeDownNeed: a head whose CI review was down needs the judge, whatever it changes; a pass, a FAIL, a review never run do not', () => {

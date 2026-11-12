@@ -50,6 +50,8 @@ jobs:
       judge: ${{ steps.review.outputs.kind == 'down' && 'down' || (steps.review.outputs.called == 'true' && 'back' || '') }}
       judge-action: ${{ steps.review.outputs.action }}
       judge-closed: ${{ steps.judge-back.outputs.closed }} # true only when this run closed the judge-down issue
+      verdict: ${{ steps.verdict.outcome }} # success or failure when the review answered; read by Start the seal's fix issue
+      tests: ${{ steps.tests.outcome }}
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
       actions: read # read this run's tree index
@@ -511,6 +513,40 @@ jobs:
           if-no-files-found: ignore
           overwrite: false
 
+  # A pull request that needs no verdict merges while the judge is down, and the catch-up reads it when the judge is back
+  # (judge-down.mjs catchUpTargets). When that review FAILs on a pull request that has merged, its findings become one
+  # `regression` issue on this repository for a builder to fix (project-state OWNER 302: "the reviewer reads it when it
+  # is back and anything it finds becomes a fix"). On an open pull request it does nothing: the FAIL is on the pull
+  # request itself. Its own job, so Start the seal keeps no write it does not need. Its failure fails nothing the seal reads.
+  after-merge:
+    name: Fix issue after merge
+    needs: review
+    if: ${{ !cancelled() && (needs.review.outputs.verdict == 'failure' || needs.review.outputs.tests == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # whether the pull request has merged
+      issues: write # the fix issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Fix issue for a merged pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERDICT: ${{ needs.review.outputs.verdict }}
+          TESTS: ${{ needs.review.outputs.tests }}
+        run: node tooling/ci/judge-down.mjs merged "CI review" issue
+
   # The CI review ends here: whatever its verdict, the seal reads it (review-marker.mjs).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
   # review, and the journeys run the change needs (journey-seal.mjs --recheck, START_JOB). It needs every other job
@@ -520,7 +556,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [review, read]
+    needs: [review, read, after-merge]
     if: ${{ !cancelled() && needs.review.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
@@ -533,6 +569,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+
       - name: Start the seal
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -543,7 +580,8 @@ jobs:
         run: node tooling/ci/journey-seal.mjs --recheck
 
       # The judge is back and this run closed the judge-down issue (the review job's Judge back step): re-run the CI
-      # review on the oldest open PR heads with no verdict (judge-down.mjs CATCH_UP_CAP, 10 per success). A re-run
+      # review on the oldest PR heads with no verdict, open or merged while the judge was down (judge-down.mjs CATCH_UP_CAP,
+      # 10 per success; OWNER 302). A re-run
       # attempt whose reviewer call succeeded carries it on, so heads past the cap are taken by the re-runs' own
       # successes until none is left; a first attempt (a push) never reads them. (Failure it prevents: on 11 Nov the one
       # catch-up at 23:33 UTC re-ran 10 heads and left "6 more past the cap", and eight armed PRs, #7947 among them, still
