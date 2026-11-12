@@ -751,6 +751,35 @@ export interface UserVenueOpenInterest {
   readonly capSize: Amount | null;
 }
 
+/**
+ * The latest event the venue reports that settled a market's positions (J-derivatives-27 #9 #10): its deployer halted it,
+ * or a split in what it tracks. The venue cancelled every order on the market and settled every position at
+ * `settlementPrice` at `eventAt`; `reopenedAt` is when it took orders again, `null` while it has not.
+ */
+export interface UserVenueMarketEvent {
+  readonly kind: 'deployer_halt' | 'split';
+  readonly eventAt: Date;
+  readonly settlementPrice: Amount;
+  readonly reopenedAt: Date | null;
+  /** A split's ratio as the venue publishes it (`2` for 2 for 1), text; `null` for a halt. */
+  readonly splitRatio: string | null;
+}
+
+/** One account's settlement in a market event (`UserVenue.settlements`): its position settled and its orders cancelled. */
+export interface UserVenueSettlement {
+  readonly symbol: string;
+  readonly kind: UserVenueMarketEvent['kind'];
+  /** The settled position's side and size, or `null` when the account held none (only its orders were cancelled). */
+  readonly side: 'long' | 'short' | null;
+  readonly size: Amount;
+  readonly price: Amount;
+  /** The realised result the venue booked on the settled position (zero with no position). */
+  readonly realisedPnl: Amount;
+  /** The client order ids of the account's orders the venue cancelled (`null` for an order placed without one). */
+  readonly cancelledOrders: readonly (string | null)[];
+  readonly settledAt: Date;
+}
+
 export interface UserVenueMarket {
   readonly symbol: string;
   readonly kind: 'spot' | 'perpetual';
@@ -797,6 +826,8 @@ export interface UserVenueMarket {
   readonly marginAccount: MaybeKnown<UserVenueMarginAccountRule>;
   /** The market's open interest and its deployer's cap (in base units), or `known: false` where the venue reports none. */
   readonly openInterest: MaybeKnown<UserVenueOpenInterest>;
+  /** The latest halt or split that settled the market's positions, or `known: false` when the venue reports none. */
+  readonly lastEvent: MaybeKnown<UserVenueMarketEvent>;
 }
 
 /**
@@ -1000,6 +1031,8 @@ export interface UserVenue {
    * the main account. A market with none refuses `not_offered`. Absent on an adapter that does not read it.
    */
   marketMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>>;
+  /** The account's settlements in market events (a deployer's halt, a split) since `since`, oldest first. Absent: not read. */
+  settlements?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   /**

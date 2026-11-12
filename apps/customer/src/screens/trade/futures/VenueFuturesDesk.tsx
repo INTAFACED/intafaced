@@ -21,6 +21,8 @@ import {
   type VenuePosition,
   type VenuePreview,
   type VenueSession,
+  type VenueMarketEvent,
+  type VenueSettlement,
   type VenueUp,
 } from '../../../features/trade/venue-api';
 import {
@@ -295,7 +297,51 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
         ) : null}
       </dl>
       {market.session.known ? <SessionRules session={market.session.value} symbol={market.symbol} venueName={venueName} /> : null}
+      {market.lastEvent?.known ? <MarketEvent event={market.lastEvent.value} symbol={market.symbol} venueName={venueName} /> : null}
     </section>
+  );
+}
+
+/**
+ * The latest deployer's halt or split the venue reports on the market (J-derivatives-27 #9 #10): when, the price it
+ * settled every position at, that it cancelled every order, and whether and when it reopened. The venue's report; the
+ * app adds no protection of its own.
+ */
+function MarketEvent({ event, symbol, venueName }: { event: VenueMarketEvent; symbol: string; venueName: string }) {
+  const { t } = futuresVenueCopy.useCopy();
+  return (
+    <div
+      role="status"
+      data-testid="venue-market-event"
+      data-kind={event.kind}
+      data-at={event.eventAt}
+      data-price={event.settlementPrice}
+      data-reopened={event.reopenedAt ?? ''}
+    >
+      {event.kind === 'deployer_halt' ? (
+        <>
+          <p data-testid="venue-market-event-words">
+            {t('event_deployer_halt', { venue: venueName, symbol, at: event.eventAt, price: event.settlementPrice })}
+          </p>
+          <p data-testid="venue-market-event-state">
+            {event.reopenedAt === null
+              ? t('event_halt_open', { symbol })
+              : t('event_halt_reopened', { symbol, reopened: event.reopenedAt })}
+          </p>
+        </>
+      ) : (
+        <p data-testid="venue-market-event-words">
+          {t('event_split', {
+            venue: venueName,
+            symbol,
+            ratio: event.splitRatio ?? '',
+            at: event.eventAt,
+            price: event.settlementPrice,
+            reopened: event.reopenedAt ?? '',
+          })}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -830,7 +876,10 @@ function Blotter({
           <OutcomeLine result={cancelResult} owner={owner} />
         </>
       ) : (
-        <History fills={account.fills.data} test={status.test} />
+        <>
+          <Settlements owner={owner} test={status.test} />
+          <History fills={account.fills.data} test={status.test} />
+        </>
       )}
     </section>
   );
@@ -1031,6 +1080,62 @@ function History({ fills, test }: { fills: AsOf<VenueFill[]> | null; test: boole
         </DataTable>
       ) : null}
       <FillsTable fills={fills} test={test} />
+    </div>
+  );
+}
+
+/** How far back the history reads the venue's settlements. */
+const SETTLEMENTS_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * The person's positions the venue settled, and orders it cancelled, when a market's deployer halted it or it split
+ * (J-derivatives-27 #9 #10): each as the venue records it, with its time and realised result.
+ */
+function Settlements({ owner, test }: { owner: string; test: boolean }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const venue = useVenueApi();
+  const since = useMemo(() => new Date(Date.now() - SETTLEMENTS_WINDOW_MS).toISOString(), []);
+  const read = usePolled((signal) => venue.settlements(owner, since, signal), `settlements:${owner}`, VENUE_POLL_MS);
+  const rows: VenueSettlement[] = read.data?.value ?? [];
+  if (rows.length === 0) return null;
+  return (
+    <div data-testid="venue-settlements">
+      <DataTable
+        label={t('Settlements')}
+        headers={[
+          t('Settlement market'),
+          t('Settlement why'),
+          t('Settlement position'),
+          t('Settlement price'),
+          t('Settlement result'),
+          t('Settlement cancelled'),
+          t('Settlement time'),
+        ]}
+      >
+        {rows.map((s) => (
+          <tr key={`${s.symbol}:${s.settledAt}`} data-settled={s.symbol} data-kind={s.kind} data-at={s.settledAt}>
+            <td>
+              {s.symbol} <TestMark test={test} />
+            </td>
+            <td data-cell="why">{t(`settlement_${s.kind}`)}</td>
+            <td className="numeric" data-cell="position">
+              {s.side === null ? t('Settlement no position') : t('Settlement position value', { side: t(`side_${s.side}`), size: s.size })}
+            </td>
+            <td className="numeric" data-cell="price">
+              {s.price}
+            </td>
+            <td className="numeric" data-cell="realised">
+              {s.realisedPnl}
+            </td>
+            <td className="numeric" data-cell="cancelled">
+              {String(s.cancelledOrders.length)}
+            </td>
+            <td data-cell="time">
+              <time dateTime={s.settledAt}>{s.settledAt}</time>
+            </td>
+          </tr>
+        ))}
+      </DataTable>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import {
   type UserVenueFill,
   type UserVenueLeverage,
   type UserVenueMarketMargin,
+  type UserVenueSettlement,
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenuePosition,
@@ -308,6 +309,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
   marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
     return this.read('/market-margin', { account, symbol });
+  }
+
+  /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
+  settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
+    return this.read('/settlements', { account, since });
   }
 
   // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──

@@ -37,6 +37,13 @@ export const MARKET_RULE_WORDS = {
   'Open interest cap': 'Open-interest cap',
   'Open interest cap value': 'At most {cap} {base} open, set by its deployer',
   'Open interest no cap': 'No cap set by its deployer',
+  // A deployer's halt or a split that settled the market's positions (J-derivatives-27 #9 #10): the venue's report.
+  event_deployer_halt:
+    '{venue} reports {symbol} halted by its deployer at {at}: every order on it was cancelled and every position settled at the mark price {price}.',
+  event_halt_open: 'No new open on {symbol} until the venue resumes it.',
+  event_halt_reopened: 'The venue resumed {symbol} at {reopened}.',
+  event_split:
+    '{venue} reports a TEST {ratio} for 1 split on {symbol} at {at}: every order on it was cancelled and every position settled at the mark price {price}. The venue reopened it at {reopened}.',
 } as const;
 
 // The futures desk's words in venue mode (B1). English source only; the shared venue words are in
@@ -114,4 +121,18 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   'Close sent': 'Close of {amount} {asset}: {outcome}',
   'Closed positions': 'Closed positions',
   'Closed fees': 'Venue fees {venue}; our builder fees {builder}',
+  Settlements: 'Settled by the venue',
+  'Settlement market': 'Market',
+  'Settlement why': 'Why',
+  settlement_deployer_halt: 'Its deployer halted it',
+  settlement_split: 'A split',
+  'Settlement position': 'Position settled',
+  'Settlement position value': '{side} {size}',
+  'Settlement no position': 'No position',
+  'Settlement price': 'Settled at',
+  'Settlement result': 'Realised result',
+  'Settlement cancelled': 'Your orders cancelled',
+  'Settlement time': 'When',
+  side_long: 'Long',
+  side_short: 'Short',
 });

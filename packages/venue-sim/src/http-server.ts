@@ -39,6 +39,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /builder-fee-approval {account,builder}, /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
+ *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
@@ -66,6 +67,10 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         false` publishes none of its off-hours words, `true` all again
  *        /test/market-leverage {symbol,maxLeverageBps}    the most leverage the venue now allows on a perpetual
  *        /test/open-interest-cap {symbol,capSize}         the deployer's cap on a market's open interest (base units, or null)
+ *        /test/deployer-halt {symbol}                     the deployer halts the market: orders cancelled, positions settled
+ *                                                         at the mark; /test/market-status trading resumes it
+ *        /test/split {symbol,ratio}                       a TEST split: orders cancelled, positions settled at the mark, the
+ *                                                         market reopened at once with its mark divided by the ratio
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
@@ -373,8 +378,17 @@ export async function seedTestVenue(
       for (let level = 1; level <= SEED_LEVELS; level += 1) {
         const offset = ladder.step * BigInt(level);
         const price = side === 'bid' ? ladder.mid - offset : ladder.mid + offset;
-        const clientOrderKey = `order:test-maker-${name}:seed:${market.symbol}:${level}`;
-        if ((await sim.orderByClientId(acct, venueClientOrderId(sim.venue.id, clientOrderKey))).value) continue;
+        // A level the maker still rests is kept. One the venue cancelled (a deployer's halt, a split) rests again under a
+        // new key, since a client order id names one order for good.
+        const base = `order:test-maker-${name}:seed:${market.symbol}:${level}`;
+        let clientOrderKey = base;
+        for (let again = 1; ; again += 1) {
+          const seen = (await sim.orderByClientId(acct, venueClientOrderId(sim.venue.id, clientOrderKey))).value;
+          if (!seen || seen.status === 'open' || seen.status === 'partially_filled') break;
+          clientOrderKey = `${base}:again-${again}`;
+        }
+        const resting = (await sim.orderByClientId(acct, venueClientOrderId(sim.venue.id, clientOrderKey))).value;
+        if (resting) continue;
         const intent: PlaceUserOrderIntent = {
           kind: 'place_order',
           symbol: market.symbol,
@@ -558,6 +572,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.transfer(account(body), str(body, 'nonce'));
     case '/market-margin':
       return sim.marketMargin(account(body), str(body, 'symbol'));
+    case '/settlements': {
+      const since = body.since;
+      if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
+      return sim.settlements(account(body), since);
+    }
     // ── TEST controls ──
     case '/test/deposit': {
       const amount = body.amount;
@@ -644,6 +663,17 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const symbol = str(body, 'symbol');
       sim.setMarketMaxLeverage(symbol, cap);
       return { maxLeverageBps: cap, label: 'TEST' };
+    }
+    case '/test/deployer-halt':
+      return { event: sim.settleMarket(str(body, 'symbol'), 'deployer_halt'), label: 'TEST' };
+    case '/test/split': {
+      let ratio: Amount;
+      try {
+        ratio = parseAmount(str(body, 'ratio'));
+      } catch {
+        throw new VenueWireError('ratio is a decimal string above zero');
+      }
+      return { event: sim.settleMarket(str(body, 'symbol'), 'split', ratio), label: 'TEST' };
     }
     case '/test/open-interest-cap': {
       const cap = body.capSize;

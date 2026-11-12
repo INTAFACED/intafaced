@@ -42,6 +42,7 @@ const market = (symbol: string, cap: string | null, kind: 'spot' | 'perpetual' =
   session: { known: false },
   marginAccount: { known: false },
   openInterest: { known: false },
+  lastEvent: { known: false },
 });
 const venue = { venueId: VENUE, markets: [market('BTC-USDC', '100'), market('BTC-PERP', '10', 'perpetual')] };
 

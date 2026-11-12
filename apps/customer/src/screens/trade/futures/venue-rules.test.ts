@@ -92,6 +92,10 @@ describe('the futures desk: a market’s published rules (J-derivatives-21)', ()
         size: '3',
         cap: '500',
         base: 'XSTD',
+        at: '2026-11-12T09:00:00.000Z',
+        price: '101',
+        ratio: '2',
+        reopened: '2026-11-12T09:00:00.000Z',
       });
       expect(words, key).not.toMatch(PROTECTION);
     }

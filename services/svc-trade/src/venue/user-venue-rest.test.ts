@@ -435,6 +435,33 @@ describe('/api/v1/venue/*', () => {
     }
   });
 
+  it("J-derivatives-27 #9 #10: a deployer's halt is the market's lastEvent with its time and price; settlements are read since a time", async () => {
+    await mount(door());
+    const control = (path: string, body: unknown) =>
+      fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const none = await app.inject({ method: 'GET', url: `/api/v1/venue/settlements?owner=${owner}&since=${since}` });
+    expect(none.statusCode).toBe(200);
+    expect(none.json().value).toEqual([]);
+    const noSince = await app.inject({ method: 'GET', url: `/api/v1/venue/settlements?owner=${owner}` });
+    expect(noSince.statusCode).toBe(400);
+    expect((await control('/test/deployer-halt', { symbol: 'XSTD-PERP' })).status).toBe(200);
+    try {
+      const market = (await app.inject({ method: 'GET', url: '/api/v1/venue/markets' }))
+        .json()
+        .value.find((m: { symbol: string }) => m.symbol === 'XSTD-PERP');
+      expect(market.status).toBe('halted');
+      expect(market.lastEvent).toMatchObject({
+        known: true,
+        value: { kind: 'deployer_halt', settlementPrice: '100', reopenedAt: null, splitRatio: null },
+      });
+      expect(Number.isNaN(Date.parse(market.lastEvent.value.eventAt))).toBe(false);
+    } finally {
+      await control('/test/market-status', { symbol: 'XSTD-PERP', status: 'trading' });
+      await control('/test/seed', {});
+    }
+  });
+
   it("b2 change 6: each balance figure is the venue's own, with its time and a state: known, stale past the venue's limit, unknown with no time, never zero", async () => {
     await mount(door());
     const test = async (path: string, body: unknown) => {

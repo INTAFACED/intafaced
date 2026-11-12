@@ -517,6 +517,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       // A HIP-3 deployer's own margin account and its open-interest cap are not read by this adapter yet: not known.
       marginAccount: { known: false },
       openInterest: { known: false },
+      // A deployer's halt or a split, with the settlement it made, is not read by this adapter yet: not known.
+      lastEvent: { known: false },
     }));
     return this.asOf(list);
   }

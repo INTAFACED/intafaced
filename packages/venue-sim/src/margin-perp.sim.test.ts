@@ -192,4 +192,78 @@ describe("TEST venue simulator: a market on its deployer's own margin account (J
     expect(capped).toEqual({ status: 200, out: { openInterest: { known: true, value: { size: '0', capSize: '40' } }, label: 'TEST' } });
     expect((await call('/test/open-interest-cap', { symbol: XSTD, capSize: 40 })).status).toBe(400);
   });
+
+  it("#9 a deployer's halt cancels every order and settles every position at the mark, with the time; no new open until it resumes", async () => {
+    const w = await funded();
+    await w.run(move('500'));
+    await w.run(open());
+    // A resting buy of the person's, below the book: the halt cancels it.
+    await w.run(open({ type: 'limit', timeInForce: 'GTC', price: a('90'), amount: a('1'), clientOrderKey: 'order:margin-trader:rest:1' }));
+    w.sim.setMark(XSTD, a('104'));
+    const before = await margin(w);
+    const [held] = (await w.sim.positions(w.account)).value;
+    const event = w.sim.settleMarket(XSTD, 'deployer_halt');
+    expect(event).toMatchObject({ kind: 'deployer_halt', settlementPrice: a('104'), reopenedAt: null, splitRatio: null });
+    expect((await marketOf(w)).status).toBe('halted');
+    expect((await marketOf(w)).lastEvent).toEqual({ known: true, value: event });
+    // The person's settlement, as the venue records it: the position at the mark, the resting order cancelled.
+    const [settled] = (await w.sim.settlements(w.account, new Date(0))).value;
+    // Two XSTD long, settled at the mark: (mark - entry) x 2, a plain multiple of a scaled amount.
+    const realised = (a('104') - held!.entryPrice) * 2n;
+    expect(settled).toMatchObject({
+      symbol: XSTD,
+      kind: 'deployer_halt',
+      side: 'long',
+      size: a('2'),
+      price: a('104'),
+      settledAt: event.eventAt,
+    });
+    expect(settled!.realisedPnl).toBe(realised);
+    expect(settled!.cancelledOrders).toHaveLength(1);
+    expect((await w.sim.orderByClientId(w.account, settled!.cancelledOrders[0]!)).value).toMatchObject({
+      status: 'canceled',
+      locked: ZERO,
+    });
+    expect((await w.sim.positions(w.account)).value).toEqual([]);
+    expect((await w.sim.openOrders(w.account)).value).toEqual([]);
+    // Margin and the result come back to the market's own account, nothing locked; the main account is untouched.
+    const after = await margin(w);
+    expect(after.locked).toBe(ZERO);
+    expect(after.total).toBe(before.total + realised);
+    expect(await mainUsdc(w)).toMatchObject({ free: a('500') });
+    // No new open while halted; the TEST makers' ladder was cancelled too.
+    expect(await refusal(w.sim.preview(w.account, open({ clientOrderKey: 'order:margin-trader:open:9' })))).toMatchObject({
+      code: 'market_halted',
+    });
+    expect((await w.sim.book(XSTD, 5)).value).toMatchObject({ bids: [], asks: [] });
+    // The venue resumes it: it reports when, and the seed rests its ladder again under new keys.
+    w.sim.setMarketStatus(XSTD, 'trading');
+    expect((await marketOf(w)).lastEvent).toMatchObject({ known: true, value: { kind: 'deployer_halt', reopenedAt: event.eventAt } });
+    expect((await seedTestVenue(w.sim)).orders).toBe(10);
+    expect(await w.run(open({ clientOrderKey: 'order:margin-trader:open:10' }))).toMatchObject({
+      accepted: true,
+      order: { status: 'filled' },
+    });
+  });
+
+  it('#10 a TEST split settles the position and cancels orders, and reopens the market at once at the mark divided by the ratio', async () => {
+    const w = await funded();
+    await w.run(move('500'));
+    await w.run(open());
+    await w.run(open({ type: 'limit', timeInForce: 'GTC', price: a('90'), amount: a('1'), clientOrderKey: 'order:margin-trader:rest:2' }));
+    const event = w.sim.settleMarket(XSTD, 'split', a('2'));
+    expect(event).toMatchObject({ kind: 'split', settlementPrice: a('100'), splitRatio: '2' });
+    expect(event.reopenedAt).toEqual(event.eventAt);
+    const m = await marketOf(w);
+    expect(m.status).toBe('trading');
+    expect(m.lastEvent).toEqual({ known: true, value: event });
+    const [settled] = (await w.sim.settlements(w.account, new Date(0))).value;
+    expect(settled).toMatchObject({ kind: 'split', side: 'long', size: a('2'), price: a('100') });
+    expect(settled!.cancelledOrders).toHaveLength(1);
+    expect((await w.sim.positions(w.account)).value).toEqual([]);
+    // The reopened market's mark is the split one.
+    w.sim.setMark(XSTD, a('50'));
+    expect(() => w.sim.settleMarket(XSTD, 'split', ZERO)).toThrow(VenueRefusalError);
+    expect(() => w.sim.settleMarket('BTC-USDC', 'deployer_halt')).toThrow(VenueRefusalError);
+  });
 });

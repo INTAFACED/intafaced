@@ -65,6 +65,7 @@ const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserV
   session: { known: false },
   marginAccount: { known: false },
   openInterest: { known: false },
+  lastEvent: { known: false },
 });
 
 interface World {

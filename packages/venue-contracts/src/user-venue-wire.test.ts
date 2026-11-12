@@ -103,6 +103,17 @@ describe('user-venue wire', () => {
       // sizes (J-derivatives-27 #7 #8).
       marginAccount: { known: true, value: { name: '7', collateralAsset: 'USDC', marginMode: 'isolated' } },
       openInterest: { known: true, value: { size: parseAmount('12.5'), capSize: null } },
+      // A split's settlement price is money, its times travel as ISO and its ratio stays text (J-derivatives-27 #10).
+      lastEvent: {
+        known: true,
+        value: {
+          kind: 'split',
+          eventAt: new Date('2026-11-12T09:00:00.000Z'),
+          settlementPrice: parseAmount('101.5'),
+          reopenedAt: new Date('2026-11-12T09:00:01.000Z'),
+          splitRatio: '2',
+        },
+      },
     };
     const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
     expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
@@ -113,6 +124,13 @@ describe('user-venue wire', () => {
     expect(typeof (back.oracleRule as { value: unknown }).value).toBe('string');
     expect(back.markRule).toEqual({ known: false });
     expect(json.openInterest.value).toEqual({ size: '12.5', capSize: null });
+    expect(json.lastEvent.value).toEqual({
+      kind: 'split',
+      eventAt: '2026-11-12T09:00:00.000Z',
+      settlementPrice: '101.5',
+      reopenedAt: '2026-11-12T09:00:01.000Z',
+      splitRatio: '2',
+    });
     expect(typeof (back.marginAccount as { value: { name: unknown } }).value.name).toBe('string');
   });
 });

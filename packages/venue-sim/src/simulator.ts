@@ -22,6 +22,8 @@ import {
   type UserVenueListing,
   type UserVenueMarginAccountRule,
   type UserVenueMarketMargin,
+  type UserVenueMarketEvent,
+  type UserVenueSettlement,
   type UserVenueMarket,
   type UserVenueMarketStatus,
   type UserVenueOrder,
@@ -96,7 +98,14 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     owner's signed `market_margin_transfer` (`marketMargin` reads it);
  *   · `setOpenInterestCap(symbol, cap)` — the deployer's cap on the market's
  *     open interest (the long size open, in base units): an opening order that
- *     would pass it refuses `open_interest_above_cap`, naming the cap.
+ *     would pass it refuses `open_interest_above_cap`, naming the cap;
+ *   · `settleMarket(symbol, 'deployer_halt' | 'split')` — the market's deployer
+ *     halts it, or a split in what it tracks: every order on the market is
+ *     cancelled and every position settled at the mark, each account's
+ *     settlement recorded (`settlements`) and the event published
+ *     (`lastEvent`). A halt leaves the market `halted` until
+ *     `setMarketStatus(symbol, 'trading')` resumes it; a split reopens it at
+ *     once with its mark divided by the ratio.
  *
  * A leverage above a market's cap refuses `leverage_above_cap`, its detail
  * naming the cap (`XAU-PERP allows at most 10x`), at prepare and at submit.
@@ -245,6 +254,8 @@ interface AccountState {
   readonly retiredAgents: Set<string>;
   /** Main account only: its balance in each market deployer's own margin account, by the margin account's name. */
   readonly marketMargins: Map<string, { free: Amount; locked: Amount }>;
+  /** Its settlements in market events (a deployer's halt, a split), oldest first. */
+  readonly settlements: UserVenueSettlement[];
 }
 
 interface OrderState {
@@ -319,6 +330,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   >();
   /** Each market's deployer cap on its open interest (base units; `null`: none set), for a market that reports one. */
   private readonly openInterestCaps = new Map<string, Amount | null>();
+  /** Each market's latest halt or split that settled its positions (`settleMarket`). */
+  private readonly marketEvents = new Map<string, UserVenueMarketEvent>();
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
@@ -382,6 +395,81 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   setMarketStatus(symbol: string, status: UserVenueMarketStatus | null): void {
     this.market(symbol);
     this.marketState.get(symbol)!.status = status;
+    // Resuming a market its deployer halted: the venue reports when it reopened.
+    const event = this.marketEvents.get(symbol);
+    if (status === 'trading' && event && event.reopenedAt === null) this.marketEvents.set(symbol, { ...event, reopenedAt: this.clock() });
+  }
+
+  /**
+   * TEST control: the market's deployer halts it (`deployer_halt`), or a split in what it tracks (`split`, by `ratio`).
+   * The venue cancels every order on the market and settles every position at the mark now, as the venue does on a
+   * HIP-3 deployer's halt: each account's margin and realised result return to where its margin was held, and each
+   * account's settlement is recorded with the orders it lost. A halt leaves the market `halted` until it is resumed; a
+   * split reopens it at once, its mark divided by the ratio. Only a perpetual with a mark.
+   */
+  settleMarket(symbol: string, kind: UserVenueMarketEvent['kind'], ratio?: Amount): UserVenueMarketEvent {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: there is no position to settle`);
+    const mark = this.marks.get(symbol);
+    if (mark === undefined) throw new Error(`TEST simulator: ${symbol} has no mark to settle at`);
+    if (kind === 'split' && (ratio === undefined || compare(ratio, ZERO) <= 0))
+      refuse(this.venue.id, 'venue_rejected', 'a split needs a ratio above zero');
+    const at = this.clock();
+    const cancelled = new Map<AccountState, (string | null)[]>();
+    for (const order of [...this.bookOf(symbol)]) {
+      this.release(order, 'canceled');
+      cancelled.set(order.account, [...(cancelled.get(order.account) ?? []), order.order.venueClientOrderId]);
+    }
+    for (const state of this.accounts.values()) {
+      const p = state.positions.get(symbol);
+      const held = p && p.size !== ZERO ? p : null;
+      const lost = cancelled.get(state) ?? [];
+      if (!held && lost.length === 0) continue;
+      let realisedPnl = ZERO;
+      if (held) {
+        // Isolated: the loss stops at the position's margin, which returns with the result to where it was held.
+        realisedPnl = max(this.pnl(held, mark, held.size), sub(ZERO, held.margin));
+        const balance = this.lockBalance(
+          state,
+          market.marginAccount?.name ?? null,
+          market.marginAccount?.collateralAsset ?? market.quoteAsset,
+        );
+        balance.locked = sub(balance.locked, held.margin);
+        balance.free = add(balance.free, add(held.margin, realisedPnl));
+      }
+      state.settlements.push({
+        symbol,
+        kind,
+        side: held ? held.side : null,
+        size: held ? held.size : ZERO,
+        price: mark,
+        realisedPnl,
+        cancelledOrders: lost,
+        settledAt: at,
+      });
+      if (held) {
+        held.size = ZERO;
+        held.margin = ZERO;
+      }
+    }
+    const event: UserVenueMarketEvent = {
+      kind,
+      eventAt: at,
+      settlementPrice: mark,
+      reopenedAt: null,
+      splitRatio: kind === 'split' ? formatAmount(ratio!) : null,
+    };
+    if (kind === 'deployer_halt') {
+      this.marketState.get(symbol)!.status = 'halted';
+      this.marketEvents.set(symbol, event);
+    } else {
+      // The split's new mark, rounded down to the market's tick; the market reopens on it at once.
+      const split = div(mark, ratio!, 'floor');
+      this.marks.set(symbol, split - (split % market.tickSize));
+      this.marketState.get(symbol)!.status = 'trading';
+      this.marketEvents.set(symbol, { ...event, reopenedAt: this.clock() });
+    }
+    return this.marketEvents.get(symbol)!;
   }
 
   /** TEST control: the trading fees this market publishes; `known: false` publishes none (the venue still charges its unpublished rate). */
@@ -651,6 +739,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       feed: m.oracle ? { known: true, value: this.feedOf(m) } : { known: false },
       session: m.session ? { known: true, value: this.sessionOf(m) } : { known: false },
       marginAccount: published(m.marginAccount),
+      lastEvent: published(this.marketEvents.get(m.symbol)),
       openInterest: this.openInterestCaps.has(m.symbol)
         ? { known: true, value: { size: this.openInterestOf(m.symbol), capSize: this.openInterestCaps.get(m.symbol) ?? null } }
         : { known: false },
@@ -1129,6 +1218,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).transfers.get(nonce) ?? null);
   }
 
+  /** The account's settlements in market events since `since`, oldest first (J-derivatives-27 #9 #10). */
+  async settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
+    this.up();
+    return this.asOf(this.account(account).settlements.filter((s) => s.settledAt.getTime() >= since.getTime()));
+  }
+
   /** The owner's balance in the margin account `symbol`'s deployer keeps for it, read on the main account. */
   async marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
     this.up();
@@ -1259,6 +1354,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         transfers: new Map(),
         retiredAgents: new Set(),
         marketMargins: new Map(),
+        settlements: [],
       };
       this.accounts.set(key, state);
     }

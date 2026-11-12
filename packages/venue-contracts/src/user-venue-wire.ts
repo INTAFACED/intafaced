@@ -52,6 +52,8 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'maxOrderNotional',
   // UserVenueOpenInterest (J-derivatives-27 #8): the deployer's cap, null where it sets none
   'capSize',
+  // UserVenueMarketEvent (J-derivatives-27 #9 #10)
+  'settlementPrice',
   // VenueBuilderTotal (OWNER 288 1e)
   'earned',
   'unclaimed',
@@ -101,6 +103,10 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'since',
   'lastOracleUpdateAt',
   'reopensAt',
+  // UserVenueMarketEvent and UserVenueSettlement (J-derivatives-27 #9 #10)
+  'eventAt',
+  'reopenedAt',
+  'settledAt',
   // UserVenueDeposit (J-dex-protocol-05 #2)
   'seenAt',
 ]);
