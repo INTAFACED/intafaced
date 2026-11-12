@@ -385,7 +385,7 @@ test(`${J} #3 picks pay by bank: sent to the provider's page its response named,
   const who = await signUp(page, 'jb2pay');
   await verify(page, who);
   run.reset({ ...run.read(), payer: who });
-  // TEST setup: the payer's bank money is held at the TEST partner bank (OWNER 226), for #3 to #8.
+  // TEST setup: the payer's bank money is held at the TEST partner bank (OWNER 226), for #3 to #7.
   await setPartner(who, { custody: 'off' });
   const ledgerStart = await ledgerOf(who);
   // The payer starts with nothing: a new account holds no currency, so they add USDT to it first (as on the Bank Overview).
@@ -731,13 +731,18 @@ test(`${J} #8 pays another person more than the bank holds on a plan that allows
   test.setTimeout(300_000);
   const who = person();
   const payee = payer();
+  // TEST setup: the payee goes back on the payer's own book (#3 put their bank money at the partner), so this is one
+  // payment the bank can make or refuse; a payment between the two books is refused before any balance is read.
+  await setPartner(payee, { custody: 'on' });
   const api = await session(who);
   const theirs = await session(payee, { withCode: false });
   const mainOf = async (doors) =>
     (await doors.query('spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
   const main = await mainOf(api);
   expect(main.balance).toBe('50');
-  const payeeBefore = (await mainOf(theirs)).balance;
+  // A payee with no USDT space on this book holds none of it.
+  const payeeHolds = async () => (await mainOf(theirs))?.balance ?? '0';
+  const payeeBefore = await payeeHolds();
 
   // The plan allows a negative balance: the owner's TEST terms publish an overdraft fee. No overdraft engine exists in
   // this build, so the bank names it switched off rather than claim a negative balance it cannot book.
@@ -812,7 +817,7 @@ test(`${J} #8 pays another person more than the bank holds on a plan that allows
 
   // Nothing moved: the payer's balance never went below zero, the payee got nothing, and no payment is listed.
   expect((await mainOf(api)).balance).toBe('50');
-  expect((await mainOf(theirs)).balance).toBe(payeeBefore);
+  expect(await payeeHolds()).toBe(payeeBefore);
   const out = await api.query('transfers.list', { limit: 50 });
   expect(out.ok && out.data.items.filter((item) => item.kind === 'transfer_out')).toEqual([]);
 });
