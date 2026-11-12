@@ -1426,13 +1426,20 @@ function labelledTestPrecision(assetId) {
  * published row the address book offers no asset and refuses every save. Both networks are EVM chains, the only
  * address form the address book checks today. USDT's places are the labelled TEST value, not a count chosen here.
  */
+/** A TEST contract address and link for USDC on TEST Ethereum: no real contract, and a reserved example domain. */
+export const TEST_USDC_CONTRACT = '0x7e57000000000000000000000000000000000001';
+export const TEST_USDC_LINK = Object.freeze({ label: 'TEST explorer', url: 'https://example.com/test-explorer/usdc' });
 export const TEST_ASSET_ROWS = ['USDT', 'USDC'].map((id) => ({
   id,
   kind: 'crypto',
   // USDT places are the labelled TEST value. USDC keeps the row this file already published.
   precision: id === 'USDT' ? labelledTestPrecision('USDT') : 6,
   networks: [
-    { networkId: 'ethereum', label: 'TEST Ethereum' },
+    // USDC on TEST Ethereum carries a TEST contract and a TEST link (J-portfolio-10 #3: "contract and links where known");
+    // every other network knows neither, so the coin page shows none for it.
+    id === 'USDC'
+      ? { networkId: 'ethereum', label: 'TEST Ethereum', contract: TEST_USDC_CONTRACT, links: [TEST_USDC_LINK] }
+      : { networkId: 'ethereum', label: 'TEST Ethereum' },
     { networkId: 'base', label: 'TEST Base' },
   ],
   defaultNetworkId: 'ethereum',
@@ -1463,7 +1470,9 @@ export function assetRowMatches(row, want) {
     JSON.stringify([
       r.kind,
       r.precision,
-      Array.isArray(r.networks) ? r.networks.map((n) => [n.networkId, n.label]) : null,
+      Array.isArray(r.networks)
+        ? r.networks.map((n) => [n.networkId, n.label, n.contract ?? null, (n.links ?? []).map((l) => [l.label, l.url])])
+        : null,
       r.defaultNetworkId,
       [...(r.allowedActions ?? [])].sort(),
       r.state,
