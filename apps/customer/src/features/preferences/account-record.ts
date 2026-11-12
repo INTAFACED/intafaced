@@ -36,9 +36,14 @@ export function useAccountRecord<T>(options: {
   const [revision, setRevision] = useState(0);
   const held = useRef<{ version: number; value: T } | null>(null);
 
+  // The client is read through a ref: a session that hands out a new client object on a render must not read the record
+  // again (each read sets "loading", which renders again, and so on without end). The record is read again when the
+  // person, the namespace or a reload asks for it.
+  const client = useRef(api);
+  client.current = api;
   const read = useCallback(
-    async (signal?: AbortSignal) => api.query('identity', 'preferences.get', { namespace }, schema, { signal }),
-    [api, namespace, schema],
+    async (signal?: AbortSignal) => client.current.query('identity', 'preferences.get', { namespace }, schema, { signal }),
+    [namespace, schema],
   );
   const adopt = useCallback(
     (version: number, value: T | null) => {

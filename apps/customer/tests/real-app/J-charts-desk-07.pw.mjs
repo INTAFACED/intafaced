@@ -146,6 +146,13 @@ const saveLayout = () => page.getByRole('button', { name: 'Save layout' });
 
 test(`${J} #3 saves the layout as "Scalp"; it appears in the list with its symbol and interval, and the same name asks to replace`, async () => {
   await openDesk();
+  // The interval the desk chart is on: its pressed chip, or the More button when it is one of the longer list.
+  const chart = page.getByTestId('dk-chart');
+  const pressed = chart.getByRole('group', { name: 'Chart intervals' }).locator('button[aria-pressed="true"]');
+  const shownLabel = (await pressed.count())
+    ? (await pressed.first().textContent()).trim()
+    : (await chart.locator('.dk-more').textContent()).replace('▾', '').trim();
+  const shownInterval = shownLabel.toLowerCase();
   await layouts().click();
   await saveLayout().click({ timeout: 5_000 });
   const dialog = page.getByRole('dialog', { name: 'Save layout' });
@@ -153,8 +160,8 @@ test(`${J} #3 saves the layout as "Scalp"; it appears in the list with its symbo
   await dialog.getByRole('button', { name: 'Save' }).click();
   await layouts().click();
   const row = layoutsMenu().getByRole('listitem').filter({ hasText: 'Scalp' });
-  await expect(row).toContainText('BTC/USDT');
-  await expect(row).toContainText(/\b(1m|3m|5m|15m|30m|1h|2h|4h|6h|12h|1d|1w)\b/);
+  // Its symbol and the interval the desk chart shows now, as the row writes them ("BTC/USDT · 15m").
+  await expect(row).toContainText(`BTC/USDT · ${shownInterval}`);
   await saveLayout().click();
   await page.getByRole('dialog', { name: 'Save layout' }).getByLabel('Layout name').fill('Scalp');
   await page.getByRole('dialog', { name: 'Save layout' }).getByRole('button', { name: 'Save' }).click();
@@ -168,16 +175,16 @@ test(`${J} #4 opens the same account on another device; the layout and its autos
   await openDesk();
   await layouts().click();
   await expect(layoutsMenu().getByRole('listitem').filter({ hasText: 'Scalp' })).toHaveCount(1, { timeout: 5_000 });
-  // An autosaved change on this device, one a fresh device does not open with: the Advanced preset inside "Scalp".
-  // Classic first when Advanced is already on, so the change to Advanced is a new one that is saved into the layout.
-  const advanced = layoutsMenu().getByRole('radio', { name: 'Advanced' });
-  if (await advanced.isChecked()) {
-    await layoutsMenu().getByRole('radio', { name: 'Classic' }).check();
-    await expect(desk()).toHaveAttribute('data-preset', 'classic');
-  }
-  await advanced.check();
-  await expect(desk()).toHaveAttribute('data-preset', 'advanced');
-  await expect(layoutsMenu()).toContainText('Saved');
+  // An autosaved change on this device, one neither the saved "Scalp" nor a fresh device has: the order book dragged onto
+  // the markets list, so the two swap places. It is saved into "Scalp", the layout in use, once it settles.
+  const before = await widgetIds();
+  await layoutsMenu().getByRole('button', { name: 'Arrange widgets' }).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.getByRole('button', { name: 'Move Order book' }).dragTo(widget('markets'), { targetPosition: { x: 40, y: 80 } });
+  const swapped = before.map((id) => (id === 'book' ? 'markets' : id === 'markets' ? 'book' : id));
+  await expect.poll(widgetIds).toEqual(swapped);
+  await layouts().click();
+  await expect(layoutsMenu()).toContainText('Saved to “Scalp”.');
   const other = await browser.newContext({ baseURL: ORIGIN });
   const second = await other.newPage();
   try {
@@ -185,17 +192,24 @@ test(`${J} #4 opens the same account on another device; the layout and its autos
     await signIn(second, who);
     await second.goto(DESK);
     const otherDesk = second.getByTestId('if-desk');
-    // A fresh device opens Classic: anything else it shows came from the account.
+    const otherIds = () =>
+      otherDesk.locator('[data-widget]').evaluateAll((nodes) =>
+        nodes
+          .filter((node) => node.getBoundingClientRect().width > 0)
+          .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+          .map((node) => node.getAttribute('data-widget')),
+      );
+    // A fresh device opens Classic in its own order: what it shows after Open came from the account.
     await expect(otherDesk).toHaveAttribute('data-preset', 'classic');
+    await expect.poll(otherIds).toEqual(['markets', 'chart', 'book']);
     await second.getByRole('button', { name: 'Layouts' }).click();
     const list = second.getByRole('dialog', { name: 'Desk layout' });
     const scalp = list.getByRole('listitem').filter({ has: second.getByText('Scalp', { exact: true }) });
     await expect(scalp).toHaveCount(1);
     await expect(scalp).toContainText('BTC/USDT');
     await scalp.getByRole('button', { name: 'Open' }).click();
-    // The autosaved change is there: Advanced, with the market trades widget beside the book.
-    await expect(otherDesk).toHaveAttribute('data-preset', 'advanced');
-    await expect(otherDesk.locator('[data-widget="trades"]')).toBeVisible();
+    // The layout with its autosaved change: the swapped order this device never arranged.
+    await expect.poll(otherIds).toEqual(swapped);
   } finally {
     await other.close();
   }
