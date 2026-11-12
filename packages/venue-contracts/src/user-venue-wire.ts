@@ -50,6 +50,8 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  // UserVenueOpenInterest (J-derivatives-27 #8): the deployer's cap, null where it sets none
+  'capSize',
   // VenueBuilderTotal (OWNER 288 1e)
   'earned',
   'unclaimed',
@@ -87,6 +89,7 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  'capSize',
 ]);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set([
@@ -116,6 +119,8 @@ const OPAQUE_FIELDS: ReadonlySet<string> = new Set([
   'offHoursMode',
   'offHoursBand',
   'offHoursRule',
+  // A market's deployer margin account rule (J-derivatives-27 #7): its name, collateral asset and margin mode are text.
+  'marginAccount',
 ]);
 
 export class VenueWireError extends Error {

@@ -31,6 +31,12 @@ export const MARKET_RULE_WORDS = {
   'Reopens while open': 'Open now',
   'Off-hours rule': 'What the venue refuses off hours',
   'Off-hours notice': '{venue} reports {home} closed: {symbol} is in the venue’s off-hours mode. The venue’s own rule: {rule}',
+  // A market's open interest and its deployer's cap (J-derivatives-27 #8): the venue's figures.
+  'Open interest': 'Open interest',
+  'Open interest value': '{size} {base} open, as the venue reports it',
+  'Open interest cap': 'Open-interest cap',
+  'Open interest cap value': 'At most {cap} {base} open, set by its deployer',
+  'Open interest no cap': 'No cap set by its deployer',
 } as const;
 
 // The futures desk's words in venue mode (B1). English source only; the shared venue words are in
@@ -61,6 +67,20 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   'Leverage not set': 'None set on the venue: sign a setting before your first order.',
   'Sign leverage': 'Sign this leverage setting',
   'Leverage whole': 'Leverage is a whole number of times, 1 or more.',
+  // The margin account a market's deployer keeps for it, apart from the main account (J-derivatives-27 #7).
+  'Market margin': 'This market’s own margin account',
+  'Market margin note':
+    '{name} is kept by the deployer of {symbol}, apart from your main account. Orders on {symbol} take their margin from it alone. Only you move collateral in or out, with your own signature.',
+  'Market margin name': 'Margin account',
+  'Market margin collateral': 'Collateral asset, set by its deployer',
+  'Market margin mode': 'Margin mode, set by its deployer',
+  'Market margin free': 'Free',
+  'Market margin used': 'Used as margin or by orders',
+  'Market margin total': 'Total',
+  'Market margin amount': 'Amount to move ({asset})',
+  'Market margin in': 'Sign a move into this market’s margin',
+  'Market margin out': 'Sign a move back to your main account',
+  'Market margin amount invalid': 'Enter an amount above 0.',
   Ticket: 'Order ticket',
   Long: 'Long',
   Short: 'Short',

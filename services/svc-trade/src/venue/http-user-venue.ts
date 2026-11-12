@@ -17,6 +17,7 @@ import {
   type UserVenueDescriptor,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueMarketMargin,
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenuePosition,
@@ -302,6 +303,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     return this.read('/leverage', { account, symbol });
+  }
+
+  /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
+  marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
+    return this.read('/market-margin', { account, symbol });
   }
 
   // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──

@@ -514,6 +514,9 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       tradingHours: { known: false },
       feed: { known: false },
       session: { known: false },
+      // A HIP-3 deployer's own margin account and its open-interest cap are not read by this adapter yet: not known.
+      marginAccount: { known: false },
+      openInterest: { known: false },
     }));
     return this.asOf(list);
   }
@@ -847,6 +850,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       case 'create_sub_account':
       case 'sub_account_transfer':
         throw refusal(venueId, 'not_offered', 'sub-accounts are not offered by this adapter yet');
+      case 'market_margin_transfer':
+        throw refusal(venueId, 'not_offered', "a HIP-3 deployer's own margin account is not offered by this adapter yet");
     }
   }
 

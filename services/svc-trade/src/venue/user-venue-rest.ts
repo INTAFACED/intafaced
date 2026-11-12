@@ -268,6 +268,19 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
     },
+    // J-derivatives-27 #7: the person's balance in the margin account a market's deployer keeps for it, on the main
+    // account; a venue that reads none refuses not_offered.
+    '/api/v1/venue/market-margin': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.marketMargin)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reads no market margin account`,
+        });
+      return venue.marketMargin(a, q.symbol);
+    },
     '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
       const status = await d.status();
       const builder = 'builder' in status ? status.builder : null;
@@ -290,6 +303,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/fills',
     '/api/v1/venue/deposits',
     '/api/v1/venue/leverage',
+    '/api/v1/venue/market-margin',
     '/api/v1/venue/builder-fee-approval',
   ]) {
     const read = accountReads[path]!;

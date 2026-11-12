@@ -38,6 +38,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
+ *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
@@ -50,8 +51,8 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
  *        /test/fills {since}                              every account's fills since a time, with its account
- *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, XAU-PERP
- *                                                         and XSTK-PERP
+ *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, XAU-PERP,
+ *                                                         XSTK-PERP and XSTD-PERP
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
  *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
@@ -64,6 +65,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         venue's off-hours mode applies) or opens again; `published:
  *                                                         false` publishes none of its off-hours words, `true` all again
  *        /test/market-leverage {symbol,maxLeverageBps}    the most leverage the venue now allows on a perpetual
+ *        /test/open-interest-cap {symbol,capSize}         the deployer's cap on a market's open interest (base units, or null)
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
@@ -214,10 +216,45 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
       reopensAfterMs: 3_600_000,
     },
   },
+  {
+    // J-derivatives-27 #7 to #10: a second TEST stock perpetual, listed by a TEST HIP-3 deployer that keeps its own margin
+    // account for it (as a HIP-3 deployer's market is margined apart from the main account), with its own collateral and
+    // margin mode and a cap on its open interest. Priced by the simulator's own TEST feed; it tracks no real company's share.
+    symbol: 'XSTD-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XSTD',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1') },
+    takerFeeBps: { known: true, value: parseAmount('3') },
+    // TEST: the same perpetual builder-fee cap as BTC-PERP.
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: { kind: 'hip3', name: 'TEST stock margin deployer' },
+    oracleRule:
+      "TEST price feed: one XSTD/USD price for a TEST stock, set by the simulator's TEST control; it reads no outside share price.",
+    markRule: 'The mark price is the feed price; fills do not move it.',
+    tradingHours: '24/7 on the venue.',
+    oracle: {
+      staleRule: 'While the feed is stale the mark holds at the last feed price and only reduce-only orders are taken.',
+    },
+    marginAccount: { name: 'TEST stock margin deployer margin', collateralAsset: 'USDC', marginMode: 'isolated' },
+    // TEST: room for every TEST order on it; J-derivatives-27 #8 lowers it for one step.
+    openInterestCap: parseAmount('500'),
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
-const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP']);
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
 /**
@@ -233,6 +270,7 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'BTC-PERP': { mid: parseAmount('60000'), step: parseAmount('10') },
   'XAU-PERP': { mid: parseAmount('2650'), step: parseAmount('0.5') },
   'XSTK-PERP': { mid: parseAmount('200'), step: parseAmount('0.1') },
+  'XSTD-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
@@ -316,6 +354,19 @@ export async function seedTestVenue(
         const lev = await sim.leverage(acct, market.symbol);
         if (!lev.value)
           await makerRun(sim, name, { kind: 'update_leverage', symbol: market.symbol, leverageBps: 100_000, marginMode: 'isolated' });
+        // A market with its deployer's own margin account is margined there: the maker moves TEST collateral in, signed.
+        if (market.marginAccount) {
+          const margin = await sim.marketMargin(acct, market.symbol);
+          if (margin.value.free < parseAmount('100000'))
+            await makerRun(sim, name, {
+              kind: 'market_margin_transfer',
+              symbol: market.symbol,
+              direction: 'into_market',
+              asset: market.marginAccount.collateralAsset,
+              amount: parseAmount('1000000'),
+              moveKey: `market-margin:test-maker-${name}:seed:${market.symbol}`,
+            });
+        }
       }
       const ladder = SEED_LADDERS[market.symbol];
       if (!ladder) throw new Error(`TEST seed: no ladder for ${market.symbol}`);
@@ -505,6 +556,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.subAccounts(account(body));
     case '/transfer':
       return sim.transfer(account(body), str(body, 'nonce'));
+    case '/market-margin':
+      return sim.marketMargin(account(body), str(body, 'symbol'));
     // ── TEST controls ──
     case '/test/deposit': {
       const amount = body.amount;
@@ -591,6 +644,14 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const symbol = str(body, 'symbol');
       sim.setMarketMaxLeverage(symbol, cap);
       return { maxLeverageBps: cap, label: 'TEST' };
+    }
+    case '/test/open-interest-cap': {
+      const cap = body.capSize;
+      if (cap !== null && typeof cap !== 'bigint') throw new VenueWireError('capSize is a decimal string of base units, or null');
+      const symbol = str(body, 'symbol');
+      sim.setOpenInterestCap(symbol, cap as Amount | null);
+      const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
+      return { openInterest: market?.openInterest ?? { known: false }, label: 'TEST' };
     }
     case '/test/market-fees': {
       const fee = (k: string): MaybeKnown<Amount> => {

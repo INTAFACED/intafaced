@@ -99,6 +99,10 @@ describe('user-venue wire', () => {
           offHoursRule: { known: true, value: '2' },
         },
       },
+      // A deployer's margin account name that reads like a number stays text; its open interest and cap are money-scaled
+      // sizes (J-derivatives-27 #7 #8).
+      marginAccount: { known: true, value: { name: '7', collateralAsset: 'USDC', marginMode: 'isolated' } },
+      openInterest: { known: true, value: { size: parseAmount('12.5'), capSize: null } },
     };
     const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
     expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
@@ -108,5 +112,7 @@ describe('user-venue wire', () => {
     expect(back).toEqual(market);
     expect(typeof (back.oracleRule as { value: unknown }).value).toBe('string');
     expect(back.markRule).toEqual({ known: false });
+    expect(json.openInterest.value).toEqual({ size: '12.5', capSize: null });
+    expect(typeof (back.marginAccount as { value: { name: unknown } }).value.name).toBe('string');
   });
 });

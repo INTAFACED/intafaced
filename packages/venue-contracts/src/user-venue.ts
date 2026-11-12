@@ -237,6 +237,24 @@ export interface SubAccountTransferIntent {
   readonly moveKey: string;
 }
 
+/**
+ * Move collateral between the owner's main account and the margin account a market's deployer keeps for it (a
+ * Hyperliquid HIP-3 deployer's own margin, apart from the main account), signed by the owner's wallet on the MAIN
+ * account. Only free balance moves, and only the collateral asset the deployer set; nothing leaves the venue.
+ */
+export interface MarketMarginTransferIntent {
+  readonly kind: 'market_margin_transfer';
+  /** A market whose deployer keeps its own margin account (`UserVenueMarket.marginAccount`). */
+  readonly symbol: string;
+  /** `into_market`: main → the market's margin account. `out_of_market`: back to the main account. */
+  readonly direction: 'into_market' | 'out_of_market';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move, e.g. `market-margin:<owner>:<symbol>:<draft>`: a retry re-sends the same bytes. */
+  readonly moveKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
   | UpdateLeverageIntent
@@ -247,7 +265,8 @@ export type VenueIntent =
   | ApproveAgentIntent
   | RevokeAgentIntent
   | CreateSubAccountIntent
-  | SubAccountTransferIntent;
+  | SubAccountTransferIntent
+  | MarketMarginTransferIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -259,12 +278,14 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'revoke_agent',
   'create_sub_account',
   'sub_account_transfer',
+  'market_margin_transfer',
 ]);
 
 /** Actions signed on the owner's MAIN account only, never on a sub-account. */
 export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueIntentKind>([
   'create_sub_account',
   'sub_account_transfer',
+  'market_margin_transfer',
 ]);
 
 export type VenueMarginMode = 'cross' | 'isolated';
@@ -422,6 +443,11 @@ export type VenueRefusalCode =
   | 'market_delisted'
   /** The order is larger than the venue's own largest order size or notional for the market. */
   | 'order_above_venue_max'
+  /**
+   * An opening order would take the market's open interest past the cap its deployer set
+   * (`UserVenueMarket.openInterest.capSize`). The detail names the cap; nothing is signed.
+   */
+  | 'open_interest_above_cap'
   /** The agent's cap is revoked or expired: only cancels are signed. */
   | 'agent_cap_inactive'
   /** The room under the cap can't be measured (a holding with no known mark, a market in another quote). Nothing signed. */
@@ -698,6 +724,33 @@ export interface UserVenueSession {
   readonly offHoursRule: MaybeKnown<string>;
 }
 
+/**
+ * The margin account a market's deployer keeps for it, apart from the owner's main account (a Hyperliquid HIP-3
+ * deployer's own margin): its name, the collateral asset and the margin mode the deployer set. Funded only by the
+ * owner's own signed `market_margin_transfer`; orders on the market draw their margin from it.
+ */
+export interface UserVenueMarginAccountRule {
+  readonly name: string;
+  readonly collateralAsset: string;
+  readonly marginMode: VenueMarginMode;
+}
+
+/** One owner's balance in a market's own margin account, as the venue reports it (`UserVenue.marketMargin`). */
+export interface UserVenueMarketMargin extends UserVenueMarginAccountRule {
+  readonly symbol: string;
+  /** Free to move back or to post as margin. */
+  readonly free: Amount;
+  /** Locked by resting orders or used as margin on the market's positions. */
+  readonly locked: Amount;
+  readonly total: Amount;
+}
+
+/** A market's open interest as the venue reports it: the size open now, and the cap its deployer set (`null`: none). */
+export interface UserVenueOpenInterest {
+  readonly size: Amount;
+  readonly capSize: Amount | null;
+}
+
 export interface UserVenueMarket {
   readonly symbol: string;
   readonly kind: 'spot' | 'perpetual';
@@ -740,6 +793,10 @@ export interface UserVenueMarket {
   readonly feed: MaybeKnown<UserVenueFeed>;
   /** Its home market's session and the venue's off-hours mode (a stock perpetual), or `known: false` for a market with none. */
   readonly session: MaybeKnown<UserVenueSession>;
+  /** The deployer's own margin account for this market, or `known: false` where orders draw on the main account. */
+  readonly marginAccount: MaybeKnown<UserVenueMarginAccountRule>;
+  /** The market's open interest and its deployer's cap (in base units), or `known: false` where the venue reports none. */
+  readonly openInterest: MaybeKnown<UserVenueOpenInterest>;
 }
 
 /**
@@ -938,6 +995,11 @@ export interface UserVenue {
    * that publishes no deposit list leaves it out, and the door refuses the read `not_offered`.
    */
   deposits?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>>;
+  /**
+   * The owner's balance in the margin account a market's deployer keeps for it (`UserVenueMarket.marginAccount`), read on
+   * the main account. A market with none refuses `not_offered`. Absent on an adapter that does not read it.
+   */
+  marketMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   /**

@@ -970,6 +970,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Your leverage and margin mode on one venue perpetual, or none set',
   },
   {
+    name: 'venueMarketMargin',
+    method: 'GET',
+    path: '/api/v1/venue/market-margin',
+    product: 'accounts',
+    access: 'private',
+    summary: "Your balance in the margin account a market's deployer keeps for it, apart from your main account",
+  },
+  {
     name: 'venueBuilderFeeApproval',
     method: 'GET',
     path: '/api/v1/venue/builder-fee-approval',
