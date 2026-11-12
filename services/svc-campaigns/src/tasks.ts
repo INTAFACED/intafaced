@@ -26,6 +26,7 @@ import { effectiveState, outsideWindow } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
+import type { VenueDepositSource } from './venue-deposits.js';
 import { NO_STREAK, streakOf } from './streaks.js';
 import { evaluateFormula, namesRead, parseFormula } from './formula.js';
 
@@ -308,7 +309,43 @@ export interface TaskServiceOptions {
   timeZone: () => string | null;
   /** Owner value: the rollback window shown on every reward record. Null reads "not set". */
   rollbackWindowSeconds: number | null;
+  /**
+   * The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits into
+   * their venue accounts. Null while svc-protocol or svc-trade is not configured: the deposit task reads `unread`.
+   */
+  venueDeposits?: VenueDepositSource | null;
+  /**
+   * What INTAFACED has paid this wallet as rewards, in USDC, from our payout records. A deposit counts only above it, so
+   * reward money sent back ticks nothing. Absent: no reward is paid to a wallet in this build, so nothing is.
+   */
+  rewardsPaidTo?: (wallet: string) => Promise<bigint>;
   now?: () => Date;
+}
+
+/** The asset a welcome deposit is counted in: USDC, deposited from the person's own wallet into their venue account. */
+export const WELCOME_DEPOSIT_ASSET = 'USDC';
+
+/** How the welcome deposit task was read just now. */
+export type WelcomeDepositSource = { source: 'read' | 'unread' | 'no_wallet'; asOf: string | null };
+
+/**
+ * The first venue deposit that counts for the welcome task, or null: credited USDC deposits into the wallet's venue
+ * account, in the order the venue saw them, counted only once their sum passes what we have paid that wallet as
+ * rewards. Pure: the same deposits and payouts always pick the same deposit.
+ */
+export function firstCountingDeposit(
+  deposits: readonly { depositRef: string; asset: string; amount: string; status: string; seenAt: string }[],
+  paidToWallet: bigint,
+): { depositRef: string; seenAt: Date } | null {
+  const credited = deposits
+    .filter((d) => d.status === 'credited' && d.asset === WELCOME_DEPOSIT_ASSET && !Number.isNaN(Date.parse(d.seenAt)))
+    .sort((a, b) => Date.parse(a.seenAt) - Date.parse(b.seenAt) || a.depositRef.localeCompare(b.depositRef));
+  let sum = 0n;
+  for (const d of credited) {
+    sum += parseAmount(d.amount);
+    if (sum > paidToWallet) return { depositRef: d.depositRef, seenAt: new Date(d.seenAt) };
+  }
+  return null;
 }
 
 export class TaskService {
@@ -318,6 +355,8 @@ export class TaskService {
   private readonly markets: MarketNames | null;
   private readonly timeZone: () => string | null;
   private readonly rollbackWindowSeconds: number | null;
+  private readonly venueDeposits: VenueDepositSource | null;
+  private readonly rewardsPaidTo: (wallet: string) => Promise<bigint>;
   private readonly now: () => Date;
 
   constructor(options: TaskServiceOptions) {
@@ -327,6 +366,8 @@ export class TaskService {
     this.markets = options.markets;
     this.timeZone = options.timeZone;
     this.rollbackWindowSeconds = options.rollbackWindowSeconds;
+    this.venueDeposits = options.venueDeposits ?? null;
+    this.rewardsPaidTo = options.rewardsPaidTo ?? (async () => 0n);
     this.now = options.now ?? (() => new Date());
   }
 
@@ -831,9 +872,10 @@ export class TaskService {
   }
 
   /** The caller's welcome checklist: its window and each task's state, reward and claimed record. */
-  async welcomeChecklist(input: { accountId: string }): Promise<WelcomeChecklist> {
+  async welcomeChecklist(input: { accountId: string; forwarded?: Record<string, string> }): Promise<WelcomeChecklist> {
     const found = await this.welcomeOf(input.accountId);
-    if (!found) return { campaign: null, signedUpAt: null, window: null, tasks: [] };
+    if (!found) return { campaign: null, signedUpAt: null, window: null, tasks: [], deposit: null };
+    const deposit = await this.readWelcomeDeposit(found, input.forwarded ?? {});
     const { account, campaign, events } = found;
     const keys = campaign.tasks.steps.map((s) => rewardKeyOf(campaign.id, account.account_id, welcomePeriodOf(s.event)));
     const intents = await this.sql<IntentRow[]>`
@@ -870,16 +912,63 @@ export class TaskService {
         state: window.state,
       },
       tasks,
+      deposit,
     };
+  }
+
+  /**
+   * The welcome deposit task, read from the venue (J-campaigns-04 #2 #3): the venue's own deposits into the venue
+   * accounts of the wallets this person connected, from sign-up on, read for the person during their own request
+   * (`forwarded`, their edge-signed principal). The first that counts (`firstCountingDeposit`) is
+   * kept as the task's event, under the venue's own id for the transfer, so the same deposit read again, or redelivered,
+   * changes nothing. INTAFACED keeps no copy of the venue's list and the ledger posts nothing for a deposit. A read that
+   * fails changes nothing and says `unread`, never "no deposit". `found.events` is updated in place.
+   */
+  private async readWelcomeDeposit(
+    found: NonNullable<Awaited<ReturnType<TaskService['welcomeOf']>>>,
+    forwarded: Record<string, string>,
+  ): Promise<WelcomeDepositSource | null> {
+    const { account, campaign, events } = found;
+    if (!campaign.tasks.steps.some((s) => s.event === 'pay.deposit')) return null;
+    if (events.has('pay.deposit')) return { source: 'read', asOf: null };
+    if (!this.venueDeposits) return { source: 'unread', asOf: null };
+    const wallets = await this.venueDeposits.wallets(forwarded);
+    if (wallets === null) return { source: 'unread', asOf: null };
+    if (wallets.length === 0) return { source: 'no_wallet', asOf: null };
+    let unread = false;
+    let asOf: string | null = null;
+    for (const wallet of wallets) {
+      const read = await this.venueDeposits.deposits(wallet);
+      if (!read) {
+        unread = true;
+        continue;
+      }
+      if (asOf === null || read.asOf > asOf) asOf = read.asOf;
+      const since = read.deposits.filter((d) => Date.parse(d.seenAt) >= account.signed_up_at.getTime());
+      const first = firstCountingDeposit(since, await this.rewardsPaidTo(wallet));
+      if (!first) continue;
+      await this.onWelcomeEvent({
+        userId: account.account_id,
+        event: 'pay.deposit',
+        eventId: `venue-deposit:${read.venueId}:${first.depositRef}`,
+        at: first.seenAt.toISOString(),
+      });
+      const [kept] = await this.sql<{ occurred_at: Date }[]>`
+        SELECT occurred_at FROM campaigns.welcome_events WHERE account_id = ${account.account_id} AND event = 'pay.deposit'`;
+      if (kept) events.set('pay.deposit', kept.occurred_at);
+      return { source: 'read', asOf: read.asOf };
+    }
+    return { source: unread ? 'unread' : 'read', asOf };
   }
 
   /**
    * Claims one welcome task once, inside the window, under `task:<campaign>:<account>:welcome:<event>`. A second claim,
    * or one sent again after a lost reply, returns the first (`created: false`). After the window nothing is written.
    */
-  async welcomeClaim(input: { accountId: string; event: TaskEvent }): Promise<TaskClaimResult> {
+  async welcomeClaim(input: { accountId: string; event: TaskEvent; forwarded?: Record<string, string> }): Promise<TaskClaimResult> {
     const found = await this.welcomeOf(input.accountId);
     if (!found) throw new CampaignsError('campaigns.welcome_none', 'Your account has no welcome checklist');
+    if (input.event === 'pay.deposit') await this.readWelcomeDeposit(found, input.forwarded ?? {});
     const { account, campaign, events } = found;
     const step = campaign.tasks.steps.find((s) => s.event === input.event);
     if (!step) throw new CampaignsError('campaigns.tasks_invalid', 'This welcome checklist has no such task');
