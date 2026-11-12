@@ -116,6 +116,9 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     builderFeeCapBps: { known: true, value: parseAmount('10') },
     maintenanceMarginRate: parseAmount('0.005'),
     markPrice: parseAmount('60000'),
+    // TEST: one contract is one BTC, and the venue publishes a TEST hourly funding rate of 0.00125% (it settles none).
+    contractSize: parseAmount('1'),
+    funding: { rate: parseAmount('0.0000125'), intervalSeconds: 3600 },
     status: 'trading',
     // TEST: roomy enough for every journey's TEST orders on the shared BTC markets (J-cex-spot-01 #8 sells 100 BTC);
     // J-cex-spot-16 proves the venue's own caps on TEST markets of its own (/test/market-add, /test/market-limits).
@@ -160,6 +163,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     builderFeeCapBps: { known: true, value: parseAmount('10') },
     maintenanceMarginRate: parseAmount('0.01'),
     markPrice: parseAmount('2650'),
+    // TEST: one contract is one unit of the base; no funding rate is published for it.
+    contractSize: parseAmount('1'),
     status: 'trading',
     maxOrderQty: parseAmount('1000'),
     maxOrderNotional: parseAmount('10000000'),
@@ -190,6 +195,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     builderFeeCapBps: { known: true, value: parseAmount('10') },
     maintenanceMarginRate: parseAmount('0.02'),
     markPrice: parseAmount('200'),
+    // TEST: one contract is one unit of the base; no funding rate is published for it.
+    contractSize: parseAmount('1'),
     status: 'trading',
     maxOrderQty: parseAmount('1000'),
     maxOrderNotional: parseAmount('1000000'),
