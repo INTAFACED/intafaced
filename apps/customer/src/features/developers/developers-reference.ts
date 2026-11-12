@@ -889,6 +889,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The venue’s markets for your account: order types, time in force, margin modes, lot and tick, its fees or "not known"',
   },
   {
+    name: 'venueGatedList',
+    method: 'GET',
+    path: '/api/v1/venue/gated-list',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Each perpetual on the venue, open or blocked for your account, with every reason a new open would be refused',
+  },
+  {
     name: 'venueBestPrices',
     method: 'GET',
     path: '/api/v1/venue/best-prices',
