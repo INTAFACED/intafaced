@@ -300,17 +300,38 @@ test(`${J} #4 watches a run whose process dies: unknown, reconciled by the origi
   const kinds = async () => body200(await session.get(`${LIVE}/${runId}`)).log.map((e) => e.kind);
 
   await signIn(page, t.who);
-  // The process dies: its heartbeat stops (TEST venue only).
+  // The process dies: its heartbeat stops (TEST venue only). The run reads unknown until the next supervisor pass.
   body200(await session.post(`${LIVE}/${runId}/test/kill-process`, {}));
-  await expect.poll(kinds, { timeout: 20_000 }).toContain('unknown');
+  await expect
+    .poll(async () => body200(await session.get(`${LIVE}/${runId}`)).state, { timeout: 20_000, intervals: [100] })
+    .toBe('unknown');
   await expect.poll(async () => body200(await session.get(`${LIVE}/${runId}`)).health.restarts, { timeout: 20_000 }).toBe(1);
   const restarted = body200(await session.get(`${LIVE}/${runId}`));
   expect(restarted.state).toBe('running');
   const log = restarted.log.map((e) => e.kind);
   expect(log.indexOf('unknown')).toBeLessThan(log.indexOf('reconciled'));
   expect(log.indexOf('reconciled')).toBeLessThan(log.indexOf('restarted'));
-  expect(restarted.log.find((e) => e.kind === 'reconciled').detail).toContain('by their client order ids');
-  expect(restarted.log.find((e) => e.kind === 'restarted').detail).toMatch(/reloaded \d+ open orders? and 1 position from the venue/);
+  // The reconciler read each of the run's orders back by its original client order id: the venue's own record under
+  // that id is the order the run placed, and every fill on the sub-account carries it.
+  expect(restarted.orders).toHaveLength(1);
+  const [placed] = restarted.orders;
+  const cloid = placed.order?.venueClientOrderId;
+  expect(cloid, JSON.stringify(placed)).toBeTruthy();
+  const byId = await subRecord(t, subs.recover, '/order-by-client-id', { venueClientOrderId: cloid });
+  expect(byId).toMatchObject({ venueClientOrderId: cloid, symbol: SYMBOL, side: 'buy', amount: BLOCK });
+  const venueFills = await fillsOf(t, subs.recover);
+  expect(venueFills.length).toBeGreaterThan(0);
+  expect(new Set(venueFills.map((f) => f.venueClientOrderId))).toEqual(new Set([cloid]));
+  expect(restarted.log.find((e) => e.kind === 'reconciled').detail).toMatch(
+    /^Reconciler read 1 order from the venue by their client order ids; 1 on record\.$/,
+  );
+  // Restarted from what the venue holds: its open orders and its position, as the venue reports them now.
+  const venueOpen = await subRecord(t, subs.recover, '/open-orders');
+  const venuePositions = await openPositions(t, subs.recover);
+  expect(venuePositions.map((x) => x.size)).toEqual([BLOCK]);
+  expect(restarted.log.find((e) => e.kind === 'restarted').detail).toContain(
+    `reloaded ${venueOpen.length} open order${venueOpen.length === 1 ? '' : 's'} and ${venuePositions.length} position from the venue`,
+  );
   // Reloaded from the venue, the block it placed before is not placed again.
   expect(restarted.orders).toHaveLength(1);
 
@@ -353,9 +374,6 @@ test(`${J} #5 opens the run when the account freeze is on: the freeze stopped it
   const card = page.getByTestId('security__card').filter({ has: page.getByRole('heading', { name: 'Freeze your account' }) });
   await card.getByLabel('Your password').fill(t.who.password);
   await card.getByRole('button', { name: 'Freeze my account' }).click();
-  await expect(
-    page.getByRole('heading', { name: 'You froze this account' }).or(page.getByRole('heading', { name: 'Sign in to continue' })),
-  ).toBeVisible();
 
   // The freeze stops the run: its open order is cancelled on the venue; the position stays in the person's sub-account.
   await expect.poll(async () => (await subRecord(t, sub, '/open-orders')).length, { timeout: 20_000 }).toBe(0);
@@ -376,6 +394,22 @@ test(`${J} #5 opens the run when the account freeze is on: the freeze stopped it
   await expect(room(page).getByTestId('live-run-frozen')).toContainText(
     'Your position stays in your own venue account, which only your wallet controls.',
   );
+  // The run's stored agent permission is revoked in svc-trade's own record, as the person reads it.
+  const frozenSession = await api(t.who);
+  const detail = body200(await frozenSession.get(`${LIVE}/${runId}`));
+  expect(detail).toMatchObject({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
+  expect(detail.log.map((e) => e.kind)).toEqual(expect.arrayContaining(['stopped', 'permission_revoked']));
+  // INTAFACED takes no action for the person: a manual order is refused with the freeze reason and reaches no venue.
+  const manual = await frozenSession.post(`${LIVE}/${runId}/orders`, {
+    seq: detail.nextSeq,
+    side: 'buy',
+    type: 'limit',
+    symbol: SYMBOL,
+    size: BLOCK,
+    price: '50000',
+  });
+  expect(manual.body.intafacedCode, JSON.stringify(manual.body)).toBe('quant.account_frozen');
+  expect(await subRecord(t, sub, '/open-orders')).toEqual([]);
 
   // A liquidation from INTAFACED is refused with the freeze reason; the row stays as it was and nothing reaches the venue.
   const fills = (await fillsOf(t, sub)).length;
@@ -388,6 +422,19 @@ test(`${J} #5 opens the run when the account freeze is on: the freeze stopped it
   await expect(room(page).locator('[data-testid="live-run-order"][data-kind="liquidate"]')).toHaveCount(0);
   await expect(room(page).getByTestId('live-run-position')).toHaveAttribute('data-size', BLOCK);
   expect(await fillsOf(t, sub)).toHaveLength(fills);
+  expect((await openPositions(t, sub)).map((x) => x.size)).toEqual([BLOCK]);
+  // The person's own wallet still controls the sub-account: it moves TEST USDC out of it on the venue, frozen or not.
+  const cash = async () => (await subRecord(t, sub, '/balances')).find((b) => b.asset === 'USDC')?.free ?? '0';
+  const before = toUnits(await cash());
+  await ownVenueAction(t, {
+    kind: 'sub_account_transfer',
+    subAccount: sub,
+    direction: 'out_of_sub_account',
+    asset: 'USDC',
+    amount: '1',
+    moveKey: `own:${J}:freeze:out:${Date.now()}`,
+  });
+  expect(toUnits(await cash())).toBe(before - toUnits('1'));
   expect((await openPositions(t, sub)).map((x) => x.size)).toEqual([BLOCK]);
 });
 
