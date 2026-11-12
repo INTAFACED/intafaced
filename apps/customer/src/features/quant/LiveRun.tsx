@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
@@ -154,12 +154,24 @@ export function LiveRun({ runId }: { runId: string }) {
     `quant-live-run:${runId}:${revision}`,
   );
   const reload = () => setRevision((n) => n + 1);
+  // After an action the run is read again; until that answer comes, the room keeps showing the run as last read, so the
+  // controls stay mounted and their note ("Stopped…", "Order under sequence…") stays on screen.
+  const [shown, setShown] = useState<Detail | null>(null);
+  const ready = detail.resource.status === 'ready' ? detail.resource.data : null;
+  useEffect(() => {
+    if (ready) setShown(ready);
+  }, [ready]);
+  const current = ready ?? (detail.resource.status === 'loading' ? shown : null);
   return (
     <section aria-label={t('roomTitle')} data-testid="live-run">
       <p className="muted">{t('intro')}</p>
-      <Read resource={detail.resource} retry={detail.reload}>
-        {(d) => <RunBody d={d} onChange={reload} />}
-      </Read>
+      {current ? (
+        <RunBody d={current} onChange={reload} />
+      ) : (
+        <Read resource={detail.resource} retry={detail.reload}>
+          {(d) => <RunBody d={d} onChange={reload} />}
+        </Read>
+      )}
     </section>
   );
 }
