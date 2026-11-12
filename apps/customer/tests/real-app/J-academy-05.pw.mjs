@@ -61,6 +61,34 @@ const day = (iso) => new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone
 const setIssueRule = (mode, delayMinutes = null) =>
   staff('admin.setCertIssueRule', { certId: CERT, mode, delayMinutes, reason: `TEST ${J}: issue rule ${mode}` });
 
+/**
+ * XP awarded through svc-identity's one award door (`rank.awardXp`, service-signed), as the modules that earn XP call it.
+ * A TEST stand-in for activity elsewhere: one key per person and purpose, so a retry awards nothing more.
+ */
+async function awardXp(userId, xpDelta, purpose) {
+  const { ctx } = await founders();
+  const raw = JSON.stringify({
+    userId,
+    sourceModule: 'local-test-stack',
+    action: 'test.xp_elsewhere',
+    xpDelta,
+    idempotencyKey: `${J}:xp-elsewhere:${userId}:${purpose}`,
+  });
+  const res = await fetch(`${ctx.url('identity')}/trpc/rank.awardXp`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await res.json().catch(() => null);
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
 /** Founder A proposes, founder B approves, then A revokes: the two-founder rule for a revoke. */
 async function revoke(publicId) {
   const { gates, ctx, sessions, token } = await founders();
@@ -130,7 +158,18 @@ test(`${J} #1 the last required item completes the course; with a delay rule the
   const second = await context.newPage();
   const earner = await learnerUpToLast(second, 'ja5');
   const session = await api(earner.who);
+  // A TEST stand-in for the XP this learner earned elsewhere: it brings them to exactly the certificate's published XP
+  // short of their next rank, so step #5 can see the certificate raise the rank.
+  const foundationsXp = (await read(earner.who, 'certXpPlane')).policies.find((row) => row.certId === CERT)?.xpDelta;
+  expect(foundationsXp, 'the owner published an XP value for the Foundations certificate').toBeGreaterThan(0);
+  const fresh = (await session.get('/api/identity/trpc/rank.get')).body.result.data;
+  expect(fresh.nextRankAt, JSON.stringify(fresh)).not.toBeNull();
+  const topUp = Number(fresh.nextRankAt) - foundationsXp;
+  expect(topUp, JSON.stringify({ fresh, foundationsXp })).toBeGreaterThan(0);
+  await awardXp(fresh.userId, topUp, `${fresh.rank}`);
   const rankBefore = (await session.get('/api/identity/trpc/rank.get')).body.result.data;
+  expect(rankBefore.rank).toBe(fresh.rank);
+  expect(rankBefore.nextRankAt).toBe(String(foundationsXp));
   run.reset({
     waiting: waiting.who,
     earner: earner.who,
@@ -267,8 +306,10 @@ test(`${J} #4 the public verify page says valid with the issue date, revoked onc
 
 test(`${J} #5 after the certificate my rank shows the XP the owner published for it; no perk is invented and no balance moved`, async ({
   page,
+  browser,
 }) => {
-  const { earner, xpBefore, rankBefore, perksBefore, balancesBefore } = state('earner', 'rankBefore', 'perksBefore', 'balancesBefore');
+  test.setTimeout(180_000);
+  const { earner, xpBefore, rankBefore, balancesBefore } = state('earner', 'rankBefore', 'balancesBefore');
   await signIn(page, earner);
   const session = await api(earner);
   const rankNow = async () => (await session.get('/api/identity/trpc/rank.get')).body.result.data;
@@ -286,14 +327,25 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   const rank = await rankNow();
   expect(BigInt(rank.seasonXp) - BigInt(rankBefore.seasonXp)).toBe(BigInt(policy.xpDelta));
   const perks = await perksNow();
-  // The ladder stated, before the certificate, how much XP the next rank needs. This learner's XP stays short of it, so
-  // the rank number holds and the XP is all the certificate gave. No perk comes with a certificate: the perks are exactly
-  // the ones this rank held before.
-  expect(rankBefore.nextRankAt, JSON.stringify(rankBefore)).not.toBeNull();
-  expect(BigInt(policy.xpDelta) < BigInt(rankBefore.nextRankAt), JSON.stringify({ policy, rankBefore })).toBe(true);
-  expect(rank.rank).toBe(rankBefore.rank);
-  expect(rank.nextRankAt).toBe((BigInt(rankBefore.nextRankAt) - BigInt(policy.xpDelta)).toString());
-  expect(perks).toEqual(perksBefore);
+  // #1 left this learner exactly the certificate's XP short of the next rank, so the certificate raised the rank by one.
+  expect(rankBefore.nextRankAt).toBe(String(policy.xpDelta));
+  expect(rank.rank).toBe(rankBefore.rank + 1);
+  // No perk is invented: the raised rank holds exactly the perks identity gives that rank to a TEST person who reached it
+  // with XP from elsewhere and no certificate at all.
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  const other = await context.newPage();
+  const control = await signUp(other, 'ja5c');
+  await verify(other, control);
+  await signIn(other, control);
+  const controlSession = await api(control);
+  const controlRank = async () => (await controlSession.get('/api/identity/trpc/rank.get')).body.result.data;
+  for (let climbed = await controlRank(); climbed.rank < rank.rank; climbed = await controlRank()) {
+    expect(climbed.nextRankAt, JSON.stringify(climbed)).not.toBeNull();
+    await awardXp(climbed.userId, Number(climbed.nextRankAt), `control-${climbed.rank}`);
+  }
+  expect((await controlRank()).rank).toBe(rank.rank);
+  expect(perks).toEqual((await controlSession.get('/api/identity/trpc/rank.perks')).body.result.data);
+  await context.close();
 
   await page.goto('/academy/certificates');
   await certCard(page).getByRole('button', { name: 'View certificate', exact: true }).click();
@@ -310,7 +362,7 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   const whole = (n) => new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(BigInt(n));
   await expect(panel.locator('.rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
   await expect(lifetime).toHaveText(whole(rank.xp));
-  await expect(fee).toHaveText(`${perksBefore.feeDiscountBps / 100}%`);
+  await expect(fee).toHaveText(`${perks.feeDiscountBps / 100}%`);
 
   // With no published value: staff publish a programme of the course this learner finished, and the learner's programme
   // read issues its certificate. No XP value is published for it, so it gives no XP and no perk.
