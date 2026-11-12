@@ -525,6 +525,12 @@ test('J-charts-desk-03 #8 adds a price line at a level: a labelled line at that 
   const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
   const tick = markets.find((m) => m.symbol === 'BTC/USDT').precision.price;
   await openChart(page);
+  // The lines the drawing library itself holds, read back from each drawn line: its price and its title.
+  const drawnLines = async () =>
+    ((await host(page).getAttribute('data-drawn-price-lines')) ?? '')
+      .split('\n')
+      .filter(Boolean)
+      .map((entry) => ({ price: entry.split('|')[0], title: entry.split('|').slice(1).join('|') }));
   await page.getByRole('button', { name: 'Price line', exact: true }).click();
   const form = page.getByRole('form', { name: 'Add a price line' });
   // A price off the tick grid is refused by name and draws nothing. Built from the tick's own scale: the level with one
@@ -540,15 +546,23 @@ test('J-charts-desk-03 #8 adds a price line at a level: a labelled line at that 
   await form.getByRole('button', { name: 'Add line' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'whole multiple of the tick size' })).toBeVisible();
   await expect(host(page)).toHaveAttribute('data-price-lines', '');
+  expect(await drawnLines()).toEqual([]);
   // The level on the grid, with a label, draws one line at exactly that price.
   await form.getByLabel('Price').fill(level);
   await form.getByLabel('Label (optional)').fill('Support');
   await form.getByRole('button', { name: 'Add line' }).click();
   await expect(host(page)).toHaveAttribute('data-price-lines', level);
   await expect(page.getByRole('list', { name: 'Price lines' })).toContainText(`Support at ${level}`);
+  // The chart drew exactly one line, at exactly that price, titled with its label.
+  await expect.poll(drawnLines).toHaveLength(1);
+  const [line] = await drawnLines();
+  expect(Number(line.price)).toBe(Number(level));
+  expect(line.title).toBe('Support');
   // Kept for this market on this device; removing it takes it off the chart.
   await page.reload();
   await expect(host(page)).toHaveAttribute('data-price-lines', level);
+  await expect.poll(drawnLines).toEqual([{ price: line.price, title: 'Support' }]);
   await page.getByRole('button', { name: `Remove the line at ${level}` }).click();
   await expect(host(page)).toHaveAttribute('data-price-lines', '');
+  await expect.poll(drawnLines).toEqual([]);
 });
