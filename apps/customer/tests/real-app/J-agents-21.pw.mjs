@@ -349,7 +349,11 @@ async function assistantKey(which = 'first') {
   const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});
   const challenge = options.body?.result?.data?.challenge;
   expect(challenge, JSON.stringify(options.body).slice(0, 300)).toBeTruthy();
-  const asked = { name: 'TEST assistant', scopes: ['trade:read', 'trade:write'], kind: 'agent' };
+  const asked = {
+    name: which === 'first' ? 'TEST assistant' : `TEST assistant (${which})`,
+    scopes: ['trade:read', 'trade:write'],
+    kind: 'agent',
+  };
   const made = await session.post('/api/identity/trpc/developerKeys.create', {
     ...asked,
     requestId: `${J}:${target.accountId}:assistant-key`,
