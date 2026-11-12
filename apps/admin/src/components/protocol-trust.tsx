@@ -5,6 +5,7 @@ import { ADDRESS_LABEL_KINDS, type ProtocolComplianceReport } from '@intafaced/c
 import type { ProtocolAuditProducts } from '@intafaced/contracts/protocol-blockers';
 import type { TokensList } from '@intafaced/contracts/protocol-tokens';
 import { formatAsOf } from '@/lib/as-of';
+import { founderMutationHeaders } from '@/lib/founder-browser';
 import { TRUST_TABS, TRUST_TAB_WAITS, pendingReview, publishedWords, reportWords, type TrustTab } from '@/lib/protocol-trust/model';
 import './desk.css';
 
@@ -19,12 +20,14 @@ interface TrustRead {
 const tabId = (tab: TrustTab) => `trust-tab-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`;
 
 async function post(body: Record<string, string>): Promise<{ ok: boolean; message?: string }> {
+  let headers: Record<string, string>;
   try {
-    const res = await fetch('/api/protocol-ops/trust', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    headers = await founderMutationHeaders();
+  } catch (error) {
+    return { ok: false, message: `${(error as Error).message} Nothing was sent.` };
+  }
+  try {
+    const res = await fetch('/api/protocol-ops/trust', { method: 'POST', headers, body: JSON.stringify(body) });
     return (await res.json()) as { ok: boolean; message?: string };
   } catch {
     return { ok: false, message: 'The answer was lost. Reload to see what is stored; nothing is repeated automatically.' };
