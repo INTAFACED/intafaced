@@ -180,7 +180,7 @@ test(`${J} #4 a specialist room page shows its pinned lessons in the host's orde
     .getByRole('button', { name: openRoom(CLINIC), exact: true })
     .click();
   await expect(page.getByRole('heading', { level: 2, name: CLINIC.name, exact: true })).toBeVisible();
-  await expect(page.locator('[data-room-pinned-empty]')).toHaveText('The host has not pinned any lessons to this room yet.');
+  await expect(page.locator('[data-room-pinned-empty]')).toHaveText('This room has no pinned lessons.');
   await expect(page.locator('[data-room-pinned-lesson]')).toHaveCount(0);
   await expect(page.locator('[data-room-calendar-empty]')).toHaveText(
     'Nothing is on this room’s calendar: no session is scheduled or live.',

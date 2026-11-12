@@ -2,7 +2,7 @@ import { defineCopy } from '../../shared/i18n';
 
 const en = {
   pinnedTitle: 'Pinned lessons',
-  pinnedEmpty: 'The host has not pinned any lessons to this room yet.',
+  pinnedEmpty: 'This room has no pinned lessons.',
   pinnedMinutes: '{minutes} min',
   openLesson: 'Open lesson',
   unpin: 'Unpin',
@@ -26,7 +26,7 @@ const en = {
 
 const es: Record<keyof typeof en, string> = {
   pinnedTitle: 'Lecciones fijadas',
-  pinnedEmpty: 'El anfitrión aún no ha fijado lecciones en esta sala.',
+  pinnedEmpty: 'Esta sala no tiene lecciones fijadas.',
   pinnedMinutes: '{minutes} min',
   openLesson: 'Abrir lección',
   unpin: 'Quitar',
@@ -50,7 +50,7 @@ const es: Record<keyof typeof en, string> = {
 
 const fr: Record<keyof typeof en, string> = {
   pinnedTitle: 'Leçons épinglées',
-  pinnedEmpty: 'L’hôte n’a encore épinglé aucune leçon dans ce salon.',
+  pinnedEmpty: 'Ce salon n’a aucune leçon épinglée.',
   pinnedMinutes: '{minutes} min',
   openLesson: 'Ouvrir la leçon',
   unpin: 'Désépingler',

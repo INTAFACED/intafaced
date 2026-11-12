@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { z } from 'zod';
+import { academyCurriculumSummarySchema } from '@intafaced/contracts/academy-catalogue';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
@@ -8,15 +9,8 @@ import { academyRoomPageCopy as copy } from './academy-room-page-copy';
 import { lessonHref } from './AcademyLearning';
 import { Select, type ActionControls } from './common';
 
-/** A lesson as the room read hands it back: the catalogue's own summary. */
-export const pinnedLessonSchema = z.object({
-  slug: z.string(),
-  title: z.string(),
-  kind: z.string(),
-  path: z.string(),
-  summary: z.string(),
-  estimatedMinutes: z.number().int().positive(),
-});
+/** A lesson as the room read hands it back: the catalogue's own summary, as the contract declares it. */
+export const pinnedLessonSchema = academyCurriculumSummarySchema;
 type PinnedLesson = z.infer<typeof pinnedLessonSchema>;
 type CalendarSession = { id: string; title: string; status: 'scheduled' | 'live' | 'ended' | 'cancelled'; startsAt: string };
 
