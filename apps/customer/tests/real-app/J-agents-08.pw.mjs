@@ -5,7 +5,7 @@ import { agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
 import { api, toUnits } from './stack.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
-import { testDeposit, testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
+import { continueInWallet, testDeposit, testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-agents-08, in the running app (docs/roadmap/journeys.json): give an agent an allowance and access I can revoke, and
 // let it place an order I can see. One test per step, titled "J-agents-08 #<n>", run in order on one verified TEST
@@ -306,6 +306,7 @@ test(`${J} #4 grants an allowance with the amount blank, then TEST 20 for a week
   await form.getByRole('combobox', { name: 'Period' }).selectOption({ label: 'A week' });
   testWallet.rejectNext();
   await form.getByRole('button', { name: 'Grant allowance' }).click();
+  await continueInWallet(page);
   await expect(form.getByRole('alert')).toContainText('Your wallet rejected the signature, so nothing was sent.');
   expect(testWallet.requests).toHaveLength(1);
   expect(testWallet.requests[0].method).toBe('eth_signTypedData_v4');
@@ -315,6 +316,7 @@ test(`${J} #4 grants an allowance with the amount blank, then TEST 20 for a week
   // Again, signed: the venue holds the agent permission for svc-trade's key on sub-account A, and only there.
   const before = Date.now();
   await form.getByRole('button', { name: 'Grant allowance' }).click();
+  await continueInWallet(page);
   const row = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Active' });
   await expect(row).toHaveCount(1);
   await expect(row.getByTestId('allowance-left')).toHaveText('20 USDC left');
@@ -445,14 +447,20 @@ test(`${J} #7 revokes the allowance during a run: our copy of the agent key is d
     const row = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Active' });
     testWallet.rejectNext();
     await row.getByRole('button', { name: 'Revoke' }).click();
+    await continueInWallet(page);
     const revoked = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Revoked' });
     await expect(revoked).toContainText('the venue’s revoke waits for your wallet’s signature');
     expect(testWallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
     expect(await permissionsOnA()).toEqual([agentAddress]);
-    // The order already sent finishes, and is read back from the venue's own record by its client order id.
-    await expect(main(page).getByRole('status')).toContainText('Order placed on your account’s sub-account by the agent permission', {
-      timeout: 15_000,
-    });
+    // The order already sent: the venue holds it past svc-trade's 5 second wait, so the page says it was sent with no
+    // answer yet, and it is read back from the venue by its client order id, where it finished.
+    await expect(main(page).getByRole('status')).toContainText(
+      'The order was sent and the venue has not answered; it is read back by its id.',
+      {
+        timeout: 15_000,
+      },
+    );
+    await expect.poll(newOnes, { timeout: 15_000, intervals: [250] }).toEqual(['accepted']);
   } finally {
     await accountSwitch({ submitDelayMs: 0 });
   }
@@ -487,6 +495,7 @@ test(`${J} #7 revokes the allowance during a run: our copy of the agent key is d
   const revoked = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Revoked' });
   const signedBefore = testWallet.requests.length;
   await revoked.getByRole('button', { name: 'Sign the venue’s revoke' }).click();
+  await continueInWallet(page);
   await expect(revoked).not.toContainText('the venue’s revoke waits for your wallet’s signature');
   expect(testWallet.requests.length).toBe(signedBefore + 1);
   expect(testWallet.requests.at(-1).method).toBe('eth_signTypedData_v4');

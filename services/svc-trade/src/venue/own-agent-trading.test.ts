@@ -1,4 +1,5 @@
 import http from 'node:http';
+import Fastify from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -17,6 +18,7 @@ import { AgentAccountError, parseAgentAccountValues } from './agent-account.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryAllowanceStore } from './own-agent-allowance-store.js';
 import { FixedOwnAgentPolicy } from './own-agent-policy-client.js';
+import { attachOwnAgentTradingRoutes } from './own-agent-trading-rest.js';
 import { OwnAgentTrading, allowanceApproveKey, allowanceRevokeKey, ownAgentOrderKey, type AllowanceView } from './own-agent-trading.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
@@ -245,6 +247,41 @@ describe("a person's own agent trading their venue sub-account under an allowanc
     build(null);
     expect((await refusedAs(grant(uuid('a11')))).code).toBe('agents.policy_unavailable');
     expect(await allRows()).toEqual([]);
+  });
+
+  it('#4 #5 over REST: a blank amount in the JSON body refuses naming the field; a grant and a preview in decimal strings work', async () => {
+    const app = Fastify();
+    attachOwnAgentTradingRoutes(app, trading, {
+      requirePrincipal: () => person,
+      requireTradeJurisdiction: () => true,
+    } as unknown as Parameters<typeof attachOwnAgentTradingRoutes>[2]);
+    await app.ready();
+    try {
+      const url = `/api/v1/venue/own-agents/${AGENT}`;
+      const blank = await app.inject({
+        method: 'POST',
+        url: `${url}/allowances`,
+        payload: { allowanceId: uuid('a11'), owner, subAccount: subA.subAccount, amount: '', period: 'week' },
+      });
+      expect(blank.statusCode).toBe(422);
+      expect(blank.json()).toMatchObject({ intafacedCode: 'agents.allowance_amount_unset' });
+      expect(JSON.stringify(blank.json())).toContain('"field":"amount"');
+      expect(await allRows()).toEqual([]);
+      const granted = await app.inject({
+        method: 'POST',
+        url: `${url}/allowances`,
+        payload: { allowanceId: uuid('a11'), owner, subAccount: subA.subAccount, amount: '20', period: 'week' },
+      });
+      expect(granted.statusCode, granted.body).toBe(200);
+      const v = (await trading.list(person, AGENT))[0]!;
+      const signed = await trading.submit(person, AGENT, v.allowanceId, v.next!.actionKey, await sign(v.next!.prepared));
+      expect(signed.status).toBe('active');
+      const preview = await app.inject({ method: 'POST', url: `${url}/orders/preview`, payload: buy(uuid('0e')) });
+      expect(preview.statusCode, preview.body).toBe(200);
+      expect(preview.json()).toMatchObject({ symbol: 'BTC-USDC', side: 'buy', type: 'market', size: '0.0001', left: '20' });
+    } finally {
+      await app.close();
+    }
   });
 
   it('#5: a preview names side, market, type, size, price and the venue fee, and sends nothing', async () => {

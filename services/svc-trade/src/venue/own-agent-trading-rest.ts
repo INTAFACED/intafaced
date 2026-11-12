@@ -54,10 +54,12 @@ export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAg
     }
   }
 
-  function body<T = Record<string, unknown>>(req: FastifyRequest): T {
+  // The body as sent: amounts stay decimal strings, read by own-agent-trading.ts itself, so a blank amount is refused
+  // naming its field (#4) rather than as a malformed wire amount. Only a signature is decoded from the venue's wire.
+  function body(req: FastifyRequest): Record<string, unknown> {
     const raw = req.body ?? {};
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new VenueWireError('the body must be a JSON object');
-    return decodeVenueWire<T>(raw);
+    return raw as Record<string, unknown>;
   }
 
   type Agent = { Params: { agentId: string } };
@@ -79,7 +81,7 @@ export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAg
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => {
-      const b = body<{ actionKey?: string; signature?: VenueSignature }>(req);
+      const b = decodeVenueWire<{ actionKey?: string; signature?: VenueSignature }>(body(req));
       return t.submit(principal, req.params.agentId, req.params.id, b.actionKey, b.signature as VenueSignature);
     });
   });
