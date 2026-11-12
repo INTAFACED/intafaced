@@ -33,6 +33,18 @@ const form = (page) => page.getByRole('form', { name: 'Publish a signal' });
 const query = (path, input) => `/api/market/trpc/${path}?input=${encodeURIComponent(JSON.stringify(input))}`;
 const codeOf = (res) => res.body?.error?.data?.cause?.code ?? res.body?.error?.message;
 
+/**
+ * Presses Publish and returns svc-market's own answer to that press: its HTTP status and typed code. A refusal the
+ * screen drew without asking the service has no answer, so the wait fails.
+ */
+async function pressPublish(page) {
+  const answer = page.waitForResponse((r) => r.url().includes('/trpc/signals.publish') && r.request().method() === 'POST');
+  await form(page).getByRole('button', { name: 'Publish' }).click();
+  const res = await answer;
+  const body = await res.json().catch(() => null);
+  return { status: res.status(), code: codeOf({ body }) };
+}
+
 /** The provider's signals and vetting, as svc-market stores them. */
 async function mine(who) {
   const res = await (await api(who)).get(query('signals.mine', { limit: 50 }));
@@ -103,7 +115,8 @@ test(`${J} #1 publishes with the provider criteria blank: refused as criteria no
     await openPublish(page);
     await expect(page.getByText('Not set by the platform yet. Publishing is refused until it is.')).toBeVisible();
     await fill(page, { title: `TEST blank criteria ${provider.handle}`, fee: 'Free' });
-    await form(page).getByRole('button', { name: 'Publish' }).click();
+    // svc-market refuses it by name, not the screen.
+    expect(await pressPublish(page)).toEqual({ status: 412, code: 'market.provider_criteria_not_set' });
     await expect(form(page).getByRole('alert')).toContainText('Signal provider criteria are not set');
     await expect(form(page).getByRole('alert')).toContainText('Nothing was published.');
     // Nothing was written: no signal and no vetting.
@@ -166,13 +179,13 @@ test(`${J} #3 publishes free, monthly with a blank price, then profit share: fre
   await openPublish(page);
   const blank = `TEST blank price ${provider.handle}`;
   await fill(page, { title: blank, fee: 'Monthly fee', days: MONTH });
-  await form(page).getByRole('button', { name: 'Publish' }).click();
+  expect(await pressPublish(page)).toEqual({ status: 412, code: 'market.price_not_set' });
   await expect(form(page).getByRole('alert')).toContainText('Enter a price');
   await expect(form(page).getByRole('alert')).toContainText('A monthly fee needs its price. Nothing was published.');
 
   // A profit share is refused as forbidden.
   await form(page).getByRole('radio', { name: 'Profit share' }).check();
-  await form(page).getByRole('button', { name: 'Publish' }).click();
+  expect(await pressPublish(page)).toEqual({ status: 412, code: 'market.strategy_profit_share_forbidden' });
   await expect(form(page).getByRole('alert')).toContainText('A profit share isn’t allowed');
 
   const after = await mine(provider);
@@ -185,7 +198,7 @@ test(`${J} #4 tries a recurring subscription: refused as not built`, async ({ pa
   const { provider } = state('provider');
   await openPublish(page);
   await fill(page, { title: `TEST recurring ${provider.handle}`, fee: 'Recurring subscription' });
-  await form(page).getByRole('button', { name: 'Publish' }).click();
+  expect(await pressPublish(page)).toEqual({ status: 412, code: 'market.subscription_recurring_not_built' });
   await expect(form(page).getByRole('alert')).toContainText('Recurring subscriptions aren’t built');
   await expect(form(page).getByRole('alert')).toContainText('Nothing was published.');
   expect((await mine(provider)).signals.some((s) => s.title.startsWith('TEST recurring'))).toBe(false);
