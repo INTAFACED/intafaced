@@ -2094,6 +2094,10 @@ test('#1574 readGoing: the re-check leaves the seal alone while an input on the 
   ];
   going = await readGoing({ get, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }] });
   assert.deepEqual(going, []);
+  // The seal's own wait (settle false) counts that run as going until its Start the seal job has ended too, so that job's
+  // re-check finds the seal still waiting and leaves it: one verdict, not a re-run after it.
+  going = await readGoing({ get, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }], settle: false });
+  assert.deepEqual(going, ['the CI review run 2 (in_progress)']);
   assert.ok(reads.some((r) => r.includes('ci-review.yml/runs?head_sha=') && r.includes('event=pull_request_target')));
   // Planted: an unreadable list fails the re-check, never reads as nothing going.
   await assert.rejects(readGoing({ get: async () => ({}), repo: 'o/r', sha: HEAD, pulls: [] }), /not a list/);
@@ -2417,4 +2421,48 @@ test('judgeSteps: a named step that failed is yours; one with no finished run is
   assert.deepEqual(failed.kinds, ['yours']);
   const none = await judgeSteps({ sha: HEAD, repo: REPO, title: 'x: J-a-01 #1', body: '', runs: [], reportOf: reports({}) });
   assert.deepEqual(none.kinds, ['runner']);
+});
+
+// ---- No red while waiting (project-state OWNER 262 part 2): the seal waits in its job, then judges once -------------
+
+test('OWNER 262: the seal waits in its job while an input is going, and judges once none is', async () => {
+  const { waitStep, WAIT_STEP, WAIT_POLLS } = await import('./journey-seal.mjs');
+  const pull = { number: 3, state: 'open', head: { sha: HEAD } };
+  assert.equal(waitStep({ pull, sha: HEAD, going: ['CI run 1 (in_progress)'] }).act, 'wait');
+  assert.equal(waitStep({ pull, sha: HEAD, going: [] }).act, 'judge');
+  // Planted: a closed pull request or a moved head stops the wait, and the judging steps then say so (red, as before).
+  assert.equal(waitStep({ pull: { ...pull, state: 'closed' }, sha: HEAD, going: ['x'] }).act, 'judge');
+  assert.equal(waitStep({ pull: { ...pull, head: { sha: 'f'.repeat(40) } }, sha: HEAD, going: ['x'] }).act, 'judge');
+  // merge-seal.yml's step carries WAIT_STEP's name, runs before every judging step, and the job's limit covers the wait
+  // and the CI review's 20 minutes after it.
+  const yml = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
+  const seal = yml.slice(yml.indexOf('\n  seal:\n'));
+  const at = seal.indexOf(`- name: ${WAIT_STEP}\n`);
+  assert.ok(at > 0, 'the seal job has the wait step');
+  assert.match(seal.slice(at, seal.indexOf('\n      - ', at + 1)), /run: node tooling\/ci\/journey-seal\.mjs --wait-inputs\n/);
+  assert.ok(at < seal.indexOf('- name: Require CI'), 'it waits before judging');
+  assert.ok(Number(/\n    timeout-minutes: (\d+)/.exec(seal)?.[1]) >= WAIT_POLLS + 20 + 1);
+});
+
+test('OWNER 262: a re-check leaves a seal still waiting for its inputs alone, and waits out one already judging', async () => {
+  const { WAIT_STEP } = await import('./journey-seal.mjs');
+  const run = { id: 5, event: 'pull_request_target', status: 'in_progress' };
+  const J = (jobs) => new Map([['5', jobs]]);
+  const e = 'pull_request_target';
+  const sealJob = (steps) => ({ id: 9, name: SEAL, status: 'in_progress', steps });
+  const waiting = sealJob([
+    { name: 'Run actions/checkout', status: 'completed', conclusion: 'success' },
+    { name: WAIT_STEP, status: 'in_progress' },
+    { name: "Require CI's jobs on this exact head", status: 'queued' },
+  ]);
+  assert.equal(recheckStep([run], J([waiting]), e).act, 'done', 'still waiting: it reads the inputs itself');
+  const queuedWait = sealJob([{ name: WAIT_STEP, status: 'queued' }]);
+  assert.equal(recheckStep([run], J([queuedWait]), e).act, 'done', 'not yet at the wait');
+  // Planted: past its wait it may have read inputs before this change, so it is waited out and re-run, as before.
+  const judging = sealJob([
+    { name: WAIT_STEP, status: 'completed', conclusion: 'success' },
+    { name: "Require CI's jobs on this exact head", status: 'in_progress' },
+  ]);
+  assert.equal(recheckStep([run], J([judging]), e).act, 'wait');
+  assert.equal(recheckStep([run], J([sealJob(undefined)]), e).act, 'wait', 'a seal with no steps listed is waited out');
 });
