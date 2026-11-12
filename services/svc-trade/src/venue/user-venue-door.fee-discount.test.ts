@@ -87,6 +87,7 @@ describe('UserVenueDoor: our builder fee at the winning discount (J-campaigns-09
       store,
       stepUp: allowAll,
       builder: BUILDER,
+      slippageCapBps: null,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       ...(feeDiscounts ? { feeDiscounts } : {}),

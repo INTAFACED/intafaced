@@ -36,10 +36,11 @@ const DAY = 86_400_000;
 /** The TEST builder fee in force, and what each discount leaves of it (floored to the venue's tenth of a basis point). */
 const RATE = { full: '0.5', coupon: '0.2', rank: '0.4' };
 /**
- * A TEST market sell into the TEST bids (the TEST ladder's bids start at 59990), and a TEST limit sell resting inside the
- * spread, below the TEST asks (from 60010), so a buyer's sweep up to its price fills it.
+ * A TEST market sell into the TEST bids (the TEST ladder's bids start at 59990), its worst price inside the stack's TEST
+ * 50 bps price protection, and a TEST limit sell resting inside the spread, below the TEST asks (from 60010), so a
+ * buyer's sweep up to its price fills it.
  */
-const SELL = { amount: '0.001', worst: '50000' };
+const SELL = { amount: '0.001', worst: '59900' };
 const REST = { amount: '0.001', price: '60005' };
 
 test.describe.configure({ mode: 'default' });
