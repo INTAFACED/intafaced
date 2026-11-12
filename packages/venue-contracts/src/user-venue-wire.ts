@@ -94,6 +94,7 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'reportedAt',
   'preparedAt',
   'filledAt',
+  'settledAt',
   'validUntil',
   'since',
   'lastOracleUpdateAt',

@@ -422,6 +422,92 @@ describe('the agent account on the TEST venue', () => {
       code: 'agents.account_funding_asset',
     });
   });
+  describe("the person's own sub-account (J-portfolio-04 #2)", () => {
+    const createOwn = (name: string) =>
+      door.prepare(principal, {
+        owner,
+        signer: { role: 'owner', address: owner },
+        intent: { kind: 'create_sub_account', name, subAccountKey: `own:sub-account:${owner}:${name}` },
+      });
+    const moveOwn = (subAccount: string, amount: string, moveKey: string, direction = 'into_sub_account' as const) =>
+      door.prepare(principal, {
+        owner,
+        signer: { role: 'owner', address: owner },
+        intent: { kind: 'sub_account_transfer', subAccount, direction, asset: 'USDC', amount: a(amount), moveKey },
+      });
+    async function openOwn(name: string): Promise<string> {
+      const asked = await createOwn(name);
+      const sent = await door.submit(principal, asked.actionKey, await sign(asked.prepared));
+      expect(sent.outcome).toMatchObject({ definite: true, accepted: true });
+      return (sent.outcome as { venueRef: string }).venueRef;
+    }
+
+    it('opens one and moves into and out of it, each signed by the wallet on the main account; the venue records the move with its time', async () => {
+      const name = `TEST own ${id()}`;
+      const asked = await createOwn(name);
+      // A double press is the stored action: one wallet prompt.
+      expect((await createOwn(name)).reused).toBe(true);
+      const sent = await door.submit(principal, asked.actionKey, await sign(asked.prepared));
+      const sub = (sent.outcome as { venueRef: string }).venueRef;
+      expect((await sim.subAccounts(main())).value).toContainEqual({ subAccount: sub, name });
+      const subAccount = (): UserVenueAccount => ({ venueId: sim.venue.id, owner, subAccount: sub });
+      const before = await usdc(main());
+      const moveKey = `own:move:${owner}:${id()}`;
+      const into = await moveOwn(sub, '120', moveKey);
+      const moved = await door.submit(principal, into.actionKey, await sign(into.prepared));
+      expect(moved.outcome).toMatchObject({ definite: true, accepted: true });
+      expect(await usdc(main())).toBe(before - a('120'));
+      expect(await usdc(subAccount())).toBe(a('120'));
+      const record = (await sim.transfer(main(), into.prepared.nonce)).value!;
+      expect(record).toMatchObject({ subAccount: sub, direction: 'into_sub_account', asset: 'USDC', amount: a('120'), status: 'done' });
+      expect(record.settledAt).toBeInstanceOf(Date);
+      // Re-sent, the same bytes: the venue's first answer, nothing moves twice.
+      await door.submit(principal, into.actionKey, await sign(into.prepared));
+      expect(await usdc(subAccount())).toBe(a('120'));
+      const out = await moveOwn(sub, '20', `own:move:${owner}:${id()}`, 'out_of_sub_account');
+      await door.submit(principal, out.actionKey, await sign(out.prepared));
+      expect(await usdc(subAccount())).toBe(a('100'));
+      expect(await usdc(main())).toBe(before - a('100'));
+    });
+
+    it("refuses a move under an own key into an agent account's sub-account, before anything is stored or signed", async () => {
+      const v = await signAll(await create200());
+      const agentSub = v.subAccount!;
+      const moveKey = `own:move:${owner}:${id()}`;
+      await expect(moveOwn(agentSub, '10', moveKey)).rejects.toMatchObject({ code: 'trade.venue_sub_account_not_own' });
+      expect(await actions.find(USER, moveKey)).toBeNull();
+      // Nor one the venue never opened for this person at all.
+      await expect(moveOwn('0x00000000000000000000000000000000000000ab', '10', `own:move:${owner}:${id()}`)).rejects.toMatchObject({
+        code: 'trade.venue_sub_account_not_own',
+      });
+    });
+
+    it('a sub-account opened as your own but whose answer was lost is read back by its name, and a move into it goes on', async () => {
+      const name = `TEST lost ${id()}`;
+      const asked = await createOwn(name);
+      sim.switches.loseAnswers = 1;
+      const sent = await door.submit(principal, asked.actionKey, await sign(asked.prepared));
+      expect(sent.outcome.definite).toBe(false);
+      const sub = (await sim.subAccounts(main())).value.find((s) => s.name === name)!.subAccount;
+      const into = await moveOwn(sub, '5', `own:move:${owner}:${id()}`);
+      expect(into.prepared.intent).toMatchObject({ kind: 'sub_account_transfer', subAccount: sub });
+    });
+
+    it('an own key is for those two actions only, and a sub-account action under any other key is still refused', async () => {
+      await expect(
+        door.prepare(principal, {
+          owner,
+          signer: { role: 'owner', address: owner },
+          intent: { kind: 'approve_agent', agentAddress: '0x00000000000000000000000000000000000000e2', agentName: 'x', validUntil: null },
+          actionKey: `own:move:${owner}:${id()}`,
+        }),
+      ).rejects.toMatchObject({ code: 'trade.venue_own_key_misused' });
+      const sub = await openOwn(`TEST other ${id()}`);
+      // A move into your own sub-account under an own:sub-account key (the wrong one of the two), or under a plain key.
+      await expect(moveOwn(sub, '1', `own:sub-account:${owner}:wrong`)).rejects.toMatchObject({ code: 'trade.venue_agent_account_only' });
+      await expect(moveOwn(sub, '1', `move:${owner}:${id()}`)).rejects.toMatchObject({ code: 'trade.venue_agent_account_only' });
+    });
+  });
 });
 
 describe('the agent account posts nothing to the ledger (invariant)', () => {

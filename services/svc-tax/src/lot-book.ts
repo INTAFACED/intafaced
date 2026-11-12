@@ -82,6 +82,25 @@ export interface Inflow {
   readonly spaceId?: string;
 }
 
+/** A lot carried in from a book built apart (`buildLotBook`'s `carriedIn`): the carried part as the other book left it. */
+export interface CarriedLot {
+  readonly lotId: string;
+  readonly assetId: string;
+  readonly acquiredAt: Date;
+  readonly source: LotSource;
+  readonly reason: string;
+  readonly qty: Amount;
+  readonly costUsd: Amount | null;
+  readonly valuedAt: ValuedAt | null;
+  /** The move that brought it. */
+  readonly txId: string;
+  readonly movedAt: Date;
+  /** The lot it was split from; absent for a part no open lot covered. */
+  readonly from?: { readonly lotId: string; readonly txId: string; readonly movedAt: Date };
+  readonly customerEntered?: boolean;
+  readonly priceLotId?: string;
+}
+
 export interface BookAsset {
   readonly assetId: string;
   /** Quantity still open in main-account lots that the figures count. */
@@ -332,6 +351,11 @@ export function buildLotBook(input: {
   overridePricePerUnit?: ReadonlyMap<string, Amount>;
   /** Moves between the customer's own accounts: the lots go with the coins. */
   moves?: readonly OwnMove[];
+  /**
+   * Lots carried in from another of the person's own accounts whose book is built apart (a venue main account into its
+   * sub-account, venue-book.ts): each arrives at its move as that lot, with its acquired date and basis.
+   */
+  carriedIn?: readonly CarriedLot[];
   spaces?: BookSpaces;
   /** What each named space holds now, by coin, from its ledger history. Lots in a space are checked against it. */
   spaceHeld?: ReadonlyMap<string, ReadonlyMap<string, Amount>>;
@@ -389,6 +413,27 @@ export function buildLotBook(input: {
       reason: inflow.reason,
       valuedAt: inflow.valuedAt,
       ...(inflow.spaceId === undefined ? {} : { space: inflow.spaceId }),
+    });
+  }
+  for (const lot of input.carriedIn ?? []) {
+    if (PAR_ASSETS.has(lot.assetId.toUpperCase())) continue;
+    movements.push({
+      side: 'acquire',
+      txId: lot.txId,
+      postedAt: lot.movedAt,
+      assetId: lot.assetId,
+      qty: lot.qty,
+      costUsd: lot.costUsd,
+      source: lot.source,
+      reason: lot.reason,
+      valuedAt: lot.valuedAt,
+      carried: {
+        lotId: lot.lotId,
+        acquiredAt: lot.acquiredAt,
+        ...(lot.from === undefined ? {} : { from: lot.from }),
+        ...(lot.customerEntered ? { customerEntered: true } : {}),
+        ...(lot.priceLotId === undefined ? {} : { priceLotId: lot.priceLotId }),
+      },
     });
   }
   for (const move of input.moves ?? []) {

@@ -33,6 +33,7 @@ import {
   type ActionResult,
 } from '../../../features/trade/venue/VenueKit';
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
+import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { spotVenueCopy } from './venue-copy';
 
@@ -203,6 +204,9 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
       <WalletBar />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : <p className="muted">{v('Connect first')}</p>}
+      {owner ? (
+        <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
+      ) : null}
       <section className="dk-panel form-stack" aria-label={t('Order ticket')} data-testid="venue-ticket">
         <h2 className="dk-tab-title">{t('Order ticket')}</h2>
         <Tabs
