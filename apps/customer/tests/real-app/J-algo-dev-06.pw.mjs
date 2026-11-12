@@ -12,11 +12,10 @@ import { tapeWindow } from './tape.mjs';
 // gives this journey its passing verdict, the out-of-sample criteria are set wide (TEST) and put back as they were right
 // after; the gate's own criteria are TEST values this file sets and blanks again at its end. Every figure in Algo dev is
 // simulated; nothing here moves money. Step 4 (the risk disclosure) is deferred until launch prep (owner decision
-// 2026-10-27, OWNER 87). Steps whose slice is not built yet (#3 RC-algo-dev-01, #5 AL-risk-01, #6 to #8 AL-live-02, #9
-// AL-live-05) check their step's text with a short wait, so they fail fast and name what is missing.
+// 2026-10-27, OWNER 87). Steps #3 (RC-algo-dev-01), #5 (AL-risk-01), #6 to #8 (AL-live-02) and #9 (AL-live-05) are not
+// built yet: each slice adds its step's test, checking every clause of the step's words against the screen it builds.
 const J = 'J-algo-dev-06';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 const STRATEGY = 'TEST promotion strategy';
 
 test.describe.configure({ mode: 'default' });
@@ -282,61 +281,4 @@ test(`${J} #2 fixes the criteria and presses Promote again: the gate approves, o
     .getByRole('button', { name: /^Stop the paper run started / })
     .click();
   await expect(page.getByTestId('quant-paper-note')).toContainText('The paper run is stopped.');
-});
-
-test(`${J} #3 asks a second person on the account to approve the version before live: an approval request naming the version; a change voids it`, async ({
-  page,
-}) => {
-  await signIn(page, developer());
-  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId())}`);
-  const approval = page.getByTestId('quant-approval');
-  await expect(approval, `${J} #3 needs RC-algo-dev-01 (independent approval before live)`).toBeVisible(UNBUILT);
-  await approval.getByRole('button', { name: 'Ask for approval of version 1' }).click();
-  await expect(approval.getByTestId('quant-approval-request')).toHaveAttribute('data-version', '1');
-});
-
-test(`${J} #5 sets caps and turns the trading switch on: on only with every cap set and the wallet's signed approval; while live is off the screen says so`, async ({
-  page,
-}) => {
-  await signIn(page, developer());
-  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId())}`);
-  const risk = page.getByTestId('quant-risk-switch');
-  await expect(risk, `${J} #5 needs AL-risk-01 (strategy caps and the trading switch)`).toBeVisible(UNBUILT);
-  await expect(risk).toContainText('Live trading is off');
-});
-
-test(`${J} #6 opens the deploy wizard from the Bots room and runs the compile check: unsupported order types named; the TEST funding move stated`, async ({
-  page,
-}) => {
-  await signIn(page, developer());
-  await page.goto(`/trade/bots/new?from=${encodeURIComponent(strategyId())}`);
-  const wizard = page.getByTestId('quant-deploy-wizard');
-  await expect(wizard, `${J} #6 needs AL-live-02 (the deploy wizard)`).toBeVisible(UNBUILT);
-  await wizard.getByRole('button', { name: 'Run the compile check' }).click();
-  await expect(wizard.getByTestId('quant-deploy-funding')).toContainText('TEST');
-});
-
-test(`${J} #7 presses Deploy while live is off: a refusal that live is disabled and no intent row`, async ({ page }) => {
-  await signIn(page, developer());
-  await page.goto(`/trade/bots/new?from=${encodeURIComponent(strategyId())}`);
-  const wizard = page.getByTestId('quant-deploy-wizard');
-  await expect(wizard, `${J} #7 needs AL-live-02 (the deploy wizard)`).toBeVisible(UNBUILT);
-  await wizard.getByRole('button', { name: 'Deploy' }).click();
-  await expect(wizard.getByTestId('quant-deploy-refusal')).toHaveAttribute('data-code', 'quant.live_disabled');
-});
-
-test(`${J} #8 with live on in a test environment, deploys and crashes after the funding move is signed, then retries: one move only`, async ({
-  page,
-}) => {
-  await signIn(page, developer());
-  await page.goto(`/trade/bots/new?from=${encodeURIComponent(strategyId())}`);
-  await expect(page.getByTestId('quant-deploy-wizard'), `${J} #8 needs AL-live-02 (the deploy saga)`).toBeVisible(UNBUILT);
-});
-
-test(`${J} #9 opens the live results page: equity, holdings, orders and logs from the venue sub-account with an as-of time, next to the backtest`, async ({
-  page,
-}) => {
-  await signIn(page, developer());
-  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId())}/live`);
-  await expect(page.getByTestId('quant-live-results'), `${J} #9 needs AL-live-05 (the live results page)`).toBeVisible(UNBUILT);
 });
