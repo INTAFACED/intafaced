@@ -602,6 +602,8 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   expect(deposits.assets.length).toBeGreaterThan(0);
   for (const asset of deposits.assets) {
     expect(row(asset.assetId)).toMatchObject({ state: 'active', allowedActions: expect.arrayContaining(['deposit']) });
+    // Deposit's precision for the asset is the list's own, exactly.
+    expect(asset.precision, `Deposit's precision for ${asset.assetId}`).toBe(row(asset.assetId).precision);
     for (const network of asset.networks) {
       expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
       // Deposit's figure for the pair, its minimum, is written at the list's precision for that asset, never finer.
@@ -644,6 +646,13 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
           .filter({ hasText: /^Minimum deposit$/ })
           .locator('xpath=following-sibling::dd[1]'),
       ).toHaveText(`${grouped(network.minimumDeposit)} ${asset.assetId}`);
+      // And the page names the decimal places Deposit uses for the asset: the list's precision, exactly.
+      await expect(
+        page
+          .getByRole('term')
+          .filter({ hasText: /^Decimal places$/ })
+          .locator('xpath=following-sibling::dd[1]'),
+      ).toHaveText(String(row(asset.assetId).precision));
     }
   }
   await page.getByRole('link', { name: 'Supported assets and networks' }).click();
