@@ -1257,6 +1257,18 @@
           }
         },
         {
+          "name": "venueFundingHistory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/funding-history",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "funding-history"]
+            }
+          }
+        },
+        {
           "name": "venueBalances",
           "request": {
             "method": "GET",

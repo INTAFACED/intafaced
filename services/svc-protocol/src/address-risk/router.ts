@@ -1,10 +1,15 @@
 import { publicJurisdictionProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import {
+  protocolComplianceLabelApproveInputSchema,
+  protocolComplianceLabelAskInputSchema,
+  protocolComplianceReportsOutputSchema,
+  protocolComplianceReviewSchema,
   protocolAddressReportInputSchema,
   protocolAddressReportReceiptSchema,
   protocolAddressRiskInputSchema,
   protocolAddressRiskSchema,
 } from '@intafaced/contracts/protocol-address-risk';
+import { approveLabel, askLabel, ComplianceRefusedError, readQueue, type ComplianceStore } from './compliance.js';
 import { AddressReportRefusedError, readAddressRisk, REPORT_DUPLICATE, submitReport, type AddressRiskStore } from './risk.js';
 
 /**
@@ -61,5 +66,66 @@ export function createAddressReportsRouter(deps: AddressRiskDeps) {
           throw toTrpc(err);
         }
       }),
+  });
+}
+
+/**
+ * `compliance.*` (D-developer-compliance-01, J-dex-protocol-30 #1 #2): the operator queue. Reading is `admin:read`;
+ * asking for and approving a label is `admin:write`, and the person is always the session's, never the input's. The
+ * second reviewer must be a different person (`protocol.compliance.same_reviewer`).
+ */
+export interface ComplianceDeps {
+  chainId: () => number;
+  store: ComplianceStore;
+  now: () => Date;
+}
+
+function complianceTrpc(err: unknown): TRPCError {
+  if (err instanceof ComplianceRefusedError)
+    return new TRPCError({
+      code: err.code.endsWith('_unknown') ? 'NOT_FOUND' : 'CONFLICT',
+      message: `${err.code}: ${err.message}`,
+      cause: err,
+    });
+  return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Protocol request failed', cause: err });
+}
+
+const operatorGuards = { module: 'protocol', plane: 'protocol' } as const;
+
+export function createComplianceRouter(deps: ComplianceDeps) {
+  return router({
+    reports: router({
+      list: scopedProcedure('admin:read', operatorGuards)
+        .output(protocolComplianceReportsOutputSchema)
+        .query(async () => {
+          try {
+            return await readQueue(deps.store, deps.chainId(), deps.now());
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+    }),
+    labels: router({
+      ask: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolComplianceLabelAskInputSchema)
+        .output(protocolComplianceReviewSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await askLabel(deps.store, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      approve: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolComplianceLabelApproveInputSchema)
+        .output(protocolComplianceReviewSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await approveLabel(deps.store, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+    }),
   });
 }

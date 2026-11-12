@@ -16,6 +16,7 @@ import { openQuota } from './quota/open.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { openNotifyRepository } from './notify/open.js';
 import { sweepFillAlerts } from './notify/sweep.js';
+import { openLifecycleRepository } from './lifecycle/open.js';
 import { parseQuotaSeed } from './quota/quota.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -52,6 +53,7 @@ const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATA
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const lifecycle = openLifecycleRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const shares = openShareRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const notify = openNotifyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 
@@ -97,6 +99,7 @@ export const appRouter = createQuantRouter({
   templates: templates.repository,
   quota: quota.repository,
   notify: notify.repository,
+  lifecycle: lifecycle.repository,
   releaseNoteMax: env.QUANT_RELEASE_NOTE_MAX === undefined ? null : Number(env.QUANT_RELEASE_NOTE_MAX),
   share: {
     repository: shares.repository,
@@ -195,6 +198,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await disclosure.close();
       await templates.close();
       await quota.close();
+      await lifecycle.close();
       process.exit(0);
     })();
   });

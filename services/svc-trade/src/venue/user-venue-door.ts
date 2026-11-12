@@ -578,6 +578,32 @@ export class UserVenueDoor {
     return { ...read, value };
   }
 
+  /**
+   * The funding the venue published since `since` on the listed perpetual whose base asset is `base` (J-charts-desk-04 #6:
+   * a spot chart's funding study reads its asset's perpetual). Refuses `not_offered` when we list no perpetual on that
+   * asset or the venue (or its adapter) publishes no funding history; the venue's own refusals pass through.
+   */
+  async fundingHistory(base: string, since: Date) {
+    const venue = await this.venue();
+    const wanted = base.toUpperCase();
+    const perp = (await this.markets()).value.find((m) => m.kind === 'perpetual' && m.baseAsset.toUpperCase() === wanted);
+    if (!perp)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'not_offered',
+        detail: `no perpetual on ${wanted} is listed on this venue`,
+      });
+    if (!venue.fundingHistory)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: `this venue publishes no funding history` });
+    const read = await venue.fundingHistory(perp.symbol, since);
+    return {
+      ...read,
+      symbol: perp.symbol,
+      intervalSeconds: perp.funding.known ? perp.funding.value.intervalSeconds : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
   /** A new order our listing, routing state, dates or largest order refuse, as this door's typed refusal. */
   private async admitPlace(venueId: string, intent: PlaceUserOrderIntent): Promise<void> {
     try {

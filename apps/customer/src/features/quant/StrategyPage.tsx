@@ -15,6 +15,7 @@ import { useApi } from '../session/session';
 import { PaperRuns } from './PaperRuns';
 import { StrategyAlerts, StrategyChannels } from './StrategyNotify';
 import { QuantRooms } from './QuantRooms';
+import { StrategyLifecycle } from './StrategyLifecycle';
 import { strategyPageCopy } from './strategy-page-copy';
 import './algo.css';
 
@@ -50,6 +51,7 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
             <PaperRuns strategy={strategy} />
             <StrategyChannels strategy={strategy} />
             <StrategyAlerts strategy={strategy} />
+            <StrategyLifecycle strategy={strategy} />
           </>
         )}
       </Read>
