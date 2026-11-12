@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LedgerError, userAvailable } from '@intafaced/ledger-client';
 import {
+  allowedHistoryWithdrawalId,
   HISTORY_MAX_ENTRIES,
   HISTORY_PAGE_MAX_LIMIT,
   HistoryCursorInvalidError,
@@ -154,5 +155,17 @@ describe('history page cursor and input (pure)', () => {
 
   it('holds the owner identifier space like AccountRef does', () => {
     expect(() => historyPageInputSchema.parse({ ...base, ownerId: 'not-a-uuid' })).toThrow();
+  });
+});
+
+describe('allowedHistoryWithdrawalId (J-portfolio-03 #2)', () => {
+  it("echoes a withdrawal posting's own id and attempt, only on a ledger withdraw line and only in that shape", () => {
+    expect(allowedHistoryWithdrawalId('ledger', 'withdraw.held', 'abc-123:0')).toBe('abc-123:0');
+    expect(allowedHistoryWithdrawalId('ledger', 'withdraw.settled', 'abc-123:12')).toBe('abc-123:12');
+    expect(allowedHistoryWithdrawalId('ledger', 'deposit.credited', 'abc-123:0')).toBeNull();
+    expect(allowedHistoryWithdrawalId('trade', 'withdraw.held', 'abc-123:0')).toBeNull();
+    for (const raw of ['abc-123', 'abc 123:0', ':0', { id: 'x' }, 7, null, undefined, `${'a'.repeat(129)}:0`]) {
+      expect(allowedHistoryWithdrawalId('ledger', 'withdraw.held', raw)).toBeNull();
+    }
   });
 });

@@ -56,6 +56,7 @@ import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDire
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
+import type { TaxEffectMap } from './activity/tax-effects.js';
 import { StatementService } from './statements/statement-service.js';
 import { StatementJobService, type StatementJobsConfig } from './statements/statement-jobs.js';
 import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
@@ -99,6 +100,8 @@ export interface BankServices {
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
   readonly testPartner: TestPartner | null;
+  /** What each kind of activity line means for tax: the owner's map, the TEST one on a test stack, or null (refused). */
+  readonly taxEffects: TaxEffectMap | null;
   /** Who holds each person's bank money: the partner, or (null) the custodial layer. */
   readonly partnerCustody: PartnerCustody;
   /** Who credits a partner-held person's purchase and reports what it holds back of it (J-wallet-01 #3). */
@@ -208,6 +211,8 @@ export interface BankServiceOptions {
   onrampPartner?: OnrampPartner | null;
   /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
   testPartner?: TestPartner | null;
+  /** The tax-effect map (`activity/tax-effects.ts`). Unset: `activity.taxEffects` refuses by name. */
+  taxEffects?: TaxEffectMap | null;
   /**
    * The custody switch as svc-bank reads it (`LEDGER_CUSTODY_LAYER`, OWNER 226). A value passed in wins; otherwise the
    * live env, where unset is off. Off: every customer-balance post refuses `bank.no_partner_bank` before svc-ledger,
@@ -570,6 +575,7 @@ export function createBankServices(
   return {
     blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
+    taxEffects: options.taxEffects ?? null,
     spaces,
     sorter,
     billsPots,

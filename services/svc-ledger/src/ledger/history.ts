@@ -316,6 +316,18 @@ export function orderIdFromHoldPurpose(purpose: unknown): string | null {
 }
 
 /**
+ * A withdrawal posting's own `meta.withdrawalId` (`<withdrawal id>:<attempt>`, `recipes.withdrawHold`, `withdrawSettle`,
+ * `withdrawReverse`), echoed only on a `ledger / withdraw.*` line and only in that shape, else `null`. It names the page
+ * owner's own withdrawal (those recipes move one user's money), so the bank can ask the withdrawal's owner which address it
+ * went to (J-portfolio-03 #2). Meta is free-form and never leaves this door as-is.
+ */
+const WITHDRAWAL_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}:\d{1,9}$/;
+export function allowedHistoryWithdrawalId(module: string, reason: string, raw: unknown): string | null {
+  if (module !== 'ledger' || !reason.startsWith('withdraw.')) return null;
+  return typeof raw === 'string' && WITHDRAWAL_ID_PATTERN.test(raw) ? raw : null;
+}
+
+/**
  * ON A FILL, THE FEE. `tradeFill` and `marketMakerMakerFill` take each side's fee out of what that side receives and book
  * it to `houseFees('trade', <that asset>)` in the same transaction, leaving the fee leg out when it is zero. The page
  * owner's `available` line that receives a fill is that side's net amount, so its fee is the trade-fee leg of the SAME
@@ -339,6 +351,8 @@ export interface HistoryPageEntry extends HistoryEntry {
   readonly product: HistoryProduct | null;
   readonly orderId: string | null;
   readonly fee: Amount | null;
+  /** On a `ledger / withdraw.*` line, its `meta.withdrawalId` (see `allowedHistoryWithdrawalId`), else null. */
+  readonly withdrawalId: string | null;
 }
 
 export interface HistoryPage {
@@ -397,6 +411,7 @@ export function serializeHistoryPage(page: HistoryPage) {
       product: e.product,
       orderId: e.orderId,
       fee: e.fee === null ? null : formatAmount(e.fee),
+      withdrawalId: e.withdrawalId,
     })),
     nextCursor: page.nextCursor,
   };
