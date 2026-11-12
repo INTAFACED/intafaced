@@ -112,8 +112,11 @@ export const venueMarketSchema = z.object({
   contractSize: maybeKnown(decimalSchema),
   mark: maybeKnown(decimalSchema),
   funding: maybeKnown(z.object({ rate: signedDecimalSchema, intervalSeconds: z.number().int().positive(), nextFundingAt: isoTime })),
+  // The venue's own self-trade rule (J-cex-spot-03 #8); absent from an older door: read as not published.
+  selfTrade: maybeKnown(z.enum(['cancel_resting', 'cancel_new', 'cancel_both'])).optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
+export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
 /** A perpetual's funding as the venue publishes it (J-derivatives-01 #4). */
 export type VenueFunding = Extract<VenueMarket['funding'], { known: true }>['value'];
 /** A deployer's halt or a split that settled a market's positions, as the venue reports it (J-derivatives-27 #9 #10). */

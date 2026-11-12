@@ -76,6 +76,12 @@ export interface VenueSigner {
 
 export type VenueTimeInForce = 'GTC' | 'IOC' | 'ALO';
 
+/**
+ * What the venue does when a new order would trade against the same account's own resting order (J-cex-spot-03 #8):
+ * cancel the resting one, cancel the new one, or cancel both. A venue applies its own rule; none is chosen per order.
+ */
+export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -849,6 +855,11 @@ export interface UserVenueMarket {
   readonly contractSize: MaybeKnown<Amount>;
   readonly mark: MaybeKnown<Amount>;
   readonly funding: MaybeKnown<UserVenueFunding>;
+  /**
+   * The venue's own self-trade rule on this market, as it publishes it, or `known: false` (absent from an older venue:
+   * not published). Never our guess of what the venue does.
+   */
+  readonly selfTrade?: MaybeKnown<VenueSelfTradeMode>;
 }
 
 /** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */

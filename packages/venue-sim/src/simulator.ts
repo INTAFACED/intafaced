@@ -760,6 +760,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
+      // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
+      selfTrade: { known: true, value: 'cancel_resting' },
     }));
     return this.asOf(list);
   }
