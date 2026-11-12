@@ -19,6 +19,7 @@ import {
   type UserVenuePosition,
   type VenueSignature,
 } from '@intafaced/venue-contracts';
+import { assertPlaceEligible } from '../../spot/place-eligibility.js';
 import { agentAddressFor, agentKeyFor } from '../../venue/agent-key.js';
 import type { UserVenueDoor } from '../../venue/user-venue-door.js';
 import { AccountFreezeUnavailable, StrategySourceUnavailable, type AccountFreezeRead, type StrategySource } from './ports.js';
@@ -69,6 +70,7 @@ import {
 
 export type LiveRunCode =
   | 'quant.live_disabled'
+  | 'quant.not_eligible'
   | 'quant.heartbeat_interval_unset'
   | 'quant.restart_attempts_unset'
   | 'quant.restart_attempts_invalid'
@@ -138,6 +140,11 @@ export interface LiveRunsDeps {
   readonly values: LiveRunValues;
   readonly strategies: StrategySource | null;
   readonly freeze: AccountFreezeRead | null;
+  /**
+   * The person's verification tier as identity holds it now, read on every supervisor pass: a run never trades on the
+   * tier it started with. Throws when identity can't be asked; null means not wired, and then no run trades.
+   */
+  readonly liveTier: ((userId: string) => Promise<Principal['tier']>) | null;
   readonly now: () => Date;
 }
 
@@ -250,16 +257,35 @@ function toStep(v: Amount, step: Amount, dir: 'up' | 'down'): Amount {
 }
 
 /** The person this run belongs to, as the door knows them, for what the supervisor does with no request in hand. */
-function ownerPrincipal(userId: string): Principal {
+/**
+ * The supervisor's principal for one pass: the person's tier exactly as identity answered it for this pass
+ * (`LiveRunsDeps.liveTier`), never a tier made up here. A cancel takes `none`: taking risk off asks no trading level.
+ */
+function ownerPrincipal(userId: string, tier: Principal['tier']): Principal {
   return {
     sub: userId,
     userId,
     sid: `quant-live-supervisor:${userId}`,
     scopes: ['trade:read', 'trade:write'],
-    tier: 'basic',
+    tier,
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal;
+}
+
+/** Why `tier` may not trade from `region`, or null when it may (spot/place-eligibility.ts, as a signed-in order). */
+function eligibility(tier: Principal['tier'], region: string): string | null {
+  try {
+    assertPlaceEligible({ tier, region });
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : 'trading is not allowed';
+  }
+}
+
+function eligibleOrFail(tier: Principal['tier'], region: string): void {
+  const refusal = eligibility(tier, region);
+  if (refusal) fail('quant.not_eligible', `${refusal}; nothing was stored`, 403);
 }
 
 export class LiveRuns {
@@ -346,8 +372,10 @@ export class LiveRuns {
    * `signing` and the wallet is asked to sign the venue's agent permission for the run's key on that sub-account. The
    * same run id again is the same run.
    */
-  async start(principal: Principal, forwarded: Record<string, string>, req: Record<string, unknown>): Promise<LiveRunView> {
+  async start(principal: Principal, forwarded: Record<string, string>, req: Record<string, unknown>, region: string): Promise<LiveRunView> {
     const v = this.deps.values;
+    // The same level and region check as a signed-in order (assertPlaceEligible), before anything is stored.
+    eligibleOrFail(principal.tier, region);
     if (!v.enabled) fail('quant.live_disabled', 'live strategies are switched off on this deployment; nothing was stored', 409);
     if (v.heartbeatMs === null) {
       fail(
@@ -438,6 +466,7 @@ export class LiveRuns {
       strategyVersion,
       strategyName: version.name,
       venueId: venue.venue.id,
+      region,
       owner,
       subAccount,
       agentAddress: agentAddressFor(seed, principal.userId, `quant-live:${runId}`),
@@ -539,8 +568,10 @@ export class LiveRuns {
       };
     // A frozen person's stopped run keeps no permission either (J-wallet-13: every stored agent permission is revoked).
     if (r.permission === 'active' && !STOPPABLE.includes(r.state) && this.deps.freeze) {
-      const frozen = await this.deps.freeze.frozen(r.userId).catch(() => false);
-      if (frozen) r = await this.revokePermission(r);
+      // A freeze that can't be read is never read as not frozen: the permission stays as recorded, and the supervisor's
+      // pass holds the run and logs it (freeze_unread).
+      const frozen = await this.deps.freeze.frozen(r.userId).catch(() => null);
+      if (frozen === true) r = await this.revokePermission(r);
     }
     const venue = await this.venue();
     const orders: LiveOrderView[] = [];
@@ -1041,6 +1072,7 @@ export class LiveRuns {
     this.ticking = true;
     try {
       const frozen = new Map<string, boolean | null>();
+      const tiers = new Map<string, Principal['tier'] | null>();
       for (const r of await this.deps.store.listActive()) {
         try {
           await this.locked(r, async () => {
@@ -1053,10 +1085,28 @@ export class LiveRuns {
             // The freeze can't be read (identity down, refused, or not wired): this pass places nothing and restarts
             // nothing for the run, and says so once per outage. A live process keeps its heartbeat, so the outage alone
             // never spends a restart attempt.
-            if (isFrozen !== false) return this.freezeUnread(run);
-            this.unreadFreeze.delete(this.id(run));
-            if (this.workers.has(this.id(run)) && run.state === 'running') return this.step(run);
-            return this.recover(run);
+            if (isFrozen !== false)
+              return this.held(
+                run,
+                'freeze_unread',
+                'The account freeze could not be read, so the run places no order and restarts nothing until it can.',
+              );
+            // The person's level and the region recorded at the start, checked again on every pass as a signed-in order
+            // is: a tier that can't be read, or that no longer clears trading here, places nothing and restarts nothing.
+            if (!tiers.has(run.userId))
+              tiers.set(run.userId, this.deps.liveTier ? await this.deps.liveTier(run.userId).catch(() => null) : null);
+            const tier = tiers.get(run.userId) ?? null;
+            if (tier === null)
+              return this.held(
+                run,
+                'tier_unread',
+                'Your verification level could not be read, so the run places no order and restarts nothing until it can.',
+              );
+            const refusal = eligibility(tier, run.region);
+            if (refusal) return this.held(run, 'not_eligible', `${refusal}: the run places no order and restarts nothing while it stands.`);
+            this.heldFor.delete(this.id(run));
+            if (this.workers.has(this.id(run)) && run.state === 'running') return this.step(run, tier);
+            return this.recover(run, tier);
           });
         } catch (error) {
           process.stderr.write(
@@ -1069,23 +1119,20 @@ export class LiveRuns {
     }
   }
 
-  /** Run ids whose freeze read failed on the last pass, so the outage is logged once, not on every pass. */
-  private readonly unreadFreeze = new Set<string>();
+  /** Why each held run was last held, so a hold is logged once when it starts, not on every pass. */
+  private readonly heldFor = new Map<string, string>();
 
-  private async freezeUnread(r: LiveRunRecord): Promise<void> {
+  /** A pass that may not act for the run: nothing placed, nothing restarted; a live process keeps its heartbeat. */
+  private async held(r: LiveRunRecord, kind: string, message: string): Promise<void> {
     if (this.workers.has(this.id(r)) && r.state === 'running')
       await this.deps.store.beat(r.userId, r.runId, this.deps.now(), r.strategyState);
-    if (this.unreadFreeze.has(this.id(r))) return;
-    this.unreadFreeze.add(this.id(r));
-    await this.log(
-      r,
-      'freeze_unread',
-      'The account freeze could not be read, so the run places no order and restarts nothing until it can.',
-    );
+    if (this.heldFor.get(this.id(r)) === kind) return;
+    this.heldFor.set(this.id(r), kind);
+    await this.log(r, kind, message);
   }
 
   private async freezeStop(r: LiveRunRecord): Promise<void> {
-    const principal = ownerPrincipal(r.userId);
+    const principal = ownerPrincipal(r.userId, 'none');
     let n = 0;
     try {
       n = await this.cancelOpen(principal, r, `algo:stop:${r.runId}:freeze`);
@@ -1108,7 +1155,7 @@ export class LiveRuns {
   }
 
   /** The live process's step: its heartbeat, and the next order block of the plan not yet placed. */
-  private async step(r: LiveRunRecord): Promise<void> {
+  private async step(r: LiveRunRecord, tier: Principal['tier']): Promise<void> {
     const ticks = r.strategyState.ticks + 1;
     if (!(await this.deps.store.beat(r.userId, r.runId, this.deps.now(), { ticks }))) return;
     const orders = await this.deps.store.orders(r.userId, r.runId);
@@ -1117,7 +1164,7 @@ export class LiveRuns {
     const b = r.plan[next]!;
     const venue = await this.venue();
     const price = await this.worstPrice(venue, b.symbol, b.side);
-    const principal = ownerPrincipal(r.userId);
+    const principal = ownerPrincipal(r.userId, tier);
     try {
       const o = await this.place(
         principal,
@@ -1151,7 +1198,7 @@ export class LiveRuns {
    * A run no process here is running: once its heartbeat is older than the owner's interval it reads unknown; on the next
    * pass the reconciler reads its orders from the venue and it is restarted, or ended once its attempts are spent.
    */
-  private async recover(r: LiveRunRecord): Promise<void> {
+  private async recover(r: LiveRunRecord, tier: Principal['tier']): Promise<void> {
     const interval = this.deps.values.heartbeatMs;
     if (interval === null) return;
     const now = this.deps.now();
@@ -1168,7 +1215,7 @@ export class LiveRuns {
       // The next pass reconciles it: the run reads unknown, as it is, until then.
       return;
     }
-    const principal = ownerPrincipal(run.userId);
+    const principal = ownerPrincipal(run.userId, tier);
     // The reconciler: every order the run sent is read back from the venue by its original client order id, the
     // venue's answer standing over what was recorded before the process died.
     let read = 0;

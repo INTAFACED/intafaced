@@ -1385,7 +1385,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   });
   attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined }, agentOrders);
   attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
-  attachLiveRunRoutes(app, deps.liveRuns ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
+  attachLiveRunRoutes(app, deps.liveRuns ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {

@@ -567,6 +567,7 @@ const ownAgentTrading = userVenue
 // Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
 // from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
 // refuses every start. The supervisor watches every running run's heartbeat and recovers a dead process.
+const liveRunTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const liveRuns = userVenue
   ? new LiveRuns({
       door: userVenue,
@@ -577,6 +578,8 @@ const liveRuns = userVenue
       ),
       strategies: env.QUANT_URL.trim() ? createQuantStrategySource(env.QUANT_URL.trim()) : null,
       freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      // Read on every supervisor pass: a run never trades on the tier it started with (signals/live-tier.ts, as an alert).
+      liveTier: (userId) => liveRunTier.tierOf(userId),
       now: () => new Date(),
     })
   : null;

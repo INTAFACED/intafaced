@@ -53,6 +53,8 @@ export interface LiveRunRecord {
   readonly strategyVersion: number;
   readonly strategyName: string;
   readonly venueId: string;
+  /** The region the person started the run from: every supervisor pass checks trading is still allowed there. */
+  readonly region: string;
   readonly owner: string;
   readonly subAccount: string;
   readonly agentAddress: string;

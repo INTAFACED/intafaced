@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS trade.quant_live_runs (
   strategy_version integer NOT NULL CONSTRAINT quant_live_runs_version_ck CHECK (strategy_version > 0),
   strategy_name text NOT NULL,
   venue_id text NOT NULL,
+  -- The region the person started the run from; each supervisor pass checks trading is still allowed there.
+  region text NOT NULL CONSTRAINT quant_live_runs_region_ck CHECK (length(btrim(region)) > 0),
   owner text NOT NULL CONSTRAINT quant_live_runs_owner_ck CHECK (owner ~ '^0x[0-9a-f]{40}$'),
   sub_account text NOT NULL CONSTRAINT quant_live_runs_sub_ck CHECK (sub_account ~ '^0x[0-9a-f]{40}$'),
   agent_address text NOT NULL CONSTRAINT quant_live_runs_agent_ck CHECK (agent_address ~ '^0x[0-9a-f]{40}$'),

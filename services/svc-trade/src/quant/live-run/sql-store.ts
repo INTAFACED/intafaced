@@ -19,6 +19,7 @@ interface RunRow {
   strategy_version: number;
   strategy_name: string;
   venue_id: string;
+  region: string;
   owner: string;
   sub_account: string;
   agent_address: string;
@@ -59,7 +60,7 @@ interface OrderRow {
 }
 
 const RUN_COLUMNS =
-  'user_id, run_id, strategy_id, strategy_version, strategy_name, venue_id, owner, sub_account, agent_address, asset, cap, plan, restart_attempts, state_policy, live_control, state, end_reason, permission, restarts, next_seq, strategy_state, heartbeat_at, stop_seq, created_at, started_at, stopped_at';
+  'user_id, run_id, strategy_id, strategy_version, strategy_name, venue_id, region, owner, sub_account, agent_address, asset, cap, plan, restart_attempts, state_policy, live_control, state, end_reason, permission, restarts, next_seq, strategy_state, heartbeat_at, stop_seq, created_at, started_at, stopped_at';
 const ORDER_COLUMNS =
   'user_id, run_id, seq, action_key, kind, block, symbol, side, order_type, size, price, reduce_only, state, created_at';
 
@@ -70,6 +71,7 @@ const runOf = (r: RunRow): LiveRunRecord => ({
   strategyVersion: r.strategy_version,
   strategyName: r.strategy_name,
   venueId: r.venue_id,
+  region: r.region,
   owner: r.owner,
   subAccount: r.sub_account,
   agentAddress: r.agent_address,
@@ -145,10 +147,10 @@ export class SqlLiveRunStore implements LiveRunStore {
   async insertOnce(r: LiveRunRecord) {
     await this.sql`
       INSERT INTO trade.quant_live_runs
-        (user_id, run_id, strategy_id, strategy_version, strategy_name, venue_id, owner, sub_account, agent_address, asset, cap,
+        (user_id, run_id, strategy_id, strategy_version, strategy_name, venue_id, region, owner, sub_account, agent_address, asset, cap,
          plan, restart_attempts, state_policy, live_control, state, end_reason, permission, restarts, next_seq, strategy_state,
          heartbeat_at, stop_seq, created_at, started_at, stopped_at)
-      VALUES (${r.userId}, ${r.runId}, ${r.strategyId}, ${r.strategyVersion}, ${r.strategyName}, ${r.venueId}, ${r.owner},
+      VALUES (${r.userId}, ${r.runId}, ${r.strategyId}, ${r.strategyVersion}, ${r.strategyName}, ${r.venueId}, ${r.region}, ${r.owner},
         ${r.subAccount}, ${r.agentAddress}, ${r.asset}, ${formatAmount(r.cap)}, ${this.sql.json(planOnWire(r.plan))},
         ${r.restartAttempts}, ${r.statePolicy}, ${r.liveControl}, ${r.state}, ${r.endReason}, ${r.permission}, ${r.restarts},
         ${r.nextSeq}, ${this.sql.json(r.strategyState)}, ${r.heartbeatAt}, ${r.stopSeq}, ${r.createdAt}, ${r.startedAt},

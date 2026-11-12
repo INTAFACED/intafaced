@@ -109,6 +109,8 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
   let door: UserVenueDoor;
   let store: InMemoryLiveRunStore;
   let freeze: MemoryFreezeRead;
+  /** The person's tier as the TEST identity answers it now; null: identity can't be asked. */
+  let tier: Principal['tier'] | null;
   let runs: LiveRuns;
   let sub: UserVenueAccount;
   let venueDown = false;
@@ -146,7 +148,19 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     });
     store = new InMemoryLiveRunStore();
     freeze = new MemoryFreezeRead();
-    runs = new LiveRuns({ door, store, values: parseLiveRunValues(env, AGENT), strategies, freeze, now });
+    tier = 'basic';
+    runs = new LiveRuns({
+      door,
+      store,
+      values: parseLiveRunValues(env, AGENT),
+      strategies,
+      freeze,
+      liveTier: async () => {
+        if (tier === null) throw new Error('TEST: identity down');
+        return tier;
+      },
+      now,
+    });
   }
 
   let k = 0;
@@ -185,7 +199,7 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
 
   /** A run whose agent permission the wallet signed, after its first step placed the plan's block (a long position). */
   async function live(over: Record<string, unknown> = {}): Promise<LiveRunView> {
-    let v = await runs.start(person, {}, terms(over));
+    let v = await runs.start(person, {}, terms(over), 'DE');
     expect(v.state).toBe('signing');
     v = await runs.submit(person, v.runId, v.next!.actionKey, await sign(v.next!.prepared));
     expect(v.state).toBe('running');
@@ -197,15 +211,15 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
 
   it('refuses a start with live off, the heartbeat interval blank, the restart attempts blank or a signal strategy, storing nothing', async () => {
     build({});
-    expect((await refused(runs.start(person, {}, terms()))).code).toBe('quant.live_disabled');
+    expect((await refused(runs.start(person, {}, terms(), 'DE'))).code).toBe('quant.live_disabled');
     build({ TRADE_QUANT_LIVE: 'on' });
-    expect((await refused(runs.start(person, {}, terms()))).code).toBe('quant.heartbeat_interval_unset');
+    expect((await refused(runs.start(person, {}, terms(), 'DE'))).code).toBe('quant.heartbeat_interval_unset');
     build();
-    const blank = await refused(runs.start(person, {}, terms({ restartAttempts: '' })));
+    const blank = await refused(runs.start(person, {}, terms({ restartAttempts: '' }), 'DE'));
     expect(blank.code).toBe('quant.restart_attempts_unset');
     expect(blank.detail).toEqual({ field: 'restartAttempts' });
-    expect((await refused(runs.start(person, {}, terms({ strategyId: 'signal' })))).code).toBe('quant.live_plan_unsupported');
-    expect((await refused(runs.start(person, {}, terms({ strategyId: 'missing' })))).code).toBe('quant.studio_not_found');
+    expect((await refused(runs.start(person, {}, terms({ strategyId: 'signal' }), 'DE'))).code).toBe('quant.live_plan_unsupported');
+    expect((await refused(runs.start(person, {}, terms({ strategyId: 'missing' }), 'DE'))).code).toBe('quant.studio_not_found');
     expect(await store.listForUser(USER)).toEqual([]);
   });
 
@@ -346,7 +360,7 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
   });
 
   it('a freeze that cannot be read places nothing and restarts nothing, logged once; once read again the run trades', async () => {
-    let v = await runs.start(person, {}, terms());
+    let v = await runs.start(person, {}, terms(), 'DE');
     v = await runs.submit(person, v.runId, v.next!.actionKey, await sign(v.next!.prepared));
     expect(v.state).toBe('running');
     freeze.down = true;
@@ -366,6 +380,42 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     freeze.down = false;
     await runs.tick();
     expect((await store.find(USER, v.runId))!.state).toBe('unknown');
+  });
+
+  it('a start below the trading level or from a region trading is refused in is refused by name and stores nothing', async () => {
+    const low = { ...person, tier: 'none' } as Principal;
+    expect((await refused(runs.start(low, {}, terms(), 'DE'))).code).toBe('quant.not_eligible');
+    expect((await refused(runs.start(person, {}, terms(), 'KP'))).code).toBe('quant.not_eligible');
+    expect(await store.listForUser(USER)).toEqual([]);
+  });
+
+  it('each pass trades on the tier identity holds now: a tier withdrawn or unreadable places nothing, logged once', async () => {
+    let v = await runs.start(person, {}, terms(), 'DE');
+    v = await runs.submit(person, v.runId, v.next!.actionKey, await sign(v.next!.prepared));
+    tier = 'none';
+    await runs.tick();
+    await runs.tick();
+    expect(await store.orders(USER, v.runId)).toEqual([]);
+    expect((await store.events(USER, v.runId)).filter((e) => e.kind === 'not_eligible')).toHaveLength(1);
+    tier = null;
+    await runs.tick();
+    expect(await store.orders(USER, v.runId)).toEqual([]);
+    expect((await store.events(USER, v.runId)).filter((e) => e.kind === 'tier_unread')).toHaveLength(1);
+    expect((await store.find(USER, v.runId))!).toMatchObject({ state: 'running', restarts: 0 });
+    tier = 'basic';
+    await runs.tick();
+    expect(await store.orders(USER, v.runId)).toHaveLength(1);
+    expect(await positions()).toHaveLength(1);
+  });
+
+  it('a stopped run keeps its recorded permission while the freeze cannot be read, never read as not frozen', async () => {
+    const v = await live();
+    await runs.stop(person, v.runId, { seq: 1 });
+    freeze.frozenUsers.add(USER);
+    freeze.down = true;
+    expect((await runs.get(person, v.runId)).permission).toBe('active');
+    freeze.down = false;
+    expect((await runs.get(person, v.runId)).permission).toBe('revoked');
   });
 
   it("another person's run answers as a missing one; the plain door refuses a run's keys", async () => {

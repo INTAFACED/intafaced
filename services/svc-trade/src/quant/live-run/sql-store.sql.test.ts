@@ -38,6 +38,7 @@ const run = (): LiveRunRecord => ({
   strategyVersion: 1,
   strategyName: 'TEST trend',
   venueId: 'test-venue',
+  region: 'DE',
   owner: '0x00000000000000000000000000000000000000a1',
   subAccount: '0x00000000000000000000000000000000000000a2',
   agentAddress: '0x00000000000000000000000000000000000000a3',

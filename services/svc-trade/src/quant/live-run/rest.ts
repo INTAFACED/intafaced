@@ -47,7 +47,11 @@ function forwardedOf(req: FastifyRequest): Record<string, string> {
   return { [EDGE_PRINCIPAL_HEADER]: raw, [EDGE_SIGNATURE_HEADER]: sig, 'x-intafaced-region': h('x-intafaced-region') ?? 'XX' };
 }
 
-export function attachLiveRunRoutes(app: FastifyInstance, runs: LiveRuns | null, deps: UserVenueRestDeps): void {
+export function attachLiveRunRoutes(
+  app: FastifyInstance,
+  runs: LiveRuns | null,
+  deps: UserVenueRestDeps & { readonly regionOf: (req: FastifyRequest) => string },
+): void {
   async function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Promise<Principal | null> {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
@@ -92,7 +96,7 @@ export function attachLiveRunRoutes(app: FastifyInstance, runs: LiveRuns | null,
   app.post(LIVE_RUNS_PATH, privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
-    return answer(reply, async (r) => r.start(principal, forwardedOf(req), body(req)));
+    return answer(reply, async (r) => r.start(principal, forwardedOf(req), body(req), deps.regionOf(req)));
   });
 
   app.get<Run>(`${LIVE_RUNS_PATH}/:id`, privateRead, async (req, reply) => {
