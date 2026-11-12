@@ -45,6 +45,9 @@ describe.skipIf(!ready)('strategy notify store on Postgres (AL-live-06, AL-alert
     await repo.saveSettings({ accountId: ACCOUNT_A, strategyId: 's1', channels: ['inapp', 'email'] });
     await repo.saveSettings({ accountId: ACCOUNT_A, strategyId: 's1', channels: ['inapp'] });
     expect((await repo.settings({ accountId: ACCOUNT_A, strategyId: 's1' }))?.channels).toEqual(['inapp']);
+    // Stored as a jsonb array, not a string holding one.
+    const [stored] = await sql.unsafe(`SELECT jsonb_typeof(channels) AS kind FROM "${SCHEMA}"."strategy_notify" WHERE strategy_id = 's1'`);
+    expect(stored!.kind).toBe('array');
     expect(await repo.settings({ accountId: ACCOUNT_B, strategyId: 's1' })).toBeNull();
   });
 

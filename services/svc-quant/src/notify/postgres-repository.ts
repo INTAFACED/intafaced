@@ -40,7 +40,9 @@ function alertOf(row: AlertSql): StoredAlert {
 }
 
 function channelsOf(value: unknown): QuantNotifyChannel[] {
-  const list = Array.isArray(value) ? value : [];
+  // jsonb comes back parsed; a driver that hands back its text is parsed here, so a saved list never reads as empty.
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  const list = Array.isArray(parsed) ? parsed : [];
   return QUANT_NOTIFY_CHANNELS.filter((channel) => list.includes(channel));
 }
 
@@ -62,7 +64,7 @@ export function createPostgresNotifyRepository(sql: Sql, schema = 'quant'): Noti
     async saveSettings({ accountId, strategyId, channels }) {
       const rows = await query<{ channels: unknown; updated_at: Date | string }>(
         `INSERT INTO ${settings} (account_id, strategy_id, channels, updated_at)
-         VALUES ($1::uuid, $2, $3::jsonb, now())
+         VALUES ($1::uuid, $2, $3::text::jsonb, now())
          ON CONFLICT (account_id, strategy_id) DO UPDATE SET channels = EXCLUDED.channels, updated_at = EXCLUDED.updated_at
          RETURNING channels, updated_at`,
         [accountId, strategyId, JSON.stringify(channels)],
