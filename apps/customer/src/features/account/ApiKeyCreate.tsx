@@ -21,6 +21,22 @@ import {
   type Preset,
 } from './developer-keys-api';
 
+const PRESETS: readonly Preset[] = ['read', 'trade', 'lead', 'copy', 'custom'];
+const PRESET_LABEL: Record<Preset, ApiKeysCopyKey> = {
+  read: 'presetRead',
+  trade: 'presetTrade',
+  lead: 'presetLead',
+  copy: 'presetCopy',
+  custom: 'presetCustom',
+};
+const PRESET_SUMMARY: Record<Preset, ApiKeysCopyKey> = {
+  read: 'presetSummaryRead',
+  trade: 'presetSummaryTrade',
+  lead: 'presetSummaryLead',
+  copy: 'presetSummaryCopy',
+  custom: 'presetSummaryCustom',
+};
+
 /** `subaccounts` null: they could not be read, so the form makes a key for this account only and says so. */
 type Ready = { keys: ApiKeyList['keys']; scopes: ApiKeyScopeEntry[]; subaccounts: Subaccount[] | null };
 
@@ -188,8 +204,7 @@ export function ApiKeyCreate() {
     }
   }
 
-  const summary: ApiKeysCopyKey =
-    preset === 'read' ? 'presetSummaryRead' : preset === 'trade' ? 'presetSummaryTrade' : 'presetSummaryCustom';
+  const summary: ApiKeysCopyKey = PRESET_SUMMARY[preset];
   return (
     <div className="api-keys" lang={languageFor('formTitle')}>
       <header className="api-keys__head">
@@ -243,10 +258,10 @@ export function ApiKeyCreate() {
         <fieldset className="api-keys__scopes">
           <legend>{t('permissions')}</legend>
           <div className="api-keys__presets" role="radiogroup" aria-label={t('permissions')}>
-            {(['read', 'trade', 'custom'] as const).map((choice) => (
+            {PRESETS.map((choice) => (
               <label key={choice}>
                 <input type="radio" name="preset" checked={preset === choice} onChange={() => choose(choice)} />
-                <span>{t(choice === 'read' ? 'presetRead' : choice === 'trade' ? 'presetTrade' : 'presetCustom')}</span>
+                <span>{t(PRESET_LABEL[choice])}</span>
               </label>
             ))}
           </div>

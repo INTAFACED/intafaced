@@ -170,6 +170,9 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.key_expiry_invalid': 'Choose an end date in the future.',
   'identity.key_cap_unset': 'API keys cannot be made yet. The number of keys an account may hold is not set.',
   'identity.key_signing_unset': 'Keys that place orders cannot be made yet. They sign every request, and request signing is not set up.',
+  'identity.key_lead_not_approved': 'A lead trading key is only for an approved lead. Apply to lead first; nothing was created.',
+  'identity.key_lead_check_unavailable':
+    'Whether this account is an approved lead could not be checked just now, so no lead trading key was created. Try again.',
   'identity.key_cap_reached': 'This account holds as many API keys as it may. Revoke one to make another.',
   'identity.key_account_required': 'An organisation key must name the account it reaches.',
   'identity.key_account_denied': 'That account is not one of your live sub-accounts.',
