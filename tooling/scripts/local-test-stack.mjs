@@ -92,7 +92,7 @@ import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
 import matching from './local-stack-services/matching.mjs';
 import miningPool from './local-stack-services/mining-pool.mjs';
-import notify from './local-stack-services/notify.mjs';
+import notify, { NOTIFY_EMPTY_NOTICES_DB, notifyNoticesOff, onEmptyNoticesDb } from './local-stack-services/notify.mjs';
 import ops from './local-stack-services/ops.mjs';
 import p2p from './local-stack-services/p2p.mjs';
 import pay from './local-stack-services/pay.mjs';
@@ -1291,6 +1291,33 @@ const supportCatalogueWanted = () => (supportCatalogueOff() ? 'off' : 'on');
  */
 const keepSupportEmptyCatalogue = () => process.env.LOCAL_STACK_SUPPORT_CATALOGUE_KEEP === 'on' && supportCatalogueWas() === 'off';
 
+/**
+ * The empty notice board's database (local-stack-services/notify.mjs), made new on every start of notify with
+ * LOCAL_STACK_NOTIFY_NOTICES=off: dropped, created, given svc-notify's schema and migrated as svc_notify, so it holds
+ * svc-notify's tables and no notice. svc-notify is stopped by then (start migrates only what is about to start), so
+ * nothing holds a connection to it. The stack's own database is never touched.
+ */
+async function resetNotifyEmptyNotices(secrets) {
+  psql(secrets, `DROP DATABASE IF EXISTS ${NOTIFY_EMPTY_NOTICES_DB} WITH (FORCE)`);
+  psql(secrets, `CREATE DATABASE ${NOTIFY_EMPTY_NOTICES_DB}`);
+  psql(
+    secrets,
+    `CREATE EXTENSION IF NOT EXISTS citext; CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA IF NOT EXISTS notify AUTHORIZATION svc_notify;
+GRANT USAGE ON SCHEMA public TO svc_notify;`,
+    { db: NOTIFY_EMPTY_NOTICES_DB },
+  );
+  await runPnpmAsync(['--filter', '@intafaced/svc-notify', 'db:migrate'], 'migrate-notify-empty-notices', {
+    DATABASE_URL: onEmptyNoticesDb(dbUrl('svc_notify', secrets)),
+  });
+  say(`  notify: empty notice board on ${NOTIFY_EMPTY_NOTICES_DB} (LOCAL_STACK_NOTIFY_NOTICES=off), made new`);
+}
+
+/** Which database the running svc-notify is on: 'off' (the empty notice board's) or 'on' (the stack's). */
+const notifyNoticesFile = () => path.join(STATE, 'notify-notices');
+const notifyNoticesWas = () => (fs.existsSync(notifyNoticesFile()) ? fs.readFileSync(notifyNoticesFile(), 'utf8').trim() : 'on');
+const notifyNoticesWanted = () => (notifyNoticesOff() ? 'off' : 'on');
+
 // ── Service definitions ─────────────────────────────────────────────────────
 
 // Placeholder secrets used only to list names, ports and URLs (plan / health table). Never reaches a process.
@@ -2311,6 +2338,9 @@ async function cmdStart(flags) {
   // (a journey that switched it off and never switched it back, say): it is never left reading the wrong book.
   if (wanted.some((d) => d.name === 'support') && ownedAlive(readProcs().support) && supportCatalogueWas() !== supportCatalogueWanted())
     await cmdStop(['support']);
+  // The same for svc-notify and the empty notice board.
+  if (wanted.some((d) => d.name === 'notify') && ownedAlive(readProcs().notify) && notifyNoticesWas() !== notifyNoticesWanted())
+    await cmdStop(['notify']);
   const procsNow = readProcs();
   const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
   // An old build never serves a schema migrated past it: stop it before its migrations run.
@@ -2322,6 +2352,8 @@ async function cmdStart(flags) {
   if (supportCatalogueOff() && !keepSupportEmptyCatalogue() && toStart.some((d) => d.name === 'support'))
     await resetSupportEmptyCatalogue(secrets);
   if (toStart.some((d) => d.name === 'support')) writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
+  if (notifyNoticesOff() && toStart.some((d) => d.name === 'notify')) await resetNotifyEmptyNotices(secrets);
+  if (toStart.some((d) => d.name === 'notify')) writePrivate(notifyNoticesFile(), `${notifyNoticesWanted()}\n`);
   await startNats();
   ensureStreams();
   const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
@@ -2335,6 +2367,10 @@ async function cmdStart(flags) {
   if (extra.includes('support')) {
     if (supportCatalogueOff() && !keepSupportEmptyCatalogue()) await resetSupportEmptyCatalogue(secrets);
     writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
+  }
+  if (extra.includes('notify')) {
+    if (notifyNoticesOff()) await resetNotifyEmptyNotices(secrets);
+    writePrivate(notifyNoticesFile(), `${notifyNoticesWanted()}\n`);
   }
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).

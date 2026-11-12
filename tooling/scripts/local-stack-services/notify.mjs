@@ -1,10 +1,26 @@
 import path from 'node:path';
 
+/**
+ * The stack's empty notice board: `LOCAL_STACK_NOTIFY_NOTICES=off` on a start or restart of notify runs svc-notify on a
+ * database of its own, made new on each such start with svc-notify's migrations and nothing else, so no notice is
+ * published (local-test-stack.mjs resetNotifyEmptyNotices). /notice can then be seen with none published
+ * (J-support-public-07 #5) while the shared stack's notices stay where they are. The stack records which database
+ * notify runs on, and a start that wants the other one restarts notify onto it.
+ */
+export const NOTIFY_EMPTY_NOTICES_DB = 'intafaced_local_test_notify_empty';
+export const notifyNoticesOff = (env = process.env) => env.LOCAL_STACK_NOTIFY_NOTICES === 'off';
+/** `url` with its database name replaced by the empty notice board's; the role, password, host, port and query stay. */
+export function onEmptyNoticesDb(url) {
+  const u = new URL(url);
+  u.pathname = `/${NOTIFY_EMPTY_NOTICES_DB}`;
+  return u.toString();
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => ({
   name: 'notify',
   env: () => ({
     ...c('svc-notify', PORTS.notify),
-    DATABASE_URL: dbUrl('svc_notify', secrets),
+    DATABASE_URL: notifyNoticesOff() ? onEmptyNoticesDb(dbUrl('svc_notify', secrets)) : dbUrl('svc_notify', secrets),
     // Publishing a notice spends a four-eyes approval held by identity; without it every publish refuses.
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),

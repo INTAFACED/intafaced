@@ -120,6 +120,33 @@ const script = resolve(here, 'local-test-stack.mjs');
   );
 }
 
+// The empty notice board (J-support-public-07 #5): LOCAL_STACK_NOTIFY_NOTICES=off moves svc-notify, and only svc-notify,
+// to a database of its own; without it svc-notify is on the stack's database like every other service.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const { NOTIFY_EMPTY_NOTICES_DB, onEmptyNoticesDb } = await import('./local-stack-services/notify.mjs');
+  const dbOf = (envs, name) => new URL(envs.find((d) => d.name === name).env.DATABASE_URL).pathname.slice(1);
+  const prior = process.env.LOCAL_STACK_NOTIFY_NOTICES;
+  try {
+    delete process.env.LOCAL_STACK_NOTIFY_NOTICES;
+    const shared = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(shared, 'notify'), 'intafaced_local_test', 'notify on the stack database by default');
+    process.env.LOCAL_STACK_NOTIFY_NOTICES = 'off';
+    const empty = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(empty, 'notify'), NOTIFY_EMPTY_NOTICES_DB, 'notify on its own empty database under the switch');
+    for (const { name, env } of empty)
+      if (name !== 'notify' && env.DATABASE_URL)
+        assert.equal(dbOf(empty, name), 'intafaced_local_test', `${name} stays on the stack database under the switch`);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_NOTIFY_NOTICES;
+    else process.env.LOCAL_STACK_NOTIFY_NOTICES = prior;
+  }
+  assert.equal(
+    onEmptyNoticesDb('postgres://svc_notify:pw@127.0.0.1:5433/intafaced_local_test?sslmode=disable'),
+    `postgres://svc_notify:pw@127.0.0.1:5433/${NOTIFY_EMPTY_NOTICES_DB}?sslmode=disable`,
+  );
+}
+
 // Service keys: off by default, so the journeys' stack is unchanged; LOCAL_STACK_S2S=dual gives every S2S service one
 // shared public keyring and its own matching signing key, and keypair is refused.
 {
