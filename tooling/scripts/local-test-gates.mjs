@@ -2614,6 +2614,24 @@ export async function seedPayKybRequirements(ctx) {
   }
 }
 
+/** File the TEST scam report and its refused duplicate in svc-protocol's compliance queue once (J-dex-protocol-30). */
+export async function seedProtocolComplianceReport(ctx) {
+  const { createRequire } = await import('node:module');
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-protocol', 'package.json'))('postgres');
+  const { insertComplianceTestReport, localTestDatabaseUrl } = await import('./seed-protocol-compliance-test.mjs');
+  const url = `postgres://svc_protocol:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
+  const databaseUrl = localTestDatabaseUrl(url);
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  try {
+    const out = await insertComplianceTestReport(sql);
+    ctx.log(`TEST scam report ${out.changed ? 'filed, and its duplicate refused' : 'already filed'} (${MARKERS.label})`);
+    return out;
+  } finally {
+    await sql.end();
+  }
+}
+
 /** Publish the TEST agreements and quiz once each, through svc-trade's own doors with a second operator's approval. */
 export async function publishFuturesTerms(ctx) {
   const pair = await approverSessions(ctx);
@@ -3375,6 +3393,7 @@ async function main() {
       await seedFuturesListing(ctx);
       await seedSpotTestListings(ctx);
       await seedPayKybRequirements(ctx);
+      await seedProtocolComplianceReport(ctx);
       await publishFuturesTerms(ctx);
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
