@@ -202,11 +202,16 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
   // Open the sub-account on the desk, signed in the wallet on the main account.
   await page.goto(DESK);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  // The wallet this page connected stays connected across the page's own navigation; connect it again only if it is not.
+  // The desk shows Connect first and then restores the still-authorised wallet on its own, so the button can go between
+  // seeing it and pressing it (run 43178173404 waited out the test on it): press it only while no address is shown,
+  // and never wait on a button that has gone (as J-derivatives-28 does, #8049).
   const address = page.getByTestId('venue-wallet-address');
   const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-  await expect(address.or(connect)).toBeVisible({ timeout: 30_000 });
-  if (await connect.isVisible()) await connect.click();
+  await expect(async () => {
+    if (await address.isVisible()) return;
+    await connect.click({ timeout: 2_000 });
+    await expect(address).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(address).toHaveText(wallet.address);
   const panel = page.getByTestId('venue-sub-accounts');
   await panel.getByLabel('Name for a new sub-account').fill(SUB_NAME);
