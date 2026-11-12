@@ -35,6 +35,10 @@ import { chartHrefFor, WATCHLIST_DRAG_TYPE } from '../../features/watchlists/lin
 import { TemplatesMenu } from './TemplatesMenu';
 import { styleFrom, studiesFrom, type ChartTemplate } from './templates';
 import { templatesCopy } from './templates-copy';
+import { FEATURESETS, describeFeatureset, styleOnDesk } from './featureset';
+
+/** The workbench's chart parts (charts-desk-embed-feed-ops-018): the full chart. */
+const FEATURES = FEATURESETS.workbench;
 import { FRESH_STORE, isStudyStore, storeKey, type StudyStore } from './studies/model';
 
 /** The workbench's main-chart studies as kept on this device (the studies bar writes them on every change). */
@@ -161,13 +165,16 @@ function Page({
       const style = styleFrom(template);
       const nonce = (applied?.nonce ?? 0) + 1;
       if (!studies || !style) return setApplied({ refused: true, nonce });
-      try {
-        localStorage.setItem(studiesKey, JSON.stringify(studies));
-      } catch {
-        return setApplied({ refused: true, nonce });
+      // Only the parts this desk turns on: studies where it draws them, a style it draws (else it keeps its own).
+      if (FEATURES.studies) {
+        try {
+          localStorage.setItem(studiesKey, JSON.stringify(studies));
+        } catch {
+          return setApplied({ refused: true, nonce });
+        }
       }
-      setSetting((now) => ({ ...now, mode: style.mode, scheme: style.scheme }));
-      setApplied({ name: template.name, count: studies.studies.length, nonce });
+      setSetting((now) => ({ ...now, mode: styleOnDesk(FEATURES, style.mode, now.mode), scheme: style.scheme }));
+      setApplied({ name: template.name, count: FEATURES.studies ? studies.studies.length : 0, nonce });
     },
     [studiesKey, setSetting, applied?.nonce],
   );
@@ -178,7 +185,7 @@ function Page({
     brushWhy: brushCap.ok ? undefined : brushCap.why,
   };
   return (
-    <div className="cw-page" data-market={market.symbol} data-workbench={id}>
+    <div className="cw-page" data-market={market.symbol} data-workbench={id} data-featureset={describeFeatureset(FEATURES)}>
       <header className="cw-head">
         <div>
           <h1>{t('Charts')}</h1>
@@ -187,7 +194,7 @@ function Page({
         <div className="cw-head-actions">
           <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
           <TradeLink symbol={market.symbol} />
-          <TemplatesMenu current={currentChart} onApply={applyTemplate} />
+          {FEATURES.templates ? <TemplatesMenu current={currentChart} onApply={applyTemplate} /> : null}
         </div>
       </header>
       {applied && 'refused' in applied ? (

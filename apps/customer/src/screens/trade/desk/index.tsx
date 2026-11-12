@@ -253,7 +253,15 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         </aside>
         <div data-testid="dk-centre" className="dk-centre" {...frame('chart')}>
           {chrome('chart')}
-          <ChartPanel market={market} openOrders={openOrders} fills={fills} domOpen={dom.open} onToggleDom={toggleDom} trade={chartTrade} requestedInterval={requestedInterval} />
+          <ChartPanel
+            market={market}
+            openOrders={openOrders}
+            fills={fills}
+            domOpen={dom.open}
+            onToggleDom={toggleDom}
+            trade={chartTrade}
+            requestedInterval={requestedInterval}
+          />
           {dom.open ? (
             <OrderFlow
               market={market}

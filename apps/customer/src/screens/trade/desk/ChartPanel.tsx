@@ -28,6 +28,7 @@ import { placesOf } from './text';
 import { MarketRulesList } from './MarketRules';
 import { zoneName } from './time';
 import { flowCopy } from './order-flow-copy';
+import { FEATURESETS, describeFeatureset } from '../../charts/featureset';
 import { CHART_SETTING_DEFAULT, CHART_SETTING_KEY, isChartSetting, type ChartSetting } from './chart-setting';
 
 interface Props {
@@ -130,6 +131,7 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
       value={tab}
       onValueChange={(value) => setTab(value as 'chart' | 'info')}
       data-testid="dk-chart"
+      data-featureset={describeFeatureset(FEATURESETS['spot-desk'])}
       className="dk-panel dk-chart"
       ref={panel}
     >
