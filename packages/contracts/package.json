@@ -422,6 +422,10 @@
       "types": "./dist/academy-learner-desk.d.ts",
       "default": "./dist/academy-learner-desk.js"
     },
+    "./academy-staff-enrolment": {
+      "types": "./dist/academy-staff-enrolment.d.ts",
+      "default": "./dist/academy-staff-enrolment.js"
+    },
     "./identity-learner-card": {
       "types": "./dist/identity-learner-card.d.ts",
       "default": "./dist/identity-learner-card.js"
