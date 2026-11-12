@@ -561,6 +561,13 @@ test(`${J} #4 looks at an asset with no published price: it reads "No price publ
 });
 
 const RETIRED = 'TESTRETIRED';
+/** The places after the point a decimal string is written with, trailing zeros not counted. */
+const places = (value) => (String(value).split('.')[1] ?? '').replace(/0+$/, '').length;
+/** A decimal string as the customer app writes it: the whole part grouped by thousands, the fraction as given. */
+const grouped = (value) => {
+  const [whole, fraction] = String(value).split('.');
+  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction ? `.${fraction}` : ''}`;
+};
 
 test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw use, and a retired asset stays listed with its history`, async ({
   page,
@@ -589,7 +596,13 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   expect(deposits.assets.length).toBeGreaterThan(0);
   for (const asset of deposits.assets) {
     expect(row(asset.assetId)).toMatchObject({ state: 'active', allowedActions: expect.arrayContaining(['deposit']) });
-    for (const network of asset.networks) expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
+    for (const network of asset.networks) {
+      expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
+      // Deposit's figure for the pair, its minimum, is written at the list's precision for that asset, never finer.
+      expect(places(network.minimumDeposit), `${asset.assetId} on ${network.id}: minimum ${network.minimumDeposit}`).toBeLessThanOrEqual(
+        row(asset.assetId).precision,
+      );
+    }
   }
   expect(deposits.assets.map((asset) => asset.assetId)).not.toContain(RETIRED);
   expect(row(RETIRED)).toMatchObject({ state: 'retired', allowedActions: [] });
@@ -611,7 +624,17 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
     await depositAsset.selectOption(asset.assetId);
     const open = asset.networks.map((n) => n.id);
     await expect.poll(() => optionValues(depositNetwork, ':not([data-halted])').then((v) => [...v].sort())).toEqual([...open].sort());
-    for (const id of open) expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(id);
+    for (const network of asset.networks) {
+      expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
+      // The page shows that minimum exactly as the bank gives it, so Deposit shows no more places than the list's precision.
+      await depositNetwork.selectOption(network.id);
+      await expect(
+        page
+          .getByRole('term')
+          .filter({ hasText: /^Minimum deposit$/ })
+          .locator('xpath=following-sibling::dd[1]'),
+      ).toHaveText(`${grouped(network.minimumDeposit)} ${asset.assetId}`);
+    }
   }
   await page.getByRole('link', { name: 'Supported assets and networks' }).click();
   await expect(page).toHaveURL(/\/uc\/assets$/);
