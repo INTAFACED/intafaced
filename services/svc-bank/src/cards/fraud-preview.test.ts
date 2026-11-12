@@ -45,7 +45,7 @@ function setup(scopes: string[]) {
 
 describe('fraud preview', () => {
   it('is labelled, blurred and serves TEST rows only, with no invented number', async () => {
-    const { caller, ledger } = setup(['admin:treasury']);
+    const { caller, ledger } = setup(['admin:read']);
     const view = await caller.ops.fraudPreview();
     expect(view.label).toBe('Preview · sample data');
     expect(view.preview).toBe(true);
@@ -62,7 +62,7 @@ describe('fraud preview', () => {
   });
 
   it.each(FRAUD_PREVIEW_ACTIONS)('refuses %s with the typed Preview refusal and changes nothing', async (action) => {
-    const { caller, ledger } = setup(['admin:treasury']);
+    const { caller, ledger } = setup(['admin:read']);
     const before = fraudPreview();
     await expect(caller.ops.fraudPreviewAction({ action })).resolves.toEqual({
       kind: 'preview',
@@ -75,11 +75,11 @@ describe('fraud preview', () => {
   });
 
   it('refuses an action it does not know at validation', async () => {
-    const { caller } = setup(['admin:treasury']);
+    const { caller } = setup(['admin:read']);
     await expect(caller.ops.fraudPreviewAction({ action: 'approve' as never })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 
-  it('refuses a caller without the treasury scope for both the read and the action', async () => {
+  it('refuses a caller without an operator scope for both the read and the action', async () => {
     const { caller } = setup(['bank:read', 'bank:write']);
     await expect(caller.ops.fraudPreview()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(caller.ops.fraudPreviewAction({ action: 'run_check' })).rejects.toMatchObject({ code: 'FORBIDDEN' });

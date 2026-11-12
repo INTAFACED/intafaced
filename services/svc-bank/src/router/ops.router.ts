@@ -67,8 +67,10 @@ export function createOpsRouter(c: BankRouterContext) {
     /**
      * BK-cops-09 fraud preview (/bank-ops/cards/fraud). TEST rows only, labelled
      * and blurred; no authorisation carries a score until an engine exists.
+     * `admin:read`, the scope the founder console's own session carries: the
+     * read is TEST fixtures and the action changes nothing (J-bank-12 #5).
      */
-    fraudPreview: scopedProcedure('admin:treasury')
+    fraudPreview: scopedProcedure('admin:read')
       .output(
         z.object({
           label: z.literal('Preview · sample data'),
@@ -120,7 +122,7 @@ export function createOpsRouter(c: BankRouterContext) {
       .output(heldSendOutput)
       .mutation(async ({ ctx, input }) => guard(async () => bank.personalPay.rejectHeld(input.transferId, ctx.principal.userId))),
     /** Every engine action on the fraud preview returns the typed Preview refusal and changes nothing. */
-    fraudPreviewAction: scopedProcedure('admin:treasury')
+    fraudPreviewAction: scopedProcedure('admin:read')
       .input(z.object({ action: z.enum(FRAUD_PREVIEW_ACTIONS) }))
       .output(
         z.object({ kind: z.literal('preview'), engine: z.string(), action: z.enum(FRAUD_PREVIEW_ACTIONS), changed: z.literal(false) }),
