@@ -195,6 +195,7 @@ import {
 import { AcademyError } from './errors.js';
 import { learnerDeskProcedures } from './learners/learner-desk-router.js';
 import { gradeReportProcedures } from './curriculum/grade-reports-router.js';
+import { courseEmailProcedures, staffEnrolmentProcedures } from './learners/staff-enrolment-router.js';
 import { relatedItems } from './curriculum/related.js';
 import { searchPublicCurriculum } from './curriculum/public-catalogue.js';
 import { COURSE_VISIBILITIES } from './curriculum/course-terms.js';
@@ -2582,6 +2583,8 @@ export function createAcademyRouter(
       .mutation(({ input, ctx }) => guard(() => academy.enrollCertPath({ userId: ctx.principal!.userId, pathSlug: input.pathSlug }))),
 
     /** AC-enrolment-01: Enrol now from a course page. A repeat while enrolled answers with the same enrolment. */
+    ...courseEmailProcedures(academy.staffEnrolment),
+
     enrolCourse: scopedProcedure('academy:write', { module: 'academy' })
       .input(academyEnrolCourseInputSchema)
       .output(academyCourseEnrolmentSchema)
@@ -3311,6 +3314,7 @@ export function createAcademyRouter(
     admin: router({
       ...gradeReportProcedures(academy.gradeReports),
       ...learnerDeskProcedures(academy, guard),
+      ...staffEnrolmentProcedures(academy.staffEnrolment),
       /** AC-course-structure-01: the courses staff created, newest first, and how many are in each state. */
       courses: scopedProcedure('admin:read', { module: 'academy' })
         .input(academyCourseListInputSchema)

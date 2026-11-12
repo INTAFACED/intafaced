@@ -150,7 +150,7 @@ import {
 } from './certs/perk-plane.js';
 import { getCurriculumItem, hasCurriculumSlug, itemType, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
-import { type ProgrammeDefinition } from './curriculum/programmes.js';
+import { PROGRAMME_CATALOG, programmeBySlug, unmetPrerequisites, type ProgrammeDefinition } from './curriculum/programmes.js';
 import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
 import { VideoTracks, type VideoTrack } from './video/tracks.js';
 import { AcademyCustomerStore } from './learning/customer-store.js';
@@ -177,6 +177,7 @@ import type { StakeSource } from './stake-source.js';
 import { isConstructed, type StreamCredential, type StreamProvider } from './stream/provider.js';
 import { withAcademySpan } from './tracing.js';
 import { LearnerDesk, requireReason } from './learners/learner-desk.js';
+import { StaffEnrolment } from './learners/staff-enrolment.js';
 
 /**
  * ACADEMY LOBBIES (§8.3, §XIII "live session lobbies, capacity tiers").
@@ -326,6 +327,14 @@ export interface AcademyServiceOptions {
   gradeReportRows?: number;
   /** AC-quizzes-04: bytes one quiz curve file may hold (`ACADEMY_BULK_FILE_MAX_BYTES`). Unset, a curve upload refuses. */
   bulkFileMaxBytes?: number;
+  /** AC-enrolment-03: addresses one bulk enrolment upload holds (`ACADEMY_BULK_ENROL_ROWS`). Unset, an upload refuses. */
+  bulkEnrolRows?: number;
+  /** AC-notifications-02: days without learning that leave a learner out of a course email. Unset, a send refuses. */
+  bulkEmailInactiveDays?: number;
+  /** AC-analytics-02: hours a learner export is kept (`ACADEMY_REPORT_RETENTION_HOURS`). Unset, a request refuses. */
+  reportRetentionHours?: number;
+  /** AC-analytics-02: learner rows one export holds (`ACADEMY_LEARNER_EXPORT_ROWS`). Unset, a request refuses. */
+  learnerExportRows?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -416,6 +425,8 @@ function dueFor(dueAt: Date | null, extendedUntil: Date | null): { dueAt: string
 export class AcademyService {
   /** J-academy-14: the staff desk for one learner. */
   readonly learners: LearnerDesk;
+  /** J-academy-15: staff enrolment, invitations, course email and learner exports. */
+  readonly staffEnrolment: StaffEnrolment;
   private readonly customer: AcademyCustomerStore;
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
@@ -498,6 +509,22 @@ export class AcademyService {
     this.peerReviews = new PeerReviews(sql, this.courseAssignments, this.options.mediaStorage ?? null, this.options.assignmentGet);
     this.courseStarts = new CourseStarts(sql);
     this.courseTerms = new CourseTermsStore(sql);
+    this.staffEnrolment = new StaffEnrolment(
+      sql,
+      {
+        bulkEnrolRows: this.options.bulkEnrolRows ?? null,
+        inactiveDays: this.options.bulkEmailInactiveDays ?? null,
+        reportRetentionHours: this.options.reportRetentionHours ?? null,
+        exportRows: this.options.learnerExportRows ?? null,
+      },
+      {
+        terms: (path) => this.courseTerms.read(path),
+        unmetPrerequisites: async (userId, path) => {
+          const def = programmeBySlug(this.options.programmeCatalog ?? PROGRAMME_CATALOG, path);
+          return def ? unmetPrerequisites(def, await this.customer.activePathSlugs(userId)) : [];
+        },
+      },
+    );
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
     this.issueRules = new CertIssueRules(sql);
