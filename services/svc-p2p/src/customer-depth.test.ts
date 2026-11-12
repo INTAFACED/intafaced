@@ -65,7 +65,7 @@ describe('svc-p2p customer depth', () => {
       feeBps: 100,
       referencePrices: { price: async (asset, fiat) => (asset === ASSET && fiat === 'USD' ? referenceFeed : null) },
       // P-trade-orders-14: trades.export now refuses without owner caps; generous caps keep this test about export content.
-      exportPolicy: { maxRangeDays: 36_500, maxRows: 10_000 },
+      exportPolicy: { maxRangeDays: 36_500, maxRows: 10_000, exportDailyQuota: 100 },
       deadlines: {
         escrowSeconds: 120,
         paymentSeconds: 900,

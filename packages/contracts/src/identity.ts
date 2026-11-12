@@ -193,7 +193,9 @@ export const mfaResetViewSchema = z.discriminatedUnion('state', [
       state: z.literal('waiting'),
       resetId: z.string().guid(),
       completesAt: z.string().datetime({ offset: true }),
-      told: z.object({ email: z.string(), sms: z.literal('vendor.sms').nullable() }).strict(),
+      // `email` is the account's own address; `also` every other address the person proved they hold (Receive), each
+      // masked and told by mail too; `sms` names the missing rail when a proved phone could not be texted.
+      told: z.object({ email: z.string(), also: z.array(z.string()), sms: z.literal('vendor.sms').nullable() }).strict(),
     })
     .strict(),
 ]);

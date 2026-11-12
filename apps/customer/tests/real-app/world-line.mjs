@@ -31,6 +31,16 @@ export function declaredWorld(src) {
   return new Set(words);
 }
 
+/**
+ * Whether a journey file reads the TEST market moving on its own: a `// Market: live` line. Every other file runs on a
+ * still market (local-test-market.mjs `still`): the maker quotes the same ladder at the same TEST PRICE and nothing crosses
+ * it, so a price, mark, candle or total moves only when someone trades. A file that waits for the market's own trades
+ * (new candles, a last price that ticks, a walk that drifts into a resting order) carries the line.
+ */
+export function marketLive(src) {
+  return /^\/\/ Market: live$/m.test(src);
+}
+
 /** The `// World:` line a file with these parts needs, parts in WORLD's order. */
 export function worldLine(parts) {
   const ordered = Object.keys(WORLD).filter((p) => parts.has(p));

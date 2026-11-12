@@ -345,6 +345,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     business,
     analytics,
     plans: limitsTables.plans,
+    partnerHolds: limitsTables.partnerHolds,
     dormancy: limitsTables.dormancy,
     portfolio,
     activity: createActivityRouter(bank),

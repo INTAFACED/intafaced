@@ -132,7 +132,7 @@ const messages = {
 
   // Profit and loss
   'Profit and loss': 'Profit and loss',
-  'Pnl indicator label': 'This is an indicator worked out from your own trades. It is not a tax form.',
+  'Pnl indicator label': 'Indicator, not tax advice. It is worked out from your own trades and is not a tax form.',
   'Pnl method rule':
     'Each sale is matched against the lots you bought, one lot at a time, using the method you pick. The fee on a buy is inside the cost: you paid the full price and received the coins less the fee, so the average price includes it. Coins that arrived by deposit or transfer have no cost recorded, so a sale of them has no result.',
   'Matching method': 'Matching method',
