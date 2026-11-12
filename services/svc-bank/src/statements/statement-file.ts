@@ -17,7 +17,11 @@ export function csvCell(value: string, text: boolean): string {
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-/** Every PDF says so, and the statement centre shows it beside every export: it works out no gain, loss or tax. */
+/**
+ * Every file says so, and the statement centre shows it beside every export: it works out no gain, loss or tax. A PDF
+ * prints it; a CSV carries it in its last column, `Notice`, on every row, so a file (or a row copied out of it) that
+ * travels without the page still says it (J-portfolio-11 #3).
+ */
 export const STATEMENT_NOT_TAX_FORM = 'This is not a tax form. It works out no gain, loss or tax.';
 
 export const STATEMENT_CSV_HEADER = [
@@ -33,6 +37,7 @@ export const STATEMENT_CSV_HEADER = [
   'Note',
   'Payment reference',
   'Report description',
+  'Notice',
 ] as const;
 
 export function signedAmount(item: Pick<ActivityItem, 'direction' | 'amount'>): string {
@@ -83,6 +88,7 @@ export function statementCsv(items: readonly ActivityItem[]): string {
         csvCell(item.note ?? '', true),
         csvCell(item.reference ?? '', true),
         csvCell(item.reportDescription ?? '', true),
+        csvCell(STATEMENT_NOT_TAX_FORM, false),
       ].join(','),
     );
   }

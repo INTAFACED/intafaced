@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { requireScope, type Principal } from '@intafaced/auth';
+import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachConvertRestRoutes, type ConvertRestPort } from './convert/convert-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
@@ -99,6 +99,8 @@ import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
 import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
 import { attachProtectionRoutes } from './venue/protections-rest.js';
 import type { VenueProtections } from './venue/protections.js';
+import { attachLiveRunRoutes } from './quant/live-run/rest.js';
+import type { LiveRuns } from './quant/live-run/live-runs.js';
 import type { OwnAgentTrading } from './venue/own-agent-trading.js';
 import type { AgentAccounts } from './venue/agent-account.js';
 import type { AgentOrders } from './venue/agent-orders.js';
@@ -221,6 +223,8 @@ export interface PrivateRestDeps {
   ownAgentTrading?: OwnAgentTrading | null;
   /** A position's protections on the person's own venue account (J-derivatives-03); off with the door. */
   venueProtections?: VenueProtections | null;
+  /** Live strategy runs (J-algo-dev-07); null with the user-venue door off. */
+  liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
@@ -1347,14 +1351,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
    * Scope is still enforced inside TradeService; this refuses a region that may not trade.
    */
-  function requireTradeJurisdiction(req: FastifyRequest, reply: FastifyReply, principal: Principal): boolean {
+  function tradeAccessDecision(req: FastifyRequest, principal: Principal, kycTier = principal.tier) {
     const { region } = contextFrom(req);
-    const decision = checkAccess({
-      module: 'trade',
-      plane: 'fiat',
-      region,
-      kycTier: principal.tier,
-    });
+    return checkAccess({ module: 'trade', plane: 'fiat', region, kycTier });
+  }
+
+  function requireTradeJurisdiction(req: FastifyRequest, reply: FastifyReply, principal: Principal, kycTier = principal.tier): boolean {
+    const decision = tradeAccessDecision(req, principal, kycTier);
     if (!decision.allowed) {
       // Credentials were fine; this principal may not trade from here. CCXT
       // `PermissionDenied` — a bot must stop, not re-sign and retry. The tier
@@ -1369,15 +1372,32 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
+  // An API key connected to an agent account (J-agents-21 #9) calls the assistant's order route and no other venue route.
+  const agentOrders = deps.agentOrders ?? null;
+  const agentKeyConfined = agentOrders ? (p: Principal) => agentOrders.confined(p) : undefined;
   attachUserVenueRoutes(app, deps.userVenue ?? null, {
     requirePrincipal,
-    requireTradeJurisdiction,
+    // The venue holds the person's own funds, not ours: the trading checks' clear (`trd`) opens it, as OWNER 258 (4)
+    // decided. Every custodial route above keeps reading the approved level alone.
+    requireTradeJurisdiction: (req, reply, principal) => requireTradeJurisdiction(req, reply, principal, tradeTier(principal)),
+    // J-derivatives-01 #2: the same region and level check, read as a reason on the gated list instead of a refusal.
+    tradeAccessBlocker: (req, principal) => {
+      const decision = tradeAccessDecision(req, principal, tradeTier(principal));
+      return decision.allowed ? null : { code: decision.code, message: decision.reason };
+    },
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
+    agentKeyConfined,
   });
-  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction }, deps.agentOrders ?? null);
-  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction });
-  attachProtectionRoutes(app, deps.venueProtections ?? null, { requirePrincipal, requireTradeJurisdiction });
+  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined }, agentOrders);
+  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
+  attachLiveRunRoutes(app, deps.liveRuns ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
+  attachProtectionRoutes(app, deps.venueProtections ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {

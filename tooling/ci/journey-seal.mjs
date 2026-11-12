@@ -79,7 +79,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls, isJudgeDown, requiredChecks, reviewRan } from './review-marker.mjs';
+import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
@@ -669,6 +669,8 @@ export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
+    // The pull requests GitHub lists on a commit, open or not (mergedNothingToSeal).
+    pullsOn: (sha) => api(`/repos/${repo}/commits/${sha}/pulls?per_page=100`, token),
     // An automatic revert's commits (it must hold one) and the commit it reverts (autoRevertScope).
     pullCommits: (n) => api(`/repos/${repo}/pulls/${n}/commits?per_page=2`, token),
     commit: (sha) => api(`/repos/${repo}/commits/${sha}?per_page=300`, token),
@@ -706,6 +708,17 @@ export function makeIo(repo, token) {
         await builtMap({ get: (path) => api(path, token), raw: (path) => api(path, token, { raw: true }), before, repo }),
         loadMap(),
       ),
+    // Main's open `regression` and `flaky` issues, for a red that is main's own (mainsOwn).
+    mainIssues: async () =>
+      (
+        await Promise.all(
+          ['regression', 'flaky'].map(async (label) => {
+            const r = await api(`/repos/${repo}/issues?labels=${label}&state=open&per_page=100`, token);
+            if (!Array.isArray(r)) throw new Error(`open ${label} issues: not a list`);
+            return r;
+          }),
+        )
+      ).flat(),
     mainRuns: async () => {
       const r = await api(`/repos/${repo}/actions/workflows/${file}/runs?branch=main&status=completed&per_page=100`, token);
       if (!Array.isArray(r?.workflow_runs)) throw new Error(`${file} runs on main: not a list`);
@@ -1030,9 +1043,8 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
  * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) is in every
  * red's area, so nothing it inherited is passed over. A money step's red (the verdict's
- * money rule) is never passed over, for any pull request, except one that failed, then passed on its retry both on this
- * head and in main's run (project-state OWNER 278: it "stops only its own journeys"), which stops only the pull
- * requests in its area like any other inherited red.
+ * money rule) is never passed over, for any pull request. (A pass on the retry is no longer a red at all: the lead's
+ * decision of 12 Nov 2026 under OWNER 296 and 297, journey-verdict.mjs.)
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
  * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
@@ -1080,10 +1092,8 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     const journey = journeyOf(x.step);
     const stop = (why) => blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, ${why}`, onMain: true });
     // A money step is never passed over (REVIEW.md item 3: setting a money step aside is a quarantine); a red the verdict
-    // didn't mark either way counts as money. The one exception is OWNER 278: a money step that failed, then passed on
-    // its retry, here and in main's run (the same verdict line, so main's was a retry pass too), stops only the pull
-    // requests in its area, by the rules below; shared setup still puts a pull request in every area.
-    if (x.money !== false && x.retryFlaky !== true) {
+    // didn't mark either way counts as money.
+    if (x.money !== false) {
       stop(`but it is a money step, so it stops every pull request`);
       continue;
     }
@@ -1158,6 +1168,51 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
       });
   }
   return { blocking, passed, notes: passed.length ? [`reds inherited from main are read against ${at}`] : [] };
+}
+
+/**
+ * The lead's decision of 12 Nov 2026 under OWNER 296 and 297: "a PR whose seal needs a full journeys run is not held
+ * by a step that is already red on main. Such a step is main's, tracked by main's own open issue (`regression` or
+ * `flaky`) and repaired there; the PR must still pass every other step. The excuse never applies when the PR changes
+ * that step's journey, its test or anything the step's shard reads as a test file; then the step is the PR's."
+ * Each red splitInherited still holds (`blocking`) is main's when main's newest finished full run (`latest`, read by
+ * mainReference whatever the head holds) is red on it with the same verdict line, an open issue tracks it (labelled
+ * `regression` and titled "Journey broken on main: <journey>", or labelled `flaky` and titled "Flaky step on main:
+ * <journey> #<n>…"), and the pull request touches neither its journey nor any test file
+ * (MAINS_TEST_PATHS). A money step's red (or one the verdict didn't mark either way) is never main's here: as in
+ * splitInherited, a money step is never passed over (REVIEW.md item 3). Anything else stays as it was. Never for a pull request that changes the journey stack's shared
+ * setup (every red counts there). Returns { blocking, passed }.
+ */
+export const MAINS_TEST_PATHS = ['apps/customer/tests/', 'apps/customer/playwright'];
+const FLAKY_TITLE = /^Flaky (?:money )?step on main: (J-[\w-]+)((?: #\d+)+)\s*$/;
+export function trackingIssue(issues, step) {
+  const journey = journeyOf(step);
+  const n = String(step).split('#')[1];
+  return (issues ?? []).find((i) => {
+    if (i?.state !== 'open' || i?.pull_request) return false;
+    const labels = (i.labels ?? []).map((l) => (typeof l === 'string' ? l : l?.name));
+    if (labels.includes('regression') && i.title === `Journey broken on main: ${journey}`) return true;
+    const m = labels.includes('flaky') ? FLAKY_TITLE.exec(String(i.title)) : null;
+    return Boolean(m && m[1] === journey && m[2].trim().split(/\s+/).includes(`#${n}`));
+  });
+}
+export function mainsOwn({ blocking, latest, issues, touches }) {
+  if (touches.shared || !latest || latest.problems.length) return { blocking, passed: [] };
+  const tests = [...touches.paths].find((p) => MAINS_TEST_PATHS.some((t) => p.startsWith(t)));
+  const at = `main's newest finished run ${latest.run.id} on ${String(latest.run.head_sha).slice(0, 10)}`;
+  const out = { blocking: [], passed: [] };
+  for (const x of blocking) {
+    const journey = journeyOf(x.step);
+    const issue = x.money === false && sameOnMain(latest, x) ? trackingIssue(issues, x.step) : null;
+    if (!issue) out.blocking.push(x);
+    else if (touches.journeys.has(journey) || tests)
+      out.blocking.push({
+        ...x,
+        why: `${x.why}; ${at} has it red too (#${issue.number}), but this pull request changes ${tests ? printable(tests) : journey}, so it is this pull request's`,
+      });
+    else out.passed.push({ step: x.step, why: `it is main's: ${at} has it red too and #${issue.number} tracks it there` });
+  }
+  return out;
 }
 
 /** `inherited(red, run)` split, failing closed: when it can't be worked out, every red stops the pull request. */
@@ -1311,6 +1366,10 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   if (!SHA40.test(head)) return { ok: false, lines: [`#${number}: its head could not be read`] };
   if (sha && head !== sha)
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
+  if (requireOpen && pull.merged_at && io.pullsOn) {
+    const merged = mergedNothingToSeal(pull, head, await io.pullsOn(head));
+    if (merged) return { ok: true, lines: [merged] };
+  }
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
   const paths = await io.files(number);
   const texts = new Map();
@@ -1368,24 +1427,46 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   };
   let main;
   let upTo;
-  const inherited = io.mainRuns
-    ? async (red) =>
-        splitInherited({
-          red,
-          main: await (main ??= mainReference({
-            repo,
-            mainRuns: await io.mainRuns(),
-            contains: (sha) => io.contains(sha, head),
-            reportOf,
-            verdictOf,
-          })),
-          touches,
-          upTo: await (upTo ??= Promise.resolve()
-            .then(() => io.mergeBase(pull.base?.sha, head))
-            .catch(() => null)),
-          rangeOf: io.rangeOf,
-        })
-    : null;
+  let latest;
+  let issues;
+  // `full`: the seal needs a full journeys run, the only case where a red main tracks as its own is passed (mainsOwn).
+  const inheritedFor = (full) =>
+    io.mainRuns
+      ? async (red) =>
+          splitInherited({
+            red,
+            main: await (main ??= mainReference({
+              repo,
+              mainRuns: await io.mainRuns(),
+              contains: (sha) => io.contains(sha, head),
+              reportOf,
+              verdictOf,
+            })),
+            touches,
+            upTo: await (upTo ??= Promise.resolve()
+              .then(() => io.mergeBase(pull.base?.sha, head))
+              .catch(() => null)),
+            rangeOf: io.rangeOf,
+          }).then(async (split) => {
+            // A red main already has on its newest run and tracks in an open issue is main's (mainsOwn).
+            if (!full || !io.mainIssues || touches.shared || !split.blocking.length) return split;
+            const own = mainsOwn({
+              blocking: split.blocking,
+              latest: await (latest ??= mainReference({
+                repo,
+                mainRuns: await io.mainRuns(),
+                contains: async () => true,
+                reportOf,
+                verdictOf,
+              })),
+              issues: await (issues ??= io.mainIssues()),
+              touches,
+            });
+            return { ...split, blocking: own.blocking, passed: [...split.passed, ...own.passed] };
+          })
+      : null;
+  const inherited = inheritedFor(false);
+  const inheritedFull = inheritedFor(true);
   const notShared = reach.full.filter((x) => !isSharedSetup(x.path));
   const full = shared.length
     ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf, waitOnRunning, inherited })
@@ -1398,7 +1479,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           reportOf,
           verdictOf,
           waitOnRunning,
-          inherited,
+          inherited: inheritedFull,
           because: `it changes what can reach any journey (${notShared
             .slice(0, 3)
             .map((x) => `${x.path}: ${x.why}`)

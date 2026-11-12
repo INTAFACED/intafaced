@@ -18,6 +18,7 @@ import {
   type UserVenueDescriptor,
   type UserVenueFeed,
   type UserVenueFunding,
+  type VenueFundingRow,
   type UserVenueFill,
   type UserVenueLeverage,
   type UserVenueListing,
@@ -303,6 +304,10 @@ interface SubmittedRecord {
   readonly digest: string;
   readonly outcome: VenueSubmitOutcome;
 }
+
+/** How far back the TEST funding history reaches, and its most rows per read (J-charts-desk-04 #6). TEST. */
+const FUNDING_HISTORY_MS = 24 * 3_600_000;
+const FUNDING_HISTORY_ROWS = 500;
 
 function refuse(venueId: string, code: VenueRefusalCode, detail: string): never {
   throw new VenueRefusalError({ venueId, code, detail });
@@ -804,6 +809,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
     }
     return this.asOf({ symbol: market.symbol, bid, ask });
+  }
+
+  /**
+   * The funding the venue published on the perpetual `symbol` at each whole interval since `since`, oldest first
+   * (J-charts-desk-04 #6). TEST: the simulator's history is its configured rate at every settled interval of the last
+   * `FUNDING_HISTORY_MS` on its own clock (it settles none), capped at `FUNDING_HISTORY_ROWS` rows.
+   */
+  async fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
+    this.up();
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual' || !market.funding) refuse(this.venue.id, 'not_offered', `${symbol} publishes no funding`);
+    const step = market.funding.intervalSeconds * 1000;
+    const now = this.clock().getTime();
+    const from = Math.max(since.getTime(), now - FUNDING_HISTORY_MS);
+    const rows: VenueFundingRow[] = [];
+    for (let t = Math.ceil(from / step) * step; t <= now && rows.length < FUNDING_HISTORY_ROWS; t += step)
+      rows.push({ fundingAt: new Date(t), rate: market.funding.rate });
+    return this.asOf(rows);
   }
 
   async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
@@ -1779,7 +1802,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (compare(balance.free, lockAmount) < 0)
       return refused(
         'insufficient_balance',
-        `free ${lockAsset}${marginAccount ? ` in ${marginAccount}` : ''} does not cover what this order locks`,
+        `free ${lockAsset}${marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
       );
     // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled now.
     for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');

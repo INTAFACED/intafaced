@@ -876,6 +876,9 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
       amount: '2',
       depositRef: `84532:js17-sells-${who.handle}:0`,
     });
+    // The TEST makers' bid ladder rests again first: journeys before this one on the same TEST venue may have sold into
+    // it, and a book with no bids fills nothing (issue #8093). The seed only puts back levels that were taken.
+    await testVenue('/test/seed', {});
     const SELL = '0.75';
     const quoteKey = `js17-sell-${randomUUID()}`; // made once per ask, as the screen makes one
     const venueQuoted = await client.post('/api/v1/venue/convert/sell-quote', {

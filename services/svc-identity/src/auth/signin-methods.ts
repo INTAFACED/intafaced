@@ -10,9 +10,14 @@
  * A wallet is proved by an EIP-4361 message this service wrote, signed by the wallet: a chain-agnostic check of an
  * externally owned account's signature, with no chain call. A signature that is not a plain 65-byte one (a contract
  * wallet's) is refused `identity.wallet_kind_unsupported`. Each challenge is an `auth_flows` row, single use and bound to
- * its purpose, its wallet and (for a link) its account. Texted codes need the outside `vendor.sms`, which is not
- * connected, so a phone number is refused with that code and nothing is stored.
+ * its purpose, its wallet and (for a link) its account.
+ *
+ * A phone number names the account at sign-in, beside its password, once its owner typed back a code texted to it
+ * (`signin_phones`). It is an identifier, not a way in of its own, so it never counts toward the last way in. Texting
+ * needs a transport: with none (no outside `vendor.sms` provider is connected) a number is refused with that code and
+ * nothing is stored; the stack's LOCAL-TEST outbox is the only transport (local-sms.ts).
  */
+import { randomInt } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { getAddress, recoverMessageAddress, type Hex } from 'viem';
@@ -28,6 +33,7 @@ import {
 } from './passwords.js';
 import { assertNotSecurityLocked } from './security-lock.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
+import type { SmsTransport } from './local-sms.js';
 
 /** How long a wallet challenge waits for its signature: the same engineering bound as a WebAuthn challenge. */
 export const WALLET_CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -43,6 +49,9 @@ export type SigninMethodCode =
   | 'identity.wallet_kind_unsupported'
   | 'identity.wallet_signature_invalid'
   | 'identity.wallet_challenge_invalid'
+  | 'identity.phone_code_invalid'
+  | 'identity.phone_code_locked'
+  | 'identity.phone_code_too_soon'
   | 'auth.password_policy'
   | 'auth.password_breached'
   | 'auth.account_frozen'
@@ -84,6 +93,8 @@ export type SigninMethods = {
   passkeys: number;
   wallets: Array<{ address: string; linkedAt: string }>;
   providers: string[];
+  /** The phone number this account signs in with, or null. */
+  phone: string | null;
 };
 
 type UserRow = {
@@ -116,16 +127,21 @@ async function methodsOf(sql: Sql, userId: string, user: UserRow): Promise<Signi
     SELECT address, created_at FROM wallet_identities WHERE user_id = ${userId} ORDER BY created_at, address`;
   const providers = await sql<Array<{ provider: string }>>`
     SELECT provider FROM social_identities WHERE user_id = ${userId} ORDER BY provider`;
+  const [phone] = await sql<Array<{ phone: string }>>`SELECT phone FROM signin_phones WHERE user_id = ${userId}`;
   return {
     password: user.password_set,
     emailCode: { on: user.email_code_signin && user.email !== null, address: user.email, proved: user.email_verified_at !== null },
     passkeys: user.passkeys,
     wallets: wallets.map((w) => ({ address: w.address, linkedAt: w.created_at.toISOString() })),
     providers: providers.map((p) => p.provider),
+    phone: phone?.phone ?? null,
   };
 }
 
-/** How many ways in the account has. A mailed code counts only to an address the owner proved. */
+/**
+ * How many ways in the account has. A mailed code counts only to an address the owner proved. A phone number is a name
+ * to sign in by, never a way in of its own, so it is not counted.
+ */
 export function signinMethodCount(methods: SigninMethods): number {
   const emailCode = methods.emailCode.on && methods.emailCode.proved;
   return (methods.password ? 1 : 0) + (emailCode ? 1 : 0) + methods.passkeys + methods.wallets.length + methods.providers.length;
@@ -154,14 +170,15 @@ export async function lockedSigninMethods(tx: Sql, userId: string): Promise<Sign
 function holds(methods: SigninMethods, method: SigninMethod): boolean {
   if (method === 'password') return methods.password;
   if (method === 'email_code') return methods.emailCode.on;
-  if (method === 'sms_code') return false;
+  if (method === 'sms_code') return methods.phone !== null;
   if (method.startsWith('social:')) return methods.providers.includes(method.slice('social:'.length));
   const address = method.slice('wallet_siwe:'.length);
   return methods.wallets.some((w) => w.address === address);
 }
 
-/** How many ways in removing `method` takes away: a mailed code to an address never proved was not counted. */
+/** How many ways in removing `method` takes away: a mailed code to an address never proved, and a phone, were not counted. */
 function counted(methods: SigninMethods, method: SigninMethod): number {
+  if (method === 'sms_code') return 0;
   return method === 'email_code' && !methods.emailCode.proved ? 0 : 1;
 }
 
@@ -198,6 +215,11 @@ export async function unlinkSigninMethod(sql: Sql, userId: string, method: Signi
       await tx`
         UPDATE auth_flows SET status = 'consumed', consumed_at = now()
         WHERE user_id = ${userId} AND kind = 'login_code' AND consumed_at IS NULL`;
+    } else if (method === 'sms_code') {
+      await tx`DELETE FROM signin_phones WHERE user_id = ${userId}`;
+      await tx`
+        UPDATE auth_flows SET status = 'consumed', consumed_at = now()
+        WHERE user_id = ${userId} AND kind = 'phone_link' AND consumed_at IS NULL`;
     } else if (method.startsWith('social:')) {
       await tx`DELETE FROM social_identities WHERE user_id = ${userId} AND provider = ${method.slice('social:'.length)}`;
     } else {
@@ -257,6 +279,114 @@ export async function linkEmailCode(sql: Sql, userId: string): Promise<SigninMet
     await tx`UPDATE users SET email_code_signin = true, updated_at = now() WHERE id = ${userId}`;
     return methodsOf(tx, userId, await readUser(tx, userId, false));
   });
+}
+
+// ── Phone ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Engineering bounds of a texted link code, like a wallet challenge's: it lives ten minutes, five wrong codes spend it
+ * (the brief's ceiling), a new one waits 30 seconds, and an account is texted at most five link codes an hour.
+ */
+export const PHONE_CODE_TTL_MS = 10 * 60 * 1000;
+export const PHONE_CODE_MAX_ATTEMPTS = 5;
+export const PHONE_CODE_RESEND_MS = 30 * 1000;
+export const PHONE_CODE_HOURLY = 5;
+
+export type PhoneConfig = { readonly sms: SmsTransport | undefined; readonly now?: () => Date };
+
+async function checkPhoneFree(sql: Sql, userId: string, phone: string): Promise<SigninMethods> {
+  const user = await readUser(sql, userId, false);
+  if (user.status !== 'active') throw new SigninMethodError('auth.account_frozen', `Account is ${user.status}`);
+  await assertNotSecurityLocked(sql, userId);
+  const methods = await methodsOf(sql, userId, user);
+  if (methods.phone === phone) throw new SigninMethodError('identity.method_already_linked');
+  const [taken] = await sql`SELECT 1 FROM signin_phones WHERE phone = ${phone} AND user_id <> ${userId}`;
+  if (taken) throw new SigninMethodError('identity.method_taken');
+  return methods;
+}
+
+/**
+ * Text a six-digit code to the number the signed-in owner typed. Nothing is stored about the number but its hash on the
+ * flow, and nothing is linked until the code comes back (`linkPhone`). A newer code voids the older ones.
+ */
+export async function sendPhoneLinkCode(sql: Sql, config: PhoneConfig, userId: string, phone: string): Promise<SigninMethods> {
+  if (!config.sms) throw new SigninMethodError('vendor.sms', 'Texted codes need an outside SMS provider, which is not connected');
+  const methods = await checkPhoneFree(sql, userId, phone);
+  const now = config.now?.() ?? new Date();
+  const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+  const expiresAt = new Date(now.getTime() + PHONE_CODE_TTL_MS);
+  await transaction(sql, async (tx) => {
+    await readUser(tx, userId, true);
+    const [recent] = await tx<Array<{ n: number; last: Date | null }>>`
+      SELECT count(*)::int AS n, max(created_at) AS last FROM auth_flows
+      WHERE user_id = ${userId} AND kind = 'phone_link' AND created_at > ${new Date(now.getTime() - 3_600_000)}`;
+    if (recent && (recent.n >= PHONE_CODE_HOURLY || (recent.last && now.getTime() - recent.last.getTime() < PHONE_CODE_RESEND_MS))) {
+      throw new SigninMethodError('identity.phone_code_too_soon', 'Wait a little before asking for another code');
+    }
+    await tx`
+      UPDATE auth_flows SET status = 'consumed', consumed_at = ${now}
+      WHERE user_id = ${userId} AND kind = 'phone_link' AND consumed_at IS NULL`;
+    await tx`
+      INSERT INTO auth_flows (kind, subject_hash, user_id, code_hash, status, expires_at, created_at)
+      VALUES ('phone_link', ${hashToken(phone)}, ${userId}, ${hashToken(code)}, 'code_sent', ${expiresAt}, ${now})`;
+  });
+  await config.sms.send({ phone, code, expiresAt, purpose: 'phone-signin-link' });
+  return methods;
+}
+
+type PhoneFlow = { id: string; subject_hash: string; code_hash: string; attempts: number; expires_at: Date };
+
+/**
+ * Check the code texted to `phone` without spending it, so the step-up comes after a right code and before the link. A
+ * wrong code counts; the fifth spends the flow. Run in its own transaction, so a wrong code's count stands.
+ */
+export async function checkLinkPhone(sql: Sql, config: PhoneConfig, userId: string, phone: string, code: string): Promise<void> {
+  await checkPhoneFree(sql, userId, phone);
+  const refusal = await transaction(sql, async (tx) => answerPhone(tx, config, userId, phone, code));
+  if (refusal) throw refusal;
+}
+
+async function answerPhone(tx: Sql, config: PhoneConfig, userId: string, phone: string, code: string): Promise<SigninMethodError | null> {
+  const now = config.now?.() ?? new Date();
+  const [flow] = await tx<PhoneFlow[]>`
+    SELECT id, subject_hash, code_hash, attempts, expires_at FROM auth_flows
+    WHERE user_id = ${userId} AND kind = 'phone_link' AND status = 'code_sent' AND consumed_at IS NULL
+    ORDER BY created_at DESC LIMIT 1
+    FOR UPDATE`;
+  if (!flow || flow.expires_at <= now || flow.subject_hash !== hashToken(phone))
+    return new SigninMethodError('identity.phone_code_invalid');
+  if (/^\d{6}$/.test(code) && hashToken(code) === flow.code_hash) return null;
+  const attempts = flow.attempts + 1;
+  if (attempts >= PHONE_CODE_MAX_ATTEMPTS) {
+    await tx`UPDATE auth_flows SET attempts = ${attempts}, status = 'locked', consumed_at = ${now} WHERE id = ${flow.id}`;
+    return new SigninMethodError('identity.phone_code_locked', 'Too many wrong codes: ask for a new one');
+  }
+  await tx`UPDATE auth_flows SET attempts = ${attempts} WHERE id = ${flow.id}`;
+  return new SigninMethodError('identity.phone_code_invalid');
+}
+
+/** Link the number: the code checked again and spent under the users row lock, with the number unclaimed. */
+export async function linkPhone(sql: Sql, config: PhoneConfig, userId: string, phone: string, code: string): Promise<SigninMethods> {
+  const now = config.now?.() ?? new Date();
+  const outcome = await transaction(sql, async (tx) => {
+    const user = await readUser(tx, userId, true);
+    if (user.status !== 'active') throw new SigninMethodError('auth.account_frozen', `Account is ${user.status}`);
+    await assertNotSecurityLocked(tx, userId);
+    const refusal = await answerPhone(tx, config, userId, phone, code);
+    if (refusal) return refusal;
+    const [taken] = await tx`SELECT 1 FROM signin_phones WHERE phone = ${phone} AND user_id <> ${userId}`;
+    if (taken) return new SigninMethodError('identity.method_taken');
+    await tx`
+      UPDATE auth_flows SET status = 'consumed', consumed_at = ${now}
+      WHERE user_id = ${userId} AND kind = 'phone_link' AND consumed_at IS NULL`;
+    await tx`
+      INSERT INTO signin_phones (user_id, phone, linked_at) VALUES (${userId}, ${phone}, ${now})
+      ON CONFLICT (user_id) DO UPDATE SET phone = EXCLUDED.phone, linked_at = EXCLUDED.linked_at`;
+    await tx`UPDATE users SET updated_at = now() WHERE id = ${userId}`;
+    return methodsOf(tx, userId, await readUser(tx, userId, false));
+  });
+  if (outcome instanceof SigninMethodError) throw outcome;
+  return outcome;
 }
 
 // ── Wallets ─────────────────────────────────────────────────────────────────────────────────────────────────────

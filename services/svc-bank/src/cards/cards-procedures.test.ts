@@ -720,12 +720,15 @@ describe('customer card procedures (PG-hard)', () => {
     expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
     expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_blocked' });
 
-    // Random ids and clock times can hold any four digits ("86422193-…" did, on #7779's run 42738583878), so they are
-    // taken out before the search; every other stored value is still searched for both PINs.
+    // Random ids, hex hashes and clock times can hold any four digits ("86422193-…" did, on #7779's run 42738583878; a
+    // payload_hash "e691a724987c4321…" did, on #7815's run 42759902360), so they are taken out before the search; every
+    // other stored value is still searched for both PINs. A hash is a whole quoted run of 32 or more hex digits, so a
+    // PIN stored in the clear, alone or inside other text, is never masked.
     const stored = (
       JSON.stringify(await sql`SELECT * FROM bank.card_authorizations`) + JSON.stringify(await sql`SELECT * FROM bank.card_secret_audits`)
     )
       .replace(/"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/gi, '"<uuid>"')
+      .replace(/(?<=")[0-9a-f]{32,}(?=\\?")/gi, '<hash>')
       .replace(/"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z"/g, '"<time>"');
     expect(stored).not.toContain('4321');
     expect(stored).not.toContain('8642');

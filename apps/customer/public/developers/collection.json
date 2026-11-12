@@ -1241,11 +1241,31 @@
           }
         },
         {
+          "name": "venueGatedList",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/gated-list", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "gated-list"] }
+          }
+        },
+        {
           "name": "venueBestPrices",
           "request": {
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/venue/best-prices", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "best-prices"] }
+          }
+        },
+        {
+          "name": "venueFundingHistory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/funding-history",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "funding-history"]
+            }
           }
         },
         {
@@ -1553,6 +1573,19 @@
           }
         },
         {
+          "name": "venueAgentAccountLimits",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/limits",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "limits"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "venueAgentAccountClose",
           "request": {
             "method": "POST",
@@ -1587,6 +1620,19 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "venue", "agent-accounts", ":id", "connections"],
               "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentRevoke",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/connections/:keyId/revoke",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", "connections", ":keyId", "revoke"],
+              "variable": [{ "key": "keyId", "value": "" }]
             }
           }
         },
@@ -1673,6 +1719,100 @@
                 { "key": "agentId", "value": "" },
                 { "key": "id", "value": "" }
               ]
+            }
+          }
+        },
+        {
+          "name": "liveRuns",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/quant/live-runs", "host": ["{{baseUrl}}"], "path": ["api", "v1", "quant", "live-runs"] }
+          }
+        },
+        {
+          "name": "liveRunStart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/quant/live-runs", "host": ["{{baseUrl}}"], "path": ["api", "v1", "quant", "live-runs"] }
+          }
+        },
+        {
+          "name": "liveRun",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quant/live-runs/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "quant", "live-runs", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "liveRunSubmit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quant/live-runs/:id/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "quant", "live-runs", ":id", "submit"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "liveRunStop",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quant/live-runs/:id/stop",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "quant", "live-runs", ":id", "stop"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "liveRunLiquidate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quant/live-runs/:id/liquidate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "quant", "live-runs", ":id", "liquidate"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "liveRunOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quant/live-runs/:id/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "quant", "live-runs", ":id", "orders"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "liveRunTestKill",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quant/live-runs/:id/test/kill-process",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "quant", "live-runs", ":id", "test", "kill-process"],
+              "variable": [{ "key": "id", "value": "" }]
             }
           }
         },

@@ -20,14 +20,16 @@ import { encodeVenueWire } from '@intafaced/venue-contracts';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { ProtectionError, type VenueProtections } from './protections.js';
 import { UserVenueDoorError } from './user-venue-door.js';
-import { venueRefusalReply, type UserVenueRestDeps } from './user-venue-rest.js';
+import { refusedAgentKey, venueRefusalReply, type UserVenueRestDeps } from './user-venue-rest.js';
 
 export const PROTECTIONS_PATH = '/api/v1/venue/protections';
 
 export function attachProtectionRoutes(app: FastifyInstance, protections: VenueProtections | null, deps: UserVenueRestDeps): void {
-  function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
+  async function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Promise<Principal | null> {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
+    // A key connected to an agent account trades only through the assistant's own route (J-agents-21 #9).
+    if (await refusedAgentKey(reply, principal, deps)) return null;
     try {
       requireScope(principal, scope);
     } catch (error) {
@@ -66,13 +68,13 @@ export function attachProtectionRoutes(app: FastifyInstance, protections: VenueP
   };
 
   app.get<{ Querystring: { owner?: string } }>(PROTECTIONS_PATH, privateRead, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:read');
+    const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (p) => ({ protections: await p.list(principal, req.query.owner ?? '') }));
   });
 
   app.post(PROTECTIONS_PATH, privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     // A stop armed on our engine is made here (201); a venue trigger order is made only once the wallet signs it (200).
     return answer(
@@ -83,19 +85,19 @@ export function attachProtectionRoutes(app: FastifyInstance, protections: VenueP
   });
 
   app.delete<{ Params: { id: string } }>(`${PROTECTIONS_PATH}/:id`, privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, (p) => p.cancel(principal, req.params.id));
   });
 
   app.get<{ Querystring: { owner?: string } }>('/api/v1/venue/protection-agent', privateRead, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:read');
+    const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, (p) => p.agent(principal, req.query.owner ?? ''));
   });
 
   app.post('/api/v1/venue/protection-agent/prepare', privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     const owner = raw(req).owner;
     return answer(reply, (p) => p.prepareAgent(principal, typeof owner === 'string' ? owner : ''));

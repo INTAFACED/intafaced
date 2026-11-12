@@ -16,6 +16,8 @@ import {
   type MaybeKnown,
   type OrderIntent,
   type VenueFill,
+  type VenueBestPrices,
+  type VenueGatedContract,
   type VenueMarginMode,
   type VenueMarket,
   type VenuePosition,
@@ -42,6 +44,7 @@ import {
   outcomeText,
   keepsDraft,
   ReadBack,
+  useAsOfText,
   useOwner,
   useVenueAccount,
   useVenueActions,
@@ -54,6 +57,7 @@ import {
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
+import { slippageLimit } from '../desk/venue-desk';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
 import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
 import { venueProtectCopy } from './venue-protect-copy';
@@ -63,7 +67,7 @@ import type { RoutePreview } from '../../../features/trade/venue-api';
 /** Resting order types the futures desk names; any the venue does not list is shown with its refusal and sends nothing. */
 const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
 const MODES: readonly VenueMarginMode[] = ['isolated', 'cross'];
-/** How far from the mark a close's worst price sits (its slippage limit), in percent. */
+/** How far from the mark a close's worst price sits when it is a limit order (no market type), in percent. */
 const CLOSE_SLIPPAGE_PERCENT = 5n;
 
 /** The futures desk in venue mode: every perpetual the venue lists, on the customer's own venue account. */
@@ -104,8 +108,51 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
           </div>
         ) : null}
       </section>
+      <GatedList status={status} />
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
+  );
+}
+
+/**
+ * J-derivatives-01 #2: every contract marked open or blocked for this account, with each reason as svc-trade's gated list
+ * names it (the region and level gate, our builder fee, our listing, the venue's own state). It reads on its own, so a
+ * person the region or level gate blocks still sees why.
+ */
+function GatedList({ status }: { status: VenueUp }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const venue = useVenueApi();
+  const asOfText = useAsOfText();
+  const gated = usePolled((signal) => venue.gatedList(signal), 'venue-gated-list', 5_000);
+  const rows: VenueGatedContract[] = gated.data?.value ?? [];
+  return (
+    <section className="dk-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
+      <h2 className="dk-tab-title">
+        {t('Gated list')} <TestMark test={status.test} />
+      </h2>
+      <ReadProblem failure={gated.failure} venueName={status.venue.displayName} />
+      <ul className="form-stack">
+        {rows.map((c) => (
+          <li key={c.symbol} data-testid="venue-gate" data-symbol={c.symbol} data-open={c.open ? 'true' : 'false'}>
+            <strong>{c.symbol}</strong> <span data-testid="venue-gate-state">{c.open ? t('Gated open') : t('Gated blocked')}</span>
+            {c.blockers.length > 0 ? (
+              <ul>
+                {c.blockers.map((b) => (
+                  <li key={b.code} data-code={b.code}>
+                    {b.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {gated.data ? (
+        <p className="muted" data-testid="venue-gated-as-of">
+          {asOfText(gated.data.asOf)}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -969,6 +1016,22 @@ export function totalToCommit(p: VenuePreview): string | null {
   return sumDecimals([perp.initialMargin.value, p.venueFee.value.amount, p.builderFee.value.amount]);
 }
 
+/**
+ * A market close's worst price: the owner's price protection from the venue's best price on the side the close meets,
+ * as svc-trade bounds every market order (`slippageLimit`, the spot desk's own). With the cap blank or no best price on
+ * that side, the mark-based price goes and svc-trade refuses it by name (`trade.slippage_cap_unset`,
+ * `trade.no_reference_price`); never an unbounded order.
+ */
+export function closeMarketPrice(
+  position: VenuePosition,
+  tick: string,
+  read: { value: VenueBestPrices; slippageCapBps: MaybeKnown<string> } | null,
+): string {
+  const side = position.side === 'long' ? 'sell' : 'buy';
+  const bound = read && read.slippageCapBps.known ? slippageLimit(side, read.value, read.slippageCapBps.value, tick) : null;
+  return bound ?? closeWorstPrice(position, tick);
+}
+
 /** A close's worst price: CLOSE_SLIPPAGE_PERCENT from the mark, on the tick, against the position. */
 export function closeWorstPrice(position: VenuePosition, tick: string): string {
   const mark = parseAmount(position.markPrice);
@@ -1178,9 +1241,11 @@ function CloseControl({
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
+  const venue = useVenueApi();
   const [percent, setPercent] = useState('40');
   const [result, setResult] = useState<{ amount: string; result: ActionResult } | null>(null);
-  const draft = useRef<{ percent: string; size: string; id: string } | null>(null);
+  // The worst price is read once per close id, so a double press sends the same close at the same price.
+  const draft = useRef<{ percent: string; size: string; id: string; price: Promise<string> } | null>(null);
   // The client id of a not-definite close the venue's own record has since settled.
   const [settledId, setSettledId] = useState<string | null>(null);
   const read = result?.result.kind === 'unknown' ? result.result : null;
@@ -1191,19 +1256,32 @@ function CloseControl({
     const p = Number(percent);
     if (!Number.isInteger(p) || p < 1 || p > 100) return;
     // One close id per (percent, size) until a definite answer: a second press is the same close.
+    const type = market.orderTypes.includes('market') ? 'market' : 'limit';
     if (!draft.current || draft.current.percent !== percent || draft.current.size !== position.size)
-      draft.current = { percent, size: position.size, id: draftId() };
+      draft.current = {
+        percent,
+        size: position.size,
+        id: draftId(),
+        price:
+          type === 'market'
+            ? venue.bestPrices(position.symbol).then(
+                (best) => closeMarketPrice(position, market.tickSize, best.ok ? best.data : null),
+                () => closeMarketPrice(position, market.tickSize, null),
+              )
+            : Promise.resolve(closeWorstPrice(position, market.tickSize)),
+      };
+    const { id, price } = draft.current;
     const amount = p === 100 ? position.size : partOf(position.size, p, market.lotSize);
     const answer = await run({
       kind: 'place_order',
       symbol: position.symbol,
       side: position.side === 'long' ? 'sell' : 'buy',
-      type: market.orderTypes.includes('market') ? 'market' : 'limit',
+      type,
       amount,
-      price: closeWorstPrice(position, market.tickSize),
+      price: await price,
       timeInForce: 'IOC',
       reduceOnly: true,
-      clientOrderKey: keys.close(owner, position.symbol, draft.current.id),
+      clientOrderKey: keys.close(owner, position.symbol, id),
       builderFee: null,
     });
     if (!keepsDraft(answer)) draft.current = null;

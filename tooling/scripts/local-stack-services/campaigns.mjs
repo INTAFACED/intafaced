@@ -19,6 +19,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     LEDGER_URL: urlOf('ledger'),
     // svc-trade's public market list names the market a fill's id points at, for a step on one market.
     TRADE_URL: urlOf('trade'),
+    // The welcome deposit task (J-campaigns-04 #2): the person's connected wallets from svc-protocol, and the venue's
+    // deposits into their venue accounts through svc-trade's door (TRADE_URL), signed with the stack's shared secret.
+    PROTOCOL_URL: urlOf('protocol'),
     // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the reconciler interval and the
     // rollback window a reward record shows. Production stays blank: no reconciler runs, and the window reads "not set".
     CAMPAIGNS_RECONCILE_AFTER_SECONDS: '5',

@@ -39,6 +39,17 @@ export const venueStatusSchema = z.union([
     test: z.boolean(),
     label: z.literal('TEST').optional(),
     chainId: z.number().int().positive().nullable(),
+    /** Where the person's own wallet sends a token to fund the venue account (B2); null or absent when the venue names none. */
+    deposit: z
+      .object({
+        chainId: z.number().int().positive(),
+        token: address,
+        tokenDecimals: z.number().int().min(0).max(18),
+        address,
+        asset: z.string().min(1),
+      })
+      .nullable()
+      .optional(),
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
@@ -135,6 +146,11 @@ export const venueSettlementSchema = z.object({
 export type VenueSettlement = z.infer<typeof venueSettlementSchema>;
 /** A stock perpetual's home-market session as the venue publishes it (J-derivatives-27). */
 export type VenueSession = Extract<VenueMarket['session'], { known: true }>['value'];
+
+export const venueBestPricesSchema = z.object({ symbol: z.string(), bid: decimalSchema.nullable(), ask: decimalSchema.nullable() });
+export type VenueBestPrices = z.infer<typeof venueBestPricesSchema>;
+/** The venue's best prices with the owner's market price protection (TRADE_MARKET_SLIPPAGE_CAP_BPS) svc-trade adds: blank is not known. */
+export const venueBestPricesReadSchema = asOf(venueBestPricesSchema).extend({ slippageCapBps: maybeKnown(decimalSchema) });
 
 export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
@@ -581,6 +597,16 @@ export function walletTypedData(typedData: PreparedAnswer['prepared']['typedData
   };
 }
 
+/** J-derivatives-01 #2: one perpetual open or blocked for this account, with every reason (svc-trade venue-gated-list.ts). */
+const venueGatedContractSchema = z.object({
+  symbol: z.string(),
+  open: z.boolean(),
+  code: z.string().nullable(),
+  message: z.string().nullable(),
+  blockers: z.array(z.object({ code: z.string(), message: z.string() })),
+});
+export type VenueGatedContract = z.infer<typeof venueGatedContractSchema>;
+
 // ── The door ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export function venueApi(api: ApiClient) {
@@ -591,6 +617,8 @@ export function venueApi(api: ApiClient) {
   return {
     status: (signal?: AbortSignal) => api.rest('/venue/status', venueStatusSchema, { signal }),
     markets: (signal?: AbortSignal) => read('/markets', asOf(z.array(venueMarketSchema)), {}, signal),
+    bestPrices: (symbol: string, signal?: AbortSignal) => read('/best-prices', venueBestPricesReadSchema, { symbol }, signal),
+    gatedList: (signal?: AbortSignal) => read('/gated-list', asOf(z.array(venueGatedContractSchema)), {}, signal),
     balances: (owner: string, signal?: AbortSignal, subAccount?: string) =>
       read('/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount }, signal),
     openOrders: (owner: string, signal?: AbortSignal) => read('/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),

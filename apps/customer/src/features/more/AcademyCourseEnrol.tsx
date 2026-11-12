@@ -201,7 +201,7 @@ export function CourseEnrolView({
         </>
       ) : (
         <>
-          {terms.closed && <p role="status">{closedReasonText(t, terms.closed)}</p>}
+          {/* A closed course says why once, next to the disabled Enrol now. */}
           <fieldset className="academy-enrol-tracks">
             <legend>
               <Copy k="enrolTracks" />

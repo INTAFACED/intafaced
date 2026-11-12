@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createPublicClient, decodeFunctionData, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { CHAIN_ID, TOKEN_A, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
+import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { api, journeyState, ROOT, tool } from './stack.mjs';
@@ -651,17 +651,66 @@ test(`${J} #9 deposits 10 TEST base to the trading venue and withdraws more than
 test(`${J} #10 requests an asset link review and opens the contract-read docs: the review states decimals and the verdict; the docs list read-only calls with examples`, async ({
   page,
 }) => {
-  await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  const chain = createPublicClient({ transport: http(testChain().gateUrl), cacheTime: 0 });
+  const ERC20 = parseAbi(['function decimals() view returns (uint8)']);
   await page.goto('/protocol/contracts');
   await page.getByRole('button', { name: 'Request an asset link review' }).click(UNBUILT);
   const review = page.getByRole('form', { name: 'Asset link review' });
-  await review.getByRole('textbox', { name: /^Token address/ }).fill(TOKEN_A.address);
-  await review.getByRole('button', { name: 'Request review' }).click();
   const result = page.getByRole('region', { name: 'Review result' });
-  await expect(result).toContainText(`Decimals ${TOKEN_A.decimals}`);
-  await expect(result).toContainText(/Verdict: (linked|not linked)/);
+  /** Reviews `token` and returns the venue contract the result names it was read from. */
+  async function reviewOf(token) {
+    await review.getByRole('textbox', { name: /^Token address/ }).fill(token);
+    await review.getByRole('button', { name: 'Request review' }).click();
+    // The decimals the review states are the token's own, as the token contract answers them on the chain.
+    const decimals = await chain.readContract({ address: token, abi: ERC20, functionName: 'decimals' });
+    await expect(result).toContainText(`Decimals ${decimals}`);
+    const venue = (await result.innerText()).match(/venue contract (0x[0-9a-fA-F]{40})/)?.[1];
+    expect(venue, 'the review names the venue contract it read').toBeTruthy();
+    return venue;
+  }
+  // TEST Token A is the venue's base asset, as the venue contract itself reports it: the verdict is linked.
+  const venue = await reviewOf(TOKEN_A.address);
+  expect(await chain.getCode({ address: venue }), 'the venue is a contract on the TEST chain').toMatch(/^0x[0-9a-f]{2,}/);
+  const base = await chain.readContract({ address: venue, abi: VENUE_ABI, functionName: 'baseToken' });
+  expect(base.toLowerCase()).toBe(TOKEN_A.address);
+  await expect(result).toContainText('Verdict: linked');
+  await expect(result).not.toContainText('Verdict: not linked');
+  // TEST Token B is a token the venue does not trade (neither its base nor its quote): the verdict is not linked.
+  const quote = await chain.readContract({
+    address: venue,
+    abi: parseAbi(['function quoteToken() view returns (address)']),
+    functionName: 'quoteToken',
+  });
+  expect([base.toLowerCase(), quote.toLowerCase()]).not.toContain(TOKEN_B.address);
+  await reviewOf(TOKEN_B.address);
+  await expect(result).toContainText('Verdict: not linked');
+  // The contract-read docs: every call listed is a read-only call on that venue, with an example; each example, run as
+  // written against the chain (the person's own address in place of 0xYourAddress), is answered as a view call.
   await page.getByRole('link', { name: 'Contract-read docs' }).click();
   const calls = page.getByRole('region', { name: 'Read-only calls' });
-  await expect(calls.getByRole('heading')).not.toHaveCount(0);
-  await expect(calls.getByRole('code').first()).toBeVisible();
+  const entries = calls.getByRole('article');
+  const count = await entries.count();
+  expect(count, 'the docs list calls').toBeGreaterThan(0);
+  const names = [];
+  for (let i = 0; i < count; i += 1) {
+    const entry = entries.nth(i);
+    await expect(entry.getByRole('heading')).toBeVisible();
+    const example = (await entry.getByRole('code').last().innerText()).trim();
+    const abiLine = example.match(/parseAbi\(\['(function [^']+)'\]\)/)?.[1];
+    const name = example.match(/functionName: '([A-Za-z]+)'/)?.[1];
+    expect(abiLine, `example ${i + 1} carries its ABI`).toMatch(/ view returns /);
+    expect(example).toContain(`address: '${venue}'`);
+    const args = (example.match(/args: \[(.*)\],/)?.[1] ?? '')
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean)
+      .map((a) => (a === "'0xYourAddress'" ? wallet.address : BigInt(a.replace(/n$/, ''))));
+    const abi = parseAbi([abiLine]);
+    expect(abi[0].stateMutability, `${name} is read-only`).toBe('view');
+    await chain.readContract({ address: venue, abi, functionName: name, args });
+    names.push(name);
+  }
+  // The balances a person reads before moving funds are among them.
+  expect(names).toEqual(expect.arrayContaining(['baseToken', 'quoteToken', 'baseBal', 'reservedBase']));
 });

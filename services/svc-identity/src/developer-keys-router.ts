@@ -15,11 +15,16 @@ import {
   agentKeyApprovalListOutputSchema,
   agentKeyHoldInputSchema,
   agentKeyHoldOutputSchema,
+  apiKeyCallRecordInputSchema,
+  apiKeyCallRecordOutputSchema,
+  apiKeyCallsInputSchema,
+  apiKeyCallsOutputSchema,
   developerSetRoleInputSchema,
   developerSetRoleOutputSchema,
   developerTeamInputSchema,
   developerTeamSchema,
 } from '@intafaced/contracts/api-keys';
+import { ApiKeyCallsError, listApiKeyCalls, recordApiKeyCall } from './auth/api-key-calls.js';
 import { AgentKeyApprovalError, holdAgentKeyAction, listAgentKeyApprovals } from './auth/agent-key-approvals.js';
 import { optionalFactorProof } from './auth/api-key-fresh-factor.js';
 import {
@@ -219,6 +224,28 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
           assertSignedInPerson(ctx.principal);
           return listAgentKeyApprovals(deps.sql, ctx.principal.userId, input.limit);
         }),
+
+      /** One key's call log (DV-keys-06): its owner only; anyone else's key is not found. Never a body or header value. */
+      calls: scopedProcedure('identity:read')
+        .input(apiKeyCallsInputSchema)
+        .output(apiKeyCallsOutputSchema)
+        .query(async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          try {
+            return await listApiKeyCalls(deps.sql, ctx.principal.userId, input);
+          } catch (err) {
+            if (err instanceof ApiKeyCallsError) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+            }
+            throw err;
+          }
+        }),
+
+      /** The edge's report of one call it answered for an API key (`api-key-calls.ts`). Only the edge may send it. */
+      recordCall: serviceProcedureFor(['svc-edge'])
+        .input(apiKeyCallRecordInputSchema)
+        .output(apiKeyCallRecordOutputSchema)
+        .mutation(({ input }) => recordApiKeyCall(deps.sql, input)),
 
       /**
        * The edge's ask when an API key attempts a held action (`AGENT_HELD_ACTIONS`): an agent key's attempt becomes a
