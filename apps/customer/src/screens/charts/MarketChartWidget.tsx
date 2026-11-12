@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { usePreferences } from '../../shared/preferences';
 import type { Candle } from '../../data/types';
 import { CANDLE_POLL_MS, CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
@@ -107,11 +107,10 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const serverClock = useServerClock();
   const lastTrade = useLastTrade(market.symbol);
   // The newest trade time read for this market, kept once the tape stops answering, so a down feed names its last tick.
-  const [seenTrade, setSeenTrade] = useState<{ symbol: string; ms: number } | null>(null);
-  useEffect(() => {
-    if (lastTrade.status === 'ready' && lastTrade.data !== null) setSeenTrade({ symbol: market.symbol, ms: lastTrade.data });
-  }, [lastTrade, market.symbol]);
-  const lastTradeSeenMs = seenTrade?.symbol === market.symbol ? seenTrade.ms : null;
+  // A ref, not state: keeping it never causes a render of its own, so a read that answers on every render cannot loop.
+  const seenTrade = useRef<{ symbol: string; ms: number } | null>(null);
+  if (lastTrade.status === 'ready' && lastTrade.data !== null) seenTrade.current = { symbol: market.symbol, ms: lastTrade.data };
+  const lastTradeSeenMs = seenTrade.current?.symbol === market.symbol ? seenTrade.current.ms : null;
   const owner = useChartOwnerValues(market.symbol);
   // Order entry on the chart: the same one rule as the status chip and the trade link (C-ops-02).
   const orderRefusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
