@@ -454,6 +454,10 @@
       "types": "./dist/academy-discussion.d.ts",
       "default": "./dist/academy-discussion.js"
     },
+    "./academy-team": {
+      "types": "./dist/academy-team.d.ts",
+      "default": "./dist/academy-team.js"
+    },
     "./academy-programmes": {
       "types": "./dist/academy-programmes.d.ts",
       "default": "./dist/academy-programmes.js"
