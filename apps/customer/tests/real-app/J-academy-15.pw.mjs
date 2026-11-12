@@ -2,7 +2,8 @@
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, journeyState, restartWith } from './stack.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { api, journeyState, restartWith, stackFile, statusMail } from './stack.mjs';
 import { signUp } from './desk.mjs';
 
 // J-academy-15 "Enrol people in bulk, run cohorts, and send a course email", in the founder console (docs/roadmap/journeys.json).
@@ -55,6 +56,17 @@ async function person(browser, prefix) {
   return { ...who, userId };
 }
 
+/** Every mail the stack's outboxes hold for `email`, of any purpose: what an inbox would show. */
+function mailTo(email) {
+  const file = stackFile('email-outbox.log');
+  const lines = existsSync(file)
+    ? readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((line) => line.includes(` email=${email} `))
+    : [];
+  return [...lines, ...statusMail(email).map((m) => JSON.stringify(m))];
+}
+
 /** The learner's own active enrolments, read from Academy with a session of their own. */
 async function enrolledPaths(who) {
   const res = await (await api(who)).get(trpc('myEnrollments'));
@@ -75,6 +87,9 @@ test(`${J} #1 uploads 30 addresses to bulk enrol: each is enrolled or listed wit
   expect(addresses).toHaveLength(30);
   run.reset({ people, strangers });
 
+  // What each person's inbox holds before the upload: the upload must add nothing to it.
+  const inboxes = () => [...people.map((p) => p.email), strangers[0]].map((email) => mailTo(email).length);
+  const mailBefore = inboxes();
   const founder = await founderSignIn(page, 'b');
   await page.goto(ENROLMENT);
   const bulk = page.getByTestId('bulk-enrol');
@@ -105,6 +120,8 @@ test(`${J} #1 uploads 30 addresses to bulk enrol: each is enrolled or listed wit
   await expect(rows.nth(28)).toContainText('Not an email address.');
   await expect(rows.nth(29)).toHaveAttribute('data-code', 'academy.duplicate_address');
   for (const p of people) expect(await enrolledPaths(p)).toContain(COURSE);
+  // No mail: no person enrolled, and no address refused, got any mail from the upload.
+  expect(inboxes()).toEqual(mailBefore);
   // The service's own record: the people enrolled by bulk upload, by this founder, and no mail.
   const events = (await staff('query', 'admin.staffEnrolments', { path: COURSE })).filter((e) => people.some((p) => p.userId === e.userId));
   expect(events.map((e) => [e.source, e.actorId]).sort()).toEqual(people.map(() => ['bulk', founder.userId]));
@@ -117,6 +134,20 @@ test(`${J} #1 uploads 30 addresses to bulk enrol: each is enrolled or listed wit
   await expect(rows).toHaveCount(30);
   const again = (await staff('query', 'admin.staffEnrolments', { path: COURSE })).filter((e) => people.some((p) => p.userId === e.userId));
   expect(again).toEqual(events);
+  // The service's own answer for this upload says it sent no mail, and repeating it again still changes nothing.
+  const stored = await staff('mutation', 'admin.bulkEnrol', {
+    path: COURSE,
+    rows: addresses.map((address) => ({ address, userId: people.find((p) => p.email === address.toLowerCase())?.userId ?? null })),
+    reason: `TEST ${J}: cohort upload`,
+  });
+  expect(stored).toMatchObject({ replayed: true, mail: 'none' });
+  expect(
+    stored.rows
+      .filter((r) => r.outcome === 'enrolled')
+      .map((r) => r.userId)
+      .sort(),
+  ).toEqual(people.map((p) => p.userId).sort());
+  expect(inboxes()).toEqual(mailBefore);
 
   // With the owner's row limit blank, an upload is refused with its code and changes nothing.
   restartWith('academy', 'LOCAL_STACK_ACADEMY_BULK_ENROL_ROWS', false);
