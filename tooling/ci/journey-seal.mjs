@@ -79,7 +79,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls, isJudgeDown, requiredChecks, reviewRan } from './review-marker.mjs';
+import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
@@ -669,6 +669,8 @@ export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
+    // The pull requests GitHub lists on a commit, open or not (mergedNothingToSeal).
+    pullsOn: (sha) => api(`/repos/${repo}/commits/${sha}/pulls?per_page=100`, token),
     // An automatic revert's commits (it must hold one) and the commit it reverts (autoRevertScope).
     pullCommits: (n) => api(`/repos/${repo}/pulls/${n}/commits?per_page=2`, token),
     commit: (sha) => api(`/repos/${repo}/commits/${sha}?per_page=300`, token),
@@ -1364,6 +1366,10 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   if (!SHA40.test(head)) return { ok: false, lines: [`#${number}: its head could not be read`] };
   if (sha && head !== sha)
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
+  if (requireOpen && pull.merged_at && io.pullsOn) {
+    const merged = mergedNothingToSeal(pull, head, await io.pullsOn(head));
+    if (merged) return { ok: true, lines: [merged] };
+  }
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
   const paths = await io.files(number);
   const texts = new Map();
