@@ -2525,8 +2525,8 @@ test("main's own planted: excused only when main's newest run has it red the sam
   ])
     assert.equal(go({ touches: { ...area([], [f]), shared: false } }).blocking.length, 1, `a test file the shards read: ${f}`);
   assert.equal(go({ touches: { ...area([], ['tooling/factory/x.mjs']), shared: true } }).blocking.length, 1, 'shared setup');
-  const money = go({ blocking: [{ ...redW[0], money: true }] });
-  assert.equal(money.blocking.length, 0, "OWNER 297: a money step main has red and tracks is main's too");
+  assert.equal(go({ blocking: [{ ...redW[0], money: true }] }).blocking.length, 1, 'a money step is never passed over (REVIEW.md item 3)');
+  assert.equal(go({ blocking: [{ step: redW[0].step, why: redW[0].why }] }).blocking.length, 1, 'unmarked counts as money');
 });
 
 test("main's own sealPull planted: main's newest run outside the head's history is red and tracked; the PR seals only then", async () => {

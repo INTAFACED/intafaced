@@ -1176,8 +1176,9 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
  * Each red splitInherited still holds (`blocking`) is main's when main's newest finished full run (`latest`, read by
  * mainReference whatever the head holds) is red on it with the same verdict line, an open issue tracks it (labelled
  * `regression` and titled "Journey broken on main: <journey>", or labelled `flaky` and titled "Flaky step on main:
- * <journey> #<n>…", money or not), and the pull request touches neither its journey nor any test file
- * (MAINS_TEST_PATHS). Anything else stays as it was. Never for a pull request that changes the journey stack's shared
+ * <journey> #<n>…"), and the pull request touches neither its journey nor any test file
+ * (MAINS_TEST_PATHS). A money step's red (or one the verdict didn't mark either way) is never main's here: as in
+ * splitInherited, a money step is never passed over (REVIEW.md item 3). Anything else stays as it was. Never for a pull request that changes the journey stack's shared
  * setup (every red counts there). Returns { blocking, passed }.
  */
 export const MAINS_TEST_PATHS = ['apps/customer/tests/', 'apps/customer/playwright'];
@@ -1200,7 +1201,7 @@ export function mainsOwn({ blocking, latest, issues, touches }) {
   const out = { blocking: [], passed: [] };
   for (const x of blocking) {
     const journey = journeyOf(x.step);
-    const issue = sameOnMain(latest, x) ? trackingIssue(issues, x.step) : null;
+    const issue = x.money === false && sameOnMain(latest, x) ? trackingIssue(issues, x.step) : null;
     if (!issue) out.blocking.push(x);
     else if (touches.journeys.has(journey) || tests)
       out.blocking.push({
