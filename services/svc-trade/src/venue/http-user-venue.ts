@@ -30,6 +30,7 @@ import {
   type VenueBook,
   type VenueOrderPreview,
   type VenueBestPrices,
+  type VenueFundingRow,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -233,6 +234,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
     return this.read('/best-prices', { symbol });
+  }
+
+  fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
+    return this.read('/funding-history', { symbol, since });
   }
 
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */

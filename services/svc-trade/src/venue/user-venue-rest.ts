@@ -5,6 +5,8 @@
  *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
  *   GET  /api/v1/venue/gated-list                      each perpetual open or blocked for this account, every reason (J-derivatives-01 #2)
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
+ *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
+ *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
@@ -57,7 +59,7 @@ import {
   type VenueSigner,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
-import { privateRead, privateWrite } from '../route-inventory.js';
+import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
 import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
@@ -233,6 +235,17 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       const best = await venue.bestPrices(req.query.symbol);
       const cap = deps.slippageCapBps ?? null;
       return { ...best, slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) } };
+    });
+  });
+
+  // J-charts-desk-04 #6: public market data, as the candle and trade routes are; no account and no sign-in.
+  app.get<{ Querystring: Query & { base?: string; since?: string } }>('/api/v1/venue/funding-history', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => {
+      const base = req.query.base ?? '';
+      if (!/^[A-Za-z0-9]{1,20}$/.test(base)) throw new VenueWireError('base is the asset, as BTC');
+      const since = new Date(req.query.since ?? '');
+      if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
+      return d.fundingHistory(base, since);
     });
   });
 
