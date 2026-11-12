@@ -931,3 +931,127 @@ describe('grid profit withdrawal (CB-bots-05, #7)', () => {
     }
   });
 });
+
+describe('grid top-up (CB-bots-04; J-copy-bots-otc-15 #1)', () => {
+  const TOP = { requestId: 'topup-test-0001', asset: 'USDT', amount: '50' };
+
+  it('raises the investment and the reserve by exactly the amount, re-plans once, and re-sizes every open buy', async () => {
+    const { service, trade } = setup();
+    const bot = await service.create(verified(), BODY);
+    const buysBefore = trade.placed.filter((p) => p.side === 'buy').length;
+    const openBefore = bot.orders.filter((o) => o.status === 'open' && o.side === 'buy');
+    expect(openBefore.length).toBeGreaterThan(0);
+
+    const done = await service.topUp(verified(), { botId: bot.botId, ...TOP });
+    expect(done.topUpId).toBe(`bots.grid.topup:${bot.botId}:${TOP.requestId}`);
+    expect(A(done.investmentAfter) - A(done.investmentBefore)).toBe(A('50'));
+    expect(A(done.bot.investment) - A(bot.investment)).toBe(A('50'));
+    expect(A(done.bot.reserve!.amount) - A(bot.reserve!.amount)).toBe(A('50'));
+    expect(done.bot.reinitCount).toBe(1);
+    // Each old buy was cancelled and its level bought again at the new, larger size under the next cycle.
+    expect(trade.cancelled.sort()).toEqual(openBefore.map((o) => o.orderId).sort());
+    const open = done.bot.orders.filter((o) => o.status === 'open' && o.side === 'buy');
+    expect(open).toHaveLength(openBefore.length);
+    for (const o of open) {
+      expect(o.cycle).toBe(1);
+      expect(o.qty).toBe(done.bot.levels[o.levelIndex]!.qty);
+      expect(A(o.qty)).toBeGreaterThan(A(openBefore.find((b) => b.levelIndex === o.levelIndex)!.qty));
+    }
+    expect(trade.placed.filter((p) => p.side === 'buy').length).toBe(buysBefore + openBefore.length);
+  });
+
+  it('a retry with the same key answers the same top-up: no second rise, no second re-plan', async () => {
+    const { service, trade } = setup();
+    const bot = await service.create(verified(), BODY);
+    const first = await service.topUp(verified(), { botId: bot.botId, ...TOP });
+    const placed = trade.placed.length;
+    const again = await service.topUp(verified(), { botId: bot.botId, ...TOP });
+    expect(again.topUpId).toBe(first.topUpId);
+    expect(again.bot.investment).toBe(first.bot.investment);
+    expect(again.bot.reinitCount).toBe(1);
+    expect(trade.placed.length).toBe(placed);
+    expect((await refusal(service.topUp(verified(), { botId: bot.botId, ...TOP, amount: '51' }))).code).toBe(
+      'trade.bots_grid_topup_conflict',
+    );
+  });
+
+  it('one above the free quote is refused naming the free figure, and nothing changes', async () => {
+    // TEST free 1000 less what the bot still sets aside beyond its open buys (the stub's balance keeps no order holds).
+    const { service, trade } = setup();
+    const bot = await service.create(verified(), BODY);
+    const placed = trade.placed.length;
+    const open = bot.orders.filter((o) => o.status === 'open' && o.side === 'buy').reduce((a, o) => a + A(o.holdAmount), 0n);
+    const free = formatAmount(A('1000') - (A(bot.reserve!.amount) - open));
+    const over = formatAmount(A(free) + A('0.000001'));
+    const r = await refusal(service.topUp(verified(), { botId: bot.botId, ...TOP, amount: over }));
+    expect(r.code).toBe('trade.bots_grid_topup_exceeds_free');
+    expect(r.data).toMatchObject({ field: 'Amount', asset: 'USDT', free });
+    expect(r.message).toBe(`Top-up ${over} USDT is more than the ${free} USDT free`);
+    const after = await service.get(verified(), bot.botId);
+    expect(after.investment).toBe(bot.investment);
+    expect(after.reserve!.amount).toBe(bot.reserve!.amount);
+    expect(after.reinitCount).toBe(0);
+    expect(trade.placed.length).toBe(placed);
+    // Exactly the free figure fits.
+    const fits = await service.topUp(verified(), { botId: bot.botId, ...TOP, amount: free });
+    expect(A(fits.bot.investment)).toBe(A('200') + A(free));
+    expect(fits.freeBefore).toBe(free);
+  });
+
+  it('a base top-up is refused as quote only, and a blank amount names the field', async () => {
+    const { service } = setup();
+    const bot = await service.create(verified(), BODY);
+    const base = await refusal(service.topUp(verified(), { botId: bot.botId, ...TOP, asset: 'BTC' }));
+    expect(base).toMatchObject({ code: 'trade.bots_grid_topup_quote_only', message: 'A grid is topped up in USDT only' });
+    expect((await refusal(service.topUp(verified(), { botId: bot.botId, ...TOP, amount: '' }))).code).toBe(
+      'trade.bots_grid_topup_amount_invalid',
+    );
+    expect((await service.get(verified(), bot.botId)).investment).toBe(bot.investment);
+  });
+
+  it('a stopped bot, another owner and a crash before the re-size each leave the right state', async () => {
+    const { service, trade, process } = setup();
+    const bot = await service.create(verified(), BODY);
+    const other: Principal = { ...principalFor('22222222-2222-4222-8222-222222222222'), tier: 'full' };
+    expect((await refusal(service.topUp(other, { botId: bot.botId, ...TOP }))).code).toBe('trade.grid_not_found');
+    // The re-size fails mid-way (the trade service is down for cancels): the top-up still stands, and the next tick
+    // finishes the re-initialisation with the same plan.
+    trade.cancelFailures = 100;
+    const done = await service.topUp(verified(), { botId: bot.botId, ...TOP });
+    expect(done.bot.reinitCount).toBe(1);
+    trade.cancelFailures = 0;
+    await process().tickAll();
+    const after = await service.get(verified(), bot.botId);
+    for (const o of after.orders.filter((x) => x.status === 'open' && x.side === 'buy'))
+      expect(o.qty).toBe(after.levels[o.levelIndex]!.qty);
+    expect(after.reinitCount).toBe(1);
+    await service.stop(verified(), bot.botId);
+    expect((await refusal(service.topUp(verified(), { botId: bot.botId, ...TOP, requestId: 'topup-test-0002' }))).code).toBe(
+      'trade.grid_not_running',
+    );
+  });
+});
+
+describe('grid modify (CB-bots-04; J-copy-bots-otc-15 #2)', () => {
+  it('trailing on with the shift limit blank is refused naming it; a minimum above the grid count is refused', async () => {
+    const { service } = setup();
+    const bot = await service.create(verified(), BODY);
+    const blank = await refusal(service.modify(verified(), { botId: bot.botId, trailing: true, shiftLimitPercent: '' }));
+    expect(blank).toMatchObject({ code: 'trade.bots_grid_trailing_shift_limit_required', data: { field: 'Shift limit' } });
+    const above = await refusal(service.modify(verified(), { botId: bot.botId, trailing: true, shiftLimitPercent: '5', minGridCount: 21 }));
+    expect(above).toMatchObject({ code: 'trade.bots_grid_min_count_above_count', data: { gridCount: '20' } });
+    expect(above.message).toContain('(20)');
+    expect((await refusal(service.modify(verified(), { botId: bot.botId, trailing: true, shiftLimitPercent: '0' }))).code).toBe(
+      'trade.bots_grid_trailing_shift_limit_invalid',
+    );
+  });
+
+  it('a request that passes every check is refused as not built, and nothing changes', async () => {
+    const { service } = setup();
+    const bot = await service.create(verified(), BODY);
+    const r = await refusal(service.modify(verified(), { botId: bot.botId, trailing: true, shiftLimitPercent: '5', minGridCount: 20 }));
+    expect(r.code).toBe('trade.bots_grid_trailing_not_built');
+    const after = await service.get(verified(), bot.botId);
+    expect(after).toMatchObject({ lowerPrice: bot.lowerPrice, upperPrice: bot.upperPrice, gridCount: 20, reinitCount: 0 });
+  });
+});

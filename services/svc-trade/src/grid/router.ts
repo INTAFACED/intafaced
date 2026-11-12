@@ -82,6 +82,26 @@ export function gridRouter(grid?: GridService) {
         }),
       )
       .mutation(({ ctx, input }) => call((g) => g.withdrawProfit(ctx.principal, input))),
+    topUp: scopedProcedure('trade:write', { module: 'trade' })
+      .input(
+        z.object({
+          botId: z.string().min(1).max(64),
+          requestId: z.string().min(8).max(120),
+          asset: z.string().max(16).optional().nullable(),
+          amount: decimalOrBlank,
+        }),
+      )
+      .mutation(({ ctx, input }) => call((g) => g.topUp(ctx.principal, input))),
+    modify: scopedProcedure('trade:write', { module: 'trade' })
+      .input(
+        z.object({
+          botId: z.string().min(1).max(64),
+          trailing: z.boolean().optional().nullable(),
+          shiftLimitPercent: decimalOrBlank,
+          minGridCount: z.number().int().optional().nullable(),
+        }),
+      )
+      .mutation(({ ctx, input }) => call((g) => g.modify(ctx.principal, input))),
     stop: scopedProcedure('trade:write', { module: 'trade' })
       .input(z.object({ botId: z.string().min(1).max(64) }))
       .mutation(({ ctx, input }) => call((g) => g.stop(ctx.principal, input.botId))),
