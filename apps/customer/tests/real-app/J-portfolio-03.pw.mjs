@@ -1,4 +1,5 @@
 // World: book, restart, stack
+import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, journeyState, otherTrader, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { awayBid, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit, signIn, signUp, verify } from './desk.mjs';
@@ -151,7 +152,7 @@ async function restBuy(page, who, percent, amount) {
   return order;
 }
 
-test(`${J} #1 opens /money/activity: every kind of movement in one list, in plain words, with signed amounts and local time`, async ({
+test(`${J} #1 opens /money/activity: every movement from the wallet, venues and partner in one list, each labelled with its source, in plain words, with signed amounts and local time`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -244,7 +245,27 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   await expect(list.filter({ hasText: /^Convert/ }).getByTestId('money-act__time')).toHaveText(local(converted[0].postedAt));
   await expect(list.filter({ hasText: 'Set aside for an order' })).toHaveCount(1);
   await expect(list.filter({ hasText: 'Order cancelled · nothing spent' })).toHaveCount(1);
-  await expect(list.filter({ hasText: /Transfer|Moved/ })).not.toHaveCount(0);
+  // The move to the space: the bank's two lines (out of the main account, into the space), each its own row in the
+  // same words with its signed amount, the space's named on it.
+  const moves = lines.filter((l) => l.kind === 'space_move');
+  expect(moves.map((l) => [l.direction, l.amount, l.asset, l.spaceName ?? null]).sort()).toEqual([
+    ['in', '20', 'USDT', SPACE],
+    ['out', '20', 'USDT', null],
+  ]);
+  const moved = list.filter({ hasText: 'Moved between your accounts' });
+  await expect(moved).toHaveCount(2);
+  await expect(
+    moved
+      .filter({ hasText: `Account: ${SPACE}` })
+      .locator('td')
+      .nth(2),
+  ).toHaveText('+20 USDT');
+  await expect(
+    moved
+      .filter({ hasNotText: `Account: ${SPACE}` })
+      .locator('td')
+      .nth(2),
+  ).toHaveText('−20 USDT');
   // Earn and withdrawal, each in its own words with its signed amount, as the bank's lines hold them.
   const earned = lines.filter((l) => l.kind === 'earn');
   expect(earned.map((l) => [l.direction, l.amount, l.asset])).toEqual([['out', SAVED, 'USDT']]);
@@ -273,6 +294,22 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   ).toHaveText(`+${trade.amount} BTC`);
   await expect(list.filter({ hasText: 'Set aside for an order' }).getByTestId('money-act__status')).toHaveText('Set aside');
   await expect(fundsRow.getByTestId('money-act__status')).toHaveText('Completed');
+
+  // Each labelled with its source: every line the bank has names where it came from (the wallet, a venue or the
+  // partner) in plain words, and every row shows its source. Each kind's row shows the source its own line names.
+  for (const line of lines) {
+    expect(['wallet', 'venue', 'partner'], `${line.kind} ${line.id}: ${JSON.stringify(line.source)}`).toContain(line.source?.kind);
+    expect(line.source.name, `${line.kind} ${line.id}`).toMatch(/\S/);
+  }
+  const sources = list.getByTestId('money-act__source');
+  await expect(sources).toHaveCount(await list.count());
+  for (const text of await sources.allInnerTexts()) expect(text.trim()).not.toBe('');
+  const sourceOf = (kind, direction) => lines.find((l) => l.kind === kind && (!direction || l.direction === direction)).source.name;
+  await expect(fundsRow.getByTestId('money-act__source')).toHaveText(sourceOf('welcome_funds'));
+  await expect(list.filter({ hasText: /^Trade/ }).getByTestId('money-act__source')).toHaveText(sourceOf('trade', 'in'));
+  await expect(list.filter({ hasText: /^Convert/ }).getByTestId('money-act__source')).toHaveText(sourceOf('convert'));
+  await expect(list.filter({ hasText: 'Moved to savings' }).getByTestId('money-act__source')).toHaveText(sourceOf('earn'));
+  await expect(list.filter({ hasText: /^Withdrawal/ }).getByTestId('money-act__source')).toHaveText(sourceOf('withdrawal'));
 });
 
 // #1's convert part: a conversion settles as a house fill, the reason a desk order filled by the house also posts
@@ -338,19 +375,54 @@ test(`${J} #2 filters by date, asset, type, account, address and year, and sorts
   await expect(list.first().locator('td').nth(2)).toHaveText('+20 USDT');
   await bar.getByRole('combobox', { name: 'Account', exact: true }).selectOption('');
 
-  // Year: this calendar year holds everything; a tax year cannot be picked because its start date is not published.
+  // Year: a UTC calendar year. The screen offers UTC years and asks the bank for one by number; the bank keeps exactly
+  // the lines whose UTC posting year it is, in every year asked, and the screen shows what the bank kept. The browser
+  // sits in a zone 13 hours ahead of UTC, so a local year would not pass for the UTC one.
   const year = bar.getByRole('combobox', { name: 'Year', exact: true });
-  await year.selectOption(String(new Date().getUTCFullYear()));
+  const thisYear = new Date().getUTCFullYear();
+  const lines = await allLines(who);
+  for (const asked of [thisYear, thisYear - 1, thisYear + 1]) {
+    const kept = await allLines(who, { year: asked });
+    const want = lines.filter((l) => new Date(l.postedAt).getUTCFullYear() === asked).map((l) => l.id);
+    expect(kept.map((l) => l.id).sort(), `UTC year ${asked}`).toEqual(want.sort());
+  }
+  expect(lines.filter((l) => new Date(l.postedAt).getUTCFullYear() === thisYear)).toHaveLength(lines.length);
+  const askedFor = (y) =>
+    page.waitForRequest((r) => r.url().includes('activity.list') && decodeURIComponent(r.url()).includes(`"year":${y}`));
+  const asks = askedFor(thisYear);
+  await year.selectOption(String(thisYear));
+  await asks;
   await expect(list).toHaveCount(all);
+  const asksLast = askedFor(thisYear - 1);
+  await year.selectOption(String(thisYear - 1));
+  await asksLast;
+  await expect(activity(page)).toContainText('Nothing matches');
+  await expect(list).toHaveCount(0);
+  // The tax year is offered and refused by name while its start date is unset: disabled on the screen, and the bank
+  // refuses it by name, so the screen's disabled option is not the only guard.
   await expect(year.locator('option', { hasText: 'Tax year (not set up)' })).toHaveAttribute('disabled', '');
-  // The bank refuses a tax year by name while its start date is unset, so the screen's disabled option is not the only guard.
-  const taxYear = await bankRead(who, 'activity.list', { limit: 10, taxYear: new Date().getUTCFullYear() });
+  const taxYear = await bankRead(who, 'activity.list', { limit: 10, taxYear: thisYear });
   expect(taxYear.status).toBe(412);
   expect(JSON.stringify(taxYear.body)).toContain('portfolio.tax_year_start_unset');
   await year.selectOption('');
+  await expect(list).toHaveCount(all);
 
-  // Address: no withdrawal went anywhere, so no line matches an address.
-  await bar.getByLabel('Withdrawal address').fill('0xabcdef');
+  // Address: the TEST withdrawal #1 seeded went to the address the stack's seed names for its reference
+  // (local-test-stack.mjs seed-withdrawal). Part of it, in capitals, keeps that withdrawal alone; an address nothing went
+  // to keeps nothing.
+  const { withdrawalRef } = run.read();
+  expect(withdrawalRef, '#1 seeded the withdrawal').toBeTruthy();
+  const address = `0x${createHash('sha256').update(`seed-withdrawal-to:${withdrawalRef}`).digest('hex').slice(0, 40)}`;
+  const part = address.slice(6, 22);
+  const byAddress = await allLines(who, { address: part.toUpperCase() });
+  expect(byAddress.map((l) => [l.kind, l.direction, l.amount, l.asset, l.address])).toEqual([
+    ['withdrawal', 'out', WITHDRAWN, 'USDT', address],
+  ]);
+  await bar.getByLabel('Withdrawal address').fill(part.toUpperCase());
+  await expect(list).toHaveCount(1);
+  await expect(list.first()).toContainText('Withdrawal');
+  await expect(list.first().locator('td').nth(2)).toHaveText(`−${WITHDRAWN} USDT`);
+  await bar.getByLabel('Withdrawal address').fill('0xabcdef0123456789');
   await expect(activity(page)).toContainText('Nothing matches');
   await bar.getByRole('button', { name: 'Clear filters' }).click();
   await expect(list).toHaveCount(all);
@@ -555,19 +627,41 @@ test(`${J} #6 adds a note to an entry and presses save twice: one note, shown on
   await expect(rows(page).first()).toContainText('Welcome test funds');
 });
 
-test(`${J} #7 groups activity by tax effect: refused in words while the owner has not set what each type means`, async ({ page }) => {
+test(`${J} #7 groups activity by tax effect: types grouped by whether they are income, disposal or neutral`, async ({ page }) => {
   const who = account();
   await signIn(page, who);
-  const refused = await bankRead(who, 'activity.taxEffects');
-  expect(refused.status).toBe(412);
-  expect(JSON.stringify(refused.body)).toContain('portfolio.tax_effect_map_unset');
+  // The bank answers with an effect for every kind, each one of income, disposal or neutral.
+  const answer = await bankRead(who, 'activity.taxEffects');
+  expect(answer.status, JSON.stringify(answer.body).slice(0, 300)).toBe(200);
+  const effects = answer.data.effects;
+  const kinds = [...new Set((await allLines(who)).map((l) => l.kind))];
+  expect(kinds.length).toBeGreaterThan(4);
+  for (const kind of kinds) expect(['income', 'disposal', 'neutral'], `${kind}: ${effects[kind]}`).toContain(effects[kind]);
+  for (const [kind, effect] of Object.entries(effects)) expect(['income', 'disposal', 'neutral'], kind).toContain(effect);
+
+  // On the screen: the types grouped under Income, Disposal and Neutral, each type in exactly the group the bank named,
+  // and none left without a group.
   await openActivity(page);
   await page.getByRole('button', { name: 'Group by tax effect' }).click();
-  const block = page.locator('[data-slot="state-block"][data-kind="refused"]');
-  await expect(block).toBeVisible();
-  await expect(block).not.toContainText('portfolio.tax_effect_map_unset');
-  // Nothing is shown as taxable while the map is blank, and the list stays.
-  await expect(page.getByText(/taxable/i)).toHaveCount(0);
+  const groups = page.locator('[data-label="tax-effects"]');
+  await expect(groups).toBeVisible();
+  await expect(groups.locator('[data-effect="unset"]')).toHaveCount(0);
+  const named = { income: 'Income', disposal: 'Disposal', neutral: 'Neutral' };
+  for (const [effect, word] of Object.entries(named)) {
+    const group = groups.locator(`[data-effect="${effect}"]`);
+    await expect(group).toHaveCount(1);
+    await expect(group.locator('dt')).toHaveText(word);
+  }
+  // A few kinds the person has, by their row words, each in its bank-named group and in no other.
+  const words = { welcome_funds: 'Welcome test funds', trade: 'Trade', convert: 'Convert', withdrawal: 'Withdrawal' };
+  for (const [kind, word] of Object.entries(words)) {
+    if (!kinds.includes(kind)) continue;
+    await expect(groups.locator(`[data-effect="${effects[kind]}"] dd`)).toContainText(word);
+    for (const other of Object.keys(named).filter((e) => e !== effects[kind])) {
+      expect((await groups.locator(`[data-effect="${other}"] dd`).innerText()).split(', ')).not.toContain(word);
+    }
+  }
+  // The list stays below the groups.
   await expect(rows(page)).not.toHaveCount(0);
 });
 
