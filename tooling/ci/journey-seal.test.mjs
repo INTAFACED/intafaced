@@ -1531,7 +1531,7 @@ test("C1 council G2: the break range is every commit's own paths, so a package o
   );
 });
 
-test('CI review: a money step red on main too is never passed over, outside every area and as a same-commit flake', async () => {
+test('OWNER 297: a money step red on main too stops only the pull requests in its area, like any other', async () => {
   const moneyRed = [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: true }];
   const outside = await splitInherited({
     upTo: MAIN_SHA,
@@ -1540,24 +1540,36 @@ test('CI review: a money step red on main too is never passed over, outside ever
     touches: area([], ['services/svc-support/src/chat.ts']),
     rangeOf: range(),
   });
-  assert.equal(outside.blocking.length, 1);
-  assert.match(outside.blocking[0].why, /money step, so it stops every pull request/);
-  const flake = await splitInherited({
+  assert.deepEqual(outside.blocking, [], 'outside its journey and its break range: the lane goes on');
+  assert.equal(outside.passed.length, 1);
+  // Planted: in its area it still stops the pull request, and shared setup puts one in every area.
+  const byJourney = await splitInherited({
     upTo: MAIN_SHA,
     red: moneyRed,
-    main: mainRef({ lastPass: { 'J-wallet-05#3': MAIN_SHA } }),
-    touches: area(),
-    rangeOf: range(),
-  });
-  assert.equal(flake.blocking.length, 1, 'the same-commit flake case does not clear a money step');
-  const unmarked = await splitInherited({
-    upTo: MAIN_SHA,
-    red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }],
     main: mainRef(),
-    touches: area(),
+    touches: area(['J-wallet-05']),
     rangeOf: range(),
   });
-  assert.equal(unmarked.blocking.length, 1, 'a red not marked non-money counts as money');
+  assert.equal(byJourney.blocking.length, 1, 'a pull request touching its journey is stopped');
+  const byCode = await splitInherited({
+    upTo: MAIN_SHA,
+    red: moneyRed,
+    main: mainRef(),
+    touches: area([], ['services/svc-wallet/src/fees.ts']),
+    rangeOf: range(),
+  });
+  assert.equal(byCode.blocking.length, 1, 'a pull request in its break range is stopped');
+  const shared = await splitInherited({
+    upTo: MAIN_SHA,
+    red: moneyRed,
+    main: mainRef(),
+    touches: { ...area(), shared: true },
+    rangeOf: range(),
+  });
+  assert.equal(shared.blocking.length, 1, 'shared setup: every red counts');
+  // Planted: red on this head but not on main is this head's own red, money or not.
+  const own = await splitInherited({ upTo: MAIN_SHA, red: moneyRed, main: mainRef({ red: new Map() }), touches: area(), rangeOf: range() });
+  assert.equal(own.blocking.length, 1, "not red on main: this head's own red stops it");
 });
 
 test('OWNER 278: a money step that passed only on its retry, here and on main, stops only the pull requests in its area', async () => {
@@ -1594,7 +1606,7 @@ test('OWNER 278: a money step that passed only on its retry, here and on main, s
   // Planted: main failed it outright (another verdict line), so it is not the same red: it stops every pull request.
   const outright = await splitInherited({ upTo: MAIN_SHA, red: flakyRed, main: mainRef(), touches: area(), rangeOf: range() });
   assert.equal(outright.blocking.length, 1, 'main failed it outright: not inherited as a retry pass');
-  // Planted: failed outright here, a retry pass on main: still a money red that stops every pull request.
+  // Planted: failed outright here, a retry pass on main: not the same red, so this head's own.
   const here = await splitInherited({
     upTo: MAIN_SHA,
     red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: true }],
