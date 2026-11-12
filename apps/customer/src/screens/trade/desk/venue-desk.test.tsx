@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { AsOf, OrderIntent, VenueMarket, VenuePreview, VenueUp } from '../../../features/trade/venue-api';
+import { OrdersTable } from '../../../features/trade/venue/VenueKit';
+import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp } from '../../../features/trade/venue-api';
 import { VenueReviewRows, VenueVerifyDesk, WithdrawalLine } from './VenueSpotDesk';
 import {
   HeldDraft,
@@ -291,5 +292,44 @@ describe('a person not verified for trading', () => {
     expect(html).not.toContain('data-cell="free"');
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Deposit<\/button>/);
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Withdraw<\/button>/);
+  });
+});
+
+describe('an order the desk placed that filled (J-cex-spot-01 #8)', () => {
+  const order = (id: string, status: string, filled: string, locked: string): VenueOrder => ({
+    venueOrderId: `v-${id}`,
+    venueClientOrderId: id,
+    symbol: 'BTC-USDC',
+    side: 'buy',
+    type: 'limit',
+    timeInForce: 'GTC',
+    price: '60000',
+    amount: '0.001',
+    filled,
+    remaining: status === 'filled' ? '0' : '0.001',
+    averagePrice: null,
+    status,
+    locked,
+    lockedAsset: 'USDC',
+    reduceOnly: false,
+  });
+
+  it('stays listed as the venue reads it, Filled, with nothing to cancel; an open one keeps Cancel', () => {
+    const html = renderToStaticMarkup(
+      <OrdersTable
+        orders={{ value: [order('0xopen', 'open', '0', '60')], asOf: '2026-11-12T00:00:00.000Z' } as AsOf<VenueOrder[]>}
+        test
+        onCancel={() => undefined}
+        cancelled={[]}
+        filled={[order('0xdone', 'filled', '0.001', '0'), order('0xopen', 'filled', '0.001', '0'), order('0xpart', 'open', '0', '60')]}
+      />,
+    );
+    const row = (id: string) => /<tr[^>]*data-client-order-id="(0x\w+)"[^>]*>(.*?)<\/tr>/g;
+    const rows = [...html.matchAll(row(''))].map((m) => ({ id: m[1], body: m[2] }));
+    // The open order once (its open record wins), the filled one once; a non-filled read-back is never listed here.
+    expect(rows.map((r) => r.id)).toEqual(['0xopen', '0xdone']);
+    expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*>Filled</);
+    expect(rows[1]!.body).not.toContain('<button');
+    expect(rows[0]!.body).toContain('Cancel');
   });
 });

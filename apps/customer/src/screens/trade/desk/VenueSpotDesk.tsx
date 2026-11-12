@@ -213,6 +213,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const placedKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
   const best = usePolled((signal) => venue.bestPrices(market.symbol, signal), `best:${market.symbol}`, VENUE_POLL_MS);
   const cancelled = useCancelledOrders(owner, cancelledKeys);
+  const filled = useFilledOrders(owner, placedKeys?.ids() ?? [], account.openOrders.data?.value ?? null, cancelledKeys);
   // The owner's market price protection, as svc-trade answers it with the venue's best prices; blank refuses a market order.
   const cap = best.data?.slippageCapBps ?? null;
   const capSet = cap?.known === true;
@@ -300,7 +301,13 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
         </TabsList>
         <OutcomeLine result={lastResult} owner={owner} />
         <TabsPanel value="open">
-          <OrdersTable orders={account.openOrders.data} test={status.test} onCancel={(o) => void cancel(o)} cancelled={cancelled} />
+          <OrdersTable
+            orders={account.openOrders.data}
+            test={status.test}
+            onCancel={(o) => void cancel(o)}
+            cancelled={cancelled}
+            filled={filled}
+          />
         </TabsPanel>
         <TabsPanel value="history">
           <FillsTable fills={account.fills.data} test={status.test} symbol={market.symbol} />
@@ -1130,6 +1137,33 @@ export function WithdrawalLine({ withdrawal, asOf }: { withdrawal: VenueWithdraw
 }
 
 /** The orders this page cancelled, read back from the venue by their client ids, so they stay listed with their status. */
+/**
+ * The orders this page placed that have left the venue's open orders and not been cancelled here, read back by client
+ * id: the ones the venue reads as filled stay listed, Filled (J-cex-spot-01 #8). The latest 20 are read.
+ */
+function useFilledOrders(
+  owner: string | null,
+  placed: string[],
+  open: VenueOrder[] | null,
+  cancelled: Array<{ key: string; clientOrderId: string }>,
+): VenueOrder[] {
+  const venue = useVenueApi();
+  const gone = open
+    ? placed.filter((id) => !open.some((o) => o.venueClientOrderId === id) && !cancelled.some((c) => c.clientOrderId === id)).slice(-20)
+    : [];
+  const ids = gone.join(',');
+  const read = useResource(async (signal) => {
+    if (!owner || gone.length === 0) return { ok: true as const, data: [] as VenueOrder[] };
+    const rows: VenueOrder[] = [];
+    for (const id of gone) {
+      const r = await venue.orderByClientId(owner, id, signal);
+      if (r.ok && r.data.value?.status === 'filled') rows.push(r.data.value);
+    }
+    return { ok: true as const, data: rows };
+  }, `filled:${owner}:${ids}`);
+  return useMemo(() => (read.resource.status === 'ready' ? read.resource.data : []), [read.resource]);
+}
+
 function useCancelledOrders(owner: string | null, cancelled: Array<{ key: string; clientOrderId: string }>): VenueOrder[] {
   const venue = useVenueApi();
   const ids = cancelled.map((c) => c.clientOrderId).join(',');

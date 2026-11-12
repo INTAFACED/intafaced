@@ -679,7 +679,7 @@ test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, n
     .click();
   const row = page
     .locator('tr', { hasText: Number(venueBuy.price).toLocaleString('en-US') })
-    .filter({ hasText: /Filled|Buy/ })
+    .filter({ hasText: 'Buy' })
     .first();
   await expect(row).toContainText('Maker');
   const heads = (await row.locator('xpath=ancestor::table//th').allInnerTexts()).map((h) => h.trim());
@@ -694,7 +694,7 @@ test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, n
   expect(shownUnits(col(/venue.?s fee|^Fee$/i))).toBe(fills.reduce((s, f) => s + wireUnits(f.venueFee), 0n));
   expect(col(/builder fee/i)).toMatch(/none|^0(\.0+)?/i);
   // Filled on the desk, read by this order's own client id: its Trade history rows are exactly the venue's fills of it,
-  // each a Buy as Maker at the order's price, adding up to the whole order; and the order has left Open orders.
+  // each a Buy as Maker at the order's price, adding up to the whole order; and its order row reads Filled.
   const history = page.getByTestId('venue-fills');
   const own = history.locator(`tr[data-client-order-id="${venueBuy.clientOrderId}"]`);
   await expect(own).toHaveCount(fills.length);
@@ -712,7 +712,12 @@ test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, n
     .locator('[role=tab]', { hasText: /^Open orders$/ })
     .first()
     .click();
-  await expect(page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${venueBuy.clientOrderId}"]`)).toHaveCount(0);
+  // The order the desk placed stays listed as the venue reads it: Filled, all of it, nothing locked, nothing to cancel.
+  const orderRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${venueBuy.clientOrderId}"]`);
+  await expect(orderRow.locator('[data-cell="status"]')).toHaveText('Filled', { timeout: 15_000 });
+  expect(shownUnits(await orderRow.locator('[data-cell="filled"]').innerText())).toBe(toUnits(VENUE_BUY));
+  expect(shownUnits(await orderRow.locator('[data-cell="locked"]').innerText())).toBe(0n);
+  await expect(orderRow.getByRole('button')).toHaveCount(0);
   // The venue balances moved by the fill: BTC up by what was bought (less a fee taken in BTC), USDC's lock spent.
   const after = { usdc: await venueBalance(who, owner, 'USDC'), btc: await venueBalance(who, owner, 'BTC') };
   const feeIn = (asset) => fills.filter((f) => f.feeAsset === asset).reduce((s, f) => s + wireUnits(f.venueFee), 0n);
