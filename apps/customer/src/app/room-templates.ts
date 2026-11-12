@@ -116,6 +116,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/copy/:ref': { template: 'catalogue' },
   '/trade/bots': { template: 'catalogue' },
   '/trade/bots/:kind': { template: 'catalogue' },
+  '/trade/bots/signals/publish': { template: 'flow' },
   '/trade/risk': { template: 'monitor' },
   '/trade/orders': { template: 'record-list' },
   '/trade/orders/:id': { template: 'record-list' },

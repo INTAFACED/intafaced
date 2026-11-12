@@ -1561,6 +1561,11 @@ services:
       # Pass-through only — no compose default. Silence still refuses
       # market.commission_not_configured.
       MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
+      # Signal providers' own fill count (J-copy-bots-otc-22). The provider criteria are owner values, pass-through
+      # only with no compose default: blank refuses every signal publish (market.provider_criteria_not_set).
+      TRADE_URL: http://svc-trade:4004
+      MARKET_SIGNAL_PROVIDER_MIN_TIER: ${MARKET_SIGNAL_PROVIDER_MIN_TIER:-}
+      MARKET_SIGNAL_PROVIDER_MIN_FILLS: ${MARKET_SIGNAL_PROVIDER_MIN_FILLS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4018']
     healthcheck: *healthcheck
