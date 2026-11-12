@@ -22,7 +22,7 @@ import {
 import {
   assetFromSearch,
   fillFromSearch,
-  groupActivity,
+  groupActivityPages,
   groupInAsset,
   inTab,
   isLedgerTab,
@@ -458,8 +458,8 @@ function Body({
   const { timeZone } = usePreferences();
   // The bank already answers in the order asked for; the rows keep it.
   const groups = useMemo(
-    () => (isLineTab(tab) ? lineGroups(feed.items, tab) : groupActivity(feed.items, filters.sort).groups),
-    [feed.items, tab, filters.sort],
+    () => (isLineTab(tab) ? lineGroups(feed.items, tab) : groupActivityPages(feed.items, feed.pageStarts, filters.sort).groups),
+    [feed.items, feed.pageStarts, tab, filters.sort],
   );
   const filtered = hasFilters(filters) && rangeProblem(filters, timeZone) === null;
   const rows = groups.filter(
