@@ -1553,6 +1553,16 @@ const academySections: readonly DeskSection[] = [
         label: 'Learn hub',
         why: 'The featured article as staff chose it, and the topic list courses are filed under.',
       },
+      {
+        href: '/academy-ops/catalogue/analytics',
+        label: 'Academy numbers',
+        why: 'Lesson reads, completions and certificates by day, and a summary of each learner, as svc-academy counts them.',
+      },
+      {
+        href: '/academy-ops/catalogue/reports',
+        label: 'Reports',
+        why: 'Request a learners report, watch it run, abort it, download its file with its hash, and delete it.',
+      },
     ],
   },
   {

@@ -80,6 +80,23 @@ const postLimits = () =>
     ? {}
     : { ACADEMY_POST_MAX_CHARS: '4000', ACADEMY_POST_IMAGE_MAX_BYTES: '262144', ACADEMY_MESSAGE_MAX_CHARS: '4000' };
 
+// LOCAL TEST learner summaries page size and report task list size (TEST owner values): 50 each (J-academy-16 #2, #3).
+// `LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES=off` leaves the summaries' page size blank, so its refusal can be seen too.
+const analyticsPages = () => ({
+  ...(process.env.LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES === 'off' ? {} : { ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE: '50' }),
+  ACADEMY_REPORT_TASKS_PAGE_SIZE: '50',
+});
+
+// LOCAL TEST reports centre (TEST owner values): a report holds up to 1000 learner rows, its file is kept 24 hours, and the
+// report sweep runs every 10 seconds, so a requested report runs for one sweep (long enough to watch and abort it) and is
+// done on the next (J-academy-16 #3, #4). `LOCAL_STACK_ACADEMY_REPORT_RETENTION=off` leaves the retention blank, so a
+// request refuses by name.
+const reportsCentre = () => ({
+  ACADEMY_REPORT_ROWS: '1000',
+  ACADEMY_REPORT_SWEEP_SECONDS: '10',
+  ...(process.env.LOCAL_STACK_ACADEMY_REPORT_RETENTION === 'off' ? {} : { ACADEMY_REPORT_RETENTION_HOURS: '24' }),
+});
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -103,5 +120,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...programmeMax(),
     ...postLimits(),
     ...verifyRate(),
+    ...analyticsPages(),
+    ...reportsCentre(),
   }),
 });
