@@ -53,6 +53,8 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // VenueBuilderTotal (OWNER 288 1e)
   'earned',
   'unclaimed',
+  // UserVenueFunding (J-derivatives-01 #4): the signed funding rate, a scaled fraction
+  'rate',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -98,6 +100,7 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'since',
   'lastOracleUpdateAt',
   'reopensAt',
+  'nextFundingAt',
   // UserVenueDeposit (J-dex-protocol-05 #2)
   'seenAt',
 ]);

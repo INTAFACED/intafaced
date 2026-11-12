@@ -142,6 +142,14 @@ describe('the tape: volume delta and the profile', () => {
     expect(run(study('volume-delta'), context(bars, { tape: ready([]) }))).toMatchObject({ reason: 'noTape' });
   });
 
+  it('on a market with no trades and so no bars, both tape studies say there is no tape, not only that no bars loaded', () => {
+    for (const kind of ['volume-delta', 'volume-profile'] as const)
+      expect(run(study(kind), context([], { tape: ready([]) }))).toMatchObject({ status: 'refused', reason: 'noTape' });
+    // A study that reads only the bars still says the bars are missing; Volume says the market has no volume.
+    expect(run(study('sma'), context([], { tape: ready([]) }))).toMatchObject({ reason: 'noBars' });
+    expect(run(study('volume'), context([]))).toMatchObject({ status: 'refused', reason: 'noVolume' });
+  });
+
   it('delta is buy minus sell per bar and a bar with no prints is a gap', () => {
     const result = run(study('volume-delta'), context(bars, { tape: ready(prints) }));
     const delta = seriesNamed(result, 'Delta');

@@ -1145,6 +1145,75 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       "Your assistant's spot order, from its agent key: placed only on the agent account the key is connected to, held to your cap first, and sent once per clientOrderId; an answer that is not definite is 202, retried with the same id",
   },
   {
+    name: 'ownAgentAllowances',
+    method: 'GET',
+    path: '/api/v1/venue/own-agents/:agentId/allowances',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Your own agent’s allowances on your venue sub-account: amount, what is left, period end and whether the venue still lists its agent permission',
+  },
+  {
+    name: 'ownAgentAllowanceGrant',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/allowances',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Grant your own agent an allowance (amount and period) on one of your venue sub-accounts; a blank amount or period is refused with the field named, and the answer is the agent permission for your wallet to sign',
+  },
+  {
+    name: 'ownAgentAllowanceSubmit',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/allowances/:id/submit',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Send your wallet’s signature of the allowance’s agent permission, or of its revoke, to the venue',
+  },
+  {
+    name: 'ownAgentAllowanceAbandon',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/allowances/:id/abandon',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your wallet rejected the agent permission: the allowance is not granted and nothing was sent',
+  },
+  {
+    name: 'ownAgentAllowanceRevoke',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/allowances/:id/revoke',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Revoke the allowance: our copy of the agent key is dropped and the next order refused at once; the answer is the venue’s revoke for your wallet to sign',
+  },
+  {
+    name: 'ownAgentOrderPreview',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/orders/preview',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Preview your own agent’s order: side, market, order type, size, price, fee and what it draws on the allowance; nothing is sent',
+  },
+  {
+    name: 'ownAgentOrder',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/orders',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Place the order you approved: held to the allowance and your agent policy before the agent permission signs, and sent once per orderId; an answer that is not definite is 202, retried with the same id',
+  },
+  {
+    name: 'ownAgentOrders',
+    method: 'GET',
+    path: '/api/v1/venue/own-agents/:agentId/orders',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your own agent’s orders, each read back from the venue by its client order id',
+  },
+  {
     name: 'venueOrders',
     method: 'GET',
     path: '/api/v1/venue/orders',

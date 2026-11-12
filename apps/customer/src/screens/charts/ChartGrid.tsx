@@ -454,6 +454,17 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   onHost={(host) => onHost(i, host)}
                   command={commands[i] ?? null}
                   markets={markets}
+                  // A market with no trades draws no chart, but its studies bar stays: each study says what it lacks (a
+                  // tape study: no public trades), so nothing is shown as a value.
+                  emptyAddons={() => (
+                    <StudiesBar
+                      host={null}
+                      market={cellMarket}
+                      interval={cell.interval}
+                      bars={[]}
+                      workbench={i === 0 ? workbench : `${workbench}:${i}`}
+                    />
+                  )}
                   addons={(host, bars, view: AddonView) => (
                     <>
                       {i === 0 ? mainAddons?.(host, bars, { ...view, onTreeSlot: setTreeSlot }) : null}

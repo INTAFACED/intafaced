@@ -119,7 +119,7 @@ const messages = {
   colAccount: 'Account',
   agentKey: 'This key is for an AI agent',
   agentKeyHint:
-    'An agent key is tagged on your list. It cannot hold refund, payout, withdrawal or settings permissions, and an action that needs your approval waits for you.',
+    'An agent key is tagged on your list. It cannot hold refund, payout, withdrawal or settings permissions, and a payout or refund it tries is refused.',
   agentBadge: 'Agent',
   'refused.identity.developer_roles_unset':
     'Developer roles are not set for this organisation, so only its owner may make its keys. Nothing was created.',
@@ -156,18 +156,6 @@ const messages = {
   'roleRefused.identity.developer_role_unknown': 'That developer role is not published. Nothing changed.',
   'roleRefused.identity.developer_member_unknown': 'That person is not a member of this organisation. Nothing changed.',
   'roleRefused.identity.developer_request_conflict': 'This change was already sent differently. Reload the page and try again.',
-  approvalsTitle: 'Waiting for your approval',
-  approvalsIntro:
-    'When an agent key tries a payout or a refund, it does not run. It waits here for you, and nothing is sent until you act.',
-  approvalsEmpty: 'No agent key has asked for your approval.',
-  approvalsLoading: 'Reading what your agent keys asked for…',
-  colApprovalKey: 'Key',
-  colApprovalAction: 'Asked to',
-  colApprovalAsked: 'Asked',
-  colApprovalState: 'State',
-  'approvalAction.pay.payout': 'Send a payout',
-  'approvalAction.pay.refund': 'Send a refund',
-  approvalWaiting: 'Waiting for you. Nothing was sent.',
   'refused.auth.agent_scope_forbidden':
     'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
   accountOwn: 'This account',

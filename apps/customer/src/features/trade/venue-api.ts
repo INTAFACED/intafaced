@@ -83,8 +83,14 @@ export const venueMarketSchema = z.object({
       offHoursRule: maybeKnown(z.string()),
     }),
   ),
+  // The contract strip's figures, each the venue's own or "not published" (J-derivatives-01 #4).
+  contractSize: maybeKnown(decimalSchema),
+  mark: maybeKnown(decimalSchema),
+  funding: maybeKnown(z.object({ rate: signedDecimalSchema, intervalSeconds: z.number().int().positive(), nextFundingAt: isoTime })),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
+/** A perpetual's funding as the venue publishes it (J-derivatives-01 #4). */
+export type VenueFunding = Extract<VenueMarket['funding'], { known: true }>['value'];
 /** A stock perpetual's home-market session as the venue publishes it (J-derivatives-27). */
 export type VenueSession = Extract<VenueMarket['session'], { known: true }>['value'];
 

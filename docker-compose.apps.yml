@@ -622,6 +622,7 @@ services:
       DATABASE_URL: postgres://svc_trade:${SVC_TRADE_DB_PASSWORD:-svc_trade}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
+      AGENTS_URL: http://svc-agents:4008
       MATCHING_URL: http://svc-matching:4005
       TOKEN_URL: http://svc-token:4003
       # Access-token lifetime / iss / aud (authEnvSchema defaults 900 /

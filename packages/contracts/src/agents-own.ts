@@ -253,6 +253,26 @@ export const ownAgentPolicyDecisionSchema = z.object({
 });
 export type OwnAgentPolicyDecision = z.infer<typeof ownAgentPolicyDecisionSchema>;
 
+/**
+ * The order a person asked their own agent for, drafted from their words (J-agents-08 #3 #5): nothing is sent. svc-trade
+ * previews it against the agent's allowance and the venue, and places it only on the person's approval.
+ */
+export const ownAgentOrderDraftSchema = z.object({
+  side: z.enum(['buy', 'sell']),
+  /** The base asset, upper case: BTC in "buy 0.0001 BTC at market". */
+  base: z.string().regex(/^[A-Z0-9]{2,16}$/),
+  /** Base units, a decimal string above zero. */
+  size: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+  type: z.enum(['market', 'limit']),
+  /** The limit price on a limit order; null on a market order (svc-trade sets its worst price). */
+  price: z
+    .string()
+    .regex(/^[0-9]+(\.[0-9]+)?$/)
+    .nullable(),
+  label: z.literal('TEST'),
+});
+export type OwnAgentOrderDraft = z.infer<typeof ownAgentOrderDraftSchema>;
+
 /** The stored rules, whether rules are required, and the service's decision for each action on the main account. */
 export const ownAgentPolicySchema = z.object({
   rulesRequired: z.boolean(),

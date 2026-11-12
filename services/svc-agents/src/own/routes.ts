@@ -24,6 +24,7 @@ import {
   OWN_AGENT_POLICY_EFFECTS,
   OWN_AGENT_POLICY_SCOPES,
   ownAgentPolicyDecisionSchema,
+  ownAgentOrderDraftSchema,
   ownAgentPolicyAccountSchema,
   ownAgentAccessSchema,
   ownAgentPolicySchema,
@@ -62,10 +63,12 @@ import {
   publicProcedure,
   router,
   scopedProcedure,
+  serviceProcedureFor,
   TRPCError,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
+import { draftOrder } from './trade-draft.js';
 import { evaluateToolCall, parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { OwnPolicyStore } from './policy.js';
 import { OwnAccessStore } from './access.js';
@@ -678,6 +681,56 @@ export function ownRouter(
                 ? 'FORBIDDEN'
                 : null,
           );
+        }),
+
+      /**
+       * The same gate, asked by svc-trade for the person (J-agents-08 #4 #6): before it grants the agent an allowance on a
+       * sub-account, and again before the agent key signs an order there. Only svc-trade may call it, signed as itself;
+       * the person is the user id it names, and the agent must be theirs (`agents.own.not_found` otherwise). A mutation,
+       * so the signed body carries the question.
+       */
+      forService: serviceProcedureFor(['svc-trade'])
+        .input(
+          z.object({
+            userId: z.string().min(1).max(64),
+            id: z.string().min(1).max(64),
+            action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+            account: ownAgentPolicyAccountSchema,
+          }),
+        )
+        .output(ownAgentPolicyDecisionSchema)
+        .mutation(({ input }) =>
+          guard(
+            async () => {
+              const agent = await storeOf(sql).get(input.userId, input.id);
+              await new OwnAccessStore(sqlOf(sql)).assertAllows(input.userId, agent.id, input.account);
+              return new OwnPolicyStore(sqlOf(sql)).assertAllows(input.userId, agent.id, input.action, input.account);
+            },
+            (code) =>
+              code === 'agents.policy_denied' ||
+              code === 'agents.policy_no_match' ||
+              code === 'agents.access_account_denied' ||
+              code === 'agents.access_expired'
+                ? 'FORBIDDEN'
+                : null,
+          ),
+        ),
+    }),
+
+    /**
+     * The order the person asks the agent for, drafted from their words by the test engine (J-agents-08 #3 #5). It
+     * drafts only: nothing is sent, held or signed here; svc-trade previews the draft and places it on approval.
+     */
+    trade: router({
+      draft: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ ask: z.string().min(1).max(500) }))
+        .output(ownAgentOrderDraftSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            await storeOf(sql).get(ctx.principal.userId, input.id);
+            return draftOrder(input.ask);
+          });
         }),
     }),
 
