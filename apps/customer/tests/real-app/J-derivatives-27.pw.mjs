@@ -1,4 +1,4 @@
-// World: gates, restart
+// World: book, gates, restart
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
@@ -22,7 +22,8 @@ import {
 // per step, titled "J-derivatives-27 #<n>". Every figure and word the desk shows is compared with the venue's own record,
 // never typed here.
 // World: the door switched on for this file (restart), and #4's and #5's closed home market on the shared TEST venue (a
-// runtime fault, gates). The venue's own books are not the stack's shared books.
+// runtime fault, gates). The venue's own books are not the stack's shared books, but #9 and #10 open positions through the
+// desk's "Open long" button, which the world scan reads as a book write, so the file declares book too (journey-world.mjs).
 // #4 and #5 each close the market's home market on the shared TEST venue and open it again in the same step (and again
 // after the file), so no other file sees it closed. #6's ledger half (our ledger posts only our builder fee, once per
 // fill) is J-derivatives-17's poster, read here as an operator reads it: the builder-fee recon for each fill, and the
