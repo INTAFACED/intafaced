@@ -31,3 +31,17 @@ export function currentChartInterval(): ChartInterval {
     return CHART_SETTING_DEFAULT.interval;
   }
 }
+
+/**
+ * Keep `interval` as the desk chart's interval on this device, for a desk about to open on another market (a saved
+ * layout opened there): that desk mounts afresh and reads the setting, so a request held by this one would be lost.
+ */
+export function storeChartInterval(interval: ChartInterval): void {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(CHART_SETTING_KEY) ?? 'null');
+    const current = isChartSetting(stored) ? stored : CHART_SETTING_DEFAULT;
+    localStorage.setItem(CHART_SETTING_KEY, JSON.stringify({ ...current, interval }));
+  } catch {
+    /* Display settings remain usable without browser storage. */
+  }
+}

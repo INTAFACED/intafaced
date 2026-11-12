@@ -168,18 +168,34 @@ test(`${J} #4 opens the same account on another device; the layout and its autos
   await openDesk();
   await layouts().click();
   await expect(layoutsMenu().getByRole('listitem').filter({ hasText: 'Scalp' })).toHaveCount(1, { timeout: 5_000 });
-  // An autosaved change on this device: the Classic preset inside "Scalp".
-  await layoutsMenu().getByRole('radio', { name: 'Classic' }).check();
+  // An autosaved change on this device, one a fresh device does not open with: the Advanced preset inside "Scalp".
+  // Classic first when Advanced is already on, so the change to Advanced is a new one that is saved into the layout.
+  const advanced = layoutsMenu().getByRole('radio', { name: 'Advanced' });
+  if (await advanced.isChecked()) {
+    await layoutsMenu().getByRole('radio', { name: 'Classic' }).check();
+    await expect(desk()).toHaveAttribute('data-preset', 'classic');
+  }
+  await advanced.check();
+  await expect(desk()).toHaveAttribute('data-preset', 'advanced');
   await expect(layoutsMenu()).toContainText('Saved');
   const other = await browser.newContext({ baseURL: ORIGIN });
   const second = await other.newPage();
   try {
+    await chosePro(second);
     await signIn(second, who);
     await second.goto(DESK);
+    const otherDesk = second.getByTestId('if-desk');
+    // A fresh device opens Classic: anything else it shows came from the account.
+    await expect(otherDesk).toHaveAttribute('data-preset', 'classic');
     await second.getByRole('button', { name: 'Layouts' }).click();
     const list = second.getByRole('dialog', { name: 'Desk layout' });
-    await expect(list.getByRole('listitem').filter({ hasText: 'Scalp' })).toHaveCount(1);
-    await expect(second.getByTestId('if-desk')).toHaveAttribute('data-preset', 'classic');
+    const scalp = list.getByRole('listitem').filter({ has: second.getByText('Scalp', { exact: true }) });
+    await expect(scalp).toHaveCount(1);
+    await expect(scalp).toContainText('BTC/USDT');
+    await scalp.getByRole('button', { name: 'Open' }).click();
+    // The autosaved change is there: Advanced, with the market trades widget beside the book.
+    await expect(otherDesk).toHaveAttribute('data-preset', 'advanced');
+    await expect(otherDesk.locator('[data-widget="trades"]')).toBeVisible();
   } finally {
     await other.close();
   }
@@ -213,15 +229,27 @@ test(`${J} #5 copies, exports and deletes a layout, then recovers the deleted on
   await expect(row('Scalp')).toHaveCount(1);
   // Back after a delete and a restore, the copy unchanged beside it.
   await expect(row('Scalp (copy)')).toHaveCount(1);
-  await row('Scalp').getByRole('button', { name: 'Open' }).click();
-  // With its charts: the chart widget on the layout's symbol, at the interval the layout was saved on.
-  await expect(widget('chart')).toBeVisible();
-  await expect(page).toHaveURL(/\/trade\/spot\/BTC-USDT/);
+  // With its charts: from another market at another interval, opening it brings back its symbol and interval.
+  const label = (id) => (id === '1d' ? '1D' : id === '1w' ? '1W' : id);
+  const MAIN_CHIPS = ['1m', '5m', '15m', '1h', '4h', '1d'];
+  const elsewhere = savedInterval === '1h' ? '4h' : '1h';
+  await page.keyboard.press('Escape');
+  await page.goto('/trade/spot/ETH-USDT');
+  await expect(page.getByRole('button', { name: 'Buy ETH' })).toBeVisible();
   const intervals = page.getByTestId('dk-chart').getByRole('group', { name: 'Chart intervals' });
-  const label = savedInterval === '1d' ? '1D' : savedInterval === '1w' ? '1W' : savedInterval;
-  const chip = intervals.getByRole('button', { name: label, exact: true });
-  if (await chip.count()) await expect(chip).toHaveAttribute('aria-pressed', 'true');
-  else await expect(intervals).toContainText(label);
+  await intervals.getByRole('button', { name: label(elsewhere), exact: true }).click();
+  await expect(intervals.getByRole('button', { name: label(elsewhere), exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await layouts().click();
+  await row('Scalp').getByRole('button', { name: 'Open' }).click();
+  await expect(page).toHaveURL(/\/trade\/spot\/BTC-USDT$/);
+  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+  await expect(widget('chart')).toBeVisible();
+  if (MAIN_CHIPS.includes(savedInterval)) {
+    await expect(intervals.getByRole('button', { name: label(savedInterval), exact: true })).toHaveAttribute('aria-pressed', 'true');
+  } else {
+    // An interval from More: the More button names it.
+    await expect(page.getByTestId('dk-chart').locator('.dk-more')).toContainText(label(savedInterval));
+  }
 });
 
 test(`${J} #6 saves a chart template with indicators and drawings and applies it to another symbol; the desk's chart options are honoured`, async ({

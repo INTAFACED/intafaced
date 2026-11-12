@@ -32,6 +32,7 @@ import {
   useFavorites,
 } from './deps';
 import { findMarket, pairOf, type DeskMarket } from './market';
+import { storeChartInterval } from './chart-setting';
 import { useNow } from './hooks';
 import { useDeviceSetting } from '../../../features/trade/hooks';
 import { OrderFlow, type LadderPick } from './OrderFlow';
@@ -113,7 +114,11 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const onOpenLayout = useCallback(
     (opened: SavedDeskLayout) => {
       setRequestedInterval((previous) => ({ interval: opened.interval, nonce: (previous?.nonce ?? 0) + 1 }));
-      if (opened.symbol !== symbol) navigate(`/trade/spot/${pairOf(opened.symbol)}`);
+      if (opened.symbol !== symbol) {
+        // The desk for that market mounts afresh, so the interval goes in the stored setting it opens with.
+        storeChartInterval(opened.interval);
+        navigate(`/trade/spot/${pairOf(opened.symbol)}`);
+      }
     },
     [symbol],
   );
