@@ -195,6 +195,11 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_CLAIM_ESCROW_ADDRESS: evmAddressDefaultZero,
     /**
+     * The trading venue (D-bridge-chain-04): the SovereignVenue contract on PROTOCOL_CHAIN_ID that a wallet deposits its own
+     * tokens into and withdraws them from. NO DEFAULT: zero refuses `protocol.venue_unset` and nothing is built.
+     */
+    PROTOCOL_VENUE_ADDRESS: evmAddressDefaultZero,
+    /**
      * Router v2 swaps (D-swap-03, D-swap-intents-01, -02): the SovereignRouterV2 contract, the SovereignPermit contract it
      * pulls standing allowances through, and the wrapped native token it wraps around a swap. NO DEFAULTS: any one zero
      * and every v2 swap procedure refuses `protocol.router_v2_unset`; the v1 pool swap is unchanged.

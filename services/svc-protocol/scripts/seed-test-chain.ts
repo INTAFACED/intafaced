@@ -222,6 +222,9 @@ async function seed(out: string) {
       // A chain seeded before the smart account factory existed gets it now (J-dex-protocol-08).
       const accounts = await ensureAccountParts(clients(), out);
       if (accounts) console.log(`smart accounts: factory ${accounts.accountFactory}`);
+      // A chain seeded before the TEST trading venue existed gets it now (J-dex-protocol-05 #9).
+      const venue = await ensureVenueParts(clients(), out);
+      if (venue) console.log(`trading venue: ${venue}`);
       // A chain seeded before router v2 existed gets it (TEST Token C, TEST Wrapped ETH, their pools) now.
       const current = JSON.parse(readFileSync(out, 'utf8')) as { routerV2?: Address };
       const v2Code = current.routerV2 ? await publicClient.getCode({ address: current.routerV2 }) : undefined;
@@ -389,6 +392,8 @@ async function seed(out: string) {
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);
   // Deployed after everything above, so no address seeded before it moves.
   await ensureAccountParts(all, out);
+  // After the smart accounts, for the same reason.
+  await ensureVenueParts(all, out);
   await mineOnInterval(publicClient);
   console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools, fee relay ${feeRelay}`);
 }
@@ -419,6 +424,38 @@ async function ensureAccountParts(
   const accountFactory = await deployed('AccountFactory', [accountImplementation]);
   writeFileSync(out, `${JSON.stringify({ ...record, accountFactory, accountImplementation }, null, 2)}\n`);
   return { accountFactory, accountImplementation };
+}
+
+/** The TEST trading venue's one market: TEST Token A priced in TEST USD (both 6 decimals), no taker fee. */
+export const TEST_VENUE_MARKET = { id: 'TEST-A/USD', base: 'A', quote: 'USD', takerFeeBps: 0 } as const;
+
+/**
+ * The TEST trading venue (D-bridge-chain-04, J-dex-protocol-05 #9): one SovereignVenue for TEST_VENUE_MARKET, that a TEST
+ * wallet deposits its own TEST tokens into and withdraws them from. Deployed once per chain and added to the record as
+ * `venue`; a chain that already has it keeps it. Returns it, or null when it was there already. Runs on automine.
+ */
+async function ensureVenueParts({ publicClient, walletClient }: Clients, out: string): Promise<Address | null> {
+  const record = JSON.parse(readFileSync(out, 'utf8')) as { venue?: Address };
+  if (record.venue) {
+    const code = await publicClient.getCode({ address: record.venue });
+    if (code && code !== '0x') return null;
+  }
+  const a = artifact('SovereignVenue');
+  const hash = await walletClient.deployContract({
+    abi: a.abi,
+    bytecode: a.bytecode,
+    args: [
+      toHex(TEST_VENUE_MARKET.id, { size: 32 }),
+      TEST_TOKENS[TEST_VENUE_MARKET.base].address,
+      TEST_TOKENS[TEST_VENUE_MARKET.quote].address,
+      TEST_VENUE_MARKET.takerFeeBps,
+      '0x0000000000000000000000000000000000000000',
+    ],
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`trading venue deploy failed: ${hash}`);
+  writeFileSync(out, `${JSON.stringify({ ...JSON.parse(readFileSync(out, 'utf8')), venue: receipt.contractAddress }, null, 2)}\n`);
+  return receipt.contractAddress;
 }
 
 /**

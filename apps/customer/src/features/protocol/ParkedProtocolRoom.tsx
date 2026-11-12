@@ -30,6 +30,7 @@ import { TokensNav } from './tokens/TokensRoom';
 import { PoolsList } from './pools/PoolsList';
 import { BridgeRoutes } from './rails/BridgeRoutes';
 import { AuditProducts } from './AuditProducts';
+import { VenueFunds } from './venue/VenueFunds';
 import './explorer/explorer.css';
 import './protocol.css';
 
@@ -527,6 +528,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <>
         {venuePanel}
+        <VenueFunds api={api} t={t} />
         <QuoteDesk api={api} t={t} />
         <SupportedNetworksPanel t={t} chain={chainRef} />
       </>
