@@ -80,7 +80,7 @@ test(`${J} #1 uploads 30 addresses to bulk enrol: each is enrolled or listed wit
   const bulk = page.getByTestId('bulk-enrol');
   await expect(bulk.getByRole('heading', { name: 'Enrol people in bulk' })).toBeVisible({ timeout: 60_000 });
   const upload = async () => {
-    await bulk.getByLabel('Course').selectOption(COURSE);
+    await bulk.getByLabel('Course', { exact: true }).selectOption(COURSE);
     await bulk.getByLabel('Addresses, one per line').fill(addresses.join('\n'));
     await bulk.getByLabel('Reason for the bulk enrolment').fill(`TEST ${J}: cohort upload`);
     await bulk.getByRole('button', { name: 'Enrol everyone' }).click();
@@ -122,7 +122,7 @@ test(`${J} #1 uploads 30 addresses to bulk enrol: each is enrolled or listed wit
   restartWith('academy', 'LOCAL_STACK_ACADEMY_BULK_ENROL_ROWS', false);
   try {
     await page.reload();
-    await bulk.getByLabel('Course').selectOption(COURSE);
+    await bulk.getByLabel('Course', { exact: true }).selectOption(COURSE);
     await bulk.getByLabel('Addresses, one per line').fill(`ja15-${RUN}-blank@local-test.invalid`);
     await bulk.getByLabel('Reason for the bulk enrolment').fill(`TEST ${J}: blank limit`);
     await bulk.getByRole('button', { name: 'Enrol everyone' }).click();
@@ -154,7 +154,7 @@ test(`${J} #2 enrols someone into a full course: the event records the bypass an
     await expect(one.getByRole('heading', { name: 'Enrol one learner' })).toBeVisible({ timeout: 60_000 });
     const reason = `TEST ${J}: a bursary seat in a full course`;
     await one.getByLabel('Learner email or handle').fill(late.email);
-    await one.getByLabel('Course').selectOption(COURSE);
+    await one.getByLabel('Course', { exact: true }).selectOption(COURSE);
     await one.getByLabel('Reason for the enrolment').fill(reason);
     await one.getByRole('button', { name: 'Enrol learner' }).click();
     const done = one.getByTestId('staff-enrol-result');
@@ -191,7 +191,7 @@ test(`${J} #3 invites an address that has no account: the invitation is stored a
   const invite = page.getByTestId('invitations');
   await expect(invite.getByRole('heading', { name: 'Invite an address' })).toBeVisible({ timeout: 60_000 });
   await invite.getByLabel('Address to invite').fill(address);
-  await invite.getByLabel('Course').selectOption(COURSE);
+  await invite.getByLabel('Course', { exact: true }).selectOption(COURSE);
   await invite.getByLabel('Reason for the invitation').fill(`TEST ${J}: pre-registration`);
   await invite.getByRole('button', { name: 'Invite', exact: true }).click();
   const made = invite.getByTestId('invite-result');
@@ -227,9 +227,9 @@ test(`${J} #6 sends a bulk email to participants: a history row refused for the 
   await expect(desk.getByRole('heading', { name: 'Course email' })).toBeVisible({ timeout: 60_000 });
   const subject = `TEST ${J} ${RUN}: this week's lesson`;
   const send = async (title) => {
-    await desk.getByLabel('Course').selectOption(COURSE);
-    await desk.getByLabel('Subject').fill(title);
-    await desk.getByLabel('Message').fill(`TEST ${J}: keep going.`);
+    await desk.getByLabel('Course', { exact: true }).selectOption(COURSE);
+    await desk.getByLabel('Subject', { exact: true }).fill(title);
+    await desk.getByLabel('Message', { exact: true }).fill(`TEST ${J}: keep going.`);
     await desk.getByRole('button', { name: 'Send to participants' }).click();
   };
   await send(subject);

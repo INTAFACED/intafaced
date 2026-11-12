@@ -47,9 +47,9 @@ export function staffEnrolmentProcedures(staff: StaffEnrolment) {
       .mutation(({ input, ctx }) => guard(() => staff.enrol({ ...input, actorId: ctx.principal!.userId }))),
 
     staffEnrolments: read()
-      .input(academyStaffEnrolmentsInputSchema)
+      .input(academyStaffEnrolmentsInputSchema.optional())
       .output(academyStaffEnrolmentsSchema)
-      .query(({ input }) => guard(() => staff.events({ ...input, limit: HISTORY }))),
+      .query(({ input }) => guard(() => staff.events({ ...(input ?? {}), limit: HISTORY }))),
 
     bulkEnrol: write()
       .input(academyBulkEnrolInputSchema)
@@ -62,9 +62,9 @@ export function staffEnrolmentProcedures(staff: StaffEnrolment) {
       .mutation(({ input, ctx }) => guard(() => staff.invite({ ...input, actorId: ctx.principal!.userId }))),
 
     courseInvitations: read()
-      .input(academyCourseInvitationsInputSchema)
+      .input(academyCourseInvitationsInputSchema.optional())
       .output(academyCourseInvitationsSchema)
-      .query(({ input }) => guard(() => staff.invitations({ ...input, limit: HISTORY }))),
+      .query(({ input }) => guard(() => staff.invitations({ ...(input ?? {}), limit: HISTORY }))),
 
     sendBulkEmail: write()
       .input(academySendBulkEmailInputSchema)
@@ -72,9 +72,9 @@ export function staffEnrolmentProcedures(staff: StaffEnrolment) {
       .mutation(({ input, ctx }) => guard(() => staff.sendBulkEmail({ ...input, actorId: ctx.principal!.userId }))),
 
     bulkEmails: read()
-      .input(academyBulkEmailsInputSchema)
+      .input(academyBulkEmailsInputSchema.optional())
       .output(academyBulkEmailsSchema)
-      .query(({ input }) => guard(() => staff.bulkEmails({ ...input, limit: HISTORY }))),
+      .query(({ input }) => guard(() => staff.bulkEmails({ ...(input ?? {}), limit: HISTORY }))),
 
     bulkEmail: read()
       .input(academyBulkEmailInputSchema)

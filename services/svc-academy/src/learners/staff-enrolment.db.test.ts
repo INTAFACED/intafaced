@@ -156,6 +156,10 @@ describe('staff enrolment past a full course', () => {
     expect(done.event!.key).toBe(`enrol:foundations:${B}:1`);
     const listed = await staff(academy).admin.staffEnrolments({ path: 'foundations' });
     expect(listed[0]).toEqual(done.event);
+    // The console reads the whole list with no filter, which sends no input at all.
+    expect(await staff(academy).admin.staffEnrolments()).toEqual(listed);
+    expect(await staff(academy).admin.courseInvitations()).toEqual([]);
+    expect(await staff(academy).admin.bulkEmails()).toEqual([]);
     const repeat = await staff(academy).admin.staffEnrol({ path: 'foundations', userId: B, reason: 'TEST again' });
     expect(repeat).toEqual({ outcome: 'already_enrolled', event: null });
     expect(await staff(academy).admin.staffEnrolments({ path: 'foundations' })).toHaveLength(1);
