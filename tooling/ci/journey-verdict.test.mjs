@@ -630,7 +630,15 @@ test("the reviewer's case: J-wallet-01 #1 and J-pay-01 #1, non-money by the slic
   const states = { 'J-wallet-01#1': 'flaky', 'J-pay-01#1': 'flaky' };
   assert.deepEqual(setAsideSteps({ states, money: realGuard, run: { number: 103, at: at(3) } }), {});
   const judged = (newest) =>
-    judge({ newest, named: readReport(report()), baseline: { run: { number: 100 }, steps: [] }, money: realMoney, guard: realGuard, setAside: {}, onMain: true });
+    judge({
+      newest,
+      named: readReport(report()),
+      baseline: { run: { number: 100 }, steps: [] },
+      money: realMoney,
+      guard: realGuard,
+      setAside: {},
+      onMain: true,
+    });
   const v = judged(readReport(report(flaky('J-wallet-01 #1'), flaky('J-pay-01 #1'))));
   assert.deepEqual([v.red, v.flaky], [[], ['J-pay-01#1', 'J-wallet-01#1']]);
   const broke = judged(readReport(report(bad('J-wallet-01 #1'), bad('J-pay-01 #1'))));
@@ -860,7 +868,11 @@ test('no complete earlier list: fail closed, never fresh; fresh only when main n
   // A step in cool-down keeps it: no fresh 7 days. The CLI with no complete list excuses no failure (a pass on the
   // retry is a pass whatever the list says).
   assert.equal(excusedSetAside({ setAside: { a: 1 }, onMain: true, incomplete: true }).a, undefined);
-  assert.equal(cli({ ref: 'refs/heads/main', state: 'flaky', priorIncomplete: true }), 0, 'no complete list: a pass on the retry is a pass');
+  assert.equal(
+    cli({ ref: 'refs/heads/main', state: 'flaky', priorIncomplete: true }),
+    0,
+    'no complete list: a pass on the retry is a pass',
+  );
   assert.equal(cli({ ref: 'refs/heads/main', priorIncomplete: true }), 1, 'no complete list: the failure is red');
 });
 
