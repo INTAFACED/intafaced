@@ -573,7 +573,11 @@ const liveRuns = userVenue
       door: userVenue,
       store: new SqlLiveRunStore(sql),
       values: parseLiveRunValues(
-        { TRADE_QUANT_LIVE: env.TRADE_QUANT_LIVE, TRADE_QUANT_LIVE_HEARTBEAT_MS: env.TRADE_QUANT_LIVE_HEARTBEAT_MS },
+        {
+          TRADE_QUANT_LIVE: env.TRADE_QUANT_LIVE,
+          TRADE_QUANT_LIVE_HEARTBEAT_MS: env.TRADE_QUANT_LIVE_HEARTBEAT_MS,
+          APP_ENV: process.env.APP_ENV,
+        },
         { asset: agentAccountValues.asset, keySeed: agentAccountValues.keySeed, bounds: agentAccountValues.bounds },
       ),
       strategies: env.QUANT_URL.trim() ? createQuantStrategySource(env.QUANT_URL.trim()) : null,

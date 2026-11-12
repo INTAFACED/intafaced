@@ -19,6 +19,7 @@ import {
   type UserVenuePosition,
   type VenueSignature,
 } from '@intafaced/venue-contracts';
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { assertPlaceEligible } from '../../spot/place-eligibility.js';
 import { agentAddressFor, agentKeyFor } from '../../venue/agent-key.js';
 import type { UserVenueDoor } from '../../venue/user-venue-door.js';
@@ -123,6 +124,8 @@ export interface LiveRunValues {
   readonly keySeed: string | null;
   /** The owner's drain bounds every agent order is held to (worst price, largest order, markets). */
   readonly bounds: AgentDrainBounds;
+  /** The raw APP_ENV is exactly dev or test: only then is the TEST process-kill control served at all. */
+  readonly testControls: boolean;
 }
 
 export function parseLiveRunValues(
@@ -131,7 +134,7 @@ export function parseLiveRunValues(
 ): LiveRunValues {
   const hb = (env.TRADE_QUANT_LIVE_HEARTBEAT_MS ?? '').trim();
   const heartbeatMs = /^\d+$/.test(hb) && Number(hb) >= 200 ? Number(hb) : null;
-  return { enabled: (env.TRADE_QUANT_LIVE ?? '').trim() === 'on', heartbeatMs, ...shared };
+  return { enabled: (env.TRADE_QUANT_LIVE ?? '').trim() === 'on', heartbeatMs, testControls: isExplicitDevOrTest(env.APP_ENV), ...shared };
 }
 
 export interface LiveRunsDeps {
@@ -342,7 +345,7 @@ export class LiveRuns {
     return r;
   }
 
-  private async assertNotFrozen(r: LiveRunRecord, action: string): Promise<void> {
+  private async assertNotFrozen(r: Pick<LiveRunRecord, 'userId'>, action: string): Promise<void> {
     const freeze = this.deps.freeze;
     if (!freeze) fail('quant.freeze_unavailable', `the account freeze can't be read on this deployment, so ${action} is refused`, 503);
     let frozen: boolean;
@@ -376,6 +379,8 @@ export class LiveRuns {
     const v = this.deps.values;
     // The same level and region check as a signed-in order (assertPlaceEligible), before anything is stored.
     eligibleOrFail(principal.tier, region);
+    // A frozen account starts nothing: INTAFACED takes no action for the person (J-wallet-13).
+    await this.assertNotFrozen({ userId: principal.userId }, 'a live start');
     if (!v.enabled) fail('quant.live_disabled', 'live strategies are switched off on this deployment; nothing was stored', 409);
     if (v.heartbeatMs === null) {
       fail(
@@ -1061,7 +1066,10 @@ export class LiveRuns {
   /** TEST stacks only: the process running the run dies (it stops at once and writes no more heartbeat). */
   async killProcess(principal: Principal, runIdRaw: unknown): Promise<LiveRunView> {
     const r = await this.run(principal.userId, runIdRaw);
-    if (!(await this.isTest())) fail('quant.live_test_only', 'a process is ended on purpose only on a TEST venue', 404);
+    // Both: the deployment says it is dev or test (APP_ENV), and the venue is the TEST simulator. Anywhere else the
+    // control is not there.
+    if (!this.deps.values.testControls || !(await this.isTest()))
+      fail('quant.live_test_only', 'a process is ended on purpose only on a dev or test deployment with a TEST venue', 404);
     this.workers.delete(this.id(r));
     return this.view(r, null, true);
   }
@@ -1132,14 +1140,23 @@ export class LiveRuns {
   }
 
   private async freezeStop(r: LiveRunRecord): Promise<void> {
-    const principal = ownerPrincipal(r.userId, 'none');
-    let n = 0;
-    try {
-      n = await this.cancelOpen(principal, r, `algo:stop:${r.runId}:freeze`);
-    } catch {
-      // The venue could not be reached: the run is still stopped and its key dropped below; an order left open stays the person's.
-    }
+    // No new order from here on, whatever the venue answers.
     this.workers.delete(this.id(r));
+    let n: number;
+    try {
+      n = await this.cancelOpen(ownerPrincipal(r.userId, 'none'), r, `algo:stop:${r.runId}:freeze`);
+    } catch (error) {
+      if (!(error instanceof VenueRefusalError)) throw error;
+      // The venue did not take the cancels: the run stays active, so the next pass tries again until the venue shows
+      // no open order of the run. Said once per outage.
+      await this.held(
+        r,
+        'freeze_cancel_pending',
+        `The account freeze is on, but the venue could not be reached to cancel the run's open orders (${error.refusal.detail}); they are cancelled as soon as it answers. No new order is placed.`,
+      );
+      return;
+    }
+    this.heldFor.delete(this.id(r));
     const moved = await this.deps.store.move(r.userId, r.runId, STOPPABLE, {
       state: 'stopped',
       endReason: 'account_frozen',

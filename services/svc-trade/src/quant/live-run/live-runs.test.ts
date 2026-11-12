@@ -54,7 +54,7 @@ const AGENT = parseAgentAccountValues({
   TRADE_AGENT_WORST_PRICE_BPS: '200',
   TRADE_AGENT_MARKETS: 'BTC-PERP',
 });
-const ON = { TRADE_QUANT_LIVE: 'on', TRADE_QUANT_LIVE_HEARTBEAT_MS: '1000' };
+const ON = { TRADE_QUANT_LIVE: 'on', TRADE_QUANT_LIVE_HEARTBEAT_MS: '1000', APP_ENV: 'test' };
 
 const noStepUp: StepUpCheck = {
   async require() {
@@ -406,6 +406,34 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     await runs.tick();
     expect(await store.orders(USER, v.runId)).toHaveLength(1);
     expect(await positions()).toHaveLength(1);
+  });
+
+  it("a freeze while the venue is down keeps trying to cancel the run's open orders, placing nothing, until they come down", async () => {
+    const v = await live();
+    await runs.manualOrder(person, v.runId, { seq: 2, side: 'buy', type: 'limit', symbol: 'BTC-PERP', size: '0.005', price: '50000' });
+    freeze.frozenUsers.add(USER);
+    venueDown = true;
+    await runs.tick();
+    await runs.tick();
+    venueDown = false;
+    expect(await openOrders()).toHaveLength(1);
+    expect((await store.find(USER, v.runId))!).toMatchObject({ state: 'running', endReason: null, permission: 'active' });
+    expect((await store.events(USER, v.runId)).filter((e) => e.kind === 'freeze_cancel_pending')).toHaveLength(1);
+    expect(await store.orders(USER, v.runId)).toHaveLength(2);
+    await runs.tick();
+    expect(await openOrders()).toHaveLength(0);
+    expect((await store.find(USER, v.runId))!).toMatchObject({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
+  });
+
+  it('a frozen account starts no run, and the process-kill control is not there outside a dev or test deployment', async () => {
+    // A deployment that is not dev or test (no APP_ENV): everything else is as on the TEST stack.
+    build({ TRADE_QUANT_LIVE: 'on', TRADE_QUANT_LIVE_HEARTBEAT_MS: '1000' });
+    freeze.frozenUsers.add(USER);
+    expect((await refused(runs.start(person, {}, terms(), 'DE'))).code).toBe('quant.account_frozen');
+    expect(await store.listForUser(USER)).toEqual([]);
+    freeze.frozenUsers.delete(USER);
+    const v = await live();
+    expect((await refused(runs.killProcess(person, v.runId))).code).toBe('quant.live_test_only');
   });
 
   it('a stopped run keeps its recorded permission while the freeze cannot be read, never read as not frozen', async () => {
