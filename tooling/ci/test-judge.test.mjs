@@ -1084,3 +1084,30 @@ test('U4 review fix (planted): a review finding that quotes the step words is wi
   assert.match(log, /finding withheld/);
   for (const secret of ['deposit exactly', 'private balance', 'hidden page']) assert.ok(!log.includes(secret), secret);
 });
+
+test('a diff over the cap: the test part judges its own files whole, beside the review in parts; its own files over the cap still fail', async () => {
+  const product = (p) =>
+    `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n@@ -1,0 +1,2800 @@\n${Array.from({ length: 2_800 }, (_, i) => `+const v${i} = '${'x'.repeat(60)}';`).join('\n')}\n`;
+  const big = `${DIFF}${product('services/svc-a/src/a.ts')}${product('services/svc-b/src/b.ts')}`;
+  assert.ok(Buffer.byteLength(big) > MAX_DIFF_BYTES);
+  const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
+  const dir = tmp();
+  const said = await writeReviewInputs(dir, { diff: big, base: BASE, head: HEAD, pr: 7, src: fakeSrc(big), loadWords, ...realBriefs() });
+  assert.match(said, /reviewed in 2 parts; one call for the review and the test part/);
+  assert.ok(existsSync(join(dir, 'combined')) && !existsSync(join(dir, 'skip-reviewer')));
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  const testDiff = prompt.slice(prompt.indexOf('\nBEGIN UNTRUSTED TEST DIFF\n'), prompt.indexOf('\nEND UNTRUSTED TEST DIFF'));
+  assert.ok(testDiff.includes('-  expect(a).toBe(1);\n+  expect(a).toBeTruthy();'), 'the journey test, whole');
+  assert.ok(testDiff.includes('+  return BigInt(Math.round(v));'), 'the shared test code, whole');
+  assert.ok(!testDiff.includes('svc-a/src/a.ts') && !testDiff.includes('svc-b/src/b.ts'), 'not the product code');
+  assert.match(prompt, /this holds only its journey test and shared test code files, whole; the review judges the rest in parts/);
+  // Planted: the test files themselves over the cap still FAIL both parts without the call.
+  const own = `${DIFF.replace('+  expect(a).toBeTruthy();', `+  expect(a).toBeTruthy();\n${'+  // x\n'.repeat(60_000)}`)}`;
+  const large = tmp();
+  await writeReviewInputs(large, { diff: own, base: BASE, head: HEAD, pr: 7, src: fakeSrc(own), loadWords, ...realBriefs() });
+  assert.equal(JSON.parse(readFileSync(join(large, 'tests', 'verdict.json'), 'utf8')).verdict, 'FAIL');
+  assert.match(
+    JSON.parse(readFileSync(join(large, 'tests', 'verdict.json'), 'utf8')).findings[0],
+    /journey test and shared test code files alone are/,
+  );
+});

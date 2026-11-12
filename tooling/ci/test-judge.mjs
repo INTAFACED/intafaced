@@ -250,6 +250,13 @@ export function setAsideRefusal(line, answer, rules) {
 // ── Reading a diff ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** A unified diff (git or the compare API's) as files, each with the old and new line numbers it changes. */
+/** A diff's file sections, each from its `diff --git` line to the next, byte for byte: joined, they are the diff. */
+export function diffSections(diff) {
+  return String(diff)
+    .split(/^(?=diff --git )/m)
+    .filter((s) => s.length > 0);
+}
+
 export function parseDiff(text) {
   const files = [];
   let cur = null;
@@ -542,15 +549,29 @@ const stable = (s, salt) => createHash('sha256').update(`${salt}|${s}`).digest('
  * Returns { applicable, why, prompt?, required?, schema?, deterministic: [{ step, line }], facts, shingleTexts }.
  */
 export async function buildInputs({ src, base, head, pr, brief, loadWords, lead = '', reviewDiff }) {
-  const { diff, mergeBase } = await src.diff(base, head);
+  const got = await src.diff(base, head);
+  const { mergeBase } = got;
+  let { diff } = got;
   const files = parseDiff(diff);
-  const judged = files.filter((f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath)));
+  const isJudged = (f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath));
+  const judged = files.filter(isJudged);
   if (judged.length === 0) return { applicable: false, why: 'no journey test or shared test code changed' };
-  if (Buffer.byteLength(diff) > MAX_DIFF_BYTES)
-    return {
-      applicable: true,
-      tooLarge: `the diff is ${Buffer.byteLength(diff)} bytes, over ${MAX_DIFF_BYTES}; it can't be judged whole; split the pull request`,
-    };
+  // A diff over the cap: the test part judges its own files' sections whole (the journey tests and the shared test
+  // code), and the review judges the whole diff in parts (ci-review.mjs splitDiff). Only those sections over the cap
+  // can't be judged whole.
+  let ownOnly = false;
+  if (Buffer.byteLength(diff) > MAX_DIFF_BYTES) {
+    const own = diffSections(diff)
+      .filter((s) => parseDiff(s).some(isJudged))
+      .join('');
+    if (Buffer.byteLength(own) > MAX_DIFF_BYTES)
+      return {
+        applicable: true,
+        tooLarge: `the diff is ${Buffer.byteLength(diff)} bytes and its journey test and shared test code files alone are ${Buffer.byteLength(own)}, over ${MAX_DIFF_BYTES}; they can't be judged whole; split the pull request`,
+      };
+    diff = own;
+    ownOnly = true;
+  }
 
   const before = new Map();
   const after = new Map();
@@ -735,7 +756,10 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
   // When the review already gave the very same diff, it is not repeated; a different one is given apart, never dropped.
   if (reviewDiff === diff) add("\nThe diff is the review's UNTRUSTED DIFF block above (the same compare diff, untrusted).", { must: true });
   else if (reviewDiff != null)
-    add(`\nThe test part's diff follows (untrusted).\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`, { must: true });
+    add(
+      `\nThe test part's diff follows (untrusted).${ownOnly ? ` The whole diff is over ${MAX_DIFF_BYTES} bytes, so this holds only its journey test and shared test code files, whole; the review judges the rest in parts.` : ''}\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`,
+      { must: true },
+    );
   else add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
   const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
   const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));
