@@ -606,7 +606,29 @@ async function closeSettledFlaky(token, repo, { steps, redRun, revertUrl }) {
   return lines;
 }
 
+/** The error `open` ends with: the earlier one, kept whole, and the revoke's problem beside it. A throw inside
+ *  `finally` would replace the earlier error, so the reason the revert failed would be lost. Pure. */
+export function afterRevoke(earlier, problem) {
+  if (!problem) return earlier ?? null;
+  if (!earlier) return new Error(problem);
+  return new Error(`${earlier.message}; and ${problem}`, { cause: earlier });
+}
+
 async function open(env) {
+  const revoke = { problem: null };
+  let failed = null;
+  let out;
+  try {
+    out = await openRevert(env, revoke);
+  } catch (e) {
+    failed = e;
+  }
+  const err = afterRevoke(failed, revoke.problem);
+  if (err) throw err;
+  return out;
+}
+
+async function openRevert(env, revoke) {
   const kind = env.KIND === 'ci' ? 'ci' : 'journeys';
   need(env, 'GITHUB_REPOSITORY', 'CULPRIT', 'BASE', 'RED_RUN', ...(kind === 'ci' ? [] : ['STEPS']));
   const repo = env.GITHUB_REPOSITORY;
@@ -748,6 +770,7 @@ async function open(env) {
       ]);
     }
   } finally {
+    // Never a throw here (it would hide the try's own error): the problem goes to `open`, which throws both.
     if (token && !dry) {
       // Revoke, then prove it: GitHub must refuse the token afterwards (401). A revoke takes a moment to reach every
       // GitHub front end (run 42748252246: revoke 204, then 200 at once), so the refusal is asked for a few times.
@@ -759,8 +782,8 @@ async function open(env) {
             )
           : { refused: false, status: 'not asked', tries: 0 };
       if (end.status !== 204 || !after.refused)
-        throw new Error(`the revert token may still be live (revoke ${end.status}, then ${after.status} after ${after.tries} tries)`);
-      console.log(`the revert token is revoked: GitHub now refuses it (401, after ${after.tries} tries)`);
+        revoke.problem = `the revert token may still be live (revoke ${end.status}, then ${after.status} after ${after.tries} tries)`;
+      else console.log(`the revert token is revoked: GitHub now refuses it (401, after ${after.tries} tries)`);
     }
   }
 }
@@ -997,6 +1020,16 @@ function selfTest() {
     ],
     'a settle run that broke: a labelled main-unknown-red issue, never nothing',
   );
+  // A failed revoke never hides why the revert failed (no throw inside finally).
+  eq(
+    afterRevoke(new Error('could not open the revert pull request: HTTP 422'), 'the revert token may still be live').message,
+    'could not open the revert pull request: HTTP 422; and the revert token may still be live',
+    'both errors are said',
+  );
+  eq(afterRevoke(null, 'the revert token may still be live').message, 'the revert token may still be live', 'the revoke alone');
+  const e0 = new Error('x');
+  eq(afterRevoke(e0, null) === e0, true, 'the earlier error alone, unchanged');
+  eq(afterRevoke(null, null), null, 'nothing went wrong');
   // Settle beside the probe (programme lead, 12 Nov 2026): a named merge wins over an early settle, in either order.
   const app = (over) => ({
     user: { login: 'intafaced-mac-agents[bot]' },
