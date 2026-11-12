@@ -27,7 +27,7 @@ const en = {
   pnlTitle: 'Profit and loss',
   pnlLabel: 'Profit and loss',
   pnlExcludes:
-    'Excludes {deposits} that came in and {withdrawals} that went out since block {block}, each valued at the price of its own block.',
+    'Excludes {deposits} of deposits and {withdrawals} of withdrawals since block {block}, each valued at the price of its own block.',
   pnlNone: 'No history yet: this wallet has not held a token the pools list.',
   drawdownLabel: 'Largest fall',
   drawdownText: '{pct}%, from {peak} at block {peakBlock} to {trough} at block {troughBlock}',
