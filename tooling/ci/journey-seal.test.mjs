@@ -2426,7 +2426,7 @@ test('judgeSteps: a named step that failed is yours; one with no finished run is
 // ---- No red while waiting (project-state OWNER 262 part 2): the seal waits in its job, then judges once -------------
 
 test('OWNER 262: the seal waits in its job while an input is going, and judges once none is', async () => {
-  const { waitStep, WAIT_STEP, WAIT_POLLS } = await import('./journey-seal.mjs');
+  const { waitStep, WAIT_STEP, WAIT_POLLS, WAIT_POLL_MS } = await import('./journey-seal.mjs');
   const pull = { number: 3, state: 'open', head: { sha: HEAD } };
   assert.equal(waitStep({ pull, sha: HEAD, going: ['CI run 1 (in_progress)'] }).act, 'wait');
   assert.equal(waitStep({ pull, sha: HEAD, going: [] }).act, 'judge');
@@ -2441,7 +2441,8 @@ test('OWNER 262: the seal waits in its job while an input is going, and judges o
   assert.ok(at > 0, 'the seal job has the wait step');
   assert.match(seal.slice(at, seal.indexOf('\n      - ', at + 1)), /run: node tooling\/ci\/journey-seal\.mjs --wait-inputs\n/);
   assert.ok(at < seal.indexOf('- name: Require CI'), 'it waits before judging');
-  assert.ok(Number(/\n    timeout-minutes: (\d+)/.exec(seal)?.[1]) >= WAIT_POLLS + 20 + 1);
+  assert.ok(Number(/\n    timeout-minutes: (\d+)/.exec(seal)?.[1]) >= (WAIT_POLLS * WAIT_POLL_MS) / 60_000 + 20 + 1);
+  assert.ok(WAIT_POLL_MS >= 300_000, 'a waiting seal checks at most every 5 minutes, to spare the installation API limit');
 });
 
 test('OWNER 262: a re-check leaves a seal still waiting for its inputs alone, and waits out one already judging', async () => {

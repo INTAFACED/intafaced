@@ -90,7 +90,7 @@ jobs:
     needs: [now]
     if: ${{ !cancelled() && (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') }}
     runs-on: ubuntu-latest
-    # healthy run: seconds once its inputs have finished; up to 60 minutes waiting for them (journey-seal.mjs WAIT_POLLS)
+    # healthy run: seconds once its inputs have finished; up to 60 minutes waiting for them, checking every 5 (journey-seal.mjs WAIT_POLLS)
     # and up to 20 more for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 85
     permissions:

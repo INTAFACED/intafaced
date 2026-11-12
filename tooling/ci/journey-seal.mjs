@@ -1935,9 +1935,14 @@ export function waitStep({ pull, sha, going }) {
 
 /** The seal job's step that waits for its inputs (waitStep); a re-check leaves a seal still in it alone (recheckStep). */
 export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this change needs';
-/** How long the seal waits in WAIT_STEP: 60 polls a minute apart, beyond the slowest journeys run seen (43 min, 11 Nov). */
-export const WAIT_POLLS = 60;
-const WAIT_POLL_MS = 60_000;
+/**
+ * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
+ * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on
+ * 12 Nov at 02:59 UTC seals failed on "API rate limit exceeded for installation"), so a waiting seal spends about 100
+ * calls an hour, not 480.
+ */
+export const WAIT_POLLS = 12;
+export const WAIT_POLL_MS = 300_000;
 
 async function waitInputsStep({ repo, token, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   const { HEAD_SHA, PR_NUMBER } = process.env;
