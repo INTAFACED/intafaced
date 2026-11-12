@@ -7,6 +7,9 @@ import {
   HeldDraft,
   depositTransfer,
   intentOf,
+  lockShortfall,
+  pendingOrders,
+  previewMoved,
   refusedAtHeldWorst,
   shortAddress,
   slippageLimit,
@@ -331,5 +334,68 @@ describe('an order the desk placed that filled (J-cex-spot-01 #8)', () => {
     expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*>Filled</);
     expect(rows[1]!.body).not.toContain('<button');
     expect(rows[0]!.body).toContain('Cancel');
+  });
+});
+
+// J-cex-spot-02 on the venue spot desk: a lock the venue account can't cover is refused before Confirm, a preview that
+// moved between Review and Confirm is asked again, and an order with no definite answer is kept across a reload.
+describe('J-cex-spot-02: placing safely on the venue desk', () => {
+  const preview = (over: Partial<VenuePreview> = {}): VenuePreview => ({
+    symbol: 'BTC-USDC',
+    kind: 'spot',
+    lock: { asset: 'USDC', amount: '6000' },
+    role: 'maker',
+    venueFee: { known: true, value: { asset: 'BTC', amount: '0.00001' } },
+    builderFee: { known: true, value: { asset: 'USDC', amount: '0' } },
+    fill: { known: true, value: { amount: '0', averagePrice: null } },
+    perpetual: null,
+    ...over,
+  });
+
+  it('refuses a lock above the free balance of the asset it locks, from the venue figures, and lets an exact one pass', () => {
+    expect(lockShortfall(preview(), [{ asset: 'USDC', free: '5999.99' }])).toEqual({ asset: 'USDC', lock: '6000', free: '5999.99' });
+    expect(lockShortfall(preview(), [{ asset: 'USDC', free: '6000' }])).toBeNull();
+    // No balance row for the locked asset is nothing free.
+    expect(lockShortfall(preview(), [{ asset: 'BTC', free: '10' }])).toEqual({ asset: 'USDC', lock: '6000', free: '0' });
+  });
+
+  it('calls a preview moved when any figure the review showed changed, and the same figures unmoved', () => {
+    expect(previewMoved(preview(), preview())).toBe(false);
+    expect(previewMoved(preview(), preview({ role: 'taker' }))).toBe(true);
+    expect(previewMoved(preview(), preview({ lock: { asset: 'USDC', amount: '6000.1' } }))).toBe(true);
+    expect(previewMoved(preview(), preview({ fill: { known: true, value: { amount: '0.01', averagePrice: '60000' } } }))).toBe(true);
+  });
+
+  it('keeps an order with no definite answer across a reload, once per client id, until the venue names it', () => {
+    const intent: OrderIntent = {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.01',
+      price: '60000',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: 'order:k1',
+      builderFee: null,
+    };
+    const store = new Map<string, string>();
+    const session = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
+    const before = globalThis.sessionStorage;
+    Object.defineProperty(globalThis, 'sessionStorage', { value: session, configurable: true });
+    try {
+      pendingOrders(OWNER).add({ clientOrderId: '0xabc', key: 'order:k1', intent });
+      pendingOrders(OWNER).add({ clientOrderId: '0xabc', key: 'order:k1', intent });
+      // A new page (a reload) reads the same list.
+      expect(pendingOrders(OWNER).list()).toEqual([{ clientOrderId: '0xabc', key: 'order:k1', intent }]);
+      expect(pendingOrders('0xother').list()).toEqual([]);
+      pendingOrders(OWNER).remove('0xabc');
+      expect(pendingOrders(OWNER).list()).toEqual([]);
+    } finally {
+      Object.defineProperty(globalThis, 'sessionStorage', { value: before, configurable: true });
+    }
   });
 });

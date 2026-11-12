@@ -34,6 +34,7 @@ import {
   VenueFrame,
   VenueHeader,
   heldKeys,
+  outcomeText,
   keepsDraft,
   useOwner,
   useVenueAccount,
@@ -71,12 +72,16 @@ import {
   depositTransfer,
   draftSignature,
   intentOf,
+  lockShortfall,
+  pendingOrders,
+  previewMoved,
   refusedAtHeldWorst,
   shortAddress,
   slippageLimit,
   ticketProblem,
   withdrawStep,
   type DepositRoute,
+  type PendingOrder,
   type TicketFields,
   type VenueOrderType,
   type VenueSide,
@@ -211,6 +216,13 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const [dialog, setDialog] = useState<'deposit' | 'withdraw' | null>(null);
   const [withdrawalNonce, setWithdrawalNonce] = useState<string | null>(null);
   const placedKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
+  // Orders with no definite answer yet (J-cex-spot-02 #3, #4): kept across a reload; while one is listed, no new order goes.
+  const pendingStore = useMemo(() => (owner ? pendingOrders(owner) : null), [owner]);
+  const [pending, setPending] = useState<PendingOrder[]>([]);
+  useEffect(() => setPending(pendingStore?.list() ?? []), [pendingStore]);
+  const [found, setFound] = useState<string | null>(null);
+  // The keys of orders the venue has since named: each side's ticket lets go of a key it still holds for one.
+  const [settledKeys, setSettledKeys] = useState<string[]>([]);
   const best = usePolled((signal) => venue.bestPrices(market.symbol, signal), `best:${market.symbol}`, VENUE_POLL_MS);
   const cancelled = useCancelledOrders(owner, cancelledKeys);
   // The orders behind the venue's own fills on this market (newest last), and any this page placed: the filled ones
@@ -251,10 +263,30 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const placed = (intent: OrderIntent, answer: ActionResult) => {
     if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
       placedKeys?.set(answer.clientOrderId, intent.clientOrderKey);
-    setLastResult(answer);
+    if (answer.kind === 'unknown' && answer.clientOrderId && pendingStore) {
+      // No definite answer: the order is looked up on the venue by its client id, and nothing new is sent meanwhile.
+      pendingStore.add({ clientOrderId: answer.clientOrderId, key: intent.clientOrderKey, intent });
+      setPending(pendingStore.list());
+      setFound(null);
+    } else {
+      if (answer.kind === 'outcome' && answer.clientOrderId && pendingStore) {
+        pendingStore.remove(answer.clientOrderId);
+        setPending(pendingStore.list());
+      }
+      setLastResult(answer);
+    }
     account.reload();
     if (answer.kind === 'outcome' && answer.outcome.accepted) setTab('open');
   };
+
+  const onFound = (entry: PendingOrder, order: VenueOrder) => {
+    pendingStore?.remove(entry.clientOrderId);
+    setPending(pendingStore?.list() ?? []);
+    setSettledKeys((now) => [...now, entry.key]);
+    setFound(t('Pending found', { id: entry.clientOrderId, status: word(v, 'status', order.status) }));
+    account.reload();
+  };
+  const sendAgain = async (entry: PendingOrder) => placed(entry.intent, await run(entry.intent));
 
   const offeredTypes = market.orderTypes.filter((x): x is VenueOrderType => x === 'limit' || x === 'market');
   const route: DepositRoute | null = status.deposit ?? null;
@@ -272,6 +304,21 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
       />
       {owner ? (
         <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
+      ) : null}
+      {owner && pending.length > 0 ? (
+        <section className="dk-panel form-stack" data-testid="venue-pending" aria-label={t('Pending title')}>
+          <h2 className="dk-tab-title">{t('Pending title')}</h2>
+          {pending.map((entry) => (
+            <PendingCheck key={entry.clientOrderId} owner={owner} entry={entry} onFound={onFound} onSendAgain={sendAgain} />
+          ))}
+          <p className="dk-note" role="status">
+            {t('Pending wait')}
+          </p>
+        </section>
+      ) : found ? (
+        <p className="dk-note" role="status" data-testid="venue-pending-found">
+          {found}
+        </p>
       ) : null}
       <Tabs value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="dk-panel dk-order">
         <div className="dk-order-head">
@@ -299,6 +346,8 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
                 capSet={capSet}
                 run={run}
                 onPlaced={placed}
+                waiting={pending.length > 0}
+                settledKeys={settledKeys}
               />
             ))}
           </div>
@@ -484,6 +533,8 @@ function VenueSideForm({
   capSet,
   run,
   onPlaced,
+  waiting,
+  settledKeys,
 }: {
   side: VenueSide;
   type: VenueOrderType;
@@ -496,6 +547,9 @@ function VenueSideForm({
   capSet: boolean;
   run: ReturnType<typeof useVenueActions>['run'];
   onPlaced: (intent: OrderIntent, answer: ActionResult) => void;
+  /** An earlier order has no definite answer yet: no new order is sent until the venue names it. */
+  waiting: boolean;
+  settledKeys: readonly string[];
 }) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
@@ -510,6 +564,8 @@ function VenueSideForm({
   const [problem, setProblem] = useState<string | null>(null);
   const sending = useRef(false);
   const [approving, setApproving] = useState<ActionResult | null>(null);
+  const [moved, setMoved] = useState(false);
+  const [reviewProblem, setReviewProblem] = useState<string | null>(null);
 
   /** A sell that carries our builder fee, with no approval on the venue: the wallet signs the approval first. */
   async function approve() {
@@ -524,6 +580,9 @@ function VenueSideForm({
     account.reload();
   }
   const draft = useMemo(() => (owner ? new HeldDraft(owner, market.symbol) : null), [owner, market.symbol]);
+  useEffect(() => {
+    for (const key of settledKeys) draft?.settle(key);
+  }, [draft, settledKeys]);
   const fields: TicketFields = { side, type, price, amount };
   const issue = ticketProblem(fields, market, worst, capSet);
   // A market order's worst price is held with its key (HeldDraft.hold): the intent sent under one key never changes.
@@ -555,7 +614,11 @@ function VenueSideForm({
   }, [owner, signature, venue]);
 
   const verb = side === 'buy' ? d('Buy asset', { asset: market.baseAsset }) : d('Sell asset', { asset: market.baseAsset });
-  const canSend = access === 'verified' && owner !== null && intent !== null && !busy;
+  // The venue's own figures: what this order locks against what the venue account has free (J-cex-spot-02 #6).
+  const balances = account.balances.data?.value ?? null;
+  const short = live?.state === 'ok' && live.signature === signature && balances ? lockShortfall(live.preview.value, balances) : null;
+  const refusedNow = live?.state === 'refused' && live.signature === signature;
+  const canSend = access === 'verified' && owner !== null && intent !== null && !busy && !waiting && short === null && !refusedNow;
   const amountPlaces = placesOf(market.lotSize);
   const pricePlaces = placesOf(market.tickSize);
 
@@ -565,16 +628,37 @@ function VenueSideForm({
     setProblem(null);
     setResult(null);
     const fresh = live && live.signature === signature && live.state === 'ok' ? live.preview : null;
-    if (fresh) return setReview({ intent, preview: fresh });
+    if (fresh) {
+      setMoved(false);
+      setReviewProblem(null);
+      return setReview({ intent, preview: fresh });
+    }
     const answer = await venue.preview(owner, intent);
-    if (!answer.ok) return setProblem(v('Outcome refused', { detail: answer.message }));
+    if (!answer.ok) return setProblem(t('Not placeable', { detail: answer.message }));
+    if (balances && lockShortfall(answer.data.value, balances)) return;
+    setMoved(false);
+    setReviewProblem(null);
     setReview({ intent, preview: answer.data });
   }
 
   async function confirm() {
-    if (!review || sending.current) return;
+    if (!review || sending.current || !owner) return;
     sending.current = true;
     const sent = review.intent;
+    // The venue is asked again at Confirm: numbers that moved since the review are shown and asked again, never sent
+    // (J-cex-spot-02 #7). A refusal now is said in the review; nothing is signed.
+    const now = await venue.preview(owner, sent);
+    if (!now.ok) {
+      sending.current = false;
+      setReviewProblem(t('Not placeable', { detail: now.message }));
+      return;
+    }
+    if (previewMoved(review.preview.value, now.data.value)) {
+      sending.current = false;
+      setMoved(true);
+      setReview({ intent: sent, preview: now.data });
+      return;
+    }
     // The review closes on Confirm: what follows is the wallet's, then the venue's answer under the ticket.
     setReview(null);
     setBusy(true);
@@ -673,8 +757,12 @@ function VenueSideForm({
         ) : live?.state === 'checking' ? (
           <p className="dk-note">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (
-          <p className="dk-note dk-note--bad" role="alert">
-            {v('Outcome refused', { detail: live.message })}
+          <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-refused">
+            {t('Not placeable', { detail: live.message })}
+          </p>
+        ) : short ? (
+          <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-short">
+            {t('Not enough free', { asset: short.asset, lock: displayAmount(short.lock), free: displayAmount(short.free) })}
           </p>
         ) : null}
         {busy ? <p className="dk-note">{t('Waiting wallet')}</p> : null}
@@ -683,7 +771,13 @@ function VenueSideForm({
             {problem}
           </p>
         ) : null}
-        {result ? <OutcomeLine result={result} owner={owner} /> : null}
+        {result?.kind === 'unknown' ? (
+          <p className="dk-note" role="status">
+            {outcomeText(v, result)}
+          </p>
+        ) : result ? (
+          <OutcomeLine result={result} owner={owner} />
+        ) : null}
       </div>
       <AlertDialog
         open={review !== null}
@@ -697,6 +791,16 @@ function VenueSideForm({
               <AlertDialogTitle>{side === 'buy' ? d('Review buy') : d('Review sell')}</AlertDialogTitle>
               <AlertDialogDescription>{t('Review intro')}</AlertDialogDescription>
             </AlertDialogHeader>
+            {moved ? (
+              <p className="dk-note dk-note--bad" role="alert" data-testid="venue-review-moved">
+                {t('Numbers changed')}
+              </p>
+            ) : null}
+            {reviewProblem ? (
+              <p className="dk-note dk-note--bad" role="alert" data-testid="venue-review-refused">
+                {reviewProblem}
+              </p>
+            ) : null}
             <VenueReviewRows intent={review.intent} preview={review.preview} status={status} approved={builderApproved(account, status)} />
             {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
               <Button variant="secondary" size={40} onClick={() => void approve()}>
@@ -722,6 +826,66 @@ function VenueSideForm({
         ) : null}
       </AlertDialog>
     </form>
+  );
+}
+
+/**
+ * One order with no definite answer, looked up on the venue by its client id until the venue names it (J-cex-spot-02 #3,
+ * #4). Not found is only that: nothing is sent again unless the person asks for the same order, under the same key.
+ */
+function PendingCheck({
+  owner,
+  entry,
+  onFound,
+  onSendAgain,
+}: {
+  owner: string;
+  entry: PendingOrder;
+  onFound: (entry: PendingOrder, order: VenueOrder) => void;
+  onSendAgain: (entry: PendingOrder) => Promise<void>;
+}) {
+  const { t } = spotVenueCopy.useCopy();
+  const d = deskCopy.useCopy().t;
+  const venue = useVenueApi();
+  const [sending, setSending] = useState(false);
+  const read = usePolled(
+    (signal) => venue.orderByClientId(owner, entry.clientOrderId, signal),
+    `pending:${owner}:${entry.clientOrderId}`,
+    VENUE_POLL_MS,
+  );
+  const order = read.data?.value ?? null;
+  useEffect(() => {
+    if (order) onFound(entry, order);
+    // `entry` is this row's own, fixed for its life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order]);
+  const asset = entry.intent.symbol.split('-')[0] ?? entry.intent.symbol;
+  return (
+    <div data-pending={entry.clientOrderId}>
+      <p role="status">
+        {t('Pending checking', {
+          side: entry.intent.side === 'buy' ? d('Buy') : d('Sell'),
+          amount: displayAmount(entry.intent.amount),
+          asset,
+          id: entry.clientOrderId,
+        })}
+      </p>
+      {read.data && !order ? (
+        <>
+          <p>{t('Pending missing', { id: entry.clientOrderId })}</p>
+          <KitButton
+            variant="secondary"
+            disabled={sending}
+            onClick={() => {
+              setSending(true);
+              void onSendAgain(entry).finally(() => setSending(false));
+            }}
+          >
+            {t('Send same again')}
+          </KitButton>
+        </>
+      ) : null}
+    </div>
   );
 }
 

@@ -51,6 +51,16 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Enter amount': 'Enter an amount.',
   'Enter price': 'Enter a price.',
   'Waiting wallet': 'Waiting for your wallet…',
+  'Not enough free': 'Not enough {asset} free on your venue account: this order locks {lock} {asset} and {free} {asset} is free.',
+  'Not placeable': 'This order can’t be placed: {detail}.',
+
+  // An earlier order with no definite answer (J-cex-spot-02 #3, #4)
+  'Pending title': 'Checking your earlier order with the venue',
+  'Pending checking': 'Looking up your {side} of {amount} {asset} on the venue by its client id {id}…',
+  'Pending missing': 'The venue has no order under client id {id} so far. It may still arrive; nothing is sent again unless you ask.',
+  'Pending wait': 'New orders wait until the venue has answered about this order.',
+  'Pending found': 'Checked with the venue: your order {id} is {status}. Nothing was sent again.',
+  'Send same again': 'Send the same order again',
 
   // The review
   'Review intro': 'These are the venue’s own figures for this order. Nothing is signed until you confirm.',
@@ -63,6 +73,8 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   Cancel: 'Cancel',
   'Confirm buy': 'Confirm buy',
   'Confirm sell': 'Confirm sell',
+  'Numbers changed':
+    'The venue’s numbers for this order changed since you reviewed it. Nothing was sent: check the new numbers and confirm again.',
 
   // Deposit
   'Deposit title': 'Deposit into your venue account',

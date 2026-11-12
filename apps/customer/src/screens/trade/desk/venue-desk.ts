@@ -5,8 +5,10 @@ import {
   keys,
   onStep,
   type OrderIntent,
+  type VenueBalance,
   type VenueBestPrices,
   type VenueMarket,
+  type VenuePreview,
 } from '../../../features/trade/venue-api';
 import { transferCalldata } from '../../../features/protocol/wallet/transfer';
 import { toTokenUnits } from '../../../features/protocol/venue-wallet/venue-account-api';
@@ -162,4 +164,66 @@ export function withdrawStep(amount: string, approval: { id: string | null } | n
   if (toTokenUnits(amount, 18) === null) return { step: 'refuse', why: 'amount' };
   if (approval === null) return { step: 'step_up' };
   return { step: 'sign', stepUpApprovalId: approval.id };
+}
+
+/**
+ * Whether the venue's preview of one order moved between Review and Confirm (J-cex-spot-02 #7): any figure the review
+ * showed (the lock, the role, either fee, what fills now). A moved preview is shown and asked again; nothing is sent.
+ */
+export function previewMoved(reviewed: VenuePreview, now: VenuePreview): boolean {
+  return JSON.stringify(reviewed) !== JSON.stringify(now);
+}
+
+/**
+ * What an order locks that the venue account does not have free (J-cex-spot-02 #6), from the venue's own figures: the
+ * preview's lock against the free balance of the asset it locks. Null when it is covered.
+ */
+export function lockShortfall(
+  preview: Pick<VenuePreview, 'lock'>,
+  balances: readonly Pick<VenueBalance, 'asset' | 'free'>[],
+): { asset: string; lock: string; free: string } | null {
+  const free = balances.find((b) => b.asset === preview.lock.asset)?.free ?? '0';
+  return parseAmount(preview.lock.amount) > parseAmount(free) ? { asset: preview.lock.asset, lock: preview.lock.amount, free } : null;
+}
+
+/** An order the venue gave no definite answer to: its client id, its business key and the intent sent under it. */
+export interface PendingOrder {
+  clientOrderId: string;
+  key: string;
+  intent: OrderIntent;
+}
+
+/**
+ * This browser tab's orders with no definite answer yet, per owner (sessionStorage, so a reload keeps them; J-cex-spot-02
+ * #4): while one is listed, the desk sends no new order. Storage may be blocked; the page then keeps them in memory.
+ */
+export function pendingOrders(owner: string) {
+  const name = `if.venue.pending.${owner}`;
+  let memory: PendingOrder[] = [];
+  const read = (): PendingOrder[] => {
+    try {
+      const raw = sessionStorage.getItem(name);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? (parsed as PendingOrder[]) : [];
+    } catch {
+      return memory;
+    }
+  };
+  const write = (next: PendingOrder[]) => {
+    memory = next;
+    try {
+      sessionStorage.setItem(name, JSON.stringify(next));
+    } catch {
+      /* blocked storage: the page keeps them */
+    }
+  };
+  return {
+    list: read,
+    add(order: PendingOrder) {
+      write([...read().filter((p) => p.clientOrderId !== order.clientOrderId), order]);
+    },
+    remove(clientOrderId: string) {
+      write(read().filter((p) => p.clientOrderId !== clientOrderId));
+    },
+  };
 }
