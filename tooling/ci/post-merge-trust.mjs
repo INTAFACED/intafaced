@@ -148,7 +148,7 @@ export function setAsideIssueBody(row, runUrl) {
     '',
     `- Owner: ${row.owner} (its journey's module in docs/roadmap/journeys.json).`,
     '- Until then it still runs and each run shows its result, it does not count as proven, and its failure does not turn main red, unless it fails outright in two runs in a row (broken, not flaky).',
-    `- After ${until} UTC, a failure, or a pass only on its retry, turns main's journeys verdict red again.`,
+    `- After ${until} UTC, a failure on every try turns main's journeys verdict red again; a pass only on its retry is a pass with its own \`flaky\` issue.`,
     `- Fix the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}.`,
     '',
     `<!-- set-aside: ${row.step} -->`,
@@ -597,7 +597,7 @@ async function setAsideCheck({ repo, runId, runUrl }) {
     await closeIssue(
       repo,
       issue,
-      `The set-aside of ${row.step.replace('#', ' #')} ended on ${row.until}: a failure, or a pass only on its retry, now turns main's journeys verdict red ([run](${runUrl})).\n\n_Closed by tooling/ci/post-merge-trust.mjs._`,
+      `The set-aside of ${row.step.replace('#', ' #')} ended on ${row.until}: a failure on every try now turns main's journeys verdict red, and a pass only on its retry opens its own \`flaky\` issue ([run](${runUrl})).\n\n_Closed by tooling/ci/post-merge-trust.mjs._`,
     );
     lines.push(`- ${row.step}: set-aside ended, closed #${issue.number}`);
   }
