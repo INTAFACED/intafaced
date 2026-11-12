@@ -235,7 +235,7 @@ test(`${J} #1 opens /uc/promotion/mypromotion: the invitee list with each invite
   await expect(row.getByTestId('invitee-state')).toHaveText('In progress');
   for (const step of ['verified', 'deposited', 'traded']) {
     await expect(stepCell(row, step)).toHaveAttribute('data-done', 'false');
-    await expect(stepCell(row, step)).toHaveText('Not yet');
+    await expect(stepCell(row, step)).toHaveText('Not done');
   }
   await expect(list.getByRole('columnheader')).toHaveText(['Invitee', 'Joined', 'Verified', 'Deposited', 'Traded', 'State']);
   await expect(row).toContainText(`Programme: ${programme.name}`);
