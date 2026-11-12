@@ -20,8 +20,9 @@ import { emptyGlobalPorts, SWIFT_CHARGES, type GlobalPorts } from './ports.js';
  * is posted (`GlobalHoldService.screen`), so the compliance queue, the information request, the proof upload and the
  * release can be proved on the stack. Absent, or no entry for the asset, nothing is screened.
  *
- * Numbers: corridors, bounds, SWIFT charges, rates, quote validity and delivery time come only from the typed catalogue. The fee is
- * zero because a global send posts the amount alone: a fee shown here would never be charged.
+ * Numbers: corridors, bounds, SWIFT charges, rates, fees, quote validity and delivery time come only from the typed catalogue.
+ * A global send posts the amount alone, so no fee is ever taken from the sender's balance: a pair with a TEST `fee` has it
+ * taken by the stand-in from what arrives, in the currency that arrives (receive = amount × rate − fee); otherwise it is zero.
  */
 export const GLOBAL_PARTNER_SETTINGS = ['none', 'global-sim'] as const;
 export type GlobalPartnerSetting = (typeof GLOBAL_PARTNER_SETTINGS)[number];
@@ -61,6 +62,8 @@ const catalogueShape = z
             rate: decimal,
             // TEST: how long a quote for this pair stays locked, in place of `quoteValidSeconds`; absent, that applies.
             validSeconds: z.number().int().min(1).max(3600).optional(),
+            // TEST: a fee in `toCurrency`, taken from what arrives (never from the sender's balance); absent, no fee.
+            fee: decimal.optional(),
           })
           .strict(),
       )
@@ -152,12 +155,17 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
         // No typed rate for the pair is an unusable answer: the service refuses `bank.global_fx_unusable` and posts nothing.
         if (!row) throw new Error(`no TEST rate for ${asset} to ${toCurrency}`);
         const at = now().getTime();
+        // Floor, as a provider pays no more than it quotes; past what the ledger can hold, the quote is unusable.
+        const gross = receive(amount, row.rate);
+        const fee = row.fee ?? '0';
+        const net = parseAmount(gross) - parseAmount(fee);
+        // A send too small to cover the fee has nothing left to arrive: an unusable answer, refused, nothing posted.
+        if (net <= 0n) throw new Error(`a TEST fee of ${fee} ${toCurrency} leaves nothing to arrive`);
         return {
           rate: row.rate,
-          fee: '0',
-          feeAsset: asset,
-          // Floor, as a provider pays no more than it quotes; past what the ledger can hold, the quote is unusable.
-          receiveAmount: receive(amount, row.rate),
+          fee,
+          feeAsset: row.fee ? toCurrency : asset,
+          receiveAmount: formatAmount(net),
           validUntil: new Date(at + (row.validSeconds ?? catalogue.quoteValidSeconds) * 1000).toISOString(),
           eta: new Date(at + catalogue.etaHours * 3_600_000).toISOString(),
         };

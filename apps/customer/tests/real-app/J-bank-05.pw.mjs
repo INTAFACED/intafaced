@@ -84,6 +84,17 @@ async function toGermany(page) {
   return card;
 }
 
+/** Presses Get a quote and returns the service's own answer to it, as it reached this browser. */
+async function quoted(page, card) {
+  const [response] = await Promise.all([
+    page.waitForResponse((res) => res.url().includes('/api/bank/trpc/global.quote') && res.request().method() === 'POST'),
+    card.getByRole('button', { name: 'Get a quote' }).click(),
+  ]);
+  const answer = (await response.json())?.result?.data;
+  if (!answer?.validUntil) throw new Error(`global.quote gave no quote: ${response.status()}`);
+  return answer;
+}
+
 /** Pay's global send with the US, dollars over SWIFT chosen, and a US recipient saved for it once. */
 async function toUs(page) {
   await page.goto('/pay/global');
@@ -157,7 +168,7 @@ test(`${J} #2 reads the quote: rate, fee, receive amount and valid-until from th
   const card = await toGermany(page);
   await card.getByLabel('Recipient', { exact: true }).selectOption({ index: 1 });
   await card.getByLabel('You send').fill('40');
-  await card.getByRole('button', { name: 'Get a quote' }).click();
+  const answer = await quoted(page, card);
   const quote = card.getByTestId('global-quote');
   const cell = (term) =>
     quote
@@ -168,15 +179,18 @@ test(`${J} #2 reads the quote: rate, fee, receive amount and valid-until from th
   await expect(cell('Exchange rate')).toHaveText('2', { timeout: 30_000 });
   await expect(cell('Fee')).toHaveText('0 USDT');
   await expect(cell('They receive')).toHaveText('80 EUR');
-  await expect(card.getByText(/^Valid until \d{4}-\d{2}-\d{2}T/)).toBeVisible();
+  // Valid-until is the service's own instant for this lock, shown as it gave it.
+  expect(answer).toMatchObject({ rate: '2', fee: '0', feeAsset: 'USDT', receiveAmount: '80' });
+  await expect(card.getByText(`Valid until ${answer.validUntil}`, { exact: true })).toBeVisible();
   await expect(card.getByTestId('global-stand-in')).toContainText('TEST');
   // SEPA is not SWIFT: no SWIFT charge line.
   await expect(card.getByTestId('global-swift-charges')).toHaveCount(0);
-  // A SWIFT corridor: another TEST rate (4), so the figures follow the provider's answer per currency, and the charge
-  // handling it gives for the corridor (SHA, shared) is shown with the quote.
+  // A SWIFT corridor: another TEST rate (4) and a TEST fee of 1 USD the partner takes from what arrives (5 × 4 − 1 = 19),
+  // so the figures follow the provider's answer per currency, and the charge handling it gives for the corridor (SHA,
+  // shared) is shown with the quote.
   const us = await toUs(page);
   await us.getByLabel('You send').fill('5');
-  await us.getByRole('button', { name: 'Get a quote' }).click();
+  const usAnswer = await quoted(page, us);
   const usQuote = us.getByTestId('global-quote');
   const usCell = (term) =>
     usQuote
@@ -184,8 +198,11 @@ test(`${J} #2 reads the quote: rate, fee, receive amount and valid-until from th
       .filter({ has: page.getByText(term, { exact: true }) })
       .locator('dd');
   await expect(usCell('Exchange rate')).toHaveText('4', { timeout: 30_000 });
-  await expect(usCell('Fee')).toHaveText('0 USDT');
-  await expect(usCell('They receive')).toHaveText('20 USD');
+  await expect(usCell('Fee')).toHaveText('1 USD');
+  await expect(usCell('They receive')).toHaveText('19 USD');
+  expect(usAnswer).toMatchObject({ rate: '4', fee: '1', feeAsset: 'USD', receiveAmount: '19' });
+  await expect(us.getByText(`Valid until ${usAnswer.validUntil}`, { exact: true })).toBeVisible();
+  expect(usAnswer.validUntil).not.toBe(answer.validUntil);
   await expect(us.getByTestId('global-swift-charges').locator('dd')).toHaveText(
     'Shared (SHA): you pay the sending charge, and the banks along the way and the receiving bank may take theirs from what arrives.',
   );

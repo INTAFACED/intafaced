@@ -103,14 +103,22 @@ describe('the global-send stand-in (TEST only)', () => {
       {
         ...catalogue,
         corridors: [...catalogue.corridors, { ...swift, swiftCharges: 'SHA' }],
-        rates: [...catalogue.rates, { asset: 'USDT', toCurrency: 'USD', rate: '1', validSeconds: 20 }],
+        rates: [...catalogue.rates, { asset: 'USDT', toCurrency: 'USD', rate: '1', validSeconds: 20, fee: '0.5' }],
       },
       () => now,
     );
     const listed = await ports.corridors.list();
     expect(listed.find((row) => row.country === 'US')).toEqual({ ...swift, swiftCharges: 'SHA' });
     expect(listed.find((row) => row.country === 'DE')?.swiftCharges).toBeNull();
-    expect((await ports.fx.quote({ asset: 'USDT', amount: '5', toCurrency: 'USD' })).validUntil).toBe('2026-10-23T12:00:20.000Z');
+    // The pair's TEST fee is taken from what arrives, in the currency that arrives; the sender's amount is untouched.
+    expect(await ports.fx.quote({ asset: 'USDT', amount: '5', toCurrency: 'USD' })).toMatchObject({
+      rate: '1',
+      fee: '0.5',
+      feeAsset: 'USD',
+      receiveAmount: '4.5',
+      validUntil: '2026-10-23T12:00:20.000Z',
+    });
+    await expect(ports.fx.quote({ asset: 'USDT', amount: '0.5', toCurrency: 'USD' })).rejects.toThrow('leaves nothing to arrive');
     expect((await ports.fx.quote({ asset: 'USDT', amount: '5', toCurrency: 'EUR' })).validUntil).toBe('2026-10-23T12:05:00.000Z');
     expect(parseGlobalSim(json({ corridors: [{ ...swift, swiftCharges: 'ALL' }] }))).toBeNull();
     expect(parseGlobalSim(json({ rates: [{ asset: 'USDT', toCurrency: 'USD', rate: '1', validSeconds: 0 }] }))).toBeNull();
