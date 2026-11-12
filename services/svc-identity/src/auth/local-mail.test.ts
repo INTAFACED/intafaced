@@ -79,9 +79,10 @@ describe('localMailLine support chat', () => {
       code: '33333333-3333-4333-8333-333333333333',
       expiresAt: new Date('2026-10-31T00:00:00.000Z'),
       purpose: 'support-chat-email',
+      detail: 'reply 4',
     });
     expect(line).toBe(
-      'LOCAL-TEST purpose=support-chat-email email=c@example.com expires=2026-10-31T00:00:00.000Z chat=33333333-3333-4333-8333-333333333333 link=support/chat\n',
+      'LOCAL-TEST purpose=support-chat-email email=c@example.com expires=2026-10-31T00:00:00.000Z chat=33333333-3333-4333-8333-333333333333 part=reply_4 link=support/chat\n',
     );
   });
 });

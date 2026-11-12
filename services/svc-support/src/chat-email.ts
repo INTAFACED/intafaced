@@ -1,8 +1,8 @@
 /**
  * Continuing a support chat by email (J-support-public-05 #7, SP-email-02). svc-identity holds the customer's address, so
  * svc-support names the account and identity mails its own proved address (`POST /internal/mail`, purpose
- * `support-chat-email`); svc-support never sees the address. The business key is the chat and the UTC day, so a repeat
- * the same day answers with the first mail and sends nothing more.
+ * `support-chat-email`); svc-support never sees the address. The first mail's key is the chat and the UTC day, so a repeat
+ * the same day answers with the first mail and sends nothing more; each later agent reply is mailed under its own key.
  *
  * Without a mailbox (`SUPPORT_CHAT_EMAIL` blank, or identity with no mail transport) the chat answers `vendor.email`, as
  * it did before a mailbox existed.
@@ -28,15 +28,25 @@ export interface ChatMailPort {
 /** No mailbox: every ask answers `vendor.email`. */
 export const NO_CHAT_MAIL: ChatMailPort = { send: async () => null };
 
-/** One ask per chat per UTC day, with the link shown valid to the end of the seventh day. Identity caps it at seven days. */
-export function chatMailRequest(input: { sessionId: string; userId: string; now: Date }): ServiceMailRequest {
+/**
+ * The chat's mail: once per chat per UTC day when the customer continues it by email, then once per agent reply (keyed by
+ * the reply). The link is shown valid to the end of the seventh day; identity caps it at seven days.
+ */
+export function chatMailRequest(input: {
+  sessionId: string;
+  userId: string;
+  now: Date;
+  reply?: { id: string; seq: number };
+}): ServiceMailRequest {
   const day = new Date(Date.UTC(input.now.getUTCFullYear(), input.now.getUTCMonth(), input.now.getUTCDate()));
   return {
-    key: `support-chat-email:${input.sessionId}:${day.toISOString().slice(0, 10)}`,
+    key: input.reply
+      ? `support-chat-email:${input.sessionId}:reply:${input.reply.id}`
+      : `support-chat-email:${input.sessionId}:${day.toISOString().slice(0, 10)}`,
     userId: input.userId,
     purpose: 'support-chat-email',
     token: input.sessionId,
-    detail: 'support chat',
+    detail: input.reply ? `reply ${input.reply.seq}` : 'support chat',
     expiresAt: new Date(day.getTime() + 7 * 86_400_000).toISOString(),
   };
 }

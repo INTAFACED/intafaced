@@ -414,6 +414,25 @@ describe('continue by email', () => {
     ).resolves.toBeTruthy();
   });
 
+  it('after the switch, each agent reply is mailed into the thread once, under its own key', async () => {
+    const box = mailbox();
+    const { chat } = world({}, {}, box.port);
+    const { session } = await chat.open(ALICE, { clientKey: key(), message: 'hello' });
+    await chat.accept(AGENT, session.id);
+    // Before the switch a reply is not mailed.
+    await chat.reply(AGENT, { sessionId: session.id, clientMessageId: 'r-000001', body: 'one moment' });
+    expect(box.sent).toEqual([]);
+    expect((await chat.continueByEmail({ userId: ALICE }, session.id)).status).toBe('emailed');
+    const reply = await chat.reply(AGENT, { sessionId: session.id, clientMessageId: 'r-000002', body: 'here is your answer' });
+    // The same reply sent again (a lost answer) stores one message and asks for the same mail.
+    await chat.reply(AGENT, { sessionId: session.id, clientMessageId: 'r-000002', body: 'here is your answer' });
+    expect(box.sent.map((m) => [m.key, m.detail])).toEqual([
+      [`support-chat-email:${session.id}:2026-11-07`, 'support chat'],
+      [`support-chat-email:${session.id}:reply:${reply.id}`, `reply ${reply.seq}`],
+    ]);
+    expect(box.sent[1]).toMatchObject({ userId: ALICE, purpose: 'support-chat-email', token: session.id });
+  });
+
   it('a guest, or a page holding only the chat token, is never mailed: it names vendor.email', async () => {
     const box = mailbox();
     const { chat } = world({}, {}, box.port);

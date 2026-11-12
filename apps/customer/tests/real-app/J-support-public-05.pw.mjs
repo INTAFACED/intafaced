@@ -341,8 +341,9 @@ test(`${J} #7 asking to continue by email: the chat continues in the email threa
   const answered = mailed.page.waitForResponse((res) => res.url().includes('chatContinueByEmail'));
   await mailed.room.getByRole('button', { name: 'Continue by email' }).click();
   const answer = await (await answered).json();
-  // The chat moves to an email thread: the answer is not the no-mailbox notice, and the room shows none.
-  expect(answer?.result?.data?.status, JSON.stringify(answer).slice(0, 300)).not.toBe('not_connected');
+  // The chat moves to an email thread: the answer is `emailed`, and the room says so with no no-mailbox notice.
+  expect(answer?.result?.data?.status, JSON.stringify(answer).slice(0, 300)).toBe('emailed');
+  await expect(mailed.room.getByTestId('support-chat-email-notice')).toHaveAttribute('data-email-status', 'emailed');
   await expect(mailed.room.locator('[data-not-connected="vendor.email"]')).toHaveCount(0);
   // The email thread exists: a mail to this customer carries the chat so far.
   await expect
@@ -356,6 +357,29 @@ test(`${J} #7 asking to continue by email: the chat continues in the email threa
       },
     )
     .toBeGreaterThan(0);
+  // The chat continues in that thread: the agent's next reply reaches the customer's mail too, naming this chat and the
+  // reply's number, and the chat is still open in the app.
+  await desk('agent', 'mutation', 'chatAccept', { sessionId: mailed.kept.sessionId });
+  const later = await desk('agent', 'mutation', 'chatReply', {
+    sessionId: mailed.kept.sessionId,
+    clientMessageId: `j05:${RUN}:r7`,
+    body: `TEST ${J} ${RUN} #7 answered by email too`,
+  });
+  await expect
+    .poll(
+      () =>
+        mailTo(mailed.who.email)
+          .slice(before)
+          .filter((line) => line.includes(`chat=${mailed.kept.sessionId}`) && line.includes(` part=reply_${later.seq} `)).length,
+      { timeout: 15_000 },
+    )
+    .toBe(1);
+  await expect(
+    mailed.room.getByTestId('support-chat-message').filter({ hasText: `TEST ${J} ${RUN} #7 answered by email too` }),
+  ).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(mailed.room).not.toHaveAttribute('data-chat-status', 'closed');
   await mailed.page.context().close();
 
   // Without a mailbox: the notice names vendor.email, and nothing was lost.
