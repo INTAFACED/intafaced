@@ -561,11 +561,11 @@ test(`${J} #4 looks at an asset with no published price: it reads "No price publ
 });
 
 const RETIRED = 'TESTRETIRED';
-/** The select inside the form field whose own caption is exactly `caption` (a panel of the same title is not the field). */
-const picker = (page, caption) =>
-  page
+/** The select inside the form field of `scope` whose own caption is exactly `caption` (a panel of the same title is not the field). */
+const picker = (scope, caption) =>
+  scope
     .locator('label')
-    .filter({ has: page.getByText(caption, { exact: true }) })
+    .filter({ has: scope.getByText(caption, { exact: true }) })
     .getByRole('combobox');
 /** The places after the point a decimal string is written with, trailing zeros not counted. */
 const places = (value) => (String(value).split('.')[1] ?? '').replace(/0+$/, '').length;
@@ -621,8 +621,12 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   // shown with their reason), and each coin's open networks are the list's networks for it.
   const optionValues = (select, extra = '') =>
     select.locator(`option${extra}`).evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
-  const depositAsset = picker(page, 'Asset');
-  const depositNetwork = picker(page, 'Network');
+  // Deposit's own pickers sit in its "Asset" panel; the records' filter further down has an "Asset" field of its own.
+  const depositPanel = page.getByRole('region', { name: 'Asset', exact: true });
+  const depositAsset = picker(depositPanel, 'Asset');
+  const depositNetwork = picker(depositPanel, 'Network');
+  await expect(depositAsset).toHaveCount(1);
+  await expect(depositNetwork).toHaveCount(1);
   const depositOffered = [...new Set([...deposits.assets, ...(deposits.halted ?? [])].map((asset) => asset.assetId))];
   await expect.poll(() => optionValues(depositAsset).then((v) => [...v].sort())).toEqual([...depositOffered].sort());
   for (const id of depositOffered) expect(row(id), `Deposit offers ${id}, which the list does not have`).toBeTruthy();
@@ -672,8 +676,12 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await expect(page.getByRole('link', { name: 'Supported assets and networks' })).toHaveAttribute('href', '/uc/assets');
   // Withdraw's own pickers use the same rows: for every coin the person holds, the networks it offers are exactly the
   // list's withdrawal networks for that coin, and the retired coin they still hold is offered none.
-  const withdrawAsset = picker(page, 'Asset');
-  const withdrawNetwork = picker(page, 'Network');
+  // Withdraw's own pickers sit in its form, the one with the Network field.
+  const withdrawForm = page.locator('form').filter({ has: page.getByText('Network', { exact: true }) });
+  const withdrawAsset = picker(withdrawForm, 'Asset');
+  const withdrawNetwork = picker(withdrawForm, 'Network');
+  await expect(withdrawAsset).toHaveCount(1);
+  await expect(withdrawNetwork).toHaveCount(1);
   await expect.poll(() => optionValues(withdrawAsset)).toContain(RETIRED);
   for (const id of await optionValues(withdrawAsset)) {
     await withdrawAsset.selectOption(id);
