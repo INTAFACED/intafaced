@@ -1169,19 +1169,20 @@ export class LiveRuns {
       return;
     }
     const principal = ownerPrincipal(run.userId);
-    // The reconciler: every order not known final is read from the venue by its original client order id.
+    // The reconciler: every order the run sent is read back from the venue by its original client order id, the
+    // venue's answer standing over what was recorded before the process died.
     let read = 0;
     for (const o of await this.deps.store.orders(run.userId, run.runId)) {
-      if (o.state === 'accepted' || o.state === 'refused') continue;
+      if (o.state === 'refused') continue;
       const stored = await this.deps.door.stored(principal, o.actionKey);
       if (!stored?.signature) {
         // Written and never signed: never sent, and its number is never used again.
         await this.deps.store.setOrderState(run.userId, run.runId, o.seq, 'refused');
-        read += 1;
         continue;
       }
       const v = await this.deps.door.orderByKey(principal, o.actionKey);
-      if (v.state === 'accepted' || v.state === 'refused') await this.deps.store.setOrderState(run.userId, run.runId, o.seq, v.state);
+      if ((v.state === 'accepted' || v.state === 'refused') && v.state !== o.state)
+        await this.deps.store.setOrderState(run.userId, run.runId, o.seq, v.state);
       read += 1;
     }
     const ordersNow = await this.deps.store.orders(run.userId, run.runId);

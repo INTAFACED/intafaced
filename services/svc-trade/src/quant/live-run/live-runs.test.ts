@@ -302,6 +302,10 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     expect(r.strategyState.ticks).toBe(ticks);
     const log = (await store.events(USER, v.runId)).map((e) => e.kind);
     expect(log).toEqual(expect.arrayContaining(['unknown', 'reconciled', 'restarted']));
+    // The block's order, already accepted before the process died, is read back from the venue by its client order id too.
+    expect((await store.events(USER, v.runId)).find((e) => e.kind === 'reconciled')!.detail).toBe(
+      'Reconciler read 1 order from the venue by their client order ids; 1 on record.',
+    );
     // The restarted process places no second order for the block it placed before.
     await runs.tick();
     expect(await store.orders(USER, v.runId)).toHaveLength(1);
