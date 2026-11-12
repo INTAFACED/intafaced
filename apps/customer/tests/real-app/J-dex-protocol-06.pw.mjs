@@ -33,7 +33,8 @@ import { testWalletKey } from './test-wallet.mjs';
 // A token's name in Holdings links to its page: a region named by the token, with test id "entry-price".
 // Stack parts the builder adds: `local-test-chain.mjs fund <address> positions` (a TEST lending supply and a TEST venue
 // position for that address) and `local-test-gates.mjs auto-earn-assets unset|test` (the owner's auto-earn list blank, or
-// its TEST value), as `withdraw-fee <network> unset|test` does for a fee.
+// its TEST value; `show` prints the list as JSON, `{ assets: [{ name }] }`), as `withdraw-fee <network> unset|test` does
+// for a fee.
 const J = 'J-dex-protocol-06';
 const base = dexRun(J);
 // The person's wallet reads the TEST chain; it needs no TEST ETH, since it sends nothing.
@@ -406,9 +407,17 @@ test(`${J} #7 opens Accounts and asks for portfolio margin: Standard only, with 
   // Standard is the only mode: nothing else to pick.
   await expect(mode.getByRole('radio')).toHaveCount(0);
   await expect(mode.getByRole('combobox')).toHaveCount(0);
-  const link = mode.getByRole('link').first();
-  await expect(link).toBeVisible();
-  expect(await link.getAttribute('href')).toMatch(/^\/|^https?:/);
+  // The link says what Standard means, and opens that page.
+  const link = mode.getByRole('link', { name: 'What Standard means' });
+  await expect(link).toHaveCount(1);
+  await link.click();
+  await expect(page).toHaveURL(/\/wallet\/conventions\/modes$/);
+  await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toContainText('Account modes');
+  await expect(page.getByRole('main')).toContainText(/Standard/);
+  await expect(page.getByRole('main')).not.toContainText(/page not found/i);
+  await page.goBack();
+  await walletSection(page, 'Accounts');
+  await expect(shown).toHaveAttribute('data-account-mode', 'standard');
   // The ask goes to the futures service, and the refusal shown is the code it answered with.
   const asked = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/v1/futures/margin-modes');
   await mode.getByRole('button', { name: 'Ask for portfolio margin' }).click();
@@ -438,6 +447,12 @@ test(`${J} #8 turns on wallet auto-earn: a list of assets chosen by the owner; w
     await autoEarn.click();
     const assets = page.getByRole('listbox', { name: 'Assets to earn on' });
     await expect(assets.getByRole('option')).not.toHaveCount(0);
+    // The assets offered are exactly the owner's TEST list the gate published, no more and no fewer.
+    const published = JSON.parse(tool('local-test-gates.mjs', 'auto-earn-assets', 'show'))
+      .assets.map((asset) => asset.name)
+      .sort();
+    expect(published.length, 'the owner published a TEST list').toBeGreaterThan(0);
+    expect((await assets.getByRole('option').allInnerTexts()).map((text) => text.trim()).sort()).toEqual(published);
     await expect(page.getByRole('region', { name: 'Auto-earn' })).toContainText(/chosen by (?:the owner|INTAFACED)/i);
     const key = page.getByRole('region', { name: 'Auto-earn key' });
     await expect(key.getByRole('listitem').filter({ hasText: /^Can\b/ })).toHaveCount(1);
