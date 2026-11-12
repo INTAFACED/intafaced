@@ -161,17 +161,15 @@ test('J-charts-desk-04 #3 reads the technical rating: the rating with its inputs
   await expect(rating).not.toContainText('Score');
 });
 
-test('J-charts-desk-04 #4 adds volume delta and a volume profile: series from the public tape, or a refusal when there is no tape', async ({
+test('J-charts-desk-04 #4 adds volume delta and a volume profile: series built from the public tape; on a market with no tape the chart says so and draws neither', async ({
   page,
 }) => {
-  const tape = await trades(500);
+  // Both halves of the step's words run every time: the series on a market with a tape (BTC/USDT, which the TEST stack
+  // trades), and the market with no tape (a listed spot market whose public trades route answers none).
+  expect((await trades(500)).length, 'the TEST stack has public trades on BTC/USDT').toBeGreaterThan(0);
   await openChart(page);
   await addStudy(page, 'delta', 'Volume delta');
   await addStudy(page, 'profile', 'Volume profile');
-  if (tape.length === 0) {
-    await expect(legend(page)).toContainText('No public trades for this market.');
-    return;
-  }
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
   // Volume delta from the public tape: at the last bar, buys minus sells of the prints in its bucket, and the running total
   // over the bars the tape covers (from its first whole bucket); the facts name how many prints were read.
@@ -229,6 +227,29 @@ test('J-charts-desk-04 #4 adds volume delta and a volume profile: series from th
       { timeout: 30_000 },
     )
     .toBe('true true');
+
+  // With no tape for the market it says so. Volume delta and the profile read only the public tape, and the chart's bars
+  // are built from the same executed trades, so a listed spot market whose trades route answers none has nothing to
+  // build either from: its chart says there were no trades and no volume, and draws no series at all (no chart is
+  // drawn), so no delta, cumulative delta or profile is shown as a value.
+  const listed = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  let quiet = null;
+  for (const m of listed.filter((x) => x.spot === true && x.active === true && x.symbol !== MARKET_NAME)) {
+    const res = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=500`);
+    if (res.ok && (await res.json()).length === 0) {
+      quiet = m.symbol;
+      break;
+    }
+  }
+  expect(quiet, 'the stack lists a spot market with no public trades').not.toBeNull();
+  await page.goto(`/charts/${quiet.replace('/', '-')}`);
+  await expect(page.getByRole('heading', { name: 'Charts' })).toBeVisible();
+  const chart = page.getByTestId('cw').first();
+  await expect(chart).toContainText('No trades in this period.');
+  await expect(chart).toContainText('This market has no volume in the loaded bars.');
+  await expect(host(page)).toHaveCount(0);
+  await expect(page.locator('[data-study="volume-delta-1"] [data-series], [data-study="volume-profile-1"] [data-series]')).toHaveCount(0);
+  await expect(page.getByText(/Point of control|Cumulative delta/)).toHaveCount(0);
 });
 
 test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser interval, aligned to the chart', async ({ page }) => {
