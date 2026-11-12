@@ -1,4 +1,4 @@
-// World: restart
+// World: stack, restart
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test, expect } from './journey.mjs';
@@ -269,7 +269,14 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
   expect(lines.slice(2)[0].split(',')[2]).toBe('1');
 
   // Later: the retention ends (a LOCAL TEST fixture moves its times back). The list says Expired and the file is refused.
+  expect(Date.parse(held.expiresAt) - Date.parse(held.finishedAt)).toBe(24 * 3_600_000);
+  expect(held.expired).toBe(false);
   expect(tool('local-test-stack.mjs', 'expire-academy-report', tasks.done)).toContain('1 Academy report(s) now past their retention');
+  // svc-academy's own answer: the file's retention has ended, kept exactly as long as it was made to be.
+  const lapsed = (await staff('query', 'admin.reportTasks', undefined)).tasks.find((t) => t.id === tasks.done);
+  expect(lapsed).toMatchObject({ state: 'done', expired: true, sha256: held.sha256 });
+  expect(Date.parse(lapsed.expiresAt)).toBeLessThan(Date.now());
+  expect(Date.parse(lapsed.expiresAt) - Date.parse(lapsed.finishedAt)).toBe(24 * 3_600_000);
   await desk.reload();
   await expect(row.getByTestId('report-state')).toHaveText('Expired');
   await expect(row.getByTestId('report-expires-at')).toContainText('Expired');
