@@ -171,7 +171,8 @@ test(`${J} #4 opens the log of someone else's key: refused`, async ({ browser })
   try {
     // In the browser: the other person's page for this key shows no log and no call of it.
     await other.page.goto(`/uc/safe/api-keys/${keyId}`);
-    await expect(other.page.getByRole('alert')).toBeVisible();
+    // The typed not-found refusal (identity.key_not_found), in the person's words: the key is not theirs.
+    await expect(other.page.getByRole('alert')).toContainText('This key is not on your account.');
     await expect(other.page.getByRole('table', { name: 'Call log' })).toHaveCount(0);
     for (const call of calls) expect(await other.page.content()).not.toContain(call.requestId);
 
@@ -184,7 +185,8 @@ test(`${J} #4 opens the log of someone else's key: refused`, async ({ browser })
     const reply = await (
       await api(other.who)
     ).get(`/api/identity/trpc/developerKeys.calls?input=${encodeURIComponent(JSON.stringify({ keyId, limit: 50 }))}`);
-    expect([403, 404], JSON.stringify(reply.body).slice(0, 300)).toContain(reply.status);
+    expect(reply.status, JSON.stringify(reply.body).slice(0, 300)).toBe(404);
+    expect(reply.body?.error?.data?.cause?.code, JSON.stringify(reply.body).slice(0, 300)).toBe('identity.key_not_found');
     for (const call of calls) expect(JSON.stringify(reply.body)).not.toContain(call.requestId);
   } finally {
     await other.page.context().close();
