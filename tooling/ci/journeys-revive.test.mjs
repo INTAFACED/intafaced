@@ -54,6 +54,10 @@ function fakeIo(runs, { reports = new Set(), open = new Set(), rerunStatus = 201
       },
       openIssue: async (title) => (open.has(title) ? { title } : null),
       createIssue: async (title, body) => calls.created.push({ title, body }),
+      reportLikely: async (r) => {
+        calls.likely = [...(calls.likely ?? []), r.id];
+        return reports.has(r.id);
+      },
     },
   };
 }
@@ -361,4 +365,16 @@ test('a refusal (403, 429) stops the pass at once: no later run is re-run, and t
   assert.deepEqual(calls.rerun, [43113864635]);
   assert.equal(isRefusal(new Error('GitHub 403 on GET /x: stopping, not retrying')), true);
   assert.equal(isRefusal(new Error('GitHub 502 on GET /x')), false);
+});
+
+test('lazy (after each CI run on main): a run inside its wait is not read, a large artifact costs no download, a dead run is still re-run', async () => {
+  const waiting = run({ id: 1, run_number: 1, updated_at: '2026-11-11T16:20:00Z' });
+  const reported = run({ id: 2, run_number: 2 });
+  const dead = run({ id: 3, run_number: 3 });
+  const { io, calls } = fakeIo([waiting, reported, dead], { reports: new Set([2]) });
+  const lines = await tick({ repo: REPO, now: NOW, io, lazy: true });
+  assert.deepEqual(calls.likely, [2, 3], 'the waiting run is not read at all');
+  assert.deepEqual(calls.checked, [3], 'only the run whose artifact is small is downloaded');
+  assert.deepEqual(calls.rerun, [3]);
+  assert.equal(lines.length, 1);
 });

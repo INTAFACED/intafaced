@@ -50,6 +50,8 @@ export const MAX_ATTEMPT = 5;
 export const WAIT_MINUTES = { 1: 30, 2: 60, 3: 120, 4: 240 };
 // The whole series (four waits of 30 min to 4 h, five attempts of about an hour) ends within about 13 h of a run starting.
 export const WINDOW_HOURS = 24;
+/** A journeys artifact this large holds a report (main's reports: about 4.6 MB on 11 and 12 Nov 2026; a dead run's: 287 bytes). */
+export const REPORT_BYTES = 64 * 1024;
 
 export const issueTitle = (run) => `Journeys run on main has no report: run ${run.run_number}`;
 
@@ -85,9 +87,14 @@ export function issueBody(run, repo) {
  * One tick. `io` is GitHub: listRuns(), hasReport(run), rerun(run) -> { ok, status }, openIssue(title) -> issue|null,
  * createIssue(title, body). Returns the actions taken, one line per run, for the log and the tests.
  */
-export async function tick({ repo, now, io }) {
+export async function tick({ repo, now, io, lazy = false }) {
   const out = [];
   for (const run of candidates(await io.listRuns(), { repo, now })) {
+    // `lazy` (after each CI run on main, many times an hour): a run still inside its wait isn't read at all, and a run
+    // whose journeys artifact is large (a report is megabytes; run 4005's dead artifact was 287 bytes) costs one read,
+    // not a download. The installation's API budget is shared with the merge seal, which fails closed on a 403 (#8038).
+    if (lazy && decide(run, now) === 'wait') continue;
+    if (lazy && (await io.reportLikely(run))) continue;
     if (await io.hasReport(run)) continue;
     const action = decide(run, now);
     const name = `run ${run.run_number} (${run.id}) attempt ${run.run_attempt}`;
@@ -266,6 +273,13 @@ export function githubIo(repo) {
   return {
     listRuns: async () =>
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&per_page=100`)).json.workflow_runs,
+    // At least REPORT_BYTES in the newest journeys artifact: one read, for the lazy tick.
+    reportLikely: async (run) => {
+      const a =
+        (await gh('GET', `/repos/${repo}/actions/runs/${run.id}/artifacts?name=real-app-journeys&per_page=20`)).json.artifacts ?? [];
+      const newest = a.filter((x) => !x.expired).sort((x, y) => Date.parse(y.created_at) - Date.parse(x.created_at))[0];
+      return Boolean(newest && newest.size_in_bytes >= REPORT_BYTES);
+    },
     // The verdict's own reader: no artifact, or an artifact without report.json, is null; any other failure throws.
     hasReport: async (run) => downloadReport(repo, run.id, 'report.json', true) !== null,
     rerun: async (run) => {
@@ -318,7 +332,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   (async () => {
     if (mode !== 'prs') {
-      const lines = await tick({ repo, now: Date.now(), io });
+      const lines = await tick({ repo, now: Date.now(), io, lazy: mode === 'main' });
       console.log(lines.length ? lines.join('\n') : 'every finished journeys run on main in the window has a report');
     }
     if (mode === 'main') return;
