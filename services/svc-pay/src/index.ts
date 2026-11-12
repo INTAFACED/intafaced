@@ -1,4 +1,5 @@
 import { loadSweepStaleAfterSeconds } from './custody/sweeps/service.js';
+import { registerWithdrawalAddressRoute, withdrawalAddresses } from './withdrawal-addresses.js';
 import { randomUUID } from 'node:crypto';
 import { MerchantAccountControls } from './merchant-account-controls.js';
 import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
@@ -1004,6 +1005,13 @@ registerCustodyDepositRoutes(app, {
   catalogue: () => custodyDeposits.catalogue(),
   address: (input) => custodyDeposits.address(input),
   records: (input) => custodyDepositBook.records(input),
+});
+
+registerWithdrawalAddressRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  addresses: (input) => withdrawalAddresses(sql, input),
 });
 
 registerSubscriptionCycleRoutes(app, {

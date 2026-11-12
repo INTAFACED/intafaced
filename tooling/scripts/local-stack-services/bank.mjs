@@ -308,6 +308,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
+    // LOCAL TEST tax-effect map (J-portfolio-03 #7; refused at boot outside dev/test): made up for test stacks, not the
+    // owner's or counsel's call, and the answer and the screen say TEST.
+    BANK_TAX_EFFECTS: 'test',
     // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
     // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
     // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
