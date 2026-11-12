@@ -82,7 +82,8 @@ export function analyticsRefusal(code: string | null, status: number, uncertain 
 
 const ACADEMY: PartLabels = {
   service: 'svc-academy',
-  forbiddenMessage: 'svc-academy did not accept your founder session. The Academy numbers need the Academy operator permission (admin:read).',
+  forbiddenMessage:
+    'svc-academy did not accept your founder session. The Academy numbers need the Academy operator permission (admin:read).',
   refusedMessage: (code) => (code ? analyticsRefusal(code, 409).body : null),
 };
 

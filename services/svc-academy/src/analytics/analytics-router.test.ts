@@ -8,7 +8,9 @@ import { analyticsProcedures } from './analytics-router.js';
 
 const TASK = '44444444-4444-4444-8444-444444444444';
 const callers = edgeCallers({ serviceName: 'svc-academy', scopes: ['admin:read', 'admin:write'] });
-const summaries = { page: async () => analyticsRefusals.refuse('academy.learner_summaries_list_limit_unset') } as unknown as LearnerSummaries;
+const summaries = {
+  page: async () => analyticsRefusals.refuse('academy.learner_summaries_list_limit_unset'),
+} as unknown as LearnerSummaries;
 const reports = {
   list: async () => analyticsRefusals.refuse('academy.report_tasks_list_limit_unset'),
   request: async () => analyticsRefusals.refuse('academy.report_retention_unset'),
@@ -34,7 +36,11 @@ describe('analytics procedures', () => {
     const founder = app.createCaller(callers.signed());
     await expectRefusal(founder.learnerSummaries({}), 'academy.learner_summaries_list_limit_unset', 'PRECONDITION_FAILED');
     await expectRefusal(founder.reportTasks(), 'academy.report_tasks_list_limit_unset', 'PRECONDITION_FAILED');
-    await expectRefusal(founder.requestReport({ kind: 'learners', tag: null, n: 1 }), 'academy.report_retention_unset', 'PRECONDITION_FAILED');
+    await expectRefusal(
+      founder.requestReport({ kind: 'learners', tag: null, n: 1 }),
+      'academy.report_retention_unset',
+      'PRECONDITION_FAILED',
+    );
     await expectRefusal(founder.abortReport({ taskId: TASK }), 'academy.report_not_abortable', 'CONFLICT');
     await expectRefusal(founder.deleteReport({ taskId: TASK }), 'academy.report_not_found', 'NOT_FOUND');
     await expectRefusal(founder.reportFile({ taskId: TASK }), 'academy.report_expired', 'PRECONDITION_FAILED');

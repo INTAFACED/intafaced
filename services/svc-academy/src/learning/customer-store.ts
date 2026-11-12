@@ -739,10 +739,7 @@ export class AcademyCustomerStore {
    * The daily activity table. A day before the service began recording (`academy.metrics_recording`, or the oldest row
    * already stored if that is earlier) has no figure: each of its cells is `metric_not_recorded`, never zero.
    */
-  async opsMetrics(input: {
-    from: string;
-    to: string;
-  }): Promise<{ from: string; to: string; recordingSince: string; days: OpsDay[] }> {
+  async opsMetrics(input: { from: string; to: string }): Promise<{ from: string; to: string; recordingSince: string; days: OpsDay[] }> {
     const window = utcWindow('opsMetrics', input.from, input.to);
     const { start, endExclusive } = window;
     const [sinceRows, lessonRows, completionRows, grantRows] = await Promise.all([

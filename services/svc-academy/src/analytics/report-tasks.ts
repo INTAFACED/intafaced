@@ -47,7 +47,8 @@ type Row = {
   failure: string | null;
   deleted_at: Date | null;
 };
-const COLUMNS = 'id, requested_by, n, kind, tag, state, requested_at, started_at, finished_at, expires_at, rows, sha256, failure, deleted_at';
+const COLUMNS =
+  'id, requested_by, n, kind, tag, state, requested_at, started_at, finished_at, expires_at, rows, sha256, failure, deleted_at';
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 

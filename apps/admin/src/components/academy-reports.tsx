@@ -32,9 +32,7 @@ function TaskRow({ task, busy, onAbort, onDelete }: { task: AcademyReportTask; b
       <td data-testid="report-made-at" data-at={task.finishedAt ?? ''}>
         {task.state === 'done' && task.finishedAt ? formatWhen(task.finishedAt) : 'no file'}
       </td>
-      <td>
-        {task.state === 'done' && task.sha256 ? <code data-testid="report-sha256">{task.sha256}</code> : (task.failure ?? '')}
-      </td>
+      <td>{task.state === 'done' && task.sha256 ? <code data-testid="report-sha256">{task.sha256}</code> : (task.failure ?? '')}</td>
       <td data-testid="report-expires-at" data-at={task.expiresAt ?? ''}>
         {task.expiresAt ? (task.expired ? `Expired ${formatWhen(task.expiresAt)}` : `Kept until ${formatWhen(task.expiresAt)}`) : ''}
       </td>
@@ -85,7 +83,8 @@ export function AcademyReports({ initial }: { initial: ReportsView | null }) {
         <div>
           <h1>Reports</h1>
           <p>
-            <Link href="/academy-ops/catalogue">Back to the catalogue</Link> · <Link href="/academy-ops/catalogue/analytics">Academy numbers</Link>
+            <Link href="/academy-ops/catalogue">Back to the catalogue</Link> ·{' '}
+            <Link href="/academy-ops/catalogue/analytics">Academy numbers</Link>
           </p>
         </div>
         <span className="dk-asof">{view ? `Read ${formatAsOf(view.asOf)}` : 'No read yet'}</span>

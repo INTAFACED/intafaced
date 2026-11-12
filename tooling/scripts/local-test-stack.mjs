@@ -3243,7 +3243,8 @@ function cmdAgeTaskProgress(args) {
  */
 function cmdExpireAcademyReport(args) {
   const [taskId] = args;
-  if (!taskId || !/^[0-9a-f-]{36}$/i.test(taskId)) fail('usage: node tooling/scripts/local-test-stack.mjs expire-academy-report <taskId>', 2);
+  if (!taskId || !/^[0-9a-f-]{36}$/i.test(taskId))
+    fail('usage: node tooling/scripts/local-test-stack.mjs expire-academy-report <taskId>', 2);
   const secrets = localFixtureSecrets();
   const moved = psql(
     secrets,

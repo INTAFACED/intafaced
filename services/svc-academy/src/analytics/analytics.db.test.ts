@@ -45,9 +45,11 @@ describe('learner summaries', () => {
       expect(row.tags).toEqual([tag]);
     }
     const counts = Object.fromEntries(all.map((r) => [r.userId, [r.itemsCompleted, r.lastActiveAt]]));
-    const [two] = (await db.sql<Array<{ user_id: string }>>`
+    const [two] = (
+      await db.sql<Array<{ user_id: string }>>`
       SELECT user_id FROM academy.cert_item_completions WHERE user_id = ANY(${ids}) GROUP BY user_id HAVING count(*) = 2
-    `).map((r) => r.user_id);
+    `
+    ).map((r) => r.user_id);
     expect(counts[two!]).toEqual([2, later(61).toISOString()]);
   });
 
@@ -114,7 +116,9 @@ describe('report tasks', () => {
     const gone = new Date(Date.parse(file.expiresAt!) + 1);
     await expectRefusal(r.file(task.id, gone), 'academy.report_expired');
     await r.sweep(gone);
-    const [{ csv } = { csv: 'x' }] = await db.sql<Array<{ csv: string | null }>>`SELECT csv FROM academy.report_tasks WHERE id = ${task.id}`;
+    const [{ csv } = { csv: 'x' }] = await db.sql<
+      Array<{ csv: string | null }>
+    >`SELECT csv FROM academy.report_tasks WHERE id = ${task.id}`;
     expect(csv).toBeNull();
     expect((await r.list(me, gone)).tasks.find((t) => t.id === task.id)).toMatchObject({ expired: true });
   });
@@ -173,7 +177,9 @@ describe('report tasks', () => {
     ] as const)
       await expectRefusal(reports(blank).request({ actorId: me, kind: 'learners', tag: null, n: 1, now: T0 }), code);
     await expectRefusal(reports({ pageSize: null }).list(me), 'academy.report_tasks_list_limit_unset');
-    const [{ n } = { n: -1 }] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM academy.report_tasks WHERE requested_by = ${me}`;
+    const [{ n } = { n: -1 }] = await db.sql<
+      Array<{ n: number }>
+    >`SELECT count(*)::int AS n FROM academy.report_tasks WHERE requested_by = ${me}`;
     expect(n).toBe(0);
   });
 });

@@ -88,12 +88,12 @@ const analyticsPages = () => ({
 });
 
 // LOCAL TEST reports centre (TEST owner values): a report holds up to 1000 learner rows, its file is kept 24 hours, and the
-// report sweep runs every 10 seconds, so a requested report runs for one sweep (long enough to watch and abort it) and is
+// report sweep runs every 30 seconds, so a requested report waits and then runs for one sweep each (long enough to see and abort it) and is
 // done on the next (J-academy-16 #3, #4). `LOCAL_STACK_ACADEMY_REPORT_RETENTION=off` leaves the retention blank, so a
 // request refuses by name.
 const reportsCentre = () => ({
   ACADEMY_REPORT_ROWS: '1000',
-  ACADEMY_REPORT_SWEEP_SECONDS: '10',
+  ACADEMY_REPORT_SWEEP_SECONDS: '30',
   ...(process.env.LOCAL_STACK_ACADEMY_REPORT_RETENTION === 'off' ? {} : { ACADEMY_REPORT_RETENTION_HOURS: '24' }),
 });
 

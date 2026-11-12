@@ -41,8 +41,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
         ) : (
           <>
             <p className="dk-muted" data-testid="recording-since" data-day={activity.data.recordingSince}>
-              svc-academy has recorded learning activity since {activity.data.recordingSince} (UTC). A day before that reads
-              “not recorded”.
+              svc-academy has recorded learning activity since {activity.data.recordingSince} (UTC). A day before that reads “not recorded”.
             </p>
             <table className="dk-table" data-testid="activity-by-day">
               <thead>
@@ -113,7 +112,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
               </tbody>
             </table>
             {summaries.data.next && (
-              <Link href={`/academy-ops/catalogue/analytics?${new URLSearchParams({ ...(tag ? { tag } : {}), after: summaries.data.next })}`}>
+              <Link
+                href={`/academy-ops/catalogue/analytics?${new URLSearchParams({ ...(tag ? { tag } : {}), after: summaries.data.next })}`}
+              >
                 Next {summaries.data.pageSize} learners
               </Link>
             )}
