@@ -456,7 +456,12 @@ test(`${J} #8 turns on wallet auto-earn: a list of assets chosen by the owner; w
     await expect(page.getByRole('region', { name: 'Auto-earn' })).toContainText(/chosen by (?:the owner|INTAFACED)/i);
     const key = page.getByRole('region', { name: 'Auto-earn key' });
     await expect(key.getByRole('listitem').filter({ hasText: /^Can\b/ })).toHaveCount(1);
-    await expect(key.getByRole('listitem').filter({ hasText: /^Can\b/ })).toContainText(/supply/i);
+    // Supply is the key's one grant: the Can line names supply and nothing else, and the grants the key carries are
+    // exactly ['supply'].
+    await expect(key.getByRole('listitem').filter({ hasText: /^Can\b/ })).toHaveText(/^Can\W+supply\W*$/i);
+    expect(await key.locator('[data-key-grant]').evaluateAll((items) => items.map((item) => item.getAttribute('data-key-grant')))).toEqual([
+      'supply',
+    ]);
     await expect(key.getByRole('listitem').filter({ hasText: /^Cannot\b/ })).toContainText(/transfer/i);
     // Nothing is signed here: the person stops before the wallet.
     await page.getByRole('button', { name: 'Cancel' }).click();
