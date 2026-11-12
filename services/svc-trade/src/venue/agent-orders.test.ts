@@ -11,7 +11,7 @@ import { AgentAccountError, AgentAccounts, parseAgentAccountValues, type AgentAc
 import { InMemoryAgentAccountStore } from './agent-account-store.js';
 import { InMemoryAgentConnectionStore } from './agent-connection-store.js';
 import type { AgentKeyReader } from './agent-key-read-client.js';
-import { AgentOrders, AgentVenueRefusal, agentOrderKey } from './agent-orders.js';
+import { AgentOrders, AgentVenueRefusal, agentLeverageKey, agentOrderKey } from './agent-orders.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor } from './user-venue-door.js';
@@ -419,14 +419,128 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
     expect((await door.stored(person, agentOrderKey(keyId, 'crash-2')))?.signature).toEqual(signed!.signature);
   });
 
-  it('a perpetual is refused for now (agents.order_perp_not_yet), and a JSON number is never money', async () => {
+  it('a JSON number is never money', async () => {
     const { keyId } = await connected();
-    expect((await refusedAs(orders.place(assistant(keyId), { ...buy('perp-1', '0.001'), symbol: 'BTC-PERP' }))).code).toBe(
-      'agents.order_perp_not_yet',
-    );
     expect((await refusedAs(orders.place(assistant(keyId), { ...buy('num-1', '0.001'), amount: 0.001 }))).code).toBe(
       'agents.order_request_invalid',
     );
+  });
+
+  // ── #8: a perpetual, isolated on the agent account ──────────────────────────────────────────────────────────────
+
+  /** The person's own wallet approves our builder fee on the agent sub-account, once, as on any account they trade. */
+  async function builderApproved(sub: UserVenueAccount) {
+    const prepared = await door.prepare(person, {
+      owner,
+      subAccount: sub.subAccount,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_builder_fee', builder: '0x00000000000000000000000000000000000000b1', maxFeeBps: a('1') },
+      actionKey: `approve:${sub.subAccount}:builder`,
+    });
+    const sent = await door.submit(person, prepared.actionKey, await sign(prepared.prepared));
+    expect(sent.outcome).toMatchObject({ definite: true, accepted: true });
+  }
+  const perp = (clientOrderId: string, amount: string, extra: Record<string, unknown> = {}) => ({
+    clientOrderId,
+    symbol: 'BTC-PERP',
+    side: 'buy',
+    type: 'market',
+    amount,
+    price: '60100',
+    timeInForce: 'IOC',
+    leverage: '1',
+    ...extra,
+  });
+
+  it('#8: a perp opens isolated at the named leverage on the agent sub-account; its margin is taken there and nowhere else', async () => {
+    const { keyId, sub, account } = await connected();
+    await builderApproved(sub);
+    const mainBefore = { usdc: await total(main(), 'USDC'), positions: (await sim.positions(main())).value };
+    const view = await orders.place(assistant(keyId), perp('perp-1', '0.001'));
+    expect(view).toMatchObject({ state: 'accepted', origin: `agent:${keyId}`, account: { owner, subAccount: sub.subAccount } });
+    // The agent key set the market isolated at 1x on the sub-account first, under its own business key.
+    expect((await sim.leverage(sub, 'BTC-PERP')).value).toMatchObject({ leverageBps: 10_000, marginMode: 'isolated' });
+    const lev = await door.stored(person, agentLeverageKey(keyId, 'perp-1'));
+    expect(lev?.prepared.intent).toMatchObject({
+      kind: 'update_leverage',
+      symbol: 'BTC-PERP',
+      leverageBps: 10_000,
+      marginMode: 'isolated',
+    });
+    expect(lev?.prepared.account).toEqual(sub);
+    expect(lev?.prepared.signer).toEqual({ role: 'agent', address: account.agentAddress });
+    // One long position on the sub-account, its margin the venue's, out of the sub-account's 150.
+    const positions = (await sim.positions(sub)).value;
+    expect(positions).toHaveLength(1);
+    expect(positions[0]).toMatchObject({ symbol: 'BTC-PERP', side: 'long', size: a('0.001'), leverageBps: 10_000 });
+    expect(positions[0]!.margin).toBeGreaterThan(a('0'));
+    expect(await total(sub, 'USDC')).toBeLessThan(a('150'));
+    // The main venue account is untouched.
+    expect(await total(main(), 'USDC')).toBe(mainBefore.usdc);
+    expect((await sim.positions(main())).value).toEqual(mainBefore.positions);
+  });
+
+  it('#8: a setting the venue already shows is not signed again; a reduce-only close needs none and signs none', async () => {
+    const { keyId, sub } = await connected();
+    await builderApproved(sub);
+    await orders.place(assistant(keyId), perp('perp-a', '0.001'));
+    await orders.place(assistant(keyId), perp('perp-b', '0.001'));
+    expect(await door.stored(person, agentLeverageKey(keyId, 'perp-b'))).toBeNull();
+    const closed = await orders.place(assistant(keyId), {
+      ...perp('perp-close', '0.002', { side: 'sell', price: '59900', reduceOnly: true }),
+      leverage: undefined,
+    });
+    expect(closed.state).toBe('accepted');
+    expect(await door.stored(person, agentLeverageKey(keyId, 'perp-close'))).toBeNull();
+    expect((await sim.positions(sub)).value).toEqual([]);
+  });
+
+  it('#8: an opening perp names its leverage; spot takes none; a leverage cut past the cap is refused before signing', async () => {
+    const { keyId, sub } = await connected();
+    await builderApproved(sub);
+    const noLev = await refusedAs(orders.place(assistant(keyId), { ...perp('perp-x', '0.001'), leverage: undefined }));
+    expect([noLev.code, noLev.status]).toEqual(['agents.order_request_invalid', 400]);
+    expect((await refusedAs(orders.place(assistant(keyId), perp('perp-y', '0.001', { leverage: 2 })))).code).toBe(
+      'agents.order_request_invalid',
+    );
+    expect((await refusedAs(orders.place(assistant(keyId), { ...buy('spot-lev', '0.001'), leverage: '2' }))).code).toBe(
+      'agents.order_request_invalid',
+    );
+    expect((await sim.leverage(sub, 'BTC-PERP')).value).toBeNull();
+    expect(await actions.listByPrefix(USER, 'agent:')).toEqual(
+      expect.not.arrayContaining([expect.objectContaining({ businessKey: expect.stringMatching(/^agent:(order|leverage):/) })]),
+    );
+  });
+
+  it("#10: a perp needing more margin than the account holds is the venue's refusal, named; nothing locked; main never drawn", async () => {
+    const { keyId, sub } = await connected();
+    await builderApproved(sub);
+    await orders.place(assistant(keyId), perp('perp-m1', '0.001'));
+    const before = { sub: (await sim.balances(sub)).value, main: await total(main(), 'USDC'), positions: (await sim.positions(sub)).value };
+    // ~96 USDC of margin at 1x: inside the cap of 200 with the open position (~60), more than the ~90 the sub-account has free.
+    let refusal: AgentVenueRefusal | null = null;
+    try {
+      await orders.place(assistant(keyId), perp('perp-m2', '0.0016'));
+    } catch (error) {
+      refusal = error as AgentVenueRefusal;
+    }
+    expect(refusal).toBeInstanceOf(AgentVenueRefusal);
+    expect(refusal!.refusal.code).toBe('insufficient_balance');
+    expect(refusal!.refusal.detail).toContain('margin');
+    expect(refusal!.message).toContain(sim.venue.displayName);
+    expect((await sim.balances(sub)).value).toEqual(before.sub);
+    expect((await sim.positions(sub)).value).toEqual(before.positions);
+    expect(await total(main(), 'USDC')).toBe(before.main);
+  });
+
+  // ── #9: the connected key reaches nothing but its own order route ────────────────────────────────────────────
+
+  it('#9: confined() is true only for an API key connected to an agent account of its own person', async () => {
+    const { keyId } = await connected();
+    expect(await orders.confined(assistant(keyId))).toBe(true);
+    expect(await orders.confined(assistant(keyId, OTHER_USER))).toBe(false);
+    expect(await orders.confined(assistant(uuid('beef')))).toBe(false);
+    expect(await orders.confined(person)).toBe(false);
   });
 
   it('INVARIANT: no order from this route names any account but the bound agent sub-account, whatever the request says', async () => {

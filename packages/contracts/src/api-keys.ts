@@ -314,8 +314,11 @@ export function apiKeyCreateRequestId(
  * The money actions an agent key may never take (J-developer-15 #6: "The payout is refused `auth.scope_denied` and no
  * approval row is made"). The edge names the action from the route and asks identity whether the key is an agent key;
  * an agent key's attempt is refused at the edge and nothing is forwarded or written, so the action never runs.
+ *
+ * `bank.call`: any call to the bank and card door (`/api/bank/`). An agent key has no bank or card authority at all
+ * (J-agents-21 #9: "the assistant tries to ... pay by card ... refused `auth.scope_denied`; no balance changes").
  */
-export const AGENT_HELD_ACTIONS = ['pay.payout', 'pay.refund'] as const;
+export const AGENT_HELD_ACTIONS = ['pay.payout', 'pay.refund', 'bank.call'] as const;
 export type AgentHeldAction = (typeof AGENT_HELD_ACTIONS)[number];
 
 const bodyHash = z.string().regex(/^sha256:[0-9a-f]{64}$/);

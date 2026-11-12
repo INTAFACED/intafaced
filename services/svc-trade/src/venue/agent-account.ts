@@ -85,7 +85,7 @@ export type AgentAccountCode =
   | 'agents.key_not_connected'
   | 'agents.order_needs_agent_key'
   | 'agents.order_request_invalid'
-  | 'agents.order_perp_not_yet'
+  | 'agents.order_leverage_unknown'
   | 'agents.order_cap_exceeded'
   | 'agents.order_cap_refused'
   | 'agents.order_bound_unset'

@@ -1723,7 +1723,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (compare(balance.free, lockAmount) < 0)
       return refused(
         'insufficient_balance',
-        `free ${lockAsset}${marginAccount ? ` in ${marginAccount}` : ''} does not cover what this order locks`,
+        `free ${lockAsset}${marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
       );
     // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled now.
     for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
