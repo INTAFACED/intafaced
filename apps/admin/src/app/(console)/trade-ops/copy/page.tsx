@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 /**
  * Copy trading: who may lead. Applications wait oldest first; an approval needs the lead criteria set and a second
  * founder; a rejection and a suspension each keep their reason in the audit. Pooled masters, whitelists, takeovers and
- * levels show their honest state until they are built. The freshness is said in the room's own words, so the one
+ * levels are read from svc-trade, with no pool while INTAFACED holds no customer money. The freshness is said in the room's own words, so the one
  * status line on this page is the result of the last action.
  */
 export default async function CopyTradingPage() {

@@ -47,6 +47,7 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import type { PooledDesk } from './copy/pooled-desk.js';
 import { signalsRouter } from './signals/router.js';
 import type { SignalDesk } from './signals/signal-desk.js';
 import type { PlatformPauseDesk } from './copy/platform-pauses.js';
@@ -902,6 +903,7 @@ export function createTradeRouter(
   builderFees?: BuilderFeeReconReader,
   venueActivity?: OwnVenueActivityDeps,
   signals?: SignalDesk,
+  pooledDesk?: PooledDesk,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -920,6 +922,19 @@ export function createTradeRouter(
               : 'BAD_REQUEST';
         throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
       }
+      if (err instanceof TradeOpsError)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
+      throw toTrpcError(err);
+    }
+  };
+  /** The pooled desk's refusals carry their code at the end of the message too (CB-copy-pro-share-11). */
+  const pooled = async <T>(fn: (desk: PooledDesk) => Promise<T>): Promise<T> => {
+    try {
+      if (!pooledDesk) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+      return await fn(pooledDesk);
+    } catch (err) {
+      if (err instanceof CopyError && err.code.startsWith('trade.pool_'))
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
       if (err instanceof TradeOpsError)
         throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
       throw toTrpcError(err);
@@ -1962,6 +1977,17 @@ export function createTradeRouter(
       /** The caller's newest lead application, or null. */
       myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
 
+      /** Apply, from the master center, to run a pooled strategy (CB-copy-pro-share-11). One per person, by key. */
+      applyToPoolMaster: scopedProcedure('trade:write', { module: 'trade' })
+        // A blank field reaches the desk, which refuses it with its own code, so the room can say what to fix.
+        .input(z.object({ nickname: z.string().max(200), style: z.string().max(600) }).strict())
+        .mutation(({ ctx, input }) => pooled((desk) => desk.apply(ctx.principal, input))),
+
+      /** The caller's master application, or null. */
+      myPoolMasterApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
+        pooled((desk) => desk.mine(ctx.principal)),
+      ),
+
       /** The scopes the platform has paused now (CB-ops-03): leads by listing ref, bot types and symbols. */
       platformPauses: scopedProcedure('trade:read', { module: 'trade' }).query(() => pauses((desk) => desk.publicPauses())),
 
@@ -2021,6 +2047,11 @@ export function createTradeRouter(
           reject: scopedProcedure('admin:write', { module: 'trade' })
             .input(z.object({ applicationId: z.string().uuid(), reason: z.string().min(3).max(500) }).strict())
             .mutation(({ ctx, input }) => lead((desk) => desk.reject(ctx.principal, input))),
+        }),
+
+        /** Pooled masters on the founders' desk (CB-copy-pro-share-11, -06, -09, -03): applications, whitelists, takeovers, levels. */
+        pooledDesk: router({
+          read: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => pooled((desk) => desk.desk(ctx.principal))),
         }),
 
         /** Operator writes need `admin:write`, the trade operator desk's write scope. */

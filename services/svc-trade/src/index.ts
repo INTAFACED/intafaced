@@ -44,6 +44,7 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { PooledDesk, parsePoolWhitelistBatchMax } from './copy/pooled-desk.js';
 import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
 import { createLiveTierClient } from './signals/live-tier.js';
@@ -817,6 +818,7 @@ export const appRouter = createTradeRouter(
   // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
+  new PooledDesk({ sql, now: () => new Date(), whitelistBatchMax: parsePoolWhitelistBatchMax(env.TRADE_POOL_WHITELIST_BATCH_MAX) }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

@@ -11,8 +11,8 @@ import { tableIn, bodyRows } from './tables.mjs';
 // founder console. One test per step, titled "J-copy-bots-otc-10 #<n>". Founders A and B are the stack's LOCAL TEST founder
 // pair (admin.mjs); an approval needs both. The applicants are TEST accounts that apply through the customer app.
 // The lead criteria are owner values kept append-only, so #2 (criteria blank) holds on a fresh stack, as each CI shard is;
-// a second local run on the same stack needs a fresh one. Pooled masters, whitelists, takeovers and levels are parked
-// views with their honest empty or unset state: #6 waits on CB-copy-pro-share-11 and -06, #7 on -09 and -03.
+// a second local run on the same stack needs a fresh one. No pool exists while INTAFACED holds no customer money (OWNER
+// 226), so #6 and #7 read whitelists and takeovers as svc-trade holds them, empty, with the owner's batch limit as set.
 const J = 'J-copy-bots-otc-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -281,29 +281,79 @@ test(`${J} #5 suspends a lead: the state changes once, with an audit row showing
   await expect(tableIn(page, 'Audit').getByRole('row', { name: new RegExp(reason) })).toHaveCount(1);
 });
 
-test(`${J} #6 opens pooled masters and the pool whitelist: master applications, and whitelists with the batch limit`, async ({ page }) => {
+/** The founders' pooled desk, as svc-trade answers `copy.ops.pooledDesk.read` through the console. */
+const pooledOf = async (page) => (await readDesk(page)).pooled;
+
+test(`${J} #6 opens pooled masters and the pool whitelist: master applications from the master center, and whitelists with the batch limit`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  // A TEST trader applies to run a pool from the master center, in the customer app.
+  const who = await fundedTrader(page, 'pm', '100');
+  await signIn(page, who);
+  await page.goto('/copy/pools/apply');
+  const nickname = `TEST master ${state('tag')}`;
+  await page.getByRole('textbox', { name: 'Nickname' }).fill(nickname, UNBUILT);
+  await page.getByRole('textbox', { name: 'Trading style' }).fill('TEST swing trading');
+  await page.getByRole('button', { name: 'Apply to run a pool' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Application sent' })).toBeVisible();
+  const res = await (await api(who)).get('/api/trade/trpc/copy.myPoolMasterApplication');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  const mine = res.body?.result?.data;
+  expect(mine).toMatchObject({ state: 'applied', nickname, style: 'TEST swing trading' });
+  await signOutBrowser(page.context());
+
+  // The founders see it among the master applications, oldest first, as svc-trade holds them, marked from the master center.
   await openDesk(page);
-  // The tables must come from a service: pools are not built, so nothing reads master applications or whitelists.
-  expect(
-    (await readDesk(page)).pooledMasters,
-    'UNBUILT: CB-copy-pro-share-11 (master center) and CB-copy-pro-share-06 (whitelists): pooled master applications and whitelists are read from no service',
-  ).toBeDefined();
+  const pooled = await pooledOf(page);
+  const ours = pooled.masterApplications.filter((a) => a.applicationId === mine.applicationId);
+  expect(ours.map((a) => [a.key, a.nickname])).toEqual([[`pool.apply:${ours[0]?.userId}`, nickname]]);
+  const times = pooled.masterApplications.map((a) => a.appliedAt);
+  expect(times).toEqual([...times].sort());
   await page.getByRole('tab', { name: 'Pooled masters' }).click();
-  await expect(tableIn(page, 'Master applications')).toBeVisible();
+  const masters = tableIn(page, 'Master applications');
+  await expect(rowOf(masters, nickname)).toHaveCount(1);
+  await expect(rowOf(masters, nickname)).toContainText('Master center');
+  await expect(masters.getByTestId('master-applied-at')).toHaveCount(pooled.masterApplications.length);
+  expect(await masters.getByTestId('master-applied-at').evaluateAll((t) => t.map((x) => x.getAttribute('datetime')))).toEqual(times);
+
+  // Whitelists, with the owner's batch limit as svc-trade reads it: no pool exists while INTAFACED holds no customer money,
+  // so there is no whitelist row, and a blank limit says it is not set.
+  expect(pooled.pools.count).toBe(0);
+  expect(pooled.whitelists.rows).toEqual([]);
   await page.getByRole('tab', { name: 'Whitelists' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Whitelists' })).toContainText(/Batch limit/);
+  const panel = page.getByRole('tabpanel', { name: 'Whitelists' });
+  await expect(panel).toContainText('Batch limit');
+  await expect(panel).toContainText(
+    pooled.whitelists.batchLimit === null ? 'Not set by the owner' : `${pooled.whitelists.batchLimit} people per import`,
+  );
+  await expect(tableIn(panel, 'Pool whitelists')).toBeVisible();
+  await expect(panel.getByText('No whitelists: no pool exists.')).toBeVisible();
 });
 
 test(`${J} #7 opens the takeover and level views: takeovers per pool and day; levels with "Maximum ratio: not set by the platform"`, async ({
   page,
 }) => {
   await openDesk(page);
-  expect(
-    (await readDesk(page)).takeovers,
-    'UNBUILT: CB-copy-pro-share-09 (takeovers) and CB-copy-pro-share-03 (levels): takeovers per pool and day and the level ratios are read from no service',
-  ).toBeDefined();
+  const pooled = await pooledOf(page);
+  // Takeovers, one row per pool and day under `pool.takeover:<pool>:<day>`: none, as no pool exists.
+  expect(pooled.takeovers.rows).toEqual([]);
   await page.getByRole('tab', { name: 'Takeovers' }).click();
-  await expect(tableIn(page, 'Takeovers')).toBeVisible();
+  const takeovers = tableIn(page, 'Takeovers');
+  await expect(takeovers.getByRole('columnheader', { name: 'Pool' })).toBeVisible();
+  await expect(takeovers.getByRole('columnheader', { name: 'Day (UTC)' })).toBeVisible();
+  await expect(page.getByText('No takeovers: no pool exists.')).toBeVisible();
+
+  // Lead levels: this run's lead (suspended in #5) is listed with no computed level, and no maximum ratio is set.
+  expect(pooled.levels.maxRatio).toBeNull();
+  const ours = pooled.levels.rows.filter((r) => r.displayName === state('approve'));
+  expect(ours.map((r) => [r.state, r.level])).toEqual([['suspended', null]]);
   await page.getByRole('tab', { name: 'Levels' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Levels' })).toContainText('Maximum ratio: not set by the platform');
+  const panel = page.getByRole('tabpanel', { name: 'Levels' });
+  await expect(panel).toContainText('Maximum ratio: not set by the platform');
+  const row = rowOf(tableIn(panel, 'Lead levels'), state('approve'));
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText('Suspended');
+  await expect(row).toContainText('Not computed');
+  await expect(row).toContainText('Not set by the platform');
 });

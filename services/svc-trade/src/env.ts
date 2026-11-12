@@ -868,6 +868,13 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * The most people one import may add to a pooled strategy's whitelist, a whole number 1 to 1000
+       * (CB-copy-pro-share-06, J-copy-bots-otc-10 #6). Empty (default) = unset: the founders' desk says "Not set".
+       * Owner value. Never invent a limit.
+       */
+      TRADE_POOL_WHITELIST_BATCH_MAX: z.string().default(''),
+
+      /**
        * The oldest chart alert a webhook accepts, in whole seconds (1 to 3600): server time minus the alert's time
        * (CB-bots-api-signal-01, J-copy-bots-otc-20 #2). Empty (default) = unset → every alert refuses
        * `trade.signal_latency_not_set`. Owner value; never invented.

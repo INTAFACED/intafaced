@@ -27,7 +27,11 @@ import {
   type LeadApplication,
   type LeadAuditRow,
   type LeadDeskRead,
+  type LeadLevelRow,
   type LeadListing,
+  type PoolMasterApplication,
+  type PoolTakeoverRow,
+  type PoolWhitelistRow,
 } from '@/lib/trade-ops/copy-lead';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import { OutcomeNotice } from './outcome-notice';
@@ -35,8 +39,9 @@ import { OutcomeNotice } from './outcome-notice';
 /**
  * Founders vet who may lead copy trading (CB-ops-01, CB-copy-12): the applications queue oldest first, the lead
  * criteria, an approval that needs a second founder before the lead is listed, a rejection whose reason the applicant
- * reads, and suspending a listed lead, every step in the audit. Pooled masters, whitelists, takeovers and levels have
- * their views here with the honest state: none of them is built in svc-trade, and their owner values are not set.
+ * reads, and suspending a listed lead, every step in the audit. Pooled masters, whitelists, takeovers and levels are
+ * read from svc-trade (`copy.ops.pooledDesk.read`): master applications from the master center, and no pool while
+ * INTAFACED holds no customer money (OWNER 226), so no whitelist or takeover row.
  */
 
 const utc = (iso: string) => iso.replace('T', ' ').slice(0, 19);
@@ -190,6 +195,45 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
     { id: 'reason', header: 'Reason', value: (r) => r.reason },
   ];
 
+  const masterColumns: TableColumn<PoolMasterApplication>[] = [
+    {
+      id: 'at',
+      header: 'Applied (UTC)',
+      width: 170,
+      value: (r) => utc(r.appliedAt),
+      cell: (r) => (
+        <time data-testid="master-applied-at" dateTime={r.appliedAt} className="if-num text-xs">
+          {utc(r.appliedAt)}
+        </time>
+      ),
+    },
+    { id: 'name', header: 'Nickname', value: (r) => r.nickname },
+    { id: 'style', header: 'Style', value: (r) => r.style },
+    { id: 'user', header: 'Account', value: (r) => r.userId, cell: (r) => <span className="if-num text-xs">{r.userId}</span> },
+    { id: 'source', header: 'From', width: 130, value: () => 'Master center' },
+    { id: 'status', header: 'Status', width: 210, value: () => 'Applied: no pool can be created' },
+  ];
+
+  const whitelistColumns: TableColumn<PoolWhitelistRow>[] = [
+    { id: 'pool', header: 'Pool', value: (r) => r.poolId },
+    { id: 'user', header: 'Account', value: (r) => r.userId },
+    { id: 'added', header: 'Added (UTC)', width: 170, value: (r) => utc(r.addedAt) },
+  ];
+
+  const takeoverColumns: TableColumn<PoolTakeoverRow>[] = [
+    { id: 'pool', header: 'Pool', value: (r) => r.poolId },
+    { id: 'day', header: 'Day (UTC)', width: 130, value: (r) => r.day },
+    { id: 'reason', header: 'Reason', value: (r) => r.reason },
+    { id: 'at', header: 'When (UTC)', width: 170, value: (r) => utc(r.at) },
+  ];
+
+  const levelColumns: TableColumn<LeadLevelRow>[] = [
+    { id: 'name', header: 'Display name', value: (r) => r.displayName },
+    { id: 'state', header: 'State', width: 130, value: (r) => LEAD_STATE_TEXT[r.state] },
+    { id: 'level', header: 'Level', width: 150, value: (r) => r.level ?? 'Not computed' },
+    { id: 'ratio', header: 'Maximum ratio', width: 200, value: () => 'Not set by the platform' },
+  ];
+
   return (
     <div className="flex flex-col gap-4" data-room="copy-trading">
       {read.kind !== 'ok' ? <OutcomeNotice outcome={read} /> : null}
@@ -280,62 +324,94 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
 
         <TabsPanel value="pooled" className="flex flex-col gap-3 pt-4">
           <p className="text-sm text-fg-2">
-            A pooled master runs one pool that followers join. Pools are not built in svc-trade (CB-copy-pro-share-03), so no one can apply
-            to run one and nothing here can be approved.
+            A pooled master runs one pool that followers put money into. INTAFACED holds no customer money, so no pool can be created yet:
+            applications from the master center wait here, and none can be approved.
           </p>
-          <section aria-label="Master applications">
-            <Table<{ id: string }>
-              label="Master applications"
-              density="dense"
-              columns={[
-                { id: 'at', header: 'Applied (UTC)', value: () => null },
-                { id: 'name', header: 'Display name', value: () => null },
-                { id: 'pool', header: 'Pool', value: () => null },
-                { id: 'status', header: 'Status', value: () => null },
-              ]}
-              rows={[]}
-              getRowId={(r) => r.id}
-              emptyState={<p className="p-4 text-sm text-fg-2">No master applications: pools are not built.</p>}
-            />
-          </section>
+          {desk ? (
+            <section aria-label="Master applications">
+              <Table<PoolMasterApplication>
+                label="Master applications"
+                density="dense"
+                columns={masterColumns}
+                rows={desk.pooled.masterApplications}
+                getRowId={(r) => r.applicationId}
+                emptyState={<p className="p-4 text-sm text-fg-2">No master applications.</p>}
+              />
+            </section>
+          ) : null}
         </TabsPanel>
 
         <TabsPanel value="whitelists" className="flex flex-col gap-3 pt-4">
-          <KeyValue
-            density="dense"
-            items={[
-              { label: 'Batch limit', value: 'Not set by the owner.' },
-              { label: 'Whitelists', value: 'None: pool whitelists are not built (CB-copy-pro-share-06), so none can be added.' },
-            ]}
-          />
+          {desk ? (
+            <>
+              <KeyValue
+                density="dense"
+                items={[
+                  {
+                    label: 'Batch limit',
+                    value:
+                      desk.pooled.whitelists.batchLimit === null
+                        ? 'Not set by the owner: no whitelist import is accepted.'
+                        : `${desk.pooled.whitelists.batchLimit} people per import`,
+                  },
+                  { label: 'Pools', value: `${desk.pooled.pools.count}: a pool holds customer money, which INTAFACED does not.` },
+                ]}
+              />
+              <section aria-label="Pool whitelists">
+                <Table<PoolWhitelistRow>
+                  label="Pool whitelists"
+                  density="dense"
+                  columns={whitelistColumns}
+                  rows={desk.pooled.whitelists.rows}
+                  getRowId={(r) => `${r.poolId}:${r.userId}`}
+                  emptyState={<p className="p-4 text-sm text-fg-2">No whitelists: no pool exists.</p>}
+                />
+              </section>
+            </>
+          ) : null}
         </TabsPanel>
 
         <TabsPanel value="takeovers" className="flex flex-col gap-3 pt-4">
-          <p className="text-sm text-fg-2">Takeovers per pool and day, once pools exist (CB-copy-pro-share-09).</p>
-          <section aria-label="Takeovers">
-            <Table<{ id: string }>
-              label="Takeovers"
-              density="dense"
-              columns={[
-                { id: 'pool', header: 'Pool', value: () => null },
-                { id: 'day', header: 'Day (UTC)', value: () => null },
-                { id: 'count', header: 'Takeovers', value: () => null },
-              ]}
-              rows={[]}
-              getRowId={(r) => r.id}
-              emptyState={<p className="p-4 text-sm text-fg-2">No takeovers: pools are not built.</p>}
-            />
-          </section>
+          <p className="text-sm text-fg-2">One row per pool and day, under the key pool.takeover:&lt;pool&gt;:&lt;day&gt;.</p>
+          {desk ? (
+            <section aria-label="Takeovers">
+              <Table<PoolTakeoverRow>
+                label="Takeovers"
+                density="dense"
+                columns={takeoverColumns}
+                rows={desk.pooled.takeovers.rows}
+                getRowId={(r) => r.key}
+                emptyState={<p className="p-4 text-sm text-fg-2">No takeovers: no pool exists.</p>}
+              />
+            </section>
+          ) : null}
         </TabsPanel>
 
         <TabsPanel value="levels" className="flex flex-col gap-3 pt-4">
-          <KeyValue
-            density="dense"
-            items={[
-              { label: 'Levels', value: 'None: lead levels are not built (CB-copy-pro-share-11).' },
-              { label: 'Ratio', value: 'Maximum ratio: not set by the platform.' },
-            ]}
-          />
+          {desk ? (
+            <>
+              <KeyValue
+                density="dense"
+                items={[
+                  {
+                    label: 'Ratio',
+                    value: desk.pooled.levels.maxRatio === null ? 'Maximum ratio: not set by the platform' : desk.pooled.levels.maxRatio,
+                  },
+                  { label: 'Measured by the platform', value: "No: a lead's record is self-reported, so no level is computed." },
+                ]}
+              />
+              <section aria-label="Lead levels">
+                <Table<LeadLevelRow>
+                  label="Lead levels"
+                  density="dense"
+                  columns={levelColumns}
+                  rows={desk.pooled.levels.rows}
+                  getRowId={(r) => r.leaderRef}
+                  emptyState={<p className="p-4 text-sm text-fg-2">No leads.</p>}
+                />
+              </section>
+            </>
+          ) : null}
         </TabsPanel>
       </Tabs>
 

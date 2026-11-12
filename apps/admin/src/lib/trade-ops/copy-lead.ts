@@ -48,10 +48,51 @@ export interface LeadQueue {
   readonly criteria: LeadCriteria | null;
 }
 
+/** A customer's application, from the master center, to run a pooled strategy (`copy.ops.pooledDesk.read`). */
+export interface PoolMasterApplication {
+  readonly applicationId: string;
+  readonly key: string;
+  readonly userId: string;
+  readonly nickname: string;
+  readonly style: string;
+  readonly appliedAt: string;
+}
+
+export interface PoolWhitelistRow {
+  readonly poolId: string;
+  readonly userId: string;
+  readonly addedAt: string;
+}
+
+/** One pool's takeover on one day, under `pool.takeover:<poolId>:<day>`. */
+export interface PoolTakeoverRow {
+  readonly key: string;
+  readonly poolId: string;
+  readonly day: string;
+  readonly reason: string;
+  readonly at: string;
+}
+
+export interface LeadLevelRow {
+  readonly leaderRef: string;
+  readonly displayName: string;
+  readonly state: LeadListingState;
+  readonly level: string | null;
+}
+
+export interface PooledDesk {
+  readonly pools: { readonly count: number; readonly reason: string };
+  readonly masterApplications: readonly PoolMasterApplication[];
+  readonly whitelists: { readonly batchLimit: number | null; readonly rows: readonly PoolWhitelistRow[] };
+  readonly takeovers: { readonly rows: readonly PoolTakeoverRow[] };
+  readonly levels: { readonly maxRatio: string | null; readonly rows: readonly LeadLevelRow[] };
+}
+
 export interface LeadDeskRead {
   readonly queue: LeadQueue;
   readonly leads: readonly LeadListing[];
   readonly audit: readonly LeadAuditRow[];
+  readonly pooled: PooledDesk;
 }
 
 export const LEAD_STATUS_TEXT: Record<LeadApplicationStatus, string> = {
@@ -138,6 +179,58 @@ export function parseAuditRow(raw: unknown): LeadAuditRow | null {
 }
 
 export const parseAudit = (raw: unknown) => all(raw, parseAuditRow);
+
+function parseMasterApplication(raw: unknown): PoolMasterApplication | null {
+  const r = obj(raw);
+  if (!r || !str(r.applicationId) || !str(r.key) || !str(r.userId) || !str(r.nickname) || !str(r.style) || !str(r.appliedAt)) return null;
+  return { applicationId: r.applicationId, key: r.key, userId: r.userId, nickname: r.nickname, style: r.style, appliedAt: r.appliedAt };
+}
+
+function parseWhitelistRow(raw: unknown): PoolWhitelistRow | null {
+  const r = obj(raw);
+  if (!r || !str(r.poolId) || !str(r.userId) || !str(r.addedAt)) return null;
+  return { poolId: r.poolId, userId: r.userId, addedAt: r.addedAt };
+}
+
+function parseTakeoverRow(raw: unknown): PoolTakeoverRow | null {
+  const r = obj(raw);
+  if (!r || !str(r.key) || !str(r.poolId) || !str(r.day) || !str(r.reason) || !str(r.at)) return null;
+  if (r.key !== `pool.takeover:${r.poolId}:${r.day}`) return null;
+  return { key: r.key, poolId: r.poolId, day: r.day, reason: r.reason, at: r.at };
+}
+
+function parseLevelRow(raw: unknown): LeadLevelRow | null {
+  const r = obj(raw);
+  if (!r || !str(r.leaderRef) || !str(r.displayName) || !strOrNull(r.level)) return null;
+  if (!str(r.state) || !STATES.includes(r.state)) return null;
+  return { leaderRef: r.leaderRef, displayName: r.displayName, state: r.state as LeadListingState, level: r.level };
+}
+
+/** svc-trade's pooled desk; any field of another shape refuses the whole read. */
+export function parsePooledDesk(raw: unknown): PooledDesk | null {
+  const r = obj(raw);
+  const pools = obj(r?.pools);
+  const whitelists = obj(r?.whitelists);
+  const takeovers = obj(r?.takeovers);
+  const levels = obj(r?.levels);
+  if (!r || !pools || !whitelists || !takeovers || !levels) return null;
+  if (!Number.isInteger(pools.count) || !str(pools.reason)) return null;
+  const batchLimit = whitelists.batchLimit;
+  if (batchLimit !== null && !(Number.isInteger(batchLimit) && (batchLimit as number) > 0)) return null;
+  if (!strOrNull(levels.maxRatio)) return null;
+  const masterApplications = all(r.masterApplications, parseMasterApplication);
+  const whitelistRows = all(whitelists.rows, parseWhitelistRow);
+  const takeoverRows = all(takeovers.rows, parseTakeoverRow);
+  const levelRows = all(levels.rows, parseLevelRow);
+  if (!masterApplications || !whitelistRows || !takeoverRows || !levelRows) return null;
+  return {
+    pools: { count: pools.count as number, reason: pools.reason },
+    masterApplications,
+    whitelists: { batchLimit: batchLimit as number | null, rows: whitelistRows },
+    takeovers: { rows: takeoverRows },
+    levels: { maxRatio: levels.maxRatio, rows: levelRows },
+  };
+}
 
 /** The criteria as a founder types them: a whole number of days, 0 to 3650. Anything else is refused, not rounded. */
 export function checkDays(value: unknown): { ok: true; days: number } | { ok: false; message: string } {

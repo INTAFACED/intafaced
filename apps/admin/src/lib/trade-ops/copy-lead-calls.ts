@@ -7,6 +7,7 @@ import {
   parseAudit,
   parseCriteria,
   parseListings,
+  parsePooledDesk,
   parseQueue,
   type LeadApplication,
   type LeadCriteria,
@@ -33,15 +34,17 @@ const leadDesk = <T>(ctx: TradeCtx, proc: string, kind: 'query' | 'mutation', in
 
 /** The queue, the leads and the audit, read together; any one refused refuses the read. */
 export async function readLeadDesk(ctx: TradeCtx): Promise<Outcome<LeadDeskRead>> {
-  const [queue, leads, audit] = await Promise.all([
+  const [queue, leads, audit, pooled] = await Promise.all([
     leadDesk(ctx, 'queue', 'query', {}, parseQueue),
     leadDesk(ctx, 'leads', 'query', {}, parseListings),
     leadDesk(ctx, 'audit', 'query', {}, parseAudit),
+    edgeCall(ctx, trpcSpec('trade', 'copy.ops.pooledDesk.read', 'query', {}, parsePooledDesk)).then(coded),
   ]);
   if (queue.kind !== 'ok') return queue;
   if (leads.kind !== 'ok') return leads;
   if (audit.kind !== 'ok') return audit;
-  return ok({ queue: queue.data, leads: leads.data, audit: audit.data }, queue.asOf);
+  if (pooled.kind !== 'ok') return pooled;
+  return ok({ queue: queue.data, leads: leads.data, audit: audit.data, pooled: pooled.data }, queue.asOf);
 }
 
 export function setLeadCriteria(
