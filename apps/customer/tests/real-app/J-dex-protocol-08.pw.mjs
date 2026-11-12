@@ -351,10 +351,12 @@ test(`${J} #4 opens sub-accounts and a multi-signature account: the sub-account 
     functionName: 'getAddress',
     args: [owner, DEFAULT_SALT],
   });
-  await expect(accounts.nth(0)).toContainText('This wallet');
-  await expect(accounts.nth(0)).toContainText(owner);
-  await expect(accounts.nth(1)).toContainText('Smart account');
-  await expect(accounts.nth(1)).toContainText(smart);
+  // Addresses are compared without regard to letter case (the wallet reports its address in lower case).
+  const exactly = (address) => new RegExp(`^${address}$`, 'i');
+  await expect(accounts.nth(0).getByRole('cell').nth(0)).toHaveText('This wallet');
+  await expect(accounts.nth(0).getByRole('cell').nth(1)).toHaveText(exactly(owner));
+  await expect(accounts.nth(1).getByRole('cell').nth(0)).toHaveText('Smart account');
+  await expect(accounts.nth(1).getByRole('cell').nth(1)).toHaveText(exactly(smart));
   await expect(accounts.nth(1).getByRole('cell').nth(2)).toHaveText('Deployed');
   // The wallet's sub-accounts on the venue: exactly the venue's own list, each by its name and address, the venue named
   // with its TEST label, and the venue's as-of time.
