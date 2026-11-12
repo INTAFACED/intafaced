@@ -153,8 +153,8 @@
     },
     "BANK_PAYIN_SIM_JSON": {
       "service": "bank",
-      "value": "{\"label\": \"TEST pay-in stand-in for the local stack: not a partner, takes no money\", \"methods\": [\"pay_by_bank\", \"card\"]}",
-      "note": "The add-money pay-in stand-in's catalogue: it opens a TEST payment page for pay by bank and card, where the payer approves and is sent back. It takes no money: saying paid is its signed job call, which only a test makes, and the credit arrives from its own TEST rail boundary through the deposit recipe. Loaded only with BANK_ONRAMP_PARTNER=payin-sim."
+      "value": "{\"label\": \"TEST pay-in stand-in for the local stack: not a partner, takes no money\", \"methods\": [\"pay_by_bank\", \"card\"], \"bankTransfer\": {\"accountName\": \"TEST pay-in stand-in account\", \"accountRef\": \"NL91ABNA0417164300\"}}",
+      "note": "The add-money pay-in stand-in's catalogue: it opens a TEST payment page for pay by bank and card, where the payer approves and is sent back, and answers a bank transfer with its own TEST reference and a TEST account to pay to (the standard example IBAN, no one's account; J-bank-02 #2). Saying a credited payment was sent back is its signed job call too (J-bank-02 #7). It takes no money: saying paid is its signed job call, which only a test makes, and the credit arrives from its own TEST rail boundary through the deposit recipe. Loaded only with BANK_ONRAMP_PARTNER=payin-sim."
     },
     "BANK_PAYOUT_SIM_JSON": {
       "service": "bank",
