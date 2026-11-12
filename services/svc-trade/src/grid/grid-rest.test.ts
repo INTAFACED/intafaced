@@ -201,6 +201,30 @@ describe('the grid bot public API (J-copy-bots-otc-19 #1, #4)', () => {
     expect(calls).toEqual([]);
   });
 
+  it('carries the refusal data the web carries: what the balance leaves free for a new bot', async () => {
+    const { grid } = fakeGrid({
+      create: async () => {
+        throw new GridError('Investment 300 USDT is more than the 1.5 USDT free', 'trade.grid_reserve_exceeds_balance', {
+          asset: 'USDT',
+          free: '1.5',
+        });
+      },
+    });
+    await mount(grid);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/bots/grid',
+      payload: { clientId: 'grid-req-0005', symbol: 'BTC/USDT', lowerPrice: '90', upperPrice: '110', grids: 10, investment: '300' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      code: 'BadRequest',
+      message: 'Investment 300 USDT is more than the 1.5 USDT free',
+      intafacedCode: 'trade.grid_reserve_exceeds_balance',
+      data: { asset: 'USDT', free: '1.5' },
+    });
+  });
+
   it('with no grid service mounted every door answers 503 trade.grid_unavailable', async () => {
     await mount(undefined);
     const res = await app.inject({ method: 'GET', url: '/api/v1/bots/grid' });
