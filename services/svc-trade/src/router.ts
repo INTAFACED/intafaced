@@ -49,6 +49,8 @@ import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from '
 import type { LeadDesk } from './copy/lead-applications.js';
 import { signalsRouter } from './signals/router.js';
 import type { SignalDesk } from './signals/signal-desk.js';
+import type { VenueCopy } from './copy/venue-copy.js';
+import { encodeVenueWire } from '@intafaced/venue-contracts';
 import type { PlatformPauseDesk } from './copy/platform-pauses.js';
 import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
@@ -601,9 +603,15 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_leader_capacity_full':
       case 'trade.copy_tier_unset':
       case 'trade.copy_reserve_exceeds_balance':
+      case 'trade.copy_venue_balance_short':
+      case 'trade.copy_venue_off':
+      case 'trade.copy_agent_key_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      case 'trade.copy_venue_follow_abandoned':
+      case 'trade.copy_venue_signed':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
     }
@@ -888,6 +896,36 @@ async function placeAttributedOrder(
   }
 }
 
+/** The Start copying request, as copy.follow takes it (also copy.venue.start). */
+const VENUE_FOLLOW_INPUT = z.object({
+  leaderId: z.string().min(1).max(120).optional(),
+  leaderRef: z.string().min(1).max(80).optional(),
+  region: z.string().min(1).max(16),
+  permittedMarkets: z.array(z.string().min(1).max(64)).min(1).max(64),
+  maxNotionalPerOrder: decimal,
+  maxAggregateExposure: decimal,
+  maxLoss: decimal.optional(),
+  maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+  maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+  maxDrawdown: decimal.optional(),
+  maxLeverage: z.union([z.string(), z.number()]).optional(),
+  expiresAt: z.string().datetime(),
+  /** The request's own key: a second press with the same key returns the same follow. */
+  clientRequestId: z.string().min(8).max(120),
+  /** Quote amount each copied order uses. Omitted means no fixed size. */
+  fixedOrderSize: decimal.optional(),
+  leaderSettings: z
+    .object({
+      maxAllocation: decimal.optional(),
+      permittedInstruments: z.array(z.string().min(1).max(64)).max(64).optional(),
+      maxLoss: decimal.optional(),
+      maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+      maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+      maxDrawdown: decimal.optional(),
+    })
+    .optional(),
+});
+
 export function createTradeRouter(
   trade: TradeService,
   otc?: OtcDeskService,
@@ -902,6 +940,7 @@ export function createTradeRouter(
   builderFees?: BuilderFeeReconReader,
   venueActivity?: OwnVenueActivityDeps,
   signals?: SignalDesk,
+  venueCopy?: VenueCopy,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -943,6 +982,10 @@ export function createTradeRouter(
       }
       throw toTrpcError(err);
     }
+  };
+  const venueCopyOrRefuse = (): VenueCopy => {
+    if (!copy || !venueCopy) throw new CopyError('Copy trading on your own venue account is not switched on here', 'trade.copy_venue_off');
+    return venueCopy;
   };
   const pauseScope = z.object({ kind: z.enum(['lead', 'bot_type', 'symbol']), value: z.string().trim().min(1).max(80) }).strict();
   return router({
@@ -1719,6 +1762,54 @@ export function createTradeRouter(
             return copy.startFollow(ctx.principal, input);
           }),
         ),
+
+      /**
+       * Copy trading on the person's own venue account (J-copy-bots-otc-01 #7 #8; copy/venue-copy.ts). Mounted only with
+       * the user-venue door on; off, every route refuses `trade.copy_venue_off` and the custodial follow above stands.
+       */
+      venue: router({
+        start: scopedProcedure('trade:write', { module: 'trade' })
+          .input(VENUE_FOLLOW_INPUT.extend({ owner: z.string().min(1).max(64) }))
+          .mutation(({ ctx, input }) => guard(async () => encodeVenueWire(await venueCopyOrRefuse().start(ctx.principal, input)))),
+        status: scopedProcedure('trade:read', { module: 'trade' })
+          .input(z.object({ followId: z.string().uuid() }))
+          .query(({ ctx, input }) => guard(async () => encodeVenueWire(await venueCopyOrRefuse().status(ctx.principal, input.followId)))),
+        submit: scopedProcedure('trade:write', { module: 'trade' })
+          .input(
+            z.object({
+              followId: z.string().uuid(),
+              actionKey: z.string().min(1).max(200),
+              signature: z.object({
+                digest: z.string().min(1).max(200),
+                signature: z.string().min(1).max(400),
+                signedBy: z.string().min(1).max(64),
+              }),
+            }),
+          )
+          .mutation(({ ctx, input }) =>
+            guard(async () =>
+              encodeVenueWire(await venueCopyOrRefuse().submit(ctx.principal, input.followId, input.actionKey, input.signature)),
+            ),
+          ),
+        abandon: scopedProcedure('trade:write', { module: 'trade' })
+          .input(z.object({ followId: z.string().uuid() }))
+          .mutation(({ ctx, input }) =>
+            guard(async () => encodeVenueWire(await venueCopyOrRefuse().abandon(ctx.principal, input.followId))),
+          ),
+        copiedOrders: scopedProcedure('trade:read', { module: 'trade' })
+          .input(z.object({ followId: z.string().uuid() }))
+          .query(({ ctx, input }) =>
+            guard(async () => {
+              const v = venueCopyOrRefuse();
+              const mirrors = await copy!.placedMirrors(ctx.principal, input.followId);
+              return encodeVenueWire(await v.copiedOrders(ctx.principal, input.followId, mirrors));
+            }),
+          ),
+        /** The operator who lists a lead names the venue account the lead trades on. */
+        setLeadAccount: scopedProcedure('admin:write', { module: 'trade' })
+          .input(z.object({ leaderRef: z.string().min(1).max(80), owner: z.string().min(1).max(64) }))
+          .mutation(({ ctx, input }) => guard(async () => encodeVenueWire(await venueCopyOrRefuse().setLeadAccount(ctx.principal, input)))),
+      }),
 
       unfollow: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))

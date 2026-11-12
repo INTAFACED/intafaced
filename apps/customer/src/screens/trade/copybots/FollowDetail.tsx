@@ -26,6 +26,7 @@ import {
 } from '@intafaced/ui';
 import { StepUpConfirm } from '../../../features/money/StepUpConfirm';
 import { CopiedPositions, SkippedCopies } from './FollowCopies';
+import { VenueCopiedFills, VenueCopiedOrders } from './VenueCopies';
 import { displayAmount } from '../../../shared/money';
 import type { z } from 'zod';
 import type { copyFollowSchema } from '../../../features/trade/tool-api';
@@ -41,7 +42,7 @@ type CopiesTab = 'orders' | 'positions' | 'skipped';
 
 /** The asset the follow's limits are counted in: the shared quote asset of its markets, or '' when they differ. */
 export function quoteAsset(follow: Follow): string {
-  const quotes = new Set(follow.permittedMarkets.map((m) => m.split('/')[1] ?? ''));
+  const quotes = new Set(follow.permittedMarkets.map((m) => m.split(/[/-]/)[1] ?? ''));
   return quotes.size === 1 ? [...quotes][0]! : '';
 }
 const withAsset = (amount: string, asset: string) => (asset ? `${displayAmount(amount)} ${asset}` : displayAmount(amount));
@@ -288,12 +289,15 @@ export function FollowDetail({
   api,
   guard,
   onChanged,
+  venue = false,
 }: {
   follow: Follow | null;
   onClose: () => void;
   api: RoomApi;
   guard: WriteGuard;
   onChanged: () => void;
+  /** Venue mode: the copies are the person's own venue orders, read from the venue (J-copy-bots-otc-01 #8). */
+  venue?: boolean;
 }) {
   const { t } = roomCopy.useCopy();
   const [tab, setTab] = useState<CopiesTab>('orders');
@@ -364,9 +368,23 @@ export function FollowDetail({
                 <TabsTab value="positions">{t('Positions')}</TabsTab>
                 <TabsTab value="skipped">{t('Skipped')}</TabsTab>
               </TabsList>
-              <TabsPanel value="orders">{tab === 'orders' ? <CopiedOrders follow={follow} api={api} /> : null}</TabsPanel>
+              <TabsPanel value="orders">
+                {tab === 'orders' ? (
+                  venue ? (
+                    <VenueCopiedOrders follow={follow} api={api} />
+                  ) : (
+                    <CopiedOrders follow={follow} api={api} />
+                  )
+                ) : null}
+              </TabsPanel>
               <TabsPanel value="positions">
-                {tab === 'positions' ? <CopiedPositions follow={follow} api={api} guard={guard} /> : null}
+                {tab === 'positions' ? (
+                  venue ? (
+                    <VenueCopiedFills follow={follow} api={api} />
+                  ) : (
+                    <CopiedPositions follow={follow} api={api} guard={guard} />
+                  )
+                ) : null}
               </TabsPanel>
               <TabsPanel value="skipped">{tab === 'skipped' ? <SkippedCopies follow={follow} api={api} /> : null}</TabsPanel>
             </Tabs>

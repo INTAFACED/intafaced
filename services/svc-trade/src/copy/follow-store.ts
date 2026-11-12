@@ -341,6 +341,8 @@ export interface CopyFollowStore {
   runPlaceMirrorOnce(followId: string, fillId: string, run: () => Promise<StoredPlacedMirror>): Promise<RunPlaceMirrorOnceResult>;
   /** The copy already placed for this leader fill under this follow, or null. */
   getPlacedMirror(followId: string, fillId: string): Promise<StoredPlacedMirror | null>;
+  /** The copies placed under this follow, newest first, at most `limit`. */
+  listPlacedMirrors(followId: string, limit: number): Promise<StoredPlacedMirror[]>;
 }
 
 /**
@@ -745,6 +747,13 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
 
   async getPlacedMirror(followId: string, fillId: string): Promise<StoredPlacedMirror | null> {
     return this.placed.get(mirrorKey(followId, canonicalizeCopyFillId(fillId))) ?? null;
+  }
+
+  async listPlacedMirrors(followId: string, limit: number): Promise<StoredPlacedMirror[]> {
+    return [...this.placed.values()]
+      .filter((p) => p.followId === followId)
+      .reverse()
+      .slice(0, limit);
   }
 }
 
@@ -1656,6 +1665,17 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     `;
     const row = rows[0];
     return row ? rowToPlacedMirror(row) : null;
+  }
+
+  async listPlacedMirrors(followId: string, limit: number): Promise<StoredPlacedMirror[]> {
+    const rows = await this.sql<PlacedMirrorRow[]>`
+      SELECT follow_id, fill_id, order_id, client_order_id, price::text
+        FROM copy_placed_mirrors
+       WHERE follow_id = ${followId}
+       ORDER BY created_at DESC, fill_id DESC
+       LIMIT ${limit}
+    `;
+    return rows.map(rowToPlacedMirror);
   }
 
   async runPlaceMirrorOnce(followId: string, fillId: string, run: () => Promise<StoredPlacedMirror>): Promise<RunPlaceMirrorOnceResult> {

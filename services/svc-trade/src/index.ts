@@ -225,6 +225,7 @@ import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/f
 import { parseCopyMetricDefinitionsJson } from './copy/leader-profile.js';
 import { parseCopyMinTier } from './copy/follow-gate.js';
 import { CopyService } from './copy/copy-service.js';
+import { SqlVenueCopyStore, VenueCopy } from './copy/venue-copy.js';
 import { freeSpotBalance } from './copy/follow-gate.js';
 import { GridService } from './grid/grid-service.js';
 import { loadGridPolicy } from './grid/policy.js';
@@ -615,6 +616,13 @@ const platformPauses = new PlatformPauseDesk({
 });
 const readPlatformPauses = () => platformPauses.snapshot();
 trade.bindPlatformPauses(readPlatformPauses);
+// Copy trading on the follower's own venue account (J-copy-bots-otc-01 #7 #8; copy/venue-copy.ts), on with the door: a
+// follow started on the venue, and a lead whose venue account the operator named, go through the venue; every other
+// follow and lead keeps the TEST book's path below. Bound once the copy service exists (the ports below call it late).
+const venueCopyStore = new SqlVenueCopyStore(sql);
+let venueCopy: VenueCopy | null = null;
+const venueFollow = async (followId: string | undefined) =>
+  venueCopy && followId ? (await venueCopyStore.find(followId))?.status === 'active' : false;
 const copy = new CopyService(ledger, {
   stepUp,
   platformPauses: readPlatformPauses,
@@ -627,7 +635,8 @@ const copy = new CopyService(ledger, {
   minTier: copyMinTier,
   store: copyStore,
   directory: leaderDirectory,
-  placeFollowerOrder,
+  placeFollowerOrder: async (principal, input) =>
+    (await venueFollow(input.followId)) ? venueCopy!.placeFollowerOrder(principal, input) : placeFollowerOrder(principal, input),
   flattenCopyPosition: createFollowerFlattenPort({
     sql,
     ledger,
@@ -645,12 +654,15 @@ const copy = new CopyService(ledger, {
     bestBid: copyBestBid,
   }),
   inspectMarket: async (symbol) => {
+    const onVenue = venueCopy ? await venueCopy.inspectMarket(symbol).catch(() => null) : null;
+    if (onVenue) return onVenue;
     const market = await trade.marketBySymbol(symbol);
     return market ? { paper: market.paper, lotSize: market.lotSize } : null;
   },
   // The copy driver's read: the leader's own live spot fills after the follow began, oldest first.
   // Fill times are compared at millisecond precision, the precision the cursor keeps, so a fill is never read twice.
   listLeaderFillsSince: async (leaderId, after, limit) => {
+    if (venueCopy && (await venueCopyStore.lead(leaderId))) return venueCopy.listLeaderFillsSince(leaderId, after, limit);
     const rows = await sql<Array<{ id: string; symbol: string; created_at: Date }>>`
       SELECT f.id, m.symbol, f.created_at
         FROM trade.fills f
@@ -684,6 +696,7 @@ const copy = new CopyService(ledger, {
     return { marketId, price: (bid + ask) / 2n, asOf: new Date(), quality: 'mid' as const };
   },
   lookupLeaderFill: async (fillId) => {
+    if (venueCopy && fillId.startsWith('venue:')) return venueCopy.lookupLeaderFill(fillId);
     const id = canonicalizeCopyFillId(fillId);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
       return null;
@@ -711,6 +724,9 @@ const copy = new CopyService(ledger, {
   },
 });
 trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
+venueCopy = userVenue
+  ? new VenueCopy({ copy, door: userVenue, store: venueCopyStore, keySeed: agentAccountValues.keySeed, now: () => new Date() })
+  : null;
 // The spot grid bot (CB-bots-02, -05, -10): its reserve and level rows are svc-trade's own; its orders go through the
 // trade service's place path as delegated children of the bot's admitted start.
 const grid = new GridService({
@@ -817,6 +833,7 @@ export const appRouter = createTradeRouter(
   // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
+  venueCopy ?? undefined,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

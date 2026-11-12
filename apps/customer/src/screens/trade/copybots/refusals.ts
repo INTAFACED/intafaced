@@ -28,6 +28,34 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading isn’t available right now',
     body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
   },
+  'trade.copy_venue_balance_short': {
+    title: 'More than your free balance on the venue',
+    body: 'The most in total is more than the free balance the venue reports for your account. Nothing was followed and no money moved.',
+  },
+  'trade.copy_venue_wallet_rejected': {
+    title: 'Your wallet did not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed.',
+  },
+  'trade.copy_venue_wallet_failed': {
+    title: 'Your wallet could not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed. Try again.',
+  },
+  'trade.copy_venue_permission_pending': {
+    title: 'The venue has not listed the permission yet',
+    body: 'Your signature was sent. The follow starts once the venue lists the permission; open My follows in a moment.',
+  },
+  'trade.copy_venue_follow_abandoned': {
+    title: 'This request has ended',
+    body: 'The wallet did not sign it. Start again to follow this leader.',
+  },
+  'trade.copy_venue_off': {
+    title: 'Copy trading on your venue account isn’t on here',
+    body: 'Nothing was followed and no money moved.',
+  },
+  'trade.copy_agent_key_unset': {
+    title: 'Copy permissions aren’t set up',
+    body: 'The platform has not set up copy permissions yet. Nothing was followed and no money moved.',
+  },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },
   'trade.copy_not_following': { title: 'You don’t follow that leader', body: 'Check My follows and try again.' },

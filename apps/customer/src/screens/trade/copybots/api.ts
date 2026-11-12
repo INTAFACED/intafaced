@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { decimalSchema, signedDecimalSchema } from '../../../shared/money';
 import type { ApiClient } from '../../../shared/api';
 import { algoSchema, copyFollowSchema, createToolApi } from '../../../features/trade/tool-api';
+import { preparedAnswerSchema, venueFillSchema, venueOrderSchema } from '../../../features/trade/venue-api';
 
 export const copyDeskSchema = z.object({
   feeSharePublished: z.boolean(),
@@ -274,6 +275,38 @@ export type TwapRequest = {
   participationBps?: number;
 };
 
+// ── copy on the person's own venue account (J-copy-bots-otc-01 #7 #8; svc-trade copy/venue-copy.ts) ──────────────
+export const venueFollowSchema = z.object({
+  followId: z.string(),
+  status: z.enum(['signing', 'active', 'abandoned']),
+  venueId: z.string(),
+  venueName: z.string(),
+  owner: z.string(),
+  agentAddress: z.string(),
+  asset: z.string(),
+  cap: z.string(),
+  permissionOnVenue: z.boolean(),
+  next: z
+    .object({ actionKey: z.string(), step: z.literal('approve_agent'), prepared: preparedAnswerSchema.shape.prepared, signed: z.boolean() })
+    .nullable(),
+  refusal: z.object({ code: z.string(), detail: z.string() }).passthrough().nullable(),
+  follow: copyFollowSchema.nullable(),
+  test: z.boolean(),
+});
+export type VenueFollow = z.infer<typeof venueFollowSchema>;
+export const venueCopiedOrderSchema = z.object({
+  leaderFillId: z.string(),
+  actionKey: z.string(),
+  venueClientOrderId: z.string().nullable(),
+  state: z.enum(['accepted', 'unknown', 'refused', 'not_sent']),
+  order: venueOrderSchema.nullable(),
+  fills: z.array(venueFillSchema),
+  signedBy: z.string(),
+  asOf: z.string().nullable(),
+});
+export type VenueCopiedOrder = z.infer<typeof venueCopiedOrderSchema>;
+const venueCopiedOrdersSchema = z.object({ venueName: z.string(), test: z.boolean(), orders: z.array(venueCopiedOrderSchema) });
+
 export function createRoomApi(api: ApiClient) {
   const tools = createToolApi(api);
   return {
@@ -302,6 +335,13 @@ export function createRoomApi(api: ApiClient) {
       }),
     follows: tools.copyFollows,
     follow: (input: FollowRequest) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
+    /** Start copying on the person's own venue account: the wallet is then asked to sign the follow's permission. */
+    venueFollow: (input: FollowRequest & { owner: string }) => api.mutate('trade', 'copy.venue.start', input, venueFollowSchema),
+    venueFollowSubmit: (followId: string, actionKey: string, signature: { digest: string; signature: string; signedBy: string }) =>
+      api.mutate('trade', 'copy.venue.submit', { followId, actionKey, signature }, venueFollowSchema),
+    venueFollowAbandon: (followId: string) => api.mutate('trade', 'copy.venue.abandon', { followId }, venueFollowSchema),
+    venueCopiedOrders: (followId: string, signal?: AbortSignal) =>
+      api.query('trade', 'copy.venue.copiedOrders', { followId }, venueCopiedOrdersSchema, { signal }),
     followAction: tools.copyAction,
     /** Lets the service place each copy as this person. The one-time key it answers with is never kept. */
     grantCopying: (followId: string) => api.mutate('trade', 'copy.grantSessionKey', { followId }, copyFollowSchema),

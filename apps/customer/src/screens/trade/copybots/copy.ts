@@ -14,6 +14,7 @@ const messages = {
   'A copy appears here when the leader trades and automatic copying is on.':
     'A copy appears here when the leader trades and automatic copying is on.',
   'A country list is published': 'A country list is published',
+  'A fill appears here when a copy fills on the venue.': 'A fill appears here when a copy fills on the venue.',
   'A position appears here when a copied buy fills.': 'A position appears here when a copied buy fills.',
   'A position you copied is sold only when you close it, when you choose Close copied positions, or after a stop when the leader closes that trade.':
     'A position you copied is sold only when you close it, when you choose Close copied positions, or after a stop when the leader closes that trade.',
@@ -26,6 +27,8 @@ const messages = {
   Address: 'Address',
   'After this time no new trades are copied.': 'After this time no new trades are copied.',
   'All copied orders together can never go past this.': 'All copied orders together can never go past this.',
+  'All copied orders together can never go past this. It is a limit: nothing is set aside or moved.':
+    'All copied orders together can never go past this. It is a limit: nothing is set aside or moved.',
   'All leaders': 'All leaders',
   'All-in before you start': 'All-in before you start',
   Amount: 'Amount',
@@ -34,6 +37,7 @@ const messages = {
     'An alert sends JSON with your token, an alert id, the time it fired, a side (buy or sell), an amount and the worst price you accept.',
   'An amount, a schedule, and a recurring-order service': 'An amount, a schedule, and a recurring-order service',
   'An earlier request has no confirmed result': 'An earlier request has no confirmed result',
+  'As the venue reports it, as of {time}': 'As the venue reports it, as of {time}',
   Asset: 'Asset',
   'At the last price {price}': 'At the last price {price}',
   'At your price limit': 'At your price limit',
@@ -98,7 +102,9 @@ const messages = {
     'Confirm it’s you to close your copied positions and leave this leader.',
   'Confirm it’s you to withdraw {amount} {asset}.': 'Confirm it’s you to withdraw {amount} {asset}.',
   'Confirmation ID': 'Confirmation ID',
+  'Connect your wallet first': 'Connect your wallet first',
   Continue: 'Continue',
+  'Copied fills': 'Copied fills',
   'Copied orders': 'Copied orders',
   'Copied positions': 'Copied positions',
   Copiers: 'Copiers',
@@ -129,8 +135,12 @@ const messages = {
     'Each alert prepares one order on the venue. Nothing is sent until your wallet signs it: INTAFACED holds no key that can sign for you.',
   'Each copied order uses this much, never more than the most per order.':
     'Each copied order uses this much, never more than the most per order.',
+  'Each copy is your own order on {venue}, placed by this follow’s permission, as {venue} reports it.':
+    'Each copy is your own order on {venue}, placed by this follow’s permission, as {venue} reports it.',
   'Each new trade the leader makes is copied for you, within your limits.':
     'Each new trade the leader makes is copied for you, within your limits.',
+  'Each new trade the leader makes is then placed on your venue account, within these limits, until you turn copying off or the permission ends.':
+    'Each new trade the leader makes is then placed on your venue account, within these limits, until you turn copying off or the permission ends.',
   'Each slice': 'Each slice',
   'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)':
     'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)',
@@ -161,6 +171,7 @@ const messages = {
   'Figures are shown as the leader published them, not ranked or scored.':
     'Figures are shown as the leader published them, not ranked or scored.',
   Filled: 'Filled',
+  'Filled at': 'Filled at',
   'Filled so far': 'Filled so far',
   'Find a leader': 'Find a leader',
   Finished: 'Finished',
@@ -172,6 +183,7 @@ const messages = {
   'Follow of {leader}': 'Follow of {leader}',
   'Follow {name}': 'Follow {name}',
   'Free {asset} now': 'Free {asset} now',
+  'Free {asset} on your venue account': 'Free {asset} on your venue account',
   'From the trading fee, never from your profit': 'From the trading fee, never from your profit',
   'Funds are held': 'Funds are held',
   Futures: 'Futures',
@@ -210,6 +222,7 @@ const messages = {
   'Leaders are listed in the order they joined, never ranked by profit. A return is shown as the leader published it.':
     'Leaders are listed in the order they joined, never ranked by profit. A return is shown as the leader published it.',
   'Leaders are not ranked by profit': 'Leaders are not ranked by profit',
+  'Leaders are paid a share of our fee only, never of your profit.': 'Leaders are paid a share of our fee only, never of your profit.',
   'Leader’s share': 'Leader’s share',
   'Leader’s share of the fee': 'Leader’s share of the fee',
   'Leave leader': 'Leave leader',
@@ -270,6 +283,7 @@ const messages = {
     'No bot exists with that request, so it did not go through. You can set it up again.',
   'No bot type has that address.': 'No bot type has that address.',
   'No bots': 'No bots',
+  'No copied fills': 'No copied fills',
   'No copied orders': 'No copied orders',
   'No copied positions': 'No copied positions',
   'No follow exists for that leader, so the request did not go through.':
@@ -296,9 +310,12 @@ const messages = {
   'Not available: {reason}': 'Not available: {reason}',
   'Not built': 'Not built',
   'Not built: a strategy cannot trade real money': 'Not built: a strategy cannot trade real money',
+  'Not connected': 'Not connected',
   'Not granted': 'Not granted',
+  'Not known': 'Not known',
   'Not now': 'Not now',
   'Not published': 'Not published',
+  'Not sent': 'Not sent',
   'Not set': 'Not set',
   'Not set by the platform': 'Not set by the platform',
   'Not set: the bot has run less than a day': 'Not set: the bot has run less than a day',
@@ -308,6 +325,7 @@ const messages = {
   Off: 'Off',
   Older: 'Older',
   On: 'On',
+  'On the venue': 'On the venue',
   'One of your risk controls held it back': 'One of your risk controls held it back',
   'Only a paused bot can be resumed': 'Only a paused bot can be resumed',
   'Only a paused follow can be resumed': 'Only a paused follow can be resumed',
@@ -327,6 +345,7 @@ const messages = {
   'Optional. A sell slice never takes less than this.': 'Optional. A sell slice never takes less than this.',
   'Optional. Copying stops when losses reach this.': 'Optional. Copying stops when losses reach this.',
   Orders: 'Orders',
+  'Our builder fee': 'Our builder fee',
   Paper: 'Paper',
   'Paper cash (TEST)': 'Paper cash (TEST)',
   'Paper only': 'Paper only',
@@ -348,6 +367,7 @@ const messages = {
   'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.':
     'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.',
   Placed: 'Placed',
+  'Placed by': 'Placed by',
   'Planned levels': 'Planned levels',
   Positions: 'Positions',
   Presets: 'Presets',
@@ -467,6 +487,8 @@ const messages = {
   'That follow is now {state}.': 'That follow is now {state}.',
   'That is more than 500 slices. Make the gap longer.': 'That is more than 500 slices. Make the gap longer.',
   'That is more than is open.': 'That is more than is open.',
+  'That is more than the {free} {asset} free that {venue} reports for your account, as of {time}':
+    'That is more than the {free} {asset} free that {venue} reports for your account, as of {time}',
   'That is more than your free {asset}': 'That is more than your free {asset}',
   'That request belongs to the spot desk or another room. Check it there; it stays locked until then.':
     'That request belongs to the spot desk or another room. Check it there; it stays locked until then.',
@@ -505,6 +527,8 @@ const messages = {
   'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.':
     'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.',
   'The total can’t be below the amount per order': 'The total can’t be below the amount per order',
+  'The venue’s own fee and our builder fee, as the venue reports them':
+    'The venue’s own fee and our builder fee, as the venue reports them',
   'The wallet address that signs your venue orders.': 'The wallet address that signs your venue orders.',
   'These are your {count} newest bots.': 'These are your {count} newest bots.',
   'This bot can’t be set up here.': 'This bot can’t be set up here.',
@@ -543,6 +567,8 @@ const messages = {
   'Used now': 'Used now',
   'Used today': 'Used today',
   'Venue account': 'Venue account',
+  'Venue fee': 'Venue fee',
+  'Venue status': 'Venue status',
   'Verified live': 'Verified live',
   'Volume history is still short. A slice may be refused when it is due.':
     'Volume history is still short. A slice may be refused when it is due.',
@@ -602,12 +628,16 @@ const messages = {
   'Your follows': 'Your follows',
   'Your limits': 'Your limits',
   'Your trading fee': 'Your trading fee',
+  'Your venue account': 'Your venue account',
+  'Your wallet is asked to sign a permission for this follow on your own venue account. It can place and cancel orders there and can never withdraw. Nothing is moved or held by INTAFACED.':
+    'Your wallet is asked to sign a permission for this follow on your own venue account. It can place and cancel orders there and can never withdraw. Nothing is moved or held by INTAFACED.',
   'Your webhooks': 'Your webhooks',
   '{amount} is open in {market}. The part you close is sold at the market price.':
     '{amount} is open in {market}. The part you close is sold at the market price.',
   '{count} levels. The service plans the real ones when the bot starts.':
     '{count} levels. The service plans the real ones when the bot starts.',
   '{min} to {max}': '{min} to {max}',
+  '{share} of our fee, paid by the platform from that fee': '{share} of our fee, paid by the platform from that fee',
   '{share} of that fee, paid by the platform from the fee': '{share} of that fee, paid by the platform from the fee',
 } as const;
 
