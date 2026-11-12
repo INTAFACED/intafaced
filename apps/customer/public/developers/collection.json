@@ -1561,6 +1561,19 @@
           }
         },
         {
+          "name": "venueAgentAccountLimits",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/limits",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "limits"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "venueAgentAccountClose",
           "request": {
             "method": "POST",

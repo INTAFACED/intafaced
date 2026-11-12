@@ -182,6 +182,7 @@ No deposit or custodial withdrawal route is on the trading API: withdrawals are 
 | `POST /api/v1/venue/agent-accounts/:id/fund`                    | `venueAgentAccountFund`       | trade:write             |
 | `POST /api/v1/venue/agent-accounts/:id/withdraw`                | `venueAgentAccountWithdraw`   | trade:write             |
 | `POST /api/v1/venue/agent-accounts/:id/cap`                     | `venueAgentAccountCap`        | trade:write             |
+| `POST /api/v1/venue/agent-accounts/:id/limits`                  | `venueAgentAccountLimits`     | trade:write             |
 | `POST /api/v1/venue/agent-accounts/:id/close`                   | `venueAgentAccountClose`      | trade:write             |
 | `GET /api/v1/venue/agent-accounts/connections`                  | `venueAgentConnections`       | trade:read              |
 | `POST /api/v1/venue/agent-accounts/:id/connections`             | `venueAgentConnect`           | trade:write             |
