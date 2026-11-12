@@ -32,6 +32,7 @@ import { ownFundsMove } from './own-funds.js';
 import { campaignBudgetFund, rewardOwe, rewardPayOut } from './reward-owed.js';
 import { feeShareBudgetFund, feeShareOwe, feeSharePayOut } from './fee-share-owed.js';
 import { chargeCollect, chargeEarn } from './charge.js';
+import { academyPurchase, academyPurchaseRefund } from './academy-purchase.js';
 import { partnerFeeEarn, partnerFeeSettle } from './partner-fee.js';
 import { feeGiveBackOwe, feeGiveBackPayOut } from './fee-giveback.js';
 import {
@@ -1402,6 +1403,7 @@ export * from './campaign-lock.js';
 export * from './reward-owed.js';
 export * from './fee-share-owed.js';
 export * from './charge.js';
+export * from './academy-purchase.js';
 export * from './partner-fee.js';
 export * from './fee-giveback.js';
 export * from './market-escrow.js';
@@ -1450,6 +1452,9 @@ export const recipes = {
   // A charge a customer owes us, earned and collected into one of our own-funds places, own accounts only (launch money model). See ./charge.ts.
   chargeEarn,
   chargeCollect,
+  // A paid Academy course bought from the buyer's own wallet into one of our own-funds places, and its staff refund, own accounts only (J-academy-07). See ./academy-purchase.ts.
+  academyPurchase,
+  academyPurchaseRefund,
   // Our fee on a payment a licensed partner processed, earned and settled by the partner into our own funds, own accounts only (launch money model). See ./partner-fee.ts.
   partnerFeeEarn,
   partnerFeeSettle,

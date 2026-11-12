@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**103 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**105 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -27,6 +27,8 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `feeSharePayOut`                | `trade`     | `trade.fee_share.paid_out`                                       |
 | `chargeEarn`                    | `<module>`  | `charge.earned`                                                  |
 | `chargeCollect`                 | `<module>`  | `charge.collected`                                               |
+| `academyPurchase`               | `academy`   | `academy.purchase.posted`                                        |
+| `academyPurchaseRefund`         | `academy`   | `academy.purchase.refunded`                                      |
 | `partnerFeeEarn`                | `<module>`  | `partner_fee.earned`                                             |
 | `partnerFeeSettle`              | `<module>`  | `partner_fee.settled`                                            |
 | `feeGiveBackOwe`                | `trade`     | `trade.fee_giveback.owed`                                        |
@@ -129,6 +131,7 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `src/recipes/reward-owed.ts`      | reward owed with custody off: budget, owe (ceiling unset refuses), pay to the customer wallet       |
 | `src/recipes/fee-share-owed.ts`   | fee share owed with custody off: budget from a collected claim, owe (rate unset refuses), pay       |
 | `src/recipes/charge.ts`           | a charge a customer owes us with custody off: earn (price unset refuses), collect at our place      |
+| `src/recipes/academy-purchase.ts` | a paid Academy course from the buyer's wallet into our own place, and its exact staff refund        |
 | `src/recipes/partner-fee.ts`      | our fee on a partner-processed payment: earn (rate unset refuses), settle into our own funds        |
 | `src/recipes/fee-giveback.ts`     | a fee given back from our own funds: owe (two approvers, at most the fill's fee), pay to the wallet |
 

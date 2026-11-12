@@ -1075,6 +1075,30 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'academyPurchase',
+      post: recipes.academyPurchase({
+        course: 'test-course',
+        userId: U,
+        n: 1n,
+        assetId: 'USDC',
+        amount: AMT,
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        paymentId: `0x${'a'.repeat(64)}`,
+      }),
+    },
+    {
+      name: 'academyPurchaseRefund',
+      post: recipes.academyPurchaseRefund({
+        course: 'test-course',
+        userId: U,
+        n: 1n,
+        assetId: 'USDC',
+        amount: AMT,
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        paymentId: `0x${'b'.repeat(64)}`,
+      }),
+    },
+    {
       name: 'partnerFeeEarn',
       // Shape sample only, never posted: a TEST rate, because the owner's rate is unset and Earn refuses without one.
       post: recipes.partnerFeeEarn({
