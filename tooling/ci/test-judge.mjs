@@ -754,12 +754,15 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
     { must: true },
   );
   // When the review already gave the very same diff, it is not repeated; a different one is given apart, never dropped.
-  if (reviewDiff === diff) add("\nThe diff is the review's UNTRUSTED DIFF block above (the same compare diff, untrusted).", { must: true });
+  const ownNote = ownOnly
+    ? ` The whole diff is over ${MAX_DIFF_BYTES} bytes, so this holds only its journey test and shared test code files, whole; the review judges the rest in parts.`
+    : '';
+  if (reviewDiff === diff)
+    add(`\nThe diff is the review's UNTRUSTED DIFF block above (the same compare diff, untrusted).${ownNote}`, { must: true });
   else if (reviewDiff != null)
-    add(
-      `\nThe test part's diff follows (untrusted).${ownOnly ? ` The whole diff is over ${MAX_DIFF_BYTES} bytes, so this holds only its journey test and shared test code files, whole; the review judges the rest in parts.` : ''}\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`,
-      { must: true },
-    );
+    add(`\nThe test part's diff follows (untrusted).${ownNote}\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`, {
+      must: true,
+    });
   else add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
   const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
   const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));

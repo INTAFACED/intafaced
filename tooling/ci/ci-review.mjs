@@ -41,6 +41,7 @@ import {
   redact,
   diffSections,
   parseDiff,
+  judgedFile,
   JUDGE_BRIEF,
   JUDGE_SCHEMA,
 } from './test-judge.mjs';
@@ -228,36 +229,44 @@ const sectionPath = (s) => {
 /**
  * A diff over MAX_DIFF_BYTES in parts of at most `cap` bytes, in the diff's own order (so a service's files stay
  * together): whole files where they fit, a larger file between its hunks, each piece under its own file header. Nothing
- * is cut or left out. Returns { parts }, or { tooLarge } when one hunk alone is over the cap, a file over it has no hunk
+ * is cut or left out. The sections `first` picks (the test part's own files) come first and close their own parts, so
+ * when they fit one call, the first part is exactly the diff the test part judges and the one combined call carries it
+ * once. Returns { parts }, or { tooLarge } when one hunk alone is over the cap, a file over it has no hunk
  * to split at, or it would take more than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
  * were the cap alone, 21 on intafaced #7728, a PR of about 420 to 560 KB; project-state #2065.)
  */
-export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS) {
-  const units = [];
-  for (const s of diffSections(diff)) {
-    if (Buffer.byteLength(s) <= cap) {
-      units.push(s);
-      continue;
-    }
+export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, first = () => false) {
+  // One section as pieces of at most `cap`: itself, or its hunks, each under the section's file header.
+  const pieces = (s) => {
+    if (Buffer.byteLength(s) <= cap) return { units: [s] };
     const at = s.search(/^@@ /m);
     if (at < 0) return { tooLarge: `${sectionPath(s)}'s diff is ${Buffer.byteLength(s)} bytes, over ${cap}, with no hunk to split at` };
     const header = s.slice(0, at);
-    for (const h of s.slice(at).split(/^(?=@@ )/m)) {
-      const u = header + h;
-      if (Buffer.byteLength(u) > cap) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(u)} bytes, over ${cap}` };
-      units.push(u);
-    }
-  }
+    const units = s
+      .slice(at)
+      .split(/^(?=@@ )/m)
+      .map((h) => header + h);
+    const big = units.find((u) => Buffer.byteLength(u) > cap);
+    if (big) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(big)} bytes, over ${cap}` };
+    return { units };
+  };
+  const sections = diffSections(diff);
   const parts = [];
-  let cur = '';
-  for (const u of units) {
-    if (cur && Buffer.byteLength(cur) + Buffer.byteLength(u) > cap) {
-      parts.push(cur);
-      cur = '';
+  for (const group of [sections.filter((x) => first(x)), sections.filter((x) => !first(x))]) {
+    let cur = '';
+    for (const s of group) {
+      const p = pieces(s);
+      if (p.tooLarge) return { tooLarge: p.tooLarge };
+      for (const u of p.units) {
+        if (cur && Buffer.byteLength(cur) + Buffer.byteLength(u) > cap) {
+          parts.push(cur);
+          cur = '';
+        }
+        cur += u;
+      }
     }
-    cur += u;
+    if (cur) parts.push(cur);
   }
-  if (cur) parts.push(cur);
   if (parts.length > maxParts) return { tooLarge: `it takes ${parts.length} parts of ${cap} bytes, over ${maxParts}` };
   return { parts };
 }
@@ -660,7 +669,9 @@ export async function writeReviewInputs(
   writeFileSync(join(dir, 'head.txt'), head);
   const tests = join(dir, TESTS_DIR);
   const bytes = Buffer.byteLength(diff);
-  const split = bytes > MAX_DIFF_BYTES ? splitDiff(diff) : { parts: [diff] };
+  // The test part's own files lead, so the one combined call carries them once (splitDiff `first`).
+  const own = (sec) => parseDiff(sec).some((f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath)));
+  const split = bytes > MAX_DIFF_BYTES ? splitDiff(diff, MAX_DIFF_BYTES, MAX_PARTS, own) : { parts: [diff] };
   const parts = split.parts ?? [diff];
   const note = (k) =>
     [revertOf ? revertNote(revertOf) : '', parts.length > 1 ? partNote(parts, k, bytes) : ''].filter(Boolean).join('\n\n');

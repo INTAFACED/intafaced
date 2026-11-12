@@ -1093,10 +1093,18 @@ test('a diff over the cap: the test part judges its own files whole, beside the 
   const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
   const dir = tmp();
   const said = await writeReviewInputs(dir, { diff: big, base: BASE, head: HEAD, pr: 7, src: fakeSrc(big), loadWords, ...realBriefs() });
-  assert.match(said, /reviewed in 2 parts; one call for the review and the test part/);
+  // The test files lead and close part 1; the two product files, too large to share a call, take a part each.
+  assert.match(said, /reviewed in 3 parts; one call for the review and the test part/);
   assert.ok(existsSync(join(dir, 'combined')) && !existsSync(join(dir, 'skip-reviewer')));
   const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
-  const testDiff = prompt.slice(prompt.indexOf('\nBEGIN UNTRUSTED TEST DIFF\n'), prompt.indexOf('\nEND UNTRUSTED TEST DIFF'));
+  // Part 1 is exactly the test part's own files, so the one call carries them once, in the review's fence.
+  assert.ok(!prompt.includes('BEGIN UNTRUSTED TEST DIFF'), 'not given twice');
+  assert.match(prompt, /The diff is the review's UNTRUSTED DIFF block above/);
+  const open = prompt.lastIndexOf('\nBEGIN UNTRUSTED DIFF\n');
+  const testDiff = prompt.slice(open, prompt.indexOf('\nEND UNTRUSTED DIFF', open));
+  assert.equal(testDiff, `\nBEGIN UNTRUSTED DIFF\n${DIFF}`);
+  assert.ok(readFileSync(join(dir, 'parts', '2', 'prompt.txt'), 'utf8').includes('+++ b/services/svc-a/src/a.ts'));
+  assert.ok(readFileSync(join(dir, 'parts', '3', 'prompt.txt'), 'utf8').includes('+++ b/services/svc-b/src/b.ts'));
   assert.ok(testDiff.includes('-  expect(a).toBe(1);\n+  expect(a).toBeTruthy();'), 'the journey test, whole');
   assert.ok(testDiff.includes('+  return BigInt(Math.round(v));'), 'the shared test code, whole');
   assert.ok(!testDiff.includes('svc-a/src/a.ts') && !testDiff.includes('svc-b/src/b.ts'), 'not the product code');
