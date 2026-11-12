@@ -78,6 +78,8 @@ const CARD_ORDERS = readFileSync(join(here, '..', '..', 'drizzle', '202611060133
 const CARD_BLOCKS = readFileSync(join(here, '..', '..', 'drizzle', '20261108230236_card_blocks.sql'), 'utf8');
 // Partner-held authorisations (OWNER 226): the `money_book` columns every card read selects.
 const PARTNER_HELD = readFileSync(join(here, '..', '..', 'drizzle', '20261108231000_card_partner_held.sql'), 'utf8');
+// The issuer's `recurring` flag (J-bank-14 #6), which every card read selects.
+const CARD_RECURRING = readFileSync(join(here, '..', '..', 'drizzle', '20261110040000_card_recurring.sql'), 'utf8');
 
 const HOLDER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -423,6 +425,7 @@ describe('svc-bank cards PG-hard', () => {
         CARD_ORDERS,
         CARD_BLOCKS,
         PARTNER_HELD,
+        CARD_RECURRING,
       ],
     });
     sql = db.sql;

@@ -215,7 +215,7 @@ if (!available) {
       const completes = Date.parse(view.completesAt);
       expect(completes - before).toBeGreaterThanOrEqual(3600_000 - 5_000);
       expect(completes - Date.now()).toBeLessThanOrEqual(3600_000 + 5_000);
-      expect(view.told).toEqual({ email: 'm***@example.com', sms: null });
+      expect(view.told).toEqual({ email: 'm***@example.com', also: [], sms: null });
       const [notice] = await mails(a.userId, 'mfa-reset-started');
       expect(notice!.recipient).toBe(a.email);
       expect(notice!.expires_at.toISOString()).toBe(view.completesAt);
@@ -227,6 +227,46 @@ if (!available) {
       expect(await (await callerOf(a.session)).mfaReset.status()).toEqual({
         waiting: { resetId: view.resetId, waitingSince: expect.any(String), completesAt: view.completesAt },
       });
+    });
+
+    it("every other address the person proved on Receive is told too; one still unproved, or another person's, is not", async () => {
+      const a = await account();
+      const b = await account();
+      await db.sql`INSERT INTO receive_contacts (user_id, channel, target, verified_at) VALUES
+        (${a.userId}, 'email', 'second@example.org', now() - interval '2 minutes'),
+        (${a.userId}, 'email', 'third@example.net', now() - interval '1 minute'),
+        (${a.userId}, 'email', 'pending@example.org', NULL),
+        (${b.userId}, 'email', 'stranger@example.org', now())`;
+      const view = await waiting(a);
+      if (view.state !== 'waiting') throw new Error('expected the wait');
+      expect(view.told).toEqual({ email: 'm***@example.com', also: ['s***@example.org', 't***@example.net'], sms: null });
+      const told = await mails(a.userId, 'mfa-reset-started');
+      expect(told.map((m) => m.recipient)).toEqual([a.email, 'second@example.org', 'third@example.net']);
+      for (const m of told) expect(m.expires_at.toISOString()).toBe(view.completesAt);
+      expect(await mails(b.userId, 'mfa-reset-started')).toHaveLength(0);
+      // Again, by the code or a new start: the same answer, and nobody is told twice.
+      expect(await anon().mfaReset.confirm({ resetId: view.resetId, code: '123456' })).toEqual(view);
+      expect(await anon().mfaReset.start({ identifier: a.handle, password: PASSWORD })).toEqual(view);
+      expect(await mails(a.userId, 'mfa-reset-started')).toHaveLength(3);
+    });
+
+    it('a wrong code tells no contact', async () => {
+      const a = await account();
+      await db.sql`INSERT INTO receive_contacts (user_id, channel, target, verified_at) VALUES (${a.userId}, 'email', 'second@example.org', now())`;
+      const started = await anon().mfaReset.start({ identifier: a.handle, password: PASSWORD });
+      const code = await codeOf(a.userId);
+      expect(await refusal(anon().mfaReset.confirm({ resetId: started.resetId, code: code === '000000' ? '111111' : '000000' }))).toBe(
+        'auth.code_invalid',
+      );
+      expect(await mails(a.userId, 'mfa-reset-started')).toHaveLength(0);
+    });
+
+    it('a phone proved on Receive is named as not texted too', async () => {
+      const a = await account();
+      await db.sql`INSERT INTO receive_contacts (user_id, channel, target, verified_at) VALUES (${a.userId}, 'phone', '+14155552672', now())`;
+      const view = await waiting(a);
+      expect(view.state === 'waiting' && view.told).toEqual({ email: 'm***@example.com', also: [], sms: 'vendor.sms' });
+      expect((await mails(a.userId, 'mfa-reset-started')).map((m) => m.recipient)).toEqual([a.email]);
     });
 
     it('a proved phone is named as not texted: this build has no texting rail', async () => {

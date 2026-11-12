@@ -32,6 +32,7 @@ import { ownFundsMove } from './own-funds.js';
 import { campaignBudgetFund, rewardOwe, rewardPayOut } from './reward-owed.js';
 import { feeShareBudgetFund, feeShareOwe, feeSharePayOut } from './fee-share-owed.js';
 import { chargeCollect, chargeEarn } from './charge.js';
+import { partnerFeeEarn, partnerFeeSettle } from './partner-fee.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -1400,6 +1401,7 @@ export * from './campaign-lock.js';
 export * from './reward-owed.js';
 export * from './fee-share-owed.js';
 export * from './charge.js';
+export * from './partner-fee.js';
 export * from './market-escrow.js';
 export * from './buyback.js';
 export {
@@ -1446,6 +1448,9 @@ export const recipes = {
   // A charge a customer owes us, earned and collected into one of our own-funds places, own accounts only (launch money model). See ./charge.ts.
   chargeEarn,
   chargeCollect,
+  // Our fee on a payment a licensed partner processed, earned and settled by the partner into our own funds, own accounts only (launch money model). See ./partner-fee.ts.
+  partnerFeeEarn,
+  partnerFeeSettle,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,

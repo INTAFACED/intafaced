@@ -185,6 +185,7 @@ const testAttachments = openLocalTestAttachments({
   appEnv: process.env.APP_ENV,
   store: env.SUPPORT_ATTACHMENT_STORE,
   scanner: env.SUPPORT_MALWARE_SCANNER,
+  scanDelayMs: env.SUPPORT_LOCAL_TEST_SCAN_DELAY_MS,
 });
 // Third argument is the attachment desk; its size and type limits come from the owner's settings. Staff is fourth, orders fifth, then the blank-by-default staff heartbeat window.
 // One staff book and one group book, shared by the desk and its routing (SP-routing-01).

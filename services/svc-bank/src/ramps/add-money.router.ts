@@ -67,6 +67,7 @@ const request = z.object({
   pendingAt: z.string().nullable(),
   creditedAt: z.string().nullable(),
   creditedAmount: z.string().nullable(),
+  creditedBy: z.enum(['ledger', 'partner']).nullable(),
 });
 
 export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard: <T>(fn: () => Promise<T>) => Promise<T>) {

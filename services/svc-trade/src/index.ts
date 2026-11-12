@@ -115,6 +115,9 @@ import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
 import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
 import { SqlAgentAccountStore } from './venue/agent-account-store.js';
+import { AgentOrders } from './venue/agent-orders.js';
+import { SqlAgentConnectionStore } from './venue/agent-connection-store.js';
+import { createAgentKeyReader } from './venue/agent-key-read-client.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
@@ -519,12 +522,27 @@ const userVenue = userVenueDoors[0] ?? null;
 const userVenueRouter =
   userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
 // J-agents-21's agent account beside the door: off with it. Its owner values are read even when blank (each refuses).
+const agentAccountStore = new SqlAgentAccountStore(sql);
+const agentAccountValues = parseAgentAccountValues(env);
 const agentAccounts = userVenue
   ? new AgentAccounts({
       door: userVenue,
-      store: new SqlAgentAccountStore(sql),
+      store: agentAccountStore,
       stepUp,
-      values: parseAgentAccountValues(env),
+      values: agentAccountValues,
+      now: () => new Date(),
+    })
+  : null;
+// The assistant's trade path on its agent account (J-agents-21 #6 #7 #10): one capped signer per agent key, in this
+// process. Off with the door. Identity is asked, through its own door, that a key is the person's own agent key.
+const agentOrders = userVenue
+  ? new AgentOrders({
+      door: userVenue,
+      accounts: agentAccountStore,
+      connections: new SqlAgentConnectionStore(sql),
+      keys: createAgentKeyReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      stepUp,
+      values: agentAccountValues,
       now: () => new Date(),
     })
   : null;
@@ -1805,6 +1823,7 @@ registerPrivateRest(app, {
   grid,
   userVenue: userVenueRouter,
   agentAccounts,
+  agentOrders,
   venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),

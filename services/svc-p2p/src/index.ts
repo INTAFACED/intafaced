@@ -155,6 +155,7 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   exportPolicy: {
     maxRangeDays: env.P2P_EXPORT_MAX_RANGE_DAYS,
     maxRows: env.P2P_EXPORT_MAX_ROWS,
+    exportDailyQuota: env.P2P_EXPORT_DAILY_QUOTA,
     receiptDailyQuota: env.P2P_RECEIPT_DAILY_QUOTA,
     receiptPerTradeQuota: env.P2P_RECEIPT_PER_TRADE_QUOTA,
   },

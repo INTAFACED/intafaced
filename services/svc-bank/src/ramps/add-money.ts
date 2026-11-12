@@ -23,6 +23,13 @@
  * already booked, and the row catches up: the money is credited once and never stranded. With no partner wired, both
  * refuse `bank.fiat_ramp_socket` and nothing moves.
  *
+ * PAID, PARTNER-HELD (J-wallet-01 #3; OWNER 226). For a person whose bank money the partner holds, the ledger holds none
+ * of it and posts nothing: the partner itself credits the paid purchase to the person's main balance at the partner,
+ * once under the same business key (`deposit:<rail>:add-money:<request id>`), and holds back what its rules hold until
+ * its release time. The request is marked credited with the partner's pay-in reference instead of a ledger transaction.
+ * If this crashes after the partner credited and before the row says so, the partner's next "paid" asks again under the
+ * same key, which the partner answers with the credit it already made, and the row catches up: credited once.
+ *
  * The request id is the customer's business key: asking again with the same id and the same terms is the same request,
  * and with other terms is `bank.ramp_conflict`. A quote the customer accepted must be theirs and on the request's own
  * terms; one that has already expired is refused (`bank.onramp_quote_expired`) and keeps nothing.
@@ -33,6 +40,7 @@ import { BankError, type BankErrorCode } from '../errors.js';
 import type { OnrampMethod } from './customer-ports.js';
 import type { CustomerOnrampView, OnrampQuoteView } from './customer-ramps.js';
 import type { OnrampPartner } from './payin-sim.js';
+import { paidByFor, type PartnerPurchaseCustody } from '../partner/partner-purchases.js';
 import type { RampService } from './ramp-service.js';
 
 /** The order the chooser shows the ways to pay. */
@@ -92,8 +100,10 @@ export interface AddMoneyRequestView {
   readonly openedAt: string | null;
   readonly pendingAt: string | null;
   readonly creditedAt: string | null;
-  /** What the ledger credited: the quote's receive amount, in `assetId`. Null until credited. */
+  /** What was credited: the quote's receive amount, in `assetId`. Null until credited. */
   readonly creditedAmount: string | null;
+  /** Who credited it: the ledger (custodial layer) or the partner that holds the person's money. Null until credited. */
+  readonly creditedBy: 'ledger' | 'partner' | null;
 }
 
 interface RequestRow {
@@ -114,6 +124,7 @@ interface RequestRow {
   credited_at: Date | null;
   credited_amount: string | null;
   ledger_tx_id: string | null;
+  partner_pay_in_ref: string | null;
 }
 
 export interface AddMoneyInput {
@@ -136,7 +147,12 @@ export class AddMoneyService {
       'onrampQuote' | 'onrampQuoteOf' | 'onrampCreate' | 'customerOnrampsByIds' | 'onrampStandInFor'
     >,
     /** Who credits a paid request: the ledger, and the partner that opened it. No partner refuses both partner calls. */
-    private readonly credit: { readonly ledger: Pick<LedgerClient, 'post'>; readonly partner: OnrampPartner | null } | null = null,
+    private readonly credit: {
+      readonly ledger: Pick<LedgerClient, 'post'>;
+      readonly partner: OnrampPartner | null;
+      /** The partner that holds a person's money, which credits their purchase itself; none for the custodial layer. */
+      readonly purchases?: PartnerPurchaseCustody;
+    } | null = null,
   ) {}
 
   /** Each way to pay with its quote, or the reason there is none. A bad amount, asset or country refuses the whole read. */
@@ -266,6 +282,31 @@ export class AddMoneyService {
     const receive = parseAmount(onramp.amount);
     if (receive !== parseAmount(row.amount) || onramp.assetId !== row.asset_id) {
       throw new BankError('The opened payment is not on the request’s own terms', 'bank.ramp_conflict');
+    }
+    const atPartner = this.credit?.purchases?.purchasesFor(row.user_id) ?? null;
+    if (atPartner) {
+      const paidBy = paidByFor(row.method);
+      if (paidBy === null) {
+        throw new BankError(
+          'A bank transfer is not a purchase through the partner, so the partner credits nothing for it',
+          'bank.ramp_conflict',
+        );
+      }
+      // The partner credits it at the partner, once under the purchase's key; the ledger posts nothing.
+      const credited = await atPartner.credit(row.user_id, {
+        key: `deposit:${partner.rail}:add-money:${row.id}`,
+        assetId: row.asset_id,
+        amount: receive,
+        paidBy,
+      });
+      const rows = await this.sql<RequestRow[]>`
+        UPDATE bank.add_money_requests
+           SET status = 'credited', credited_at = now(), credited_amount = ${formatAmount(receive)}::numeric,
+               partner_pay_in_ref = ${credited.id}
+         WHERE id = ${row.id}::uuid AND status IN ('opened', 'pending')
+        RETURNING *
+      `;
+      return this.withOnramp(rows[0] ?? (await this.row(row.id)) ?? row, onramp);
     }
     const posted = await ledger.post(
       recipes.deposit({
@@ -398,6 +439,7 @@ function view(row: RequestRow, onramps: ReadonlyMap<string, CustomerOnrampView>)
     pendingAt: row.pending_at?.toISOString() ?? null,
     creditedAt: row.credited_at?.toISOString() ?? null,
     creditedAmount: row.credited_amount === null ? null : formatAmount(parseAmount(row.credited_amount)),
+    creditedBy: row.status !== 'credited' ? null : row.partner_pay_in_ref ? 'partner' : 'ledger',
   };
 }
 

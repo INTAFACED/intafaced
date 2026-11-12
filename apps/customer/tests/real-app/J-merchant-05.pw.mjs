@@ -6,6 +6,7 @@ import { DEVICE_KEY, EDGE, ORIGIN, ROOT, journeyState, tool } from './stack.mjs'
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, foundersScript, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-merchant-05, in the running app (docs/roadmap/journeys.json): see a payment arrive and read everything about it.
 // One test per step, titled "J-merchant-05 #<n>", run in order on one verified TEST business. #1 makes the owner and the
@@ -736,8 +737,11 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
 
   // The decline rate is the service's: the page asks merchantAnalytics.declines and shows its answer, and that answer is
   // what this business's own payments, read one by one, make it.
-  const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/merchantAnalytics.declines') && r.ok());
-  await page.goto('/pay/analytics');
+  const answered = await answerAfterNavigation(
+    page,
+    (r) => new URL(r.url()).pathname.endsWith('/merchantAnalytics.declines') && r.ok(),
+    () => page.goto('/pay/analytics'),
+  );
   const response = await answered;
   const asked = JSON.parse(new URL(response.url()).searchParams.get('input') ?? '{}');
   const body = await response.json();

@@ -202,6 +202,11 @@ const schema = serviceEnvSchema
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
         z.coerce.number().int().min(1).optional(),
       ),
+      /** Order-history exports per person per UTC day. Empty is unset, and trades.exportFile refuses p2p.config_unset. */
+      P2P_EXPORT_DAILY_QUOTA: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
       P2P_RECEIPT_DAILY_QUOTA: z.preprocess(
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
         z.coerce.number().int().min(1).optional(),

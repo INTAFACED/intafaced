@@ -1075,6 +1075,39 @@ export const partnerLimitsSchema = z.discriminatedUnion('held', [
     asOf: z.string().nullable(),
   }),
 ]);
+/**
+ * J-wallet-01 #3: svc-bank `partnerHolds`. What a partner-held person can withdraw from their main balance at the partner,
+ * and what the partner still holds back of their purchases, each with its release time, and each release once. `reported:
+ * false` is a partner that does not report its holds: held back and withdrawable read "not reported", never 0.
+ */
+const partnerHoldSchema = z.object({
+  id: z.string(),
+  assetId: z.string(),
+  amount: money,
+  paidBy: z.enum(['card', 'bank_pull']),
+  releaseAt: z.string(),
+});
+export const partnerHoldsSchema = z.discriminatedUnion('held', [
+  z.object({ held: z.literal(false) }),
+  z.object({
+    held: z.literal(true),
+    label: z.string(),
+    reported: z.boolean(),
+    asOf: z.string().nullable(),
+    balances: z.array(
+      z.object({
+        assetId: z.string(),
+        balance: money.nullable(),
+        balanceAsOf: z.string().nullable(),
+        heldBack: money.nullable(),
+        withdrawable: money.nullable(),
+      }),
+    ),
+    holds: z.array(partnerHoldSchema),
+    released: z.array(partnerHoldSchema.extend({ releasedAt: z.string() })),
+  }),
+]);
+export type PartnerHolds = z.infer<typeof partnerHoldsSchema>;
 /** BK-acct-04: the owner's account fee table; `set: false` is none published. */
 export const accountFeesSchema = z.object({
   set: z.boolean(),
@@ -1275,6 +1308,17 @@ export const bankReads = {
   'cards.walletTokens': cardWalletTokensSchema,
   'cards.threeDS.list': z.object({ challenges: z.array(cardThreeDSChallengeSchema) }),
   'cards.fraud.list': z.object({ reports: z.array(cardFraudReportSchema) }),
+  /** One row per merchant that charges the card on file (J-bank-14 #6), newest first. */
+  'cards.recurring': z.array(
+    z.object({
+      merchant: z.string().nullable(),
+      merchantCountry: z.string().nullable(),
+      payments: z.number().int(),
+      firstAt: z.string(),
+      lastAt: z.string(),
+      lastAmount: money,
+    }),
+  ),
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
@@ -1284,10 +1328,17 @@ export const bankReads = {
       /** The merchant and its country as the issuer named them (J-bank-14 #1); null when it named none. */
       merchant: z.string().nullable().default(null),
       merchantCountry: z.string().nullable().default(null),
+      /** The issuer flagged a merchant charging the card on file on an agreed schedule (J-bank-14 #6). */
+      recurring: z.boolean().default(false),
       decision: z.enum(['approved', 'declined']),
       declineCode: z.string().nullable(),
       status: z.string(),
       decidedAt: z.string(),
+      /** The merchant's refund of this payment, as recorded; the partner moves it and our ledger posts nothing. */
+      refund: z
+        .object({ amount: money, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() })
+        .nullable()
+        .default(null),
       conversion: z
         .object({ settlementAssetId: z.string(), settlementAmount: money, rate: money, rateQuality: z.string(), rateAsOf: z.string() })
         .nullable(),
@@ -1314,6 +1365,7 @@ export const bankReads = {
   'plans.list': plansSchema,
   'fees.account': accountFeesSchema,
   'fees.partner': partnerLimitsSchema,
+  partnerHolds: partnerHoldsSchema,
   'fees.schedule.get': z.object({
     published: z.boolean(),
     entries: z.array(

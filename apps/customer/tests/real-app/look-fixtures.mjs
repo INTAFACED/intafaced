@@ -63,6 +63,8 @@ export const TRPC = {
   }),
   'bank:spaces.list': () => spaces(),
   'bank:business.list': () => [],
+  // The TEST account's money is not held at a partner, so Withdraw shows no partner holds (J-wallet-01 #3).
+  'bank:partnerHolds': () => ({ held: false }),
   // The bank pages its history, filters it by kind and direction and cuts it at the limit, as Home's one-line reads ask.
   'bank:activity.list': (input = {}) => {
     const page = input.cursor ? activityPage2() : activityPage1();

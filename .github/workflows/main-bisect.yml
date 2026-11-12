@@ -114,7 +114,7 @@ jobs:
           ref: ${{ inputs.bad }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -205,7 +205,7 @@ jobs:
         env:
           BASE: ${{ inputs.base }}
         run: git fetch --quiet --no-tags origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -278,7 +278,7 @@ jobs:
         env:
           BASE: ${{ inputs.base }}
         run: git fetch --quiet --no-tags origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -354,7 +354,7 @@ jobs:
         run: node tooling/ci/journeys-revert.mjs confirm-files
       - name: Keep the probe outside the checkout
         run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - name: Put pnpm next to node
         run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
       - name: Get a nats-server binary

@@ -384,8 +384,8 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
   await expect(row).toContainText(/Fee: 1(\.0+)? EUR/);
   await expect(row).toContainText('Price holds until');
   const holds = (await row.innerText()).match(/Price holds until: (.+)/)?.[1];
-  // Every way it does not list stays refused by name.
-  await expect(page.getByTestId('method-card')).toContainText('bank.fiat_ramp_socket');
+  // Every way it does not list stays refused by name: wallet pay, which it does not price from NL.
+  await expect(page.getByTestId('method-wallet_pay')).toContainText('bank.fiat_ramp_socket');
   const confirm = await ask(page, 'bank_transfer');
   // The person stays on the review past the 20 seconds the TEST price holds, then asks.
   await page.waitForTimeout(21_000);

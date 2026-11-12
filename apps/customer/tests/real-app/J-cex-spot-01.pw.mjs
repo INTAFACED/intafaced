@@ -904,7 +904,7 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   expect(shownUnits(await realised.innerText())).toBe(asShownUsd(after.book.realizedUsd));
   expect(after.book.indicator).toBe('indicator_not_tax_advice');
   await expect(main.locator('[data-testid=money-note][data-indicator=true]')).toHaveText(
-    'This is an indicator worked out from your own trades. It is not a tax form.',
+    'Indicator, not tax advice. It is worked out from your own trades and is not a tax form.',
   );
 });
 

@@ -1,4 +1,5 @@
 // World: restart, stack
+// Stack: fresh
 import { test, expect } from './journey.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import {
@@ -15,6 +16,7 @@ import {
 } from './merchant.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { tool } from './stack.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-merchant-02, in the running app (docs/roadmap/journeys.json): get verified and go live. Tests titled
 // "J-merchant-02 #<n>" prove a whole step; the others prove part of one and say which.
@@ -603,8 +605,11 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   await expect(app.getByRole('region', { name: 'Company details' })).toContainText('Not started');
 
   // The service holds it: after a reload the room reads the same from svc-pay.
-  const reread = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/pay/trpc/kyb.application.current');
-  await page.reload();
+  const reread = await answerAfterNavigation(
+    page,
+    (r) => new URL(r.url()).pathname === '/api/pay/trpc/kyb.application.current',
+    () => page.reload(),
+  );
   const current = (await (await reread).json()).result.data;
   expect(current).toMatchObject({ entityType: 'private_company', state: 'draft', dueAt: view.dueAt });
   expect(current.missing).toEqual(after.missing);
@@ -854,8 +859,11 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   const refused = refusedPayCalls(page);
   // "No rule set" while the table is empty: this step adds the stack's first category, so on a fresh stack (each
   // journeys shard starts one) svc-pay's own read of the table is empty here, and the room says so.
-  const categoryRead = page.waitForResponse((r) => r.url().includes('merchant.category.get') && r.request().method() === 'GET');
-  await page.goto('/pay/compliance');
+  const categoryRead = await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('merchant.category.get') && r.request().method() === 'GET',
+    () => page.goto('/pay/compliance'),
+  );
   const firstRead = await categoryRead;
   expect(firstRead.status()).toBe(200);
   const before = (await firstRead.json()).result.data;
@@ -1178,8 +1186,11 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   // business is restricted, each 403 (the withdrawn owner grant); they are taken out here so the end of the step still
   // proves nothing else was refused.
   const refusedBefore = refused.length;
-  const roomAsked = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/pay/trpc/merchant.me'));
-  await page.goto('/pay/compliance');
+  const roomAsked = await answerAfterNavigation(
+    page,
+    (r) => new URL(r.url()).pathname.endsWith('/api/pay/trpc/merchant.me'),
+    () => page.goto('/pay/compliance'),
+  );
   expect((await roomAsked).status(), "the room's own business read is refused while restricted").toBe(403);
   await expect(page.locator('main')).toBeVisible();
   await expect(page.locator('main')).not.toContainText(/Confirmed|Active since/);
