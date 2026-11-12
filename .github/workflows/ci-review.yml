@@ -462,10 +462,13 @@ jobs:
         run: node tooling/ci/journey-seal.mjs --recheck
 
       # The judge is back and this run closed the judge-down issue (the review job's Judge back step): re-run the CI
-      # review on the oldest open PR heads with no verdict (judge-down.mjs CATCH_UP_CAP, 10 per success). Its own
-      # failure can't fail the job.
+      # review on the oldest open PR heads with no verdict (judge-down.mjs CATCH_UP_CAP, 10 per success). A re-run
+      # attempt whose reviewer call succeeded carries it on, so heads past the cap are taken by the re-runs' own
+      # successes until none is left; a first attempt (a push) never reads them. (Failure it prevents: on 11 Nov the one
+      # catch-up at 23:33 UTC re-ran 10 heads and left "6 more past the cap", and eight armed PRs, #7947 among them, still
+      # had no verdict at 00:11 UTC.) Its own failure can't fail the job.
       - name: Judge back, catch up
-        if: ${{ !cancelled() && needs.review.outputs.judge-closed == 'true' }}
+        if: ${{ !cancelled() && (needs.review.outputs.judge-closed == 'true' || (github.run_attempt != '1' && needs.review.outputs.judge == 'back')) }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
