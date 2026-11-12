@@ -18,13 +18,13 @@ import { otherTraderKey, testDeposit } from './venue.mjs';
 // a crypto deposit credited on the TEST chain (pay.deposit_credit.posted) and a spot fill against the stack's market
 // maker (trade.fill.settled). #2's move between the friend's own wallet and venue account is the stack's TEST venue's
 // deposit control, with svc-trade's user-venue door switched on for that moment only and off again after.
+// #3 to #8 (rewards, rebate share, commissions, tiers and caps, a frozen beneficiary, the statement) are added in full by
+// the slices that build them (CM-referral-03, CM-referral-04).
 const J = 'J-campaigns-06';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const REFERRER_REWARD = '0.01';
 const REFEREE_REWARD = '0.005';
-/** A step this journey has not built yet fails fast instead of waiting out the default. */
-const UNBUILT = 10_000;
 
 test.describe.configure({ mode: 'default' });
 
@@ -325,103 +325,4 @@ test(`${J} #2 an invitee finishes the last step: the summary moves from in progr
   await expect(page.getByTestId('referral-invitee')).toHaveCount(1);
   await expect(page.getByTestId('referral-invitee')).toHaveAttribute('data-state', 'qualified');
   run.write({ qualifiedAt: qualified.qualifiedAt });
-});
-
-// ── Steps not built yet (CM-referral-03, CM-referral-04): each checks what its step's words say and fails fast. ──────
-
-/** The referrer's reward lines on their promotion records page. */
-async function rewardLines(page) {
-  await page.goto('/uc/promotion/mypromotion');
-  const lines = page.getByTestId('referral-rewards');
-  await expect(lines).toHaveAttribute('data-state', 'ready', { timeout: UNBUILT });
-  return lines;
-}
-
-test(`${J} #3 the reward is paid: one for me and one for my invitee, each recorded owed once and paid once to that side's connected wallet with its chain reference`, async ({
-  browser,
-}) => {
-  const { referrer, friend } = state('referrer', 'friend', 'qualifiedAt');
-  const page = await (await browser.newContext()).newPage();
-  await signIn(page, referrer);
-  const mine = await rewardLines(page);
-  const line = mine.getByTestId('referral-reward').filter({ hasText: 'Referrer' });
-  await expect(line).toHaveCount(1);
-  await expect(line).toContainText(`${REFERRER_REWARD} USDT`);
-  await expect(line).toHaveAttribute('data-state', 'paid');
-  await expect(line.getByTestId('reward-chain-ref')).toHaveText(/^0x[0-9a-f]{64}$/);
-  await signOutBrowser(page.context());
-  await signIn(page, friend);
-  const theirs = await rewardLines(page);
-  const other = theirs.getByTestId('referral-reward').filter({ hasText: 'Invitee' });
-  await expect(other).toHaveCount(1);
-  await expect(other).toContainText(`${REFEREE_REWARD} USDT`);
-  await expect(other).toHaveAttribute('data-state', 'paid');
-  await expect(other.getByTestId('reward-chain-ref')).toHaveText(/^0x[0-9a-f]{64}$/);
-});
-
-test(`${J} #4 sets a rebate share for my invitee: accepted up to the owner maximum and refused above it`, async ({ browser }) => {
-  const { referrer } = state('referrer');
-  const page = await (await browser.newContext()).newPage();
-  await signIn(page, referrer);
-  await page.goto('/uc/promotion/mypromotion');
-  const share = page.getByRole('region', { name: 'Rebate share for your invitees' });
-  await expect(share.getByTestId('rebate-share-max')).toBeVisible({ timeout: UNBUILT });
-  const max = (await share.getByTestId('rebate-share-max').innerText()).trim();
-  await share.getByLabel('Share you pass to your invitee').fill(max);
-  await share.getByRole('button', { name: 'Save share' }).click();
-  await expect(share.getByTestId('rebate-share-saved')).toContainText(max);
-  await share.getByLabel('Share you pass to your invitee').fill(`${max}1`);
-  await share.getByRole('button', { name: 'Save share' }).click();
-  await expect(share.getByRole('status')).toContainText('above the maximum');
-});
-
-test(`${J} #5 opens commissions: each row shows owed, paid with its chain reference, or the refusal, amounts as decimal strings`, async ({
-  browser,
-}) => {
-  const { referrer } = state('referrer');
-  const page = await (await browser.newContext()).newPage();
-  await signIn(page, referrer);
-  await page.goto('/uc/promotion/mypromotion');
-  const rows = page.getByTestId('commission-row');
-  await expect(rows.first()).toBeVisible({ timeout: UNBUILT });
-  for (const row of await rows.all()) {
-    await expect(row).toHaveAttribute('data-payout-state', /^(owed|paid|refused)$/);
-    await expect(row.getByTestId('commission-amount')).toHaveText(/^\d+(\.\d+)? [A-Z0-9]+$/);
-  }
-});
-
-test(`${J} #6 reaching a higher tier by qualified count steps the rate up; at the cycle cap the next row stays pending with the budget reason and nothing posts`, async ({
-  browser,
-}) => {
-  const { referrer } = state('referrer');
-  const page = await (await browser.newContext()).newPage();
-  await signIn(page, referrer);
-  await page.goto('/uc/promotion/mypromotion');
-  const tier = page.getByTestId('commission-tier');
-  await expect(tier).toBeVisible({ timeout: UNBUILT });
-  await expect(tier).toContainText('qualified');
-  await expect(page.getByTestId('commission-row').filter({ hasText: 'budget' }).first()).toHaveAttribute('data-payout-state', 'pending');
-});
-
-test(`${J} #7 a beneficiary is frozen: new commission to them is skipped and the reason is recorded`, async ({ browser }) => {
-  const { referrer } = state('referrer');
-  const page = await (await browser.newContext()).newPage();
-  await signIn(page, referrer);
-  await page.goto('/uc/promotion/mypromotion');
-  await expect(page.getByTestId('commission-row').filter({ hasText: 'frozen' }).first()).toHaveAttribute('data-payout-state', 'skipped', {
-    timeout: UNBUILT,
-  });
-});
-
-test(`${J} #8 opens the statement: a time-stamped statement of accruals and payouts for the cycle`, async ({ browser }) => {
-  const { referrer } = state('referrer');
-  const page = await (await browser.newContext()).newPage();
-  await signIn(page, referrer);
-  await page.goto('/uc/promotion/mypromotion');
-  const statement = page.getByRole('region', { name: 'Statement' });
-  await expect(statement.getByTestId('statement-generated-at')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/, {
-    timeout: UNBUILT,
-  });
-  await expect(statement.getByTestId('statement-accruals')).toBeVisible();
-  await expect(statement.getByTestId('statement-payouts')).toBeVisible();
 });
